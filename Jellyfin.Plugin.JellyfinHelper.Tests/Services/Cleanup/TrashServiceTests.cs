@@ -119,6 +119,44 @@ public class TrashServiceTests : IDisposable
         Assert.Contains("subtitle.srt", Path.GetFileName(trashFiles[0]));
     }
 
+    [Fact]
+    public void MoveFileToTrash_TrashDirNotYetExist_CreatesAndMovesSuccessfully()
+    {
+        // Trash dir must be created BEFORE ResolveCollision so the File.Exists
+        // check inside collision resolution has a real directory to probe.
+        var sourceFile = Path.Join(_testRoot, "subtitle2.srt");
+        File.WriteAllBytes(sourceFile, new byte[256]);
+
+        var freshTrashPath = Path.Join(_testRoot, "brand_new_trash_" + Guid.NewGuid().ToString("N"));
+        Assert.False(Directory.Exists(freshTrashPath));
+
+        var result = _trashService.MoveFileToTrash(sourceFile, freshTrashPath, _loggerMock, Now);
+
+        Assert.Equal(256, result);
+        Assert.False(File.Exists(sourceFile));
+        Assert.True(Directory.Exists(freshTrashPath));
+        Assert.Single(Directory.GetFiles(freshTrashPath));
+    }
+
+    [Fact]
+    public void MoveFileToTrash_TwoFilesInSameSecond_BothMovedWithoutCollision()
+    {
+        // When trash dir did not exist before ResolveCollision, the second file
+        // would collide because File.Exists returned false for both candidates.
+        var file1 = Path.Join(_testRoot, "ep1.srt");
+        var file2 = Path.Join(_testRoot, "ep2.srt");
+        File.WriteAllBytes(file1, new byte[100]);
+        File.WriteAllBytes(file2, new byte[200]);
+
+        var trashPath = Path.Join(_testRoot, "same_second_trash_" + Guid.NewGuid().ToString("N"));
+
+        _trashService.MoveFileToTrash(file1, trashPath, _loggerMock, Now);
+        _trashService.MoveFileToTrash(file2, trashPath, _loggerMock, Now);
+
+        var trashFiles = Directory.GetFiles(trashPath);
+        Assert.Equal(2, trashFiles.Length);
+    }
+
     // ===== PurgeExpiredTrash Tests =====
 
     [Fact]
@@ -189,22 +227,58 @@ public class TrashServiceTests : IDisposable
     // ===== Extended PurgeExpiredTrash Tests (Retention Logic) =====
 
     [Fact]
-    public void PurgeExpiredTrash_RetentionDaysZero_PurgesEverything()
+    public void PurgeExpiredTrash_RetentionDaysZero_Disabled_NothingPurged()
     {
         var trashPath = Path.Join(_testRoot, "trash");
 
-        // RetentionDays = 0 means cutoff = Now, so everything with timestamp < Now is purged.
-        // Item 1 second before Now → gets purged.
-        var oldTimestamp = Now.AddSeconds(-1).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        // RetentionDays = 0 is the "disabled" sentinel - nothing should be purged,
+        // regardless of how old the item is.
+        var oldTimestamp = Now.AddDays(-9999).ToString(TimestampFormat, CultureInfo.InvariantCulture);
         var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
         Directory.CreateDirectory(oldDir);
         File.WriteAllBytes(Path.Join(oldDir, "movie.mkv"), new byte[300]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
 
-        Assert.Equal(1, itemsPurged);
-        Assert.Equal(300, bytesFreed);
-        Assert.False(Directory.Exists(oldDir));
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(oldDir), "Item must not be purged when retentionDays=0 (disabled)");
+    }
+
+    [Fact]
+    public void PurgeExpiredTrash_RetentionDaysZero_MaximallyOldItem_IsNeverPurged()
+    {
+        // retentionDays = 0 is the "disabled" sentinel - purge should never run regardless of item age.
+        var trashPath = Path.Join(_testRoot, "trash");
+
+        var ancientTimestamp = Now.AddDays(-9999).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var ancientDir = Path.Join(trashPath, $"{ancientTimestamp}_AncientMovie");
+        Directory.CreateDirectory(ancientDir);
+        File.WriteAllBytes(Path.Join(ancientDir, "movie.mkv"), new byte[400]);
+
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
+
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(ancientDir), "Maximally old item must not be purged when retention is disabled (0)");
+    }
+
+    [Fact]
+    public void PurgeExpiredTrash_RetentionDaysMinus1_Disabled()
+    {
+        // retentionDays = -1 is an out-of-range / disabled value - nothing should be purged.
+        var trashPath = Path.Join(_testRoot, "trash");
+
+        var oldTimestamp = Now.AddDays(-365).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
+        Directory.CreateDirectory(oldDir);
+        File.WriteAllBytes(Path.Join(oldDir, "movie.mkv"), new byte[200]);
+
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, -1, _loggerMock, Now);
+
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(oldDir), "No items should be purged when retentionDays is -1 (disabled)");
     }
 
     [Fact]
@@ -551,8 +625,9 @@ public class TrashServiceTests : IDisposable
     }
 
     [Fact]
-    public void GetTrashContents_RetentionDaysZero_PurgeDateEqualsTrashDate()
+    public void GetTrashContents_RetentionDaysZero_PurgeDateIsNull()
     {
+        // retentionDays = 0 means retention is disabled - PurgesAt must be null, not equal to TrashedAt.
         var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
         File.WriteAllBytes(Path.Join(trashPath, "20260101-120000_test.txt"), new byte[10]);
@@ -560,7 +635,27 @@ public class TrashServiceTests : IDisposable
         var result = _trashService.GetTrashContents(trashPath, 0);
 
         Assert.Single(result);
-        Assert.Equal(result[0].TrashedAt, result[0].PurgesAt);
+        Assert.NotNull(result[0].TrashedAt);
+        Assert.Null(result[0].PurgesAt);
+    }
+
+    [Fact]
+    public void GetTrashContents_RetentionZero_PurgesAtIsNull()
+    {
+        // A directory item with retentionDays=0 must have PurgesAt=null because
+        // zero is the "disabled" sentinel - no purge date should ever be projected.
+        var trashPath = Path.Join(_testRoot, "trash");
+        var dirName = "20260315-140000_SomeMovie";
+        var dir = Path.Join(trashPath, dirName);
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Join(dir, "movie.mkv"), new byte[512]);
+
+        var result = _trashService.GetTrashContents(trashPath, 0);
+
+        Assert.Single(result);
+        var item = result[0];
+        Assert.NotNull(item.TrashedAt);
+        Assert.Null(item.PurgesAt);
     }
 
     // ===== ExtractOriginalName Tests =====
@@ -590,6 +685,16 @@ public class TrashServiceTests : IDisposable
     {
         var result = TrashService.ExtractOriginalName(null!);
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void ExtractOriginalName_EmptyOriginal_ReturnsFallback()
+    {
+        // "yyyyMMdd-HHmmss_" is a valid timestamp prefix followed by an empty original name.
+        // ExtractOriginalName must fall back to returning the full input rather than an empty string.
+        const string input = "20260101-120000_";
+        var result = TrashService.ExtractOriginalName(input);
+        Assert.Equal(input, result);
     }
 
     [Fact]

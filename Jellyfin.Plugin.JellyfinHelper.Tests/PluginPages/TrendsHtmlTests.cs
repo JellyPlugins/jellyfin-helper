@@ -56,9 +56,9 @@ public class TrendsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_RenderTrendChart_ReferencesTimelineTotalFilesScanned()
+    public void Html_RenderTrendChart_ReferencesTimelineTotalDirectoriesScanned()
     {
-        Assert.Contains("timeline.totalFilesScanned", HtmlContent);
+        Assert.Contains("timeline.totalDirectoriesScanned", HtmlContent);
     }
 
     [Fact]

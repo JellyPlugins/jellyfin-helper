@@ -1,12 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net9.0</TargetFramework>
         <AssemblyName>Jellyfin.Plugin.JellyfinHelper</AssemblyName>
         <RootNamespace>Jellyfin.Plugin.JellyfinHelper</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-        <Nullable>enable</Nullable>
         <AnalysisMode>AllEnabledByDefault</AnalysisMode>
         <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
     </PropertyGroup>
@@ -18,13 +15,13 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Jellyfin.Controller" Version="10.11.10">
+        <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc4">
             <ExcludeAssets>runtime</ExcludeAssets>
         </PackageReference>
-        <PackageReference Include="Jellyfin.Model" Version="10.11.10">
+        <PackageReference Include="Jellyfin.Model" Version="12.0.0-rc4">
             <ExcludeAssets>runtime</ExcludeAssets>
         </PackageReference>
-        <PackageReference Include="System.IO.Abstractions" Version="21.2.1"/>
+        <PackageReference Include="System.IO.Abstractions" Version="22.2.0"/>
     </ItemGroup>
 
     <ItemGroup>

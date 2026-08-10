@@ -20,6 +20,14 @@ public class BackupData
     public int BackupVersion { get; set; } = 1;
 
     /// <summary>
+    ///     Gets or sets a value indicating whether this backup contains plaintext API keys.
+    ///     When <c>true</c> the caller/UI should warn the user that the exported file
+    ///     contains credentials and must be stored securely.
+    /// </summary>
+    [JsonPropertyName("containsSecrets")]
+    public bool ContainsSecrets { get; set; }
+
+    /// <summary>
     ///     Gets or sets the UTC timestamp when this backup was created.
     /// </summary>
     [JsonPropertyName("createdAt")]
@@ -125,9 +133,12 @@ public class BackupData
 
     /// <summary>
     ///     Gets or sets the Seerr cleanup age threshold in days.
+    ///     <c>null</c> means the field was absent in the backup (e.g. exported by an older
+    ///     plugin version) and the live value should be left unchanged on restore.
+    ///     A value of <c>0</c> is a legitimate "immediate cleanup" setting.
     /// </summary>
     [JsonPropertyName("seerrCleanupAgeDays")]
-    public int SeerrCleanupAgeDays { get; set; } = 365;
+    public int? SeerrCleanupAgeDays { get; set; }
 
     // === Arr Integration ===
 

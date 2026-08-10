@@ -28,5 +28,5 @@ public class BaselineDirectoryEntry
     ///     for backwards compatibility with legacy per-directory baselines.
     /// </summary>
     [JsonPropertyName("count")]
-    public int Count { get; set; }
+    public long Count { get; set; }
 }

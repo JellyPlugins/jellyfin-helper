@@ -30,6 +30,7 @@ public class MediaStatisticsController : ControllerBase
     // Simple in-memory rate limiting (single-instance only; not effective in clustered/multi-pod deployments).
     // Static field + lock is intentional: ASP.NET creates a new controller instance per request,
     // so the rate-limit state must be shared across all instances via a static field.
+    // Must only be written inside RateLimitLock.
     private static DateTime _lastScanTime = DateTime.MinValue;
     private readonly IMemoryCache _cache;
     private readonly IStatisticsCacheService _cacheService;
@@ -75,6 +76,9 @@ public class MediaStatisticsController : ControllerBase
             if (now - _lastScanTime < MinScanInterval)
             {
                 _pluginLog.LogWarning("API", "Rate limit exceeded for statistics scan", logger: _logger);
+                var retryAfter = (int)Math.Ceiling((MinScanInterval - (now - _lastScanTime)).TotalSeconds);
+                Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
                 return StatusCode(
                     StatusCodes.Status429TooManyRequests,
                     new { message = "Please wait before requesting another scan." });
@@ -85,7 +89,8 @@ public class MediaStatisticsController : ControllerBase
             SetLastScanTime(now);
         }
 
-        var result = _statisticsService.CalculateStatistics();
+        MediaStatisticsResult result;
+        result = _statisticsService.CalculateStatistics();
 
         _cache.Set(StatsCacheKey, result, CacheDuration);
         _cacheService.SaveLatestResult(result);

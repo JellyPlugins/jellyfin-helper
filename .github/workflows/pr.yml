@@ -4,6 +4,8 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions: {}
+
 env:
   PLUGIN_NAME: JellyfinHelper
 
@@ -19,12 +21,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       run: dotnet restore
@@ -61,12 +63,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       run: dotnet restore
@@ -124,12 +126,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       run: dotnet restore
@@ -138,9 +140,11 @@ jobs:
       run: dotnet build --configuration Release --no-restore
 
     - name: "Run ${{ matrix.bucket.name }} tests"
+      env:
+        TEST_FILTER: ${{ matrix.bucket.filter }}
       run: |
         dotnet test --configuration Release --no-build --verbosity normal \
-          --filter "${{ matrix.bucket.filter }}" \
+          --filter "$TEST_FILTER" \
           --logger "trx;LogFileName=${{ matrix.bucket.name }}.trx"
 
     - name: Upload test results
@@ -161,7 +165,12 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          # The preview publisher (rossjrw/pr-preview-action) uses ${{ secrets.GITHUB_TOKEN }}
+          # explicitly; do not persist the token in local git config to reduce blast radius
+          # of the repo-controlled PowerShell demo-site prep step.
+          persist-credentials: false
 
       - name: Prepare demo site
         shell: pwsh

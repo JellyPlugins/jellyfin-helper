@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -47,9 +48,9 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     protected override string ItemLabel => "folders";
 
     /// <inheritdoc />
-    protected override bool IsDryRun()
+    protected override TaskMode GetTaskMode()
     {
-        return ConfigHelper.IsDryRunTrickplay();
+        return ConfigHelper.GetTrickplayTaskMode();
     }
 
     /// <inheritdoc />
@@ -64,17 +65,52 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
         try
         {
-            // Get all directories recursively
-            List<FileSystemMetadata> directories;
-            try
+            // Enumerate directories lazily with per-directory error isolation instead of
+            // materialising the whole tree upfront. An IOException on one directory
+            // no longer aborts the entire scan; each failed entry is logged and skipped.
+            IEnumerable<string> GetSubdirectoriesIterative(string root)
             {
-                directories = FileSystem.GetDirectories(libraryPath, true).ToList();
+                var stack = new Stack<string>();
+                IEnumerable<FileSystemMetadata> topLevel;
+                try
+                {
+                    topLevel = FileSystem.GetDirectories(root);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {root}", ex, Logger);
+                    yield break;
+                }
+
+                foreach (var d in topLevel)
+                {
+                    stack.Push(d.FullName);
+                }
+
+                while (stack.Count > 0)
+                {
+                    var current = stack.Pop();
+                    yield return current;
+
+                    IEnumerable<FileSystemMetadata> children;
+                    try
+                    {
+                        children = FileSystem.GetDirectories(current);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {current}", ex, Logger);
+                        continue;
+                    }
+
+                    foreach (var child in children)
+                    {
+                        stack.Push(child.FullName);
+                    }
+                }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {libraryPath}", ex, Logger);
-                return (deletedCount, bytesFreed);
-            }
+
+            var directories = GetSubdirectoriesIterative(libraryPath);
 
             // Resolve the trash folder path so we can skip any directories inside it.
             // Without this, previously trashed .trickplay folders would be re-detected as orphans
@@ -82,34 +118,38 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             // path exceeds the OS limit (PATH_MAX).
             // Path.GetFullPath normalizes trailing separators, relative segments, and mixed slashes.
             var trashPath = ConfigHelper.GetTrashPath(libraryPath);
-            var normalizedTrash = Path.GetFullPath(trashPath)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
+            var trashRoot = Path.GetFullPath(trashPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            // Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS.
+            var pathComparison = OperatingSystem.IsLinux()
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
 
             // Cache files per parent directory to avoid repeated filesystem calls
             var fileCache = new Dictionary<string, FileSystemMetadata[]>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var dir in directories.TakeWhile(_ => !cancellationToken.IsCancellationRequested))
+            foreach (var dirFullName in directories)
             {
-                // Skip directories inside the trash folder to prevent re-trashing already-trashed items.
-                // Normalize dir.FullName the same way to ensure consistent comparison on all platforms.
-                var normalizedDirPath = Path.GetFullPath(dir.FullName)
+                cancellationToken.ThrowIfCancellationRequested();
+                // Skip the trash root itself and any directories inside it to prevent
+                // re-trashing already-trashed items.
+                var normalizedDirPath = Path.GetFullPath(dirFullName)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (normalizedDirPath.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                    || normalizedDirPath.Equals(
-                        normalizedTrash.TrimEnd(Path.DirectorySeparatorChar),
-                        StringComparison.OrdinalIgnoreCase))
+                if (normalizedDirPath.Equals(trashRoot, pathComparison)
+                    || normalizedDirPath.StartsWith(trashRoot + Path.DirectorySeparatorChar, pathComparison))
                 {
                     continue;
                 }
 
-                if (!dir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+                var dirName = Path.GetFileName(dirFullName);
+                if (!dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
                 // Check if parent is also a .trickplay folder (skip nested ones if any, based on script logic)
-                var parentPath = Path.GetDirectoryName(dir.FullName);
+                var parentPath = Path.GetDirectoryName(dirFullName);
                 if (string.IsNullOrEmpty(parentPath))
                 {
                     continue;
@@ -121,7 +161,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                var trickplayBaseName = dir.Name[..^".trickplay".Length];
+                var trickplayBaseName = dirName[..^".trickplay".Length];
 
                 // Check if any media file exists in parent with the same basename (cached)
                 if (!fileCache.TryGetValue(parentPath, out var files))
@@ -149,11 +189,11 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 }
 
                 // Check orphan age
-                if (!ConfigHelper.IsOldEnoughForDeletion(dir.FullName))
+                if (!ConfigHelper.IsOldEnoughForDeletion(dirFullName))
                 {
                     PluginLog.LogDebug(
                         TaskName,
-                        $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {dir.FullName}",
+                        $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {dirFullName}",
                         Logger);
                     continue;
                 }
@@ -162,14 +202,14 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 {
                     PluginLog.LogInfo(
                         TaskName,
-                        $"[Dry Run] Would delete orphaned trickplay folder: {dir.FullName}",
+                        $"[Dry Run] Would delete orphaned trickplay folder: {dirFullName}",
                         Logger);
                     deletedCount++;
                 }
                 else if (config.UseTrash)
                 {
-                    PluginLog.LogInfo(TaskName, $"Moving orphaned trickplay folder to trash: {dir.FullName}", Logger);
-                    var size = TrashService.MoveToTrash(dir.FullName, trashPath, Logger);
+                    PluginLog.LogInfo(TaskName, $"Moving orphaned trickplay folder to trash: {dirFullName}", Logger);
+                    var size = TrashService.MoveToTrash(dirFullName, trashPath, Logger);
                     if (size <= 0)
                     {
                         continue;
@@ -180,17 +220,17 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 }
                 else
                 {
-                    PluginLog.LogInfo(TaskName, $"Deleting orphaned trickplay folder: {dir.FullName}", Logger);
+                    PluginLog.LogInfo(TaskName, $"Deleting orphaned trickplay folder: {dirFullName}", Logger);
                     try
                     {
-                        var size = FileSystemHelper.CalculateDirectorySize(FileSystem, dir.FullName);
-                        Directory.Delete(dir.FullName, true);
+                        var size = FileSystemHelper.CalculateDirectorySize(dirFullName);
+                        Directory.Delete(dirFullName, true);
                         bytesFreed += size;
                         deletedCount++;
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        PluginLog.LogError(TaskName, $"Failed to delete directory: {dir.FullName}", ex, Logger);
+                        PluginLog.LogError(TaskName, $"Failed to delete directory: {dirFullName}", ex, Logger);
                     }
                 }
             }

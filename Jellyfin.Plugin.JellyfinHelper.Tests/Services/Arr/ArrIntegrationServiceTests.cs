@@ -1,6 +1,8 @@
 using System.Net;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
 using Xunit;
@@ -16,6 +18,19 @@ public class ArrIntegrationServiceTests
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
         return new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
+    }
+
+    // Variant that exposes the pluginLog mock so tests can verify log calls.
+    private static ArrIntegrationService CreateServiceWithMockLog(
+        HttpMessageHandler handler,
+        out Mock<IPluginLogService> pluginLogMock)
+    {
+        pluginLogMock = new Mock<IPluginLogService>();
+        var httpClient = new HttpClient(handler);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
+        return new ArrIntegrationService(factoryMock.Object, pluginLogMock.Object, logger.Object);
     }
 
     private static Mock<HttpMessageHandler> CreateMockHandler(HttpStatusCode statusCode, string content)
@@ -130,11 +145,8 @@ public class ArrIntegrationServiceTests
 
         var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey");
 
-        // The service deserializes the JSON; with invalid JSON it may still succeed
-        // (returning null appName) or fail depending on implementation.
-        // Our implementation deserializes with JsonSerializer which throws JsonException for "not-json".
         Assert.False(success);
-        Assert.Contains("Error", message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(string.IsNullOrWhiteSpace(message));
     }
 
     [Fact]
@@ -159,7 +171,7 @@ public class ArrIntegrationServiceTests
                 "SendAsync",
                 ItExpr.Is<HttpRequestMessage>(req =>
                     req.RequestUri != null &&
-                    !req.RequestUri.AbsoluteUri.Contains("//api")),
+                    req.RequestUri.AbsoluteUri == "http://localhost:7878/api/v3/system/status"),
                 ItExpr.IsAny<CancellationToken>())
             .ReturnsAsync(new HttpResponseMessage
             {
@@ -359,6 +371,62 @@ public class ArrIntegrationServiceTests
         Assert.Null(series);
     }
 
+    [Fact]
+    public async Task GetRadarrMovies_Timeout_ReturnsNull_AndLogsWarning_NotError()
+    {
+        var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException("HttpClient timeout"));
+
+        var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
+
+        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey");
+
+        Assert.Null(movies);
+
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "ArrIntegration",
+                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+
+    }
+
+    [Fact]
+    public async Task GetSonarrSeries_Timeout_ReturnsNull_AndLogsWarning_NotError()
+    {
+        var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException("HttpClient timeout"));
+
+        var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
+
+        var series = await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey");
+
+        Assert.Null(series);
+
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "ArrIntegration",
+                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+
+    }
+
     // === CompareRadarrWithJellyfin ===
 
     [Fact]
@@ -478,5 +546,405 @@ public class ArrIntegrationServiceTests
         var result = ArrIntegrationService.CompareSonarrWithJellyfin(series, jellyfinFolders);
 
         Assert.Single(result.InArrOnlyMissing);
+    }
+
+    [Fact]
+    public async Task TestConnection_Timeout_LogsWarning()
+    {
+        var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException("HttpClient timeout"));
+
+        var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
+
+        var (success, message) = await service.TestConnectionAsync(
+            "http://localhost:7878", "testapikey");
+
+        Assert.False(success);
+        Assert.Contains("timed out", message, StringComparison.OrdinalIgnoreCase);
+
+        // Must fire exactly once as LogWarning
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "ArrIntegration",
+                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
+
+    // (Tested here via ArrIntegrationService which uses request.Headers.Add() directly on
+    //  per-request HttpRequestMessage - this is safe and does not need the fix.
+    //  The SeerrIntegrationService-specific test lives in SeerrIntegrationServiceTests.cs
+    //  via the existing TestConnection_SetsApiKeyHeader test that validates the header is set.)
+
+    [Fact]
+    public async Task TestConnectionAsync_ApiKeyWithCrlf_ThrowsArgumentException()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object);
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.TestConnectionAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+        Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetRadarrMoviesAsync_ApiKeyWithCrLf_ThrowsArgumentException()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object);
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.GetRadarrMoviesAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+        Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetSonarrSeriesAsync_ApiKeyWithCrLf_ThrowsArgumentException()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object);
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.GetSonarrSeriesAsync("http://sonarr.local", "key\nX-Injected: evil", CancellationToken.None));
+        Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // === HttpClient not disposed (IHttpClientFactory contract) ===
+
+    [Fact]
+    public async Task TestConnection_HttpClientNotDisposed_FactoryClientCanBeReused()
+    {
+        // IHttpClientFactory clients must NOT be disposed by callers - the factory manages handler lifetime.
+        // This test ensures the client returned by the factory is still usable after TestConnectionAsync returns,
+        // which would throw ObjectDisposedException if the service had incorrectly called client.Dispose().
+        var json = "{\"appName\":\"Radarr\",\"version\":\"5.0\"}";
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var httpClient = new HttpClient(handler.Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+
+        // After the call, the client must NOT be disposed - reuse it to verify.
+        var ex = Record.Exception(() => httpClient.BaseAddress);
+        Assert.Null(ex); // ObjectDisposedException would be thrown here if client was disposed
+    }
+
+    [Fact]
+    public async Task GetRadarrMoviesAsync_HttpClientNotDisposed_FactoryClientCanBeReused()
+    {
+        var json = "[{\"title\":\"Movie\",\"year\":2020,\"imdbId\":\"tt1\",\"tmdbId\":1,\"hasFile\":true,\"path\":\"/movies/Movie\"}]";
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var httpClient = new HttpClient(handler.Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+
+        var ex = Record.Exception(() => httpClient.BaseAddress);
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public async Task GetSonarrSeriesAsync_HttpClientNotDisposed_FactoryClientCanBeReused()
+    {
+        var json = "[{\"title\":\"Show\",\"year\":2020,\"imdbId\":\"tt2\",\"tvdbId\":2,\"tmdbId\":3,\"path\":\"/shows/Show\",\"statistics\":{\"episodeFileCount\":5,\"totalEpisodeCount\":10}}]";
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var httpClient = new HttpClient(handler.Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+
+        var ex = Record.Exception(() => httpClient.BaseAddress);
+        Assert.Null(ex);
+    }
+
+    // ArgumentException from ValidateArrUrl is caught inside each method:
+    // TestConnectionAsync returns (false, ...), GetRadarrMoviesAsync/GetSonarrSeriesAsync return null.
+
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://internal.host/data")]
+    [InlineData("ldap://internal.host")]
+    [InlineData("javascript:alert(1)")]
+    public async Task TestConnection_NonHttpScheme_ReturnsFalse(string url)
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
+        var service = CreateService(handler.Object);
+
+        var (success, _) = await service.TestConnectionAsync(url, "apikey", CancellationToken.None);
+
+        Assert.False(success);
+    }
+
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://internal.host/data")]
+    public async Task GetRadarrMoviesAsync_NonHttpScheme_ReturnsNull(string url)
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
+        var service = CreateService(handler.Object);
+
+        var result = await service.GetRadarrMoviesAsync(url, "apikey", CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://internal.host/data")]
+    public async Task GetSonarrSeriesAsync_NonHttpScheme_ReturnsNull(string url)
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
+        var service = CreateService(handler.Object);
+
+        var result = await service.GetSonarrSeriesAsync(url, "apikey", CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    // === 100 MB response body guard (#28) ===
+
+    [Fact]
+    public async Task TestConnection_ResponseExceeds100MB_ReturnsFalse()
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}")
+                };
+                response.Content.Headers.ContentLength = 101L * 1024 * 1024;
+                return response;
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        var (success, message) = await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.False(success);
+        Assert.Contains("too large", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetRadarrMoviesAsync_ResponseExceeds100MB_ReturnsNull()
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("[]")
+                };
+                response.Content.Headers.ContentLength = 101L * 1024 * 1024;
+                return response;
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        var result = await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetSonarrSeriesAsync_ResponseExceeds100MB_ReturnsNull()
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("[]")
+                };
+                response.Content.Headers.ContentLength = 101L * 1024 * 1024;
+                return response;
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        var result = await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.Null(result);
+    }
+
+    // === Chunked response guard: null ContentLength must not bypass the 100 MB limit ===
+    // A chunked transfer-encoded response has ContentLength == null. The previous guard
+    // (`ContentLength > limit`) silently passed null through. ReadLimitedAsync now enforces
+    // the limit via a stream-based byte counter regardless of ContentLength.
+
+    private static HttpContent MakeChunkedContent(int sizeBytes)
+    {
+        // Simulate chunked encoding: ContentLength remains null (not set) while the
+        // stream yields the requested number of bytes.
+        var bytes = new byte[sizeBytes];
+        // Fill with valid JSON array so the body itself doesn't cause a parse error
+        // before the size guard triggers (only relevant for under-limit tests).
+        bytes[0] = (byte)'[';
+        bytes[sizeBytes - 1] = (byte)']';
+        var content = new ByteArrayContent(bytes);
+        content.Headers.Remove("Content-Length"); // ensure no length header
+        return content;
+    }
+
+    [Fact]
+    public async Task TestConnection_ChunkedResponseExceeds100MB_ReturnsFalse()
+    {
+        const int over100Mb = 100 * 1024 * 1024 + 1;
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = MakeChunkedContent(over100Mb)
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        var (success, message) = await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.False(success);
+        Assert.Contains("too large", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetRadarrMoviesAsync_ChunkedResponseExceeds100MB_ReturnsNull()
+    {
+        const int over100Mb = 100 * 1024 * 1024 + 1;
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = MakeChunkedContent(over100Mb)
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        var result = await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetSonarrSeriesAsync_ChunkedResponseExceeds100MB_ReturnsNull()
+    {
+        const int over100Mb = 100 * 1024 * 1024 + 1;
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = MakeChunkedContent(over100Mb)
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        var result = await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.Null(result);
+    }
+
+    // === Comparer identity fix: ReferenceEquals correctly skips defensive copy ===
+
+    [Fact]
+    public void CompareRadarr_OrdinalIgnoreCaseComparer_IsNotCopied()
+    {
+        // Jellyfin folder in LOWERCASE, Arr path in MixedCase - only OrdinalIgnoreCase matches.
+        // This ensures the ReferenceEquals fast-path actually exercises case-insensitive lookup,
+        // not just a same-case coincidental match that would pass under any comparer.
+        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "movie a (2020)" };
+        var movies = new[] { new ArrMovie { Title = "Movie A", Year = 2020, HasFile = true, Path = "/m/Movie A (2020)" } };
+
+        var result = ArrIntegrationService.CompareRadarrWithJellyfin(movies, jellyfinFolders);
+
+        Assert.Single(result.InBoth);
+    }
+
+    [Fact]
+    public void CompareSonarr_OrdinalIgnoreCaseComparer_IsNotCopied()
+    {
+        // Jellyfin folder in LOWERCASE, Arr path in MixedCase - only OrdinalIgnoreCase matches.
+        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "show a" };
+        var series = new[] { new ArrSeries { Title = "Show A", Year = 2020, EpisodeFileCount = 5, TotalEpisodeCount = 10, Path = "/tv/Show A" } };
+
+        var result = ArrIntegrationService.CompareSonarrWithJellyfin(series, jellyfinFolders);
+
+        Assert.Single(result.InBoth);
+    }
+
+    [Fact]
+    public void CompareRadarr_NonOrdinalComparer_MakesDefensiveCopy()
+    {
+        // When the caller uses a different comparer (e.g. Ordinal), a defensive copy with
+        // OrdinalIgnoreCase is made, ensuring case-insensitive matching still works.
+        var jellyfinFolders = new HashSet<string>(StringComparer.Ordinal) { "movie a (2020)" };
+        var movies = new[] { new ArrMovie { Title = "Movie A", Year = 2020, HasFile = true, Path = "/m/Movie A (2020)" } };
+
+        var result = ArrIntegrationService.CompareRadarrWithJellyfin(movies, jellyfinFolders);
+
+        // OrdinalIgnoreCase copy must match "Movie A (2020)" against "movie a (2020)"
+        Assert.Single(result.InBoth);
+    }
+
+    // ===== Connection test must not leak internal network details =====
+
+    [Fact]
+    public async Task TestConnection_HttpRequestException_DoesNotLeakHostDetails()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection refused: 192.168.1.100:7878 internal host"));
+
+        var service = CreateService(handler.Object);
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "key");
+
+        Assert.False(success);
+        Assert.DoesNotContain("192.168.1.100", message);
+        Assert.DoesNotContain("Connection refused", message);
+        Assert.False(string.IsNullOrWhiteSpace(message));
+    }
+
+    [Fact]
+    public async Task TestConnection_HttpRequestException_ReturnsGenericUserMessage()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("ECONNREFUSED 10.0.0.5:7878"));
+
+        var service = CreateService(handler.Object);
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "key");
+
+        Assert.False(success);
+        Assert.Contains("Check", message, StringComparison.OrdinalIgnoreCase);
     }
 }

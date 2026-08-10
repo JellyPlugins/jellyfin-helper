@@ -109,7 +109,29 @@ public class ConfigurationUpdateRequest
     public string Language { get; init; } = "en";
 
     /// <summary>
-    ///     Gets the plugin log level (e.g. DEBUG, INFO, WARN, ERROR).
+    ///     Gets the minimum alpha value for the ensemble scoring strategy (0–1).
+    ///     Nullable so older clients do not silently reset it.
     /// </summary>
-    public string PluginLogLevel { get; init; } = "INFO";
+    public double? EnsembleAlphaMin { get; init; }
+
+    /// <summary>
+    ///     Gets the maximum alpha value for the ensemble scoring strategy (0–1).
+    ///     Nullable so older clients do not silently reset it.
+    /// </summary>
+    public double? EnsembleAlphaMax { get; init; }
+
+    /// <summary>
+    ///     Gets the genre penalty floor for the ensemble scoring strategy (0–1).
+    ///     Nullable so older clients do not silently reset it.
+    /// </summary>
+    public double? EnsembleGenrePenaltyFloor { get; init; }
+
+    /// <summary>
+    ///     Gets the plugin log level (e.g. DEBUG, INFO, WARN, ERROR).
+    ///     Nullable so the Settings POST can distinguish "old client, field absent" from
+    ///     "client tried to change the level". Actual mutation lives on PUT /Configuration/LogLevel;
+    ///     the Settings POST only warns when a non-null value is sent that differs from the
+    ///     currently-persisted level.
+    /// </summary>
+    public string? PluginLogLevel { get; init; }
 }

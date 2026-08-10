@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -25,7 +27,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Genre penalty is applied to both the final score AND per-feature contributions
 ///     for consistency (sum of contributions ≈ finalScore).
 /// </remarks>
-public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrategy
+public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
     /// <summary>
     ///     Default minimum blending factor (heuristic dominates with no training data).
@@ -66,6 +68,15 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     ///     Small steps ensure gradual convergence without oscillation.
     /// </summary>
     internal const double MidpointAdaptationStep = 3.0;
+
+    /// <summary>
+    ///     Multiplicative decay factor applied to the midpoint offset when neither exploration
+    ///     cohort beats control. Slowly pulls the offset back toward the default midpoint so a
+    ///     long streak of "control is optimal" doesn't leave the system permanently anchored at
+    ///     a shifted midpoint that reflects stale user behaviour. 0.98 loses about 2% per run,
+    ///     which decays a fully saturated ±20 offset back to ±10 over roughly 35 training runs.
+    /// </summary>
+    internal const double MidpointDecayFactor = 0.98;
 
     /// <summary>
     ///     Genre similarity threshold below which the soft penalty ramps down.
@@ -143,24 +154,43 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     internal const double TrendImprovementBoost = 1.15;
 
-    /// <summary>Cached JSON serializer options for ensemble state persistence.</summary>
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
+    /// <summary>
+    ///     Cached JSON serializer options for ensemble state persistence.
+    ///     Compact (non-indented) output - the ensemble state file is small (~400 bytes with
+    ///     defaults) and machine-read only, so indentation adds no operational value.
+    ///     <para>
+    ///         <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> is required
+    ///         because the cold-start placeholder in <see cref="Train(IReadOnlyList{TrainingExample})"/> persists
+    ///         <c>ValidationLoss = double.NaN</c>. With the default handling
+    ///         <see cref="JsonSerializer.Serialize{TValue}(TValue, JsonSerializerOptions)"/>
+    ///         would throw <see cref="ArgumentException"/> on <c>NaN</c>/<c>±Infinity</c>,
+    ///         and (because the surrounding <c>try/catch</c> only handles I/O / JSON exceptions)
+    ///         the first failed training run would surface as an unhandled crash instead of
+    ///         silently persisting the placeholder. Applied to both save and load so that
+    ///         the NaN round-trips faithfully.
+    ///     </para>
+    /// </summary>
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = false,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
 
     private readonly HeuristicScoringStrategy _heuristic;
     private readonly LearnedScoringStrategy _learned;
-    private readonly NeuralScoringStrategy? _neural;
     private readonly ILogger? _logger;
-    private readonly object _syncRoot = new();
-    private readonly double _alphaMax;
-    private readonly double _alphaMin;
-    private readonly double _genrePenaltyFloor;
+    private readonly NeuralScoringStrategy? _neural;
     private readonly string? _statePath;
+    private readonly object _syncRoot = new();
     private double _alpha;
-    private double _neuralBeta;
-    private double _sigmoidMidpointOffset;
-    private bool _qualityGateFrozen;
-    private int _trainingExampleCount;
+    private double _alphaMax;
+    private double _alphaMin;
+    private double _genrePenaltyFloor;
     private List<MetricsSnapshot> _metricsHistory = [];
+    private double _neuralBeta;
+    private bool _qualityGateFrozen;
+    private double _sigmoidMidpointOffset;
+    private int _trainingExampleCount;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="EnsembleScoringStrategy" /> class
@@ -194,8 +224,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         // Guard: the heuristic must have its genre penalty disabled (floor = 1.0) because
         // the ensemble applies the penalty centrally via ComputeSoftGenrePenalty after blending.
-        // A default-configured heuristic (floor 0.10) would cause double-penalization.
-        if (Math.Abs(heuristic.GenrePenaltyFloor - 1.0) > 0.001)
+        // A default-configured heuristic (floor 0.10) would cause double-penalization. We
+        // compare with strict equality - the previous 0.001 epsilon window let hand-tuned
+        // values like 0.999 slip through, silently reintroducing a tiny secondary penalty on
+        // top of the ensemble's own; both sides of this check are compile-time constants or
+        // caller-supplied, so representation drift is not a concern.
+        if (heuristic.GenrePenaltyFloor != 1.0)
         {
             throw new ArgumentException(
                 $"Heuristic sub-strategy must have genrePenaltyFloor=1.0 (penalty disabled) to avoid " +
@@ -389,16 +423,42 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     internal double EffectiveSigmoidMidpoint => DefaultSigmoidMidpoint + SigmoidMidpointOffset;
 
+    /// <summary>
+    ///     Updates the alpha bounds and genre-penalty floor from the current plugin configuration
+    ///     without requiring a server restart. Called by <c>ConfigurationController</c> after
+    ///     saving new ensemble settings. The running alpha is re-clamped to the new bounds so it
+    ///     is never left outside [alphaMin, alphaMax].
+    /// </summary>
+    /// <param name="alphaMin">New minimum blending factor.</param>
+    /// <param name="alphaMax">New maximum blending factor.</param>
+    /// <param name="genrePenaltyFloor">New minimum genre-penalty multiplier.</param>
+    public void Reconfigure(double alphaMin, double alphaMax, double genrePenaltyFloor)
+    {
+        var newMin = Math.Clamp(alphaMin, 0.0, 1.0);
+        var newMax = Math.Clamp(alphaMax, newMin, 1.0);
+        var newFloor = Math.Clamp(genrePenaltyFloor, 0.0, 1.0);
+
+        lock (_syncRoot)
+        {
+            _alphaMin = newMin;
+            _alphaMax = newMax;
+            _genrePenaltyFloor = newFloor;
+            _alpha = Math.Clamp(_alpha, newMin, newMax);
+        }
+    }
+
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
         // Snapshot blending factors atomically - sub-strategies handle their own thread safety.
         double alpha;
         double beta;
+        double floor;
         lock (_syncRoot)
         {
             alpha = _alpha;
             beta = _neuralBeta;
+            floor = _genrePenaltyFloor;
         }
 
         // Score calls are outside the lock to avoid nested locking (each sub-strategy
@@ -419,7 +479,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
         return blendedScore * penalty;
     }
 
@@ -441,10 +501,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         double alpha;
         double beta;
+        double floor;
         lock (_syncRoot)
         {
             alpha = Math.Clamp(_alpha + alphaOffset, _alphaMin, _alphaMax);
             beta = _neuralBeta;
+            floor = _genrePenaltyFloor;
         }
 
         var learnedScore = _learned.Score(features);
@@ -462,7 +524,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
         return blendedScore * penalty;
     }
 
@@ -482,10 +544,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         double alpha;
         double beta;
+        double floor;
         lock (_syncRoot)
         {
             alpha = Math.Clamp(_alpha + alphaOffset, _alphaMin, _alphaMax);
             beta = _neuralBeta;
+            floor = _genrePenaltyFloor;
         }
 
         var learnedExplanation = _learned.ScoreWithExplanation(features);
@@ -503,7 +567,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         var blended = heuristicExplanation.Blend(mlExplanation, alpha);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
         var result = blended.WithPenalty(penalty);
 
         result.StrategyName = Name;
@@ -527,10 +591,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         // Snapshot blending factors atomically - sub-strategies handle their own thread safety.
         double alpha;
         double beta;
+        double floor;
         lock (_syncRoot)
         {
             alpha = _alpha;
             beta = _neuralBeta;
+            floor = _genrePenaltyFloor;
         }
 
         // Score calls are outside the lock to allow parallel scoring across threads.
@@ -554,7 +620,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         // Blend heuristic + ML: result = (1-α) × heuristic + α × ML
         var blended = heuristicExplanation.Blend(mlExplanation, alpha);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
         var result = blended.WithPenalty(penalty);
 
         result.StrategyName = Name;
@@ -577,22 +643,33 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
-    public bool Train(IReadOnlyList<TrainingExample> examples)
+    public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, heldOutForMetrics: null);
+
+    /// <inheritdoc />
+    public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
-        var result = _learned.Train(examples);
+        var result = ((ITrainableStrategy)_learned).Train(examples, heldOutForMetrics);
 
         // Also train neural strategy if available (independent of learned success)
-        var neuralTrained = _neural is not null && _neural.Train(examples);
+        var neuralTrained = _neural is not null
+            && ((ITrainableStrategy)_neural).Train(examples, heldOutForMetrics);
 
         if (result)
         {
             // Check validation loss quality gate
             var validationLoss = _learned.LastValidationLoss;
             var qualityGatePassed = !double.IsNaN(validationLoss) && validationLoss <= ValidationLossThreshold;
+            var trend = MetricsTrend.Stable;
 
             lock (_syncRoot)
             {
-                // Always track cumulative examples
+                // Track examples seen across training rounds. In production the scheduled task
+                // trains incrementally (new + subsampled-old examples per run), so this running
+                // total approximates "examples the ensemble has learned from over its lifetime" -
+                // exactly the quantity the alpha sigmoid and the neural-beta activation threshold
+                // are calibrated against. The value only feeds those two schedules; alpha is
+                // independently clamped to [alphaMin, alphaMax] and gated by validation quality,
+                // so the running total is a monotonic progression signal, never a hard output.
                 _trainingExampleCount += examples.Count;
 
                 // Compute the target alpha from the sigmoid curve using the adaptive midpoint.
@@ -638,7 +715,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         // Math.Max prevents beta from dropping below the ramp floor when trend
                         // damping and the ramp both apply within the same Train() call, but once
                         // the ramp has reached its ceiling (progress=1.0) trend-driven decay will
-                        // be re-absorbed by the ramp on the next run — which is intentional: if
+                        // be re-absorbed by the ramp on the next run - which is intentional: if
                         // neural quality remains good, the ramp is the dominant signal.
                         var progress = Math.Clamp(
                             (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
@@ -668,13 +745,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         _neuralBeta = 0.0;
                     }
                 }
-            }
 
-            // Record metrics snapshot and analyze trend BEFORE saving state,
-            // so trend-driven alpha/beta adjustments are persisted in the same write.
-            MetricsTrend trend;
-            lock (_syncRoot)
-            {
+                // Record metrics snapshot and analyze trend BEFORE saving state,
+                // so trend-driven alpha/beta adjustments are persisted in the same write.
                 _metricsHistory.Add(
                     new MetricsSnapshot
                     {
@@ -722,42 +795,70 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 }
             }
 
-            // Log training quality metrics including trend
-            _logger?.LogInformation(
-                "Training complete: examples={ExampleCount}, valLoss={ValidationLoss:F6}, P@{K}={PrecisionAtK:F3}, R@{K2}={RecallAtK:F3}, NDCG@{K3}={NdcgAtK:F3}, qualityGate={QualityGate}, alpha={Alpha:F4}, neuralBeta={NeuralBeta:F4}, trend={Trend}",
-                examples.Count,
-                validationLoss,
-                RankingMetrics.DefaultK,
-                _learned.LastPrecisionAtK,
-                RankingMetrics.DefaultK,
-                _learned.LastRecallAtK,
-                RankingMetrics.DefaultK,
-                _learned.LastNdcgAtK,
-                qualityGatePassed ? "passed" : "dampened",
-                _alpha,
-                _neuralBeta,
-                trend);
+            if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation(
+                    "Training complete: examples={ExampleCount}, valLoss={ValidationLoss:F6}, P@{K}={PrecisionAtK:F3}, R@{K2}={RecallAtK:F3}, NDCG@{K3}={NdcgAtK:F3}, qualityGate={QualityGate}, alpha={Alpha:F4}, neuralBeta={NeuralBeta:F4}, trend={Trend}",
+                    examples.Count,
+                    validationLoss,
+                    RankingMetrics.DefaultK,
+                    _learned.LastPrecisionAtK,
+                    RankingMetrics.DefaultK,
+                    _learned.LastRecallAtK,
+                    RankingMetrics.DefaultK,
+                    _learned.LastNdcgAtK,
+                    qualityGatePassed ? "passed" : "dampened",
+                    _alpha,
+                    _neuralBeta,
+                    trend);
+            }
 
             TrySaveState();
         }
         else
         {
-            // Learned training failed (insufficient data). Decay neuralBeta to prevent
-            // a stale high value from persisting when the neural strategy may have
-            // outdated weights. This ensures cold-start scenarios don't over-weight
-            // a potentially unreliable neural model.
+            // Learned training failed (insufficient data). We still record a placeholder
+            // metrics snapshot so the exploration gate (StrategySelector.IsExplorationActive,
+            // requires MetricsHistoryCount >= 2) can eventually flip to true even when the
+            // very first training runs have too few examples to succeed. Without this the
+            // cold-start path was self-locking: no successful Train → no snapshot → no
+            // exploration → no cohort feedback → no midpoint adaptation.
+            //
+            // ValidationLoss is NaN to mark the row as a cold-start placeholder. AnalyzeTrend
+            // needs TrendMinSnapshots (5) real rows before it does anything, and NaN comparisons
+            // silently fall through to MetricsTrend.Stable, so the placeholder cannot poison
+            // trend detection either.
             var stateChanged = false;
             lock (_syncRoot)
             {
+                _metricsHistory.Add(
+                    new MetricsSnapshot
+                    {
+                        Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                        ValidationLoss = double.NaN,
+                        PrecisionAtK = 0.0,
+                        RecallAtK = 0.0,
+                        NdcgAtK = 0.0,
+                        ExampleCount = examples.Count
+                    });
+                const int maxHistory = 10;
+                if (_metricsHistory.Count > maxHistory)
+                {
+                    _metricsHistory.RemoveRange(0, _metricsHistory.Count - maxHistory);
+                }
+
+                stateChanged = true;
+
                 if (_neuralBeta > 0)
                 {
+                    // Decay neuralBeta to prevent a stale high value from persisting when
+                    // the neural strategy may have outdated weights. This ensures cold-start
+                    // scenarios don't over-weight a potentially unreliable neural model.
                     _neuralBeta *= 0.5;
                     if (_neuralBeta < NeuralBetaMinFloor)
                     {
                         _neuralBeta = 0.0;
                     }
-
-                    stateChanged = true;
                 }
             }
 
@@ -859,11 +960,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         MaxMidpointShift);
                 }
 
-                _logger?.LogInformation(
-                    "Cohort feedback: explore-high ({HighRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
-                    highRate,
-                    controlRate,
-                    _sigmoidMidpointOffset);
+                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation(
+                        "Cohort feedback: explore-high ({HighRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
+                        highRate,
+                        controlRate,
+                        _sigmoidMidpointOffset);
+                }
 
                 TrySaveState();
                 return;
@@ -884,21 +988,65 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         MaxMidpointShift);
                 }
 
-                _logger?.LogInformation(
-                    "Cohort feedback: explore-low ({LowRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
-                    lowRate,
-                    controlRate,
-                    _sigmoidMidpointOffset);
+                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation(
+                        "Cohort feedback: explore-low ({LowRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
+                        lowRate,
+                        controlRate,
+                        _sigmoidMidpointOffset);
+                }
 
                 TrySaveState();
                 return;
             }
         }
 
-        // Control is optimal - no adaptation needed
-        _logger?.LogDebug(
-            "Cohort feedback: control ({ControlRate:P1}) is optimal, no midpoint adaptation",
-            controlRate);
+        // Reaching this point means either:
+        //   (a) at least one exploration cohort had enough samples AND lost to control, OR
+        //   (b) neither exploration cohort had enough samples to be evaluated at all.
+        //
+        // Case (a) is a genuine "control is optimal" signal and legitimately triggers anti-drift
+        // decay. Case (b) is NOT: we have no exploration outcome to compare against, so any
+        // decay would be based purely on control-only data - a shift in the midpoint driven by
+        // no evidence about the alternatives it's shifting away from. Guard against that by
+        // requiring at least one qualifying exploration cohort before decaying.
+        if (highTotal < minRecsPerCohort && lowTotal < minRecsPerCohort)
+        {
+            return;
+        }
+
+        // Control is optimal - no cohort-driven adaptation, but apply a mild decay so a
+        // saturated offset from earlier runs drifts back toward the default midpoint over
+        // time. This acts as a slow anti-drift regulariser: if user behaviour has stabilised
+        // around the default, we shouldn't stay pinned at ±20 forever waiting for the
+        // opposite cohort to eventually win. If the offset is already at (near) zero the
+        // decay is a no-op.
+        var decayed = false;
+        double decayedOffset;
+        lock (_syncRoot)
+        {
+            if (Math.Abs(_sigmoidMidpointOffset) > 1e-6)
+            {
+                _sigmoidMidpointOffset *= MidpointDecayFactor;
+                decayed = true;
+            }
+
+            decayedOffset = _sigmoidMidpointOffset;
+        }
+
+        if (decayed)
+        {
+            TrySaveState();
+        }
+
+        if (_logger is not null && _logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug(
+                "Cohort feedback: control ({ControlRate:P1}) is optimal, midpoint offset decayed to {Offset:F2}",
+                controlRate,
+                decayedOffset);
+        }
     }
 
     /// <summary>
@@ -991,11 +1139,53 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             return;
         }
 
+        // Guard against corrupted/replaced oversized files before reading into memory.
+        // Ensemble state JSON is small (~50 KB with history); a 10 MB ceiling gives ample headroom.
+        const long MaxStateFileSizeBytes = 10 * 1024 * 1024;
+        if (new FileInfo(_statePath).Length > MaxStateFileSizeBytes)
+        {
+            _logger?.LogWarning(
+                "EnsembleScoringStrategy: State file exceeds {LimitMB}MB ({Path}). Skipping load.",
+                MaxStateFileSizeBytes / (1024 * 1024),
+                _statePath);
+            return;
+        }
+
         try
         {
             var json = File.ReadAllText(_statePath);
-            var data = JsonSerializer.Deserialize<EnsembleStateData>(json);
-            if (data is null || data.TrainingExampleCount <= 0)
+            // Use the same SerializerOptions as TrySaveState so a MetricsSnapshot row that
+            // was persisted with ValidationLoss = NaN (cold-start placeholder) round-trips
+            // cleanly. Without AllowNamedFloatingPointLiterals on the deserialiser, the
+            // "NaN" literal in the file would throw JsonException and lose the entire
+            // history - the exploration gate would then never open.
+            var data = JsonSerializer.Deserialize<EnsembleStateData>(json, SerializerOptions);
+            if (data is null)
+            {
+                return;
+            }
+
+            // Schema version guard: if the persisted file was written by an older (or newer)
+            // incompatible schema, discard it and start from defaults rather than applying
+            // potentially mis-mapped fields that could corrupt runtime state.
+            if (data.SchemaVersion != EnsembleStateData.CurrentSchemaVersion)
+            {
+                _logger?.LogWarning(
+                    "EnsembleScoringStrategy: State schema version mismatch (file={FileVersion}, expected={Expected}). Resetting to defaults.",
+                    data.SchemaVersion,
+                    EnsembleStateData.CurrentSchemaVersion);
+                return;
+            }
+
+            // Reject only when the state is entirely empty. A run that produced ONLY cold-start
+            // placeholder snapshots persists TrainingExampleCount = 0 (no successful training
+            // happened yet) but non-empty MetricsHistory (each failed Train() call recorded one
+            // placeholder row). Rejecting that on load would erase the exploration-history
+            // signal on every restart and re-lock the cold-start path - exactly the self-lock
+            // the placeholder writes were introduced to break. Keeping the history alive as long
+            // as either counter is non-empty lets exploration continue accumulating snapshots
+            // across restarts until the first real training run flips TrainingExampleCount > 0.
+            if (data.TrainingExampleCount <= 0 && (data.MetricsHistory is null || data.MetricsHistory.Count == 0))
             {
                 return;
             }
@@ -1018,6 +1208,20 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
                 {
                     _neuralBeta = data.NeuralBeta;
+                }
+                else if (_neural is not null && data.NeuralBeta > NeuralMaxBetaFraction &&
+                         _logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    // A persisted NeuralBeta above the current ceiling usually means the ceiling
+                    // was lowered in an update. Keep _neuralBeta at its default (0) so the ramp
+                    // in Train() drives it back up from scratch, and log once so operators can
+                    // see this happened rather than silently discarding state. The IsEnabled
+                    // guard mirrors the rest of this class and keeps CA1873 happy for the
+                    // structured-log arguments.
+                    _logger.LogInformation(
+                        "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
+                        data.NeuralBeta,
+                        NeuralMaxBetaFraction);
                 }
 
                 // Restore adaptive sigmoid midpoint offset (clamped to valid range).
@@ -1052,8 +1256,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Tries to persist current ensemble state to disk.
     ///     Snapshot and serialization are performed under lock to ensure consistency
-    ///     with concurrent <see cref="Train"/> calls (analogous to
-    ///     <see cref="LearnedScoringStrategy.TrySaveWeights"/>).
+    ///     with concurrent <see cref="Train(IReadOnlyList{TrainingExample})"/> calls (analogous to
+    ///     <c>LearnedScoringStrategy.TrySaveWeights</c>).
     /// </summary>
     private void TrySaveState()
     {
@@ -1088,9 +1292,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 json = JsonSerializer.Serialize(data, SerializerOptions);
             }
 
-            var tempPath = _statePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            File.WriteAllText(tempPath, json);
-            File.Move(tempPath, _statePath, overwrite: true);
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
+            // final File.Move gets a bounded retry instead of silently dropping the save.
+            AtomicFile.WriteAllText(_statePath, json);
         }
         catch (IOException ex)
         {
@@ -1119,20 +1323,36 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <returns>The detected trend direction.</returns>
     internal static MetricsTrend AnalyzeTrend(IReadOnlyList<MetricsSnapshot> history)
     {
-        if (history.Count < TrendMinSnapshots)
+        // Filter out cold-start placeholder rows (ValidationLoss = NaN) BEFORE selecting the
+        // trailing window. A mixed history (e.g. 2 placeholders + 3 real snapshots followed by
+        // 5 more real ones) would otherwise poison sums/means with NaN and collapse the whole
+        // analysis to Stable - even though there are enough real rows to detect a real trend.
+        // The Train() path guarantees placeholders carry NaN loss and 0 NDCG; real rows carry
+        // finite loss. IsFinite() is therefore the right gate: it rejects NaN, ±Infinity, and
+        // any other pathological value that would silently break the linear-regression math.
+        var realRows = new List<MetricsSnapshot>(history.Count);
+        foreach (var snapshot in history)
+        {
+            if (double.IsFinite(snapshot.ValidationLoss))
+            {
+                realRows.Add(snapshot);
+            }
+        }
+
+        if (realRows.Count < TrendMinSnapshots)
         {
             return MetricsTrend.InsufficientData;
         }
 
-        var startIdx = history.Count - TrendMinSnapshots;
+        var startIdx = realRows.Count - TrendMinSnapshots;
         var n = TrendMinSnapshots;
         var meanI = (n - 1) / 2.0;
 
         double sumLoss = 0, sumNdcg = 0;
         for (var i = 0; i < n; i++)
         {
-            sumLoss += history[startIdx + i].ValidationLoss;
-            sumNdcg += history[startIdx + i].NdcgAtK;
+            sumLoss += realRows[startIdx + i].ValidationLoss;
+            sumNdcg += realRows[startIdx + i].NdcgAtK;
         }
 
         var meanLoss = sumLoss / n;
@@ -1142,8 +1362,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         for (var i = 0; i < n; i++)
         {
             var di = i - meanI;
-            numLoss += di * (history[startIdx + i].ValidationLoss - meanLoss);
-            numNdcg += di * (history[startIdx + i].NdcgAtK - meanNdcg);
+            numLoss += di * (realRows[startIdx + i].ValidationLoss - meanLoss);
+            numNdcg += di * (realRows[startIdx + i].NdcgAtK - meanNdcg);
             denominator += di * di;
         }
 
@@ -1176,11 +1396,30 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
+    ///     Disposes the composed neural strategy, which owns a
+    ///     <see cref="System.Threading.ReaderWriterLockSlim"/>. Without this the lock leaked on
+    ///     plugin unload: the engine only disposed the ensemble (its <see cref="IScoringStrategy"/>),
+    ///     and the ensemble did not previously implement <see cref="IDisposable"/>, so the neural
+    ///     strategy's own <c>Dispose</c> never ran. The heuristic and learned strategies are sealed
+    ///     and hold no disposable state, so they need no disposal here.
+    /// </summary>
+    public void Dispose()
+    {
+        _neural?.Dispose();
+    }
+
+    /// <summary>
     ///     Serializable container for persisted ensemble state.
     /// </summary>
     internal sealed class EnsembleStateData
     {
+        /// <summary>Increment this constant whenever the persisted schema changes.</summary>
+        internal const int CurrentSchemaVersion = 1;
+
         private List<MetricsSnapshot> _metricsHistory = [];
+
+        /// <summary>Gets or sets the schema version written when this state was last saved.</summary>
+        public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
         /// <summary>Gets or sets the cumulative number of training examples seen.</summary>
         public int TrainingExampleCount { get; set; }

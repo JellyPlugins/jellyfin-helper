@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// </summary>
 /// <remarks>
 ///     Complexity: O(FeatureCount × SampleSize) forward passes.
-///     At 31 features × 200 samples = 6,200 forward passes (~18.6M FP ops on a 4-layer MLP).
+///     At 38 features × 200 samples = 7,600 forward passes on a 4-layer MLP.
 ///     Only invoked at Debug log level after training completes.
 /// </remarks>
 internal static class NeuralFeatureImportance

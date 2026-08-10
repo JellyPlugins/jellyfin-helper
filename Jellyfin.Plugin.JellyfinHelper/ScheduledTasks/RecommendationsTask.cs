@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -86,7 +87,7 @@ public class RecommendationsTask
 
             if (_playlistService != null)
             {
-                await CleanupOldPlaylistsAsync(cancellationToken).ConfigureAwait(false);
+                await CleanupOldPlaylistsAsync(_playlistService, cancellationToken).ConfigureAwait(false);
             }
 
             progress.Report(100);
@@ -126,7 +127,11 @@ public class RecommendationsTask
                         _logger);
                 }
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException and not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning("Recommendations", "Strategy training failed - continuing with current weights.", ex, _logger);
             }
@@ -139,7 +144,7 @@ public class RecommendationsTask
         progress.Report(20);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var maxPerUser = Math.Clamp(config.MaxRecommendationsPerUser, 1, EngineConstants.MaxRecommendationsPerUserLimit);
+        var maxPerUser = config.MaxRecommendationsPerUser;
         var results = _recsEngine.GetAllRecommendations(maxPerUser, cancellationToken);
 
         progress.Report(80);
@@ -162,7 +167,11 @@ public class RecommendationsTask
                         $"Playlist sync: {syncResult.PlaylistsCreated} created, {syncResult.TotalItemsAdded} items added, {syncResult.OldPlaylistsRemoved} old removed.",
                         _logger);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogWarning("Recommendations", "Playlist sync failed - recommendations were saved but playlists could not be updated.", ex, _logger);
                 }
@@ -170,7 +179,7 @@ public class RecommendationsTask
             else if (_playlistService != null)
             {
                 // Playlist sync was disabled - clean up any existing playlists from previous runs
-                await CleanupOldPlaylistsAsync(cancellationToken).ConfigureAwait(false);
+                await CleanupOldPlaylistsAsync(_playlistService, cancellationToken).ConfigureAwait(false);
             }
 
             _pluginLog.LogInfo(
@@ -195,17 +204,21 @@ public class RecommendationsTask
     ///     to clean up stale playlists.
     ///     Errors are logged but do not fail the task.
     /// </summary>
-    private async Task CleanupOldPlaylistsAsync(CancellationToken cancellationToken)
+    private async Task CleanupOldPlaylistsAsync(IRecommendationPlaylistService playlistService, CancellationToken cancellationToken)
     {
         try
         {
-            var removed = await _playlistService!.RemoveAllRecommendationPlaylistsAsync(cancellationToken).ConfigureAwait(false);
+            var removed = await playlistService.RemoveAllRecommendationPlaylistsAsync(cancellationToken).ConfigureAwait(false);
             if (removed > 0)
             {
                 _pluginLog.LogInfo("Recommendations", $"Cleaned up {removed} old recommendation playlists (sync disabled).", _logger);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning("Recommendations", "Failed to clean up old recommendation playlists.", ex, _logger);
         }

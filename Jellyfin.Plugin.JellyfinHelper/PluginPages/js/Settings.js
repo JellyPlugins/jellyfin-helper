@@ -1,4 +1,5 @@
 // --- Settings Tab ---
+'use strict';
 
 // Track current language for detecting changes on save
 var _currentLang = '';
@@ -96,12 +97,24 @@ function updateSeerrUIState(isConfigured) {
 // Dirty-tracking: snapshot of settings payload after load/save
 var _settingsSnapshot = '';
 
+// True once the user has made at least one change since the form was (re)loaded.
+// The save band stays hidden until this becomes true, so a freshly loaded,
+// untouched form shows nothing.
+var _settingsInteracted = false;
+
+// Timer handles / flags for the floating save band.
+var _settingsSavedHideTimer = null; // delayed fade-out of the "saved" confirmation
+var _saveBandRevealTimer = null;    // debounced reveal of the "unsaved" prompt
+var _saveBandSaving = false;        // true while a manual save is in flight
+
 function takeSettingsSnapshot() {
     try {
         _settingsSnapshot = JSON.stringify(buildSettingsPayload());
     } catch (e) {
         _settingsSnapshot = '';
     }
+    // Reflect the (now clean) state in the floating save band.
+    refreshSaveBand();
 }
 
 function hasUnsavedSettings() {
@@ -110,6 +123,226 @@ function hasUnsavedSettings() {
         return JSON.stringify(buildSettingsPayload()) !== _settingsSnapshot;
     } catch (e) {
         return false;
+    }
+}
+
+function getSaveBand() {
+    return document.getElementById('settingsSaveBand');
+}
+
+function cancelSaveBandReveal() {
+    if (_saveBandRevealTimer) {
+        clearTimeout(_saveBandRevealTimer);
+        _saveBandRevealTimer = null;
+    }
+}
+
+// State classes (is-saved etc.) must survive the fade-out because they carry the
+// CSS rule that hides the Save button. If we removed them synchronously on
+// transition to "hidden", the button would flash for one frame while the band
+// fades. Cleanup happens via this timer after the CSS transition completes.
+var _saveBandHiddenCleanupTimer = null;
+
+// Slightly longer than the 0.28s CSS transition to survive timing jitter.
+var _saveBandHideDurationMs = 320;
+
+function cancelSaveBandHiddenCleanup() {
+    if (_saveBandHiddenCleanupTimer) {
+        clearTimeout(_saveBandHiddenCleanupTimer);
+        _saveBandHiddenCleanupTimer = null;
+    }
+}
+
+/**
+ * Renders the floating save band in a specific visual state.
+ * @param {'hidden'|'unsaved'|'saving'|'saved'|'error'} kind
+ */
+function renderSaveBand(kind) {
+    var band = getSaveBand();
+    if (!band) return;
+    var icon = band.querySelector('.settings-save-band-icon');
+    var text = band.querySelector('.settings-save-band-text');
+
+    // Cancel a pending fade-out unless we're (re)entering the saved state.
+    if (kind !== 'saved' && _settingsSavedHideTimer) {
+        clearTimeout(_settingsSavedHideTimer);
+        _settingsSavedHideTimer = null;
+    }
+
+    // Cancel any pending "unsaved" reveal timer. Every explicit render() call
+    // establishes the authoritative visual state; a stale reveal that fires
+    // afterwards must not overwrite it. Without this cancel, an 'error' render
+    // triggered by a failed quiet-save would be silently replaced by "Unsaved
+    // changes" ~600ms later (the delegated dirty-tracker armed the timer on the
+    // same keystroke that triggered the save, and the failed save never updated
+    // the snapshot, so stillDirty=true when the timer wakes up).
+    if (kind !== 'unsaved') {
+        cancelSaveBandReveal();
+    }
+
+    if (kind === 'hidden') {
+        // Start fade-out. Keep the previous state class (and icon/text) until the
+        // transition finishes; otherwise the CSS rule that hides the Save button
+        // stops applying and the button briefly appears on its own.
+        band.classList.remove('is-visible');
+        band.setAttribute('aria-hidden', 'true');
+        cancelSaveBandHiddenCleanup();
+        _saveBandHiddenCleanupTimer = setTimeout(function () {
+            _saveBandHiddenCleanupTimer = null;
+            // Skip cleanup if a new state made the band visible again in the meantime.
+            if (band.classList.contains('is-visible')) return;
+            band.classList.remove('is-unsaved', 'is-saving', 'is-saved', 'is-error');
+            if (icon) icon.innerHTML = '';
+            if (text) text.textContent = '';
+        }, _saveBandHideDurationMs);
+        return;
+    }
+
+    // Transition to a visible state: drop pending cleanup and reset state classes.
+    cancelSaveBandHiddenCleanup();
+    band.classList.remove('is-unsaved', 'is-saving', 'is-saved', 'is-error');
+    band.setAttribute('aria-hidden', 'false');
+    band.classList.add('is-visible');
+
+    if (kind === 'unsaved') {
+        band.classList.add('is-unsaved');
+        if (icon) icon.innerHTML = '<span class="settings-save-band-dot" aria-hidden="true"></span>';
+        if (text) text.textContent = T('settingsUnsavedChanges', 'Unsaved changes');
+    } else if (kind === 'saving') {
+        band.classList.add('is-saving');
+        if (icon) icon.innerHTML = '<span class="btn-spinner"></span>';
+        if (text) text.textContent = T('savingSettings', 'Saving Settings...');
+    } else if (kind === 'saved') {
+        band.classList.add('is-saved');
+        if (icon) icon.innerHTML = mi('check_circle');
+        if (text) text.textContent = T('settingsAllSaved', 'All changes saved');
+    } else if (kind === 'error') {
+        band.classList.add('is-error');
+        if (icon) icon.innerHTML = mi('error');
+        if (text) text.textContent = T('settingsError', 'Failed to save settings.');
+    }
+}
+
+/**
+ * Drives the floating save band from the current dirty state.
+ *
+ * Rules:
+ *   • Untouched form / clean & never changed → hidden (transparent).
+ *   • Unsaved change → "Unsaved changes" + Save button, revealed after a short
+ *     debounce so quick auto-saves flip straight to "saved" without flashing.
+ *   • Just saved (after an interaction) → "All changes saved", auto-fades.
+ * A manual save in flight (_saveBandSaving) is left untouched; a transient error
+ * stays until the next change or save.
+ */
+function refreshSaveBand() {
+    var band = getSaveBand();
+    if (!band) return;
+    if (_saveBandSaving) return; // don't override an in-progress manual save
+
+    var dirty;
+    try { dirty = hasUnsavedSettings(); } catch (_e) { dirty = false; }
+
+    if (!_settingsSnapshot) {
+        cancelSaveBandReveal();
+        renderSaveBand('hidden');
+        return;
+    }
+
+    if (dirty) {
+        _settingsInteracted = true;
+        // Already showing the prompt, or a reveal is already pending → nothing to do.
+        if (band.classList.contains('is-unsaved') || _saveBandRevealTimer) return;
+        _saveBandRevealTimer = setTimeout(function () {
+            _saveBandRevealTimer = null;
+            if (_saveBandSaving) return;
+            var stillDirty;
+            try { stillDirty = hasUnsavedSettings(); } catch (_e) { stillDirty = false; }
+            if (stillDirty) renderSaveBand('unsaved');
+        }, 600);
+        return;
+    }
+
+    // Clean.
+    cancelSaveBandReveal();
+    if (!_settingsInteracted) {
+        renderSaveBand('hidden');
+        return;
+    }
+    // Show the confirmation, then fade it out after a short delay.
+    renderSaveBand('saved');
+    if (_settingsSavedHideTimer) clearTimeout(_settingsSavedHideTimer);
+    _settingsSavedHideTimer = setTimeout(function () {
+        _settingsSavedHideTimer = null;
+        var b = getSaveBand();
+        if (b && b.classList.contains('is-saved')) {
+            renderSaveBand('hidden');
+            _settingsInteracted = false;
+        }
+    }, 2500);
+}
+
+
+// Debounced dirty-check listener on the settings form. The form element itself
+// persists across loadSettings() calls (only innerHTML gets replaced), so we
+// remove previously registered listeners before adding new ones to avoid
+// stacking handlers on repeated reloads.
+//
+// Two exclusive detach mechanisms - only one is ever active in a given runtime
+// because `typeof AbortController === 'function'` is deterministic per browser:
+//   1. Preferred: AbortController (near-universal since ~2020).
+//      Stored in _dirtyTrackingController; abort() detaches both listeners atomically.
+//   2. Legacy fallback: keep the handler+form pair so removeEventListener() can
+//      strip both listeners individually. Stored in _dirtyTrackingHandler/_Form.
+//
+// Test coverage note: the fallback branch is not covered by automated tests (the
+// repo has no JS test framework and modern browsers won't take that branch). The
+// invariant we rely on is "runtime picks one branch and stays there", which makes
+// interleaving impossible - a runtime that lacks AbortController on load will
+// keep lacking it, so mixed-state cleanup is not a real failure mode.
+var _dirtyDebounceTimer = null;
+var _dirtyTrackingController = null;
+var _dirtyTrackingHandler = null;
+var _dirtyTrackingForm = null;
+
+function attachDirtyTracking() {
+    var form = document.getElementById('settingsForm');
+    if (!form) return;
+
+    // Detach previous listeners before wiring new ones. Only one of the two
+    // branches below will find non-null state in a given runtime, because
+    // typeof AbortController is deterministic - the other branch's tracking
+    // fields are guaranteed to still be their initial null.
+    if (_dirtyTrackingController && typeof _dirtyTrackingController.abort === 'function') {
+        try { _dirtyTrackingController.abort(); } catch (_e) { /* ignore */ }
+        _dirtyTrackingController = null;
+    }
+    if (_dirtyTrackingHandler && _dirtyTrackingForm) {
+        try {
+            _dirtyTrackingForm.removeEventListener('input', _dirtyTrackingHandler);
+            _dirtyTrackingForm.removeEventListener('change', _dirtyTrackingHandler);
+        } catch (_e) { /* ignore */ }
+        _dirtyTrackingHandler = null;
+        _dirtyTrackingForm = null;
+    }
+
+    var handler = function () {
+        if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
+        _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
+    };
+
+    if (typeof AbortController === 'function') {
+        _dirtyTrackingController = new AbortController();
+        var opts = { signal: _dirtyTrackingController.signal };
+        form.addEventListener('input', handler, opts);
+        form.addEventListener('change', handler, opts);
+    } else {
+        // Legacy fallback: no AbortController → track the handler + form so the
+        // next attachDirtyTracking() call can removeEventListener() it, keeping
+        // the "one active listener pair per form" invariant intact.
+        form.addEventListener('input', handler);
+        form.addEventListener('change', handler);
+        _dirtyTrackingHandler = handler;
+        _dirtyTrackingForm = form;
     }
 }
 
@@ -124,16 +357,21 @@ function checkUnsavedAndProceed(onProceed) {
         'unsavedDialogOverlay',
         T('unsavedChangesTitle', 'Unsaved Changes'),
         getCssVar('--color-primary', '#00a4dc'),
-        T('unsavedChangesMsg', 'You have unsaved settings changes. What would you like to do?'),
-        false
+        T('unsavedChangesMsg', 'You have unsaved settings changes. What would you like to do?')
     );
     d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
         removeDialogById('unsavedDialogOverlay');
     }));
     d.btnRow.appendChild(createDialogBtn(T('discardChanges', 'Discard Changes'), 'danger', function () {
         removeDialogById('unsavedDialogOverlay');
+        // Discard means the in-memory edits are thrown away and the form is
+        // reverted to the persisted values - not merely that the dirty flag is
+        // cleared. Blank the snapshot first so leaving the tab now doesn't
+        // re-trigger this guard, proceed, then reload the form from the server
+        // so a later return to Settings shows the original (un-edited) values.
         _settingsSnapshot = '';
         onProceed();
+        if (typeof loadSettings === 'function') loadSettings();
     }));
     d.btnRow.appendChild(createDialogBtn(T('saveAndContinue', 'Save & Continue'), 'success', function () {
         removeDialogById('unsavedDialogOverlay');
@@ -144,12 +382,15 @@ function checkUnsavedAndProceed(onProceed) {
 }
 
 // Browser navigation guard
-window.addEventListener('beforeunload', function (e) {
-    if (hasUnsavedSettings()) {
-        e.preventDefault();
-        e.returnValue = '';
-    }
-});
+if (!window._jfhBeforeunloadBound) {
+    window._jfhBeforeunloadBound = true;
+    window.addEventListener('beforeunload', function (e) {
+        if (hasUnsavedSettings()) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+}
 
 // Rebuild the entire UI after a language change
 function rebuildUI() {
@@ -159,6 +400,7 @@ function rebuildUI() {
     var result = document.getElementById('statsResult');
     if (placeholder) placeholder.style.display = 'none';
     if (result) {
+        resetLogsTabState();
         result.innerHTML = renderShell();
         result.style.display = 'block';
     }
@@ -174,9 +416,22 @@ function rebuildUI() {
     if (settingsBtn) settingsBtn.click();
 }
 
+
 function loadSettings() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
+    // Reset save-band state on every (re)load so the band stays hidden until the
+    // user makes the first change on the fresh form.
+    _settingsInteracted = false;
+    _saveBandSaving = false;
+    if (_settingsSavedHideTimer) {
+        clearTimeout(_settingsSavedHideTimer);
+        _settingsSavedHideTimer = null;
+    }
+    if (_saveBandRevealTimer) {
+        clearTimeout(_saveBandRevealTimer);
+        _saveBandRevealTimer = null;
+    }
     apiGet('JellyfinHelper/Configuration', function (cfg) {
         // Remember the current language for change detection
         _currentLang = cfg.Language || 'en';
@@ -188,26 +443,37 @@ function loadSettings() {
         // Remember trash path for relocation dialog
         _previousTrashPath = cfg.TrashFolderPath || '.jellyfin-trash';
         var h = '';
-        h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
-        h += '<label>' + T('excludedLibraries', 'Excluded Libraries') + '</label>';
+        // Message area for longer operation feedback (e.g. trash folder actions).
+        // The Save button + save-state now live in the floating band rendered at
+        // the end of the form (see #settingsSaveBand below).
+        h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
+
+        // ── Card 1: General ──
+        h += '<div class="settings-card">';
+        h += '<div class="section-title">' + escHtml(T('settingsGeneralTitle', 'General settings')) + '</div>';
+
+        h += '<label>' + escHtml(T('excludedLibraries', 'Excluded Libraries')) + '</label>';
         h += '<div id="cfgExcludedWrapper" class="library-multiselect-wrapper"></div>';
 
-        h += '<label for="cfgOrphanAge">' + T('orphanMinAgeDays', 'Orphan Minimum Age (days)') + '</label>';
+        h += '<label for="cfgOrphanAge">' + escHtml(T('orphanMinAgeDays', 'Orphan Minimum Age (days)')) + '</label>';
         h += '<input type="number" id="cfgOrphanAge" min="0" max="3650" step="1" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
-        h += '<div class="help-text">' + T('orphanMinAgeDaysHelp', 'Items younger than this are protected from deletion.') + '</div>';
+        h += '<div class="help-text">' + escHtml(T('orphanMinAgeDaysHelp', 'Items younger than this are protected from deletion.')) + '</div>';
 
-        h += '<label for="cfgLang">' + T('language', 'Dashboard Language') + '</label>';
+        h += '<label for="cfgLang">' + escHtml(T('language', 'Dashboard Language')) + '</label>';
         h += '<select id="cfgLang">';
         var langs = [['en', 'English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'], ['pt', 'Português'], ['zh', '中文'], ['tr', 'Türkçe'], ['sv', 'Svenska']];
         for (var i = 0; i < langs.length; i++) {
             h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
         }
         h += '</select>';
+        h += '</div>'; // /Card 1 (General)
 
-        h += '<div class="section-title">' + T('settingsTaskTitle', 'Task settings') + '</div>';
-        h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">' + T('taskModeTitle', 'Task Mode (per Task)') + '</div>';
-        h += '<div class="help-text">' + T('taskModeHelp', 'Choose whether each task is active, runs in dry-run mode (only logs), or is deactivated.') + '</div>';
+        // ── Card 2: Task settings (cleanup tasks + trash + recommendations chain) ──
+        h += '<div class="settings-card">';
+        h += '<div class="section-title">' + escHtml(T('settingsTaskTitle', 'Task settings')) + '</div>';
+        h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">' + escHtml(T('taskModeTitle', 'Task Mode (per Task)')) + '</div>';
+        h += '<div class="help-text">' + escHtml(T('taskModeHelp', 'Choose whether each task is active, runs in dry-run mode (only logs), or is deactivated.')) + '</div>';
 
         var taskModes = [['Activate', T('activate', 'Activate')], ['DryRun', T('dryRun', 'Dry Run')], ['Deactivate', T('deactivate', 'Deactivate')]];
 
@@ -223,102 +489,114 @@ function loadSettings() {
             return s;
         }
 
-        h += renderTaskModeSelect('cfgTrickplayMode', T('trickplayFolderCleaner', 'Trickplay Folder Cleaner'), cfg.TrickplayTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgEmptyFolderMode', T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner'), cfg.EmptyMediaFolderTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgLinkMode', T('linkRepair', 'Link Repair'), cfg.LinkRepairTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgRecommendationsMode', T('recommendations', 'Recommendations'), cfg.RecommendationsTaskMode || 'DryRun');
+        // Cleanup task selects render in a responsive 2-column grid on wide screens.
+        h += '<div class="task-mode-grid">';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgTrickplayMode', escHtml(T('trickplayFolderCleaner', 'Trickplay Folder Cleaner')), cfg.TrickplayTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgEmptyFolderMode', escHtml(T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner')), cfg.EmptyMediaFolderTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgSubtitleMode', escHtml(T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner')), cfg.OrphanedSubtitleTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgLinkMode', escHtml(T('linkRepair', 'Link Repair')), cfg.LinkRepairTaskMode || 'DryRun') + '</div>';
+        h += '</div>';
+        // Recommendations select stays full-width because it is followed by its own toggle+hint block.
+        h += renderTaskModeSelect('cfgRecommendationsMode', escHtml(T('recommendations', 'Recommendations')), cfg.RecommendationsTaskMode || 'DryRun');
 
         // Playlist sync toggle - greyed out if Recommendations is not Activate
         var recsActive = (cfg.RecommendationsTaskMode || 'DryRun') === 'Activate';
         h += '<div class="playlist-sync-wrapper" id="playlistSyncWrapper" style="margin:0.3em 0 0.8em 0;' + (!recsActive ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += '<div class="checkbox-row"><input type="checkbox" id="cfgSyncPlaylist"' + (cfg.SyncRecommendationsToPlaylist ? ' checked' : '') + (!recsActive ? ' disabled' : '') + '><label for="cfgSyncPlaylist">' + T('syncPlaylistToggle', 'Sync recommendations to Jellyfin playlist') + '</label></div>';
-        h += '<div class="help-text">' + T('syncPlaylistHelp', 'Creates a per-user playlist visible in the Jellyfin UI. Updated on each scheduled run.') + '</div>';
-        h += '<div class="help-text playlist-sync-disabled-hint" style="' + (recsActive ? 'display:none;' : '') + '">' + T('syncPlaylistDisabledHint', 'Set Recommendations to Activate to enable this option.') + '</div>';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgSyncPlaylist"' + (cfg.SyncRecommendationsToPlaylist ? ' checked' : '') + (!recsActive ? ' disabled' : '') + '><label for="cfgSyncPlaylist">' + escHtml(T('syncPlaylistToggle', 'Sync recommendations to Jellyfin playlist')) + '</label></div>';
+        h += '<div class="help-text">' + escHtml(T('syncPlaylistHelp', 'Creates a per-user playlist visible in the Jellyfin UI. Updated on each scheduled run.')) + '</div>';
+        h += '<div class="help-text playlist-sync-disabled-hint" style="' + (recsActive ? 'display:none;' : '') + '">' + escHtml(T('syncPlaylistDisabledHint', 'Set Recommendations to Activate to enable this option.')) + '</div>';
         h += '</div>';
 
         // Discovery user access toggle - greyed out if Recommendations deactivated OR Seerr not configured
         var seerrConfigured = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
         var discoveryEnabled = recsActive && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + T('discoveryUserAccess', 'Allow users to view Discovery and submit requests') + '</label></div>';
-        h += '<div class="help-text">' + T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.') + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + T('discoverySetupHintTitle', 'Setup Instructions') + '" aria-label="' + T('discoverySetupHintTitle', 'Setup Instructions') + '">info</button></div>';
-        h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.') + '</div>';
-        // Discovery setup hint — collapsible panel (default: closed)
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
+        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">info</button></div>';
+        h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.')) + '</div>';
+        // Discovery setup hint - collapsible panel (default: closed)
         h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
         h += '<div id="discoveryHintPanel" style="display:none;margin-top:0.5em;padding:0.7em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;">';
-        h += '<strong>' + T('discoverySetupHintTitle', 'Setup Instructions') + '</strong>';
+        h += '<strong>' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '</strong>';
         h += '<ol style="margin:0.4em 0 0.4em 1.2em;padding:0;line-height:1.7;">';
-        h += '<li>' + T('discoverySetupHint1', 'Install the following two plugins:') + ' <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener" style="color:#00a4dc;">' + T('discoverySetupHintFT', 'File Transformation') + '</a> &amp; <a href="https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs" target="_blank" rel="noopener" style="color:#00a4dc;">' + T('discoverySetupHintCT', 'Custom Tabs') + '</a></li>';
-        h += '<li>' + T('discoverySetupHint2', 'Then in Custom Tabs plugin settings, add a new tab with:') + '<br>';
-        h += '<span style="opacity:0.7;">' + T('discoverySetupHintDisplay', 'Display Text') + ':</span> <code style="background:rgba(255,255,255,0.08);padding:0.1em 0.4em;border-radius:3px;">' + escHtml(T('discoveryTitle', 'Seerr Discovery')) + '</code><br>';
-        h += '<span style="opacity:0.7;">' + T('discoverySetupHintHtml', 'HTML Content') + ':</span></li>';
+        h += '<li>' + escHtml(T('discoverySetupHint1', 'Install the following two plugins:')) + ' <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener" style="color:#00a4dc;">' + escHtml(T('discoverySetupHintFT', 'File Transformation')) + '</a> &amp; <a href="https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs" target="_blank" rel="noopener" style="color:#00a4dc;">' + escHtml(T('discoverySetupHintCT', 'Custom Tabs')) + '</a></li>';
+        h += '<li>' + escHtml(T('discoverySetupHint2', 'Then in Custom Tabs plugin settings, add a new tab with:')) + '<br>';
+        h += '<span style="opacity:0.7;">' + escHtml(T('discoverySetupHintDisplay', 'Display Text')) + ':</span> <code style="background:rgba(255,255,255,0.08);padding:0.1em 0.4em;border-radius:3px;">' + escHtml(T('discoveryTitle', 'Seerr Discovery')) + '</code><br>';
+        h += '<span style="opacity:0.7;">' + escHtml(T('discoverySetupHintHtml', 'HTML Content')) + ':</span></li>';
         h += '</ol>';
         h += '<div style="display:flex;align-items:center;gap:0.5em;">';
-        h += '<button type="button" class="action-btn" id="btnCopyDiscoveryHtml" style="padding:0.2em 0.6em;font-size:0.82em;display:inline-flex;align-items:center;gap:0.3em;"><span class="material-icons" style="font-size:1em;">content_copy</span><span>' + T('discoveryCopySnippet', 'Copy') + '</span></button>';
+        h += '<button type="button" class="action-btn" id="btnCopyDiscoveryHtml" style="padding:0.2em 0.6em;font-size:0.82em;display:inline-flex;align-items:center;gap:0.3em;"><span class="material-icons" style="font-size:1em;">content_copy</span><span>' + escHtml(T('discoveryCopySnippet', 'Copy')) + '</span></button>';
         h += '<code style="background:rgba(0,0,0,0.3);padding:0.3em 0.6em;border-radius:4px;font-size:0.9em;">&lt;div class=&quot;jellyfinhelper discovery&quot;&gt;&lt;/div&gt;</code>';
         h += '</div>';
-        h += '<div style="margin-top:0.6em;font-size:0.9em;">' + T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?') + ' <a href="#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →') + '</a></div>';
+        h += '<div style="margin-top:0.6em;font-size:0.9em;">' + escHtml(T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?')) + ' <a href="#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + escHtml(T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →')) + '</a></div>';
         h += '</div></div>';
         h += '</div>';
 
         // Seerr Cleanup task mode - greyed out if not configured
         h += '<div class="seerr-task-mode-wrapper" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += renderTaskModeSelect('cfgSeerrMode', T('seerrCleanup', 'Seerr Cleanup'), cfg.SeerrCleanupTaskMode || 'Deactivate');
-        h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + T('seerrNotConfigured', 'Configure Seerr below to enable this task.') + '</div>';
+        h += renderTaskModeSelect('cfgSeerrMode', escHtml(T('seerrCleanup', 'Seerr Cleanup')), cfg.SeerrCleanupTaskMode || 'Deactivate');
+        h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + escHtml(T('seerrNotConfigured', 'Configure Seerr below to enable this task.')) + '</div>';
         h += '</div>';
 
-        h += '<div class="section-title">' + T('settingsTrashTitle', 'Trash settings') + '</div>';
-        h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
+        // Trash / Recycle Bin lives inside the Task card because it is exclusively
+        // used by the cleanup tasks configured above. We keep the original
+        // "Trash settings" section-title token (i18n key preserved for tests) but
+        // style it as a subgroup divider via the additional class.
+        h += '<div class="section-title settings-subgroup-title">' + mi('delete') + escHtml(T('settingsTrashTitle', 'Trash settings')) + '</div>';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + escHtml(T('useTrash', 'Use Trash (Recycle Bin)')) + '</label></div>';
 
         h += '<fieldset id="trashSettingsWrapper" ' + (!cfg.UseTrash ? 'disabled ' : '') + 'style="border:0;padding:0;margin:0;min-inline-size:0;' + (!cfg.UseTrash ? 'opacity:0.5;' : '') + '">';
-        h += '<label for="cfgTrashPath">' + T('trashFolder', 'Trash Folder Path') + '</label>';
+        h += '<label for="cfgTrashPath">' + escHtml(T('trashFolder', 'Trash Folder Path')) + '</label>';
         h += '<div style="position:relative;">';
         h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '" style="padding-right:3em;">';
-        h += '<button type="button" id="btnBrowseTrash" style="position:absolute;right:0.6em;top:0;bottom:0;display:flex;align-items:center;cursor:pointer;color:#00a4dc;opacity:0.8;background:none;border:none;padding:0;font-size:1.3em;line-height:1;" title="' + T('trashBrowse', 'Browse\u2026') + '" aria-label="' + T('trashBrowse', 'Browse\u2026') + '">' + mi('folder_open') + '</button>';
+        h += '<button type="button" id="btnBrowseTrash" style="position:absolute;right:0.6em;top:0;bottom:0;display:flex;align-items:center;cursor:pointer;color:#00a4dc;opacity:0.8;background:none;border:none;padding:0;font-size:1.3em;line-height:1;" title="' + escHtml(T('trashBrowse', 'Browse\u2026')) + '" aria-label="' + escHtml(T('trashBrowse', 'Browse\u2026')) + '">' + mi('folder_open') + '</button>';
         h += '</div>';
 
-        h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
+        h += '<label for="cfgTrashDays">' + escHtml(T('trashRetention', 'Trash Retention (days)')) + '</label>';
         h += '<div style="position:relative;">';
         h += '<input type="number" id="cfgTrashDays" min="0" max="3650" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
         h += '</div>';
         h += '</fieldset>';
+        h += '</div>'; // /Card 2 (Task settings + Trash)
+
+        // ── Card 3: Integrations (Seerr, Radarr, Sonarr) ──
+        h += '<div class="settings-card">';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
-            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
+            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
             arrCollapseButton += '<span class="arr-chevron">▶</span>' + icon + '<span>' + text + '</span><span class="arr-instance-count" id="arrCount' + type + '">' + countText + '</span>';
-            arrCollapseButton += '<span class="help-text">' + T('clickToExpand', 'click to expand') + '</span>';
+            arrCollapseButton += '<span class="help-text">' + escHtml(T('clickToExpand', 'click to expand')) + '</span>';
             arrCollapseButton += '</button>';
             return arrCollapseButton;
         }
 
         // --- Seerr Instance ---
-        h += '<div class="section-title">' + T('settingsSeerrTitle', 'Seerr settings') + '</div>';
-        h += '<div class="help-text">' + T('settingsSeerrHelp', 'Connect to Jellyseerr, Overseerr, or Seerr to automatically clean up old media requests.') + '</div>';
+        h += '<div class="section-title">' + escHtml(T('settingsSeerrTitle', 'Seerr settings')) + '</div>';
+        h += '<div class="help-text">' + escHtml(T('settingsSeerrHelp', 'Connect to Jellyseerr, Overseerr, or Seerr to automatically clean up old media requests.')) + '</div>';
         var seerrHasCfg = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
         h += '<div class="arr-collapsible' + (!seerrHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleSeerr">';
-        h += renderArrCollapseButton(!seerrHasCfg, SVG.EYE, T('seerrInstance', 'Seerr Instance'), seerrHasCfg ? mi('check_circle') : '', 'Seerr');
+        h += renderArrCollapseButton(!seerrHasCfg, SVG.EYE, escHtml(T('seerrInstance', 'Seerr Instance')), seerrHasCfg ? mi('check_circle') : '', 'Seerr');
         h += '<div class="arr-collapsible-body" aria-hidden="' + (seerrHasCfg ? 'true' : 'false') + '">';
-        h += '<label for="cfgSeerrUrl">' + T('seerrUrl', 'Seerr URL') + '</label>';
+        h += '<label for="cfgSeerrUrl">' + escHtml(T('seerrUrl', 'Seerr URL')) + '</label>';
         h += '<input type="text" id="cfgSeerrUrl" value="' + escAttr(cfg.SeerrUrl || '') + '" placeholder="http://localhost:5055">';
-        h += '<label for="cfgSeerrApiKey">' + T('seerrApiKey', 'Seerr API Key') + '</label>';
-        h += '<input type="password" id="cfgSeerrApiKey" value="' + escAttr(cfg.SeerrApiKey || '') + '">';
+        h += '<label for="cfgSeerrApiKey">' + escHtml(T('seerrApiKey', 'Seerr API Key')) + '</label>';
+        h += '<input type="password" id="cfgSeerrApiKey">';
         h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += '<label for="cfgSeerrAgeDays">' + T('seerrCleanupAgeDays', 'Max Request Age (days)') + '</label>';
+        h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
         h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
-        h += '<div class="help-text">' + T('seerrCleanupAgeDaysHelp', 'Requests older than this will be deleted. Default: 365 days.') + '</div>';
+        h += '<div class="help-text">' + escHtml(T('seerrCleanupAgeDaysHelp', 'Requests older than this will be deleted. Default: 365 days.')) + '</div>';
         h += '</div>';
         h += '<div style="margin-top:0.5em;">';
-        h += '<button type="button" class="action-btn btn-arr-test" id="btnTestSeerr" style="padding:0.3em 1em;font-size:0.85em;">' + mi('extension') + T('testConnection', 'Test Connection') + '</button>';
+        h += '<button type="button" class="action-btn btn-arr-test" id="btnTestSeerr" style="padding:0.3em 1em;font-size:0.85em;">' + mi('extension') + escHtml(T('testConnection', 'Test Connection')) + '</button>';
         h += '</div>';
         h += '</div></div>';
 
         // --- Radarr Instances ---
-        h += '<div class="section-title">' + T('settingsArrTitle', 'Arr stack settings') + '</div>';
+        h += '<div class="section-title">' + escHtml(T('settingsArrTitle', 'Arr stack settings')) + '</div>';
         var radarrInstances = resolveArrInstances(cfg, 'Radarr');
         var radarrCount = radarrInstances.length;
         h += '<div class="arr-collapsible' + (radarrCount === 0 ? ' arr-expanded' : '') + '" id="arrCollapsibleRadarr">';
-        h += renderArrCollapseButton(radarrCount === 0, mi('movie'), T('radarrInstances', 'Radarr Instances'), createArrCountText(radarrCount), 'Radarr');
+        h += renderArrCollapseButton(radarrCount === 0, mi('movie'), escHtml(T('radarrInstances', 'Radarr Instances')), createArrCountText(radarrCount), 'Radarr');
         h += '<div class="arr-collapsible-body" aria-hidden="' + (radarrCount === 0 ? 'false' : 'true') + '">';
         h += renderArrInstances('Radarr', radarrInstances);
         h += '</div></div>';
@@ -327,26 +605,54 @@ function loadSettings() {
         var sonarrInstances = resolveArrInstances(cfg, 'Sonarr');
         var sonarrCount = sonarrInstances.length;
         h += '<div class="arr-collapsible' + (sonarrCount === 0 ? ' arr-expanded' : '') + '" id="arrCollapsibleSonarr">';
-        h += renderArrCollapseButton(sonarrCount === 0, mi('tv'), T('sonarrInstances', 'Sonarr Instances'), createArrCountText(sonarrCount), 'Sonarr');
+        h += renderArrCollapseButton(sonarrCount === 0, mi('tv'), escHtml(T('sonarrInstances', 'Sonarr Instances')), createArrCountText(sonarrCount), 'Sonarr');
         h += '<div class="arr-collapsible-body" aria-hidden="' + (sonarrCount === 0 ? 'false' : 'true') + '">';
         h += renderArrInstances('Sonarr', sonarrInstances);
         h += '</div></div>';
+        h += '</div>'; // /Card 3 (Integrations)
 
-        h += '<div style="margin-top:2em;"><button class="action-btn" id="btnSaveSettings">' + T('saveSettings', 'Save Settings') + '</button></div>';
-        h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
-
-        // --- Backup Section ---
-        h += '<div class="section-title">' + T('settingsBackupTitle', 'Backup & Restore') + '</div>';
-        h += '<div class="help-text">' + T('settingsBackupHelp', 'Export your settings, Arr integrations, and trend data for backup. Import to restore on a fresh installation.') + '</div>';
+        // ── Card 4: Backup & Restore ──
+        h += '<div class="settings-card">';
+        h += '<div class="section-title">' + escHtml(T('settingsBackupTitle', 'Backup & Restore')) + '</div>';
+        h += '<div class="help-text">' + escHtml(T('settingsBackupHelp', 'Export your settings, Arr integrations, and trend data for backup. Import to restore on a fresh installation.')) + '</div>';
         h += '<div class="export-import-button-container">';
-        h += '<button class="action-btn export-import-button" id="btnBackupExport">' + mi('download') + T('backupExport', 'Export Backup') + '</button>';
-        h += '<button type="button" class="action-btn export-import-button" id="btnBackupImport">' + mi('upload') + T('backupImport', 'Import Backup') + '</button>';
+        h += '<button class="action-btn export-import-button" id="btnBackupExport">' + mi('download') + escHtml(T('backupExport', 'Export Backup')) + '</button>';
+        h += '<button type="button" class="action-btn export-import-button" id="btnBackupImport">' + mi('upload') + escHtml(T('backupImport', 'Import Backup')) + '</button>';
         h += '<input type="file" id="btnBackupImportFile" accept=".json,application/json" style="display:none;">';
         h += '</div>';
         h += '<div id="backupMsg" style="margin-top:0.5em;"></div>';
+        h += '</div>'; // /Card 4 (Backup)
+
+        // ── Floating save band (fixed, bottom-centre) ──
+        // Always in the viewport regardless of scroll position. Transparent/idle by
+        // default; shows "unsaved" (with the Save button), a spinner while saving,
+        // "saved" (auto-fades), or an error. The button keeps id=btnSaveSettings so
+        // all existing save logic keeps working unchanged.
+        h += '<div class="settings-save-band" id="settingsSaveBand" role="status" aria-live="polite" aria-hidden="true">';
+        h += '<span class="settings-save-band-status"><span class="settings-save-band-icon" aria-hidden="true"></span><span class="settings-save-band-text"></span></span>';
+        h += '<button type="button" class="action-btn settings-save-band-btn" id="btnSaveSettings">' + mi('save') + escHtml(T('saveSettings', 'Save Settings')) + '</button>';
+        h += '</div>';
 
         form.innerHTML = h;
-        document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
+        ['Seerr', 'Radarr', 'Sonarr'].forEach(function (type) {
+            var hdrBtn = document.getElementById('arrCollapsibleHeader' + type);
+            if (hdrBtn) {
+                hdrBtn.addEventListener('click', function () {
+                    var p = hdrBtn.parentElement;
+                    p.classList.toggle('arr-expanded');
+                    var ex = p.classList.contains('arr-expanded');
+                    hdrBtn.setAttribute('aria-expanded', ex ? 'true' : 'false');
+                    var b = p.querySelector('.arr-collapsible-body');
+                    if (b) b.setAttribute('aria-hidden', ex ? 'false' : 'true');
+                });
+            }
+        });
+        var seerrKeyEl = document.getElementById('cfgSeerrApiKey');
+        if (seerrKeyEl) { seerrKeyEl.value = cfg.SeerrApiKey || ''; }
+        setArrInstanceApiKeys('Radarr', radarrInstances);
+        setArrInstanceApiKeys('Sonarr', sonarrInstances);
+        var saveBandBtn = document.getElementById('btnSaveSettings');
+        if (saveBandBtn) saveBandBtn.addEventListener('click', saveSettings);
         attachRemoveHandlers();
         attachTestHandlers();
         attachAddHandlers();
@@ -376,10 +682,16 @@ function loadSettings() {
         // Show/hide Recommendations tab based on task mode
         updateRecsTabVisibility(cfg.RecommendationsTaskMode || 'DryRun');
 
-        // Take snapshot after settings are fully rendered
-        setTimeout(takeSettingsSnapshot, 0);
+        // Delegated dirty-check on the form: keeps the sticky-toolbar indicator
+        // in sync with any DOM edit - including auto-save fields (they trigger the
+        // change event which the debounced handler picks up, then re-renders the
+        // indicator to "clean" after the snapshot is refreshed by takeSettingsSnapshot).
+        attachDirtyTracking();
+
+        // Take snapshot after settings are fully rendered (synchronous - all values are set above)
+        takeSettingsSnapshot();
     }, function () {
-        form.innerHTML = '<div class="error-msg">' + T('settingsLoadError', 'Failed to load settings.') + '</div>';
+        form.innerHTML = '<div class="error-msg">' + escHtml(T('settingsLoadError', 'Failed to load settings.')) + '</div>';
     });
 }
 
@@ -398,7 +710,7 @@ function buildSettingsPayload() {
         EmptyMediaFolderTaskMode: document.getElementById('cfgEmptyFolderMode').value,
         OrphanedSubtitleTaskMode: document.getElementById('cfgSubtitleMode').value,
         LinkRepairTaskMode: document.getElementById('cfgLinkMode').value,
-        RecommendationsTaskMode: document.getElementById('cfgRecommendationsMode').value,
+        RecommendationsTaskMode: document.getElementById('cfgRecommendationsMode')?.value ?? 'Deactivate',
         SyncRecommendationsToPlaylist: document.getElementById('cfgSyncPlaylist') ? document.getElementById('cfgSyncPlaylist').checked : false,
         SeerrUrl: (document.getElementById('cfgSeerrUrl') || {}).value || '',
         SeerrApiKey: (document.getElementById('cfgSeerrApiKey') || {}).value || '',
@@ -413,8 +725,8 @@ function buildSettingsPayload() {
             var v = el ? parseInt(el.value, 10) : 365;
             return isNaN(v) || v < 1 ? 365 : v;
         })(),
-        UseTrash: document.getElementById('cfgTrash').checked,
-        TrashFolderPath: document.getElementById('cfgTrashPath').value,
+        UseTrash: document.getElementById('cfgTrash')?.checked ?? false,
+        TrashFolderPath: document.getElementById('cfgTrashPath')?.value ?? '',
         TrashRetentionDays: (function () {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
             if (isNaN(v) || v < 0) return 30;
@@ -432,7 +744,7 @@ function buildSettingsPayload() {
             var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
             return recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
-        Language: document.getElementById('cfgLang').value,
+        Language: document.getElementById('cfgLang')?.value ?? 'en',
         PluginLogLevel: _currentLogLevel,
         RadarrInstances: radarrInstances,
         SonarrInstances: sonarrInstances
@@ -470,16 +782,34 @@ function doSaveSettings(payload, options) {
         showTrashPathChangeDialog(payload, options);
         return;
     }
-    // Reset the guard after passing the check. This ensures:
-    // 1. The guard only suppresses one recursive call (the immediate callback from the dialog).
-    // 2. If the user later changes the path again, the dialog will show again as expected.
-    _trashPathChangeHandled = false;
+    // _trashPathChangeHandled is NOT reset here. It is reset to false immediately
+    // inside the onSuccess callback of each guarded doSaveSettings() call in
+    // showTrashPathChangeDialog, so the guard only suppresses the single recursive
+    // call it was set for, and a future path-change triggers the dialog again.
 
     if (!quiet) {
-        btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
+        _saveBandSaving = true;
+        if (btn) btn.disabled = true;
+        renderSaveBand('saving');
     }
 
-    apiPost('JellyfinHelper/Configuration', payload, function (response) {
+    // PluginLogLevel used to be race-prone here: the Settings form captured it at page load, so a
+    // concurrent change from the Logs tab would be silently overwritten on save. That race is now
+    // closed on the SERVER (ConfigurationController.ApplyRequestToConfig ignores the field on POST;
+    // only PUT /Configuration/LogLevel mutates it). We therefore no longer need a preflight GET -
+    // whatever we send here is discarded server-side and the on-disk value is preserved.
+    postSettingsPayload(payload, quiet, indicatorEl, btn, options);
+}
+
+/**
+ * Internal: performs the actual POST once the caller has validated the payload. Extracted from
+ * doSaveSettings mainly to keep the trash-path / recursion guards separate from the network call.
+ * PluginLogLevel is intentionally NOT rewritten here - the server-side handler
+ * (ConfigurationController.ApplyRequestToConfig) ignores that field, so whatever the client sends
+ * is preserved server-side. See the block comment in doSaveSettings for the TOCTOU history.
+ */
+function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
+    apiPut('JellyfinHelper/Configuration', payload, function (response) {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;
         _previousTrashPath = (payload.TrashFolderPath || '.jellyfin-trash').trim();
@@ -495,8 +825,11 @@ function doSaveSettings(payload, options) {
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, true);
         } else {
-            btn.disabled = false;
-            showButtonFeedback(btn, true, T('settingsSaved', 'Settings saved!'), T('saveSettings', 'Save Settings'));
+            // Clear the in-flight guard first, then let the band reflect the now
+            // clean state ("All changes saved", which auto-fades).
+            _saveBandSaving = false;
+            if (btn) btn.disabled = false;
+            refreshSaveBand();
         }
 
         initArrButtons(payload);
@@ -535,18 +868,21 @@ function doSaveSettings(payload, options) {
              message: errorMsg, snippet: diag.snippet});
 
         if (quiet) {
+            _saveBandSaving = false;
             showAutoSaveIndicatorOverlay(indicatorEl, false);
+            renderSaveBand('error');
             if (options && typeof options.onError === 'function') {
                 options.onError(errorMsg);
             }
         } else {
-            btn.disabled = false;
-            showButtonFeedback(
-                btn,
-                false,
-                buildSaveErrorLabel(diag, errorMsg),
-                T('saveSettings', 'Save Settings'),
-                6000);
+            _saveBandSaving = false;
+            if (btn) btn.disabled = false;
+            renderSaveBand('error');
+            // Override the generic error text with a diagnostic-aware label
+            // (server message > proxy/network/auth hint > generic fallback).
+            var band = getSaveBand();
+            var errText = band ? band.querySelector('.settings-save-band-text') : null;
+            if (errText) errText.textContent = buildSaveErrorLabel(diag, errorMsg); // textContent intentional - prevents XSS from server error messages
         }
 
         // When the HTTP layer looks like something between the browser and Jellyfin
@@ -562,7 +898,7 @@ function doSaveSettings(payload, options) {
 }
 
 /**
- * Compose a compact user-facing error label for the save button.
+ * Compose a compact user-facing error label for the save band.
  * Priority: server-provided message > HTTP status hint > generic fallback.
  *
  * @param {{status:number,statusText:string,kind:string}} diag
@@ -592,7 +928,7 @@ function buildSaveErrorLabel(diag, serverMessage) {
 /**
  * Fires the /Ping endpoint after a failed save to distinguish
  * "backend unreachable" from "backend reachable, payload rejected".
- * Purely informational: writes a diagnostic line to console.  Never
+ * Purely informational: writes a diagnostic line to console. Never
  * throws and never blocks any user-visible flow.
  *
  * @param {{status:number,statusText:string,kind:string,snippet:string}} originalDiag
@@ -644,7 +980,7 @@ function showTrashDisableDialog(payload) {
             + '\n\n' + T('trashDisableQuestion', 'What should happen with these folders?');
 
         removeTrashDialog();
-        var d = createDialogOverlay('trashDialogOverlay', T('trashDisableTitle', 'Trash Folders Detected'), getCssVar('--color-danger', '#e74c3c'), bodyText, false);
+        var d = createDialogOverlay('trashDialogOverlay', T('trashDisableTitle', 'Trash Folders Detected'), getCssVar('--color-danger', '#e74c3c'), bodyText);
 
         d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
             removeTrashDialog();
@@ -654,10 +990,12 @@ function showTrashDisableDialog(payload) {
         }));
         d.btnRow.appendChild(createDialogBtn(T('trashKeep', 'Keep Folders'), 'success', function () {
             removeTrashDialog();
+            if (saveBtn) saveBtn.disabled = false;
             doSaveSettings(payload);
         }));
         d.btnRow.appendChild(createDialogBtn(T('trashDelete', 'Delete Folders'), 'danger', function () {
             removeTrashDialog();
+            if (saveBtn) saveBtn.disabled = false;
             showTrashDeleteConfirmation(payload, paths);
         }));
 
@@ -675,37 +1013,37 @@ function showTrashDeleteConfirmation(payload, paths) {
         + formatPathList(paths)
         + '\n\n' + T('trashDeleteConfirmWarn', 'This action cannot be undone!');
 
-    var d = createDialogOverlay('trashDialogOverlay', T('trashDeleteConfirmTitle', 'Are you sure?'), getCssVar('--color-danger', '#e74c3c'), bodyText, false);
+    var d = createDialogOverlay('trashDialogOverlay', T('trashDeleteConfirmTitle', 'Are you sure?'), getCssVar('--color-danger', '#e74c3c'), bodyText);
 
     d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
         removeTrashDialog();
         var chk = document.getElementById('cfgTrash');
         if (chk) chk.checked = true;
-        saveBtn.disabled = false;
+        if (saveBtn) saveBtn.disabled = false;
     }));
     d.btnRow.appendChild(createDialogBtn(T('trashDeleteConfirmOk', 'Yes, Delete All'), 'danger', function () {
         removeTrashDialog();
-        msg.innerHTML = '<div style="opacity:0.6;">' + T('trashDeleting', 'Deleting trash folders…') + '</div>';
+        msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashDeleting', 'Deleting trash folders…')) + '</div>';
 
         apiDelete('JellyfinHelper/Trash/Folders', function (result) {
             var summary = '';
             var statusClass = 'success-msg';
             if (result.deleted > 0) {
-                summary += mi('check_circle') + ' ' + T('trashDeletedCount', 'Deleted') + ': ' + result.deleted + ' ' + T('folders', 'folders');
+                summary += mi('check_circle') + ' ' + escHtml(T('trashDeletedCount', 'Deleted')) + ': ' + (Math.max(0, parseInt(result.deleted, 10) || 0)) + ' ' + escHtml(T('folders', 'folders'));
             }
             if (result.failed > 0) {
-                summary += (summary ? ' | ' : '') + mi('error') + ' ' + T('trashFailedCount', 'Failed') + ': ' + result.failed;
+                summary += (summary ? ' | ' : '') + mi('error') + ' ' + escHtml(T('trashFailedCount', 'Failed')) + ': ' + (Math.max(0, parseInt(result.failed, 10) || 0));
                 statusClass = 'error-msg';
             }
             if (!summary) {
-                summary = mi('error') + ' ' + T('trashDeleteError', 'Failed to delete trash folders.');
+                summary = mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.'));
                 statusClass = 'error-msg';
             }
             msg.innerHTML = '<div class="' + statusClass + '">' + summary + '</div>';
             doSaveSettings(payload);
         }, function () {
-            msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashDeleteError', 'Failed to delete trash folders.') + '</div>';
-            saveBtn.disabled = false;
+            msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.')) + '</div>';
+            if (saveBtn) saveBtn.disabled = false;
         });
     }));
 
@@ -757,13 +1095,13 @@ function triggerBackupExport() {
             URL.revokeObjectURL(blobUrl);
         }, 5000);
 
-        msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('backupExportSuccess', 'Backup exported successfully.') + '</div>';
+        msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('backupExportSuccess', 'Backup exported successfully.')) + '</div>';
         btn.disabled = false;
         setTimeout(function () {
             msg.innerHTML = '';
         }, 5000);
     }, function (err) {
-        var errorText = T('backupExportError', 'Failed to export backup.');
+        var errorText = escHtml(T('backupExportError', 'Failed to export backup.'));
         var response = err && (err.responseJSON || err);
         if (response && response.message) {
             errorText = escHtml(response.message);
@@ -779,7 +1117,7 @@ function triggerBackupImport(file) {
 
     // Client-side size check (10 MB)
     if (file.size > 10 * 1024 * 1024) {
-        msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('backupFileTooLarge', 'File too large. Maximum size is 10 MB.') + '</div>';
+        msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('backupFileTooLarge', 'File too large. Maximum size is 10 MB.')) + '</div>';
         return;
     }
 
@@ -790,11 +1128,23 @@ function triggerBackupImport(file) {
 function showBackupImportConfirmation(file) {
     removeBackupDialog();
 
-    var bodyHtml = '<p>' + T('backupImportConfirmMsg', 'This will overwrite your current settings, Arr integrations, and trend data with the backup data.') + '</p>'
-        + '<p><strong>' + T('backupImportConfirmFile', 'File') + ':</strong> ' + escHtml(file.name) + ' (' + formatBytes(file.size) + ')</p>'
-        + '<p class="color-danger">' + T('backupImportConfirmWarn', 'This action cannot be undone!') + '</p>';
+    var d = createDialogOverlay('backupDialogOverlay', T('backupImportConfirmTitle', 'Import Backup'), getCssVar('--color-primary', '#00a4dc'), '');
 
-    var d = createDialogOverlay('backupDialogOverlay', T('backupImportConfirmTitle', 'Import Backup'), getCssVar('--color-primary', '#00a4dc'), bodyHtml, true);
+    var p1 = document.createElement('p');
+    p1.textContent = T('backupImportConfirmMsg', 'This will overwrite your current settings, Arr integrations, and trend data with the backup data.');
+    d.body.appendChild(p1);
+
+    var p2 = document.createElement('p');
+    var strong = document.createElement('strong');
+    strong.textContent = T('backupImportConfirmFile', 'File') + ': ';
+    p2.appendChild(strong);
+    p2.appendChild(document.createTextNode(file.name + ' (' + formatBytes(file.size) + ')'));
+    d.body.appendChild(p2);
+
+    var p3 = document.createElement('p');
+    p3.className = 'color-danger';
+    p3.textContent = T('backupImportConfirmWarn', 'This action cannot be undone!');
+    d.body.appendChild(p3);
 
     d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
         removeBackupDialog();
@@ -813,7 +1163,7 @@ function removeBackupDialog() {
 
 function doBackupImport(file) {
     var msg = document.getElementById('backupMsg');
-    msg.innerHTML = '<div style="opacity:0.6;">' + T('backupImporting', 'Importing backup…') + '</div>';
+    msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('backupImporting', 'Importing backup…')) + '</div>';
 
     var reader = new FileReader();
     reader.onload = function (e) {
@@ -823,32 +1173,38 @@ function doBackupImport(file) {
         try {
             JSON.parse(json);
         } catch (parseErr) {
-            msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('backupInvalidJson', 'Invalid backup file. The file does not contain valid JSON.') + '</div>';
+            msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('backupInvalidJson', 'Invalid backup file. The file does not contain valid JSON.')) + '</div>';
             return;
         }
 
         apiPostRaw('JellyfinHelper/Backup/Import', json, 'application/json', function (result) {
-            var data = typeof result === 'string' ? JSON.parse(result) : result;
+            var data;
+            try {
+                data = typeof result === 'string' ? JSON.parse(result) : result;
+            } catch (jsonErr) {
+                msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('backupInvalidJson', 'Invalid backup file. The file does not contain valid JSON.')) + '</div>';
+                return;
+            }
             var summary = data.Summary || data.summary || {};
             var parts = [];
             if (summary.ConfigurationRestored || summary.configurationRestored) parts.push(T('backupConfigRestored', 'Settings'));
             if (summary.TimelineRestored || summary.timelineRestored) parts.push(T('backupTimelineRestored', 'Growth Timeline'));
             if (summary.BaselineRestored || summary.baselineRestored) parts.push(T('backupBaselineRestored', 'Baseline'));
 
-            var successMsg = mi('check_circle') + ' ' + T('backupImportSuccess', 'Backup imported successfully.');
+            var successMsg = mi('check_circle') + ' ' + escHtml(T('backupImportSuccess', 'Backup imported successfully.'));
             if (parts.length > 0) {
-                successMsg += ' (' + parts.join(', ') + ')';
+                successMsg += ' (' + parts.map(escHtml).join(', ') + ')';
             }
 
             // Show warnings if any
             var warnings = data.Warnings || data.warnings || [];
             if (warnings.length > 0) {
-                successMsg += '<br><span class="color-warning">' + warnings.length + ' ' + T('backupWarnings', 'warning(s)') + ':</span>';
+                successMsg += '<br><span class="color-warning">' + warnings.length + ' ' + escHtml(T('backupWarnings', 'warning(s)')) + ':</span>';
                 for (var i = 0; i < Math.min(warnings.length, 5); i++) {
                     successMsg += '<br><span style="opacity:0.7;font-size:0.85em;">• ' + escHtml(warnings[i]) + '</span>';
                 }
                 if (warnings.length > 5) {
-                    successMsg += '<br><span style="opacity:0.5;font-size:0.85em;">' + T('andMore', 'and') + ' ' + (warnings.length - 5) + ' ' + T('more', 'more') + '</span>';
+                    successMsg += '<br><span style="opacity:0.5;font-size:0.85em;">' + escHtml(T('andMore', 'and')) + ' ' + (warnings.length - 5) + ' ' + escHtml(T('more', 'more')) + '</span>';
                 }
             }
 
@@ -878,7 +1234,7 @@ function doBackupImport(file) {
                 });
             }, 1500);
         }, function (err) {
-            var errorText = T('backupImportError', 'Failed to import backup.');
+            var errorText = escHtml(T('backupImportError', 'Failed to import backup.'));
             try {
                 var response = err && (err.responseJSON || (typeof err.responseText === 'string' ? JSON.parse(err.responseText) : null));
                 if (response && response.message) {
@@ -890,7 +1246,7 @@ function doBackupImport(file) {
         });
     };
     reader.onerror = function () {
-        msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('backupImportError', 'Failed to import backup.') + '</div>';
+        msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('backupImportError', 'Failed to import backup.')) + '</div>';
     };
     reader.readAsText(file);
 }
@@ -914,11 +1270,11 @@ function attachSeerrHandlers() {
             return;
         }
         btn.disabled = true;
-        btn.innerHTML = '<span class="btn-spinner"></span>' + T('testing', 'Testing…');
+        btn.innerHTML = '<span class="btn-spinner"></span>' + escHtml(T('testing', 'Testing…'));
         apiPost('JellyfinHelper/Seerr/Test', {Url: url, ApiKey: key}, function (res) {
             btn.disabled = false;
             if (res && res.success) {
-                _seerrTimer = showButtonFeedback(btn, true, escHtml(res.message || 'OK'), originalHtml);
+                _seerrTimer = showButtonFeedback(btn, true, res.message || 'OK', originalHtml);
                 // Auto-save settings after successful connection test (quiet to avoid double feedback)
                 var payload = buildSettingsPayload();
                 doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderSeerr')});
@@ -927,7 +1283,7 @@ function attachSeerrHandlers() {
                 // Refresh the Discovery wrapper (depends on Seerr being configured)
                 refreshDiscoveryAccessState();
             } else {
-                _seerrTimer = showButtonFeedback(btn, false, escHtml(res.message || 'Failed'), originalHtml);
+                _seerrTimer = showButtonFeedback(btn, false, res.message || 'Failed', originalHtml);
             }
         }, function () {
             btn.disabled = false;
@@ -1282,7 +1638,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     // Dropdown panel (hidden by default)
     h += '<div class="library-multiselect-panel" style="display:none;">';
     if (libraries.length === 0) {
-        h += '<div class="help-text" style="padding:0.5em;">' + T('noData', 'No data') + '</div>';
+        h += '<div class="help-text" style="padding:0.5em;">' + escHtml(T('noData', 'No data')) + '</div>';
     } else {
         for (var i = 0; i < libraries.length; i++) {
             var lib = libraries[i];
@@ -1325,7 +1681,7 @@ function toggleLibraryDropdown(btn) {
     if (!panel) return;
     var isOpen = panel.style.display !== 'none';
     panel.style.display = isOpen ? 'none' : 'block';
-    // Chevron stays as expand_more (pointing down) regardless of state — matches native <select> behavior
+    // Chevron stays as expand_more (pointing down) regardless of state - matches native <select> behavior
 }
 
 /**
@@ -1454,6 +1810,34 @@ function attachTrashDaysInputHandler() {
  * @param {boolean} useTrash - Whether the trash feature is enabled.
  * @returns {string|null}
  */
+// Mirror of the server-side PathValidator.IsSensitiveSystemPath canonical list. Kept in
+// sync with Services/PathValidator.cs - a protected system/app directory that the trash
+// path (and the folder picker) must never point at. Only meaningful for ABSOLUTE paths;
+// a relative path like ".jellyfin-trash" is resolved under each library and is never
+// sensitive. Client-side check is UX only; the server enforces the real boundary.
+var SENSITIVE_SYSTEM_ROOTS = [
+    '/config', '/cache', '/data', '/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64',
+    '/boot', '/proc', '/sys', '/dev', '/var', '/root', '/run',
+    'C:\\Windows', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\ProgramData'
+];
+
+function isSensitiveSystemPath(path) {
+    if (!path) return false;
+    // Only absolute paths can be sensitive (a leading / or a Windows drive/UNC prefix).
+    var isAbsolute = /^([/\\]|[A-Za-z]:[/\\]|\\\\)/.test(path);
+    if (!isAbsolute) return false;
+    // Normalize separators to '/' and case-fold for a stable comparison (Windows roots are
+    // case-insensitive; on Linux the standard mounts are lowercase anyway).
+    var norm = path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    for (var i = 0; i < SENSITIVE_SYSTEM_ROOTS.length; i++) {
+        var root = SENSITIVE_SYSTEM_ROOTS[i].replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+        if (norm === root || norm.indexOf(root + '/') === 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function validateTrashPath(path, useTrash) {
     // When trash is disabled, path is irrelevant
     if (!useTrash) return null;
@@ -1468,6 +1852,15 @@ function validateTrashPath(path, useTrash) {
     // 1. Global invalid characters (filesystem-unsafe + control chars)
     if (/[*?<>|"\x00-\x1f]/.test(trimmed)) {
         return T('trashPathInvalidChars', 'Path contains invalid characters.');
+    }
+
+    // 1b. An ABSOLUTE path must not point at a protected system / application directory
+    // (Jellyfin's own /config, /data, /cache, OS roots like /etc, C:\Windows). Mirrors the
+    // shared server-side guard (PathValidator.IsSensitiveSystemPath) so the user gets the
+    // same immediate, inline feedback the picker gives - before the save round-trips and is
+    // rejected with a 400. A relative path (the common ".jellyfin-trash") is never sensitive.
+    if (isSensitiveSystemPath(trimmed)) {
+        return T('trashPathSensitive', 'This is a protected system folder and cannot be used.');
     }
 
     // 2. Must not end with slash or backslash
@@ -1496,7 +1889,7 @@ function validateTrashPath(path, useTrash) {
     for (var i = 0; i < segments.length; i++) {
         var seg = segments[i];
 
-        // Empty segment (defensive — should not happen after double-slash check)
+        // Empty segment (defensive - should not happen after double-slash check)
         if (!seg) {
             return T('trashPathInvalid', 'The trash folder path is invalid.');
         }
@@ -1582,13 +1975,14 @@ function showTrashPathChangeDialog(payload, options) {
     apiPost('JellyfinHelper/Trash/FoldersForPath', {TrashFolderPath: oldPath}, function (data) {
         var paths = (data && data.Paths) || [];
         if (paths.length === 0) {
-            // No old content exists — save directly, update tracking on success.
+            // No old content exists - save directly, update tracking on success.
             // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
             _trashPathChangeHandled = true;
             doSaveSettings(payload, {
                 quiet: !!(options && options.quiet),
                 element: (options && options.element) || null,
                 onSuccess: function () {
+                    _trashPathChangeHandled = false;
                     _previousTrashPath = newPath;
                     if (options && typeof options.onSuccess === 'function') options.onSuccess();
                 },
@@ -1602,9 +1996,9 @@ function showTrashPathChangeDialog(payload, options) {
             + '\n\n' + T('trashPathChangeQuestion', 'What should happen with the existing trash content?');
 
         removeTrashDialog();
-        var d = createDialogOverlay('trashDialogOverlay', T('trashPathChangeTitle', 'Trash Path Changed'), getCssVar('--color-primary', '#00a4dc'), bodyText, false);
+        var d = createDialogOverlay('trashDialogOverlay', T('trashPathChangeTitle', 'Trash Path Changed'), getCssVar('--color-primary', '#00a4dc'), bodyText);
 
-        // Cancel button — revert the path in the input
+        // Cancel button - revert the path in the input
         d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
             removeTrashDialog();
             var input = document.getElementById('cfgTrashPath');
@@ -1619,31 +2013,32 @@ function showTrashPathChangeDialog(payload, options) {
             // Extracted helper: saves settings then relocates trash content.
             // Used by both the access-check success path and the graceful-degradation fallback.
             function doRelocateTrash() {
-                if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathMoving', 'Moving trash content…') + '</div>';
+                if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathMoving', 'Moving trash content…')) + '</div>';
                 _trashPathChangeHandled = true;
                 doSaveSettings(payload, {
                     quiet: !!(options && options.quiet),
                     element: (options && options.element) || null,
                     onSuccess: function () {
+                        _trashPathChangeHandled = false;
                         _previousTrashPath = newPath;
                         apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
                             var moved = result && result.Moved || 0;
                             var failed = result && result.Failed || 0;
                             if (failed === 0 && moved > 0) {
                                 if (msg) {
-                                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathMoveSuccess', 'Trash content moved successfully.') + '</div>';
+                                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('trashPathMoveSuccess', 'Trash content moved successfully.')) + '</div>';
                                     setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
                                 }
                             } else if (failed > 0) {
-                                var partial = T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed);
+                                var partial = escHtml(T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed));
                                 if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
                             } else {
                                 // 0 moved, 0 failed: likely a permission issue on the source or empty source
-                                if (msg) msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.') + '</div>';
+                                if (msg) msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + escHtml(T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.')) + '</div>';
                             }
                             if (options && typeof options.onSuccess === 'function') options.onSuccess();
                         }, function () {
-                            if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashPathMoveError', 'Failed to move trash content.') + '</div>';
+                            if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashPathMoveError', 'Failed to move trash content.')) + '</div>';
                             if (options && typeof options.onSuccess === 'function') options.onSuccess();
                         });
                     },
@@ -1653,12 +2048,12 @@ function showTrashPathChangeDialog(payload, options) {
                 });
             }
 
-            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathCheckingAccess', 'Checking permissions…') + '</div>';
+            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathCheckingAccess', 'Checking permissions…')) + '</div>';
 
             // Proactive access check on the NEW path before attempting relocation
             apiPost('JellyfinHelper/Trash/CheckAccess', {TrashFolderPath: newPath}, function (accessData) {
                 if (accessData && accessData.AllAccessible === false) {
-                    // Access check failed — show the specific error from the server
+                    // Access check failed - show the specific error from the server
                     var accessErrors = (accessData.Results || []).filter(function(r) { return !r.HasFullAccess; });
                     var errorDetail = accessErrors.length > 0 ? (accessErrors[0].ErrorMessage || '') : '';
                     var errorText = errorDetail || T('trashPathAccessDenied', 'Permission denied on new trash path.');
@@ -1668,7 +2063,7 @@ function showTrashPathChangeDialog(payload, options) {
                 }
                 doRelocateTrash();
             }, function () {
-                // CheckAccess API call failed — proceed with move anyway (graceful degradation)
+                // CheckAccess API call failed - proceed with move anyway (graceful degradation)
                 doRelocateTrash();
             });
         }));
@@ -1676,41 +2071,43 @@ function showTrashPathChangeDialog(payload, options) {
         // Delete & start fresh button
         d.btnRow.appendChild(createDialogBtn(T('trashPathDeleteContent', 'Delete & Start Fresh'), 'danger', function () {
             removeTrashDialog();
-            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathDeleting', 'Deleting old trash content…') + '</div>';
+            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathDeleting', 'Deleting old trash content…')) + '</div>';
 
             // Delete old folders first (uses current saved config which still has old path)
             apiDelete('JellyfinHelper/Trash/Folders', function () {
                 if (msg) {
-                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathDeleteSuccess', 'Old trash content deleted.') + '</div>';
+                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('trashPathDeleteSuccess', 'Old trash content deleted.')) + '</div>';
                     setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
                 }
-                // Now save the new path — update tracking only on success.
+                // Now save the new path - update tracking only on success.
                 // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
                 _trashPathChangeHandled = true;
                 doSaveSettings(payload, {
                     quiet: !!(options && options.quiet),
                     element: (options && options.element) || null,
                     onSuccess: function () {
+                        _trashPathChangeHandled = false;
                         _previousTrashPath = newPath;
                         if (options && typeof options.onSuccess === 'function') options.onSuccess();
                     },
                     onError: (options && options.onError) || undefined
                 });
             }, function () {
-                if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashDeleteError', 'Failed to delete trash folders.') + '</div>';
+                if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.')) + '</div>';
                 if (saveBtn) saveBtn.disabled = false;
             });
         }));
 
         document.body.appendChild(d.overlay);
     }, function () {
-        // API error checking old path — proceed with save anyway, update tracking on success.
+        // API error checking old path - proceed with save anyway, update tracking on success.
         // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
         _trashPathChangeHandled = true;
         doSaveSettings(payload, {
             quiet: !!(options && options.quiet),
             element: (options && options.element) || null,
             onSuccess: function () {
+                _trashPathChangeHandled = false;
                 _previousTrashPath = newPath;
                 if (options && typeof options.onSuccess === 'function') options.onSuccess();
             },
@@ -1722,8 +2119,8 @@ function showTrashPathChangeDialog(payload, options) {
 function saveSettings() {
     var btn = document.getElementById('btnSaveSettings');
     var msg = document.getElementById('settingsMsg');
-    btn.disabled = true;
-    msg.innerHTML = '';
+    if (btn) btn.disabled = true;
+    if (msg) msg.innerHTML = '';
 
     var payload = buildSettingsPayload();
 
@@ -1731,7 +2128,7 @@ function saveSettings() {
     var trashError = validateTrashPath(payload.TrashFolderPath, payload.UseTrash);
     if (trashError) {
         showTrashPathError(trashError);
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
         return;
     }
     showTrashPathError(null); // Clear any previous error

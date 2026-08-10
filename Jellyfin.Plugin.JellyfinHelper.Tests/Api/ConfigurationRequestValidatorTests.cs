@@ -274,7 +274,7 @@ public class ConfigurationRequestValidatorTests
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
 
-        // Absolute path variant — also valid and must pass Validate().
+        // Absolute path variant - also valid and must pass Validate().
         var reqWithAbsolutePath = new ConfigurationUpdateRequest
         {
             UseTrash = true,
@@ -291,7 +291,7 @@ public class ConfigurationRequestValidatorTests
         // Demonstrates that ValidateTrashPath (advisory) and ValidateTrashPathStrict (blocking)
         // are separate layers. A path with ".." triggers BOTH: a warning from the advisory method
         // AND an error from the strict method. This proves Validate() correctly uses only the strict
-        // check — it does not need to suppress warnings because they operate independently.
+        // check - it does not need to suppress warnings because they operate independently.
         const string escapingPath = "../../escape";
 
         // Advisory method: produces a warning (non-null)
@@ -340,7 +340,7 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void ValidateTrashPath_ReturnsWarning_ForDotPath()
     {
-        // "." resolves to the library root itself — admin should be warned.
+        // "." resolves to the library root itself - admin should be warned.
         var warning = ConfigurationRequestValidator.ValidateTrashPath(".");
         Assert.NotNull(warning);
         Assert.Contains("resolves to the library root itself", warning);
@@ -352,11 +352,20 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void ValidateTrashPathStrict_ReturnsNull_WhenTrashDisabled()
     {
-        // When trash is disabled, any path is acceptable (validation is skipped)
-        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("/*", false));
-        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("/\\", false));
+        // Empty/null paths are accepted even when trash is disabled (nothing to validate).
         Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("", false));
         Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(null, false));
+        // Safe paths are also accepted when trash is disabled.
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(".jellyfin-trash", false));
+    }
+
+    [Fact]
+    public void ValidateTrashPathStrict_RejectsInvalidChars_EvenWhenTrashDisabled()
+    {
+        // SEC: format checks run regardless of useTrash so a malicious path cannot be
+        // stored when trash is disabled and activated later when trash is re-enabled.
+        Assert.NotNull(ConfigurationRequestValidator.ValidateTrashPathStrict("/*", false));
+        Assert.NotNull(ConfigurationRequestValidator.ValidateTrashPathStrict("/\\", false));
     }
 
     [Fact]
@@ -437,9 +446,10 @@ public class ConfigurationRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_ReturnsNull_ForInvalidTrashPath_WhenTrashDisabled()
+    public void Validate_RejectsInvalidTrashPath_EvenWhenTrashDisabled()
     {
-        // When UseTrash is false, invalid paths are allowed (they're irrelevant)
+        // SEC: format checks run regardless of useTrash so a malicious path cannot be
+        // persisted while disabled and activated later.
         var req = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 7,
@@ -447,7 +457,7 @@ public class ConfigurationRequestValidatorTests
             UseTrash = false,
             TrashFolderPath = "/*"
         };
-        Assert.Null(ConfigurationRequestValidator.Validate(req));
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
 
     [Fact]
@@ -486,5 +496,32 @@ public class ConfigurationRequestValidatorTests
         var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
         Assert.NotNull(error);
         Assert.Contains("'.'", error);
+    }
+
+    [Theory]
+    [InlineData("/config")]
+    [InlineData("/config/data")]
+    [InlineData("/etc")]
+    [InlineData("/var/lib")]
+    public void ValidateTrashPathStrict_RejectsAbsoluteSensitiveSystemPath_Posix(string path)
+    {
+        // An absolute trash path pointing at a protected system/app dir must be refused,
+        // matching what the folder picker and the shared PathValidator guard enforce.
+        if (OperatingSystem.IsWindows()) return;
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
+        Assert.NotNull(error);
+        Assert.Contains("protected system folder", error);
+    }
+
+    [Theory]
+    [InlineData(".jellyfin-trash")]
+    [InlineData("trash/bin")]
+    [InlineData("MyTrash")]
+    public void ValidateTrashPathStrict_AllowsRelativePath_EvenIfSegmentLooksSystemish(string path)
+    {
+        // A RELATIVE path is resolved under each library at runtime and is never sensitive;
+        // the sensitive-path guard applies only to absolute paths.
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
+        Assert.Null(error);
     }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
@@ -13,10 +14,20 @@ internal static class JsonDefaults
     /// Gets the shared JSON serializer options used by all plugin services.
     /// Configured with camelCase property naming, indented output, and case-insensitive deserialization.
     /// </summary>
-    internal static JsonSerializerOptions Options { get; } = new()
+    private static readonly JsonSerializerOptions _options = CreateOptions();
+
+    internal static JsonSerializerOptions Options => _options;
+
+    private static JsonSerializerOptions CreateOptions()
     {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-    };
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true,
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+        };
+        options.MakeReadOnly();
+        return options;
+    }
 }

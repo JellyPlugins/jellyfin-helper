@@ -49,10 +49,16 @@ public class MediaExtensionsTests
 
     [Theory]
     [InlineData(".nfo")]
-    [InlineData(".xml")]
     public void NfoExtensions_ContainsKnownFormats(string ext)
     {
         Assert.Contains(ext, MediaExtensions.NfoExtensions);
+    }
+
+    [Fact]
+    public void NfoExtensions_DoesNotContainVideoOrSubtitleExtensions()
+    {
+        Assert.DoesNotContain(".nfo", MediaExtensions.VideoExtensions);
+        Assert.DoesNotContain(".nfo", MediaExtensions.SubtitleExtensions);
     }
 
     [Theory]
@@ -60,9 +66,9 @@ public class MediaExtensionsTests
     [InlineData(".flac")]
     [InlineData(".opus")]
     [InlineData(".m4a")]
-    public void AudioExtensions_ContainsKnownFormats(string ext)
+    public void AudioExtensionToCodec_ContainsKnownFormats(string ext)
     {
-        Assert.Contains(ext, MediaExtensions.AudioExtensions);
+        Assert.True(MediaExtensions.AudioExtensionToCodec.ContainsKey(ext));
     }
 
     [Theory]
@@ -101,5 +107,49 @@ public class MediaExtensionsTests
     {
         Assert.Contains("EN", MediaExtensions.KnownLanguageCodes);
         Assert.Contains("ENG", MediaExtensions.KnownLanguageCodes);
+    }
+
+    // ===== Negative tests =====
+
+    [Theory]
+    [InlineData(".srt")]
+    [InlineData(".ass")]
+    [InlineData(".vtt")]
+    public void VideoExtensions_DoesNotContainSubtitleExtensions(string ext)
+    {
+        Assert.DoesNotContain(ext, MediaExtensions.VideoExtensions);
+    }
+
+    [Theory]
+    [InlineData(".mkv")]
+    [InlineData(".mp4")]
+    [InlineData(".avi")]
+    public void SubtitleExtensions_DoesNotContainVideoExtensions(string ext)
+    {
+        Assert.DoesNotContain(ext, MediaExtensions.SubtitleExtensions);
+    }
+
+    [Fact]
+    public void AudioExtensionToCodec_DoesNotContainVideoExtension()
+    {
+        Assert.False(MediaExtensions.AudioExtensionToCodec.ContainsKey(".mkv"));
+    }
+
+    [Fact]
+    public void VideoExtensions_ContainsStrm()
+    {
+        // .strm is intentionally included so cleanup tasks (trickplay, orphaned subtitles,
+        // empty-folder detection) correctly recognise .strm-based libraries as having video content.
+        // LinkRepairService.FindMediaFilesInDirectory excludes .strm separately so that a link file
+        // is never treated as a repair candidate for another link file.
+        Assert.Contains(MediaExtensions.StrmExtension, MediaExtensions.VideoExtensions);
+    }
+
+    [Fact]
+    public void KnownLanguageCodes_DoesNotContainAudioCodecAbbreviations()
+    {
+        Assert.DoesNotContain("dts", MediaExtensions.KnownLanguageCodes);
+        Assert.DoesNotContain("hdr", MediaExtensions.KnownLanguageCodes);
+        Assert.DoesNotContain("aac", MediaExtensions.KnownLanguageCodes);
     }
 }

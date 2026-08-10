@@ -1,5 +1,9 @@
+using System;
+using System.IO;
+using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
@@ -118,5 +122,73 @@ public class StrmLinkHandlerTests
         _handler.WriteTarget(linkFile, "/new/path.mkv");
 
         Assert.Equal("/new/path.mkv", _fileSystem.File.ReadAllText(linkFile));
+    }
+
+    [Fact]
+    public void WriteTarget_LeavesNoTempFileAndDoesNotTruncateInPlace()
+    {
+        // Crash-safety guard: the write must stage to a sibling temp and atomically move it over the
+        // target (never truncate-then-write in place, which loses the pointer on an interrupted write).
+        // After a successful write the temp file must not linger, and the content must be exact.
+        var linkFile = _fileSystem.Path.GetFullPath("/series/episode.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("/old/path.mkv"));
+
+        _handler.WriteTarget(linkFile, "/new/path.mkv");
+
+        Assert.Equal("/new/path.mkv", _fileSystem.File.ReadAllText(linkFile));
+        Assert.False(
+            _fileSystem.File.Exists(linkFile + ".jfh-tmp"),
+            "the staging temp file must not remain after a successful atomic write");
+    }
+
+    [Fact]
+    public void WriteTarget_WhenMoveFails_DeletesTempAndRethrows_WithoutTruncatingOriginal()
+    {
+        // ERROR-PATH GUARD for the crash-safe write: if the atomic Move fails (IOException), the
+        // handler must delete the staging temp file and rethrow, and must NEVER have touched the
+        // original .strm in place (the whole point of temp+move). Uses a mocked IFileSystem to
+        // deterministically force the Move failure that MockFileSystem cannot inject.
+        var fs = new Mock<IFileSystem>();
+        var file = new Mock<IFile>();
+        fs.SetupGet(f => f.File).Returns(file.Object);
+
+        const string linkFile = "/series/episode.strm";
+        const string tempFile = linkFile + ".jfh-tmp";
+
+        file.Setup(f => f.WriteAllText(tempFile, It.IsAny<string>())); // temp write succeeds
+        file.Setup(f => f.Move(tempFile, linkFile, true)).Throws(new IOException("disk full"));
+        file.Setup(f => f.Exists(tempFile)).Returns(true); // temp exists → must be cleaned up
+
+        var handler = new StrmLinkHandler(fs.Object);
+
+        Assert.Throws<IOException>(() => handler.WriteTarget(linkFile, "/new/path.mkv"));
+
+        // Temp was cleaned up; the original .strm was only ever written via temp (never in place).
+        file.Verify(f => f.Delete(tempFile), Times.Once);
+        file.Verify(f => f.WriteAllText(linkFile, It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void WriteTarget_WhenMoveFailsAndCleanupFails_StillRethrowsOriginal()
+    {
+        // Belt-and-suspenders: even if the best-effort temp cleanup itself throws, the ORIGINAL
+        // write failure must still propagate (the inner cleanup catch must swallow only the
+        // cleanup exception, never mask the real IOException).
+        var fs = new Mock<IFileSystem>();
+        var file = new Mock<IFile>();
+        fs.SetupGet(f => f.File).Returns(file.Object);
+
+        const string linkFile = "/series/episode.strm";
+        const string tempFile = linkFile + ".jfh-tmp";
+
+        file.Setup(f => f.WriteAllText(tempFile, It.IsAny<string>()));
+        file.Setup(f => f.Move(tempFile, linkFile, true)).Throws(new IOException("primary failure"));
+        file.Setup(f => f.Exists(tempFile)).Returns(true);
+        file.Setup(f => f.Delete(tempFile)).Throws(new IOException("cleanup failure"));
+
+        var handler = new StrmLinkHandler(fs.Object);
+
+        var ex = Assert.Throws<IOException>(() => handler.WriteTarget(linkFile, "/new/path.mkv"));
+        Assert.Equal("primary failure", ex.Message);
     }
 }

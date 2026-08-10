@@ -3,12 +3,15 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
@@ -19,11 +22,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize(Policy = "RequiresElevation")]
 [Route("JellyfinHelper/Discovery")]
 [Produces(MediaTypeNames.Application.Json)]
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType(StatusCodes.Status403Forbidden)]
 public sealed class DiscoveryController : ControllerBase
 {
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
+    private readonly ILogger<DiscoveryController> _logger;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="DiscoveryController"/> class.
@@ -31,11 +37,13 @@ public sealed class DiscoveryController : ControllerBase
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="discovery">The discovery service.</param>
     /// <param name="feedbackStore">The discovery feedback store.</param>
-    public DiscoveryController(DiscoveryCacheService cache, ISeerrDiscoveryService discovery, IDiscoveryFeedbackStore feedbackStore)
+    /// <param name="logger">The logger.</param>
+    public DiscoveryController(DiscoveryCacheService cache, ISeerrDiscoveryService discovery, IDiscoveryFeedbackStore feedbackStore, ILogger<DiscoveryController> logger)
     {
         _cache = cache;
         _discovery = discovery;
         _feedbackStore = feedbackStore;
+        _logger = logger;
     }
 
     /// <summary>
@@ -54,8 +62,8 @@ public sealed class DiscoveryController : ControllerBase
         {
             var excluded = BuildExcludedItemKeys(userResult.UserId);
             var visible = userResult.Recommendations
-                .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType?.ToLowerInvariant() ?? "movie")))
-                .Take(SeerrDiscoveryService.MaxVisiblePerUser)
+                .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, string.IsNullOrWhiteSpace(r.MediaType) ? "movie" : r.MediaType.Trim().ToLowerInvariant())))
+                .Take(_discovery.MaxVisiblePerUser)
                 .ToList();
 
             filtered.Add(new DiscoveryResult
@@ -116,45 +124,32 @@ public sealed class DiscoveryController : ControllerBase
         [FromBody] DiscoveryRequestDto dto,
         CancellationToken cancellationToken)
     {
-        if (dto == null)
+        if (dto is null)
         {
             return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
         }
 
-        if (dto.TmdbId <= 0)
+        // Validate all DataAnnotations and IValidatableObject rules declared on the DTO.
+        // This runs both in the ASP.NET pipeline and in direct unit-test invocations,
+        // so validation is never silently skipped regardless of how the controller is called.
+        var validationResults = new System.Collections.Generic.List<ValidationResult>();
+        var validationContext = new ValidationContext(dto);
+        if (!Validator.TryValidateObject(dto, validationContext, validationResults, validateAllProperties: true))
         {
-            return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
+            var firstError = validationResults[0].ErrorMessage ?? "Invalid request.";
+            return BadRequest(new RequestResult { Success = false, Message = firstError });
         }
 
-        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
-        if (mediaType is not ("movie" or "tv"))
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
-        }
+        var mediaType = dto.MediaType.Trim().ToLowerInvariant();
 
-        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null.
-        // This prevents whitespace-only strings from bypassing validation guards below
-        // and being sent as meaningless overrides to the Seerr API.
         var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
 
-        // Block path traversal attempts, control characters, and excessive length in rootFolder
-        if (rootFolder != null)
+        var callerUserId = GetCurrentUserId();
+
+        if (callerUserId is null)
         {
-            if (rootFolder.Length > 512)
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
-            }
-
-            if (rootFolder.Contains("..", StringComparison.Ordinal) ||
-                rootFolder.TrimStart().StartsWith('~'))
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
-            }
-
-            if (rootFolder.Any(c => char.IsControl(c)))
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Root folder path contains invalid characters." });
-            }
+            _logger.LogWarning("[Discovery] SubmitRequest: no user identity claim in token; cannot scope request mark to caller.");
+            return Unauthorized();
         }
 
         var (success, message) = await _discovery.SubmitRequestAsync(
@@ -174,13 +169,38 @@ public sealed class DiscoveryController : ControllerBase
         // Mark item as requested in cache so it doesn't reappear on page refresh.
         // Best-effort: don't let cache bookkeeping failures turn a successful Seerr
         // request into a 500 response, which would encourage client retries.
+        //
+        // Async variant is preferred here (over the legacy MarkAsRequested sync overload)
+        // because it releases the request thread while AtomicFile's transient-IO retries
+        // sleep - the sync path can block for up to ~200 ms on AV/indexer contention,
+        // which would starve the request pool under a burst of user requests.
+        //
+        // ⚠️ CancellationToken is DELIBERATELY NOT forwarded here. Once Seerr has accepted
+        // the request (a few lines above), the local cache MUST be updated regardless of
+        // whether the HTTP client has disconnected - otherwise the item silently reappears
+        // on the next discovery-page refresh, and the user gets a phantom "please request
+        // this again" prompt for an item they already successfully requested. See the
+        // similar rationale in UserDiscoveryController.SubmitMyRequest.
+        //
+        // Pass the admin caller's Jellyfin user ID so the mark is scoped to their cache
+        // entry, matching the behaviour of UserDiscoveryController.SubmitMyRequest.
         try
         {
-            _cache.MarkAsRequested(dto.TmdbId, mediaType);
+            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, callerUserId, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
-            // Already logged inside MarkAsRequested; swallow to preserve the 200 response.
+            // Already logged inside MarkAsRequestedAsync; swallow to preserve the 200 response
+            // that the client will (or would have, absent cancellation) receive.
+        }
+
+        try
+        {
+            _feedbackStore.RecordRequested(callerUserId.Value, dto.TmdbId, mediaType);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            // best-effort
         }
 
         return Ok(new RequestResult { Success = true, Message = message });
@@ -201,11 +221,23 @@ public sealed class DiscoveryController : ControllerBase
                 excluded.Add(item);
             }
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
-            // Best-effort
+            _logger.LogWarning(ex, "Failed to build excluded item keys for user {UserId}; discovery may show already-requested items", userId);
         }
 
         return excluded;
+    }
+
+    private Guid? GetCurrentUserId()
+    {
+        var claim = User?.FindFirst("Jellyfin-UserId")
+            ?? User?.FindFirst(ClaimTypes.NameIdentifier);
+        if (claim != null && Guid.TryParse(claim.Value, out var parsedUserId))
+        {
+            return parsedUserId;
+        }
+
+        return null;
     }
 }

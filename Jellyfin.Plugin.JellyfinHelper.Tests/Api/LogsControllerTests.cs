@@ -58,7 +58,33 @@ public class LogsControllerTests : IDisposable
 
         var result = _controller.ClearLogs();
 
-        Assert.IsType<OkObjectResult>(result);
+        Assert.IsType<NoContentResult>(result);
         Assert.Equal(0, _log.GetCount());
+    }
+
+    [Fact]
+    public void GetLogs_InvalidMinLevel_Returns400()
+    {
+        var result = _controller.GetLogs(minLevel: "hack");
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void GetLogs_SourceTooLong_Returns400()
+    {
+        var source = new string('x', 201);
+
+        var result = _controller.GetLogs(source: source);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void GetLogs_ValidMinLevel_Returns200()
+    {
+        var result = _controller.GetLogs(minLevel: "warn");
+
+        Assert.IsType<OkObjectResult>(result);
     }
 }

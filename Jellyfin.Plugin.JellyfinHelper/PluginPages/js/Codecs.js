@@ -1,4 +1,5 @@
 // --- Codecs Tab ---
+'use strict';
 
 // Store last scan data for codec detail clicks
 var _lastCodecData = null;
@@ -34,7 +35,7 @@ function showDonutTooltip(container, evt, segment) {
     var html = '<div class="donut-tooltip-header">';
     html += '<span class="donut-tooltip-codec">' + escHtml(info.codec) + '</span>';
     html += '<span class="donut-tooltip-total">' + info.totalCount + ' '
-        + (info.totalCount === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
+        + (info.totalCount === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</span>';
     html += '</div>';
     html += '<div class="donut-tooltip-pct">' + info.totalPct + '%</div>';
 
@@ -45,7 +46,7 @@ function showDonutTooltip(container, evt, segment) {
             var lib = info.libraries[i];
             html += '<tr>';
             html += '<td class="donut-tooltip-lib">' + escHtml(lib.name) + '</td>';
-            html += '<td class="donut-tooltip-count">' + lib.count + ' ' + (lib.count === 1 ? T('file', 'file') : T('files', 'files')) + '</td>';
+            html += '<td class="donut-tooltip-count">' + lib.count + ' ' + (lib.count === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</td>';
             html += '</tr>';
         }
         html += '</tbody></table>';

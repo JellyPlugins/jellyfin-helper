@@ -35,7 +35,7 @@ public static class ControllerTestFactory
         var configServiceMock = new Mock<IPluginConfigurationService>();
         configServiceMock.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration());
         configServiceMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
-        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, new Mock<ILogger<BackupService>>().Object);
+        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, TestMockFactory.CreateLogger<BackupService>().Object);
 
         var controller = new BackupController(
             backupService,
@@ -135,16 +135,37 @@ public static class ControllerTestFactory
     }
 
     /// <summary>
+    /// Tears down the <see cref="Plugin.Instance"/> singleton by nulling it via reflection.
+    /// Call this in <c>Dispose()</c> of test fixtures that set up the singleton to prevent
+    /// cross-test-class contamination.
+    /// </summary>
+    public static void TeardownPluginInstance()
+    {
+        if (Plugin.Instance == null)
+        {
+            return;
+        }
+
+        var setter = typeof(Plugin)
+            .GetProperty(nameof(Plugin.Instance), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            ?.GetSetMethod(nonPublic: true);
+
+        setter?.Invoke(null, [null]);
+    }
+
+    /// <summary>
     /// Adds a JSON body to a controller's request.
     /// </summary>
     /// <param name="controller">The controller to which the JSON body will be added.</param>
     /// <param name="jsonBody">The JSON body content to be added.</param>
     /// <param name="contentLength">The content length of the JSON body. If null, it will be calculated based on the JSON body content.</param>
+    /// <param name="requestAborted">Optional cancellation token to inject as HttpContext.RequestAborted.</param>
     /// <returns>The controller with the JSON body added to its request.</returns>
     public static ControllerBase AddJsonBodyToController(
         ControllerBase controller,
         string jsonBody,
-        long? contentLength = null)
+        long? contentLength = null,
+        CancellationToken requestAborted = default)
     {
         var httpContext = new DefaultHttpContext();
         var bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
@@ -153,6 +174,10 @@ public static class ControllerTestFactory
         httpContext.Response.RegisterForDispose(requestBodyStream);
         httpContext.Request.ContentType = "application/json";
         httpContext.Request.ContentLength = contentLength ?? bodyBytes.Length;
+        if (requestAborted != default)
+        {
+            httpContext.RequestAborted = requestAborted;
+        }
 
         controller.ControllerContext = new ControllerContext
         {

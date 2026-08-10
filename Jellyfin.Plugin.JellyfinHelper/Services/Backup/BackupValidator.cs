@@ -122,12 +122,23 @@ public static class BackupValidator
         }
 
         // Timestamp sanity
-        if (backup.CreatedAt < new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        // Normalise Kind before comparing - JSON without a 'Z' suffix deserialises as Unspecified,
+        // which .NET does NOT automatically treat as UTC in comparisons, causing incorrect results.
+        if (backup.CreatedAt.Kind == DateTimeKind.Unspecified)
+        {
+            result.Warnings.Add("Backup CreatedAt has no timezone indicator; treating as UTC.");
+        }
+
+        var createdAtUtc = backup.CreatedAt.Kind == DateTimeKind.Utc
+            ? backup.CreatedAt
+            : DateTime.SpecifyKind(backup.CreatedAt, DateTimeKind.Utc);
+
+        if (createdAtUtc < new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
         {
             result.Warnings.Add($"Backup timestamp is suspiciously old: {backup.CreatedAt:O}");
         }
 
-        if (backup.CreatedAt > DateTime.UtcNow.AddDays(1))
+        if (createdAtUtc > DateTime.UtcNow.AddDays(1))
         {
             result.Warnings.Add($"Backup timestamp is in the future: {backup.CreatedAt:O}");
         }
@@ -187,19 +198,22 @@ public static class BackupValidator
                 $"TrashRetentionDays out of range: {backup.TrashRetentionDays}. Must be 0–{MaxRetentionDays}.");
         }
 
-        // Older backups do not contain this field and deserialize it as 0 - treat as absent.
-        if (backup.SeerrCleanupAgeDays != 0 &&
-            backup.SeerrCleanupAgeDays is < 1 or > MaxRetentionDays)
+        if (backup.SeerrCleanupAgeDays.HasValue &&
+            backup.SeerrCleanupAgeDays is < 0 or > MaxRetentionDays)
         {
             result.Errors.Add(
-                $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
+                $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 0–{MaxRetentionDays}.");
         }
 
-        // Path validation for trash folder — defence in depth:
-        // 1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...})
-        // 2. ValidateTrashPathStrict applies the same structural rules as the settings save API
-        // Always run strict validation when UseTrash is enabled (even if path is empty),
-        // matching the live save flow which rejects empty paths when trash is on.
+        // Path validation for trash folder - defence in depth:
+        //   1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...}).
+        //   2. ValidateTrashPathStrict applies the same structural rules as the settings save API.
+        // Gated on UseTrash by design: a restore must ALWAYS succeed (never hard-400). An unsafe
+        // trash path in a backup is DEFANGED to the default during RestoreConfiguration rather than
+        // rejected here, so this hard error only fires when the operator is actively enabling trash.
+        // The defang in BackupService.RestoreConfiguration is what keeps a traversal/sensitive/
+        // absolute path from ever reaching live config when UseTrash=false. See the e2e contract
+        // "import defangs a traversal trash path (UseTrash off) to the default".
         if (backup.UseTrash)
         {
             if (!string.IsNullOrEmpty(backup.TrashFolderPath))
@@ -360,6 +374,12 @@ public static class BackupValidator
             return;
         }
 
+        if (timeline.DataPoints == null)
+        {
+            result.Warnings.Add("GrowthTimeline has no DataPoints.");
+            return;
+        }
+
         if (timeline.DataPoints.Count > MaxTimelineDataPoints)
         {
             result.Warnings.Add(
@@ -429,19 +449,15 @@ public static class BackupValidator
                 warnedNegativeCount = true;
             }
 
+            if (ContainsScriptInjection(kvp.Key))
+            {
+                result.Errors.Add("Baseline directory path contains potential script injection content.");
+            }
+
             if (kvp.Key.Length > 1000)
             {
                 result.Errors.Add("Baseline directory path exceeds 1000 characters.");
-                break;
             }
-
-            if (!ContainsScriptInjection(kvp.Key))
-            {
-                continue;
-            }
-
-            result.Errors.Add("Baseline directory path contains potential script injection content.");
-            break;
         }
     }
 

@@ -11,10 +11,14 @@ public sealed class RecommendedItem
     private IReadOnlyList<string> _audioLanguages = [];
     private IReadOnlyList<Guid> _boxSetIds = [];
     private IReadOnlyList<string> _genres = [];
+    private IReadOnlyList<string> _inheritedTags = [];
     private IReadOnlyList<string> _peopleNames = [];
+    private IReadOnlyList<double> _peopleWeights = [];
+    private IReadOnlyList<string> _productionCountries = [];
     private IReadOnlyList<string> _studios = [];
     private IReadOnlyList<string> _subtitleLanguages = [];
     private IReadOnlyList<string> _tags = [];
+    private IReadOnlyList<string> _writerNames = [];
 
     /// <summary>
     ///     Gets or sets the Jellyfin item ID.
@@ -171,4 +175,73 @@ public sealed class RecommendedItem
     ///     LibraryAddedRecency from cached recommendations without re-querying the library.
     /// </summary>
     public DateTime? DateCreated { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the TMDb collection (franchise) name this movie belongs to, if any.
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     FranchiseAffinity from cached recommendations without re-querying the library.
+    /// </summary>
+    public string? TmdbCollectionName { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the production country codes/names associated with this item.
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     ProductionLocationAffinity from cached recommendations without re-querying the library.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> ProductionCountries
+    {
+        get => _productionCountries;
+        set => _productionCountries = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the inherited tags (own tags unioned with parent/collection/library-folder tags).
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     InheritedTagSimilarity from cached recommendations without re-querying the library.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> InheritedTags
+    {
+        get => _inheritedTags;
+        set => _inheritedTags = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the series lifecycle status (e.g. "Continuing", "Ended", "Unreleased"); null for non-series.
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     SeriesCompletability from cached recommendations without re-querying the library.
+    /// </summary>
+    public string? SeriesStatus { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the series end date, if any.
+    ///     Stored for training feature parity: contributes to SeriesCompletability alongside <see cref="SeriesStatus"/>.
+    /// </summary>
+    public DateTime? EndDate { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the writer (screenplay/creator) names associated with this item.
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     WriterAffinity from cached recommendations without re-querying the library.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> WriterNames
+    {
+        get => _writerNames;
+        set => _writerNames = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the billing weights aligned positionally to <see cref="PeopleNames"/>
+    ///     (higher = more top-billed, derived from PersonInfo.SortOrder).
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     BillingWeightedPeople from cached recommendations without re-querying the library.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<double> PeopleWeights
+    {
+        get => _peopleWeights;
+        set => _peopleWeights = value ?? [];
+    }
 }

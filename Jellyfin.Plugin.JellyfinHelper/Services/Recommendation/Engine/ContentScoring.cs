@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -12,6 +14,26 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 internal static class ContentScoring
 {
+    /// <summary>
+    ///     Process-lifetime counter of parallel-array mismatches detected in
+    ///     <see cref="ComputeContentNearestNeighborScore"/>. Exposed so unit tests and any
+    ///     future diagnostics endpoint can observe silent degradations that Debug.Assert
+    ///     alone would only surface in Debug builds.
+    ///     <para>
+    ///         Incremented atomically. First non-zero value also emits a one-shot
+    ///         <see cref="Trace.TraceWarning(string)"/> so the mismatch appears in the .NET
+    ///         trace listener chain even in Release builds - a plain Debug.Assert would be
+    ///         a no-op there and the fail-safe degradation would go completely unnoticed.
+    ///     </para>
+    /// </summary>
+    private static long _parallelArrayMismatchCount;
+
+    /// <summary>
+    ///     Gets the number of parallel-array mismatches observed since process start.
+    ///     Test-only accessor - not part of the plugin's public API.
+    /// </summary>
+    internal static long ParallelArrayMismatchCount => Interlocked.Read(ref _parallelArrayMismatchCount);
+
     /// <summary>
     ///     Returns a normalized collaborative score (0–1) for a candidate item.
     /// </summary>
@@ -125,13 +147,10 @@ internal static class ContentScoring
     /// <returns>A recency score between 0 and 1.</returns>
     internal static double ComputeRecencyScore(DateTime itemDate, DateTime? now = null)
     {
-        var ageInDays = ((now ?? DateTime.UtcNow) - itemDate).TotalDays;
-        if (ageInDays <= 0)
-        {
-            return 1.0;
-        }
+        var ageInDays = Math.Max(0.0, ((now ?? DateTime.UtcNow) - itemDate).TotalDays);
 
-        // Exponential decay: half-life of ~365 days
+        // Exponential decay: half-life of ~365 days. ageInDays is clamped to >= 0, so
+        // future dates and exact-now dates both return 1.0 (exp(0) == 1) without special-casing.
         return Math.Exp(-EngineConstants.RecencyDecayConstant * ageInDays);
     }
 
@@ -282,15 +301,44 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        // Validate parallel-array invariant: all three lists must have the same length.
-        // They are built in a single loop in Engine.GenerateForUser(), so a mismatch indicates
-        // a future refactoring error that would silently produce incorrect similarity scores.
-        if (watchedPeopleSets.Count != watchedGenreSets.Count
-            || watchedStudioSets.Count != watchedGenreSets.Count)
+        // Parallel-array invariant: all three lists MUST have the same length because they
+        // are populated in the same loop in Engine.GenerateForUser() and the training data
+        // builders. A mismatch is always a bug - but throwing here would abort an entire
+        // training run for a single misconfigured user, and the neural pipeline would then
+        // have no updated weights at all until a maintainer intervenes.
+        //
+        // Fail-safe degradation: iterate the full genre list (the primary signal, 50% weight)
+        // and treat missing entries in the people / studio lists as unavailable rather than
+        // dropping the whole watched item. Release builds keep contributing the genre signal
+        // so a stray refactor cannot bring the whole scheduled task down or silently discard
+        // half the training signal.
+        //
+        // Production visibility: Debug.Assert surfaces the bug in Debug builds / unit tests
+        // but compiles away in Release. To keep the failure observable there too, we also
+        // increment a static counter (queryable via ParallelArrayMismatchCount for tests and
+        // future diagnostics hooks) and emit a single Trace.TraceWarning on the FIRST
+        // mismatch - subsequent calls stay cheap while operators still get one observable
+        // log entry through the standard .NET trace listener chain.
+        var mismatch = watchedGenreSets.Count != watchedPeopleSets.Count
+            || watchedGenreSets.Count != watchedStudioSets.Count;
+        Debug.Assert(
+            !mismatch,
+            $"Parallel array length mismatch: genres={watchedGenreSets.Count}, people={watchedPeopleSets.Count}, studios={watchedStudioSets.Count}. "
+                + "All three watched-item set lists must have the same length.");
+        if (mismatch)
         {
-            throw new ArgumentException(
-                $"Parallel array length mismatch: genres={watchedGenreSets.Count}, people={watchedPeopleSets.Count}, studios={watchedStudioSets.Count}. " +
-                "All three watched-item set lists must have the same length.");
+            var afterIncrement = Interlocked.Increment(ref _parallelArrayMismatchCount);
+            if (afterIncrement == 1)
+            {
+                Trace.TraceWarning(
+                    "ContentScoring.ComputeContentNearestNeighborScore observed a parallel-array length mismatch "
+                    + "(genres={0}, people={1}, studios={2}). "
+                    + "This is always a bug - the score is degrading gracefully by treating missing entries as absent. "
+                    + "Subsequent mismatches are counted silently via ParallelArrayMismatchCount.",
+                    watchedGenreSets.Count,
+                    watchedPeopleSets.Count,
+                    watchedStudioSets.Count);
+            }
         }
 
         var maxComposite = 0.0;
@@ -298,18 +346,21 @@ internal static class ContentScoring
         for (var i = 0; i < watchedGenreSets.Count; i++)
         {
             // Genre Jaccard (50% of composite)
-            var genreJaccard = ComputeJaccard(candidateGenres, watchedGenreSets[i]);
+            var genreJaccard = SimilarityComputer.ComputeJaccardFromSets(candidateGenres, watchedGenreSets[i]);
 
-            // People Jaccard (30% of composite)
-            var peopleJaccard = candidatePeople is { Count: > 0 }
-                ? ComputeJaccard(candidatePeople, watchedPeopleSets[i])
+            // People Jaccard (30% of composite). Missing parallel entry → 0 contribution
+            // but the genre dimension keeps working.
+            var peopleJaccard = candidatePeople is { Count: > 0 } && i < watchedPeopleSets.Count
+                ? SimilarityComputer.ComputeJaccardFromSets(candidatePeople, watchedPeopleSets[i])
                 : 0.0;
 
             // Studio overlap (20% of composite) - binary: any shared studio = 1.0
             var studioOverlap = 0.0;
-            if (candidateStudios is { Count: > 0 } && watchedStudioSets[i].Count > 0)
+            if (candidateStudios is { Count: > 0 }
+                && i < watchedStudioSets.Count
+                && watchedStudioSets[i].Count > 0)
             {
-                studioOverlap = candidateStudios.Any(s => watchedStudioSets[i].Contains(s)) ? 1.0 : 0.0;
+                studioOverlap = candidateStudios.Overlaps(watchedStudioSets[i]) ? 1.0 : 0.0;
             }
 
             var composite = (0.50 * genreJaccard) + (0.30 * peopleJaccard) + (0.20 * studioOverlap);
@@ -337,24 +388,5 @@ internal static class ContentScoring
         return collaborativeScore > 0
             ? Math.Clamp(collaborativeScore * 0.8, 0.0, 1.0)
             : Math.Clamp(combinedCriticScore * 0.3, 0.0, 1.0);
-    }
-
-    /// <summary>
-    ///     Computes the Jaccard similarity coefficient between two string sets.
-    ///     Jaccard = |intersection| / |union|. Returns 0 when both sets are empty.
-    /// </summary>
-    private static double ComputeJaccard(HashSet<string> setA, HashSet<string> setB)
-    {
-        if (setA.Count == 0 && setB.Count == 0)
-        {
-            return 0.0;
-        }
-
-        // Iterate the smaller set for efficiency
-        var (smaller, larger) = setA.Count <= setB.Count ? (setA, setB) : (setB, setA);
-        var intersection = smaller.Count(item => larger.Contains(item));
-
-        var union = setA.Count + setB.Count - intersection;
-        return union > 0 ? (double)intersection / union : 0.0;
     }
 }

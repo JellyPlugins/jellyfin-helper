@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.0.0] - 2026-07-25
+
+A major release for Jellyfin 12. Smarter, fairer recommendations; a redesigned
+dashboard; a big push on security and data-safety; and a brand-new end-to-end
+test suite that runs the plugin inside a real Jellyfin server on every change.
+
+### Breaking
+- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on 10.x, stay on v2.1.0.6 (served from the same plugin repository).
+- **Recommendations retrain from scratch** - The recommendation model is a new, much larger design, so any model your server had already trained is discarded on upgrade and rebuilt automatically over the next scheduled runs. Your suggestions settle back in after the plugin has seen your library again.
+- **A few API responses changed** (only relevant if you script against the plugin) - Saving configuration now uses `PUT` instead of `POST`; the log level is set through its own endpoint rather than the settings save; and several endpoints return clearer status codes (a submitted request now reports "created", clearing logs reports "no content", a failed integration test reports a gateway error instead of a fake success, and the user-activity endpoints report "unavailable" until the scheduled task has built their data). The growth-timeline export field `totalFilesScanned` is now `totalDirectoriesScanned`.
+
+### Added
+- **Smarter recommendation engine** - The neural network behind your recommendations is much bigger now and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you've already watched.
+- **Seven new taste signals** - Recommendations now also learn from film franchises/collections (so you're offered the next entry in a series you've engaged with, even without a curated box set), country of origin (K-drama, Bollywood, European arthouse), collection- and folder-level themes, whether a series is finished vs. still running, the writers/creators behind what you watch, top-billed cast (a lead you love counts for more than a background face), and how rare a genre or studio is across your library (so niche tastes aren't drowned out by ubiquitous ones). Every one of these is optional per item - anything without the underlying metadata (e.g. a film with no franchise) simply doesn't contribute rather than skewing the result.
+
+### Improved
+- **Better recommendations from day one** - Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Shows you actually finished shape your taste more than ones you dropped after two episodes. Box-set suggestions ("finish the trilogy") stay consistent between what you see and what the model learned from.
+- **Fairer cold-start** - Brand-new users get community-blended suggestions (top-rated + trending + what the rest of the household watches) instead of pure recency, so the first list feels curated rather than random.
+- **More diverse top picks** - Ranking now balances genre, studio and release era together - no more ten near-identical superhero films in a row. Small recommendation lists no longer fill up with random exploration picks, and your list stays stable across a restart on the same day.
+- **Fresh suggestions between nightly runs** - On-demand recommendations now notice newly added library items within about half an hour, instead of waiting for the next scheduled run.
+- **Faster on big libraries** - Watch-history and recommendation scans use Jellyfin 12's batch APIs, and the Discovery credits lookup now runs several calls at once (with a per-call timeout), cutting worst-case time dramatically.
+- **Cleaner Settings page** - Reorganised into clear cards (General, Tasks & Trash, Integrations, Backup) with a sticky save bar and an unsaved-changes indicator, so nothing gets lost.
+- **Health tab in tidy cards** - Library health checks and trash contents each live in their own card.
+- **Arr tab redesigned** - Each Arr type (Radarr, Sonarr) now has a single dropdown to pick which instance to compare, with a live "reachable" indicator right on the dropdown (green tick, red cross, or a spinner while checking). Fewer buttons, no layout jumping, and you see at a glance whether the selected instance is online.
+- **Better on phones** - Health, Arr and Settings shrink their padding on small screens and keep long names and paths from breaking the layout.
+- **Sturdier saves** - Configuration, cache and model files now write atomically and retry automatically, so a passing antivirus or indexer scan can no longer cause a rare "lost save". Hand-edited config values that are out of range are gently corrected and reported as a startup warning instead of silently breaking things.
+
+### Security
+- **API keys never leave the server in plain text** - Saved keys (Seerr, Radarr, Sonarr) are masked everywhere they'd otherwise be sent to the browser, and saving without changing a field keeps the stored key untouched.
+- **Safer backups** - Backup downloads leave API keys out by default and flag when a file does contain secrets, so you know to keep it private. Importing a backup that replaces a key is recorded in the plugin log.
+- **Cleanup can never escape your libraries** - Trash, delete, relocate and link-repair now refuse system locations (like `/config`, `/etc`, `C:\Windows`), stay strictly inside your configured libraries (even when libraries are nested), and reject path-traversal tricks. Link repair also refuses to point at unsafe targets.
+- **Blocked server-probing and injection tricks** - Connection tests only accept normal web addresses (no probing internal services), API keys with hidden control characters are rejected, and the dashboard escapes text so a crafted library or file name can't inject content into the page.
+- **Guards against abuse and corruption** - Discovery requests and timeline recomputes are rate-limited, and corrupted or oversized data files are rejected on load instead of crashing the plugin.
+
+### Fixed
+- **Recommendations no longer silently drift** - Several subtle mismatches where training and live scoring used slightly different signals (weekend detection, popularity, box-set progression, series handling, discovery feedback) are fixed, so your recommendations are scored on exactly what they were trained on.
+- **Trash and cleanup are safer** - A retention of 0 now truly turns purging off; trashing a shortcut removes only the shortcut, never the file it points to; shortcut detection is fixed on Windows (and no longer trips over OneDrive/cloud placeholders); and very deep folder trees no longer risk a crash during scanning.
+- **More accurate library stats** - Audio files are no longer mistaken for orphaned metadata, sidecar subtitles are recognised, very large libraries no longer overflow their counters, and growth totals can't go negative.
+- **Safer Seerr cleanup** - It never deletes requests whose content is already available, stops early if the request list couldn't be fully read (rather than acting on a partial view), and won't run away on a huge or misbehaving server.
+- **More reliable backup restore** - Restore is lock-guarded and writes history data before configuration, an age of 0 is honoured, and only normal web addresses are accepted.
+
+### Tests
+- **New end-to-end test suite** - Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running each cleanup mode, importing/exporting a backup, and clicking through every dashboard tab. It also deliberately throws bad and hostile input at the plugin and uses "canary" files to prove that cleanup never deletes or touches anything outside your libraries, and that every admin-only action stays locked to admins. **268 tests across 43 files**, running automatically on every change plus a nightly full run.
+- **Unit tests: 4337 total** (+2012 vs. v2.1.0.6), including full coverage of the typed API responses.
+
+---
+
 ## [2.1.0.6] - 2026-07-20
 
 ### Added
@@ -54,7 +101,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ## [2.1.0.4] - 2026-05-24
 
 ### Fixed
-- **IUserManager API Upgrade** - Upgraded from deprecated `IUserManager.Users` property (removed in Jellyfin 10.11.8) to the stable `IUserManager.GetUsers()` method (10.11.9+ API). Resolves `MissingMethodException: Method not found 'IUserManager.get_Users()'` on all Jellyfin 10.11.8+ installations. Zero reflection — direct compile-time API call. Also fixed the same issue in `UserActivityInsightsService.BuildActivityReport()`.
+- **IUserManager API Upgrade** - Upgraded from deprecated `IUserManager.Users` property (removed in Jellyfin 10.11.8) to the stable `IUserManager.GetUsers()` method (10.11.9+ API). Resolves `MissingMethodException: Method not found 'IUserManager.get_Users()'` on all Jellyfin 10.11.8+ installations. Zero reflection - direct compile-time API call. Also fixed the same issue in `UserActivityInsightsService.BuildActivityReport()`.
 - **Trickplay Trash Re-Trashing Loop** - Fixed a critical bug where `CleanTrickplayTask` would recursively scan into the trash folder, re-detect previously trashed `.trickplay` directories as orphans, and move them to trash again on every scheduled run. Each cycle prepended a new timestamp prefix (`yyyyMMdd-HHmmss_`) to the folder name, eventually exceeding the OS path length limit (PATH_MAX) and causing an `IOException`. The task now excludes the configured trash folder (including custom paths) from its directory scan. A defense-in-depth guard in `TrashService.MoveToTrash()` additionally rejects any source path that already resides inside the trash folder.
 
 ### Changed
@@ -105,7 +152,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Admin Discovery API** - Endpoints for viewing all user results, listing Seerr users, querying Radarr/Sonarr service info, and submitting requests with server/profile overrides (`/JellyfinHelper/Discovery`).
 - **Seerr User Mapping** - Jellyfin user IDs are automatically resolved to Seerr user IDs so requests appear under the correct account.
 - **Discovery User Access Toggle** - New `DiscoveryUserAccessEnabled` setting allows admins to control whether regular users can access Discovery.
-- **Discovery Feedback Loop for ML Training** - User interactions with Discovery recommendations (shown, dismissed, requested, watched) are persisted as training data. The recommendation engine uses this feedback in Phase 4 of training: items that were requested and later watched produce strong positive signals, dismissed items produce negative signals, and merely shown items serve as weak negatives — continuously improving recommendation quality over time.
+- **Discovery Feedback Loop for ML Training** - User interactions with Discovery recommendations (shown, dismissed, requested, watched) are persisted as training data. The recommendation engine uses this feedback in Phase 4 of training: items that were requested and later watched produce strong positive signals, dismissed items produce negative signals, and merely shown items serve as weak negatives - continuously improving recommendation quality over time.
 
 ### Tests
 - Total: **2190 tests**.

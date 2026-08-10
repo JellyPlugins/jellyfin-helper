@@ -6,6 +6,7 @@ using System.Net.Mime;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -21,32 +22,34 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize(Policy = "RequiresElevation")]
 [Route("JellyfinHelper/UserActivity")]
 [Produces(MediaTypeNames.Application.Json)]
-public class UserActivityController : ControllerBase
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType(StatusCodes.Status403Forbidden)]
+public sealed class UserActivityController : ControllerBase
 {
     private readonly IUserActivityCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
-    private readonly IUserActivityInsightsService _insightsService;
+    private readonly IUserManager _userManager;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="UserActivityController" /> class.
     /// </summary>
     /// <param name="cacheService">The user activity cache service.</param>
-    /// <param name="insightsService">The user activity insights service.</param>
     /// <param name="configService">The plugin configuration service.</param>
+    /// <param name="userManager">The user manager.</param>
     public UserActivityController(
         IUserActivityCacheService cacheService,
-        IUserActivityInsightsService insightsService,
-        IPluginConfigurationService configService)
+        IPluginConfigurationService configService,
+        IUserManager userManager)
     {
         _cacheService = cacheService;
-        _insightsService = insightsService;
         _configService = configService;
+        _userManager = userManager;
     }
 
     /// <summary>
     ///     Gets the latest cached user activity report.
     ///     Returns the full report with per-item/per-user breakdowns.
-    ///     If no cache exists, generates a fresh report on the fly.
+    ///     Cache is populated by the scheduled task; returns 503 when no cache is available.
     ///     Only available when Recommendations TaskMode is not Deactivate.
     /// </summary>
     /// <returns>The user activity result.</returns>
@@ -57,26 +60,23 @@ public class UserActivityController : ControllerBase
     {
         if (!IsFeatureEnabled())
         {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "User activity feature is disabled in plugin configuration.");
         }
 
         var cached = _cacheService.LoadResult();
-        if (cached is not null)
+        if (cached == null)
         {
-            return Ok(cached);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
         }
 
-        // No cache yet - generate on demand and always cache.
-        var result = _insightsService.BuildActivityReport();
-        _cacheService.SaveResult(result);
-
-        return Ok(result);
+        return Ok(cached);
     }
 
     /// <summary>
     ///     Gets activity data filtered for a specific user.
     ///     Returns only items where the specified user has activity.
     ///     Aggregate fields are recalculated from the filtered user's activities only.
+    ///     Cache is populated by the scheduled task; returns 503 when no cache is available.
     ///     Only available when Recommendations TaskMode is not Deactivate.
     /// </summary>
     /// <param name="userId">The Jellyfin user ID to filter by.</param>
@@ -85,12 +85,13 @@ public class UserActivityController : ControllerBase
     [HttpGet("User/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<List<UserActivitySummary>> GetUserActivity(Guid userId, [FromQuery] int maxResults = 15)
     {
         if (!IsFeatureEnabled())
         {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "User activity feature is disabled in plugin configuration.");
         }
 
         if (userId == Guid.Empty)
@@ -98,19 +99,22 @@ public class UserActivityController : ControllerBase
             return BadRequest("A valid, non-empty userId is required.");
         }
 
+        var user = _userManager.GetUserById(userId);
+        if (user == null)
+        {
+            return NotFound();
+        }
+
         maxResults = Math.Clamp(maxResults, 1, 200);
 
         var cached = _cacheService.LoadResult();
-        var source = cached ?? _insightsService.BuildActivityReport();
-
-        if (cached is null)
+        if (cached == null)
         {
-            // Always cache for subsequent requests.
-            _cacheService.SaveResult(source);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
         }
 
         // Filter to items where this user has activity, recalculating aggregate fields
-        var userItems = source.Items
+        var userItems = cached.Items
             .Where(s => s.UserActivities.Any(a => a.UserId == userId))
             .Select(s =>
             {
@@ -144,7 +148,6 @@ public class UserActivityController : ControllerBase
                     MostRecentWatch = playbackActivities
                         .Where(a => a.LastPlayedDate.HasValue)
                         .Select(a => a.LastPlayedDate)
-                        .DefaultIfEmpty(null)
                         .Max(),
                     AverageCompletionPercent = playbackActivities.Count > 0
                         ? Math.Round(playbackActivities.Average(a => a.CompletionPercent), 1)

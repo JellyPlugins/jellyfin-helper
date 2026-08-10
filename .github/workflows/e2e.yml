@@ -1,0 +1,82 @@
+name: E2E (Docker)
+
+# Full end-to-end tests: real Jellyfin 12 container + mock Arr/Seerr, plugin
+# mounted in, wizard automated, every endpoint / task mode / UI tab exercised.
+# Runs on every PR (per project decision). Slower than the unit suite, so it
+# runs in parallel with pr.yml rather than gating it.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # This job never pushes back to the repo, so don't leave the GITHUB_TOKEN
+          # in the local git config for the rest of the job (zizmor: artipacked).
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      # Docker + Compose are preinstalled on ubuntu-latest runners.
+      - name: Show Docker versions
+        run: docker --version && docker compose version
+
+      - name: Run E2E suite
+        run: bash test/e2e/scripts/run.sh
+        env:
+          CI: "true"
+          # In CI the non-admin fixture MUST provision - a missing one fails the
+          # run instead of silently skipping the authorization / user-facing tests.
+          E2E_REQUIRE_NORMAL_USER: "1"
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: e2e-playwright-report
+          path: test/e2e/playwright-report/
+          retention-days: 7
+
+      - name: Upload traces & screenshots
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: e2e-traces
+          path: test/e2e/test-results/
+          retention-days: 7
+
+      - name: Dump Jellyfin server log on failure
+        if: failure()
+        run: |
+          echo "::group::Jellyfin container log"
+          docker logs jfh-e2e-jellyfin 2>&1 | tail -300 || true
+          echo "::endgroup::"
+          echo "::group::mock-arr log"
+          docker logs jfh-e2e-mock-arr 2>&1 | tail -100 || true
+          echo "::endgroup::"
+          echo "::group::mock-seerr log"
+          docker logs jfh-e2e-mock-seerr 2>&1 | tail -100 || true
+          echo "::endgroup::"

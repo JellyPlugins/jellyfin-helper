@@ -47,24 +47,32 @@ public class SeerrController : ControllerBase
     /// <param name="request">The connection test request.</param>
     /// <returns>Connection test result.</returns>
     [HttpPost("Test")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status504GatewayTimeout)]
     public async Task<IActionResult> TestConnection([FromBody] SeerrTestRequest request)
     {
         if (request is null)
         {
-            return BadRequest(new { success = false, message = "URL and API Key are required." });
+            return BadRequest(new ConnectionTestResponse { Success = false, Message = "URL and API Key are required." });
         }
 
         if (string.IsNullOrWhiteSpace(request.Url) || string.IsNullOrWhiteSpace(request.ApiKey))
         {
-            return BadRequest(new { success = false, message = "URL and API Key are required." });
+            return BadRequest(new ConnectionTestResponse { Success = false, Message = "URL and API Key are required." });
         }
 
+        // Scheme guard only: reject non-HTTP(S) schemes. We deliberately do NOT block loopback/
+        // private/link-local hosts: Seerr/Jellyseerr typically runs on the same host or LAN as
+        // Jellyfin, so an internal-IP block would break the plugin's normal configuration. The
+        // endpoint is admin-only, does not follow redirects, caps response size, and (below) returns
+        // a generic failure message rather than reflecting upstream status — keeping the residual
+        // internal-reachability-oracle risk low and accepted for a LAN-integration tool.
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var parsedUrl) ||
             (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
         {
-            return BadRequest(new { success = false, message = "A valid HTTP(S) URL is required." });
+            return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
         try
@@ -78,23 +86,26 @@ public class SeerrController : ControllerBase
             if (success)
             {
                 _pluginLog.LogInfo("API", $"Connection test OK for Seerr: {message}", _logger);
+                return Ok(new ConnectionTestResponse { Success = success, Message = message });
             }
             else
             {
+                // Log the detailed upstream message server-side, but return a GENERIC message to the
+                // client. Reflecting the raw upstream status/reason (e.g. "HTTP 401" vs "connection
+                // refused" vs "no such host") turns this endpoint into an internal-reachability oracle.
                 _pluginLog.LogWarning("API", $"Connection test failed for Seerr: {message}", logger: _logger);
+                return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
             }
-
-            return Ok(new { success, message });
         }
         catch (HttpRequestException ex)
         {
             _pluginLog.LogWarning("API", $"Connection test failed for Seerr: {ex.Message}", ex, _logger);
-            return Ok(new { success = false, message = "Connection failed. Please verify URL and API Key and try again." });
+            return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
         }
         catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
         {
             _pluginLog.LogWarning("API", "Connection test timed out for Seerr after 10 seconds.", logger: _logger);
-            return Ok(new { success = false, message = "Connection timed out after 10 seconds." });
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new ConnectionTestResponse { Success = false, Message = "Connection timed out after 10 seconds." });
         }
     }
 }

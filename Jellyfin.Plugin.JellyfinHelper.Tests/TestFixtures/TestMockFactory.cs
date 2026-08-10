@@ -1,3 +1,4 @@
+using System;
 using System.Net;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -50,11 +51,57 @@ public static class TestMockFactory
 
     // ===== Logger Mocks =====
 
-    /// <summary>Creates a new <see cref="Mock{ILogger}"/> (non-generic).</summary>
-    public static Mock<ILogger> CreateLogger() => new();
+    /// <summary>
+    /// Creates a new <see cref="Mock{ILogger}"/> (non-generic).
+    /// <c>IsEnabled(...)</c> is set up to return <c>true</c> for all log levels so that
+    /// production code guarded by <c>logger.IsEnabled(...)</c> checks (see CA1873 fixes)
+    /// still executes the underlying <c>Log(...)</c> call under test.
+    /// </summary>
+    public static Mock<ILogger> CreateLogger()
+    {
+        var mock = new Mock<ILogger>();
+        mock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        return mock;
+    }
 
-    /// <summary>Creates a new <see cref="Mock{T}"/> for a typed logger.</summary>
-    public static Mock<ILogger<T>> CreateLogger<T>() => new();
+    /// <summary>
+    /// Creates a new <see cref="Mock{T}"/> for a typed logger.
+    /// <c>IsEnabled(...)</c> is set up to return <c>true</c> for all log levels so that
+    /// production code guarded by <c>logger.IsEnabled(...)</c> checks (see CA1873 fixes)
+    /// still executes the underlying <c>Log(...)</c> call under test.
+    /// </summary>
+    public static Mock<ILogger<T>> CreateLogger<T>()
+    {
+        var mock = new Mock<ILogger<T>>();
+        mock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        return mock;
+    }
+
+    /// <summary>
+    /// Creates a new <see cref="Mock{ILogger}"/> where <c>IsEnabled(...)</c> always returns
+    /// <c>false</c>. Use this in tests that specifically want to exercise the
+    /// <c>logger.IsEnabled(...) == false</c> branch - for example to prove that a guarded
+    /// <c>Log(...)</c> call is skipped without side effects (an <c>ILoggerProvider</c> that
+    /// throws when disabled would surface here). The main <see cref="CreateLogger()"/>
+    /// helper deliberately returns <c>true</c> so the common test path exercises the
+    /// happy-log flow; this disabled variant is the complementary regression guard.
+    /// </summary>
+    public static Mock<ILogger> CreateDisabledLogger()
+    {
+        var mock = new Mock<ILogger>();
+        mock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(false);
+        return mock;
+    }
+
+    /// <summary>
+    /// Typed variant of <see cref="CreateDisabledLogger()"/>.
+    /// </summary>
+    public static Mock<ILogger<T>> CreateDisabledLogger<T>()
+    {
+        var mock = new Mock<ILogger<T>>();
+        mock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(false);
+        return mock;
+    }
 
     // ===== Other Mocks =====
 
@@ -140,6 +187,8 @@ public static class TestMockFactory
     /// <summary>
     /// Creates a new <see cref="Mock{IPluginConfigurationService}"/> with sensible defaults.
     /// Returns a fresh <see cref="PluginConfiguration"/> so tests don't depend on Plugin.Instance.
+    /// <see cref="IPluginConfigurationService.ReadAndMutate"/> is stubbed to immediately invoke
+    /// the delegate on the same config object returned by <see cref="IPluginConfigurationService.GetConfiguration"/>.
     /// </summary>
     public static Mock<IPluginConfigurationService> CreateConfigurationService(PluginConfiguration? config = null)
     {
@@ -148,7 +197,20 @@ public static class TestMockFactory
         mock.Setup(s => s.GetConfiguration()).Returns(cfg);
         mock.Setup(s => s.IsInitialized).Returns(true);
         mock.Setup(s => s.PluginVersion).Returns("1.0.0-test");
+        SetupReadAndMutate(mock, cfg);
         return mock;
+    }
+
+    /// <summary>
+    /// Wires <see cref="IPluginConfigurationService.ReadAndMutate"/> on <paramref name="mock"/>
+    /// so that the callback is immediately invoked on <paramref name="cfg"/>.
+    /// Call this whenever a test mock needs to support the atomic read-mutate-save path used
+    /// by <c>BackupService.RestoreConfiguration</c> (and any future callers of ReadAndMutate).
+    /// </summary>
+    public static void SetupReadAndMutate(Mock<IPluginConfigurationService> mock, PluginConfiguration cfg)
+    {
+        mock.Setup(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()))
+            .Callback<Action<PluginConfiguration>>(mutate => mutate(cfg));
     }
 
     /// <summary>

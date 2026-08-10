@@ -4,7 +4,6 @@ using System.Buffers;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Fixed-weight heuristic scoring strategy.
 ///     Uses hand-tuned weights from <see cref="DefaultWeights"/> with genre similarity as the dominant signal.
 ///     When used standalone (not via Ensemble), a configurable genre-penalty floor is applied
 ///     so that items with zero genre overlap are penalized.
@@ -60,17 +59,7 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
             // already produce scores in the desired range without a bias offset.
             var raw = ScoringHelper.ComputeRawScore(vector, WeightsArray, bias: 0.0);
             var score = Math.Clamp(raw, 0.0, 1.0);
-
-            // Apply genre penalty when used standalone (shared formula with EnsembleScoringStrategy)
-            if (GenrePenaltyFloor >= 1.0)
-            {
-                return score;
-            }
-
-            var penalty = ScoringHelper.ComputeSoftGenrePenalty(features.GenreSimilarity, GenrePenaltyFloor);
-            score *= penalty;
-
-            return score;
+            return score * PenaltyMultiplier(features.GenreSimilarity);
         }
         finally
         {
@@ -88,24 +77,26 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
             Array.Clear(vector, 0, CandidateFeatures.FeatureCount);
             features.WriteToVector(vector);
 
-            var explanation = ScoringHelper.BuildExplanation(vector, WeightsArray, bias: 0.0, Name);
-
-            // Apply genre penalty when used standalone (shared formula with EnsembleScoringStrategy).
             // Uses WithPenalty() to scale both FinalScore and all contributions consistently,
             // so that FinalScore = Σ(contributions) × GenrePenaltyMultiplier holds true.
-            if (GenrePenaltyFloor >= 1.0)
-            {
-                return explanation;
-            }
-
-            var penalty = ScoringHelper.ComputeSoftGenrePenalty(features.GenreSimilarity, GenrePenaltyFloor);
-            explanation = explanation.WithPenalty(penalty);
-
-            return explanation;
+            return ScoringHelper
+                .BuildExplanation(vector, WeightsArray, bias: 0.0, Name)
+                .WithPenalty(PenaltyMultiplier(features.GenreSimilarity));
         }
         finally
         {
             ArrayPool<double>.Shared.Return(vector);
         }
     }
+
+    /// <summary>
+    ///     Returns the genre-penalty multiplier for a given genre similarity value.
+    ///     Returns 1.0 (no penalty) when this instance was configured with
+    ///     <see cref="GenrePenaltyFloor"/> = 1.0, i.e. penalty disabled (ensemble mode).
+    ///     Otherwise delegates to <see cref="ScoringHelper.ComputeSoftGenrePenalty"/>.
+    /// </summary>
+    private double PenaltyMultiplier(double genreSimilarity)
+        => GenrePenaltyFloor >= 1.0
+            ? 1.0
+            : ScoringHelper.ComputeSoftGenrePenalty(genreSimilarity, GenrePenaltyFloor);
 }

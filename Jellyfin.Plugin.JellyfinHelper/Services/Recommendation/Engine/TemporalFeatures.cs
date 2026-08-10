@@ -153,4 +153,32 @@ internal static class TemporalFeatures
         < 18 => 2,
         _ => 3
     };
+
+    /// <summary>
+    ///     Resolves the IsWeekend flag consistently across all feature-vector construction paths
+    ///     (live scoring, Phase 1 recommendation-history examples, Phase 2 organic watches,
+    ///     Phase 3 random negatives, and aggregated series examples).
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile. Must not be null.</param>
+    /// <param name="referenceOverride">
+    ///     Optional fallback timestamp used when the profile has no <see cref="UserWatchProfile.LastActivityDate"/>.
+    /// </param>
+    /// <returns>
+    ///     <c>true</c> if the resolved reference falls on a Saturday or Sunday; otherwise <c>false</c>.
+    ///     When neither the profile anchor nor an override is available, returns a deterministic <c>false</c>
+    ///     so the neural net never learns a signal tied to when the training task happened to run.
+    /// </returns>
+    internal static bool ResolveIsWeekend(UserWatchProfile userProfile, DateTime? referenceOverride = null)
+    {
+        ArgumentNullException.ThrowIfNull(userProfile);
+
+        // No anchor + no override = no signal. Emit false rather than UtcNow so train/serve rows stay identical.
+        var reference = userProfile.LastActivityDate ?? referenceOverride;
+        if (!reference.HasValue)
+        {
+            return false;
+        }
+
+        return reference.Value.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+    }
 }

@@ -20,32 +20,32 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 /// <summary>
 ///     Tests for <see cref="HelperCleanupTask" />, the master orchestration task.
 /// </summary>
-public class HelperCleanupTaskTests : IDisposable
+public class HelperCleanupTaskTests
 {
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
     private readonly Mock<ISeerrDiscoveryService> _seerrDiscoveryServiceMock;
+    private readonly Mock<IRecommendationPlaylistService> _playlistServiceMock;
     private readonly HelperCleanupTask _task;
-    private readonly string _testDataPath;
     private PluginConfiguration _config;
 
     public HelperCleanupTaskTests()
     {
         var libraryManagerMock = TestMockFactory.CreateLibraryManager();
         var fileSystemMock = TestMockFactory.CreateFileSystem();
-        _testDataPath = Path.Join(Path.GetTempPath(), "JellyfinHelperTests_Data_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_testDataPath);
         var loggerFactoryMock = new Mock<ILoggerFactory>();
-        _loggerMock = new Mock<ILogger<HelperCleanupTask>>();
+        _loggerMock = TestMockFactory.CreateLogger<HelperCleanupTask>();
 
-        // Setup logger factory to return loggers for all required types
+        // Setup logger factory to return loggers for all required types.
+        // Fallback loggers use TestMockFactory.CreateLogger() so IsEnabled(...) returns true -
+        // matching production behavior and ensuring guarded Log(...) calls still execute in tests.
         loggerFactoryMock
             .Setup(f => f.CreateLogger(It.IsAny<string>()))
             .Returns((string categoryName) =>
             {
                 if (categoryName.Contains("HelperCleanupTask")) return _loggerMock.Object;
 
-                return new Mock<ILogger>().Object;
+                return TestMockFactory.CreateLogger().Object;
             });
 
         // Default: empty libraries so sub-tasks finish quickly
@@ -107,7 +107,7 @@ public class HelperCleanupTaskTests : IDisposable
             .Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .Returns(new Collection<RecommendationResult>());
         var recsCacheMock = new Mock<IRecommendationCacheService>();
-        var playlistServiceMock = new Mock<IRecommendationPlaylistService>();
+        _playlistServiceMock = new Mock<IRecommendationPlaylistService>();
 
         _seerrDiscoveryServiceMock = new Mock<ISeerrDiscoveryService>();
 
@@ -128,29 +128,8 @@ public class HelperCleanupTaskTests : IDisposable
             userActivityCacheMock.Object,
             recsEngineMock.Object,
             recsCacheMock.Object,
-            playlistServiceMock.Object,
+            _playlistServiceMock.Object,
             _seerrDiscoveryServiceMock.Object);
-    }
-
-    public void Dispose()
-    {
-        if (!Directory.Exists(_testDataPath))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.Delete(_testDataPath, true);
-        }
-        catch (IOException)
-        {
-            /* best effort cleanup */
-        }
-        catch (UnauthorizedAccessException)
-        {
-            /* best effort cleanup */
-        }
     }
 
     [Fact]
@@ -207,9 +186,17 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Skipping Link Repair (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping User Watch Activity (deactivated in settings)", LogLevel.Information);
-        VerifyLogContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
+        // Smart Recommendations is NOT skipped on Deactivate - it runs cleanup-only so it can
+        // purge previously-created recommendation playlists (switching Activate→Deactivate
+        // must not leave stale managed playlists behind). It must NOT be logged as skipped.
+        VerifyLogNeverContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Discovery (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
+
+        // The playlist purge must have been invoked on Deactivate.
+        _playlistServiceMock.Verify(
+            s => s.RemoveAllRecommendationPlaylistsAsync(It.IsAny<CancellationToken>()),
+            Times.AtLeastOnce);
 
         _seerrDiscoveryServiceMock.Verify(
             s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
@@ -320,6 +307,7 @@ public class HelperCleanupTaskTests : IDisposable
         await _task.ExecuteAsync(progress, CancellationToken.None);
 
         Assert.Contains(100.0, reportedValues);
+        Assert.Equal(100.0, reportedValues[^1]);
     }
 
     [Fact]
@@ -511,7 +499,7 @@ public class HelperCleanupTaskTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteAsync_TrashEnabledRetentionZero_RunsTrashPurge()
+    public async Task ExecuteAsync_TrashEnabledRetentionZero_SkipsTrashPurge()
     {
         _config = new PluginConfiguration
         {
@@ -527,7 +515,7 @@ public class HelperCleanupTaskTests : IDisposable
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("Running trash purge (retention: 0 days)", LogLevel.Information);
+        VerifyLogNeverContains("Running trash purge", LogLevel.Information);
     }
 
     private void VerifySeerrCalledWith(string url, string apiKey, int ageDays, bool dryRun)

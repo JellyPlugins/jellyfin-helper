@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -15,14 +16,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 ///     Handles training of scoring strategies using implicit feedback
 ///     from previous recommendation results and current watch data.
 /// </summary>
-internal sealed class TrainingService
+internal sealed class TrainingService : IDisposable
 {
     /// <summary>
     ///     Non-blocking gate to prevent concurrent Train() invocations.
     ///     The scheduled task serializes calls, but this guard ensures correctness
     ///     if Train() is ever invoked from multiple paths simultaneously.
     /// </summary>
-    private static readonly SemaphoreSlim TrainGate = new(1, 1);
+    private readonly SemaphoreSlim _trainGate = new(1, 1);
 
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger _logger;
@@ -49,19 +50,38 @@ internal sealed class TrainingService
         _logger = logger;
     }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _trainGate.Dispose();
+    }
+
     /// <summary>
     ///     Trains the active scoring strategy using implicit feedback from previous recommendations.
     ///     Compares previously recommended items against current watch data.
     /// </summary>
     /// <param name="strategy">The scoring strategy to train.</param>
     /// <param name="previousResults">The recommendation results from the previous run.</param>
+    /// <param name="seriesEpisodeCounts">
+    ///     Per-series total-episode-count map (SeriesId → playable episodes in the library), built
+    ///     by the caller from the live library. Threaded into <see cref="TrainingDataBuilder"/> so
+    ///     the training-time genre/people preference vectors apply the identical progression
+    ///     multiplier used at inference, eliminating train/serve skew. May be null/empty, in which
+    ///     case the builder falls back to the neutral (unweighted) path.
+    /// </param>
     /// <param name="incremental">When true, subsample older examples for efficiency.</param>
+    /// <param name="genreStudioIdf">
+    ///     Library-wide genre/studio IDF rarity table (the SAME table used at inference), threaded in so
+    ///     the GenreStudioIdfPrior feature is identical between train and serve. Null → neutral 0.0 both sides.
+    /// </param>
     /// <param name="cancellationToken">Token to cancel the training operation.</param>
     /// <returns>True if training was performed, false if skipped.</returns>
     internal bool Train(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts = null,
         bool incremental = false,
+        IReadOnlyDictionary<string, double>? genreStudioIdf = null,
         CancellationToken cancellationToken = default)
     {
         if (previousResults.Count == 0)
@@ -71,7 +91,8 @@ internal sealed class TrainingService
         }
 
         // Non-blocking guard: skip if another training run is already in progress.
-        if (!TrainGate.Wait(0, CancellationToken.None))
+        // Timeout=0 means non-blocking; CancellationToken not applicable for a zero-wait.
+        if (!_trainGate.Wait(0, CancellationToken.None))
         {
             _pluginLog.LogInfo(
                 "Recommendations",
@@ -82,22 +103,24 @@ internal sealed class TrainingService
 
         try
         {
-            return TrainCore(strategy, previousResults, incremental, cancellationToken);
+            return TrainCore(strategy, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, cancellationToken);
         }
         finally
         {
-            TrainGate.Release();
+            _trainGate.Release();
         }
     }
 
     /// <summary>
-    ///     Core training logic, called under the <see cref="TrainGate"/> semaphore.
+    ///     Core training logic, called under the <see cref="_trainGate"/> semaphore.
     ///     Delegates example building to <see cref="TrainingDataBuilder"/>.
     /// </summary>
     private bool TrainCore(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         bool incremental,
+        IReadOnlyDictionary<string, double>? genreStudioIdf,
         CancellationToken cancellationToken)
     {
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
@@ -116,31 +139,35 @@ internal sealed class TrainingService
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
-                _pluginLog.LogInfo(
+                _pluginLog.LogWarning(
                     "Recommendations",
                     $"Could not load discovery feedback for training: {ex.Message}",
+                    ex,
                     _logger);
             }
         }
 
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
-        var (examples, organicCount, randomNegativeCount) =
-            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, cancellationToken);
+        var (examples, organicCount, randomNegativeCount, discoveryCount) =
+            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, cancellationToken);
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
+        // Separate discovery from organic in the log so operators can see whether positive
+        // signal comes from actual watched consumption or external Seerr requests. Previously
+        // both were folded into "organic" which hid unhealthy training-data mixes.
         _pluginLog.LogInfo(
             "Recommendations",
             $"Built {examples.Count} training examples ({positiveCount} positive, " +
             $"{examples.Count - positiveCount} negative) from {previousResults.Count} users " +
-            $"({organicCount} organic, {randomNegativeCount} random negatives).",
+            $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
             _logger);
 
         List<TrainingExample> trainingExamples = examples;
         if (incremental && examples.Count >= EngineConstants.IncrementalMinExamplesThreshold)
         {
-            var latestGeneratedAt = previousResults.Max(r => r.GeneratedAt);
+            var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt) ?? DateTime.UtcNow;
             var cutoff = latestGeneratedAt.AddDays(-1);
 
             var newExamples = new List<TrainingExample>();
@@ -160,7 +187,7 @@ internal sealed class TrainingService
 
             if (oldExamples.Count > 0)
             {
-                var rng = Random.Shared;
+                var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, examples.Count));
                 var sampleCount = Math.Clamp(
                     (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
                     1,
@@ -217,7 +244,11 @@ internal sealed class TrainingService
             heldOutSplit = [];
         }
 
-        var trained = (strategy is ITrainableStrategy trainable) && trainable.Train(trainSplit);
+        // Pass the held-out slice into the strategy so the metrics it publishes (used by the
+        // ensemble's quality gate + trend analyser) come from the same out-of-sample set the
+        // log line below reports. This keeps the two sources of truth in sync.
+        var trained = strategy is ITrainableStrategy trainable
+            && trainable.Train(trainSplit, heldOutSplit.Count >= 2 ? heldOutSplit : null);
 
         if (trained)
         {

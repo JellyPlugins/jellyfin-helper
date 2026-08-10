@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -48,7 +47,7 @@ public static class SeerrPermissionExtensions
     {
         ArgumentNullException.ThrowIfNull(user);
 
-        // Validate mediaType first — unknown types are always denied regardless of permission level.
+        // Validate mediaType first - unknown types are always denied regardless of permission level.
         // This prevents garbage mediaType values from being authorized even for admins (defense in depth).
         var isMovie = string.Equals(mediaType, "movie", StringComparison.OrdinalIgnoreCase);
         var isTv = string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase);

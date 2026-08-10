@@ -233,7 +233,7 @@ public sealed class ScoreExplanationTests
     }
 
     [Fact]
-    public void Blend_GenrePenaltyMultiplier_IsResetToOne()
+    public void Blend_GenrePenaltyMultiplier_IsWeightedAverage()
     {
         var a = CreateExplanation(0.5, 0.3, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1);
         a.GenrePenaltyMultiplier = 0.5;
@@ -242,8 +242,8 @@ public sealed class ScoreExplanationTests
 
         var result = a.Blend(b, 0.5);
 
-        // Penalty is applied separately after blending
-        Assert.Equal(1.0, result.GenrePenaltyMultiplier, 10);
+        // (1 - 0.5) * 0.5 + 0.5 * 0.3 = 0.25 + 0.15 = 0.40
+        Assert.Equal(0.40, result.GenrePenaltyMultiplier, 10);
     }
 
     [Fact]

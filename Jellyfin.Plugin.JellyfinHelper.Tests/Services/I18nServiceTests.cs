@@ -445,4 +445,47 @@ public class I18NServiceTests : IDisposable
 
         Assert.Equal(english.Count, translations.Count);
     }
+
+    // ===== Concurrency / Lazy<> pattern tests =====
+
+    [Fact]
+    public async Task GetTranslations_ConcurrentCalls_LoadFromResourceCalledOnce()
+    {
+        // Use a barrier so all 8 tasks race into GetTranslations at the same instant,
+        // maximising the chance of exposing duplicate-factory invocations.
+        const int taskCount = 8;
+        var barrier = new Barrier(taskCount);
+
+        var tasks = Enumerable.Range(0, taskCount).Select(_ => Task.Run(() =>
+        {
+            barrier.SignalAndWait();
+            return I18NService.GetTranslations("en");
+        })).ToArray();
+
+        var results = await Task.WhenAll(tasks);
+
+        // All tasks must have completed without exceptions (Task.WhenAll would throw otherwise).
+        Assert.Equal(taskCount, results.Length);
+
+        // Every result must be a non-null, non-empty dictionary.
+        foreach (var dict in results)
+        {
+            Assert.NotNull(dict);
+            Assert.NotEmpty(dict);
+        }
+
+        // All dictionaries must contain identical key sets - verifying they all came
+        // from the same (single) factory invocation rather than independent loads.
+        var referenceKeys = new HashSet<string>(results[0].Keys, StringComparer.Ordinal);
+        for (var i = 1; i < results.Length; i++)
+        {
+            Assert.Equal(referenceKeys, new HashSet<string>(results[i].Keys, StringComparer.Ordinal));
+        }
+
+        // Each call returns a defensive copy, so references must be distinct.
+        for (var i = 0; i < results.Length - 1; i++)
+        {
+            Assert.NotSame(results[i], results[i + 1]);
+        }
+    }
 }

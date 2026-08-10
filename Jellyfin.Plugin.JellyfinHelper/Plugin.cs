@@ -5,7 +5,9 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using MediaBrowser.Common.Configuration;
@@ -25,6 +27,24 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
 
     /// <summary>
+    ///     Serializes the read-modify-write in <see cref="UpdateIndexHtml"/>. Injection runs from
+    ///     both the constructor and the startup hosted service (and could overlap under real
+    ///     parallelism), so without this lock two threads could both read the pre-injection
+    ///     content, both insert the tag, and race the write - risking a duplicated tag or a lost
+    ///     update. The lock makes "check whether our tag is already present, and only write if it
+    ///     changed" a single atomic section.
+    /// </summary>
+    private readonly object _indexHtmlLock = new();
+
+    /// <summary>
+    ///     Guards the "install File Transformation" warning so it is emitted at most once per
+    ///     server start, even though <see cref="InjectScript"/> runs both from the constructor and
+    ///     again from the startup hosted service (and could be retried). <c>0</c> = not yet warned,
+    ///     <c>1</c> = already warned; flipped atomically via <see cref="Interlocked.Exchange(ref int, int)"/>.
+    /// </summary>
+    private int _readOnlyWarningEmitted;
+
+    /// <summary>
     ///     Initializes a new instance of the <see cref="Plugin" /> class.
     /// </summary>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths" /> interface.</param>
@@ -33,10 +53,40 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
-        Instance = this;
         _applicationPaths = applicationPaths;
         _logger = logger;
+        Instance = this;
+        Api.UserDiscoveryController.ClearRateLimitState();
+        ReportClampedConfigValues();
         InjectScript();
+    }
+
+    /// <summary>
+    ///     Outcome of a fallback <see cref="UpdateIndexHtml"/> attempt, so callers can react to a
+    ///     genuine write failure (e.g. a read-only web directory) without re-inspecting the file.
+    /// </summary>
+    internal enum IndexHtmlUpdateResult
+    {
+        /// <summary>
+        ///     The desired state was achieved: the tag was injected/removed and persisted, or the
+        ///     file already matched the desired content so no write was needed.
+        /// </summary>
+        Success,
+
+        /// <summary>
+        ///     The file could not be modified for a reason that installing File Transformation would
+        ///     resolve - most importantly the web directory being read-only (the write threw
+        ///     <see cref="UnauthorizedAccessException"/>/<see cref="IOException"/>), but also a
+        ///     missing <c>index.html</c> that we cannot create on a read-only image.
+        /// </summary>
+        WriteFailed,
+
+        /// <summary>
+        ///     Injection did not apply for a content/layout reason (no <c>&lt;/body&gt;</c> to anchor
+        ///     to). This is not a permissions problem, so suggesting File Transformation would not
+        ///     help; the existing warning already describes it.
+        /// </summary>
+        NotApplicable,
     }
 
     /// <inheritdoc />
@@ -55,9 +105,25 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public static Plugin? Instance { get; private set; }
 
     /// <summary>
+    ///     Gets the logger for use by internal helpers that share the plugin's logging category.
+    /// </summary>
+    internal ILogger<Plugin> Logger => _logger;
+
+    /// <summary>
     ///     Gets the path to Jellyfin's web UI index.html file.
     /// </summary>
     private string IndexHtmlPath => Path.Combine(_applicationPaths.WebPath, "index.html");
+
+    /// <inheritdoc />
+    public override void UpdateConfiguration(BasePluginConfiguration configuration)
+    {
+        if (configuration is PluginConfiguration config)
+        {
+            config.NormalizeAlphaRange();
+        }
+
+        base.UpdateConfiguration(configuration);
+    }
 
     /// <inheritdoc />
     public override void OnUninstalling()
@@ -65,7 +131,20 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         UnregisterFileTransformation();
         UpdateIndexHtml(false);
         CleanupDataFiles();
+        CleanupWebPathTempFiles();
         CleanupRecommendationPlaylists();
+        try
+        {
+            Api.UserDiscoveryController.ClearRateLimitState();
+        }
+        catch (Exception ex)
+        {
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "[OnUninstalling] ClearRateLimitState failed (best-effort)");
+            }
+        }
+
         base.OnUninstalling();
     }
 
@@ -86,25 +165,136 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
+    ///     Surfaces any config values that were clamped during XML deserialization as a single
+    ///     warning line per affected property. Fixes the previous silent-clamp behaviour where a
+    ///     hand-edited value outside the accepted range would be quietly narrowed with no
+    ///     feedback to the operator.
+    /// </summary>
+    private void ReportClampedConfigValues()
+    {
+        // BasePlugin<T>.Configuration is lazily materialised - in the real host it is populated
+        // before this ctor runs, but tests spin up a bare Plugin instance without a serializer
+        // wiring, so Configuration may still be null here. Skip silently in that case.
+        PluginConfiguration? config = null;
+        try
+        {
+            config = Configuration;
+        }
+        catch (Exception ex)
+        {
+            // Guarded like the rest of the LogDebug calls in this class so a future
+            // parameterized message does not accidentally regress the CA1873 pattern.
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "[Configuration] Configuration unavailable at startup; skipping clamp report");
+            }
+
+            return;
+        }
+
+        if (config is null)
+        {
+            return;
+        }
+
+        // Normalize alpha range BEFORE draining reports so any Min > Max swap is included
+        // in this drain rather than being silently discarded (PluginServiceRegistrator calls
+        // NormalizeAlphaRange during DI build, after the constructor drain already ran).
+        config.NormalizeAlphaRange();
+
+        var reports = config.DrainClampReports();
+        if (reports.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var entry in reports)
+        {
+            _logger.LogWarning(
+                "[Configuration] Value for {Property} was outside its accepted range and was clamped: {Raw} -> {Clamped}",
+                entry.PropertyName,
+                entry.RawValue,
+                entry.ClampedValue);
+        }
+    }
+
+    /// <summary>
     ///     Injects the discovery sidebar script tag into Jellyfin's index.html.
-    ///     Tries the File Transformation plugin first (on-the-fly, no filesystem write needed).
-    ///     Falls back to direct index.html modification if File Transformation is not installed.
+    ///     Registers with the File Transformation plugin when present (on-the-fly response
+    ///     rewriting, survives web-asset updates, works on read-only web dirs) AND always writes
+    ///     the disk fallback as a belt-and-suspenders guarantee.
+    ///     <para>
+    ///         Why always write the disk fallback rather than skipping it when File Transformation
+    ///         registered: "registered" does not prove the transformation is actually being applied
+    ///         to the served response (the plugin could be a stale/incompatible build, or the
+    ///         registration could silently no-op). Relying on registration alone is exactly what
+    ///         made the sidebar silently absent on a fresh server. The two paths are safe together -
+    ///         <see cref="TransformationPatches.IndexHtml"/> strips any existing tag via
+    ///         <see cref="DiscoveryScriptTag.RemovalRegex"/> before inserting, so a disk-injected tag
+    ///         is de-duplicated in the served output; and <see cref="UpdateIndexHtml"/> is idempotent
+    ///         (skips the write when the file already carries the current tag). The only case the disk
+    ///         write cannot cover - a read-only web dir - is precisely where File Transformation is
+    ///         needed, and we surface that as one actionable warning.
+    ///     </para>
     /// </summary>
     internal void InjectScript()
     {
-        if (RegisterFileTransformation())
+        var registered = RegisterFileTransformation();
+        if (registered && _logger.IsEnabled(LogLevel.Debug))
         {
-            // Clean up any older fallback-based injection now that runtime transformation is active.
-            // Without this, upgrading from fallback to FileTransformation would leave the old
-            // <script> tag in index.html, causing the sidebar script to load twice.
-            UpdateIndexHtml(false);
-            _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin — no direct file write needed");
+            _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin (on-the-fly rewriting active)");
         }
-        else
+
+        // Always attempt the disk fallback too. It is idempotent (no write when the tag is already
+        // present) and de-duplicated by the File Transformation callback, so writing it while a
+        // transformation is also registered is harmless - but it guarantees the sidebar appears even
+        // when File Transformation is absent, or registered-but-not-actually-applying.
+        var result = UpdateIndexHtml(true);
+
+        if (_logger.IsEnabled(LogLevel.Information))
         {
-            _logger.LogDebug("[Discovery Sidebar] File Transformation plugin not found, using fallback (direct index.html write)");
-            UpdateIndexHtml(true);
+            _logger.LogInformation(
+                "[Discovery Sidebar] Injection at startup: fileTransformationRegistered={Registered}, diskFallback={Result}, webPath={WebPath}",
+                registered,
+                result,
+                _applicationPaths.WebPath);
         }
+
+        if (result == IndexHtmlUpdateResult.WriteFailed
+            && !registered
+            && Interlocked.Exchange(ref _readOnlyWarningEmitted, 1) == 0)
+        {
+            // The disk fallback could not write (read-only web dir - the common case on Jellyfin 12
+            // / Docker) AND File Transformation is not available to rewrite the response instead.
+            // Emit ONE actionable warning per server start (not a raw stack trace, not on every
+            // re-injection attempt) so the admin knows exactly what to do.
+            _logger.LogWarning(
+                "[Discovery Sidebar] Could not inject the sidebar script into index.html (the Jellyfin web directory appears to be read-only) and the File Transformation plugin is not installed. Install the 'File Transformation' plugin so the Discovery sidebar can be injected without writing to disk.");
+        }
+    }
+
+    /// <summary>
+    ///     Determines whether a loaded assembly is the File Transformation plugin, matching on its
+    ///     exact simple assembly name (<c>Jellyfin.Plugin.FileTransformation</c>).
+    ///     <para>
+    ///         This is a precise, positive identity check - not a loose substring scan of the full
+    ///         assembly name - so an unrelated assembly that merely happens to contain the text
+    ///         ".FileTransformation" somewhere (including this plugin's own
+    ///         <c>...Services.FileTransformation</c> namespace, which is a namespace, not an assembly
+    ///         name) can never be mistaken for the File Transformation plugin. Getting this wrong in
+    ///         either direction is harmless to correctness now that the disk fallback always runs
+    ///         (see <see cref="InjectScript"/>), but a precise check keeps the registration path and
+    ///         its logging honest.
+    ///     </para>
+    /// </summary>
+    /// <param name="assembly">The assembly to test.</param>
+    /// <returns><c>true</c> if this is the File Transformation plugin assembly.</returns>
+    internal static bool IsFileTransformationAssembly(Assembly assembly)
+    {
+        return string.Equals(
+            assembly.GetName().Name,
+            "Jellyfin.Plugin.FileTransformation",
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -119,7 +309,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             var fileTransformationAssembly = AssemblyLoadContext.All
                 .SelectMany(x => x.Assemblies)
-                .FirstOrDefault(x => x.FullName?.Contains(".FileTransformation", StringComparison.Ordinal) ?? false);
+                .FirstOrDefault(x => IsFileTransformationAssembly(x));
 
             if (fileTransformationAssembly == null)
             {
@@ -153,7 +343,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
 
             var payload = Activator.CreateInstance(jObjectType);
-            var jTokenType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JToken")!;
+            var jTokenType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JToken");
+            if (jTokenType == null)
+            {
+                _logger.LogWarning("JToken type not found in Newtonsoft.Json assembly");
+                return false;
+            }
+
             var addMethod = jObjectType.GetMethod("Add", new Type[] { typeof(string), jTokenType });
             var jValueType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JValue");
 
@@ -201,9 +397,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Attempts to unregister the script injection from the File Transformation plugin.
-    ///     Best-effort: if the plugin is not installed or lacks an unregister method, this is a no-op.
+    ///     Attempts to remove the script injection from the File Transformation plugin.
+    ///     Best-effort: if the plugin is not installed or lacks the removal method, this is a no-op.
     ///     Called during <see cref="OnUninstalling"/> to clean up the registered transformation.
+    ///     <para>
+    ///         Targets the v12 API <c>PluginInterface.RemoveTransformation(Guid)</c>. Earlier
+    ///         plugin builds exposed <c>UnregisterTransformation(string)</c>; that name is
+    ///         intentionally not probed since this plugin supports the v12 File Transformation
+    ///         API only (the runtime ABI is Jellyfin 12 / net10).
+    ///     </para>
     /// </summary>
     private void UnregisterFileTransformation()
     {
@@ -211,7 +413,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             var fileTransformationAssembly = AssemblyLoadContext.All
                 .SelectMany(x => x.Assemblies)
-                .FirstOrDefault(x => x.FullName?.Contains(".FileTransformation", StringComparison.Ordinal) ?? false);
+                .FirstOrDefault(x => IsFileTransformationAssembly(x));
 
             if (fileTransformationAssembly == null)
             {
@@ -224,14 +426,20 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return;
             }
 
-            var unregisterMethod = pluginInterfaceType.GetMethod("UnregisterTransformation");
-            if (unregisterMethod == null)
+            // v12 removal API: static void RemoveTransformation(Guid id). Bind the Guid overload
+            // explicitly so we don't accidentally match a same-named method with a different
+            // signature, and pass the plugin Id as a Guid (not its string form).
+            var removeMethod = pluginInterfaceType.GetMethod("RemoveTransformation", new[] { typeof(Guid) });
+            if (removeMethod == null)
             {
                 return;
             }
 
-            unregisterMethod.Invoke(null, new object[] { Id.ToString() });
-            _logger.LogDebug("[Discovery Sidebar] Unregistered from File Transformation plugin");
+            removeMethod.Invoke(null, new object[] { Id });
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("[Discovery Sidebar] Removed transformation from File Transformation plugin");
+            }
         }
         catch (Exception ex) when (ex is IOException
                                    or UnauthorizedAccessException
@@ -247,7 +455,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                                    or MethodAccessException
                                    or MemberAccessException)
         {
-            _logger.LogDebug(ex, "[Discovery Sidebar] Failed to unregister from File Transformation plugin (best-effort)");
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "[Discovery Sidebar] Failed to remove transformation from File Transformation plugin (best-effort)");
+            }
         }
     }
 
@@ -257,82 +468,115 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///     When false, the tag is removed entirely (used during uninstall).
     /// </summary>
     /// <param name="inject">Whether to inject (true) or remove (false) the script tag.</param>
-    internal void UpdateIndexHtml(bool inject)
+    /// <returns>
+    ///     An <see cref="IndexHtmlUpdateResult"/> describing whether the update succeeded, failed to
+    ///     write (read-only / missing file), or did not apply for a content reason.
+    /// </returns>
+    internal IndexHtmlUpdateResult UpdateIndexHtml(bool inject)
     {
-        try
+        // Serialize the whole read-modify-write: the ctor and the startup hosted service can call
+        // this concurrently, and "read current content → strip old tag → insert current tag → write
+        // only if changed" must be atomic so a second caller cannot inject a duplicate or clobber
+        // the first write. When our tag is already present the content is unchanged and no write
+        // happens (idempotent), so repeated calls are cheap and safe.
+        lock (_indexHtmlLock)
         {
-            var indexPath = IndexHtmlPath;
-            _logger.LogDebug("[Discovery Sidebar] WebPath = {WebPath}", _applicationPaths.WebPath);
-            _logger.LogDebug("[Discovery Sidebar] IndexHtmlPath = {IndexPath}", indexPath);
-
-            if (!File.Exists(indexPath))
+            try
             {
-                _logger.LogWarning("[Discovery Sidebar] index.html NOT FOUND at {IndexPath}", indexPath);
-                return;
-            }
+                // Sweep any orphaned atomic-write temp files from a prior hard-killed run before
+                // writing again, so unique-named leftovers cannot accumulate across restarts.
+                CleanupWebPathTempFiles();
 
-            _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
-            var originalContent = File.ReadAllText(indexPath);
-            var content = originalContent;
-            var scriptTag = DiscoveryScriptTag.Build(Version.ToString());
-
-            // Remove any old versions of the script tag first
-            content = DiscoveryScriptTag.RemovalRegex.Replace(content, string.Empty);
-
-            if (inject)
-            {
-                var closingBodyTag = "</body>";
-                var closingBodyIndex = content.LastIndexOf(closingBodyTag, StringComparison.OrdinalIgnoreCase);
-                if (closingBodyIndex >= 0)
+                var indexPath = IndexHtmlPath;
+                if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    content = content.Insert(closingBodyIndex, scriptTag + "\n");
-                    _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
+                    _logger.LogDebug("[Discovery Sidebar] WebPath = {WebPath}", _applicationPaths.WebPath);
+                    _logger.LogDebug("[Discovery Sidebar] IndexHtmlPath = {IndexPath}", indexPath);
                 }
-                else
-                {
-                    _logger.LogWarning("[Discovery Sidebar] Could not find </body> tag in index.html");
-                    return;
-                }
-            }
-            else
-            {
-                _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
-            }
 
-            if (!string.Equals(content, originalContent, StringComparison.Ordinal))
-            {
-                var tempPath = indexPath + ".jfh.tmp";
-                try
+                if (!File.Exists(indexPath))
                 {
-                    File.WriteAllText(tempPath, content);
-                    File.Move(tempPath, indexPath, overwrite: true);
-                    _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+                    _logger.LogWarning("[Discovery Sidebar] index.html NOT FOUND at {IndexPath}", indexPath);
+
+                    // A missing index.html when injecting is a genuine "cannot inject via disk" case that
+                    // File Transformation would resolve (it transforms the served response, not the file).
+                    // When removing (uninstall cleanup), a missing file is already the desired end state.
+                    return inject ? IndexHtmlUpdateResult.WriteFailed : IndexHtmlUpdateResult.Success;
                 }
-                finally
+
+                // CA1873: guard every LogDebug in this method consistently.
+                // These particular calls use constant messages (no expensive argument evaluation),
+                // so the runtime win is negligible - the value of the guard here is _consistency_:
+                // it prevents future maintainers from adding a parameterized LogDebug to this
+                // block and accidentally regressing the CA1873 pattern the class opted into.
+                if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    // Clean up the temp file if File.Move() failed (e.g., permission flap, lock).
-                    // Without this, stale .jfh.tmp files accumulate in WebPath across restarts.
-                    if (File.Exists(tempPath))
+                    _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
+                }
+
+                var originalContent = File.ReadAllText(indexPath);
+                var content = originalContent;
+                var scriptTag = DiscoveryScriptTag.Build(Version.ToString());
+
+                // Remove any old versions of the script tag first
+                content = DiscoveryScriptTag.RemovalRegex.Replace(content, string.Empty);
+
+                if (inject)
+                {
+                    var closingBodyTag = "</body>";
+                    var htmlCloseIndex = content.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
+                    var searchBound = htmlCloseIndex > 0 ? htmlCloseIndex - 1 : content.Length - 1;
+                    var closingBodyIndex = content.LastIndexOf(closingBodyTag, searchBound, StringComparison.OrdinalIgnoreCase);
+                    if (closingBodyIndex >= 0)
                     {
-                        try
+                        content = content.Insert(closingBodyIndex, scriptTag + "\n");
+                        if (_logger.IsEnabled(LogLevel.Debug))
                         {
-                            File.Delete(tempPath);
-                        }
-                        catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
-                        {
-                            // Best-effort cleanup — file may still be locked.
+                            _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
                         }
                     }
+                    else
+                    {
+                        _logger.LogWarning("[Discovery Sidebar] Could not find </body> tag in index.html");
+                        return IndexHtmlUpdateResult.NotApplicable;
+                    }
                 }
+                else if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
+                }
+
+                if (!string.Equals(content, originalContent, StringComparison.Ordinal))
+                {
+                    // Use AtomicFile so a transient sharing violation on the final File.Move
+                    // (typical when Jellyfin's web server or an AV scanner briefly holds the
+                    // file handle) gets a bounded retry with backoff. AtomicFile also handles
+                    // temp-file cleanup internally, so no finally block is required here.
+                    AtomicFile.WriteAllText(indexPath, content);
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                    {
+                        _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+                    }
+                }
+                else if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("[Discovery Sidebar] index.html already up to date; skipping write");
+                }
+
+                return IndexHtmlUpdateResult.Success;
             }
-            else
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
-                _logger.LogDebug("[Discovery Sidebar] index.html already up to date; skipping write");
+                // A write failure here is the read-only-web-directory case that motivates the
+                // File Transformation plugin. Log at debug (the actionable guidance is emitted once,
+                // higher up in InjectScript) and report the failure to the caller.
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(ex, "[Discovery Sidebar] Failed to update index.html on disk");
+                }
+
+                return IndexHtmlUpdateResult.WriteFailed;
             }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            _logger.LogError(ex, "[Discovery Sidebar] Failed to update index.html");
         }
     }
 
@@ -376,6 +620,49 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
+                    _logger.LogWarning(ex, "Failed to clean up data file");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // Best effort - if the data directory is inaccessible, nothing we can do.
+        }
+    }
+
+    /// <summary>
+    ///     Removes stale atomic-write temp files left in the Jellyfin <c>WebPath</c> by
+    ///     <see cref="UpdateIndexHtml"/>. <see cref="AtomicFile.WriteAllText"/> writes to a
+    ///     uniquely-named <c>index.html.&lt;guid&gt;.tmp</c> before renaming it over the target;
+    ///     it cleans that temp file up in-process on failure, but a hard process kill
+    ///     (OOM / container SIGKILL) between the write and the rename orphans it. Because the
+    ///     name is unique per attempt, such orphans would otherwise accumulate forever -
+    ///     <see cref="CleanupDataFiles"/> only sweeps <c>DataPath</c>, never <c>WebPath</c>.
+    ///     Swept on uninstall and at the start of each <see cref="UpdateIndexHtml"/> run so
+    ///     leftovers cannot build up across crashes/restarts.
+    /// </summary>
+    internal void CleanupWebPathTempFiles()
+    {
+        try
+        {
+            var webPath = _applicationPaths.WebPath;
+            if (!Directory.Exists(webPath))
+            {
+                return;
+            }
+
+            // Only our own atomic-write leftovers: index.html.<something>.tmp. The middle
+            // segment is a GUID in practice, but the glob stays permissive while the
+            // "index.html." prefix + ".tmp" suffix keep it scoped to this plugin's writes
+            // and away from Jellyfin's real index.html.
+            foreach (var file in Directory.GetFiles(webPath, "index.html.*.tmp"))
+            {
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
                     // Best effort - file may be locked or permission-restricted.
                     // Skip and continue with the next file.
                 }
@@ -383,7 +670,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best effort - if the data directory is inaccessible, nothing we can do.
+            // Best effort - if the web directory is inaccessible, nothing we can do.
         }
     }
 

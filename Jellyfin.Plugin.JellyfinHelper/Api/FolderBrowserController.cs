@@ -53,6 +53,10 @@ public class FolderBrowserController : ControllerBase
             return Ok(_folderBrowser.GetRoots());
         }
 
+        // All path validation (traversal prevention, allow-list enforcement, existence checks)
+        // is delegated to FolderBrowserService.GetChildren → ValidatePath. No pre-validation
+        // is performed here intentionally; the service is the single source of truth for what
+        // paths are permitted.
         return Ok(_folderBrowser.GetChildren(path));
     }
 
@@ -63,17 +67,17 @@ public class FolderBrowserController : ControllerBase
     /// </summary>
     /// <returns>A list of library root paths with their names.</returns>
     [HttpGet("LibraryPaths")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FolderBrowserResponse), StatusCodes.Status200OK)]
     public ActionResult GetLibraryPaths()
     {
         var virtualFolders = _libraryManager.GetVirtualFolders();
         var paths = virtualFolders
             .Where(f => !string.IsNullOrWhiteSpace(f.Name))
-            .SelectMany(f => (f.Locations ?? []).Select(loc => new { name = f.Name, path = loc }))
-            .Where(x => !string.IsNullOrWhiteSpace(x.path))
-            .OrderBy(x => x.name, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(f => (f.Locations ?? []).Select(loc => new LibraryPathEntry { Name = f.Name!, Path = loc }))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Path))
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return Ok(new { libraryPaths = paths });
+        return Ok(new FolderBrowserResponse { LibraryPaths = paths });
     }
 }

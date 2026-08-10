@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Abstractions.TestingHelpers;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;

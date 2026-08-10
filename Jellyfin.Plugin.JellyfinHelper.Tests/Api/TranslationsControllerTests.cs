@@ -44,4 +44,29 @@ public class TranslationsControllerTests
         Assert.NotEmpty(translations);
         Assert.Equal("Einstellungen", translations["tabSettings"]);
     }
+
+    [Fact]
+    public void GetTranslations_InvalidLangCode_Returns400()
+    {
+        var result = _controller.GetTranslations("../../etc");
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public void GetTranslations_TooLongLangCode_Returns400()
+    {
+        var result = _controller.GetTranslations("aaaaaaaaaaaaa");
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public void GetTranslations_ValidLangCode_Returns200()
+    {
+        var result = _controller.GetTranslations("en");
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.NotNull(okResult.Value);
+    }
 }

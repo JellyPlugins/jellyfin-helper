@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -60,7 +61,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         _pluginLog = pluginLog;
         _logger = logger;
 
-        var dataPath = Plugin.Instance?.DataFolderPath ?? string.Empty;
+        var dataPath = Plugin.Instance?.DataFolderPath
+            ?? throw new InvalidOperationException("Plugin.Instance is null; DiscoveryFeedbackStore cannot determine its data folder path.");
         _filePath = Path.Join(dataPath, FileName);
     }
 
@@ -146,6 +148,12 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                         modified = true;
                     }
 
+                    if (existing.Popularity == 0 && item.Popularity > 0)
+                    {
+                        existing.Popularity = item.Popularity;
+                        modified = true;
+                    }
+
                     if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
                     {
                         existing.KnownPeople = item.KnownPeople.ToList();
@@ -163,6 +171,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     Year = item.Year,
                     Genres = item.Genres?.ToArray() ?? [],
                     TmdbRating = item.TmdbRating,
+                    Popularity = item.Popularity,
                     Score = item.Score,
                     ShownAtUtc = now,
                     KnownPeople = item.KnownPeople?.ToList() ?? []
@@ -190,28 +199,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         lock (_fileLock)
         {
             var data = LoadInternal();
-            var userResult = data.FirstOrDefault(r => r.UserId == userId);
-            if (userResult == null)
-            {
-                userResult = new DiscoveryFeedbackResult { UserId = userId };
-                data.Add(userResult);
-            }
-
+            var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
-            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == normalizedType);
-            if (entry == null)
-            {
-                entry = new DiscoveryFeedbackEntry
-                {
-                    TmdbId = tmdbId,
-                    MediaType = normalizedType,
-                    ShownAtUtc = DateTime.UtcNow
-                };
-                userResult.Entries.Add(entry);
-            }
-
+            var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
             entry.DismissedAtUtc = DateTime.UtcNow;
-
             SaveInternal(data);
         }
     }
@@ -227,28 +218,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         lock (_fileLock)
         {
             var data = LoadInternal();
-            var userResult = data.FirstOrDefault(r => r.UserId == userId);
-            if (userResult == null)
-            {
-                userResult = new DiscoveryFeedbackResult { UserId = userId };
-                data.Add(userResult);
-            }
-
+            var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
-            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == normalizedType);
-            if (entry == null)
-            {
-                entry = new DiscoveryFeedbackEntry
-                {
-                    TmdbId = tmdbId,
-                    MediaType = normalizedType,
-                    ShownAtUtc = DateTime.UtcNow
-                };
-                userResult.Entries.Add(entry);
-            }
-
+            var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
             entry.RequestedAtUtc = DateTime.UtcNow;
-
             SaveInternal(data);
         }
     }
@@ -376,6 +349,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 Year = e.Year,
                 Genres = e.Genres?.ToArray() ?? [],
                 TmdbRating = e.TmdbRating,
+                Popularity = e.Popularity,
                 Score = e.Score,
                 KnownPeople = e.KnownPeople?.ToList() ?? [],
                 ShownAtUtc = e.ShownAtUtc,
@@ -388,14 +362,20 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <summary>
-    ///     Loads the feedback data from the in-memory cache or disk.
+    ///     Loads the feedback data from the in-memory cache or disk and returns a deep copy.
     ///     Must be called under <see cref="_fileLock"/>.
+    ///     <para>
+    ///         Always returns a deep copy so callers may freely mutate the returned list
+    ///         (add/remove entries, modify nested properties) without corrupting the shared
+    ///         <see cref="_memoryCache"/>. <see cref="SaveInternal"/> atomically swaps
+    ///         <see cref="_memoryCache"/> to the post-eviction copy on a successful disk write.
+    ///     </para>
     /// </summary>
     private List<DiscoveryFeedbackResult> LoadInternal()
     {
         if (_memoryCache != null)
         {
-            return _memoryCache;
+            return _memoryCache.Select(CloneResult).ToList();
         }
 
         try
@@ -403,7 +383,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             if (!File.Exists(_filePath))
             {
                 _memoryCache = [];
-                return _memoryCache;
+                return [];
             }
 
             var fileInfo = new FileInfo(_filePath);
@@ -416,12 +396,12 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     _logger);
                 TryDeleteFile();
                 _memoryCache = [];
-                return _memoryCache;
+                return [];
             }
 
             var json = File.ReadAllText(_filePath);
             _memoryCache = JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(json, JsonOptions) ?? [];
-            return _memoryCache;
+            return _memoryCache.Select(CloneResult).ToList();
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
@@ -436,7 +416,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             _memoryCache = [];
-            return _memoryCache;
+            return [];
         }
     }
 
@@ -447,11 +427,15 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// </summary>
     private void SaveInternal(List<DiscoveryFeedbackResult> data)
     {
+        // Work on a deep copy so eviction mutations never touch the live _memoryCache.
+        // The copy is swapped into _memoryCache atomically after a successful disk write.
+        var workingCopy = data.Select(CloneResult).ToList();
+
         // Eviction: remove entries older than MaxEntryAgeDays and cap per-user count.
         // Use the latest interaction timestamp (not just ShownAtUtc) to prevent evicting
         // entries that were recently dismissed or requested but originally shown long ago.
         var cutoff = DateTime.UtcNow.AddDays(-MaxEntryAgeDays);
-        foreach (var userResult in data)
+        foreach (var userResult in workingCopy)
         {
             // Remove expired entries based on their most recent activity
             userResult.Entries.RemoveAll(e => GetLatestActivityUtc(e) < cutoff);
@@ -467,9 +451,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         }
 
         // Remove users with zero entries after eviction
-        data.RemoveAll(r => r.Entries.Count == 0);
+        workingCopy.RemoveAll(r => r.Entries.Count == 0);
 
-        var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
         try
         {
             var directory = Path.GetDirectoryName(_filePath);
@@ -478,16 +461,36 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 Directory.CreateDirectory(directory);
             }
 
-            var json = JsonSerializer.Serialize(data, JsonOptions);
-            File.WriteAllText(tempFilePath, json);
-            File.Move(tempFilePath, _filePath, overwrite: true);
+            var json = JsonSerializer.Serialize(workingCopy, JsonOptions);
 
-            // Update memory cache
-            _memoryCache = data;
+            // Use AtomicFile so a transient sharing violation on the final File.Move
+            // (typical when an AV scanner or the Search indexer briefly holds the file
+            // handle) gets a bounded retry with backoff. AtomicFile also handles
+            // temp-file cleanup internally.
+            AtomicFile.WriteAllText(_filePath, json);
+
+            // Atomically replace the live cache with the post-eviction copy.
+            _memoryCache = workingCopy;
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+
+        // Broader filter than plain IOException / UnauthorizedAccessException / JsonException
+        // because AtomicFile.WriteAllText can also surface SecurityException,
+        // NotSupportedException and ArgumentException (malformed path characters from OS layer).
+        // Best-effort save must degrade gracefully for every one of those rather than crashing
+        // the calling task or request. Matches the filter used in StatisticsCacheService.
+        //
+        // Not covered by unit tests: reliably provoking SecurityException / NotSupportedException
+        // in-process requires filesystem edge cases (locked-down user accounts, exotic path
+        // syntax on non-Windows) that a portable xUnit run cannot reproduce. The handler body
+        // is shape-identical for all six exception types (log + invalidate cache, no partial
+        // writes to on-disk state), so extending the filter cannot introduce a new failure mode.
+        catch (Exception ex) when (ex is IOException
+                                    or UnauthorizedAccessException
+                                    or JsonException
+                                    or System.Security.SecurityException
+                                    or NotSupportedException
+                                    or ArgumentException)
         {
-            TryDeleteTempFile(tempFilePath);
             // Invalidate the in-memory cache so the next LoadInternal() re-reads from disk.
             _memoryCache = null;
             _pluginLog.LogWarning(
@@ -505,23 +508,54 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     private static DiscoveryFeedbackResult GetOrCreateUserResult(
         List<DiscoveryFeedbackResult> data,
         Guid userId,
-        string userName)
+        string? userName)
     {
         var existing = data.FirstOrDefault(r => r.UserId == userId);
         if (existing != null)
         {
-            // Update username in case it changed
-            existing.UserName = userName;
+            // Update username in case it changed (only when caller supplies one)
+            if (userName != null)
+            {
+                existing.UserName = userName;
+            }
+
             return existing;
         }
 
         var newResult = new DiscoveryFeedbackResult
         {
             UserId = userId,
-            UserName = userName
+            UserName = userName ?? string.Empty
         };
         data.Add(newResult);
         return newResult;
+    }
+
+    /// <summary>
+    ///     Returns the existing feedback entry for (tmdbId, mediaType), or creates and registers a new one.
+    ///     Must be called under <see cref="_fileLock"/>.
+    /// </summary>
+    private static DiscoveryFeedbackEntry GetOrCreateEntry(
+        DiscoveryFeedbackResult userResult,
+        int tmdbId,
+        string normalizedMediaType)
+    {
+        foreach (var e in userResult.Entries)
+        {
+            if (e.TmdbId == tmdbId && e.MediaType == normalizedMediaType)
+            {
+                return e;
+            }
+        }
+
+        var entry = new DiscoveryFeedbackEntry
+        {
+            TmdbId = tmdbId,
+            MediaType = normalizedMediaType,
+            ShownAtUtc = DateTime.UtcNow
+        };
+        userResult.Entries.Add(entry);
+        return entry;
     }
 
     /// <summary>
@@ -554,8 +588,27 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     ///     Normalizes a media type string to lowercase for consistent lookup/dedup.
     ///     Defensive: handles null/whitespace gracefully.
     /// </summary>
-    private static string NormalizeMediaType(string? mediaType) =>
-        string.IsNullOrWhiteSpace(mediaType) ? "movie" : mediaType.Trim().ToLowerInvariant();
+    private string NormalizeMediaType(string? mediaType)
+    {
+        if (string.IsNullOrWhiteSpace(mediaType))
+        {
+            return "movie";
+        }
+
+        var normalized = mediaType.Trim().ToLowerInvariant();
+
+        if (normalized != "movie" && normalized != "tv")
+        {
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Unexpected mediaType value '{Value}' normalized to 'movie'.", mediaType?.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' '));
+            }
+
+            return "movie";
+        }
+
+        return normalized;
+    }
 
     private void TryDeleteFile()
     {
@@ -566,18 +619,6 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Best effort
-        }
-    }
-
-    private static void TryDeleteTempFile(string tempFilePath)
-    {
-        try
-        {
-            File.Delete(tempFilePath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Best effort cleanup
         }
     }
 }

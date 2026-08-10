@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Net.Mime;
+using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Microsoft.AspNetCore.Authorization;
@@ -17,6 +19,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class TranslationsController : ControllerBase
 {
+    private static readonly Regex LangCodeRegex =
+        new Regex(@"^[a-z]{2}(-[A-Z]{2})?$", RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
     private readonly ICleanupConfigHelper _configHelper;
 
     /// <summary>
@@ -35,10 +40,26 @@ public class TranslationsController : ControllerBase
     /// <returns>A dictionary of translation keys to strings.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [AllowAnonymous] // Intentional: translations are needed before user authentication (e.g. login page)
     public ActionResult<Dictionary<string, string>> GetTranslations([FromQuery] string? lang = null)
     {
-        var languageCode = string.IsNullOrWhiteSpace(lang) ? _configHelper.GetConfig().Language : lang.Trim();
+        string languageCode;
+        if (string.IsNullOrWhiteSpace(lang))
+        {
+            languageCode = _configHelper.GetConfig().Language;
+        }
+        else
+        {
+            var trimmed = lang.Trim();
+            if (trimmed.Length > 10 || !LangCodeRegex.IsMatch(trimmed))
+            {
+                return BadRequest(new { message = "Invalid language code. Expected format: 'en' or 'en-US'." });
+            }
+
+            languageCode = trimmed;
+        }
+
         var translations = I18NService.GetTranslations(languageCode);
         return Ok(translations);
     }

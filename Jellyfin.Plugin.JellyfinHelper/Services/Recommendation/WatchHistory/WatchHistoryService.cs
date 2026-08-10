@@ -1,9 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -79,7 +81,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             {
                 profiles.Add(BuildProfile(user, allItems, allSeries));
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
                     "WatchHistory",
@@ -125,6 +127,43 @@ public sealed class WatchHistoryService : IWatchHistoryService
         });
     }
 
+    /// <inheritdoc />
+    public IReadOnlyDictionary<Guid, int> GetSeriesEpisodeCounts()
+    {
+        var allEpisodes = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            IsFolder = false
+        });
+
+        return CountPlayableEpisodesPerSeries(allEpisodes);
+    }
+
+    /// <summary>
+    ///     Collapses a flat episode list into a per-series playable-episode count. Only episodes
+    ///     with a non-empty <c>Path</c> and a valid <c>SeriesId</c> are counted, matching the
+    ///     engine's identical rule (see the recommendation engine's candidate load) so the
+    ///     progression ratio (watched / total) stays consistent across both subsystems.
+    /// </summary>
+    /// <param name="episodes">The flat episode list.</param>
+    /// <returns>A map of series ID to playable-episode count.</returns>
+    private static Dictionary<Guid, int> CountPlayableEpisodesPerSeries(IReadOnlyList<BaseItem> episodes)
+    {
+        var seriesEpisodeCounts = new Dictionary<Guid, int>();
+        foreach (var episode in episodes.OfType<Episode>())
+        {
+            if (string.IsNullOrEmpty(episode.Path) || episode.SeriesId == Guid.Empty)
+            {
+                continue;
+            }
+
+            seriesEpisodeCounts.TryGetValue(episode.SeriesId, out var count);
+            seriesEpisodeCounts[episode.SeriesId] = count + 1;
+        }
+
+        return seriesEpisodeCounts;
+    }
+
     /// <summary>
     ///     Builds a complete watch profile for a single user using pre-loaded library items.
     /// </summary>
@@ -151,9 +190,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var ratingCount = 0;
         var watchedSeriesIds = new HashSet<Guid>();
 
+        // Pre-fetch user data for every video item in one batch call (Jellyfin 12+ API).
+        // Falls back to null on any exception; the per-item lookup below then reverts to
+        // the pre-batch code path via _userDataManager.GetUserData, so the profile never
+        // regresses to worse behavior than before this optimization.
+        var itemUserDataLookup = TryLoadUserDataBatch(user, allItems);
+
         foreach (var item in allItems)
         {
-            var userData = _userDataManager.GetUserData(user, item);
+            var userData = LookupUserData(itemUserDataLookup, item, user);
             if (userData is null)
             {
                 continue;
@@ -164,6 +209,32 @@ public sealed class WatchHistoryService : IWatchHistoryService
             {
                 continue;
             }
+
+            // Billed cast/directors for this item, cached as aligned name/weight lists so the training
+            // path can compute BillingWeightedPeople with the same shared helper the live path uses
+            // (closes the organic/aggregated-series train/serve gap that previously hardcoded 0.0).
+            // Resolved ONLY for non-episode items (movies + series), which are exactly the item types
+            // that appear as live scoring candidates - episodes never do. Skipping episodes also
+            // preserves the invariant that people are aggregated at series level, never per episode
+            // (GetPeople is never called on an Episode), avoiding guest-cast noise.
+            IReadOnlyList<PersonInfo>? itemPeople = null;
+            if (item is not Episode)
+            {
+                try
+                {
+                    itemPeople = _libraryManager.GetPeople(item);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (!ex.IsFatal())
+                {
+                    itemPeople = null;
+                }
+            }
+
+            var (billedNames, billedWeights) = SimilarityComputer.ExtractBilledPeople(itemPeople);
 
             var watchedItem = new WatchedItemInfo
             {
@@ -182,7 +253,21 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 Year = item.ProductionYear,
                 SeriesId = item is Episode ep ? (ep.SeriesId != Guid.Empty ? ep.SeriesId : null) : null,
                 DateCreated = item.DateCreated,
-                PrimaryImageTag = null
+                PrimaryImageTag = null,
+                PeopleNames = billedNames,
+                PeopleWeights = billedWeights,
+
+                // Content-affinity source fields. Populated here on the watched side so the preference
+                // builders (franchise/country/inherited-tag/writer/series-completability) have real
+                // signal to compare live candidates against - extracted with the exact same shared,
+                // library-free resolvers the live scoring and precompute paths use, guaranteeing parity.
+                // WriterNames reuses the people list already fetched above (no extra GetPeople call).
+                TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
+                ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(item),
+                InheritedTags = ContentAffinityResolver.ResolveInheritedTags(item),
+                SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(item),
+                EndDate = ContentAffinityResolver.ResolveSeriesEndDate(item),
+                WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
             };
 
             profile.WatchedItems.Add(watchedItem);
@@ -249,9 +334,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // itself, not on individual episodes.
         allSeries ??= LoadAllSeriesItems();
 
+        // Second batch call for the (usually much smaller) series list.
+        var seriesUserDataLookup = TryLoadUserDataBatch(user, allSeries);
+
         foreach (var series in allSeries)
         {
-            var seriesUserData = _userDataManager.GetUserData(user, series);
+            var seriesUserData = LookupUserData(seriesUserDataLookup, series, user);
             if (seriesUserData is not null && seriesUserData.IsFavorite)
             {
                 profile.FavoriteSeriesIds.Add(series.Id);
@@ -262,6 +350,22 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 // with the FavoriteGenreBoostFactor (3×). Without this, favoriting a series
                 // only populates FavoriteSeriesIds (used for candidate exclusion) but does NOT
                 // influence genre preferences, studio preferences, or training labels.
+                IReadOnlyList<PersonInfo>? seriesPeople;
+                try
+                {
+                    seriesPeople = _libraryManager.GetPeople(series);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (!ex.IsFatal())
+                {
+                    seriesPeople = null;
+                }
+
+                var (favBilledNames, favBilledWeights) = SimilarityComputer.ExtractBilledPeople(seriesPeople);
+
                 profile.WatchedItems.Add(new WatchedItemInfo
                 {
                     ItemId = series.Id,
@@ -279,7 +383,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
                     Year = series.ProductionYear,
                     SeriesId = null, // This IS the series itself, not an episode
                     DateCreated = series.DateCreated,
-                    PrimaryImageTag = null
+                    PrimaryImageTag = null,
+                    PeopleNames = favBilledNames,
+                    PeopleWeights = favBilledWeights,
+
+                    // Content-affinity source fields for the favorited series, using the same shared
+                    // resolvers as the primary loop so a favorited series contributes franchise/country/
+                    // inherited-tag/writer/completability preference signal identically to a watched item.
+                    // WriterNames reuses seriesPeople (already fetched); SeriesStatus/EndDate are real here.
+                    TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(series),
+                    ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(series),
+                    InheritedTags = ContentAffinityResolver.ResolveInheritedTags(series),
+                    SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),
+                    EndDate = ContentAffinityResolver.ResolveSeriesEndDate(series),
+                    WriterNames = ContentAffinityResolver.ExtractWriterNames(seriesPeople)
                 });
 
                 // Also accumulate genre distribution for series-level favorites
@@ -300,7 +417,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // Build audio + subtitle language profiles in a single pass over allItems.
         // Previously these were two separate methods each iterating allItems and calling
         // GetUserData per item, causing 2× the UserData lookups.
-        BuildLanguageProfiles(profile, user, allItems);
+        // Reuses the already-fetched itemUserDataLookup to avoid a third pass.
+        BuildLanguageProfiles(profile, user, allItems, itemUserDataLookup);
 
         // Build people (actors/directors) profile from BaseItem.People metadata
         BuildPeopleProfile(profile, user, allItems, allSeries);
@@ -329,14 +447,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="profile">The user profile to populate with language data.</param>
     /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
+    /// <param name="itemUserDataLookup">
+    ///     Pre-fetched batch dictionary from <see cref="TryLoadUserDataBatch"/>, or <c>null</c>
+    ///     if the batch call failed. When <c>null</c>, this method falls back to per-item
+    ///     <c>GetUserData</c> calls via <see cref="LookupUserData"/>.
+    /// </param>
     private void BuildLanguageProfiles(
         UserWatchProfile profile,
         Jellyfin.Database.Implementations.Entities.User user,
-        IReadOnlyList<BaseItem> allItems)
+        IReadOnlyList<BaseItem> allItems,
+        IReadOnlyDictionary<Guid, UserItemData>? itemUserDataLookup)
     {
         foreach (var item in allItems)
         {
-            var userData = _userDataManager.GetUserData(user, item);
+            var userData = LookupUserData(itemUserDataLookup, item, user);
             if (userData is null || (!userData.Played && userData.PlaybackPositionTicks <= 0))
             {
                 continue;
@@ -348,7 +472,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
             {
                 allStreams = item.GetMediaStreams()?.ToList();
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (OperationCanceledException)
+            {
+                // Cancellation is a stop signal - propagate instead of skipping items silently.
+                // Same contract as BatchFallbackHelper enforces for the batch call sites above.
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 // Graceful: skip items where stream lookup fails (e.g. corrupted metadata)
                 continue;
@@ -359,8 +489,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
+            // Single-pass partition: split audio and subtitle streams in one iteration.
+            var streamsByType = allStreams.ToLookup(s => s.Type);
+            var audioStreams = streamsByType[MediaStreamType.Audio].ToList();
+            var subtitleStreams = streamsByType[MediaStreamType.Subtitle].ToList();
+
             // === Audio Language Analysis ===
-            var audioStreams = allStreams.Where(s => s.Type == MediaStreamType.Audio).ToList();
             if (audioStreams.Count > 0)
             {
                 string? usedAudioLanguage = null;
@@ -379,28 +513,27 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
                 if (!string.IsNullOrEmpty(usedAudioLanguage))
                 {
+                    // availableAudioLanguages is always >= 1 here (usedAudioLanguage was resolved
+                    // from the same audioStreams list), so the old "> 0" guard was dead code.
                     var availableAudioLanguages = audioStreams
                         .Select(s => NormalizeLanguage(s.Language))
                         .Where(l => !string.IsNullOrEmpty(l))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Count();
 
-                    if (availableAudioLanguages > 0)
+                    if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
                     {
-                        if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
-                        {
-                            audioEntry = new LanguageProfileEntry();
-                            profile.LanguageProfile[usedAudioLanguage] = audioEntry;
-                        }
+                        audioEntry = new LanguageProfileEntry();
+                        profile.LanguageProfile[usedAudioLanguage] = audioEntry;
+                    }
 
-                        if (availableAudioLanguages > 1)
-                        {
-                            audioEntry.ChosenCount++;
-                        }
-                        else
-                        {
-                            audioEntry.ForcedCount++;
-                        }
+                    if (availableAudioLanguages > 1)
+                    {
+                        audioEntry.ChosenCount++;
+                    }
+                    else
+                    {
+                        audioEntry.ForcedCount++;
                     }
                 }
             }
@@ -408,7 +541,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
             // === Subtitle Language Analysis ===
             if (userData.SubtitleStreamIndex.HasValue && userData.SubtitleStreamIndex.Value >= 0)
             {
-                var subtitleStreams = allStreams.Where(s => s.Type == MediaStreamType.Subtitle).ToList();
                 if (subtitleStreams.Count > 0)
                 {
                     var chosenSubStream = subtitleStreams
@@ -532,14 +664,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 // (which have ItemId = seriesId, SeriesId = null) don't double-count.
                 processedItemIds.Add(seriesId);
 
-                // Try to get series people; fall back to episode item if series metadata unavailable
+                // Use series-level metadata only. If the series is not in the lookup, skip entirely
+                // rather than falling back to episode-level data. Falling back would count only the
+                // limited guest cast of a single episode instead of the full main cast, and would
+                // also cause a double-count if a synthetic favourite-series row (ItemId == seriesId,
+                // SeriesId == null) is processed later and the processedItemIds guard at line 559
+                // already blocked it from reaching the people aggregation path.
                 if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
                 {
                     AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
-                }
-                else if (itemLookup.TryGetValue(watchedItem.ItemId, out var episodeItem))
-                {
-                    AggregatePeopleFromItem(profile, episodeItem, maxActorsPerItem);
                 }
 
                 continue;
@@ -573,7 +706,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
         {
             people = _libraryManager.GetPeople(item);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (OperationCanceledException)
+        {
+            // Cancellation must propagate - skipping the item silently would defeat
+            // any cooperative cancellation the caller relies on.
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // Graceful: skip items where people lookup fails
             return;
@@ -689,5 +828,73 @@ public sealed class WatchHistoryService : IWatchHistoryService
             _ when lower.Length == 2 => lower, // Already ISO 639-1
             _ => lower // Keep unmapped 3-letter codes as-is
         };
+    }
+
+    /// <summary>
+    ///     Fetches user data for many items in one shot via the Jellyfin 12+
+    ///     <c>IUserDataManager.GetUserDataBatch</c> call. Returns <c>null</c> on failure so
+    ///     the caller can fall back to per-item lookups. An empty <paramref name="items"/>
+    ///     list short-circuits with an empty dictionary - treated as "batch succeeded, no
+    ///     results" rather than "batch failed, fall back".
+    ///     The try/catch shape is delegated to <see cref="BatchFallbackHelper"/> so the
+    ///     three batch call sites in the plugin can't drift apart on cancellation handling.
+    /// </summary>
+    private IReadOnlyDictionary<Guid, UserItemData>? TryLoadUserDataBatch(
+        Jellyfin.Database.Implementations.Entities.User user,
+        IReadOnlyList<BaseItem> items)
+    {
+        if (items.Count == 0)
+        {
+            return new Dictionary<Guid, UserItemData>();
+        }
+
+        return BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
+            batchCall: () =>
+            {
+                var batch = _userDataManager.GetUserDataBatch(items, user);
+                if (batch is null)
+                {
+                    return null;
+                }
+
+                // Accept whatever dictionary shape Jellyfin hands back.
+                if (batch is IReadOnlyDictionary<Guid, UserItemData> readOnly)
+                {
+                    return readOnly;
+                }
+
+                return new Dictionary<Guid, UserItemData>(batch);
+            },
+            fallbackValue: null,
+            onFailure: ex => _pluginLog.LogWarning(
+                "WatchHistory",
+                $"Batch user-data load failed for user '{user.Username}'; falling back to per-item lookup.",
+                ex,
+                _logger));
+    }
+
+    /// <summary>
+    ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary
+    ///     but falling back to a per-item <c>GetUserData</c> call when the batch was not
+    ///     available for this user (batch returned <c>null</c> due to an exception upstream).
+    ///     A missing entry in a valid batch is treated as "no user data" - identical to
+    ///     the pre-batch behavior of <c>GetUserData</c> returning <c>null</c>.
+    /// </summary>
+    /// <param name="lookup">The batch lookup, or <c>null</c> if the batch failed.</param>
+    /// <param name="item">The item whose user data to fetch.</param>
+    /// <param name="user">The Jellyfin user (used only for the fallback path).</param>
+    /// <returns>The user's data for the item, or <c>null</c> when unavailable.</returns>
+    private UserItemData? LookupUserData(
+        IReadOnlyDictionary<Guid, UserItemData>? lookup,
+        BaseItem item,
+        Jellyfin.Database.Implementations.Entities.User user)
+    {
+        if (lookup is not null)
+        {
+            lookup.TryGetValue(item.Id, out var found);
+            return found;
+        }
+
+        return _userDataManager.GetUserData(user, item);
     }
 }

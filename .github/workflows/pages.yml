@@ -11,19 +11,24 @@ on:
       - '.github/scripts/prepare-demo-site.ps1'
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: github-pages
   cancel-in-progress: true
 
-permissions:
-  contents: write
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          # Deploy step uses ${{ secrets.GITHUB_TOKEN }} explicitly; do not persist
+          # the token in local git config to reduce blast radius of any repo-controlled step.
+          persist-credentials: false
 
       - name: Prepare demo site
         shell: pwsh

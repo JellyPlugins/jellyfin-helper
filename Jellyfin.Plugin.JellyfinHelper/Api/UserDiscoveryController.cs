@@ -1,10 +1,13 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -15,18 +18,26 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
 ///     User-facing API controller for Seerr Discovery.
-///     Does NOT require admin elevation — any authenticated Jellyfin user can access these endpoints
+///     Does NOT require admin elevation - any authenticated Jellyfin user can access these endpoints
 ///     (gated by the <c>DiscoveryUserAccessEnabled</c> configuration toggle).
 /// </summary>
 [ApiController]
 [Authorize]
 [Route("JellyfinHelper/Discovery/My")]
 [Produces(MediaTypeNames.Application.Json)]
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
 public sealed class UserDiscoveryController : ControllerBase
 {
+    private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> LastRequestTime = new();
+
+    private static int _acceptedRequestCount;
+
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
+    private readonly IPluginConfigurationService _configurationService;
     private readonly ILogger<UserDiscoveryController> _logger;
 
     /// <summary>
@@ -35,16 +46,19 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="discovery">The discovery service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
+    /// <param name="configurationService">The plugin configuration service.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
         ISeerrDiscoveryService discovery,
         IDiscoveryFeedbackStore feedbackStore,
+        IPluginConfigurationService configurationService,
         ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
         _discovery = discovery;
         _feedbackStore = feedbackStore;
+        _configurationService = configurationService;
         _logger = logger;
     }
 
@@ -89,7 +103,7 @@ public sealed class UserDiscoveryController : ControllerBase
                     : r.MediaType.Trim().ToLowerInvariant();
                 return !r.AlreadyRequested && !excluded.Contains((r.TmdbId, normalizedMediaType));
             })
-            .Take(SeerrDiscoveryService.MaxVisiblePerUser)
+            .Take(_discovery.MaxVisiblePerUser)
             .ToList();
 
         return Ok(new DiscoveryResult
@@ -109,11 +123,11 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A permission result indicating what the user can do and which profiles are available.</returns>
     [HttpGet("RequestPermissions/{serviceType}")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(UserRequestPermissionResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<UserRequestPermissionResult>> GetMyRequestPermissions(
-        string serviceType,
+        [RegularExpression(@"^(radarr|sonarr)$", ErrorMessage = "serviceType must be 'radarr' or 'sonarr'.")] string serviceType,
         [FromQuery] string mediaType,
         CancellationToken cancellationToken)
     {
@@ -160,7 +174,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<IReadOnlyList<SeerrServiceInfo>>> GetMyServiceInfo(
-        string serviceType,
+        [RegularExpression(@"^(radarr|sonarr)$", ErrorMessage = "serviceType must be 'radarr' or 'sonarr'.")] string serviceType,
         CancellationToken cancellationToken)
     {
         if (!IsDiscoveryUserAccessEnabled())
@@ -205,7 +219,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         // GetUserRequestPermissionsAsync already evaluated CanSelectQualityProfile and
         // built the allowed profiles list from GetServiceInfoAsync internally.
-        // If no profiles were returned, the user should use server defaults — return empty.
+        // If no profiles were returned, the user should use server defaults - return empty.
         if (permissions.Profiles.Count == 0)
         {
             return Ok(Array.Empty<SeerrServiceInfo>());
@@ -225,7 +239,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// </summary>
     /// <returns>An object containing the Seerr base URL.</returns>
     [HttpGet("ExternalLinks")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(SeerrUrlResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult GetExternalLinksConfig()
     {
@@ -240,10 +254,10 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        var config = Plugin.Instance?.Configuration;
-        var seerrUrl = config?.SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
+        var config = _configurationService.GetConfiguration();
+        var seerrUrl = config.SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
 
-        return Ok(new { SeerrUrl = seerrUrl });
+        return Ok(new SeerrUrlResponse { SeerrUrl = seerrUrl });
     }
 
     /// <summary>
@@ -252,7 +266,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <remarks>
     ///     AllowAnonymous is required because the script tag in index.html loads
     ///     before Jellyfin's authentication context is established. The script itself
-    ///     uses authenticated API calls internally — no sensitive data is exposed here.
+    ///     uses authenticated API calls internally - no sensitive data is exposed here.
     /// </remarks>
     /// <returns>The discovery-sidebar.js content.</returns>
     [HttpGet("script")]
@@ -281,9 +295,10 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A result indicating success or failure.</returns>
     [HttpPost("Request")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
     public async Task<ActionResult<RequestResult>> SubmitMyRequest(
@@ -295,46 +310,6 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
         }
 
-        if (dto == null)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
-        }
-
-        if (dto.TmdbId <= 0)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
-        }
-
-        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
-        if (mediaType is not ("movie" or "tv"))
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
-        }
-
-        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null.
-        // This prevents whitespace-only strings from bypassing validation guards below
-        // and being sent as meaningless overrides to the Seerr API.
-        var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
-
-        if (rootFolder != null)
-        {
-            if (rootFolder.Length > 512)
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
-            }
-
-            if (rootFolder.Contains("..", StringComparison.Ordinal) ||
-                rootFolder.TrimStart().StartsWith('~'))
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
-            }
-
-            if (rootFolder.Any(c => char.IsControl(c)))
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Root folder path contains invalid characters." });
-            }
-        }
-
         var jellyfinUserId = GetCurrentUserId();
         if (!jellyfinUserId.HasValue)
         {
@@ -342,6 +317,59 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var currentJellyfinUserId = jellyfinUserId.Value;
+        var mediaType = dto.MediaType.Trim().ToLowerInvariant();
+
+        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null
+        // so whitespace-only strings are not forwarded as meaningless overrides to Seerr.
+        var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
+
+        // Per-user rate limit: prevent a single user from flooding Seerr with requests.
+        // Use AddOrUpdate for an atomic check-and-set so there is no TOCTOU window between
+        // reading LastRequestTime and writing the new timestamp (findings #118/#314).
+        var now = DateTime.UtcNow;
+        var rateLimitExceeded = false;
+        var retryAfterSeconds = 0;
+
+        LastRequestTime.AddOrUpdate(
+            currentJellyfinUserId,
+            addValueFactory: _ => now,
+            updateValueFactory: (_, lastRequest) =>
+            {
+                var elapsed = now - lastRequest;
+                if (elapsed < RequestRateLimit)
+                {
+                    rateLimitExceeded = true;
+                    retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
+                    // Return the original value unchanged so the window is not reset on a rejected request.
+                    return lastRequest;
+                }
+
+                return now;
+            });
+
+        if (rateLimitExceeded)
+        {
+            Response.Headers["Retry-After"] = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return StatusCode(StatusCodes.Status429TooManyRequests, new RequestResult
+            {
+                Success = false,
+                Message = "Too many requests. Please wait before submitting another request."
+            });
+        }
+
+        // Opportunistic sweep: evict expired entries every 100 accepted requests to avoid
+        // an O(n) full-dictionary scan on every non-rate-limited call. With RequestRateLimit
+        // of 10 seconds the dictionary is naturally small, so deferred cleanup is sufficient.
+        if ((Interlocked.Increment(ref _acceptedRequestCount) % 100) == 0)
+        {
+            foreach (var entry in LastRequestTime)
+            {
+                if (now - entry.Value > RequestRateLimit)
+                {
+                    LastRequestTime.TryRemove(entry.Key, out _);
+                }
+            }
+        }
 
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(
@@ -366,7 +394,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             // At this point GetUserRequestPermissionsAsync already confirmed the user exists
             // in Seerr (CanRequest=true). A null here indicates a transient cache/network issue
-            // between the two calls — use 502 to signal a retriable upstream failure.
+            // between the two calls - use 502 to signal a retriable upstream failure.
             return StatusCode(502, new RequestResult
             {
                 Success = false,
@@ -398,7 +426,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
             // Validate root folder against the matched profile.
             // When the profile has no specific root folder (empty/null), accept both null and empty
-            // from the client — the request will use Seerr's server default.
+            // from the client - the request will use Seerr's server default.
             // When the profile HAS a root folder, the client must provide an exact match.
             var profileHasRootFolder = !string.IsNullOrEmpty(matchedProfile.RootFolder);
             if (profileHasRootFolder)
@@ -410,7 +438,7 @@ public sealed class UserDiscoveryController : ControllerBase
             }
             else if (rootFolder != null)
             {
-                // Profile has no root folder constraint — reject if client sends a non-empty
+                // Profile has no root folder constraint - reject if client sends a non-empty
                 // root folder (trying to override to an arbitrary path when none is configured).
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
             }
@@ -430,26 +458,40 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
+        // ⚠️ CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store
+        // updates below. Once Seerr has accepted the request above, the local bookkeeping
+        // MUST run regardless of whether the HTTP client has disconnected - otherwise:
+        //   1. The requested item silently reappears on the next discovery-page refresh
+        //      because MarkAsRequestedAsync never wrote the AlreadyRequested flag.
+        //   2. The DiscoveryFeedbackStore misses a positive-signal training example, so the
+        //      ML model never learns from this successful request.
+        // Both would silently degrade user experience for a client that likely just closed
+        // the tab or lost its connection immediately after clicking "Request".
+        //
+        // Async variant is preferred (over the legacy sync overload) because it releases
+        // the request thread while AtomicFile's transient-IO retries sleep - the sync path
+        // can block for up to ~200 ms on AV/indexer contention, which would starve the
+        // request pool under a burst of user requests.
         try
         {
-            _cache.MarkAsRequested(dto.TmdbId, mediaType);
+            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, currentJellyfinUserId, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
-            // Best-effort cache update — log but do not fail the request.
-            _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
+            // Best-effort cache update - log but do not fail the request.
+            _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentJellyfinUserId);
         }
 
         try
         {
             _feedbackStore.RecordRequested(currentJellyfinUserId, dto.TmdbId, mediaType);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
-            _logger.LogWarning(ex, "[Discovery] Failed to record requested item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
+            _logger.LogWarning(ex, "[Discovery] Failed to record requested item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentJellyfinUserId);
         }
 
-        return Ok(new RequestResult { Success = true, Message = message });
+        return StatusCode(StatusCodes.Status201Created, new RequestResult { Success = true, Message = message });
     }
 
     /// <summary>
@@ -475,34 +517,27 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var currentUserId = userId.Value;
-
-        if (dto == null)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
-        }
-
-        if (dto.TmdbId <= 0)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
-        }
-
-        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
-        if (mediaType is not ("movie" or "tv"))
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
-        }
+        var mediaType = dto.MediaType.Trim().ToLowerInvariant();
 
         try
         {
             _feedbackStore.RecordDismissed(currentUserId, dto.TmdbId, mediaType);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
-            _logger.LogWarning(ex, "[Discovery] Failed to record dismissed item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentUserId);
+            _logger.LogWarning(ex, "[Discovery] Failed to record dismissed item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentUserId);
         }
 
         return Ok(new RequestResult { Success = true, Message = "Item dismissed." });
     }
+
+    /// <summary>
+    ///     Clears all per-user rate-limit state held in the static dictionary.
+    ///     Called from <see cref="Plugin"/>'s constructor on every plugin load and from
+    ///     <see cref="Plugin.OnUninstalling"/> so stale entries from a previous
+    ///     plugin load do not leak into a subsequent reload (finding #313/#77/#117).
+    /// </summary>
+    internal static void ClearRateLimitState() => LastRequestTime.Clear();
 
     /// <summary>
     ///     Reconstructs <see cref="SeerrServiceInfo"/> objects directly from the pre-evaluated
@@ -545,6 +580,11 @@ public sealed class UserDiscoveryController : ControllerBase
                     .Select(path => new SeerrRootFolder { Path = path })
                     .ToList());
 
+            // IsDefault (server-level Seerr "default server" flag) is intentionally not
+            // restored here: AllowedQualityProfile carries only profile-level IsDefault
+            // (active profile+directory combination), not the server-level flag. The
+            // frontend profile-selection popup reads IsDefault from AllowedQualityProfile
+            // via the RequestPermissions endpoint, not from SeerrServiceInfo returned here.
             return new SeerrServiceInfo
             {
                 Id = firstProfile.ServerId,
@@ -577,7 +617,7 @@ public sealed class UserDiscoveryController : ControllerBase
                 excluded.Add(item);
             }
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _logger.LogWarning(ex, "[Discovery] Failed to load excluded item keys for user {UserId}", userId);
         }
@@ -588,9 +628,9 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Checks whether the admin has enabled user-level discovery access in plugin settings.
     /// </summary>
-    private static bool IsDiscoveryUserAccessEnabled()
+    private bool IsDiscoveryUserAccessEnabled()
     {
-        return Plugin.Instance?.Configuration?.DiscoveryUserAccessEnabled == true;
+        return _configurationService.GetConfiguration().DiscoveryUserAccessEnabled;
     }
 
     /// <summary>
@@ -607,4 +647,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         return null;
     }
+
+    private static string SanitizeForLog(string value)
+        => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
 }

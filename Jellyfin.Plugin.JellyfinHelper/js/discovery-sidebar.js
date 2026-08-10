@@ -1,4 +1,4 @@
-// Jellyfin Helper — Discovery Custom Tab + Sidebar Script
+// Jellyfin Helper - Discovery Custom Tab + Sidebar Script
 // Injected into index.html via File Transformation plugin.
 // Custom Tab: Renders discovery into <div class="jellyfinhelper discovery"> (requires Custom Tabs plugin)
 // Sidebar: Also adds a "Seerr Discovery" link as fallback navigation
@@ -15,7 +15,7 @@
     var CUSTOM_TAB_SELECTOR = '.jellyfinhelper.discovery';
     var SECTION_CLASS = 'jellyfinHelperSection';
     var NAV_ITEM_CLASS = 'jfhelper-nav-discovery';
-    // No standalone page exists — discovery is rendered via Custom Tabs plugin.
+    // No standalone page exists - discovery is rendered via Custom Tabs plugin.
     // The sidebar click handler searches for the tab first; if not found,
     // it shows an inline message instead of navigating to a 404 page.
     var API_URL = '/JellyfinHelper/Discovery/My';
@@ -26,14 +26,18 @@
     var EXTERNAL_LINKS_URL = '/JellyfinHelper/Discovery/My/ExternalLinks';
 
     var _waitForApiRetries = 0;
-    var MAX_FAST_RETRIES = 60; // 30 seconds at 500ms intervals (fast polling)
-    var SLOW_POLL_INTERVAL = 3000; // After fast phase: poll every 3 seconds
+    var MAX_FAST_RETRIES = 60;  // 30 seconds at 500ms intervals (fast polling)
+    var MAX_SLOW_RETRIES = 40;  // 2 minutes at 3s intervals (slow polling); total cap ~150s
+    var SLOW_POLL_INTERVAL = 3000;
 
     function waitForApi(callback) {
         if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
             _waitForApiRetries++;
-            // Fast polling (500ms) for the first 30 seconds, then switch to slow polling (3s).
-            // This handles both quick page loads and delayed logins without permanent bail-out.
+            if (_waitForApiRetries > MAX_FAST_RETRIES + MAX_SLOW_RETRIES) {
+                // ApiClient did not become available within ~150 seconds - bail out to
+                // prevent an indefinite timer leak on unauthenticated/guest sessions.
+                return;
+            }
             var delay = _waitForApiRetries <= MAX_FAST_RETRIES ? 500 : SLOW_POLL_INTERVAL;
             setTimeout(function () { waitForApi(callback); }, delay);
             return;
@@ -45,7 +49,7 @@
     var _strings = null;
 
     function loadStrings(callback) {
-        // No lang parameter — the server returns the language configured in plugin settings
+        // No lang parameter - the server returns the language configured in plugin settings
         ApiClient.ajax({
             type: 'GET',
             url: ApiClient.getUrl('/JellyfinHelper/Translations'),
@@ -79,7 +83,7 @@
                 _seerrBaseUrl = data.SeerrUrl.replace(/\/+$/, '');
             }
         }).catch(function () {
-            // Non-critical — Seerr link option will be hidden in the popup
+            // Non-critical - Seerr link option will be hidden in the popup
         });
     }
 
@@ -151,7 +155,7 @@
                 if (parsed && parsed.Message) return parsed.Message;
             }
         } catch (e) {
-            // JSON parse failure — fall through to empty string
+            // JSON parse failure - fall through to empty string
         }
         return '';
     }
@@ -247,10 +251,22 @@
         injectStyles();
         tryMountCustomTab();
         var pending = false;
-        // Observe document.body (not .mainAnimatedPages) because Jellyfin replaces
-        // .mainAnimatedPages when navigating to the admin dashboard — an observer
-        // bound to the old element would become orphaned after returning to home.
+        // Prefer observing the SPA content root rather than document.body to avoid
+        // firing on every global DOM mutation. Fall back to document.body only when
+        // the content root is not yet present (cold load); the observer is then
+        // re-targeted once the narrower container appears.
+        var observeTarget = document.querySelector('.mainAnimatedPages') || document.body;
         var observer = new MutationObserver(function () {
+            // Re-target to the narrower container if we started on document.body
+            // and .mainAnimatedPages has since appeared.
+            if (observeTarget === document.body) {
+                var narrower = document.querySelector('.mainAnimatedPages');
+                if (narrower) {
+                    observer.disconnect();
+                    observeTarget = narrower;
+                    observer.observe(observeTarget, { childList: true, subtree: true });
+                }
+            }
             if (!pending) {
                 pending = true;
                 requestAnimationFrame(function () {
@@ -259,7 +275,7 @@
                 });
             }
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(observeTarget, { childList: true, subtree: true });
     }
 
     function tryMountCustomTab() {
@@ -436,7 +452,7 @@
             dataType: 'json'
         }).then(function (permResult) {
             var result = permResult || { CanRequest: false };
-            // Only cache definitive responses — transient upstream failures (IsTransient)
+            // Only cache definitive responses - transient upstream failures (IsTransient)
             // should allow immediate retry on the next click instead of being sticky for 5 min.
             if (!result.IsTransient) {
                 result._ts = Date.now();
@@ -447,7 +463,7 @@
             decideAndSubmit(tmdbId, mediaType, btn, result);
         }).catch(function () {
             // On network error, try submitting with defaults (server will validate).
-            // Do NOT cache the fallback — a transient failure should allow retry on next click.
+            // Do NOT cache the fallback - a transient failure should allow retry on next click.
             btn.disabled = false;
             btn.textContent = t('discoveryRequest', 'Request');
             submitRequest(tmdbId, mediaType, null, null, null, btn);
@@ -769,12 +785,12 @@
     }
 
     // Translate reason key to localized human-readable text.
-    // Backend DetermineReason produces: reasonPerson, reasonGenre, reasonTrending, reasonPopular
+    // Backend DetermineReason produces: reasonPersonNamed, reasonGenre, reasonTrending, reasonPopular
     function formatReason(reasonKey, reason, relatedInfo) {
         if (!reasonKey && !reason) return '';
         var key = reasonKey || '';
         // Try i18n lookup first (keys match en.json: reasonPopular, reasonGenre, reasonTrending, etc.)
-        if (key === 'reasonPerson' && relatedInfo) {
+        if (key === 'reasonPersonNamed' && relatedInfo) {
             var personTpl = t('reasonPersonNamed', 'Featuring {0}');
             return personTpl.replace('{0}', relatedInfo);
         }
@@ -842,7 +858,7 @@
         navItem.href = '#';
         navItem.innerHTML =
             '<span class="material-icons navMenuOptionIcon" aria-hidden="true">explore</span>' +
-            '<span class="sectionName navMenuOptionText">' + t('discoveryTitle', 'Seerr Discovery') + '</span>';
+            '<span class="sectionName navMenuOptionText">' + esc(t('discoveryTitle', 'Seerr Discovery')) + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
             var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
@@ -890,7 +906,7 @@
             if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
                 Dashboard.alert(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
             } else {
-                alert(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
+                showToast(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
             }
         });
         section.appendChild(navItem);
@@ -901,20 +917,20 @@
         loadStrings(function () {
             // Check if Discovery is available before injecting UI elements.
             // If the admin disabled DiscoveryUserAccessEnabled or the task is deactivated,
-            // the API returns 403 or null — in that case, do not show the sidebar item
+            // the API returns 403 or null - in that case, do not show the sidebar item
             // or Custom Tab content to avoid confusing users with non-functional UI.
             ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
                 .then(function (data) {
                     if (!data || !data.Recommendations || data.Recommendations.length === 0) {
                         // No discovery data available (task deactivated/dry-run/no results yet)
                         // Still init Custom Tab so it can show "no results" message if container exists,
-                        // but do NOT inject sidebar navigation — no point advertising a feature with no content.
+                        // but do NOT inject sidebar navigation - no point advertising a feature with no content.
                         initCustomTab();
                         setTimeout(tryMountCustomTab, 500);
                         setTimeout(tryMountCustomTab, 1500);
                         return;
                     }
-                    // Discovery is active and has recommendations — full initialization.
+                    // Discovery is active and has recommendations - full initialization.
                     // Wait for external links config (Seerr URL) before rendering to ensure
                     // the Seerr link is available on the first card render.
                     loadExternalLinksConfig().finally(function () {
@@ -927,7 +943,7 @@
                     });
                 })
                 .catch(function () {
-                    // 403 (disabled) or network error — do not inject any Discovery UI
+                    // 403 (disabled) or network error - do not inject any Discovery UI
                 });
         });
     });

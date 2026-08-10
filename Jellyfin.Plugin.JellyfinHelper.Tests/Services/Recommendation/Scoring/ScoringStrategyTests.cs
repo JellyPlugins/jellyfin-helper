@@ -133,11 +133,12 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var features = new CandidateFeatures();
         var vector = features.ToVector();
-        // Most default to 0.0, but UserRatingScore defaults to 0.5 and CompletionRatio defaults to 0.5
-        // IsAbandoned = 0.0 because HasUserInteraction defaults to false
+        // Most default to 0.0. Neutral-0.5 channels: UserRatingScore (9), CompletionRatio (10),
+        // LanguageAffinity (28), SubtitleLanguageAffinity (30), SeriesCompletability (34, N/A for movies).
+        // IsAbandoned = 0.0 because HasUserInteraction defaults to false.
         for (var i = 0; i < vector.Length; i++)
         {
-            if (i == 9 || i == 10 || i == 28 || i == 30) // UserRatingScore, CompletionRatio default to 0.5; LanguageAffinity defaults to 0.5 (neutral); SubtitleLanguageAffinity defaults to 0.5 (neutral)
+            if (i == 9 || i == 10 || i == 28 || i == 30 || i == 34)
             {
                 Assert.Equal(0.5, vector[i]);
             }
@@ -189,11 +190,9 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // With all basic features = 1.0 but new features (PeopleSimilarity, StudioMatch,
-        // HasInteraction, SeriesProgressionBoost, PopularityScore, DayOfWeekAffinity) at defaults (0),
-        // the weighted sum varies with CombinedCriticScore default (0.5) and reduced GenreCount/IsSeries weights.
-        // Score is reduced because many features (PeopleSimilarity, StudioMatch, PopularityScore, etc.)
-        // are at defaults (0), and weights are distributed across 31 features now.
+        // With all basic features = 1.0 but many features (PeopleSimilarity, StudioMatch,
+        // HasInteraction, SeriesProgressionBoost, PopularityScore, DayOfWeekAffinity, and the newer
+        // content features) at their neutral defaults, the weighted sum stays in this band.
         Assert.InRange(score, 0.55, 1.00);
     }
 
@@ -205,11 +204,12 @@ public sealed class ScoringStrategyTests : IDisposable
         var features = new CandidateFeatures { UserRatingScore = 0.0 };
 
         var score = strategy.Score(features);
-        // With all features at 0 except CompletionRatio default=0.5, LanguageAffinity default=0.5, SubtitleLanguageAffinity default=0.5:
-        // raw = 0.5 * CompletionRatio_weight + 0.5 * LanguageAffinity_weight + 0.5 * SubtitleLanguageAffinity_weight
+        // With all features at 0 except neutral-0.5 channels: CompletionRatio, LanguageAffinity,
+        // SubtitleLanguageAffinity, and SeriesCompletability (N/A for a non-series → neutral 0.5).
         var expectedRaw = (0.5 * DefaultWeights.CompletionRatio)
             + (0.5 * DefaultWeights.LanguageAffinity)
-            + (0.5 * DefaultWeights.SubtitleLanguageAffinity);
+            + (0.5 * DefaultWeights.SubtitleLanguageAffinity)
+            + (0.5 * DefaultWeights.SeriesCompletability);
         // genre penalty floor = 0.10 → 0.10 * raw
         var expected = expectedRaw * 0.10;
         Assert.Equal(expected, score, 4);
@@ -224,11 +224,13 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // Default CompletionRatio=0.5, LanguageAffinity=0.5, SubtitleLanguageAffinity=0.5, HasUserInteraction=false → IsAbandoned=0
+        // Default CompletionRatio=0.5, LanguageAffinity=0.5, SubtitleLanguageAffinity=0.5,
+        // SeriesCompletability=0.5 (non-series → neutral), HasUserInteraction=false → IsAbandoned=0
         var expected = (0.5 * DefaultWeights.GenreSimilarity)
             + (0.5 * DefaultWeights.CompletionRatio)
             + (0.5 * DefaultWeights.LanguageAffinity)
-            + (0.5 * DefaultWeights.SubtitleLanguageAffinity);
+            + (0.5 * DefaultWeights.SubtitleLanguageAffinity)
+            + (0.5 * DefaultWeights.SeriesCompletability);
         Assert.Equal(expected, score, 4);
     }
 
@@ -259,7 +261,8 @@ public sealed class ScoringStrategyTests : IDisposable
             (0.8 * 0.6 * DefaultWeights.GenreCollabInteraction) +
             (0.5 * 0.7 * DefaultWeights.RecencyCriticInteraction) +
             (0.5 * DefaultWeights.LanguageAffinity) +
-            (0.5 * DefaultWeights.SubtitleLanguageAffinity);
+            (0.5 * DefaultWeights.SubtitleLanguageAffinity) +
+            (0.5 * DefaultWeights.SeriesCompletability);
 
         Assert.Equal(expected, strategy.Score(features), 4);
     }
@@ -288,7 +291,8 @@ public sealed class ScoringStrategyTests : IDisposable
             (0.9 * DefaultWeights.YearProximityScore) +
             (0.7 * 0.8 * DefaultWeights.RecencyCriticInteraction) +
             (0.5 * DefaultWeights.LanguageAffinity) +
-            (0.5 * DefaultWeights.SubtitleLanguageAffinity);
+            (0.5 * DefaultWeights.SubtitleLanguageAffinity) +
+            (0.5 * DefaultWeights.SeriesCompletability);
 
         // With genrePenaltyFloor=0.10 and GenreSimilarity=0.0, penalty = 0.10
         var expected = rawExpected * 0.10;
@@ -319,7 +323,8 @@ public sealed class ScoringStrategyTests : IDisposable
             (0.9 * DefaultWeights.YearProximityScore) +
             (0.7 * 0.8 * DefaultWeights.RecencyCriticInteraction) +
             (0.5 * DefaultWeights.LanguageAffinity) +
-            (0.5 * DefaultWeights.SubtitleLanguageAffinity);
+            (0.5 * DefaultWeights.SubtitleLanguageAffinity) +
+            (0.5 * DefaultWeights.SeriesCompletability);
 
         Assert.Equal(expected, strategy.Score(features), 4);
     }
@@ -486,7 +491,11 @@ public sealed class ScoringStrategyTests : IDisposable
         var goodScore = strategy.Score(goodFeatures);
         var badScore = strategy.Score(badFeatures);
 
-        Assert.True(goodScore > badScore * 2,
+        // Genre match must still score far higher than no-genre-match. The multiplier is 1.8 (not 2.0)
+        // because every candidate now also carries constant neutral-0.5 signals (e.g. SeriesCompletability)
+        // that add a small fixed offset to both scores, slightly compressing their ratio while leaving
+        // the large absolute gap (here ~0.29 vs ~0.15) intact.
+        Assert.True(goodScore > badScore * 1.8,
             $"Genre weight dominance should create large score gap: good={goodScore:F4}, bad={badScore:F4}");
     }
 
@@ -529,6 +538,13 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(DefaultWeights.LanguageAffinity, weights[(int)FeatureIndex.LanguageAffinity], 15);
         Assert.Equal(DefaultWeights.CollectionProgressionBoost, weights[(int)FeatureIndex.CollectionProgressionBoost], 15);
         Assert.Equal(DefaultWeights.SubtitleLanguageAffinity, weights[(int)FeatureIndex.SubtitleLanguageAffinity], 15);
+        Assert.Equal(DefaultWeights.FranchiseAffinity, weights[(int)FeatureIndex.FranchiseAffinity], 15);
+        Assert.Equal(DefaultWeights.ProductionLocationAffinity, weights[(int)FeatureIndex.ProductionLocationAffinity], 15);
+        Assert.Equal(DefaultWeights.InheritedTagSimilarity, weights[(int)FeatureIndex.InheritedTagSimilarity], 15);
+        Assert.Equal(DefaultWeights.SeriesCompletability, weights[(int)FeatureIndex.SeriesCompletability], 15);
+        Assert.Equal(DefaultWeights.WriterAffinity, weights[(int)FeatureIndex.WriterAffinity], 15);
+        Assert.Equal(DefaultWeights.BillingWeightedPeople, weights[(int)FeatureIndex.BillingWeightedPeople], 15);
+        Assert.Equal(DefaultWeights.GenreStudioIdfPrior, weights[(int)FeatureIndex.GenreStudioIdfPrior], 15);
         // Genre should still be the dominant positive weight
         Assert.True(weights[(int)FeatureIndex.GenreSimilarity] > weights[(int)FeatureIndex.CollaborativeScore],
             "Genre should be the dominant weight");
@@ -1557,7 +1573,7 @@ public sealed class ScoringStrategyTests : IDisposable
         // Verify the weight array sum matches the exact expected total from all DefaultWeights constants.
         // This is NOT 1.0 because the weight vector includes negative penalty weights (IsAbandoned,
         // GenreUnderexposure, GenreAffinityGap). The test catches any accidental weight change
-        // that breaks the total balance — if a new weight is added or an existing one is modified,
+        // that breaks the total balance - if a new weight is added or an existing one is modified,
         // this assertion will fail, forcing the developer to verify the change was intentional.
         var expectedSum =
             DefaultWeights.GenreSimilarity + DefaultWeights.CollaborativeScore +
@@ -1575,7 +1591,11 @@ public sealed class ScoringStrategyTests : IDisposable
             DefaultWeights.GenreDominanceRatio + DefaultWeights.GenreAffinityGap +
             DefaultWeights.LibraryAddedRecency + DefaultWeights.ContentNearestNeighborScore +
             DefaultWeights.LanguageAffinity + DefaultWeights.CollectionProgressionBoost +
-            DefaultWeights.SubtitleLanguageAffinity;
+            DefaultWeights.SubtitleLanguageAffinity +
+            DefaultWeights.FranchiseAffinity + DefaultWeights.ProductionLocationAffinity +
+            DefaultWeights.InheritedTagSimilarity + DefaultWeights.SeriesCompletability +
+            DefaultWeights.WriterAffinity + DefaultWeights.BillingWeightedPeople +
+            DefaultWeights.GenreStudioIdfPrior;
         Assert.Equal(expectedSum, sum, 10);
     }
 
@@ -2583,6 +2603,30 @@ public sealed class ScoringStrategyTests : IDisposable
         ensemble.Train(GenerateTrainingExamples(20));
         Assert.True(ensemble.MetricsHistoryCount >= 1,
             "History should grow after training");
+    }
+
+    [Fact]
+    public void Ensemble_MetricsHistoryCount_TracksFailedTrainingRuns()
+    {
+        // Cold-start scenario: the very first training call has too few examples
+        // for LearnedScoringStrategy.Train to succeed. Previously the metrics history
+        // stayed empty in this case, which self-locked the exploration gate
+        // (StrategySelector requires MetricsHistoryCount >= 2). We now record a
+        // placeholder snapshot even on failed training so the gate can eventually flip.
+        var ensemble = new EnsembleScoringStrategy();
+
+        Assert.Equal(0, ensemble.MetricsHistoryCount);
+
+        // A single example is well below LearnedScoringStrategy's minimum, so Train returns false.
+        var result = ensemble.Train(GenerateTrainingExamples(1));
+
+        Assert.False(result, "Training should fail with only a single example");
+        Assert.Equal(1, ensemble.MetricsHistoryCount);
+
+        // A second failed training call still bumps the counter, so the exploration
+        // gate can now activate (MinMetricsHistoryForExploration = 2).
+        ensemble.Train(GenerateTrainingExamples(1));
+        Assert.Equal(2, ensemble.MetricsHistoryCount);
     }
 
     [Fact]

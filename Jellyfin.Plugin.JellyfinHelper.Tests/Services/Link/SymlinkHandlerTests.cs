@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Moq;
 using Xunit;
@@ -10,7 +12,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 /// </summary>
 public class SymlinkHandlerTests
 {
-    private static readonly string[] Expected = ["delete", "create"];
     private readonly SymlinkHandler _handler;
     private readonly Mock<ISymlinkHelper> _symlinkHelper;
 
@@ -76,76 +77,70 @@ public class SymlinkHandlerTests
         _symlinkHelper.Verify(h => h.GetSymlinkTarget("/some/path"), Times.Once);
     }
 
-    // ===== WriteTarget =====
+    // ===== WriteTarget - atomic replace path =====
 
     [Fact]
-    public void WriteTarget_DeletesOldAndCreatesNewSymlink()
+    public void WriteTarget_CreatesAtTempThenReplaces()
     {
-        var callOrder = new List<string>();
-        _symlinkHelper.Setup(h => h.DeleteSymlink("/series/episode.mkv"))
-            .Callback(() => callOrder.Add("delete"));
-        _symlinkHelper.Setup(h => h.CreateSymlink("/series/episode.mkv", "/movies/new-movie.mkv"))
-            .Callback(() => callOrder.Add("create"));
+        var tempPath = "/link.jfh-tmp";
+        var createOrder = new List<string>();
 
-        _handler.WriteTarget("/series/episode.mkv", "/movies/new-movie.mkv");
+        _symlinkHelper.Setup(h => h.CreateSymlink(tempPath, "/new-target"))
+            .Callback(() => createOrder.Add("create-temp"));
+        _symlinkHelper.Setup(h => h.ReplaceSymlink(tempPath, "/link"))
+            .Callback(() => createOrder.Add("replace"));
 
-        Assert.Equal(Expected, callOrder);
+        _handler.WriteTarget("/link", "/new-target");
+
+        Assert.Equal(new[] { "create-temp", "replace" }, createOrder);
     }
 
     [Fact]
-    public void WriteTarget_CallsDeleteAndCreateOnce()
+    public void WriteTarget_NeverTouchesOriginalBeforeReplace()
     {
         _handler.WriteTarget("/link", "/target");
 
-        _symlinkHelper.Verify(h => h.DeleteSymlink("/link"), Times.Once);
-        _symlinkHelper.Verify(h => h.CreateSymlink("/link", "/target"), Times.Once);
-    }
-
-    // ===== WriteTarget rollback behavior =====
-
-    [Fact]
-    public void WriteTarget_WhenCreateFails_RestoresPreviousTarget()
-    {
-        _symlinkHelper.Setup(h => h.GetSymlinkTarget("/series/episode.mkv"))
-            .Returns("/movies/old-movie.mkv");
-        _symlinkHelper.Setup(h => h.CreateSymlink("/series/episode.mkv", "/movies/new-movie.mkv"))
-            .Throws(new IOException("Permission denied"));
-
-        Assert.Throws<IOException>(() =>
-            _handler.WriteTarget("/series/episode.mkv", "/movies/new-movie.mkv"));
-
-        _symlinkHelper.Verify(
-            h => h.CreateSymlink("/series/episode.mkv", "/movies/old-movie.mkv"), Times.Once);
+        _symlinkHelper.Verify(h => h.DeleteSymlink("/link"), Times.Never);
     }
 
     [Fact]
-    public void WriteTarget_WhenCreateFails_NoPreviousTarget_DoesNotAttemptRollback()
+    public void WriteTarget_WhenCreateTempFails_OriginalUntouched_ExceptionRethrown()
     {
-        _symlinkHelper.Setup(h => h.GetSymlinkTarget("/series/episode.mkv"))
-            .Returns((string?)null);
-        _symlinkHelper.Setup(h => h.CreateSymlink("/series/episode.mkv", "/movies/new-movie.mkv"))
-            .Throws(new IOException("Permission denied"));
+        _symlinkHelper.Setup(h => h.CreateSymlink("/link.jfh-tmp", "/new-target"))
+            .Throws(new IOException("no space"));
 
-        Assert.Throws<IOException>(() =>
-            _handler.WriteTarget("/series/episode.mkv", "/movies/new-movie.mkv"));
+        Assert.Throws<IOException>(() => _handler.WriteTarget("/link", "/new-target"));
 
-        // CreateSymlink should only have been called once (the failed attempt), not a second time for rollback
-        _symlinkHelper.Verify(
-            h => h.CreateSymlink(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        _symlinkHelper.Verify(h => h.ReplaceSymlink(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _symlinkHelper.Verify(h => h.DeleteSymlink("/link"), Times.Never);
     }
 
     [Fact]
-    public void WriteTarget_WhenCreateFails_RethrowsOriginalException()
+    public void WriteTarget_WhenReplaceFails_DeletesTempAndRethrows()
     {
-        var originalException = new IOException("Disk full");
-        _symlinkHelper.Setup(h => h.GetSymlinkTarget("/link"))
-            .Returns("/old-target");
-        _symlinkHelper.Setup(h => h.CreateSymlink("/link", "/new-target"))
-            .Throws(originalException);
+        var tempPath = "/link.jfh-tmp";
+        _symlinkHelper.Setup(h => h.IsSymlink(tempPath)).Returns(true);
+        _symlinkHelper.Setup(h => h.ReplaceSymlink(tempPath, "/link"))
+            .Throws(new IOException("cross-device"));
 
-        var thrown = Assert.Throws<IOException>(() =>
-            _handler.WriteTarget("/link", "/new-target"));
+        Assert.Throws<IOException>(() => _handler.WriteTarget("/link", "/new-target"));
 
-        Assert.Same(originalException, thrown);
+        _symlinkHelper.Verify(h => h.DeleteSymlink(tempPath), Times.Once);
+        _symlinkHelper.Verify(h => h.DeleteSymlink("/link"), Times.Never);
+    }
+
+    [Fact]
+    public void WriteTarget_WhenReplaceFails_AndTempCleanupFails_OriginalUntouched_ExceptionRethrown()
+    {
+        var tempPath = "/link.jfh-tmp";
+        _symlinkHelper.Setup(h => h.IsSymlink(tempPath)).Returns(true);
+        _symlinkHelper.Setup(h => h.ReplaceSymlink(tempPath, "/link"))
+            .Throws(new IOException("cross-device"));
+        _symlinkHelper.Setup(h => h.DeleteSymlink(tempPath))
+            .Throws(new IOException("cleanup also failed"));
+
+        Assert.Throws<IOException>(() => _handler.WriteTarget("/link", "/new-target"));
+
+        _symlinkHelper.Verify(h => h.DeleteSymlink("/link"), Times.Never);
     }
 }

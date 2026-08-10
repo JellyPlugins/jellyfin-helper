@@ -49,11 +49,21 @@ public abstract class CleanupTaskTestBase : IDisposable
 
         MockConfigHelper = new Mock<ICleanupConfigHelper>();
         MockConfigHelper.Setup(x => x.GetConfig()).Returns(() => Config);
+        MockConfigHelper.Setup(x => x.GetTrickplayTaskMode()).Returns(() => Config.TrickplayTaskMode);
+        MockConfigHelper.Setup(x => x.GetEmptyMediaFolderTaskMode()).Returns(() => Config.EmptyMediaFolderTaskMode);
+        MockConfigHelper.Setup(x => x.GetOrphanedSubtitleTaskMode()).Returns(() => Config.OrphanedSubtitleTaskMode);
+        MockConfigHelper.Setup(x => x.GetLinkRepairTaskMode()).Returns(() => Config.LinkRepairTaskMode);
         MockConfigHelper.Setup(x => x.IsDryRunTrickplay()).Returns(() => Config.TrickplayTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsDryRunEmptyMediaFolders()).Returns(() => Config.EmptyMediaFolderTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsDryRunOrphanedSubtitles()).Returns(() => Config.OrphanedSubtitleTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsDryRunLinkRepair()).Returns(() => Config.LinkRepairTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsOldEnoughForDeletion(It.IsAny<string>())).Returns(true);
+        // IsFileOldEnoughForDeletion is a SEPARATE method used by the file-based orphan cleaners
+        // (subtitle cleaner). Without this setup Moq returns the default value (false) for any
+        // file path, which makes the orphan-subtitle branch silently skip every candidate as
+        // "too new". Tests that specifically want to exercise the age gate can override this
+        // to false on their own Mock<ICleanupConfigHelper>.
+        MockConfigHelper.Setup(x => x.IsFileOldEnoughForDeletion(It.IsAny<string>())).Returns(true);
         MockConfigHelper.Setup(x => x.GetTrashPath(It.IsAny<string>())).Returns<string>(lib => Path.Join(lib, ".trash"));
         MockConfigHelper.Setup(x => x.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns<ILibraryManager>(lm =>

@@ -4,6 +4,8 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -20,29 +22,44 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     Validation paths (400 responses) are covered by the equivalent admin
 ///     <see cref="DiscoveryControllerTests"/> which shares the same DTO validation logic.
 ///     Full integration tests covering the enabled-access path require a running
-///     Jellyfin host with Plugin.Instance initialized.
+///     Jellyfin host with Plugin.Instance initialized - those are exercised by
+///     <see cref="UserDiscoveryControllerAccessEnabledTests"/> and
+///     <see cref="UserDiscoveryControllerSubmitTests"/> which flip the toggle on.
+///     <para>
+///         Belongs to the <c>ConfigOverride</c> collection because the sister suites
+///         that DO flip <c>Plugin.Instance.Configuration.DiscoveryUserAccessEnabled</c> to
+///         <c>true</c> run in parallel by default. Without joining the collection, THIS
+///         suite would race with them and observe the toggle mid-flight, causing the
+///         "access gate = false" tests here to see a mutated state and fail. All three
+///         suites in the collection are serialised, so each suite's ctor/dispose resets
+///         the toggle to a known state before its tests run.
+///     </para>
 /// </summary>
+[Collection("ConfigOverride")]
 public class UserDiscoveryControllerTests
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock;
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock;
     private readonly DiscoveryCacheService _cache;
     private readonly Mock<ILogger<UserDiscoveryController>> _loggerMock;
+    private readonly Mock<IPluginConfigurationService> _configServiceMock;
 
     public UserDiscoveryControllerTests()
     {
         var pluginLog = new Mock<JellyfinHelper.Services.PluginLog.IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
-        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
+        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: Path.GetTempFileName());
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
         _loggerMock = new Mock<ILogger<UserDiscoveryController>>();
+        _configServiceMock = new Mock<IPluginConfigurationService>();
+        _configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
     }
 
     private UserDiscoveryController CreateController(Guid? userId = null)
     {
         var controller = new UserDiscoveryController(
-            _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _loggerMock.Object);
+            _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _loggerMock.Object);
 
         // Set up HttpContext with user claims
         var claims = new List<Claim>();

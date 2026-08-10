@@ -107,10 +107,12 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRunTrickplay_ReturnsTrue_WhenDeactivate()
+    public void IsDryRunTrickplay_ReturnsFalse_WhenDeactivate()
     {
+        // Deactivate means the task is skipped entirely (early-exit in the base class);
+        // IsDryRun is never consulted in that path and correctly returns false for Deactivate.
         var cfg = new PluginConfiguration { TrickplayTaskMode = TaskMode.Deactivate };
-        Assert.True(CreateHelper(cfg).IsDryRunTrickplay());
+        Assert.False(CreateHelper(cfg).IsDryRunTrickplay());
     }
 
     [Fact]
@@ -128,10 +130,11 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRunEmptyMediaFolders_ReturnsTrue_WhenDeactivate()
+    public void IsDryRunEmptyMediaFolders_ReturnsFalse_WhenDeactivate()
     {
+        // Deactivate means the task is skipped entirely; IsDryRun correctly returns false.
         var cfg = new PluginConfiguration { EmptyMediaFolderTaskMode = TaskMode.Deactivate };
-        Assert.True(CreateHelper(cfg).IsDryRunEmptyMediaFolders());
+        Assert.False(CreateHelper(cfg).IsDryRunEmptyMediaFolders());
     }
 
     [Fact]
@@ -149,10 +152,11 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRunOrphanedSubtitles_ReturnsTrue_WhenDeactivate()
+    public void IsDryRunOrphanedSubtitles_ReturnsFalse_WhenDeactivate()
     {
+        // Deactivate means the task is skipped entirely; IsDryRun correctly returns false.
         var cfg = new PluginConfiguration { OrphanedSubtitleTaskMode = TaskMode.Deactivate };
-        Assert.True(CreateHelper(cfg).IsDryRunOrphanedSubtitles());
+        Assert.False(CreateHelper(cfg).IsDryRunOrphanedSubtitles());
     }
 
     [Fact]
@@ -170,10 +174,11 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRunLinkRepair_ReturnsTrue_WhenDeactivate()
+    public void IsDryRunLinkRepair_ReturnsFalse_WhenDeactivate()
     {
+        // Deactivate means the task is skipped entirely; IsDryRun correctly returns false.
         var cfg = new PluginConfiguration { LinkRepairTaskMode = TaskMode.Deactivate };
-        Assert.True(CreateHelper(cfg).IsDryRunLinkRepair());
+        Assert.False(CreateHelper(cfg).IsDryRunLinkRepair());
     }
 
     // ===== Static IsDryRun =====
@@ -191,9 +196,11 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRun_DeactivateMode_ReturnsTrue()
+    public void IsDryRun_DeactivateMode_ReturnsFalse()
     {
-        Assert.True(CleanupConfigHelper.IsDryRun(TaskMode.Deactivate));
+        // Deactivate triggers an early-exit in the base task before IsDryRun is consulted.
+        // IsDryRun correctly returns false - only DryRun mode returns true.
+        Assert.False(CleanupConfigHelper.IsDryRun(TaskMode.Deactivate));
     }
 
     // ===== ParseCommaSeparated =====
@@ -294,7 +301,7 @@ public class CleanupConfigHelperTests
         var cfg = new PluginConfiguration { TrashFolderPath = "../../sensitive" };
         var helper = CreateHelper(cfg);
         var result = helper.GetTrashPath(root);
-        // Path traversal must not escape the library root — must fall back to safe default.
+        // Path traversal must not escape the library root - must fall back to safe default.
         var expected = Path.GetFullPath(Path.Join(root, ".jellyfin-trash"));
         Assert.Equal(expected, result);
     }
@@ -302,7 +309,7 @@ public class CleanupConfigHelperTests
     [Fact]
     public void GetTrashPath_DotPath_FallsBackToDefault()
     {
-        // TrashFolderPath = "." resolves to the library root itself — must not be allowed.
+        // TrashFolderPath = "." resolves to the library root itself - must not be allowed.
         var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         var cfg = new PluginConfiguration { TrashFolderPath = "." };
         var helper = CreateHelper(cfg);
@@ -314,7 +321,7 @@ public class CleanupConfigHelperTests
     [Fact]
     public void GetTrashPath_FilesystemRoot_ResolvesCorrectly()
     {
-        // Regression pin: when the library itself is at the filesystem root,
+        // When the library itself is at the filesystem root,
         // the root-normalization logic must still produce a valid child path.
         var root = Path.GetPathRoot(Path.GetFullPath(Path.GetTempPath()))!;
         var cfg = new PluginConfiguration { TrashFolderPath = ".jellyfin-trash" };
@@ -567,6 +574,57 @@ public class CleanupConfigHelperTests
         }
     }
 
+    [Fact]
+    public void IsOldEnoughForDeletion_UsesEarlierOf_CreationTime_And_LastWriteTime()
+    {
+        // The guard picks min(CreationTime, LastWriteTime) so that a directory whose
+        // LastWriteTime was bumped recently is still considered old if it was created
+        // long ago - and vice versa.  We can only control LastWriteTime reliably in a
+        // test, so we verify the LastWriteTime branch: a directory created just now but
+        // whose LastWriteTime is back-dated to > MinAgeDays ago must return true.
+        var cfg = new PluginConfiguration { OrphanMinAgeDays = 30 };
+        var helper = CreateHelper(cfg);
+        var tempDir = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            // Back-date LastWriteTime far into the past so min(Created, LastWrite) is old.
+            var oldDate = DateTime.UtcNow.AddDays(-60);
+            Directory.SetLastWriteTimeUtc(tempDir, oldDate);
+            Directory.SetCreationTimeUtc(tempDir, oldDate);
+
+            Assert.True(helper.IsOldEnoughForDeletion(tempDir));
+        }
+        finally
+        {
+            Directory.Delete(tempDir);
+        }
+    }
+
+    [Fact]
+    public void IsOldEnoughForDeletion_Pre1980Timestamp_ReturnsFalse()
+    {
+        // Timestamps before 1980 are treated as corrupted (FAT filesystem epoch artefacts,
+        // clock-drift on embedded hardware, etc.).  The guard rejects them to prevent a
+        // directory with a bogus creation time from being considered arbitrarily old and
+        // therefore eligible for immediate deletion.
+        var cfg = new PluginConfiguration { OrphanMinAgeDays = 1 };
+        var helper = CreateHelper(cfg);
+        var tempDir = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            Directory.SetCreationTimeUtc(tempDir, new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            Directory.SetLastWriteTimeUtc(tempDir, new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+            Assert.False(helper.IsOldEnoughForDeletion(tempDir));
+        }
+        finally
+        {
+            Directory.Delete(tempDir);
+        }
+    }
+
     // ===== IsFileOldEnoughForDeletion =====
 
     [Fact]
@@ -599,5 +657,222 @@ public class CleanupConfigHelperTests
         {
             File.Delete(tempFile);
         }
+    }
+
+    // ===== GetExistingTrashFoldersForPath =====
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_ThrowsOnNullLibraryManager()
+    {
+        var helper = CreateHelper();
+        Assert.Throws<System.ArgumentNullException>(() =>
+            helper.GetExistingTrashFoldersForPath(null!, "/tmp"));
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_EmptyQuery_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, string.Empty));
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, "   "));
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, null!));
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsolutePath_NonExistent_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        var query = Path.Join(Path.GetTempPath(), "does-not-exist-" + Guid.NewGuid().ToString("N"));
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, query));
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsolutePath_Exists_ReturnsIt()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        var trash = Path.Join(Path.GetTempPath(), "jfh-trash-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(trash);
+        try
+        {
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, trash);
+            Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(trash), result[0]);
+        }
+        finally
+        {
+            Directory.Delete(trash, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsolutePath_MatchesLibraryRoot_ReturnsEmpty()
+    {
+        // Safety guard: if the trash query resolves to a real library root, the method must
+        // report NO match so that downstream relocate/delete flows cannot wipe out the library.
+        var helper = CreateHelper();
+        var libraryRoot = Path.Join(Path.GetTempPath(), "jfh-lib-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(libraryRoot);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "Movies", Locations = [libraryRoot] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, libraryRoot);
+            Assert.Empty(result);
+        }
+        finally
+        {
+            Directory.Delete(libraryRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativePath_ResolvesPerLibrary()
+    {
+        var helper = CreateHelper();
+        var lib1 = Path.Join(Path.GetTempPath(), "jfh-l1-" + Guid.NewGuid().ToString("N"));
+        var lib2 = Path.Join(Path.GetTempPath(), "jfh-l2-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Join(lib1, ".trash")); // only lib1 has a real trash
+        Directory.CreateDirectory(lib2);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "L1", Locations = [lib1] },
+                new VirtualFolderInfo { Name = "L2", Locations = [lib2] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
+            Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(lib1, ".trash")), result[0]);
+        }
+        finally
+        {
+            if (Directory.Exists(lib1)) Directory.Delete(lib1, recursive: true);
+            if (Directory.Exists(lib2)) Directory.Delete(lib2, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativePathEscape_IsRejected()
+    {
+        // "../../etc" tries to escape the library root - must never be reported as valid trash.
+        //
+        // To make the test meaningful we ALSO materialise the target of the escape (a
+        // sibling directory next to the library root that actually exists). Without this
+        // extra step the test could pass simply because the resolved path happens not to
+        // exist on the CI runner, which would let a regression that dropped the containment
+        // check ship silently. With the sibling in place, only the containment guard can
+        // keep this test green.
+        var helper = CreateHelper();
+        var parent = Path.Join(Path.GetTempPath(), "jfh-esc-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(parent);
+        var lib = Path.Join(parent, "library");
+        var escapedSibling = Path.Join(parent, "outside-lib");
+        Directory.CreateDirectory(lib);
+        Directory.CreateDirectory(escapedSibling);
+
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "L", Locations = [lib] }
+            ]);
+
+            // Craft a relative path that ACTUALLY resolves to escapedSibling from lib.
+            // e.g. "../outside-lib" resolves out of the library root - the guard must
+            // still refuse to report it as a trash candidate even though the destination
+            // path physically exists.
+            var relativeEscape = ".." + Path.DirectorySeparatorChar + "outside-lib";
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, relativeEscape);
+            Assert.Empty(result);
+
+            // Sanity: prove the target directory really is reachable via that relative path.
+            // If Path.GetRelativePath ever changes semantics, this Assert catches it before
+            // the containment test degenerates into a vacuous "path doesn't exist" pass.
+            var resolved = Path.GetFullPath(Path.Combine(lib, relativeEscape));
+            Assert.Equal(Path.GetFullPath(escapedSibling), resolved);
+            Assert.True(Directory.Exists(resolved), "escaped sibling must exist so the test isn't vacuous");
+        }
+        finally
+        {
+            if (Directory.Exists(parent))
+            {
+                Directory.Delete(parent, recursive: true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("/media/film_collections/Movies")]
+    [InlineData("/collections_archive/TV")]
+    [InlineData("/my-collections-backup/data")]
+    public void GetFilteredLibraryLocations_PathWithCollectionsSubstring_NotExcluded(string location)
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([
+            new VirtualFolderInfo
+            {
+                Name = "Movies",
+                CollectionType = CollectionTypeOptions.movies,
+                Locations = [location]
+            }
+        ]);
+
+        var result = helper.GetFilteredLibraryLocations(lm.Object);
+
+        Assert.Contains(location, result);
+    }
+
+    [Theory]
+    [InlineData("/config/data/collections")]
+    [InlineData("/config/data/collections/")]
+    [InlineData("/jellyfin/data/collections/metadata")]
+    public void GetFilteredLibraryLocations_PathWithExactCollectionsSegment_IsExcluded(string location)
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([
+            new VirtualFolderInfo
+            {
+                Name = "Movies",
+                CollectionType = CollectionTypeOptions.movies,
+                Locations = [location]
+            }
+        ]);
+
+        var result = helper.GetFilteredLibraryLocations(lm.Object);
+
+        Assert.DoesNotContain(location, result);
+    }
+
+    // ===== IsCollectionsPath =====
+
+    [Theory]
+    [InlineData("/config/data/collections", true)]
+    [InlineData("/config/data/collections/", true)]
+    [InlineData("/jellyfin/data/collections/metadata", true)]
+    [InlineData("/media/Collections/movies", true)]         // case-insensitive
+    [InlineData("/media/COLLECTIONS", true)]                // case-insensitive uppercase
+    [InlineData(@"C:\jellyfin\data\collections", true)]     // Windows backslash separator
+    [InlineData(@"C:\jellyfin\data\collections\artwork", true)]
+    [InlineData("/media/movies", false)]
+    [InlineData("/media/mycollectionsabc", false)]          // not a segment-exact match
+    [InlineData("/media/collections-extra", false)]         // hyphenated word is not the same segment
+    [InlineData("", false)]
+    public void IsCollectionsPath_SegmentExactMatch_ReturnsExpected(string path, bool expected)
+    {
+        Assert.Equal(expected, CleanupConfigHelper.IsCollectionsPath(path));
     }
 }

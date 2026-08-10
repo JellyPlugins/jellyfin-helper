@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
@@ -17,6 +18,12 @@ public static class ConfigurationRequestValidator
 
     /// <summary>Maximum number of Arr instances per type (Radarr / Sonarr).</summary>
     private const int MaxArrInstances = 3;
+
+    /// <summary>Returns <c>true</c> when <paramref name="language"/> is in the plugin's supported locale list.</summary>
+    /// <param name="language">The language code to check (e.g. "en", "de").</param>
+    /// <returns><c>true</c> if supported; <c>false</c> otherwise.</returns>
+    public static bool IsLanguageSupported(string? language)
+        => !string.IsNullOrWhiteSpace(language) && I18NService.SupportedLanguages.Contains(language.Trim());
 
     /// <summary>
     ///     Validates the given <paramref name="request" /> and returns the first error found, or <c>null</c> if valid.
@@ -55,6 +62,11 @@ public static class ConfigurationRequestValidator
         }
 
         // Validate Seerr URL if provided
+        if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && request.SeerrUrl.Length > 2048)
+        {
+            return "Seerr URL must be 2048 characters or fewer.";
+        }
+
         if (!string.IsNullOrWhiteSpace(request.SeerrUrl) &&
             (!Uri.TryCreate(request.SeerrUrl, UriKind.Absolute, out var seerrUri) ||
              (seerrUri.Scheme != "http" && seerrUri.Scheme != "https")))
@@ -86,23 +98,24 @@ public static class ConfigurationRequestValidator
     /// <summary>
     ///     Performs strict validation of the trash folder path and returns an error message for obviously
     ///     invalid paths (invalid characters, traversal patterns, only-slashes, etc.).
-    ///     This validation BLOCKS the save — the configuration will NOT be persisted.
+    ///     This validation BLOCKS the save - the configuration will NOT be persisted.
     /// </summary>
     /// <param name="trashFolderPath">The path value from the configuration update request.</param>
     /// <param name="useTrash">Whether the trash feature is enabled.</param>
     /// <returns>An error message string, or <c>null</c> when the path is valid.</returns>
     public static string? ValidateTrashPathStrict(string? trashFolderPath, bool useTrash)
     {
-        // When trash is disabled, path is irrelevant — allow save
-        if (!useTrash)
-        {
-            return null;
-        }
-
-        // When trash is enabled, path must not be empty
-        if (string.IsNullOrWhiteSpace(trashFolderPath))
+        // "Path is required" only applies when trash is enabled
+        if (useTrash && string.IsNullOrWhiteSpace(trashFolderPath))
         {
             return "Trash folder path is required when trash is enabled.";
+        }
+
+        // Format checks always run for any non-empty path, regardless of useTrash,
+        // so that a path containing traversal sequences is rejected even when UseTrash=false.
+        if (string.IsNullOrWhiteSpace(trashFolderPath))
+        {
+            return null;
         }
 
         // Reject paths that consist only of slashes/backslashes (e.g. "/*", "/\", "\/", "/", "\")
@@ -112,7 +125,7 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path '{trashFolderPath}' contains only invalid characters.";
         }
 
-        // Reject control characters (U+0000 to U+001F) — these are never valid in folder names
+        // Reject control characters (U+0000 to U+001F) - these are never valid in folder names
         // on any platform. This keeps the server-side filter in sync with the UI-side validation
         // which also blocks the full \x00-\x1F range.
         var firstControlChar = trashFolderPath.FirstOrDefault(static c => c < '\x20');
@@ -132,7 +145,7 @@ public static class ConfigurationRequestValidator
         }
 
         // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder")
-        // Block both "." (current dir) and ".." (parent dir) as segments — these are navigation markers.
+        // Block both "." (current dir) and ".." (parent dir) as segments - these are navigation markers.
         // Note: literal folder names like "..." or "...." are valid on Linux and are intentionally allowed.
         var segments = trashFolderPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(s => s is "." or ".."))
@@ -149,6 +162,18 @@ public static class ConfigurationRequestValidator
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return $"Trash folder path '{trashFolderPath}' is invalid: {ex.Message}";
+        }
+
+        // Reject an ABSOLUTE trash path that points at a sensitive system / application
+        // directory (Jellyfin's own /config, /data, OS roots like /etc, C:\Windows). A
+        // relative path (the common ".jellyfin-trash") is resolved under each library at
+        // runtime and is unaffected. This is the same shared guard the folder picker,
+        // link-repair and trash-deletion use - so a value the picker refuses can't be
+        // slipped in via a hand-typed absolute path either.
+        if (Path.IsPathRooted(trashFolderPath)
+            && PathValidator.IsSensitiveSystemPath(Path.GetFullPath(trashFolderPath)))
+        {
+            return "Trash folder path must not be a protected system folder.";
         }
 
         return null;
@@ -177,7 +202,7 @@ public static class ConfigurationRequestValidator
         }
 
         // Resolve against a dummy root to detect whether ".." sequences escape upward.
-        // We cannot use a real library root here — it is runtime state unknown at config-save time.
+        // We cannot use a real library root here - it is runtime state unknown at config-save time.
         // Use Path.GetTempPath() as a guaranteed-absolute, platform-correct anchor.
         // Path.GetFullPath(path, basePath) is used instead of Path.GetFullPath(Path.Combine(...))
         // to avoid the silent dropped-prefix pitfall when path is rooted (CA2249 / S4347).
@@ -238,7 +263,24 @@ public static class ConfigurationRequestValidator
                 continue;
             }
 
-            // If URL is provided, validate format
+            // Validate instance Name length and content
+            if (instance.Name?.Length > 100)
+            {
+                return $"{typeName} instance #{i + 1} name must be 100 characters or fewer.";
+            }
+
+            if (instance.Name != null && instance.Name.Any(c => char.IsControl(c)))
+            {
+                return $"{typeName} instance #{i + 1} name contains invalid characters.";
+            }
+
+            // If URL is provided, validate max length then format
+            if (!string.IsNullOrWhiteSpace(instance.Url) && instance.Url.Length > 2048)
+            {
+                var instanceName = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{i + 1}";
+                return $"{typeName} instance '{instanceName}' URL must be 2048 characters or fewer.";
+            }
+
             if (!string.IsNullOrWhiteSpace(instance.Url) &&
                 (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
                  (uri.Scheme != "http" && uri.Scheme != "https")))

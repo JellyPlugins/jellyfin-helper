@@ -65,7 +65,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
             // Symlink creation requires elevated privileges on some Windows configurations.
-            // xUnit 2.x has no Assert.Skip — early return keeps the test green but un-asserted,
+            // xUnit 2.x has no Assert.Skip - early return keeps the test green but un-asserted,
             // which is acceptable: the test runs and asserts on runners that support symlinks.
             _ = ex;
             return;
@@ -111,7 +111,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(512, size);
     }
 
-    // ── Root path itself is a symlink — IS followed (library roots can be symlinks) ───
+    // ── Root path itself is a symlink - IS followed (library roots can be symlinks) ───
 
     [Fact]
     [Trait("Category", "Symlink")]
@@ -120,7 +120,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         // Library roots can be symlinks (e.g. network mounts, bind mounts).
         // GetDirectorySize must traverse them so that timeline statistics are correct.
         // The ReparsePoint guard only applies to *sub*directories discovered during recursion
-        // to prevent cycles — it intentionally does not skip the caller-supplied root.
+        // to prevent cycles - it intentionally does not skip the caller-supplied root.
         var realDir = Path.Join(_testRoot, "real_root_target");
         var linkDir = Path.Join(_testRoot, "symlink_root");
         Directory.CreateDirectory(realDir);
@@ -136,7 +136,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
             return;
         }
 
-        // The root is a symlink — files inside the target are counted normally.
+        // The root is a symlink - files inside the target are counted normally.
         var size = _service.GetDirectorySize(linkDir, string.Empty, string.Empty, CancellationToken.None);
 
         Assert.Equal(4096, size);
@@ -181,7 +181,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
     /// <summary>
     ///     Thin adapter that delegates <c>GetFiles</c> and <c>GetDirectories</c> to the
     ///     real filesystem so the symlink tests can create actual reparse points on disk.
-    ///     All other members throw <see cref="NotImplementedException" /> — they are never
+    ///     All other members throw <see cref="NotImplementedException" /> - they are never
     ///     called by <see cref="GrowthTimelineService.GetDirectorySize" />.
     /// </summary>
     private sealed class RealFileSystemAdapter : IFileSystem

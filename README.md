@@ -5,9 +5,10 @@
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, ML-powered smart recommendations, user activity insights, health checks, and Arr stack integration - all from a single, multi-tab dashboard.
 
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
-[![Tests](https://img.shields.io/badge/tests-2325%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
-[![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
-[![Jellyfin](https://img.shields.io/badge/Jellyfin-10.11.10+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white)](https://jellyfin.org/)
+[![Tests](https://img.shields.io/badge/tests-4337%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
+[![E2E](https://img.shields.io/badge/e2e-268%20tests-brightgreen?style=flat-square)](test/e2e/)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
+[![Jellyfin](https://img.shields.io/badge/Jellyfin-12.0+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white)](https://jellyfin.org/)
 [![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square)](LICENSE)
 [![Languages](https://img.shields.io/badge/i18n-8%20languages-blue?style=flat-square)](Jellyfin.Plugin.JellyfinHelper/i18n/)
 [![Live Demo](https://img.shields.io/badge/demo-live%20preview-ff69b4?style=flat-square)](https://jellyplugins.github.io/jellyfin-helper/)
@@ -42,14 +43,16 @@ Explore the full 8-tab dashboard with realistic sample data - no Jellyfin server
 | **Log Viewer**             | Plugin-specific logs with level/source filtering, auto-refresh (10s), and download as `.log` file. Isolated from Jellyfin's main log to reduce noise                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | **Trash / Recycle Bin**    | Cleanup tasks move files to a timestamped trash folder instead of permanently deleting them. Configurable retention period auto-purges expired items                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | **8 Languages**            | Full UI translations: English, German, French, Spanish, Portuguese, Chinese, Turkish, Swedish                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **Smart Recommendations**  | ML-powered per-user recommendations using ensemble scoring (heuristic + learned + neural MLP blend). Analyses watch history to build genre, actor, director and studio affinity profiles, then scores unwatched candidates using 31 features - children with restricted profiles only see age-appropriate recommendations. Incremental training runs only when TaskMode=Activate, with ranking-based evaluation and pre-computed collaborative filtering pipeline - pure C# implementation with zero external ML dependencies                                                |
+| **Smart Recommendations**  | ML-powered per-user recommendations using ensemble scoring (heuristic + learned + neural MLP blend). Analyses watch history to build genre, actor, director and studio affinity profiles, then scores unwatched candidates using 38 features - children with restricted profiles only see age-appropriate recommendations. Incremental training runs only when TaskMode=Activate, with ranking-based evaluation and pre-computed collaborative filtering pipeline - pure C# implementation with zero external ML dependencies                                                |
 | **User Activity**          | Per-item and per-user watch activity tracking with play count, completion percentage, favorites detection, and genre distribution - displayed in the new Discover tab                                                                                                                                                                                                                                                                                                                                                                                                        |
 | **Security**               | 5-min statistics cache, 30s rate limiting, path traversal protection, XSS escaping, backup payload validation with size limits and injection detection, parental rating enforcement in recommendations                                                                                                                                                                                                                                                                                                                                                                       |
 | **Unsaved Settings Alert** | Warns before navigating away when the settings form has unsaved changes (dirty-tracking via snapshot comparison), with Discard / Save & Continue / Cancel options                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 All tasks default to **Dry Run** mode - nothing is deleted until you explicitly activate them.
 
-**Compatibility:** Jellyfin **10.11.10+** · .NET **9.0**
+**Compatibility:** Jellyfin **12.0+** · .NET **10.0**
+
+> **Using Jellyfin 10.x?** Stay on plugin version **v2.1.0.6**, which remains available in the repository. Version 3.x targets Jellyfin 12.0 and will not install on older servers.
 
 ---
 
@@ -95,7 +98,8 @@ All tasks default to **Dry Run** mode - nothing is deleted until you explicitly 
 
 ## Origin
 
-Based on [jellyfin-trickplay-folder-cleaner](https://github.com/Noir1992/jellyfin-trickplay-folder-cleaner) by [@Noir1992](https://github.com/Noir1992), inspired by [this community script](https://github.com/jellyfin/jellyfin/issues/12818#issuecomment-2712783498). This fork evolved into an independent project with significant additions.
+Based on [jellyfin-trickplay-folder-cleaner](https://github.com/Noir1992/jellyfin-trickplay-folder-cleaner) by [@Noir1992](https://github.com/Noir1992), which was inspired by [this community script](https://github.com/jellyfin/jellyfin/issues/12818#issuecomment-2712783498) by [@S2ciOnur](https://github.com/S2ciOnur). 
+This fork evolved into an independent project with significant additions.
 
 ## License
 
@@ -103,8 +107,7 @@ GNU General Public License v3.0 - see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-| Who                                          | Contribution                                                                                          |
-|----------------------------------------------|-------------------------------------------------------------------------------------------------------|
-| [@Noir1992](https://github.com/Noir1992)     | Original plugin author                                                                                |
-| [@K-Money](https://github.com/K-Money)       | Initial testing                                                                                       |
-| [@n00bcodr](https://github.com/n00bcodr)     | [Jellyfin-Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced) – inspiration for plugin features  |
+| Who                                          | Contribution                                                                                                                              |
+|----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| [@Noir1992](https://github.com/Noir1992)     | Original plugin author & Contributor - [jellyfin-trickplay-folder-cleaner](https://github.com/Noir1992/jellyfin-trickplay-folder-cleaner) |
+| [@n00bcodr](https://github.com/n00bcodr)     | Inspiration for plugin features - [Jellyfin-Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced)                                      |

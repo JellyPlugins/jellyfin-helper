@@ -12,6 +12,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 public interface ISeerrDiscoveryService
 {
     /// <summary>
+    ///     Gets the maximum number of visible discovery recommendations served to the frontend per user.
+    /// </summary>
+    int MaxVisiblePerUser { get; }
+
+    /// <summary>
     ///     Generates discovery recommendations for all users and persists results.
     ///     Called by the scheduled task.
     /// </summary>
@@ -81,7 +86,7 @@ public interface ISeerrDiscoveryService
     ///     </list>
     /// </remarks>
     /// <param name="jellyfinUserId">The Jellyfin user GUID.</param>
-    /// <param name="mediaType">"movie" or "tv" — used to check type-specific permissions.</param>
+    /// <param name="mediaType">"movie" or "tv" - used to check type-specific permissions.</param>
     /// <param name="serviceType">"radarr" or "sonarr".</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A permission result describing what the user can do and which profiles are available.</returns>

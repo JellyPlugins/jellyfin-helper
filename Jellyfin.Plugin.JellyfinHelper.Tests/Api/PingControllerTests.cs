@@ -1,4 +1,3 @@
-using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
@@ -19,17 +18,10 @@ public class PingControllerTests
         var result = controller.GetPing();
 
         var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(ok.Value);
-
-        // Anonymous type - reflect out the properties so we don't rely on internal shape.
-        var payload = ok.Value!;
-        var okValue = payload.GetType().GetProperty("ok", BindingFlags.Public | BindingFlags.Instance)?.GetValue(payload);
-        var plugin = payload.GetType().GetProperty("plugin", BindingFlags.Public | BindingFlags.Instance)?.GetValue(payload);
-        var version = payload.GetType().GetProperty("version", BindingFlags.Public | BindingFlags.Instance)?.GetValue(payload);
-
-        Assert.Equal(true, okValue);
-        Assert.Equal("JellyfinHelper", plugin);
-        Assert.False(string.IsNullOrWhiteSpace(version as string));
+        var payload = Assert.IsType<PingResponse>(ok.Value);
+        Assert.True(payload.Ok);
+        Assert.Equal("JellyfinHelper", payload.Plugin);
+        Assert.False(string.IsNullOrWhiteSpace(payload.Version));
     }
 
     [Fact]

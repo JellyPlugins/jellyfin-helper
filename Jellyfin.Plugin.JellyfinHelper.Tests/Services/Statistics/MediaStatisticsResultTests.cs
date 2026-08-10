@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Xunit;
 

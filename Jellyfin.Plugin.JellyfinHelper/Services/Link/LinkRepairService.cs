@@ -55,6 +55,11 @@ public class LinkRepairService : ILinkRepairService
     }
 
     /// <summary>
+    ///     Gets the maximum number of directories to visit. Overridable for testing.
+    /// </summary>
+    protected virtual int VisitedDirectoryCap => MaxVisitedDirectories;
+
+    /// <summary>
     ///     Scans the given library paths for link files, validates their target paths,
     ///     and repairs broken references by searching the parent directory for a media file.
     /// </summary>
@@ -68,14 +73,31 @@ public class LinkRepairService : ILinkRepairService
         CancellationToken cancellationToken = default)
     {
         var result = new LinkRepairResult();
-        var linkFiles = FindLinkFiles(libraryPaths, cancellationToken);
+        var paths = libraryPaths.ToList();
+        var linkFiles = FindLinkFiles(paths, cancellationToken);
 
         _pluginLog.LogInfo("LinkRepair", $"Found {linkFiles.Count} link files to check", _logger);
+
+        var normalizedLibraryPaths = paths
+            .Select(p =>
+            {
+                try
+                {
+                    return _fileSystem.Path.GetFullPath(p);
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    _pluginLog.LogWarning("LinkRepair", $"Skipping malformed library path: {p}", logger: _logger);
+                    return null;
+                }
+            })
+            .OfType<string>()
+            .ToList();
 
         foreach (var (filePath, handler) in linkFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var fileResult = ProcessLinkFile(filePath, handler, dryRun);
+            var fileResult = ProcessLinkFile(filePath, handler, dryRun, normalizedLibraryPaths);
             result.FileResults.Add(fileResult);
         }
 
@@ -112,93 +134,106 @@ public class LinkRepairService : ILinkRepairService
                 continue;
             }
 
-            FindLinkFilesRecursive(libraryPath, linkFiles, cancellationToken, visitedDirectories);
+            FindLinkFilesRecursive(libraryPath, linkFiles, visitedDirectories, out var limitReached, cancellationToken);
+            if (limitReached)
+            {
+                _pluginLog.LogWarning("LinkRepair", $"Visited-directory cap reached while scanning '{libraryPath}'. Remaining library paths will be skipped.", logger: _logger);
+                break;
+            }
         }
 
         return linkFiles;
     }
 
     /// <summary>
-    ///     Recursively scans a directory for files that any registered handler recognizes.
+    ///     Iteratively scans a directory tree for files that any registered handler recognizes.
+    ///     Uses an explicit stack instead of recursion to avoid StackOverflowException on deep
+    ///     or symlink-looped directory trees.
     /// </summary>
     private void FindLinkFilesRecursive(
         string directory,
         List<(string FilePath, ILinkHandler Handler)> result,
-        CancellationToken cancellationToken,
-        HashSet<string>? visited = null)
+        HashSet<string>? visited,
+        out bool limitReached,
+        CancellationToken cancellationToken)
     {
+        limitReached = false;
         visited ??= new HashSet<string>(PathComparer);
-        var normalized = _fileSystem.Path.GetFullPath(directory);
+        var stack = new Stack<string>();
+        stack.Push(directory);
 
-        // Resolve symlink targets so that two different symlinked paths
-        // pointing to the same physical directory are recognized as duplicates.
-        try
+        while (stack.Count > 0)
         {
-            var dirInfo = _fileSystem.DirectoryInfo.New(normalized);
-            var resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true);
-            if (resolved != null)
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var current = stack.Pop();
+            string normalized;
+            try
             {
-                normalized = _fileSystem.Path.GetFullPath(resolved.FullName);
-            }
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
-        {
-            // If symlink resolution fails (permissions, unsupported FS, etc.),
-            // fall back to the lexically normalized path.
-        }
-
-        if (!visited.Add(normalized))
-        {
-            return;
-        }
-
-        // Guard against excessively deep directory trees (e.g. unresolved symlink loops)
-        if (visited.Count > MaxVisitedDirectories)
-        {
-            _pluginLog.LogWarning(
-                "LinkRepair",
-                $"Visited directory limit ({MaxVisitedDirectories}) reached - aborting deeper traversal at: {directory}",
-                logger: _logger);
-            return;
-        }
-
-        try
-        {
-            foreach (var file in _fileSystem.Directory.EnumerateFiles(directory))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
+                normalized = _fileSystem.Path.GetFullPath(current);
+                var dirInfo = _fileSystem.DirectoryInfo.New(normalized);
+                var resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true);
+                if (resolved != null)
                 {
-                    var matchingHandler = _handlers.FirstOrDefault(h => h.CanHandle(file));
-                    if (matchingHandler != null)
+                    normalized = _fileSystem.Path.GetFullPath(resolved.FullName);
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+            {
+                normalized = _fileSystem.Path.GetFullPath(current);
+            }
+
+            if (!visited.Add(normalized))
+            {
+                continue;
+            }
+
+            if (visited.Count > VisitedDirectoryCap)
+            {
+                _pluginLog.LogWarning(
+                    "LinkRepair",
+                    $"Visited directory limit ({VisitedDirectoryCap}) reached - aborting deeper traversal at: {current}",
+                    logger: _logger);
+                limitReached = true;
+                break;
+            }
+
+            try
+            {
+                foreach (var file in _fileSystem.Directory.EnumerateFiles(current))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
                     {
-                        result.Add((file, matchingHandler));
+                        var matchingHandler = _handlers.FirstOrDefault(h => h.CanHandle(file));
+                        if (matchingHandler != null)
+                        {
+                            result.Add((file, matchingHandler));
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogWarning(
+                            "LinkRepair",
+                            $"Cannot inspect file: {file} - {ex.Message}",
+                            ex,
+                            _logger);
                     }
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+                foreach (var subDir in _fileSystem.Directory.EnumerateDirectories(current))
                 {
-                    _pluginLog.LogWarning(
-                        "LinkRepair",
-                        $"Cannot inspect file: {file} - {ex.Message}",
-                        ex,
-                        _logger);
+                    stack.Push(subDir);
                 }
             }
-
-            foreach (var subDir in _fileSystem.Directory.EnumerateDirectories(directory))
+            catch (OperationCanceledException)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                FindLinkFilesRecursive(subDir, result, cancellationToken, visited);
+                throw;
             }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
-        {
-            _pluginLog.LogWarning("LinkRepair", $"Cannot access directory: {directory} - {ex.Message}", ex, _logger);
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+            {
+                _pluginLog.LogWarning("LinkRepair", $"Cannot access directory: {current} - {ex.Message}", ex, _logger);
+            }
         }
     }
 
@@ -209,8 +244,9 @@ public class LinkRepairService : ILinkRepairService
     /// <param name="linkFilePath">The path to the link file.</param>
     /// <param name="handler">The handler that owns this link type.</param>
     /// <param name="dryRun">If true, no files will be modified.</param>
+    /// <param name="normalizedLibraryPaths">Normalized absolute library root paths used to validate relative targets.</param>
     /// <returns>The result for this file.</returns>
-    internal LinkFileResult ProcessLinkFile(string linkFilePath, ILinkHandler handler, bool dryRun)
+    internal LinkFileResult ProcessLinkFile(string linkFilePath, ILinkHandler handler, bool dryRun, IReadOnlyList<string>? normalizedLibraryPaths = null)
     {
         var fileResult = new LinkFileResult { LinkFilePath = linkFilePath };
 
@@ -251,6 +287,17 @@ public class LinkRepairService : ILinkRepairService
         }
 
         fileResult.OriginalTargetPath = targetPath;
+
+        // Reject null bytes before normalization - .NET no longer throws ArgumentException
+        // from Path.GetFullPath for embedded NULs on modern runtimes, so we must check
+        // explicitly. A NUL byte is a structural path-grammar violation → InvalidContent.
+        if (targetPath.Contains('\0', StringComparison.Ordinal))
+        {
+            _pluginLog.LogWarning("LinkRepair", $"Target path contains null byte in link file {linkFilePath}", logger: _logger);
+            fileResult.Status = LinkFileStatus.InvalidContent;
+            return fileResult;
+        }
+
         string normalizedTargetPath;
         try
         {
@@ -262,12 +309,62 @@ public class LinkRepairService : ILinkRepairService
                 pathToNormalize = fileUri.LocalPath;
             }
 
+            var linkDir = _fileSystem.Path.GetDirectoryName(linkFilePath);
+            if (linkDir == null)
+            {
+                fileResult.Status = LinkFileStatus.InvalidContent;
+                return fileResult;
+            }
+
             normalizedTargetPath = _fileSystem.Path.IsPathRooted(pathToNormalize)
                 ? _fileSystem.Path.GetFullPath(pathToNormalize)
                 : _fileSystem.Path.GetFullPath(
                     _fileSystem.Path.Combine(
-                        _fileSystem.Path.GetDirectoryName(linkFilePath) ?? string.Empty,
+                        linkDir,
                         pathToNormalize));
+
+            // (a) A RELATIVE target that escapes outside all configured library roots
+            // (e.g. "../../etc/passwd") is treated as invalid content, not a broken
+            // link, to avoid path-traversal abuse.
+            if (!_fileSystem.Path.IsPathRooted(pathToNormalize)
+                && normalizedLibraryPaths != null
+                && normalizedLibraryPaths.Count > 0)
+            {
+                var separator = _fileSystem.Path.DirectorySeparatorChar;
+                var isUnderLibrary = normalizedLibraryPaths.Any(lib =>
+                {
+                    var libWithSep = lib.EndsWith(separator) ? lib : lib + separator;
+                    return normalizedTargetPath.StartsWith(libWithSep, OperatingSystem.IsLinux()
+                        ? StringComparison.Ordinal
+                        : StringComparison.OrdinalIgnoreCase);
+                });
+
+                if (!isUnderLibrary)
+                {
+                    _pluginLog.LogWarning(
+                        "LinkRepair",
+                        $"Relative target path in link file {linkFilePath} resolves outside all library roots: {normalizedTargetPath}",
+                        logger: _logger);
+                    fileResult.Status = LinkFileStatus.InvalidContent;
+                    return fileResult;
+                }
+            }
+
+            // (b) An ABSOLUTE target (or file:// URI) pointing at a sensitive system
+            // directory - Jellyfin's own /config, OS dirs like /etc, C:\Windows - is
+            // refused so link repair never enumerates or rewrites toward host files
+            // outside the media libraries (info-disclosure / traversal via absolute
+            // targets). A cross-location absolute media target (another library / mount)
+            // is still allowed; only sensitive locations are blocked.
+            if (IsSensitiveSystemTarget(normalizedTargetPath))
+            {
+                _pluginLog.LogWarning(
+                    "LinkRepair",
+                    $"Target path in link file {linkFilePath} points at a sensitive system directory: {normalizedTargetPath}",
+                    logger: _logger);
+                fileResult.Status = LinkFileStatus.InvalidContent;
+                return fileResult;
+            }
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -318,8 +415,18 @@ public class LinkRepairService : ILinkRepairService
             return fileResult;
         }
 
-        // Search the parent directory for media files
-        var mediaFiles = FindMediaFilesInDirectory(parentDir);
+        // Search the parent directory for media files, EXCLUDING the link file
+        // itself. A symlink with a media extension (e.g. a broken "Movie.mkv"
+        // symlink) would otherwise be enumerated as one of its own repair
+        // candidates and make every such folder look ambiguous - a link can never
+        // legitimately repair to itself. (.strm links are already excluded from
+        // the candidate filter by extension, so this only affects symlinks.)
+        var mediaFiles = FindMediaFilesInDirectory(parentDir)
+            .Where(f => !string.Equals(
+                _fileSystem.Path.GetFullPath(f),
+                _fileSystem.Path.GetFullPath(fileResult.LinkFilePath),
+                OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         switch (mediaFiles.Count)
         {
@@ -359,7 +466,7 @@ public class LinkRepairService : ILinkRepairService
                             handler.WriteTarget(fileResult.LinkFilePath, newTargetPath);
                             fileResult.Status = LinkFileStatus.Repaired;
                         }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException)
                         {
                             _pluginLog.LogError(
                                 "LinkRepair",
@@ -406,6 +513,7 @@ public class LinkRepairService : ILinkRepairService
                 from file in _fileSystem.Directory.EnumerateFiles(directory)
                 let extension = _fileSystem.Path.GetExtension(file)
                 where MediaExtensions.VideoExtensions.Contains(extension)
+                      && !string.Equals(extension, MediaExtensions.StrmExtension, StringComparison.OrdinalIgnoreCase)
                 select file);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
@@ -415,4 +523,14 @@ public class LinkRepairService : ILinkRepairService
 
         return mediaFiles;
     }
+
+    /// <summary>
+    ///     True when an absolute target path is (or is inside) a sensitive system /
+    ///     application directory that link repair must never read from or rewrite
+    ///     toward - Jellyfin's own <c>/config</c>, plus common OS directories. A
+    ///     cross-location media target (another library or mount) is not sensitive
+    ///     and is allowed; only these locations are blocked.
+    /// </summary>
+    private static bool IsSensitiveSystemTarget(string normalizedTargetPath)
+        => PathValidator.IsSensitiveSystemPath(normalizedTargetPath);
 }

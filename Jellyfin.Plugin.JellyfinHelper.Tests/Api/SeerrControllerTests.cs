@@ -1,6 +1,5 @@
 using System;
 using System.Net.Http;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
@@ -85,9 +84,9 @@ public class SeerrControllerTests
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.NotNull(okResult.Value);
-        var payload = ParsePayload(okResult);
-        Assert.True(payload.GetProperty("success").GetBoolean());
-        Assert.Equal("Connected", payload.GetProperty("message").GetString());
+        var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
+        Assert.True(payload.Success);
+        Assert.Equal("Connected", payload.Message);
     }
 
     [Fact]
@@ -100,10 +99,15 @@ public class SeerrControllerTests
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "bad" };
         var result = await _controller.TestConnection(request);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        var payload = ParsePayload(okResult);
-        Assert.False(payload.GetProperty("success").GetBoolean());
-        Assert.Equal("Auth failed", payload.GetProperty("message").GetString());
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
+        var payload = Assert.IsType<ConnectionTestResponse>(objectResult.Value);
+        Assert.False(payload.Success);
+        // The detailed upstream reason ("Auth failed") is logged server-side but MUST NOT be
+        // reflected to the client: reflecting the raw upstream status/reason turns this endpoint
+        // into an internal-reachability oracle. A generic failure message is returned instead.
+        Assert.Equal("Connection failed. Please verify URL and API Key and try again.", payload.Message);
+        Assert.DoesNotContain("Auth failed", payload.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -116,10 +120,11 @@ public class SeerrControllerTests
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "abc" };
         var result = await _controller.TestConnection(request);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        var payload = ParsePayload(okResult);
-        Assert.False(payload.GetProperty("success").GetBoolean());
-        Assert.Contains("Connection failed", payload.GetProperty("message").GetString());
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
+        var payload = Assert.IsType<ConnectionTestResponse>(objectResult.Value);
+        Assert.False(payload.Success);
+        Assert.Contains("Connection failed", payload.Message);
     }
 
     [Fact]
@@ -132,19 +137,11 @@ public class SeerrControllerTests
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "abc" };
         var result = await _controller.TestConnection(request);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        var payload = ParsePayload(okResult);
-        Assert.False(payload.GetProperty("success").GetBoolean());
-        Assert.Contains("timed out", payload.GetProperty("message").GetString());
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status504GatewayTimeout, objectResult.StatusCode);
+        var payload = Assert.IsType<ConnectionTestResponse>(objectResult.Value);
+        Assert.False(payload.Success);
+        Assert.Contains("timed out", payload.Message);
     }
 
-    /// <summary>
-    ///     Serializes the anonymous-type payload of an <see cref="OkObjectResult"/> into a <see cref="JsonElement"/>
-    ///     so individual properties can be asserted without reflection or dynamic.
-    /// </summary>
-    private static JsonElement ParsePayload(OkObjectResult okResult)
-    {
-        var json = JsonSerializer.Serialize(okResult.Value);
-        return JsonDocument.Parse(json).RootElement;
-    }
 }

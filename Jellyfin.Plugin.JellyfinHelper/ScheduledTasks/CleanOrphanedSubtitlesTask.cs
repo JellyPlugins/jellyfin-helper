@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
@@ -61,9 +62,9 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     protected override string ItemLabel => "files";
 
     /// <inheritdoc />
-    protected override bool IsDryRun()
+    protected override TaskMode GetTaskMode()
     {
-        return ConfigHelper.IsDryRunOrphanedSubtitles();
+        return ConfigHelper.GetOrphanedSubtitleTaskMode();
     }
 
     /// <inheritdoc />
@@ -79,57 +80,49 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         try
         {
             // Process directories: for each directory, check all subtitle files
-            var allDirs = new List<string> { libraryPath };
-            try
-            {
-                allDirs.AddRange(
-                    FileSystem.GetDirectories(libraryPath, true)
-                        .Select(d => d.FullName));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {libraryPath}", ex, Logger);
-            }
-
-            // Cache files per directory
-            var fileCache = new Dictionary<string, FileSystemMetadata[]>(StringComparer.OrdinalIgnoreCase);
+            var allDirs = new[] { libraryPath }.Concat(
+                TryGetSubdirectories(libraryPath));
 
             // Hoist trash path computation out of loop – libraryPath is constant per iteration
             var trashFullPath = ConfigHelper.GetTrashPath(libraryPath);
-            var normalizedTrash = trashFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedTrash = Path.GetFullPath(trashFullPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedTrashSep = normalizedTrash + Path.DirectorySeparatorChar;
+            var normalizedTrashAlt = normalizedTrash + Path.AltDirectorySeparatorChar;
 
-            foreach (var dirPath in from dirPath in allDirs.TakeWhile(_ => !cancellationToken.IsCancellationRequested)
-                                    where !Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase)
-                                    let normalizedDir = dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                                    where !normalizedDir.Equals(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                                          && !normalizedDir.StartsWith(
-                                              normalizedTrash + Path.DirectorySeparatorChar,
-                                              StringComparison.OrdinalIgnoreCase)
-                                          && !normalizedDir.StartsWith(
-                                              normalizedTrash + Path.AltDirectorySeparatorChar,
-                                              StringComparison.OrdinalIgnoreCase)
-                                    select dirPath)
+            foreach (var dirPath in allDirs)
             {
-                if (!fileCache.TryGetValue(dirPath, out var files))
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Skip .trickplay folders – handled by CleanTrickplayTask
+                if (Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
-                    try
-                    {
-                        files = FileSystem.GetFiles(dirPath).ToArray();
-                        fileCache[dirPath] = files;
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        PluginLog.LogWarning(TaskName, $"Could not list files in: {dirPath}", ex, Logger);
-                        continue;
-                    }
+                    continue;
+                }
+
+                // Skip the trash folder and everything inside it
+                var normalizedDir = Path.GetFullPath(dirPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+                if (normalizedDir.Equals(normalizedTrash, comparison)
+                    || normalizedDir.StartsWith(normalizedTrashSep, comparison)
+                    || normalizedDir.StartsWith(normalizedTrashAlt, comparison))
+                {
+                    continue;
+                }
+
+                FileSystemMetadata[] files;
+                try
+                {
+                    files = FileSystem.GetFiles(dirPath).ToArray();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    PluginLog.LogWarning(TaskName, $"Could not list files in: {dirPath}", ex, Logger);
+                    continue;
                 }
 
                 // Get all video base names in this directory
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return (deletedCount, bytesFreed);
-                }
-
                 var videoBaseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var file in files)
                 {
@@ -150,10 +143,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 // Check each subtitle file
                 foreach (var file in files)
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
+                    cancellationToken.ThrowIfCancellationRequested();
 
                     if (!MediaExtensions.SubtitleExtensions.Contains(Path.GetExtension(file.FullName)))
                     {
@@ -162,7 +152,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
                     // Extract the base name of the subtitle, stripping language suffixes
                     // e.g., "Movie.en.srt" → "Movie", "Movie.en.forced.srt" → "Movie"
-                    var subtitleBaseName = GetSubtitleBaseName(file.FullName);
+                    var subtitleBaseName = GetSubtitleBaseName(file.FullName, videoBaseNames);
 
                     if (videoBaseNames.Contains(subtitleBaseName))
                     {
@@ -235,10 +225,14 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     ///     "Movie Name (2021).es-MX.srt" → "Movie Name (2021)"
     ///     "Movie Name (2021).pt-BR.forced.srt" → "Movie Name (2021)"
     ///     "Movie Name (2021).zh-Hans.srt" → "Movie Name (2021)".
+    ///     If the stripped result does not match any known video base name, falls back to
+    ///     the original unsplit name (i.e., the filename without its subtitle extension)
+    ///     to avoid false-orphan detection when the movie title itself contains language codes.
     /// </summary>
     /// <param name="filePath">The full path to the subtitle file.</param>
-    /// <returns>The base name without language and format suffixes.</returns>
-    internal static string GetSubtitleBaseName(string filePath)
+    /// <param name="videoBaseNames">The set of video base names present in the same directory.</param>
+    /// <returns>The base name without language and format suffixes, or the original unsplit name as fallback.</returns>
+    internal static string GetSubtitleBaseName(string filePath, HashSet<string> videoBaseNames)
     {
         // Start with filename without extension: "Movie.en.forced"
         var nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
@@ -259,7 +253,18 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         }
 
         // Rejoin the parts up to endIndex
-        return string.Join('.', parts, 0, endIndex + 1);
+        var candidateBase = string.Join('.', parts, 0, endIndex + 1);
+
+        // Verify the stripped candidate actually matches a video file in the directory.
+        // If the movie title itself contains something that looks like a language code
+        // (e.g. "en.mkv"), stripping would produce a wrong base name. Fall back to the
+        // original unsplit name so that the caller's videoBaseNames lookup stays accurate.
+        if (videoBaseNames.Contains(candidateBase))
+        {
+            return candidateBase;
+        }
+
+        return nameWithoutExt;
     }
 
     /// <summary>
@@ -322,5 +327,50 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
         // subtags.Length == 3: {lang}-{script}-{region}
         return IsScript(subtags[1]) && (IsAlphaRegion(subtags[2]) || IsNumericRegion(subtags[2]));
+    }
+
+    /// <summary>
+    ///     Returns all subdirectories under <paramref name="libraryPath" /> using an explicit stack
+    ///     so that a single unreadable directory does not abort the scan and there is no
+    ///     per-call recursion depth risk on deep trees.
+    /// </summary>
+    private List<string> TryGetSubdirectories(string libraryPath)
+    {
+        var result = new List<string>();
+        var stack = new Stack<string>();
+
+        // Seed the stack with the direct children of the library root.
+        try
+        {
+            foreach (var d in FileSystem.GetDirectories(libraryPath))
+            {
+                stack.Push(d.FullName);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {libraryPath}", ex, Logger);
+            return result;
+        }
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            result.Add(current);
+
+            try
+            {
+                foreach (var d in FileSystem.GetDirectories(current))
+                {
+                    stack.Push(d.FullName);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {current}", ex, Logger);
+            }
+        }
+
+        return result;
     }
 }

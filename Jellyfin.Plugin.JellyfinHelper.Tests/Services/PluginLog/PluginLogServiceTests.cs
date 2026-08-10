@@ -1,4 +1,4 @@
-using Jellyfin.Plugin.JellyfinHelper.Configuration;
+﻿using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -124,7 +124,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogDebug_ForwardsToILogger()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogDebug("__PLT_Fwd__", "Msg", mockLogger.Object);
 
@@ -235,7 +235,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogInfo_ForwardsToILogger()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogInfo("__PLT_Fwd__", "InfoMsg", mockLogger.Object);
 
@@ -332,7 +332,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogWarning_ForwardsToILogger_WithoutException()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogWarning("__PLT__", "WarnMsg", logger: mockLogger.Object);
 
@@ -352,7 +352,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogWarning_ForwardsToILogger_WithException()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
         var exception = new InvalidOperationException("test");
 
         _sut.LogWarning("__PLT__", "WarnMsg", exception, mockLogger.Object);
@@ -424,7 +424,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogError_ForwardsToILogger_WithoutException()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogError("__PLT__", "ErrMsg", logger: mockLogger.Object);
 
@@ -444,7 +444,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogError_ForwardsToILogger_WithException()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
         var exception = new InvalidOperationException("fatal");
 
         _sut.LogError("__PLT__", "ErrMsg", exception, mockLogger.Object);
@@ -561,7 +561,7 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src = "__PLT_FwdFiltered__";
         _sut.TestMinLevelOverride = "ERROR"; // DEBUG won't be stored in buffer
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogDebug(src, "Filtered debug msg", mockLogger.Object);
 
@@ -588,7 +588,7 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src = "__PLT_FwdInfoFilt__";
         _sut.TestMinLevelOverride = "ERROR";
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogInfo(src, "Filtered info", mockLogger.Object);
 
@@ -603,6 +603,119 @@ public class PluginLogServiceTests : IDisposable
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
+    }
+
+    // ===== IsEnabled Guard (CA1873) =====
+    // These lock in the contract of the IsEnabled(...) guards introduced with Jellyfin 12+
+    // and .NET 10 CA1873. When the ILogger reports the level as disabled, no forwarding
+    // occurs even though the in-memory buffer still stores the entry. Without these tests
+    // the guard could be silently removed without any assertion failing.
+
+    /// <summary>
+    ///     Verifies that LogDebug does NOT forward to ILogger when IsEnabled(Debug) is false,
+    ///     but the entry is still added to the in-memory buffer.
+    /// </summary>
+    [Fact]
+    public void LogDebug_DoesNotForwardToILogger_WhenIsEnabledReturnsFalse()
+    {
+        const string src = "__PLT_NoFwdDebug__";
+        var mockLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.IsEnabled(LogLevel.Debug)).Returns(false);
+
+        _sut.LogDebug(src, "Should not forward", mockLogger.Object);
+
+        mockLogger.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+
+        // In-memory buffer still receives the entry (independent of ILogger filtering).
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+    }
+
+    /// <summary>
+    ///     Verifies that LogInfo does NOT forward to ILogger when IsEnabled(Information) is false,
+    ///     but the entry is still added to the in-memory buffer.
+    /// </summary>
+    [Fact]
+    public void LogInfo_DoesNotForwardToILogger_WhenIsEnabledReturnsFalse()
+    {
+        const string src = "__PLT_NoFwdInfo__";
+        var mockLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.IsEnabled(LogLevel.Information)).Returns(false);
+
+        _sut.LogInfo(src, "Should not forward", mockLogger.Object);
+
+        mockLogger.Verify(
+            l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+    }
+
+    /// <summary>
+    ///     Verifies that LogWarning does NOT forward to ILogger when IsEnabled(Warning) is false,
+    ///     but the entry is still added to the in-memory buffer.
+    /// </summary>
+    [Fact]
+    public void LogWarning_DoesNotForwardToILogger_WhenIsEnabledReturnsFalse()
+    {
+        const string src = "__PLT_NoFwdWarn__";
+        var mockLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.IsEnabled(LogLevel.Warning)).Returns(false);
+
+        // Named 'logger:' argument because LogWarning's third positional parameter is Exception?.
+        _sut.LogWarning(src, "Should not forward", logger: mockLogger.Object);
+
+        mockLogger.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+    }
+
+    /// <summary>
+    ///     Verifies that LogError does NOT forward to ILogger when IsEnabled(Error) is false,
+    ///     but the entry is still added to the in-memory buffer.
+    /// </summary>
+    [Fact]
+    public void LogError_DoesNotForwardToILogger_WhenIsEnabledReturnsFalse()
+    {
+        const string src = "__PLT_NoFwdErr__";
+        var mockLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.IsEnabled(LogLevel.Error)).Returns(false);
+
+        // Named 'logger:' argument because LogError's third positional parameter is Exception?.
+        _sut.LogError(src, "Should not forward", logger: mockLogger.Object);
+
+        mockLogger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
     }
 
     // ===== GetConfiguredMinLevel =====
@@ -1209,5 +1322,50 @@ public class PluginLogServiceTests : IDisposable
         var entries = sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("INFO", entries[0].Level);
+    }
+
+    [Fact]
+    public void LogWarning_ExceptionWithCrLf_SanitizesExceptionString()
+    {
+        const string src = "__PLT_ExSanitize__";
+        var ex = new Exception("line1\r\nline2\nline3");
+
+        _sut.LogWarning(src, "msg", ex);
+
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+        Assert.NotNull(entries[0].Exception);
+        var exStr = entries[0].Exception!;
+        Assert.DoesNotContain('\n', exStr);
+        Assert.DoesNotContain('\r', exStr);
+        Assert.Contains("line1", exStr, StringComparison.Ordinal);
+        Assert.Contains("line2", exStr, StringComparison.Ordinal);
+        Assert.Contains("line3", exStr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetConfiguredMinLevel_WhenConfigServiceThrows_ReturnsInfoDefault()
+    {
+        // BUG GUARD: bare `catch {}` previously swallowed all exceptions silently.
+        // This test verifies the fallback to "INFO" when the config service is unavailable.
+        var throwingConfig = new Mock<IPluginConfigurationService>();
+        throwingConfig.Setup(s => s.GetConfiguration()).Throws(new InvalidOperationException("not ready"));
+        var sut = new PluginLogService(throwingConfig.Object);
+
+        var level = sut.GetConfiguredMinLevel();
+
+        Assert.Equal("INFO", level);
+    }
+
+    [Fact]
+    public void GetConfiguredMinLevel_WhenConfigReturnsDebug_ReturnsDebug()
+    {
+        var cfg = new PluginConfiguration { PluginLogLevel = "DEBUG" };
+        var sut = TestMockFactory.CreatePluginLogService(cfg);
+        sut.TestMinLevelOverride = null;
+
+        var level = sut.GetConfiguredMinLevel();
+
+        Assert.Equal("DEBUG", level);
     }
 }

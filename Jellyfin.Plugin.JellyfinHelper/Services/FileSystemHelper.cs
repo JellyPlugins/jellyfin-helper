@@ -2,42 +2,63 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
-using MediaBrowser.Model.IO;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
 ///     Provides reusable, robust filesystem operations with proper error handling.
 ///     All methods gracefully handle <see cref="IOException" /> and <see cref="UnauthorizedAccessException" />
-///     by logging a warning and continuing, ensuring that inaccessible directories never crash the caller.
+///     by skipping silently (best-effort), ensuring that inaccessible directories never crash the caller.
 /// </summary>
 public static class FileSystemHelper
 {
     /// <summary>
-    ///     Calculates the total size of all files in a directory tree.
-    ///     Inaccessible directories are logged and skipped.
+    ///     Calculates the total size of all files in a directory tree (iterative, no recursion).
+    ///     Symlinks and junction points are skipped to prevent cycles.
+    ///     Inaccessible directories are silently skipped.
     /// </summary>
-    /// <param name="fileSystem">The Jellyfin file system abstraction.</param>
-    /// <param name="directoryPath">The root directory path.</param>
+    /// <param name="path">The root directory path.</param>
     /// <returns>The total size in bytes.</returns>
-    internal static long CalculateDirectorySize(IFileSystem fileSystem, string directoryPath)
+    public static long CalculateDirectorySize(string path)
     {
-        long totalSize = 0;
-
-        try
+        long total = 0;
+        var stack = new Stack<string>();
+        stack.Push(path);
+        while (stack.Count > 0)
         {
-            var files = fileSystem.GetFiles(directoryPath);
-            totalSize += files.Sum(f => f.Length);
+            var dir = stack.Pop();
+            try
+            {
+                foreach (var file in Directory.GetFiles(dir))
+                {
+                    try
+                    {
+                        total += new FileInfo(file).Length;
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
 
-            var subDirs = fileSystem.GetDirectories(directoryPath);
-            totalSize += subDirs.Sum(subDir => CalculateDirectorySize(fileSystem, subDir.FullName));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
+                foreach (var sub in Directory.GetDirectories(dir))
+                {
+                    if ((new DirectoryInfo(sub).Attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+
+                    stack.Push(sub);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
 
-        return totalSize;
+        return total;
     }
 
     /// <summary>

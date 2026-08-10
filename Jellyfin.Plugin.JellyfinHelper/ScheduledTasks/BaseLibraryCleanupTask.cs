@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
@@ -90,10 +91,17 @@ public abstract class BaseLibraryCleanupTask
     protected abstract string ItemLabel { get; }
 
     /// <summary>
+    ///     Gets the current task mode (Activate / DryRun / Deactivate).
+    /// </summary>
+    /// <returns>The configured <see cref="TaskMode" />.</returns>
+    protected abstract TaskMode GetTaskMode();
+
+    /// <summary>
     ///     Determines whether this task is currently in dry-run mode.
+    ///     Returns <see langword="true"/> only when <see cref="GetTaskMode"/> returns <see cref="TaskMode.DryRun"/>.
     /// </summary>
     /// <returns>True if dry-run mode is active; otherwise false.</returns>
-    protected abstract bool IsDryRun();
+    protected bool IsDryRun() => CleanupConfigHelper.IsDryRun(GetTaskMode());
 
     /// <summary>
     ///     Processes a single library location, scanning for orphaned items and deleting/trashing them.
@@ -110,11 +118,27 @@ public abstract class BaseLibraryCleanupTask
     /// <summary>
     ///     Executes the cleanup task using the Template Method pattern.
     ///     Orchestrates: config loading, start logging, library iteration, summary logging, and cleanup recording.
+    ///     The synchronous scan work is offloaded to a thread-pool thread via <see cref="Task.Run(Action)" />
+    ///     so the Jellyfin scheduler thread is never blocked.
     /// </summary>
     /// <param name="progress">Progress reporter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A completed task.</returns>
+    /// <returns>A task that completes when the cleanup finishes.</returns>
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    {
+        if (GetTaskMode() == TaskMode.Deactivate)
+        {
+            progress.Report(100);
+            return Task.CompletedTask;
+        }
+
+        return Task.Run(() => RunCleanup(progress, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>
+    ///     Contains the synchronous scan logic executed on a thread-pool thread by <see cref="ExecuteAsync" />.
+    /// </summary>
+    private void RunCleanup(IProgress<double> progress, CancellationToken cancellationToken)
     {
         var dryRun = IsDryRun();
         var config = ConfigHelper.GetConfig();
@@ -147,7 +171,7 @@ public abstract class BaseLibraryCleanupTask
         {
             PluginLog.LogInfo(TaskName, "No library folders configured. Nothing to do.", Logger);
             progress.Report(100);
-            return Task.CompletedTask;
+            return;
         }
 
         var totalDeleted = 0;
@@ -180,7 +204,5 @@ public abstract class BaseLibraryCleanupTask
         {
             TrackingService.RecordCleanup(totalBytesFreed, totalDeleted, Logger);
         }
-
-        return Task.CompletedTask;
     }
 }

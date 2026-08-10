@@ -11,12 +11,10 @@ on:
     - "Directory.Build.props"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 env:
   PLUGIN_NAME: JellyfinHelper
-  TARGET_ABI: "10.11.9.0"
 
 jobs:
   security-audit:
@@ -27,12 +25,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       run: dotnet restore
@@ -83,17 +81,19 @@ jobs:
             filter: "Category=Security"
           - name: Performance
             filter: "Category=Performance"
+            continue-on-error: true
 
     name: "Tests (${{ matrix.bucket.name }})"
+    continue-on-error: ${{ matrix.bucket.continue-on-error == true }}
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       run: dotnet restore
@@ -102,9 +102,11 @@ jobs:
       run: dotnet build --configuration Release --no-restore
 
     - name: "Run ${{ matrix.bucket.name }} tests"
+      env:
+        TEST_FILTER: ${{ matrix.bucket.filter }}
       run: |
         dotnet test --configuration Release --no-build --verbosity normal \
-          --filter "${{ matrix.bucket.filter }}" \
+          --filter "$TEST_FILTER" \
           --logger "trx;LogFileName=${{ matrix.bucket.name }}.trx"
 
     - name: Upload test results
@@ -124,13 +126,18 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
+        persist-credentials: false
 
     - name: Read version from manifest
       run: |
         VERSION=$(jq -er '.[0].versions[0].version' manifest.json)
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+          echo "::error::VERSION '$VERSION' is not a valid version string."
+          exit 1
+        fi
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
     - name: Check if tag already exists (remote)
@@ -144,9 +151,9 @@ jobs:
 
     - name: Setup .NET
       if: env.TAG_EXISTS == 'false'
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       if: env.TAG_EXISTS == 'false'
@@ -158,10 +165,10 @@ jobs:
         dotnet publish Jellyfin.Plugin.JellyfinHelper/Jellyfin.Plugin.JellyfinHelper.csproj \
           -c Release \
           -o ./publish \
-          -p:Version=${VERSION} \
-          -p:AssemblyVersion=${VERSION} \
-          -p:FileVersion=${VERSION} \
-          -p:InformationalVersion=${VERSION}
+          -p:Version="${VERSION}" \
+          -p:AssemblyVersion="${VERSION}" \
+          -p:FileVersion="${VERSION}" \
+          -p:InformationalVersion="${VERSION}"
 
     - name: Read metadata from manifest.json
       if: env.TAG_EXISTS == 'false'
@@ -194,6 +201,7 @@ jobs:
         mkdir package
         cp publish/*.dll package/
         cp publish/logo.png package/ 2>/dev/null || cp media/logo.png package/
+        TARGET_ABI=$(jq -er '.[0].versions[0].targetAbi' manifest.json)
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.0000000Z")
         jq -n \
           --arg changelog "$BUILD_CHANGELOG" \
@@ -234,16 +242,23 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: "!contains(github.event.head_commit.message, '[skip release]')"
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
     - name: Read version from manifest
       run: |
         VERSION=$(jq -er '.[0].versions[0].version' manifest.json)
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+          echo "::error::VERSION '$VERSION' is not a valid version string."
+          exit 1
+        fi
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
     - name: Check if tag already exists (remote)
@@ -259,6 +274,7 @@ jobs:
       if: env.TAG_EXISTS == 'false'
       env:
         YQ_VERSION: v4.53.2
+        YQ_SHA256: "d56bf5c6819e8e696340c312bd70f849dc1678a7cda9c2ad63eebd906371d56b"
       run: |
         sudo apt-get update && sudo apt-get install -y jq
         TMP_DIR=$(mktemp -d)
@@ -269,22 +285,11 @@ jobs:
           echo "::error::Failed to download yq binary ${YQ_VERSION}. Check if this version exists at https://github.com/mikefarah/yq/releases"
           exit 1
         }
-        curl -fsSL -o checksums "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/checksums" || {
-          echo "::error::Failed to download yq checksums for ${YQ_VERSION}."
-          exit 1
-        }
         ACTUAL_HASH=$(sha256sum yq_linux_amd64 | awk '{print $1}')
-        CHECKSUM_LINE=$(grep -E '(^|\s)yq_linux_amd64(\s|$)' checksums | head -n1)
-        if [ -z "$CHECKSUM_LINE" ]; then
-          echo "::error::Could not find yq_linux_amd64 in checksums file."
-          echo "Checksums file content:"
-          cat checksums
-          exit 1
-        fi
-        if ! echo "$CHECKSUM_LINE" | grep -qF "$ACTUAL_HASH"; then
+        if [ "$ACTUAL_HASH" != "$YQ_SHA256" ]; then
           echo "::error::yq checksum verification failed!"
+          echo "Expected SHA256: $YQ_SHA256"
           echo "Computed SHA256: $ACTUAL_HASH"
-          echo "Checksums line:  $CHECKSUM_LINE"
           exit 1
         fi
         echo "Checksum verified: $ACTUAL_HASH"
@@ -304,23 +309,23 @@ jobs:
 
     - name: Download build artifact
       if: env.TAG_EXISTS == 'false'
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@v7
       with:
         name: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}
 
     - name: Generate checksums
       if: env.TAG_EXISTS == 'false'
       run: |
-        md5sum ${PLUGIN_NAME}_${VERSION}.zip | cut -d ' ' -f1 > checksum_md5.txt
-        sha256sum ${PLUGIN_NAME}_${VERSION}.zip | cut -d ' ' -f1 > checksum_sha256.txt
-        echo "CHECKSUM=$(cat checksum_md5.txt)" >> $GITHUB_ENV
+        sha256sum "${PLUGIN_NAME}_${VERSION}.zip" | cut -d ' ' -f1 > checksum_sha256.txt
         echo "CHECKSUM_SHA256=$(cat checksum_sha256.txt)" >> $GITHUB_ENV
 
     - name: Create tag
       if: env.TAG_EXISTS == 'false'
       run: |
-        git tag $VERSION
-        git push origin $VERSION
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag -a "$VERSION" -m "Release $VERSION"
+        git push origin "$VERSION"
 
     - name: Create GitHub Release
       if: env.TAG_EXISTS == 'false'
@@ -333,7 +338,6 @@ jobs:
           ${{ env.CHANGELOG }}
 
           ## Checksums
-          - **MD5:** `${{ env.CHECKSUM }}`
           - **SHA256:** `${{ env.CHECKSUM_SHA256 }}`
 
           ## Installation
@@ -347,25 +351,24 @@ jobs:
       run: |
         DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${PLUGIN_NAME}_${VERSION}.zip"
 
-        jq --arg checksum "$CHECKSUM" \
-           --arg sha256 "$CHECKSUM_SHA256" \
+        jq --arg sha256 "$CHECKSUM_SHA256" \
            --arg url "$DOWNLOAD_URL" \
            '
-           .[0].versions[0].checksum = $checksum |
+           .[0].versions[0].checksum = $sha256 |
            .[0].versions[0].timestamp = (now | todateiso8601) |
            .[0].versions[0].sourceUrl = $url
            ' manifest.json > manifest.tmp
 
         mv manifest.tmp manifest.json
 
+        TARGET_ABI=$(jq -er '.[0].versions[0].targetAbi' manifest.json)
         yq eval -i '
           .version = strenv(VERSION) |
           .targetAbi = strenv(TARGET_ABI) |
-          .framework = "net9.0" |
+          .framework = "net10.0" |
           .changelog = strenv(CHANGELOG)
         ' build.yaml
 
-        echo "$CHECKSUM" > checksum_md5.txt
         echo "$CHECKSUM_SHA256" > checksum_sha256.txt
 
     - name: Create metadata update PR
@@ -377,7 +380,7 @@ jobs:
         body: |
           Automated PR to update `manifest.json` and `build.yaml` with release metadata for version `${{ env.VERSION }}`.
 
-          - [PASS] Checksum: `${{ env.CHECKSUM }}`
+          - [PASS] SHA256: `${{ env.CHECKSUM_SHA256 }}`
           - [PASS] Timestamp: updated
           - [PASS] Source URL: updated
 

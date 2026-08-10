@@ -65,6 +65,8 @@ public class UserActivityUpdateTask
         var result = _userActivityInsightsService.BuildActivityReport();
         progress.Report(80);
 
+        // Check cancellation between the build and the save: if the token was signalled
+        // during BuildActivityReport, we must not persist a potentially partial result.
         cancellationToken.ThrowIfCancellationRequested();
 
         if (taskMode == TaskMode.Activate)

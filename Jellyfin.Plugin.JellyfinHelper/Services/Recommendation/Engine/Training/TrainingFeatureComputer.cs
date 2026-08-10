@@ -124,8 +124,26 @@ internal static class TrainingFeatureComputer
             return 0.5;
         }
 
-        var watchDate = watchedItem.LastPlayedDate.Value;
         var candidateGenreSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        return ComputeTrainingTemporalAffinity(watchedItem, candidateGenreSet, userProfile, isDay);
+    }
+
+    /// <summary>
+    ///     Core implementation - accepts a pre-built genre set to avoid re-allocating it when
+    ///     computing both DayOfWeek and HourOfDay affinity for the same candidate in one call chain.
+    /// </summary>
+    internal static double ComputeTrainingTemporalAffinity(
+        WatchedItemInfo? watchedItem,
+        HashSet<string> candidateGenreSet,
+        UserWatchProfile userProfile,
+        bool isDay)
+    {
+        if (watchedItem?.LastPlayedDate is null || candidateGenreSet.Count == 0)
+        {
+            return 0.5;
+        }
+
+        var watchDate = watchedItem.LastPlayedDate.Value;
 
         var matchCount = 0;
         var totalInBucket = 0;
@@ -191,11 +209,16 @@ internal static class TrainingFeatureComputer
         double avgYear,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
         Dictionary<Guid, HashSet<string>> cachedPeopleLookup,
-        HashSet<string> preferredPeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights,
         Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup,
         HashSet<string> preferredStudios,
         Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup,
         HashSet<string> preferredTags,
+        IReadOnlyDictionary<string, double> preferredFranchises,
+        IReadOnlyDictionary<string, double> preferredCountries,
+        HashSet<string> preferredInheritedTags,
+        IReadOnlyDictionary<string, double> preferredWriterWeights,
+        IReadOnlyDictionary<string, double>? genreStudioIdf,
         DateTime organicFallbackTimestamp)
     {
         // Use the most-recently-watched episode for temporal features (mirrors Phase 1 series logic)
@@ -215,27 +238,21 @@ internal static class TrainingFeatureComputer
                 1.0)
             : 0.0;
 
-        // Aggregated user rating: average of all rated episodes
-        var ratedEpisodes = episodes.Where(e => e.UserRating is > 0).ToList();
-        var userRatingScore = ratedEpisodes.Count > 0
-            ? Math.Clamp(ratedEpisodes.Average(e => e.UserRating!.Value) / 10.0, 0.0, 1.0)
-            : 0.5;
-
         // Use seriesId for collaborative score (matches Phase 1 series scoring)
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);
 
-        // Series progression boost (same formula as Engine.ScoreCandidate)
-        var seriesProgressionBoost = 0.0;
-        if (episodes.Count > 0)
-        {
-            var ratio = (double)playedEps / episodes.Count;
-            seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
-        }
+        // Series progression boost: hardcoded 0.0 to mirror the live inference path
+        // (Engine.ScoreCandidate writes a constant 0.0 for this channel). Aggregated series
+        // examples describe series the user has already interacted with meaningfully, so the
+        // watchedSeriesIds filter permanently excludes them from live candidate scoring -
+        // emitting a graded value here would train a signal the network can never observe.
+        const double seriesProgressionBoost = 0.0;
 
-        // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata)
+        // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata).
+        // Weighted overload for train/serve parity with Engine.ScoreCandidate.
         var peopleSimilarity = cachedPeopleLookup.TryGetValue(seriesId, out var seriesPeople)
-            ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeople)
+            ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeopleWeights)
             : 0.0;
 
         // StudioMatch and TagSimilarity: look up by seriesId
@@ -271,6 +288,37 @@ internal static class TrainingFeatureComputer
 
         var genreList = allGenres.ToList();
 
+        // Aggregate the new content fields across episodes (union of countries / inherited tags /
+        // writers; first non-empty franchise name). Series lifecycle comes from the representative
+        // episode row. Billing is neutralized (no per-item people/billing cached on WatchedItemInfo),
+        // mirroring the organic branch. All reads are null-safe (setters coalesce null → []).
+        string? seriesFranchise = null;
+        var seriesCountries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seriesInheritedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seriesWriters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ep in episodes)
+        {
+            if (seriesFranchise is null && !string.IsNullOrWhiteSpace(ep.TmdbCollectionName))
+            {
+                seriesFranchise = ep.TmdbCollectionName;
+            }
+
+            foreach (var c in ep.ProductionCountries.Where(static c => !string.IsNullOrWhiteSpace(c)))
+            {
+                seriesCountries.Add(c);
+            }
+
+            foreach (var t in ep.InheritedTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
+            {
+                seriesInheritedTags.Add(t);
+            }
+
+            foreach (var wn in ep.WriterNames.Where(static w => !string.IsNullOrWhiteSpace(w)))
+            {
+                seriesWriters.Add(wn);
+            }
+        }
+
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
@@ -283,16 +331,23 @@ internal static class TrainingFeatureComputer
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
             IsSeries = true,
-            UserRatingScore = userRatingScore,
-            HasUserInteraction = true,
+            // Train/serve parity: aggregated series examples are excluded from live scoring by the
+            // watchedSeriesIds filter in Engine.GenerateForUser (a series with meaningful episode
+            // interaction never re-enters the candidate pool). Feeding real per-episode averages
+            // for UserRatingScore / HasUserInteraction therefore trains signals the model can
+            // never see at inference. The engagement label below still carries the positive signal.
+            UserRatingScore = 0.5,
+            HasUserInteraction = false,
             CompletionRatio = completionRatio,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
             SeriesProgressionBoost = seriesProgressionBoost,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
-            DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
-            HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
-            IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+            DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true),
+            HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),
+            // Shared IsWeekend resolver: user-anchored, falls back to the most recently played
+            // episode's LastPlayedDate when the profile carries no anchor yet.
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = episodes
                 .Select(e => e.DateCreated)
@@ -305,7 +360,22 @@ internal static class TrainingFeatureComputer
             // path also returns neutral for Series candidates (GetMediaStreams() is empty
             // on folder-type items), maintaining train/serve parity.
             LanguageAffinity = 0.5,
-            SubtitleLanguageAffinity = 0.5
+            SubtitleLanguageAffinity = 0.5,
+            // Content-affinity signals aggregated across the series' episodes (same shared helpers as
+            // live scoring). BillingWeightedPeople uses the per-episode billing weights aggregated above,
+            // scored against the user's preferred-people map - matching the live series-candidate path.
+            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(seriesFranchise, preferredFranchises),
+            ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
+            InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity([.. seriesInheritedTags], preferredInheritedTags),
+            SeriesCompletability = EngineConstants.ComputeSeriesCompletability(true, mostRecent?.SeriesStatus, mostRecent?.EndDate.HasValue ?? false),
+            WriterAffinity = SimilarityComputer.ComputeWriterAffinity([.. seriesWriters], preferredWriterWeights),
+            // BillingWeightedPeople is neutralized (0.0) for aggregated-series examples: billed people are
+            // deliberately NOT cached per episode (people are aggregated at series level to avoid guest-cast
+            // noise - see WatchHistoryService, which skips GetPeople for Episodes), so no per-episode billing
+            // exists to aggregate here. A watched (non-favourite) series therefore contributes neutral billing;
+            // favourite series carry real series-level billing via their synthetic WatchedItemInfo (organic path).
+            BillingWeightedPeople = 0.0,
+            GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(genreList, null, genreStudioIdf)
         };
 
         // Genre exposure features
@@ -358,6 +428,46 @@ internal static class TrainingFeatureComputer
 
         var candidateSet = new HashSet<string>(candidateTags, StringComparer.OrdinalIgnoreCase);
         return SimilarityComputer.ComputeJaccardFromSets(candidateSet, preferredTags);
+    }
+
+    /// <summary>
+    ///     Rebuilds a candidate name → billing-weight map from the positionally-aligned
+    ///     <see cref="RecommendedItem.PeopleNames"/> / <see cref="RecommendedItem.PeopleWeights"/>
+    ///     cached lists, for the BillingWeightedPeople feature. This is the training-side mirror of the
+    ///     live <c>Engine.ResolveBillingWeightMap</c>, keeping train/serve parity.
+    ///     <para>Returns an empty map (→ neutral 0.0 downstream) when the lists are empty OR their
+    ///     lengths do not match - the latter is the legacy signal for cache entries written before
+    ///     billing weights were persisted, so old data self-neutralizes instead of misaligning.</para>
+    /// </summary>
+    /// <param name="peopleNames">Cached people names.</param>
+    /// <param name="peopleWeights">Cached billing weights, aligned positionally to <paramref name="peopleNames"/>.</param>
+    /// <returns>A case-insensitive name → billing-weight map (empty when unavailable/mismatched).</returns>
+    internal static Dictionary<string, double> BuildBillingMapFromCache(
+        IReadOnlyList<string> peopleNames,
+        IReadOnlyList<double> peopleWeights)
+    {
+        var map = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (peopleNames.Count == 0 || peopleNames.Count != peopleWeights.Count)
+        {
+            return map;
+        }
+
+        for (var i = 0; i < peopleNames.Count; i++)
+        {
+            var name = peopleNames[i];
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            var weight = peopleWeights[i];
+            if (!map.TryGetValue(name, out var existing) || weight > existing)
+            {
+                map[name] = weight;
+            }
+        }
+
+        return map;
     }
 
     /// <summary>

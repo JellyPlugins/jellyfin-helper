@@ -16,7 +16,7 @@ public enum SeerrPermissions : long
     /// <summary>No permissions granted.</summary>
     None = 0,
 
-    /// <summary>Full administrator access — implies all other permissions.</summary>
+    /// <summary>Full administrator access - implies all other permissions.</summary>
     Admin = 2,
 
     /// <summary>Can manage users (create, modify, delete).</summary>

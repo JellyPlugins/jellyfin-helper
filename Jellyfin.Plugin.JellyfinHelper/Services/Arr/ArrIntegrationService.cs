@@ -17,6 +17,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 public sealed class ArrIntegrationService : IArrIntegrationService
 {
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
+    private static readonly char[] PathSeparators = ['/', '\\'];
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ArrIntegrationService> _logger;
@@ -60,17 +61,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             return (false, "API key is empty.");
         }
 
+        EnsureApiKeyHeaderSafe(apiKey);
+
         try
         {
-            var url = $"{baseUrl.TrimEnd('/')}/api/v3/system/status";
-            using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("X-Api-Key", apiKey);
-
-            var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/system/status", cancellationToken).ConfigureAwait(false);
             var status = JsonSerializer.Deserialize<ArrSystemStatusDto>(json, JsonOptions);
             var appName = status?.AppName ?? "Unknown";
             var version = status?.Version ?? "?";
@@ -94,16 +89,21 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 $"Arr connection test failed for {baseUrl}: {ex.Message}",
                 ex,
                 _logger);
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, "Connection failed. Check the URL and network connectivity.");
         }
-        catch (Exception ex) when (ex is JsonException or UriFormatException)
+        catch (InvalidOperationException ex)
+        {
+            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Arr at {baseUrl}", ex, _logger);
+            return (false, "Response too large.");
+        }
+        catch (Exception ex) when (ex is JsonException or UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(
                 "ArrIntegration",
                 $"Arr connection test failed for {baseUrl}: {ex.Message}",
                 ex,
                 _logger);
-            return (false, $"Error: {ex.Message}");
+            return (false, "Connection failed. Check the URL and network connectivity.");
         }
     }
 
@@ -124,17 +124,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             return [];
         }
 
+        EnsureApiKeyHeaderSafe(apiKey);
+
         try
         {
-            using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = $"{baseUrl.TrimEnd('/')}/api/v3/movie";
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("X-Api-Key", apiKey);
-
-            var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/movie", cancellationToken).ConfigureAwait(false);
             var movies = JsonSerializer.Deserialize<List<RadarrMovieDto>>(json, JsonOptions) ?? [];
 
             return movies.Select(m => new ArrMovie
@@ -151,7 +145,18 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         {
             throw; // Propagate user-initiated cancellation
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // HttpClient.Timeout elapsed - not a user cancellation; warn that the instance is unreachable.
+            _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
+            return null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Radarr at {baseUrl}", ex, _logger);
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException)
         {
             _pluginLog.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {baseUrl}", ex, _logger);
             return null;
@@ -175,17 +180,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             return [];
         }
 
+        EnsureApiKeyHeaderSafe(apiKey);
+
         try
         {
-            using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = $"{baseUrl.TrimEnd('/')}/api/v3/series";
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("X-Api-Key", apiKey);
-
-            var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/series", cancellationToken).ConfigureAwait(false);
             var series = JsonSerializer.Deserialize<List<SonarrSeriesDto>>(json, JsonOptions) ?? [];
 
             return series.Select(s => new ArrSeries
@@ -204,7 +203,18 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         {
             throw; // Propagate user-initiated cancellation
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // HttpClient.Timeout elapsed - not a user cancellation; warn that the instance is unreachable.
+            _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
+            return null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Sonarr at {baseUrl}", ex, _logger);
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException)
         {
             _pluginLog.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {baseUrl}", ex, _logger);
             return null;
@@ -222,19 +232,20 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         HashSet<string> jellyfinFolderNames)
     {
         var result = new ArrComparisonResult();
+        var jellyfinNames = EnsureOrdinalIgnoreCase(jellyfinFolderNames);
 
-        // Ensure case-insensitive comparison regardless of caller's HashSet comparer
-        var jellyfinNames = jellyfinFolderNames.Comparer.Equals(StringComparer.OrdinalIgnoreCase)
-            ? jellyfinFolderNames
-            : new HashSet<string>(jellyfinFolderNames, StringComparer.OrdinalIgnoreCase);
+        // Collect Radarr folder names in the same pass to avoid enumerating radarrMovies twice.
+        var radarrFolderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var movie in radarrMovies)
         {
-            var folderName = Path.GetFileName(movie.Path.TrimEnd('/').TrimEnd('\\'));
+            var folderName = GetFolderName(movie.Path);
             if (string.IsNullOrEmpty(folderName))
             {
                 continue;
             }
+
+            radarrFolderNames.Add(folderName);
 
             if (jellyfinNames.Contains(folderName))
             {
@@ -249,13 +260,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 result.InArrOnlyMissing.Add($"{movie.Title} ({movie.Year}) - no file");
             }
         }
-
-        // Find Jellyfin-only items (not in Radarr)
-        var radarrFolderNames = new HashSet<string>(
-            radarrMovies
-                .Select(m => Path.GetFileName(m.Path.TrimEnd('/').TrimEnd('\\')))
-                .Where(n => !string.IsNullOrEmpty(n)),
-            StringComparer.OrdinalIgnoreCase);
 
         foreach (var folderName in jellyfinNames.Where(f => !radarrFolderNames.Contains(f)))
         {
@@ -276,19 +280,20 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         HashSet<string> jellyfinFolderNames)
     {
         var result = new ArrComparisonResult();
+        var jellyfinNames = EnsureOrdinalIgnoreCase(jellyfinFolderNames);
 
-        // Ensure case-insensitive comparison regardless of caller's HashSet comparer
-        var jellyfinNames = jellyfinFolderNames.Comparer.Equals(StringComparer.OrdinalIgnoreCase)
-            ? jellyfinFolderNames
-            : new HashSet<string>(jellyfinFolderNames, StringComparer.OrdinalIgnoreCase);
+        // Collect Sonarr folder names in the same pass to avoid enumerating sonarrSeries twice.
+        var sonarrFolderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var series in sonarrSeries)
         {
-            var folderName = Path.GetFileName(series.Path.TrimEnd('/').TrimEnd('\\'));
+            var folderName = GetFolderName(series.Path);
             if (string.IsNullOrEmpty(folderName))
             {
                 continue;
             }
+
+            sonarrFolderNames.Add(folderName);
 
             if (jellyfinNames.Contains(folderName))
             {
@@ -305,12 +310,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             }
         }
 
-        var sonarrFolderNames = new HashSet<string>(
-            sonarrSeries
-                .Select(s => Path.GetFileName(s.Path.TrimEnd('/').TrimEnd('\\')))
-                .Where(n => !string.IsNullOrEmpty(n)),
-            StringComparer.OrdinalIgnoreCase);
-
         foreach (var folderName in jellyfinNames.Where(f => !sonarrFolderNames.Contains(f)))
         {
             result.InJellyfinOnly.Add(folderName);
@@ -320,6 +319,78 @@ public sealed class ArrIntegrationService : IArrIntegrationService
     }
 
     // --- DTOs for Radarr/Sonarr API responses ---
+
+    /// <summary>Returns the last path segment of <paramref name="path"/>, normalized to remove trailing slashes.</summary>
+    private static string GetFolderName(string path)
+        => path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+
+    /// <summary>
+    ///     Returns <paramref name="set"/> unchanged when it already uses <see cref="StringComparer.OrdinalIgnoreCase"/>;
+    ///     otherwise returns a new <see cref="HashSet{T}"/> with the same elements and the correct comparer.
+    /// </summary>
+    private static HashSet<string> EnsureOrdinalIgnoreCase(HashSet<string> set)
+        => ReferenceEquals(set.Comparer, StringComparer.OrdinalIgnoreCase)
+            ? set
+            : new HashSet<string>(set, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Validates <paramref name="baseUrl"/> and <paramref name="relPath"/>, sends a GET request,
+    ///     and returns the response body as a string, enforcing the 100 MB size cap.
+    ///     Throws <see cref="ArgumentException"/> for bad URLs,
+    ///     <see cref="HttpRequestException"/> for non-2xx responses,
+    ///     and <see cref="InvalidOperationException"/> when the response exceeds the size limit.
+    /// </summary>
+    private async Task<string> FetchJsonAsync(
+        string baseUrl,
+        string apiKey,
+        string relPath,
+        CancellationToken cancellationToken)
+    {
+        ValidateArrUrl(baseUrl);
+        var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), relPath);
+        // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
+        var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        if (response.Content.Headers.ContentLength is long len && len > 100 * 1024 * 1024)
+        {
+            throw new InvalidOperationException("Response too large");
+        }
+
+        return await ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void ValidateArrUrl(string baseUrl)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+        {
+            throw new ArgumentException("Invalid or unsupported URL scheme", nameof(baseUrl));
+        }
+    }
+
+    private static void EnsureApiKeyHeaderSafe(string apiKey)
+    {
+        if (apiKey.Contains('\r', StringComparison.Ordinal)
+            || apiKey.Contains('\n', StringComparison.Ordinal)
+            || apiKey.Contains('\t', StringComparison.Ordinal)
+            || apiKey.Contains('\0', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
+        }
+    }
+
+    private static async Task<string> ReadLimitedAsync(HttpContent content, CancellationToken cancellationToken)
+    {
+        const int MaxBytes = 100 * 1024 * 1024;
+        using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var limited = new LimitedStream(stream, MaxBytes);
+        using var reader = new StreamReader(limited);
+        return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     private sealed class ArrSystemStatusDto
     {
@@ -355,7 +426,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         /// <summary>
         ///     Gets or sets the TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
-        ///     Sonarr v3 does NOT include this field — value remains at default 0.
+        ///     Sonarr v3 does NOT include this field - value remains at default 0.
         /// </summary>
         public int TmdbId { get; set; }
 
@@ -369,5 +440,84 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         public int EpisodeFileCount { get; set; }
 
         public int TotalEpisodeCount { get; set; }
+    }
+
+    private sealed class LimitedStream : Stream
+    {
+        // CA2213 suppressed: _inner is a borrowed reference - ReadLimitedAsync's outer
+        // `using var stream` owns the lifetime. Disposing here would cause a double-dispose.
+#pragma warning disable CA2213
+        private readonly Stream _inner;
+#pragma warning restore CA2213
+        private readonly long _maxBytes;
+        private long _bytesRead;
+
+        public LimitedStream(Stream inner, long maxBytes)
+        {
+            _inner = inner;
+            _maxBytes = maxBytes;
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var remaining = _maxBytes - _bytesRead;
+            if (remaining <= 0)
+            {
+                throw new InvalidOperationException("Response too large");
+            }
+
+            var toRead = (int)Math.Min(count, remaining);
+            var n = _inner.Read(buffer, offset, toRead);
+            _bytesRead += n;
+            return n;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            return await ReadAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var remaining = _maxBytes - _bytesRead;
+            if (remaining <= 0)
+            {
+                throw new InvalidOperationException("Response too large");
+            }
+
+            var toRead = (int)Math.Min(buffer.Length, remaining);
+            var n = await _inner.ReadAsync(buffer[..toRead], cancellationToken).ConfigureAwait(false);
+            _bytesRead += n;
+            return n;
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            // Do NOT dispose _inner here: ReadLimitedAsync's outer `using var stream` owns
+            // the inner stream's lifetime. Disposing it here would cause a double-dispose.
+            base.Dispose(disposing);
+        }
     }
 }

@@ -1,13 +1,49 @@
+using System.Diagnostics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
-using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for <see cref="ContentScoring"/> static helper methods
-///     and <see cref="TrainingDataBuilder.ComputeCollectionProgressionBoostFromCache"/>.
+///     xUnit collection marker for tests that touch process-global state related to
+///     <see cref="ContentScoring"/> - the static
+///     <see cref="ContentScoring.ParallelArrayMismatchCount"/> counter and the
+///     <see cref="Trace.Listeners"/> chain used by <see cref="Debug.Assert(bool)"/>.
+///     xUnit executes tests inside the same collection sequentially, which prevents a
+///     parallel test from observing a partial counter increment or from firing a
+///     Debug.Assert into a temporarily-cleared listener chain owned by another test.
 /// </summary>
+[CollectionDefinition(Name)]
+public sealed class ContentScoringGlobalStateCollection
+{
+    /// <summary>The named-collection identifier used by <see cref="CollectionAttribute"/>.</summary>
+    public const string Name = "ContentScoring global state";
+}
+
+/// <summary>
+///     Tests for <see cref="ContentScoring"/> static helper methods.
+///     <para>
+///         The previously-tested
+///         <c>TrainingDataBuilder.ComputeCollectionProgressionBoostFromCache</c> legacy method
+///         was removed because it was dead code - only reflection-based tests referenced it and
+///         its 0.0/0.3/0.5 flat heuristic had already been superseded by the diminishing-returns
+///         <c>ComputeCollectionProgressionBoostWithCounts</c> used in both Phase 1 and Phase 3
+///         of <c>TrainingDataBuilder</c>. The remaining formula is covered end-to-end via the
+///         Phase 1 / Phase 3 training paths, which exercise the same math with real BoxSet inputs.
+///     </para>
+///     <para>
+///         <b>Concurrency isolation</b>: the parallel-array-mismatch tests read the
+///         process-lifetime <see cref="ContentScoring.ParallelArrayMismatchCount"/> counter and
+///         temporarily clear <see cref="Trace.Listeners"/> to keep
+///         <see cref="Debug.Assert(bool)"/> from aborting the run when it fires. Both are
+///         process-global state, so this class opts into a named xUnit collection via the
+///         <see cref="CollectionAttribute"/> below. xUnit executes all tests within a
+///         collection sequentially, which eliminates the interleaving that would otherwise
+///         let a parallel test observe a partial counter increment or fire a Debug.Assert
+///         into an empty listener chain we own.
+///     </para>
+/// </summary>
+[Collection(ContentScoringGlobalStateCollection.Name)]
 public sealed class ContentScoringTests
 {
     // ============================================================
@@ -88,91 +124,104 @@ public sealed class ContentScoringTests
     }
 
     // ============================================================
-    // ComputeCollectionProgressionBoostFromCache Tests
-    // (via reflection since it's private static — tested through internal access)
+    // ComputeContentNearestNeighborScore parallel-array mismatch guard
     // ============================================================
 
     [Fact]
-    public void CollectionProgressionBoost_EmptyBoxSetIds_ReturnsZero()
+    public void ComputeContentNearestNeighborScore_ParallelArrayMismatch_DegradesGracefully()
     {
-        var boxSetIds = new List<Guid>();
-        var watchedIds = new HashSet<Guid> { Guid.NewGuid() };
+        // Silent-degradation guard: when the parallel arrays disagree in length (always a bug),
+        // the method must NOT throw AND must still produce a score that reflects at least the
+        // genre dimension (the primary 50% signal). It must also record the mismatch on the
+        // process-lifetime counter so operators / diagnostics can observe the degraded state
+        // even in Release builds where Debug.Assert is a no-op.
+        //
+        // Debug.Assert in Debug builds would abort the test run via the default trace listener,
+        // so we scope a listener swap that swallows the assertion while the method runs. The
+        // Trace.TraceWarning emitted on the first mismatch is orthogonal to this - we do not
+        // assert on its exact wording (that would be brittle), only on the counter delta.
+        var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action", "SciFi" };
+        var watchedGenres = new List<HashSet<string>>
+        {
+            new(StringComparer.OrdinalIgnoreCase) { "Action" },
+            new(StringComparer.OrdinalIgnoreCase) { "SciFi", "Drama" }
+        };
+        // Deliberate mismatch: people list has fewer entries than genre list.
+        var watchedPeople = new List<HashSet<string>>
+        {
+            new(StringComparer.OrdinalIgnoreCase) { "Actor A" }
+        };
+        // Deliberate mismatch: studio list is empty.
+        var watchedStudios = new List<HashSet<string>>();
 
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.0, result, 10);
+        var listeners = Trace.Listeners;
+        var savedListeners = new TraceListener[listeners.Count];
+        listeners.CopyTo(savedListeners, 0);
+        listeners.Clear();
+        try
+        {
+            var before = ContentScoring.ParallelArrayMismatchCount;
+
+            var score = ContentScoring.ComputeContentNearestNeighborScore(
+                candidateGenres,
+                candidatePeople: null,
+                candidateStudios: null,
+                watchedGenres,
+                watchedPeople,
+                watchedStudios);
+
+            // Genre-only path: candidate {Action, SciFi} vs first watched {Action} → Jaccard 1/2
+            // (Action shared, SciFi only in candidate). Second watched {SciFi, Drama} vs candidate
+            // gives 1/3 (SciFi shared). Max composite is 0.5 × 0.5 = 0.25 from the first row -
+            // the people/studio contributions are 0 due to the mismatch guard degrading them.
+            Assert.InRange(score, 0.0, 1.0);
+            Assert.True(score > 0.0, $"Score must reflect the surviving genre signal, got {score}");
+
+            var after = ContentScoring.ParallelArrayMismatchCount;
+            Assert.True(after > before,
+                $"Mismatch counter must increment on parallel-array length disagreement (before={before}, after={after})");
+        }
+        finally
+        {
+            foreach (var listener in savedListeners)
+            {
+                listeners.Add(listener);
+            }
+        }
     }
 
     [Fact]
-    public void CollectionProgressionBoost_BoxSetIdInWatchedIds_ReturnsHalf()
+    public void ComputeContentNearestNeighborScore_MatchedArrays_DoNotIncrementMismatchCounter()
     {
-        var boxSetId = Guid.NewGuid();
-        var boxSetIds = new List<Guid> { boxSetId };
-        var watchedIds = new HashSet<Guid> { boxSetId }; // User watched the BoxSet itself
+        // Positive-path check: when all three parallel arrays have equal length the counter
+        // must stay flat. Guards against a stray increment path (e.g. off-by-one) that would
+        // otherwise silently poison the counter for the whole process.
+        var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" };
+        var watchedGenres = new List<HashSet<string>>
+        {
+            new(StringComparer.OrdinalIgnoreCase) { "Action" }
+        };
+        var watchedPeople = new List<HashSet<string>>
+        {
+            new(StringComparer.OrdinalIgnoreCase) { "Actor A" }
+        };
+        var watchedStudios = new List<HashSet<string>>
+        {
+            new(StringComparer.OrdinalIgnoreCase) { "Studio X" }
+        };
 
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.5, result, 10);
-    }
+        var before = ContentScoring.ParallelArrayMismatchCount;
 
-    [Fact]
-    public void CollectionProgressionBoost_BoxSetIdNotInWatchedIds_ReturnsBaseBoost()
-    {
-        var boxSetId = Guid.NewGuid();
-        var boxSetIds = new List<Guid> { boxSetId };
-        var watchedIds = new HashSet<Guid> { Guid.NewGuid() }; // Different item
+        var score = ContentScoring.ComputeContentNearestNeighborScore(
+            candidateGenres,
+            candidatePeople: null,
+            candidateStudios: null,
+            watchedGenres,
+            watchedPeople,
+            watchedStudios);
 
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.3, result, 10);
-    }
-
-    [Fact]
-    public void CollectionProgressionBoost_MultipleBoxSets_FirstMatchWins()
-    {
-        var boxSet1 = Guid.NewGuid();
-        var boxSet2 = Guid.NewGuid();
-        var boxSetIds = new List<Guid> { boxSet1, boxSet2 };
-        var watchedIds = new HashSet<Guid> { boxSet2 }; // Second BoxSet is watched
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.5, result, 10);
-    }
-
-    [Fact]
-    public void CollectionProgressionBoost_MultipleBoxSets_NoneWatched_ReturnsBaseBoost()
-    {
-        var boxSetIds = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() };
-        var watchedIds = new HashSet<Guid> { Guid.NewGuid() };
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.3, result, 10);
-    }
-
-    [Fact]
-    public void CollectionProgressionBoost_EmptyWatchedIds_ReturnsBaseBoost()
-    {
-        var boxSetIds = new List<Guid> { Guid.NewGuid() };
-        var watchedIds = new HashSet<Guid>();
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.3, result, 10);
-    }
-
-    /// <summary>
-    ///     Invokes the private static method via reflection for testing.
-    ///     The method is private to TrainingDataBuilder but accessible via InternalsVisibleTo + reflection.
-    /// </summary>
-    private static double InvokeComputeCollectionProgressionBoostFromCache(
-        IReadOnlyList<Guid> boxSetIds,
-        HashSet<Guid> watchedIds)
-    {
-        var method = typeof(TrainingDataBuilder).GetMethod(
-            "ComputeCollectionProgressionBoostFromCache",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-
-        Assert.NotNull(method);
-
-        var result = method!.Invoke(null, [boxSetIds, watchedIds]);
-        Assert.NotNull(result);
-
-        return (double)result!;
+        var after = ContentScoring.ParallelArrayMismatchCount;
+        Assert.Equal(before, after);
+        Assert.InRange(score, 0.0, 1.0);
     }
 }

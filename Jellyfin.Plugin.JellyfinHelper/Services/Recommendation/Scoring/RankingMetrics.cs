@@ -162,8 +162,7 @@ internal static class RankingMetrics
         // IDCG@K: ideal DCG with labels sorted descending (best possible ranking)
         var sortedLabels = new double[labels.Length];
         Array.Copy(labels, sortedLabels, labels.Length);
-        Array.Sort(sortedLabels);
-        Array.Reverse(sortedLabels);
+        Array.Sort(sortedLabels, (a, b) => b.CompareTo(a));
 
         var idcg = 0.0;
         for (var rank = 0; rank < effectiveK; rank++)

@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -41,7 +42,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>L2 regularization strength (weight decay).</summary>
     internal const double L2Lambda = 0.001;
 
-    /// <summary>Maximum number of training epochs per <see cref="Train"/> call.</summary>
+    /// <summary>Maximum number of training epochs per <see cref="Train(IReadOnlyList{TrainingExample})"/> call.</summary>
     internal const int MaxTrainingEpochs = 30;
 
     /// <summary>Minimum number of training examples required before training runs.</summary>
@@ -79,12 +80,19 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Current schema version for persisted weights. Increment when the feature set or
-    ///     weight semantics change so that stale weights are discarded on load.
+    ///     weight semantics change so that stale weights are discarded on load. Note that a
+    ///     changed <see cref="CandidateFeatures.FeatureCount"/> is already caught independently by
+    ///     the array-length check on load, so a persisted array from a different feature set is
+    ///     discarded regardless of this value.
     /// </summary>
     internal const int CurrentWeightsVersion = 2;
 
-    /// <summary>Cached JSON serializer options for weight persistence.</summary>
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
+    /// <summary>
+    ///     Cached JSON serializer options for weight persistence.
+    ///     Compact (non-indented) output - the file is machine-read
+    ///     only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.
+    /// </summary>
+    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 
     private readonly ILogger? _logger;
     private readonly Lock _syncRoot = new();
@@ -286,7 +294,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
-    public bool Train(IReadOnlyList<TrainingExample> examples)
+    public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, heldOutForMetrics: null);
+
+    /// <inheritdoc />
+    public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
         if (examples.Count < MinTrainingExamples)
         {
@@ -326,9 +337,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             {
                 _weights = DefaultWeights.CreateWeightArray();
                 _bias = DefaultWeights.Bias;
-                _logger?.LogInformation(
-                    "LearnedScoringStrategy: Reset weights to defaults after standardization mode change (generation {Gen})",
-                    _trainingGeneration);
+                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation(
+                        "LearnedScoringStrategy: Reset weights to defaults after standardization mode change (generation {Gen})",
+                        _trainingGeneration);
+                }
             }
 
             // Use a varying seed based on training generation to avoid always placing
@@ -433,13 +447,24 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
             if (useStandardization)
             {
+                // Intentional design trade-off: standardization stats here are computed from the
+                // FULL dataset (all examples), whereas each k-fold fold computed stats from its
+                // training-fold subset only (to prevent leakage). This means the mean/stddev used
+                // by the deployed model (persisted below as _featureMeans/_featureStdDevs) differ
+                // slightly from the per-fold stats that produced the k-fold loss estimate used for
+                // quality gating. In practice the difference is negligible when the dataset is
+                // representative, but callers should be aware that the k-fold loss is an estimate
+                // under fold-only normalization while inference runs under full-dataset normalization.
                 (featureMeans, featureStdDevs) = ComputeFeatureStatistics(finalVectors);
                 StandardizeVectors(finalVectors, featureMeans, featureStdDevs);
             }
 
-            // Reset weights to defaults for a clean final training pass
-            _weights = DefaultWeights.CreateWeightArray();
-            _bias = DefaultWeights.Bias;
+            // Warm-start final pass: begin from the previously-learned weights (restored above
+            // from savedWeights) rather than resetting to defaults. This lets each Train() call
+            // refine the model incrementally instead of discarding all accumulated learning.
+            // Only reset to defaults when standardizationModeChanged was true (handled earlier,
+            // at which point savedWeights already holds defaults).
+            // _weights and _bias are already set to savedWeights/savedBias from the restore above.
 
             var finalLoss = TrainSingleSplit(
                 examples,
@@ -465,10 +490,15 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         } // release _syncRoot before disk I/O and ranking metrics to avoid blocking concurrent Score() calls
 
         // Compute ranking metrics OUTSIDE the lock - ComputeAll() calls Score() internally,
-        // which acquires _syncRoot. While Monitor is reentrant (no deadlock), holding the lock
-        // during the entire scoring loop unnecessarily blocks all concurrent Score() callers.
+        // which acquires _syncRoot. System.Threading.Lock is NOT reentrant - this call MUST
+        // remain outside _syncRoot. Moving it inside the lock would cause a LockRecursionException.
         // This mirrors the pattern used by NeuralScoringStrategy.Train().
-        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(examples, this);
+        //
+        // Prefer the caller-supplied held-out slice so the ensemble's quality snapshot reports
+        // out-of-sample numbers. If the caller passed nothing (or too little to be meaningful)
+        // we fall back to fit-on-training so metrics are still populated.
+        var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
+        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         lock (_syncRoot)
         {
             _lastPrecisionAtK = pAtK;
@@ -506,6 +536,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Compute means
         for (var i = 0; i < n; i++)
         {
+            if (vectors[i].Length < featureCount)
+            {
+                throw new ArgumentException($"Vector at index {i} has length {vectors[i].Length}, expected at least {featureCount}.", nameof(vectors));
+            }
+
             for (var f = 0; f < featureCount; f++)
             {
                 means[f] += vectors[i][f];
@@ -617,7 +652,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Trains a single train/validation split with optional early stopping.
-    ///     Returns the best validation loss (or training loss if no validation set).
+    ///     Returns the best observed validation loss when early stopping was used and improved at
+    ///     least once; otherwise returns the final-epoch training loss (when early stopping is
+    ///     disabled, validation is absent, or no improvement was ever recorded).
     ///     Modifies _weights and _bias in-place. Must be called under lock.
     /// </summary>
     private double TrainSingleSplit(
@@ -630,6 +667,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         bool useEarlyStopping)
     {
         useEarlyStopping = useEarlyStopping && valIndices.Length >= MinValidationExamples;
+
+        trainIndices = (int[])trainIndices.Clone();
 
         var bestLoss = double.MaxValue;
         var patienceCounter = 0;
@@ -724,6 +763,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Computes the weighted training loss across all examples (used when no validation split).
+    ///     Iterates directly by index to avoid allocating a scratch index array.
     /// </summary>
     private static double ComputeTrainingLoss(
         IReadOnlyList<TrainingExample> examples,
@@ -732,13 +772,19 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         double[] weights,
         double bias)
     {
-        var allIndices = new int[examples.Count];
-        for (var i = 0; i < allIndices.Length; i++)
+        var totalLoss = 0.0;
+        var totalWeight = 0.0;
+
+        for (var idx = 0; idx < examples.Count; idx++)
         {
-            allIndices[i] = i;
+            var predicted = Math.Clamp(ScoringHelper.ComputeRawScore(precomputedVectors[idx], weights, bias), 0.0, 1.0);
+            var error = predicted - examples[idx].Label;
+            var w = effectiveWeights[idx];
+            totalLoss += w * error * error;
+            totalWeight += w;
         }
 
-        return ComputeMseLoss(examples, precomputedVectors, effectiveWeights, allIndices, weights, bias);
+        return totalWeight > 0 ? totalLoss / totalWeight : 0.0;
     }
 
     /// <summary>
@@ -799,6 +845,18 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     {
         if (string.IsNullOrEmpty(_weightsPath) || !File.Exists(_weightsPath))
         {
+            return;
+        }
+
+        // Guard against corrupted/replaced oversized files before reading into memory.
+        // Linear weights JSON is tiny (~10 KB); a 5 MB ceiling gives ample headroom.
+        const long MaxWeightsFileSizeBytes = 5 * 1024 * 1024;
+        if (new FileInfo(_weightsPath).Length > MaxWeightsFileSizeBytes)
+        {
+            _logger?.LogWarning(
+                "LearnedScoringStrategy: Weights file exceeds {LimitMB}MB ({Path}). Skipping load.",
+                MaxWeightsFileSizeBytes / (1024 * 1024),
+                _weightsPath);
             return;
         }
 
@@ -922,32 +980,17 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 json = JsonSerializer.Serialize(data, SerializerOptions);
             }
 
-            var tempPath = _weightsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                File.WriteAllText(tempPath, json);
-                File.Move(tempPath, _weightsPath, overwrite: true);
-            }
-            catch
-            {
-                try
-                {
-                    if (File.Exists(tempPath))
-                    {
-                        File.Delete(tempPath);
-                    }
-                }
-                catch (IOException)
-                {
-                    // best effort - temp file cleanup is non-critical
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // best effort - temp file cleanup is non-critical
-                }
-
-                throw;
-            }
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
+            // final File.Move gets a bounded retry instead of silently dropping the save.
+            // AtomicFile also handles temp-file cleanup internally.
+            //
+            // Beyond the two "expected" exception paths (IOException / UnauthorizedAccessException)
+            // AtomicFile can also surface, on its final attempt: SecurityException (CAS / SELinux
+            // policy), NotSupportedException (invalid path characters on some file systems), and
+            // ArgumentException (e.g. reserved device names on Windows). All of these are treated
+            // the same way as the primary I/O errors: non-critical, logged, and swallowed so a
+            // failed weight save never brings down the (already best-effort) training pipeline.
+            AtomicFile.WriteAllText(_weightsPath, json);
         }
         catch (IOException ex)
         {
@@ -958,6 +1001,22 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         {
             // Non-critical - log for diagnostics but don't fail
             _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (access denied)");
+        }
+        catch (System.Security.SecurityException ex)
+        {
+            // Non-critical - platform security policy denied write; nothing we can do here.
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (security policy)");
+        }
+        catch (NotSupportedException ex)
+        {
+            // Non-critical - path/filesystem does not support the operation (e.g. reserved names).
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (unsupported path)");
+        }
+        catch (ArgumentException ex)
+        {
+            // Non-critical - malformed path characters surfaced by the OS layer. Weight path is
+            // plugin-configured; this indicates a config error, not a runtime failure to recover from.
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (invalid path)");
         }
         catch (JsonException ex)
         {

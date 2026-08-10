@@ -1,9 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -80,8 +82,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 if (result.Recommendations.Count == 0)
                 {
                     // Still clean up old playlists when there are no new recommendations
-                    var removedEmpty = await RemoveUserPlaylistsAsync(result.UserId, cancellationToken)
-                        .ConfigureAwait(false);
+                    var removedEmpty = RemoveUserPlaylists(result.UserId, cancellationToken);
                     syncResult.OldPlaylistsRemoved += removedEmpty;
 
                     _pluginLog.LogDebug(
@@ -102,8 +103,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 {
                     // Clean up stale playlists when no playable items resolve,
                     // so users don't keep seeing outdated recommendations.
-                    var removedStale = await RemoveUserPlaylistsAsync(result.UserId, cancellationToken)
-                        .ConfigureAwait(false);
+                    var removedStale = RemoveUserPlaylists(result.UserId, cancellationToken);
                     syncResult.OldPlaylistsRemoved += removedStale;
 
                     _pluginLog.LogDebug(
@@ -131,10 +131,10 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 if (!string.IsNullOrEmpty(playlistResult.Id))
                 {
                     // New playlist created - now safe to remove old playlists.
-                    var removed = await RemoveUserPlaylistsExceptAsync(
+                    var removed = RemoveUserPlaylistsExcept(
                         result.UserId,
                         playlistResult.Id,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken);
                     syncResult.OldPlaylistsRemoved += removed;
 
                     syncResult.PlaylistsCreated++;
@@ -158,7 +158,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 syncResult.PlaylistsFailed++;
                 _pluginLog.LogWarning(
@@ -194,14 +194,14 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             try
             {
-                var removed = await RemoveUserPlaylistsAsync(user.Id, cancellationToken).ConfigureAwait(false);
+                var removed = RemoveUserPlaylists(user.Id, cancellationToken);
                 totalRemoved += removed;
             }
             catch (OperationCanceledException)
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
                     "PlaylistSync",
@@ -348,15 +348,16 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <param name="userId">The user ID whose playlists to remove.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of playlists removed.</returns>
-    private Task<int> RemoveUserPlaylistsAsync(Guid userId, CancellationToken cancellationToken)
+    private int RemoveUserPlaylists(Guid userId, CancellationToken cancellationToken)
     {
-        return RemoveUserPlaylistsExceptAsync(userId, excludePlaylistId: null, cancellationToken);
+        return RemoveUserPlaylistsExcept(userId, excludePlaylistId: null, cancellationToken);
     }
 
     /// <summary>
     ///     Finds and removes recommendation playlists, optionally excluding one.
+    ///     ILibraryManager.DeleteItem is synchronous; no async overload exists.
     /// </summary>
-    private Task<int> RemoveUserPlaylistsExceptAsync(
+    private int RemoveUserPlaylistsExcept(
         Guid userId,
         string? excludePlaylistId,
         CancellationToken cancellationToken)
@@ -366,7 +367,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var user = _userManager.GetUserById(userId);
         if (user is null)
         {
-            return Task.FromResult(0);
+            return 0;
         }
 
         var expectedName = BuildPlaylistName(user.Username);
@@ -383,6 +384,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             });
 
         var removed = 0;
+        Guid? parsedExcludeId = excludePlaylistId is not null && Guid.TryParse(excludePlaylistId, out var tempId) ? tempId : (Guid?)null;
         foreach (var playlist in existingPlaylists)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -408,22 +410,101 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
 
             // Skip the just-created replacement playlist
-            if (excludePlaylistId is not null
-                && Guid.TryParse(excludePlaylistId, out var excludedId)
-                && playlist.Id == excludedId)
+            if (parsedExcludeId is not null && playlist.Id == parsedExcludeId.Value)
             {
                 continue;
             }
 
-            _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = true });
-            removed++;
+            // Delete the playlist resiliently. Two hardening points learned from an
+            // orphaned-folder case:
+            //   1. Per-playlist try/catch - a single failure must not abort deleting the
+            //      user's other managed playlists (the caller's catch is per-USER).
+            //   2. DeleteFileLocation=true can THROW when the on-disk playlist folder is
+            //      missing or its path drifted (Jellyfin appends a "1" dedupe suffix when a
+            //      stale folder lingers, so the item's Path may not match a deletable
+            //      location). If it throws, fall back to removing just the DB item
+            //      (DeleteFileLocation=false) so the playlist stops being re-imported on the
+            //      next scan, then best-effort delete the folder ourselves. Leaving the DB
+            //      row behind is what let a "purged" playlist resurrect.
+            try
+            {
+                _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = true });
+                removed++;
+                _pluginLog.LogDebug(
+                    "PlaylistSync",
+                    $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
+                    _logger);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                var fellBack = false;
+                try
+                {
+                    // Remove the DB item without touching the file location, so it can't be
+                    // re-imported; then best-effort remove the orphaned folder.
+                    _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = false });
+                    fellBack = true;
+                    var path = playlist.Path;
 
-            _pluginLog.LogDebug(
-                "PlaylistSync",
-                $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
-                _logger);
+                    // playlist.Path is DB-sourced and, when a playlist's on-disk folder has
+                    // drifted, may not point where we expect. Before recursively deleting it,
+                    // confirm it resolves strictly INSIDE Jellyfin's own playlists root - never
+                    // the root itself, and never a system/sensitive location. This keeps a
+                    // fallback delete from ever escaping to /config, an OS dir, or another
+                    // library because of a stale/hostile path.
+                    var playlistsRoot = _playlistManager.GetPlaylistsFolder()?.Path;
+                    if (!string.IsNullOrEmpty(path)
+                        && !string.IsNullOrEmpty(playlistsRoot)
+                        && PathValidator.IsSafePath(path, playlistsRoot, _pluginLog)
+                        && !string.Equals(
+                            Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            Path.GetFullPath(playlistsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                        && Directory.Exists(path))
+                    {
+                        Directory.Delete(path, recursive: true);
+                    }
+                    else if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                    {
+                        _pluginLog.LogWarning(
+                            "PlaylistSync",
+                            $"Skipped recursive delete of playlist folder '{path}' (ID: {playlist.Id}): "
+                            + "path is outside the playlists root or is a sensitive location.",
+                            logger: _logger);
+                    }
+                }
+                catch (Exception inner) when (!inner.IsFatal())
+                {
+                    _pluginLog.LogWarning(
+                        "PlaylistSync",
+                        $"Fallback delete for playlist '{playlist.Name}' (ID: {playlist.Id}) partially failed.",
+                        inner,
+                        _logger);
+                }
+
+                if (fellBack)
+                {
+                    removed++;
+                    _pluginLog.LogInfo(
+                        "PlaylistSync",
+                        $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) via DB-item fallback (file location was not deletable).",
+                        _logger);
+                }
+                else
+                {
+                    _pluginLog.LogWarning(
+                        "PlaylistSync",
+                        $"Failed to remove playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
+                        ex,
+                        _logger);
+                }
+            }
         }
 
-        return Task.FromResult(removed);
+        return removed;
     }
 }

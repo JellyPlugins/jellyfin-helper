@@ -10,6 +10,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -29,9 +30,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class ConfigurationController : ControllerBase
 {
+    // Single source of truth for accepted plugin log levels. Previously duplicated between
+    // UpdateLogLevel and ApplyRequestToConfig; hoisted to a shared constant so adding /
+    // removing a level touches one place instead of two that could silently drift.
+    private static readonly string[] ValidLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
+
     private readonly IArrIntegrationService _arrService;
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IPluginConfigurationService _configService;
+    private readonly EnsembleScoringStrategy _ensemble;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<ConfigurationController> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -47,6 +54,7 @@ public class ConfigurationController : ControllerBase
     /// <param name="configService">The plugin configuration service for read/write access.</param>
     /// <param name="seerrService">The Seerr integration service for connection testing.</param>
     /// <param name="libraryManager">The Jellyfin library manager for listing available libraries.</param>
+    /// <param name="ensemble">The ensemble scoring strategy - notified on config save so alpha bounds take effect without restart.</param>
     public ConfigurationController(
         IArrIntegrationService arrService,
         IPluginLogService pluginLog,
@@ -54,7 +62,8 @@ public class ConfigurationController : ControllerBase
         ICleanupConfigHelper configHelper,
         IPluginConfigurationService configService,
         ISeerrIntegrationService seerrService,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        EnsembleScoringStrategy ensemble)
     {
         _arrService = arrService;
         _pluginLog = pluginLog;
@@ -63,18 +72,24 @@ public class ConfigurationController : ControllerBase
         _configService = configService;
         _seerrService = seerrService;
         _libraryManager = libraryManager;
+        _ensemble = ensemble;
     }
 
     /// <summary>
     ///     Gets the current plugin configuration.
+    ///     API keys are replaced with a masked placeholder (<c>***</c>) so they
+    ///     never leave the server in plain text. Clients that need to change a key must
+    ///     send the real value via POST /Configuration; receiving the mask means the key
+    ///     is already set. Sending the mask back via POST is a no-op - the real stored
+    ///     key is preserved.
     /// </summary>
-    /// <returns>The plugin configuration.</returns>
+    /// <returns>The masked plugin configuration response.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<PluginConfiguration> GetConfiguration()
+    public ActionResult<ConfigurationResponse> GetConfiguration()
     {
         var config = _configHelper.GetConfig();
-        return Ok(config);
+        return Ok(ConfigurationResponse.FromConfig(config));
     }
 
     /// <summary>
@@ -85,7 +100,7 @@ public class ConfigurationController : ControllerBase
     /// </summary>
     /// <returns>A list of library names.</returns>
     [HttpGet("Libraries")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LibraryListResponse), StatusCodes.Status200OK)]
     public ActionResult GetAvailableLibraries()
     {
         var virtualFolders = _libraryManager.GetVirtualFolders();
@@ -113,17 +128,17 @@ public class ConfigurationController : ControllerBase
 
                 return true;
             })
-            .Select(f => new
+            .Select(f => new LibraryEntry
             {
-                name = f.Name,
-                collectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
+                Name = f.Name ?? string.Empty,
+                CollectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
                     ? "unknown"
-                    : f.CollectionType!.ToString()
+                    : f.CollectionType!.ToString()!,
             })
-            .OrderBy(f => f.name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return Ok(new { libraries });
+        return Ok(new LibraryListResponse { Libraries = libraries });
     }
 
     /// <summary>
@@ -133,34 +148,38 @@ public class ConfigurationController : ControllerBase
     /// <param name="request">The log level update request containing the new level.</param>
     /// <returns>A status result.</returns>
     [HttpPut("LogLevel")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(LogLevelResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LogLevelResponse), StatusCodes.Status400BadRequest)]
     public ActionResult UpdateLogLevel([FromBody] LogLevelUpdateRequest request)
     {
-        if (!_configService.IsInitialized)
+        // A literal `null` JSON body binds `request` to null on this [ApiController]
+        // (this endpoint has no ModelBindingLogFilter, unlike the main PUT), so guard
+        // explicitly to return a clean 400 instead of a NullReferenceException → 500.
+        if (request is null)
         {
-            return BadRequest(new { message = "Plugin not initialized." });
+            return BadRequest(new LogLevelResponse { Message = "Request body is required." });
         }
 
-        var config = _configService.GetConfiguration();
+        if (!_configService.IsInitialized)
+        {
+            return BadRequest(new LogLevelResponse { Message = "Plugin not initialized." });
+        }
 
-        var validLevels = new[] { "DEBUG", "INFO", "WARN", "ERROR" };
         var level = string.IsNullOrWhiteSpace(request.PluginLogLevel)
             ? "INFO"
             : request.PluginLogLevel.Trim().ToUpperInvariant();
 
-        if (Array.IndexOf(validLevels, level) < 0)
+        if (Array.IndexOf(ValidLogLevels, level) < 0)
         {
             return BadRequest(
-                new { message = $"Invalid log level '{request.PluginLogLevel}'. Allowed: DEBUG, INFO, WARN, ERROR." });
+                new LogLevelResponse { Message = $"Invalid log level '{request.PluginLogLevel}'. Allowed: DEBUG, INFO, WARN, ERROR." });
         }
 
-        config.PluginLogLevel = level;
-        _configService.SaveConfiguration();
+        _configService.ReadAndMutate(config => config.PluginLogLevel = level);
 
         _pluginLog.LogInfo("API", $"Plugin log level updated to {level}.", _logger);
 
-        return Ok(new { message = "Log level updated.", pluginLogLevel = level });
+        return Ok(new LogLevelResponse { Message = "Log level updated.", PluginLogLevel = level });
     }
 
     /// <summary>
@@ -171,10 +190,10 @@ public class ConfigurationController : ControllerBase
     /// <param name="request">The configuration update request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A status result with optional connection warnings.</returns>
-    [HttpPost]
+    [HttpPut]
     [ServiceFilter(typeof(ModelBindingLogFilter))]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConfigurationSaveResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ConfigurationSaveResponse), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateConfigurationAsync(
         [FromBody] ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
@@ -182,11 +201,11 @@ public class ConfigurationController : ControllerBase
         // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which
         // runs with Order = int.MinValue so it fires *before* [ApiController]'s built-in
         // ModelStateInvalidFilter. Any 400 for a malformed payload therefore comes with a
-        // matching WARNING entry in the plugin log — see ModelBindingLogFilter for the details.
+        // matching WARNING entry in the plugin log - see ModelBindingLogFilter for the details.
         //
         // Defense-in-depth: if someone ever detaches the filter, we still want to reject a
         // null request rather than NRE. The log line is intentionally absent here because the
-        // filter is the single source of truth for that diagnostic — we don't want duplicate
+        // filter is the single source of truth for that diagnostic - we don't want duplicate
         // entries if both paths ever fire together.
         if (request is null)
         {
@@ -206,15 +225,37 @@ public class ConfigurationController : ControllerBase
         }
 
         // Apply request values to the existing config (preserves accumulated statistics and internal state)
-        var config = _configService.GetConfiguration();
-
-        ApplyRequestToConfig(request, config);
-        _configService.SaveConfiguration();
+        // Both the read and the mutation must happen inside ReadAndMutate so no other caller
+        // can interleave its own writes between GetConfiguration and SaveConfiguration.
+        PluginConfiguration config = null!;
+        string persistedLogLevel = string.Empty;
+        _configService.ReadAndMutate(cfg =>
+        {
+            config = cfg;
+            persistedLogLevel = cfg.PluginLogLevel;
+            ApplyRequestToConfig(request, cfg);
+            _ensemble.Reconfigure(cfg.EnsembleAlphaMin, cfg.EnsembleAlphaMax, cfg.EnsembleGenrePenaltyFloor);
+        });
 
         _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
 
         // After saving, test all configured instance connections and log warnings
         var warnings = await TestAllConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
+
+        // Surface the dropped PluginLogLevel so the client doesn't think the change stuck.
+        // The Settings POST intentionally does not mutate the log level (owned by the Logs tab);
+        // callers that need to change it must use PUT /Configuration/LogLevel.
+        if (!string.IsNullOrWhiteSpace(request.PluginLogLevel))
+        {
+            var requested = request.PluginLogLevel.Trim().ToUpperInvariant();
+            if (!string.Equals(requested, persistedLogLevel, StringComparison.OrdinalIgnoreCase))
+            {
+                var warning = $"PluginLogLevel change ('{persistedLogLevel}' → '{requested}') was ignored by POST /Configuration. " +
+                              $"Use PUT /Configuration/LogLevel to change the log level.";
+                warnings.Add(warning);
+                _pluginLog.LogWarning("API", warning, logger: _logger);
+            }
+        }
 
         // Warn when a relative trash path would escape the library root at runtime (falls back silently).
         if (request.UseTrash)
@@ -227,7 +268,7 @@ public class ConfigurationController : ControllerBase
             }
         }
 
-        return Ok(new { message = "Configuration saved.", warnings });
+        return Ok(new ConfigurationSaveResponse { Message = "Configuration saved.", Warnings = warnings });
     }
 
     /// <summary>
@@ -241,24 +282,20 @@ public class ConfigurationController : ControllerBase
         ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
     {
-        var warnings = new List<string>();
+        // Each group gets its own list to avoid shared-state races when run concurrently.
+        var radarrWarnings = new List<string>();
+        var sonarrWarnings = new List<string>();
+        var seerrWarnings = new List<string>();
 
-        await TestArrInstanceGroupAsync(request.RadarrInstances, "Radarr", warnings, cancellationToken)
-            .ConfigureAwait(false);
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return warnings;
-        }
+        await Task.WhenAll(
+            TestArrInstanceGroupAsync(request.RadarrInstances, "Radarr", radarrWarnings, cancellationToken),
+            TestArrInstanceGroupAsync(request.SonarrInstances, "Sonarr", sonarrWarnings, cancellationToken),
+            TestSeerrConnectionAsync(request, seerrWarnings, cancellationToken)).ConfigureAwait(false);
 
-        await TestArrInstanceGroupAsync(request.SonarrInstances, "Sonarr", warnings, cancellationToken)
-            .ConfigureAwait(false);
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return warnings;
-        }
-
-        await TestSeerrConnectionAsync(request, warnings, cancellationToken).ConfigureAwait(false);
-
+        var warnings = new List<string>(radarrWarnings.Count + sonarrWarnings.Count + seerrWarnings.Count);
+        warnings.AddRange(radarrWarnings);
+        warnings.AddRange(sonarrWarnings);
+        warnings.AddRange(seerrWarnings);
         return warnings;
     }
 
@@ -282,6 +319,14 @@ public class ConfigurationController : ControllerBase
         // Use trimmed values consistent with what ApplyRequestToConfig persists
         var seerrUrl = request.SeerrUrl.Trim();
         var seerrApiKey = request.SeerrApiKey.Trim();
+
+        // When the client echoes back the mask sentinel, the key was not changed - skip the test.
+        // ApplyRequestToConfig already preserved the real stored key; using "***" as a live
+        // credential would produce a guaranteed 401 from Seerr and a misleading warning.
+        if (string.Equals(seerrApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        {
+            return;
+        }
 
         try
         {
@@ -336,6 +381,14 @@ public class ConfigurationController : ControllerBase
         {
             var instance = instances[i];
             if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))
+            {
+                continue;
+            }
+
+            // Skip the live test when the client echoed back the mask sentinel - same guard as
+            // TestSeerrConnectionAsync. Sending "***" to Radarr/Sonarr produces a 401 and a
+            // spurious warning even though the real stored key is perfectly valid.
+            if (string.Equals(instance.ApiKey.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -395,6 +448,27 @@ public class ConfigurationController : ControllerBase
             config.RecommendationsTaskMode = request.RecommendationsTaskMode.Value;
         }
 
+        if (request.EnsembleAlphaMin.HasValue)
+        {
+            config.EnsembleAlphaMin = Math.Clamp(request.EnsembleAlphaMin.Value, 0.0, 1.0);
+        }
+
+        if (request.EnsembleAlphaMax.HasValue)
+        {
+            config.EnsembleAlphaMax = Math.Clamp(request.EnsembleAlphaMax.Value, 0.0, 1.0);
+        }
+
+        if (request.EnsembleGenrePenaltyFloor.HasValue)
+        {
+            config.EnsembleGenrePenaltyFloor = Math.Clamp(request.EnsembleGenrePenaltyFloor.Value, 0.0, 1.0);
+        }
+
+        // Enforce min ≤ max after both values may have been updated.
+        if (config.EnsembleAlphaMin > config.EnsembleAlphaMax)
+        {
+            config.EnsembleAlphaMax = config.EnsembleAlphaMin;
+        }
+
         if (request.SyncRecommendationsToPlaylist.HasValue)
         {
             config.SyncRecommendationsToPlaylist = request.SyncRecommendationsToPlaylist.Value;
@@ -413,36 +487,98 @@ public class ConfigurationController : ControllerBase
             : request.TrashFolderPath;
         config.TrashRetentionDays = request.TrashRetentionDays;
 
-        config.Language = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language;
+        config.Language = string.IsNullOrWhiteSpace(request.Language) ? "en" :
+                          ConfigurationRequestValidator.IsLanguageSupported(request.Language) ? request.Language : "en";
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
+        // If the client echoes back the mask sentinel ("***"), the key was not changed - preserve the stored value.
+        // Trim before comparing so a client that pads the sentinel (e.g. " *** ") is still recognised correctly
+        // and never overwrites the real stored key with a literal "***".
+        if (!string.Equals(request.SeerrApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        {
+            config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
+        }
+
         config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)
             ? 0
             : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
 
-        // Validate and normalize log level (same rules as UpdateLogLevel endpoint)
-        var validLevels = new[] { "DEBUG", "INFO", "WARN", "ERROR" };
-        var normalizedLevel = string.IsNullOrWhiteSpace(request.PluginLogLevel)
-            ? "INFO"
-            : request.PluginLogLevel.Trim().ToUpperInvariant();
-        config.PluginLogLevel = Array.IndexOf(validLevels, normalizedLevel) >= 0
-            ? normalizedLevel
-            : "INFO";
+        // PluginLogLevel is owned by the Logs tab and mutated exclusively via PUT /Configuration/LogLevel.
+        // The Settings POST payload is intentionally IGNORED for this field to close a TOCTOU race
+        // where the Settings page had captured a stale value at page load, then overwrote a
+        // concurrently-changed level (from the Logs tab or another admin session) on save.
+        // Keeping the merge server-side eliminates the need for a client-side preflight GET and
+        // guarantees the invariant regardless of which caller sends the POST. Legacy configs that
+        // arrive with an invalid persisted level are normalized to "INFO" as a self-healing
+        // fallback so downstream log-filtering code never has to deal with garbage.
+        if (string.IsNullOrWhiteSpace(config.PluginLogLevel)
+            || Array.IndexOf(ValidLogLevels, config.PluginLogLevel.Trim().ToUpperInvariant()) < 0)
+        {
+            config.PluginLogLevel = "INFO";
+        }
+        else
+        {
+            // Persist the canonical UPPER form even if the on-disk value has drifted casing.
+            config.PluginLogLevel = config.PluginLogLevel.Trim().ToUpperInvariant();
+        }
 
-        // Update Radarr instances (clear + re-add from request)
+        // Update Radarr instances (clear + re-add from request).
+        // Snapshot existing instances BEFORE clearing so the sentinel guard can look up
+        // the stored key by Name+Url rather than positional index. Index-based restoration
+        // would silently assign the wrong key when the admin removes or reorders instances.
+        var previousRadarrInstances = (config.RadarrInstances ?? []).ToList();
+        config.RadarrInstances ??= [];
         config.RadarrInstances.Clear();
         foreach (var instance in request.RadarrInstances ?? [])
         {
-            config.RadarrInstances.Add(instance);
+            config.RadarrInstances.Add(new ArrInstanceConfig
+            {
+                Name = instance.Name,
+                Url = instance.Url,
+                ApiKey = ResolveApiKey(instance, previousRadarrInstances)
+            });
         }
 
-        // Update Sonarr instances (clear + re-add from request)
+        // Update Sonarr instances (clear + re-add from request).
+        // Same sentinel-preservation pattern as Radarr above.
+        var previousSonarrInstances = (config.SonarrInstances ?? []).ToList();
+        config.SonarrInstances ??= [];
         config.SonarrInstances.Clear();
         foreach (var instance in request.SonarrInstances ?? [])
         {
-            config.SonarrInstances.Add(instance);
+            config.SonarrInstances.Add(new ArrInstanceConfig
+            {
+                Name = instance.Name,
+                Url = instance.Url,
+                ApiKey = ResolveApiKey(instance, previousSonarrInstances)
+            });
         }
+    }
+
+    /// <summary>
+    ///     Resolves the API key for an incoming <see cref="ArrInstanceConfig"/> from a configuration update.
+    ///     When the client echoes back the mask sentinel (<see cref="ConfigurationResponse.ApiKeyMask"/>),
+    ///     the stored key is recovered by matching on Name+URL first (handles same-URL collision),
+    ///     then URL only (handles renames - admin keeps key without re-entering).
+    ///     When the client sends a real key, that value is used as-is.
+    /// </summary>
+    private static string ResolveApiKey(
+        ArrInstanceConfig incoming,
+        List<ArrInstanceConfig> previousInstances)
+    {
+        if (!string.Equals(incoming.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        {
+            return incoming.ApiKey ?? string.Empty;
+        }
+
+        // Sentinel "***": recover stored key. Try Name+URL first (exact match, handles
+        // same-URL collision), then fall back to URL-only (handles rename).
+        return (previousInstances.FirstOrDefault(p =>
+                    string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)
+                    && p.Name == incoming.Name)
+                ?? previousInstances.FirstOrDefault(p =>
+                    string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)))?.ApiKey
+               ?? string.Empty;
     }
 }

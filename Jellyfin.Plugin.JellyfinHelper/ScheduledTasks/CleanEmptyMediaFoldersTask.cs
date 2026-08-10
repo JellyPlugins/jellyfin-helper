@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -72,9 +74,9 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
     protected override string ItemLabel => "folders";
 
     /// <inheritdoc />
-    protected override bool IsDryRun()
+    protected override TaskMode GetTaskMode()
     {
-        return ConfigHelper.IsDryRunEmptyMediaFolders();
+        return ConfigHelper.GetEmptyMediaFolderTaskMode();
     }
 
     /// <inheritdoc />
@@ -87,23 +89,40 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
         long bytesFreed = 0;
         var config = ConfigHelper.GetConfig();
 
+        // Hoist trash-path computation outside the loop - libraryPath is constant per call.
+        // Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS,
+        // matching the same pattern used by CleanTrickplayTask and CleanOrphanedSubtitlesTask.
+        var trashPath = ConfigHelper.GetTrashPath(libraryPath);
+        var trashRoot = Path.GetFullPath(trashPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var trashRootSep = trashRoot + Path.DirectorySeparatorChar;
+        var pathComparison = OperatingSystem.IsLinux()
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+
         try
         {
             // Get only the direct child directories of the library root (top-level media folders).
             // Each top-level folder represents a single movie, show, etc.
             var topLevelDirs = FileSystem.GetDirectories(libraryPath).ToList();
 
-            foreach (var topDir in topLevelDirs.TakeWhile(_ => !cancellationToken.IsCancellationRequested))
+            foreach (var topDir in topLevelDirs)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 // Skip .trickplay folders - they are handled by CleanTrickplayTask
                 if (topDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                // Skip trash folder
-                var trashFolderName = Path.GetFileName(ConfigHelper.GetTrashPath(libraryPath));
-                if (topDir.Name.Equals(trashFolderName, StringComparison.OrdinalIgnoreCase))
+                // Skip the trash folder and anything nested inside it.
+                // Use full-path prefix comparison (same pattern as CleanTrickplayTask) rather than
+                // a bare name equality check, which breaks when the trash path is multi-segment
+                // or when a previous run has added a timestamp prefix to the folder.
+                var normalizedDirPath = Path.GetFullPath(topDir.FullName)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (normalizedDirPath.Equals(trashRoot, pathComparison)
+                    || normalizedDirPath.StartsWith(trashRootSep, pathComparison))
                 {
                     continue;
                 }
@@ -118,8 +137,9 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
                 // Check the entire tree in a single pass: does it contain any files at all,
                 // any video files, any audio files, or any non-metadata files?
-                // This avoids traversing the tree multiple times.
-                var (hasAnyFiles, hasVideoFiles, hasAudioFiles, hasNonMetadataFiles) =
+                // The accumulated byte count is returned here so that the hard-delete path
+                // does not need a second traversal via CalculateDirectorySize.
+                var (hasAnyFiles, hasVideoFiles, hasAudioFiles, hasNonMetadataFiles, treeBytes) =
                     AnalyzeDirectoryRecursive(topDir.FullName, cancellationToken);
 
                 // If the folder tree is completely empty (no files at all), skip it.
@@ -178,7 +198,6 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 else if (config.UseTrash)
                 {
                     PluginLog.LogInfo(TaskName, $"Moving orphaned media folder to trash: {topDir.FullName}", Logger);
-                    var trashPath = ConfigHelper.GetTrashPath(libraryPath);
                     var size = TrashService.MoveToTrash(topDir.FullName, trashPath, Logger);
                     if (size <= 0)
                     {
@@ -193,9 +212,10 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     PluginLog.LogInfo(TaskName, $"Deleting orphaned media folder: {topDir.FullName}", Logger);
                     try
                     {
-                        var size = FileSystemHelper.CalculateDirectorySize(FileSystem, topDir.FullName);
+                        // Reuse the byte count already accumulated during the analysis pass
+                        // instead of re-traversing the tree with CalculateDirectorySize.
                         Directory.Delete(topDir.FullName, true);
-                        bytesFreed += size;
+                        bytesFreed += treeBytes;
                         deletedCount++;
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -214,68 +234,77 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Analyzes a directory tree in a single recursive pass, determining whether
-    ///     any files exist, whether any of them are video files, whether any are audio files,
-    ///     and whether any non-metadata files exist (files that are not images or NFO/XML).
+    ///     Analyzes a directory tree in a single iterative pass (explicit stack, no recursion depth limit).
+    ///     Returns early as soon as a video file is found anywhere in the subtree.
     /// </summary>
-    /// <param name="directoryPath">The directory to analyze.</param>
-    /// <param name="cancellationToken">A token to cancel the recursive scan.</param>
-    /// <returns>
-    ///     A tuple indicating whether any files exist, whether any video files exist,
-    ///     whether any audio files exist, and whether any non-metadata files exist.
-    /// </returns>
-    private (bool HasAnyFiles, bool HasVideoFiles, bool HasAudioFiles, bool HasNonMetadataFiles)
+    private (bool HasAnyFiles, bool HasVideoFiles, bool HasAudioFiles, bool HasNonMetadataFiles, long TotalBytes)
         AnalyzeDirectoryRecursive(string directoryPath, CancellationToken cancellationToken)
     {
-        // Allow cancellation to interrupt deep recursion
-        cancellationToken.ThrowIfCancellationRequested();
-
         var hasAnyFiles = false;
         var hasAudioFiles = false;
         var hasNonMetadataFiles = false;
+        long totalBytes = 0;
 
-        // Check files in the directory itself
-        var files = FileSystem.GetFiles(directoryPath);
-        foreach (var file in files)
+        var stack = new Stack<string>();
+        stack.Push(directoryPath);
+
+        while (stack.Count > 0)
         {
-            hasAnyFiles = true;
-            var ext = Path.GetExtension(file.FullName);
-            if (MediaExtensions.VideoExtensions.Contains(ext))
+            cancellationToken.ThrowIfCancellationRequested();
+            var current = stack.Pop();
+
+            IEnumerable<FileSystemMetadata> files;
+            try
             {
-                // Video found - no need to scan further (video takes priority)
-                return (true, true, hasAudioFiles, true);
+                files = FileSystem.GetFiles(current);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                PluginLog.LogWarning(TaskName, $"Could not list files in: {current}", ex, Logger);
+                continue;
             }
 
-            if (MediaExtensions.AudioExtensions.Contains(ext))
+            foreach (var file in files)
             {
-                hasAudioFiles = true;
-                hasNonMetadataFiles = true;
+                hasAnyFiles = true;
+                totalBytes += file.Length;
+                var ext = Path.GetExtension(file.FullName);
+                if (MediaExtensions.VideoExtensions.Contains(ext))
+                {
+                    // Return 0 bytes: the caller only uses treeBytes in the hard-delete branch,
+                    // which never runs when hasVideoFiles==true.
+                    return (true, true, hasAudioFiles, true, 0);
+                }
+
+                if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
+                {
+                    hasAudioFiles = true;
+                    hasNonMetadataFiles = true;
+                }
+                else if (!MediaExtensions.ImageExtensions.Contains(ext)
+                         && !MediaExtensions.NfoExtensions.Contains(ext))
+                {
+                    hasNonMetadataFiles = true;
+                }
             }
-            else if (!MediaExtensions.ImageExtensions.Contains(ext)
-                     && !MediaExtensions.NfoExtensions.Contains(ext))
+
+            IEnumerable<FileSystemMetadata> subDirs;
+            try
             {
-                // File is not a video, audio, image, or NFO → it's a "non-metadata" file
-                // (e.g. subtitles, text files, or other residual files from a deleted video)
-                hasNonMetadataFiles = true;
+                subDirs = FileSystem.GetDirectories(current);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                PluginLog.LogWarning(TaskName, $"Could not list subdirectories in: {current}", ex, Logger);
+                continue;
+            }
+
+            foreach (var subDir in subDirs)
+            {
+                stack.Push(subDir.FullName);
             }
         }
 
-        // Check subdirectories recursively
-        var subDirs = FileSystem.GetDirectories(directoryPath);
-        foreach (var subDir in subDirs)
-        {
-            var (subHasAnyFiles, subHasVideoFiles, subHasAudioFiles, subHasNonMetadataFiles) =
-                AnalyzeDirectoryRecursive(subDir.FullName, cancellationToken);
-            hasAnyFiles |= subHasAnyFiles;
-            hasAudioFiles |= subHasAudioFiles;
-            hasNonMetadataFiles |= subHasNonMetadataFiles;
-            if (subHasVideoFiles)
-            {
-                // Video found deeper in the tree - no need to scan further
-                return (true, true, hasAudioFiles, true);
-            }
-        }
-
-        return (hasAnyFiles, false, hasAudioFiles, hasNonMetadataFiles);
+        return (hasAnyFiles, false, hasAudioFiles, hasNonMetadataFiles, totalBytes);
     }
 }

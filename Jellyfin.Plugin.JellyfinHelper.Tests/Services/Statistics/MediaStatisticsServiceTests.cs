@@ -77,8 +77,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([mkvFile, mp4File]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([mkvFile, mp4File]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -110,8 +110,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([videoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -149,8 +149,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([flacFile, mp3File]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([flacFile, mp3File]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -188,8 +188,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([srtFile, assFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([srtFile, assFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -226,8 +226,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([jpgFile, pngFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([jpgFile, pngFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -256,8 +256,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([nfoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([nfoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -279,7 +279,7 @@ public class MediaStatisticsServiceTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
 
         var trickplayDir = new FileSystemMetadata
         {
@@ -287,7 +287,7 @@ public class MediaStatisticsServiceTests
             Name = "Film.trickplay",
             IsDirectory = true
         };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
 
         // Trickplay folder content
         var trickplayFile1 = new FileSystemMetadata
@@ -304,8 +304,8 @@ public class MediaStatisticsServiceTests
             Length = 25_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath, false)).Returns([trickplayFile1, trickplayFile2]);
-        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath)).Returns([trickplayFile1, trickplayFile2]);
+        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -334,8 +334,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([txtFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([txtFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -358,7 +358,7 @@ public class MediaStatisticsServiceTests
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
         // Root has no files
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
 
         var subDir = new FileSystemMetadata
         {
@@ -366,7 +366,7 @@ public class MediaStatisticsServiceTests
             Name = "Film",
             IsDirectory = true
         };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([subDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([subDir]);
 
         // Subdirectory has a video file
         var videoFile = new FileSystemMetadata
@@ -376,8 +376,8 @@ public class MediaStatisticsServiceTests
             Length = 4_000_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(subDirPath, false)).Returns([videoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(subDirPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(subDirPath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(subDirPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -397,7 +397,7 @@ public class MediaStatisticsServiceTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Throws(new IOException("Access denied"));
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Throws(new IOException("Access denied"));
 
         var result = _service.CalculateStatistics();
 
@@ -419,7 +419,7 @@ public class MediaStatisticsServiceTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Throws(new UnauthorizedAccessException("Forbidden"));
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Throws(new UnauthorizedAccessException("Forbidden"));
 
         var result = _service.CalculateStatistics();
 
@@ -463,10 +463,10 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns([movieFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetFiles(tvPath, false)).Returns([tvFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(tvPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath)).Returns([movieFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(tvPath)).Returns([tvFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(tvPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -498,8 +498,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([videoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -521,8 +521,8 @@ public class MediaStatisticsServiceTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -555,8 +555,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "readme.txt"), Name = "readme.txt", Length = 1_000, IsDirectory = false }
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -589,7 +589,7 @@ public class MediaStatisticsServiceTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
 
         var trickplayDir = new FileSystemMetadata
         {
@@ -597,7 +597,7 @@ public class MediaStatisticsServiceTests
             Name = "Film.TRICKPLAY",
             IsDirectory = true
         };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
 
         var trickplayFile = new FileSystemMetadata
         {
@@ -606,8 +606,8 @@ public class MediaStatisticsServiceTests
             Length = 10_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath, false)).Returns([trickplayFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath)).Returns([trickplayFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -630,7 +630,7 @@ public class MediaStatisticsServiceTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
 
         var trickplayDir = new FileSystemMetadata
         {
@@ -638,7 +638,7 @@ public class MediaStatisticsServiceTests
             Name = "Film.trickplay",
             IsDirectory = true
         };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
 
         // Trickplay root files
         var rootFile = new FileSystemMetadata
@@ -648,7 +648,7 @@ public class MediaStatisticsServiceTests
             Length = 5_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath, false)).Returns([rootFile]);
+        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath)).Returns([rootFile]);
 
         // Trickplay subdirectory
         var subDir = new FileSystemMetadata
@@ -657,7 +657,7 @@ public class MediaStatisticsServiceTests
             Name = "320",
             IsDirectory = true
         };
-        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath, false)).Returns([subDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath)).Returns([subDir]);
 
         var subFile = new FileSystemMetadata
         {
@@ -666,8 +666,8 @@ public class MediaStatisticsServiceTests
             Length = 15_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(trickplaySubDir, false)).Returns([subFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(trickplaySubDir, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(trickplaySubDir)).Returns([subFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(trickplaySubDir)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -688,8 +688,8 @@ public class MediaStatisticsServiceTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(It.IsAny<string>(), false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(It.IsAny<string>(), false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(It.IsAny<string>())).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(It.IsAny<string>())).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -715,8 +715,8 @@ public class MediaStatisticsServiceTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -763,8 +763,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film3.mp4"), Name = "Film3.mp4", Length = 3000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -804,8 +804,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "music", "Song3.mp3"), Name = "Song3.mp3", Length = 5_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -845,8 +845,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -883,8 +883,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -921,8 +921,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -955,10 +955,10 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "poster.jpg"), Name = "poster.jpg", Length = 100_000, IsDirectory = false },
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film1.nfo"), Name = "Film1.nfo", Length = 5_000, IsDirectory = false },
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(rootFiles);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(rootFiles);
 
         var subDir = new FileSystemMetadata { FullName = subDirPath, Name = "SubFolder", IsDirectory = true };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([subDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([subDir]);
 
         // SubFolder: video without subtitles and without images
         var subFiles = new[]
@@ -966,8 +966,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "SubFolder", "Film2.mkv"), Name = "Film2.mkv", Length = 2_000_000, IsDirectory = false },
             new FileSystemMetadata { FullName = TestPath("media", "movies", "SubFolder", "Film2.nfo"), Name = "Film2.nfo", Length = 3_000, IsDirectory = false },
         };
-        _fileSystemMock.Setup(f => f.GetFiles(subDirPath, false)).Returns(subFiles);
-        _fileSystemMock.Setup(f => f.GetDirectories(subDirPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(subDirPath)).Returns(subFiles);
+        _fileSystemMock.Setup(f => f.GetDirectories(subDirPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -1009,8 +1009,8 @@ public class MediaStatisticsServiceTests
             // no .nfo file
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -1043,8 +1043,8 @@ public class MediaStatisticsServiceTests
             // no image file
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -1074,8 +1074,8 @@ public class MediaStatisticsServiceTests
             Length = 200_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(boxsetPath, false)).Returns([posterFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(boxsetPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(boxsetPath)).Returns([posterFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(boxsetPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -1114,8 +1114,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "poster.jpg"), Name = "poster.jpg", Length = 100_000, IsDirectory = false },
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
         };
-        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns(movieFiles);
-        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath)).Returns(movieFiles);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath)).Returns([]);
 
         // TV: video with all metadata
         var tvFiles = new[]
@@ -1125,8 +1125,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "tv", "poster.jpg"), Name = "poster.jpg", Length = 50_000, IsDirectory = false },
             new FileSystemMetadata { FullName = TestPath("media", "tv", "Episode.nfo"), Name = "Episode.nfo", Length = 3_000, IsDirectory = false },
         };
-        _fileSystemMock.Setup(f => f.GetFiles(tvPath, false)).Returns(tvFiles);
-        _fileSystemMock.Setup(f => f.GetDirectories(tvPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(tvPath)).Returns(tvFiles);
+        _fileSystemMock.Setup(f => f.GetDirectories(tvPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -1169,8 +1169,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film3.x265.DTS.4K.mkv"), Name = "Film3.x265.DTS.4K.mkv", Length = 5_000_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -1198,8 +1198,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.mkv"), Name = "Film.mkv", Length = 1_000_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -1226,8 +1226,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "music", "Song.ogg"), Name = "Song.ogg", Length = 5_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -1262,8 +1262,8 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film2.x264.720p.mkv"), Name = "Film2.x264.720p.mkv", Length = 1_500_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -1367,14 +1367,14 @@ public class MediaStatisticsServiceTests
     // ===== MediaExtensions Codec Mapping Tests =====
 
     [Fact]
-    public void MediaExtensions_AudioExtensionToCodec_ContainsAllAudioExtensions()
+    public void MediaExtensions_AudioExtensionToCodec_KeysAreLowercaseDotPrefixed()
     {
-        // Every audio extension should have a codec mapping
-        foreach (var ext in MediaExtensions.AudioExtensions)
+        // All keys must be dot-prefixed lowercase strings (e.g. ".mp3") so
+        // case-insensitive lookups using Path.GetExtension() always match.
+        foreach (var key in MediaExtensions.AudioExtensionToCodec.Keys)
         {
-            Assert.True(
-                MediaExtensions.AudioExtensionToCodec.ContainsKey(ext),
-                $"Audio extension '{ext}' has no codec mapping in AudioExtensionToCodec");
+            Assert.True(key.StartsWith('.'), $"Key '{key}' is missing leading dot");
+            Assert.True(key == key.ToLowerInvariant(), $"Key '{key}' is not lowercase");
         }
     }
 
@@ -1427,8 +1427,8 @@ public class MediaStatisticsServiceTests
             Length = 200_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(boxsetPath, false)).Returns([posterFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(boxsetPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(boxsetPath)).Returns([posterFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(boxsetPath)).Returns([]);
 
         // Movie folder has a video without subtitles � should trigger health check warning
         var mkvFile = new FileSystemMetadata
@@ -1438,8 +1438,8 @@ public class MediaStatisticsServiceTests
             Length = 1_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns([mkvFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath)).Returns([mkvFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -1501,8 +1501,8 @@ public class MediaStatisticsServiceTests
             Length = 5_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(musicPath, false)).Returns([coverFile, nfoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(musicPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(musicPath)).Returns([coverFile, nfoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(musicPath)).Returns([]);
 
         // Movie folder has a video without subtitles � should trigger health check warning
         var mkvFile = new FileSystemMetadata
@@ -1512,8 +1512,8 @@ public class MediaStatisticsServiceTests
             Length = 1_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns([mkvFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath)).Returns([mkvFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -1566,8 +1566,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(musicPath, false)).Returns([flacFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(musicPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(musicPath)).Returns([flacFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(musicPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var musicStats = result.Music[0];
@@ -1603,8 +1603,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns([mkvFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath)).Returns([mkvFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var movieStats = result.Movies[0];
@@ -1655,10 +1655,10 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns([videoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetFiles(musicPath, false)).Returns([musicFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(musicPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(musicPath)).Returns([musicFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(musicPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -1707,8 +1707,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns([videoFile, soundtrackFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath)).Returns([videoFile, soundtrackFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var movieStats = result.Movies[0];
@@ -1744,8 +1744,8 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(mvPath, false)).Returns([m4VFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(mvPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(mvPath)).Returns([m4VFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(mvPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -1794,10 +1794,10 @@ public class MediaStatisticsServiceTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns([videoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetFiles(musicPath, false)).Returns([musicFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(musicPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(musicPath)).Returns([musicFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(musicPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
 
@@ -1860,8 +1860,8 @@ public class EmbeddedSubtitleDetectionTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Mark this video as having embedded subtitles
         _service.SetHasEmbeddedSubtitles(videoPath, true);
@@ -1894,8 +1894,8 @@ public class EmbeddedSubtitleDetectionTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // No embedded subtitles (default)
 
@@ -1929,8 +1929,8 @@ public class EmbeddedSubtitleDetectionTests
             new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Not setting embedded subtitles � external .srt is enough
 
@@ -1964,8 +1964,8 @@ public class EmbeddedSubtitleDetectionTests
             new FileSystemMetadata { FullName = video3Path, Name = "Film3.mp4", Length = 3_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Film1 has embedded subtitles, Film2 and Film3 do not
         _service.SetHasEmbeddedSubtitles(video1Path, true);
@@ -2001,8 +2001,8 @@ public class EmbeddedSubtitleDetectionTests
             new FileSystemMetadata { FullName = video2Path, Name = "Film2.mkv", Length = 2_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         _service.SetHasEmbeddedSubtitles(video1Path, true);
         _service.SetHasEmbeddedSubtitles(video2Path, true);
@@ -2035,18 +2035,18 @@ public class EmbeddedSubtitleDetectionTests
         {
             new FileSystemMetadata { FullName = video1Path, Name = "Film1.mkv", Length = 1_000_000, IsDirectory = false },
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(rootFiles);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(rootFiles);
 
         var subDir = new FileSystemMetadata { FullName = subDirPath, Name = "SubFolder", IsDirectory = true };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([subDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([subDir]);
 
         // Subdirectory: video without external subs
         var subFiles = new[]
         {
             new FileSystemMetadata { FullName = video2Path, Name = "Film2.mkv", Length = 2_000_000, IsDirectory = false },
         };
-        _fileSystemMock.Setup(f => f.GetFiles(subDirPath, false)).Returns(subFiles);
-        _fileSystemMock.Setup(f => f.GetDirectories(subDirPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(subDirPath)).Returns(subFiles);
+        _fileSystemMock.Setup(f => f.GetDirectories(subDirPath)).Returns([]);
 
         // Film1 has embedded subtitles, Film2 does not
         _service.SetHasEmbeddedSubtitles(video1Path, true);
@@ -2079,8 +2079,8 @@ public class EmbeddedSubtitleDetectionTests
             new FileSystemMetadata { FullName = videoPath, Name = "Film.mkv", Length = 1_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // No embedded subtitles set � but health checks are skipped for boxsets
         var result = _service.CalculateStatistics();
@@ -2109,8 +2109,8 @@ public class EmbeddedSubtitleDetectionTests
             new FileSystemMetadata { FullName = videoPath, Name = "MusicVideo.mkv", Length = 500_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -2413,8 +2413,8 @@ public class MetadataExtractionTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([videoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Set up a mock BaseItem with MediaStreams
         var mockItem = new Mock<BaseItem>();
@@ -2478,8 +2478,8 @@ public class MetadataExtractionTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([videoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var mockItem = new Mock<BaseItem>();
         mockItem.Object.Path = videoPath;
@@ -2526,8 +2526,8 @@ public class MetadataExtractionTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([videoFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // No item in lookup → falls back to Unknown
         var result = _service.CalculateStatistics();
@@ -2562,8 +2562,8 @@ public class MetadataExtractionTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([musicFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([musicFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var mockItem = new Mock<BaseItem>();
         mockItem.Object.Path = musicPath;
@@ -2607,8 +2607,8 @@ public class MetadataExtractionTests
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([musicFile]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([musicFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // No item in lookup → falls back to extension mapping
         var result = _service.CalculateStatistics();
@@ -2640,8 +2640,8 @@ public class MetadataExtractionTests
             new FileSystemMetadata { FullName = av1Path, Name = "Film3.mkv", Length = 3_000_000_000, IsDirectory = false },
         };
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // HEVC 4K HDR10
         var mockItem1 = new Mock<BaseItem>();
@@ -2725,8 +2725,8 @@ public class MetadataExtractionTests
             new FileSystemMetadata { FullName = hevcPath, Name = "HDR.mkv", Length = 5_000_000_000, IsDirectory = false },
             new FileSystemMetadata { FullName = sdrPath, Name = "SDR.mkv", Length = 2_000_000_000, IsDirectory = false }
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         var mockItem1 = new Mock<BaseItem>();
         mockItem1.Object.Path = hevcPath;
@@ -2800,8 +2800,8 @@ public class MetadataExtractionTests
             Length = 1_000_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Item exists but GetMediaStreams throws
         var mockItem = new Mock<BaseItem>();
@@ -2847,8 +2847,8 @@ public class MetadataExtractionTests
             Length = 2_000_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Item is NOT added to the lookup (no SetItemLookup call).
         // Instead, set up FindByPath to return the item as a fallback.
@@ -2894,8 +2894,8 @@ public class MetadataExtractionTests
             Length = 1_000_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Neither lookup nor FindByPath knows about this file
         _libraryManagerMock.Setup(m => m.FindByPath(filePath, false)).Returns((BaseItem?)null);
@@ -2933,8 +2933,8 @@ public class MetadataExtractionTests
             Length = 500_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // FindByPath throws an exception
         _libraryManagerMock.Setup(m => m.FindByPath(filePath, false))
@@ -2971,8 +2971,8 @@ public class MetadataExtractionTests
             Length = 40_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Not in lookup; FindByPath returns item with Opus codec (different from extension)
         var mockItem = new Mock<BaseItem>();
@@ -3013,8 +3013,8 @@ public class MetadataExtractionTests
             Length = 25_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Neither lookup nor FindByPath knows about this file
         _libraryManagerMock.Setup(m => m.FindByPath(filePath, false)).Returns((BaseItem?)null);
@@ -3048,8 +3048,8 @@ public class MetadataExtractionTests
             Length = 5_000_000,
             IsDirectory = false
         };
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         // Item found in lookup but has no audio streams (empty list)
         var mockItem = new Mock<BaseItem>();

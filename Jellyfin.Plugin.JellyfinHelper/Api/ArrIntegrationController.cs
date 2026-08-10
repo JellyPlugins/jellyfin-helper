@@ -66,17 +66,42 @@ public class ArrIntegrationController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A result indicating success or failure with a message.</returns>
     [HttpPost("TestConnection")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status502BadGateway)]
     public async Task<ActionResult> TestArrConnectionAsync(
         [FromBody] ArrTestConnectionRequest request,
         CancellationToken cancellationToken)
     {
+        var url = request.Url ?? string.Empty;
+
+        // Scheme guard only: reject non-HTTP(S) schemes (file://, ftp://, ...). We deliberately do
+        // NOT block loopback/private/link-local hosts here: Radarr/Sonarr almost always run on the
+        // same host or LAN as Jellyfin (localhost:7878, 192.168.x.y), so an internal-IP block would
+        // break the plugin's primary legitimate configuration. The endpoint is admin-only, does not
+        // follow redirects, caps the response size, and never reflects the response body — so the
+        // residual "internal reachability oracle" risk is low and accepted for a LAN-integration tool.
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl) ||
+            (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
+        }
+
         var (success, message) = await _arrService.TestConnectionAsync(
-            request.Url ?? string.Empty,
+            parsedUrl.AbsoluteUri,
             request.ApiKey ?? string.Empty,
             cancellationToken).ConfigureAwait(false);
 
-        return Ok(new { success, message });
+        if (!success)
+        {
+            // Log the detailed upstream message server-side but return a GENERIC one to the client,
+            // so the endpoint cannot be used to distinguish internal host/port states (reachability
+            // oracle). The generic string matches the Seerr connection-test for consistency.
+            _pluginLog.LogWarning("API", $"Arr connection test failed: {message}", logger: _logger);
+            return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
+        }
+
+        return Ok(new ConnectionTestResponse { Success = true, Message = message });
     }
 
     /// <summary>
@@ -223,6 +248,11 @@ public class ArrIntegrationController : ControllerBase
 
     /// <summary>
     ///     Gets the set of top-level folder names for a given collection type from Jellyfin libraries.
+    ///     Deduplication is by folder name only (not full path), using a case-insensitive HashSet.
+    ///     Known limitation: if two library locations contain different directories that share the same
+    ///     name (e.g. "/movies/Action" and "/archive/Action"), only one entry is kept. This is intentional
+    ///     for matching against Arr titles, which are also name-based, but may cause missed matches when
+    ///     the same folder name appears across different library types or root paths.
     /// </summary>
     private HashSet<string> GetJellyfinFolderNames(string collectionType)
     {

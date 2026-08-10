@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
@@ -53,8 +52,8 @@ public class ArrIntegrationControllerTests : IDisposable
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
-        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
+        var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
+        Assert.True(payload.Success);
     }
 
     [Fact]
@@ -67,10 +66,11 @@ public class ArrIntegrationControllerTests : IDisposable
 
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
-        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
-        Assert.Contains("Unauthorized", doc.RootElement.GetProperty("message").GetString());
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(502, statusResult.StatusCode);
+        var payload = Assert.IsType<ConnectionTestResponse>(statusResult.Value);
+        Assert.False(payload.Success);
+        Assert.False(string.IsNullOrWhiteSpace(payload.Message));
     }
 
     [Fact]
@@ -116,6 +116,55 @@ public class ArrIntegrationControllerTests : IDisposable
         var data = Assert.IsType<ArrComparisonResult>(okResult.Value);
         Assert.Single(data.InBoth);
         Assert.Equal("Movie1", data.InBoth[0]);
+    }
+
+    // ===== T1: SSRF scheme validation =====
+
+    [Theory]
+    [InlineData("ftp://internal-server/api")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ldap://192.168.1.1")]
+    [InlineData("gopher://evil.com")]
+    [InlineData("javascript:alert(1)")]
+    public async Task TestArrConnectionAsync_InvalidScheme_Returns400(string url)
+    {
+        var request = new ArrTestConnectionRequest { Url = url, ApiKey = "some-key" };
+
+        var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Theory]
+    [InlineData("http://localhost:8989")]
+    [InlineData("http://127.0.0.1:7878")]
+    [InlineData("https://radarr.example.com")]
+    public async Task TestArrConnectionAsync_ValidHttpUrl_Passes(string url)
+    {
+        var request = new ArrTestConnectionRequest { Url = url, ApiKey = "valid-api-key" };
+        var handlerMock = TestMockFactory.CreateHttpMessageHandler(
+            System.Net.HttpStatusCode.OK, "{\"version\": \"1.0\"}");
+        using var httpClient = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        // Must not return 400 - the request reached the service layer
+        Assert.IsNotType<BadRequestObjectResult>(result);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
+        Assert.True(payload.Success);
+    }
+
+    [Fact]
+    public async Task TestArrConnectionAsync_EmptyUrl_Returns400()
+    {
+        // Empty URL fails URI parsing - the SSRF guard returns 400 before reaching the service layer
+        var request = new ArrTestConnectionRequest { Url = "", ApiKey = "key" };
+
+        var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]

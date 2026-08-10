@@ -53,13 +53,13 @@ public class MediaStatisticsServiceTvShowTests
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
         // Root
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
             new FileSystemMetadata { FullName = seriesPath, Name = "Series 1", IsDirectory = true }
         ]);
 
         // Series 1 - Contains metadata but no direct video files
-        _fileSystemMock.Setup(f => f.GetFiles(seriesPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(seriesPath)).Returns([
             new FileSystemMetadata
             {
                 FullName = TestPath(seriesPath, "folder.jpg"), Name = "folder.jpg", Length = 100_000,
@@ -70,30 +70,30 @@ public class MediaStatisticsServiceTvShowTests
                 FullName = TestPath(seriesPath, "tvshow.nfo"), Name = "tvshow.nfo", Length = 5_000, IsDirectory = false
             }
         ]);
-        _fileSystemMock.Setup(f => f.GetDirectories(seriesPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetDirectories(seriesPath)).Returns([
             new FileSystemMetadata { FullName = season01Path, Name = "Season 01", IsDirectory = true },
             new FileSystemMetadata { FullName = specialsPath, Name = "Specials", IsDirectory = true }
         ]);
 
         // Season 01 - Contains video
-        _fileSystemMock.Setup(f => f.GetFiles(season01Path, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(season01Path)).Returns([
             new FileSystemMetadata
             {
                 FullName = TestPath(season01Path, "S01E01.mkv"), Name = "S01E01.mkv", Length = 1_000_000_000,
                 IsDirectory = false
             }
         ]);
-        _fileSystemMock.Setup(f => f.GetDirectories(season01Path, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(season01Path)).Returns([]);
 
         // Specials - Contains video
-        _fileSystemMock.Setup(f => f.GetFiles(specialsPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(specialsPath)).Returns([
             new FileSystemMetadata
             {
                 FullName = TestPath(specialsPath, "S00E01.mkv"), Name = "S00E01.mkv", Length = 500_000_000,
                 IsDirectory = false
             }
         ]);
-        _fileSystemMock.Setup(f => f.GetDirectories(specialsPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(specialsPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -116,19 +116,19 @@ public class MediaStatisticsServiceTvShowTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
             new FileSystemMetadata { FullName = orphanPath, Name = "OrphanedFolder", IsDirectory = true }
         ]);
 
         // OrphanedFolder - metadata but no videos AND no subdirectories containing videos
-        _fileSystemMock.Setup(f => f.GetFiles(orphanPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(orphanPath)).Returns([
             new FileSystemMetadata
             {
                 FullName = TestPath(orphanPath, "random.srt"), Name = "random.srt", Length = 50_000, IsDirectory = false
             }
         ]);
-        _fileSystemMock.Setup(f => f.GetDirectories(orphanPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(orphanPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -151,14 +151,14 @@ public class MediaStatisticsServiceTvShowTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
             new FileSystemMetadata { FullName = emptyPath, Name = "EmptyFolder", IsDirectory = true }
         ]);
 
         // EmptyFolder - no files, no subdirs
-        _fileSystemMock.Setup(f => f.GetFiles(emptyPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(emptyPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(emptyPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(emptyPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -186,25 +186,25 @@ public class MediaStatisticsServiceTvShowTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
             new FileSystemMetadata { FullName = seriesPath, Name = "Series 1", IsDirectory = true }
         ]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(seriesPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(seriesPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(seriesPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(seriesPath)).Returns([
             new FileSystemMetadata { FullName = specialsPath, Name = "Specials", IsDirectory = true }
         ]);
 
         // Specials folder with only an image
-        _fileSystemMock.Setup(f => f.GetFiles(specialsPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(specialsPath)).Returns([
             new FileSystemMetadata
             {
                 FullName = TestPath(specialsPath, "season-specials-poster.jpg"), Name = "season-specials-poster.jpg",
                 Length = 50_000, IsDirectory = false
             }
         ]);
-        _fileSystemMock.Setup(f => f.GetDirectories(specialsPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(specialsPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
@@ -227,18 +227,18 @@ public class MediaStatisticsServiceTvShowTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
             new FileSystemMetadata { FullName = orphanPath, Name = "OrphanedMovieDir", IsDirectory = true }
         ]);
 
-        _fileSystemMock.Setup(f => f.GetFiles(orphanPath, false)).Returns([
+        _fileSystemMock.Setup(f => f.GetFiles(orphanPath)).Returns([
             new FileSystemMetadata
             {
                 FullName = TestPath(orphanPath, "poster.jpg"), Name = "poster.jpg", Length = 50_000, IsDirectory = false
             }
         ]);
-        _fileSystemMock.Setup(f => f.GetDirectories(orphanPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(orphanPath)).Returns([]);
 
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];

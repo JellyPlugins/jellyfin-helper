@@ -48,16 +48,18 @@ public interface ITrashService
     ///     Gets a summary of the current trash contents.
     /// </summary>
     /// <param name="trashBasePath">The base path of the trash folder.</param>
+    /// <param name="logger">Optional logger for enumeration warnings.</param>
     /// <returns>A tuple of total size in bytes and item count, or (0, 0) if the trash does not exist.</returns>
-    (long TotalSize, int ItemCount) GetTrashSummary(string trashBasePath);
+    (long TotalSize, int ItemCount) GetTrashSummary(string trashBasePath, ILogger? logger = null);
 
     /// <summary>
     ///     Gets detailed contents of the trash folder, including item name, size, trashed date, and purge date.
     /// </summary>
     /// <param name="trashBasePath">The base path of the trash folder.</param>
     /// <param name="retentionDays">The configured retention days to calculate purge dates.</param>
+    /// <param name="logger">Optional logger for enumeration warnings.</param>
     /// <returns>A list of trash item details.</returns>
-    IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays);
+    IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays, ILogger? logger = null);
 
     /// <summary>
     ///     Relocates all trash contents from an old trash folder to a new trash folder.

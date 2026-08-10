@@ -39,28 +39,24 @@ public class SymlinkHandler : ILinkHandler
     /// <inheritdoc />
     public void WriteTarget(string filePath, string targetPath)
     {
-        var previousTarget = _symlinkHelper.GetSymlinkTarget(filePath);
-        var deleted = false;
+        var tempPath = filePath + ".jfh-tmp";
         try
         {
-            _symlinkHelper.DeleteSymlink(filePath);
-            deleted = true;
-            _symlinkHelper.CreateSymlink(filePath, targetPath);
+            _symlinkHelper.CreateSymlink(tempPath, targetPath);
+            _symlinkHelper.ReplaceSymlink(tempPath, filePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException)
         {
-            if (!deleted || string.IsNullOrWhiteSpace(previousTarget))
-            {
-                throw;
-            }
-
             try
             {
-                _symlinkHelper.CreateSymlink(filePath, previousTarget);
+                if (_symlinkHelper.IsSymlink(tempPath))
+                {
+                    _symlinkHelper.DeleteSymlink(tempPath);
+                }
             }
-            catch (Exception rollbackEx) when (rollbackEx is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            catch
             {
-                // best-effort rollback - ignore errors restoring the original symlink
+                // Best-effort cleanup of temp file; original link was never touched.
             }
 
             throw;

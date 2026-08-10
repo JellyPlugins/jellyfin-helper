@@ -54,6 +54,11 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         var result = new MediaStatisticsResult();
 
+        // Resolve trash folder name once - constant for the entire scan.
+        var scanConfig = _configHelper.GetConfig();
+        var scanTrashFolderName = (scanConfig.TrashFolderPath ?? string.Empty).Trim()
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
         var virtualFolders = _libraryManager.GetVirtualFolders();
         _pluginLog.LogInfo(
             "MediaStatistics",
@@ -97,7 +102,25 @@ public class MediaStatisticsService : IMediaStatisticsService
                     "MediaStatistics",
                     $"Scanning library location: {location} (type: {collectionType})",
                     _logger);
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, location, skipHealth);
+
+                // Pre-compute the resolved absolute trash path once per library root so it
+                // is not re-derived on every recursive directory call.
+                string? resolvedFullTrashPath = null;
+                try
+                {
+                    resolvedFullTrashPath = Path.GetFullPath(_configHelper.GetTrashPath(location))
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    _pluginLog.LogWarning(
+                        "MediaStatistics",
+                        $"Could not resolve trash path for library root: {location}",
+                        ex,
+                        _logger);
+                }
+
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, location, skipHealth, scanTrashFolderName, resolvedFullTrashPath);
             }
 
             _pluginLog.LogDebug(
@@ -138,6 +161,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             $"{result.Libraries.Sum(l => l.OrphanedMetadataDirectories)} orphaned metadata dirs",
             _logger);
 
+        result.ScanTimestamp = DateTime.UtcNow;
         return result;
     }
 
@@ -178,6 +202,31 @@ public class MediaStatisticsService : IMediaStatisticsService
         return lookup;
     }
 
+    private long CalculateTrickplaySize(string directoryPath)
+    {
+        long total = 0;
+        try
+        {
+            foreach (var file in _fileSystem.GetFiles(directoryPath, false))
+            {
+                total += file.Length;
+            }
+
+            foreach (var sub in _fileSystem.GetDirectories(directoryPath, false))
+            {
+                total += CalculateTrickplaySize(sub.FullName);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return total;
+    }
+
     /// <summary>
     ///     Recursively analyzes a directory and accumulates file size statistics.
     /// </summary>
@@ -186,12 +235,21 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="itemLookup">Pre-built lookup of file paths → BaseItem for metadata extraction.</param>
     /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
+    /// <param name="trashFolderName">Pre-resolved trash folder name; passed down to avoid re-reading config on every recursive call.</param>
+    /// <param name="resolvedFullTrashPath">
+    ///     The normalized absolute trash path for this library root, pre-computed by the caller
+    ///     and threaded through every recursive call to avoid re-invoking
+    ///     <see cref="ICleanupConfigHelper.GetTrashPath" /> on every directory.
+    ///     Null when <paramref name="libraryRoot" /> is null.
+    /// </param>
     private bool AnalyzeDirectoryRecursive(
         string directoryPath,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
         string? libraryRoot = null,
-        bool skipHealthChecks = false)
+        bool skipHealthChecks = false,
+        string? trashFolderName = null,
+        string? resolvedFullTrashPath = null)
     {
         var containsVideo = false;
         try
@@ -215,7 +273,13 @@ public class MediaStatisticsService : IMediaStatisticsService
             {
                 var ext = Path.GetExtension(file.FullName);
                 var size = file.Length;
-                hasAnyNonTrickplayFile = true;
+                // Set for any non-trickplay, non-audio file.
+                // Orphaned-metadata detection uses this flag; audio files are excluded to
+                // avoid false positives in audio-only directories.
+                if (!MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
+                {
+                    hasAnyNonTrickplayFile = true;
+                }
 
                 if (MediaExtensions.VideoExtensions.Contains(ext))
                 {
@@ -254,7 +318,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                     stats.NfoFileCount++;
                     hasNfo = true;
                 }
-                else if (MediaExtensions.AudioExtensions.Contains(ext))
+                else if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
                 {
                     stats.AudioSize += size;
                     stats.AudioFileCount++;
@@ -273,14 +337,10 @@ public class MediaStatisticsService : IMediaStatisticsService
             var subDirs = _fileSystem.GetDirectories(directoryPath);
             var subDirHasVideo = false;
 
-            var config = _configHelper.GetConfig();
-            var trashFolderName = (config.TrashFolderPath ?? string.Empty).Trim()
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var fullTrashPath = libraryRoot != null
-                ? Path.GetFullPath(_configHelper.GetTrashPath(libraryRoot))
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                : null;
+            var resolvedTrashFolderName = trashFolderName ?? string.Empty;
 
+            // resolvedFullTrashPath is computed once at the top-level call site and threaded
+            // through every recursive call - no config re-read on each directory.
             foreach (var subDir in subDirs)
             {
                 var normalizedSubDirFullName = Path.GetFullPath(subDir.FullName)
@@ -288,11 +348,11 @@ public class MediaStatisticsService : IMediaStatisticsService
 
                 if (string.Equals(
                         subDir.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                        trashFolderName,
+                        resolvedTrashFolderName,
                         StringComparison.OrdinalIgnoreCase)
-                    || (fullTrashPath != null && string.Equals(
+                    || (resolvedFullTrashPath != null && string.Equals(
                         normalizedSubDirFullName,
-                        fullTrashPath,
+                        resolvedFullTrashPath,
                         StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
@@ -300,11 +360,11 @@ public class MediaStatisticsService : IMediaStatisticsService
 
                 if (subDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
-                    var trickplaySize = FileSystemHelper.CalculateDirectorySize(_fileSystem, subDir.FullName);
+                    var trickplaySize = CalculateTrickplaySize(subDir.FullName);
                     stats.TrickplaySize += trickplaySize;
                     stats.TrickplayFolderCount++;
                 }
-                else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, libraryRoot, skipHealthChecks))
+                else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, libraryRoot, skipHealthChecks, trashFolderName, resolvedFullTrashPath))
                 {
                     subDirHasVideo = true;
                     containsVideo = true;
@@ -320,12 +380,20 @@ public class MediaStatisticsService : IMediaStatisticsService
                 {
                     var videoCount = videoFiles.Count;
 
-                    if (!hasSubs)
+                    // Build a set of video stems that have a matching sidecar subtitle file
+                    var subsStems = files
+                        .Where(f => MediaExtensions.SubtitleExtensions.Contains(Path.GetExtension(f.FullName)))
+                        .Select(f => Path.GetFileNameWithoutExtension(f.FullName))
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var vf2 in videoFiles)
                     {
-                        foreach (var vf2 in videoFiles.Where(vf2 =>
-                                     !HasEmbeddedSubtitles(
-                                         vf2.FullName,
-                                         videoStreamsCache.GetValueOrDefault(vf2.FullName))))
+                        var videoStem = Path.GetFileNameWithoutExtension(vf2.FullName);
+                        var hasSidecar = subsStems.Any(s =>
+                            string.Equals(s, videoStem, StringComparison.OrdinalIgnoreCase) ||
+                            s.StartsWith(videoStem + ".", StringComparison.OrdinalIgnoreCase));
+                        if (!hasSidecar &&
+                            !HasEmbeddedSubtitles(vf2.FullName, videoStreamsCache.GetValueOrDefault(vf2.FullName)))
                         {
                             stats.VideosWithoutSubtitles++;
                             stats.VideosWithoutSubtitlesPaths.Add(vf2.FullName);
@@ -597,10 +665,14 @@ public class MediaStatisticsService : IMediaStatisticsService
         var w = width.Value;
         var h = height.Value;
 
-        // Use the shorter dimension to classify resolution (handles both landscape and portrait orientations)
-        var minDimension = Math.Min(w, h);
+        // Classify by the shorter (vertical for landscape, horizontal for portrait) dimension,
+        // matching the industry convention where resolution labels (1080p, 4K, etc.) refer to
+        // the vertical pixel count for standard aspect ratios.
+        // NOTE: ultra-wide frames (e.g. 3840x1080) will be classified as 1080p because their
+        // short dimension is 1080. This matches the vertical-line naming convention.
+        var shortDimension = Math.Min(w, h);
 
-        return minDimension switch
+        return shortDimension switch
         {
             >= 4320 => "8K", // 7680×4320 or higher (any orientation)
             >= 2160 => "4K", // 3840×2160 (any orientation)

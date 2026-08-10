@@ -22,6 +22,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize(Policy = "RequiresElevation")]
 [Route("JellyfinHelper/Backup")]
 [Produces(MediaTypeNames.Application.Json)]
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType(StatusCodes.Status403Forbidden)]
 public class BackupController : ControllerBase
 {
     private readonly IBackupService _backupService;
@@ -48,14 +50,34 @@ public class BackupController : ControllerBase
     ///     Exports the plugin configuration and historical data as a backup JSON file.
     ///     Includes configuration preferences, Arr integration settings, growth timeline,
     ///     and statistics history. Cleanup statistics are excluded (they reset on fresh installations).
+    ///     By default API keys are omitted from the export. Pass <c>includeSecrets=true</c> to
+    ///     include plaintext credentials - store the resulting file securely.
     /// </summary>
+    /// <param name="includeSecrets">
+    ///     When <c>true</c>, API key values are included in the backup.
+    ///     Defaults to <c>false</c> so exports are safe to share without credential exposure.
+    /// </param>
     /// <returns>A JSON file download containing the backup data.</returns>
     [HttpGet("Export")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public ActionResult ExportBackup()
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public ActionResult ExportBackup([FromQuery] bool includeSecrets = false)
     {
-        var backup = _backupService.CreateBackup();
+        if (_backupService.AnySourceFileOversized())
+        {
+            _pluginLog.LogWarning(
+                "API",
+                $"Backup export rejected: a source data file exceeds the {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB limit.",
+                logger: _logger);
+            return BadRequest(new
+            {
+                message = $"Backup is too large to export. Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB. Check the plugin logs for details."
+            });
+        }
+
+        var backup = _backupService.CreateBackup(includeSecrets);
         var json = BackupService.SerializeBackup(backup);
 
         var bytes = Encoding.UTF8.GetBytes(json);
@@ -98,33 +120,45 @@ public class BackupController : ControllerBase
     [HttpPost("Import")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     [Consumes("application/json")]
     public async Task<ActionResult> ImportBackupAsync()
     {
+        if (!Request.HasJsonContentType())
+        {
+            return BadRequest(new { message = "Expected Content-Type: application/json" });
+        }
+
         try
         {
-            // Early rejection based on Content-Length header (before reading entire body)
-            var contentLength = Request.ContentLength ?? 0;
-            switch (contentLength)
+            // Early rejection based on Content-Length header (before reading entire body).
+            // Only act when Content-Length is explicitly provided; absent headers (chunked
+            // transfer encoding) fall through to the streaming size-enforcement below.
+            if (Request.ContentLength is long cl)
             {
-                case > BackupService.MaxBackupSizeBytes:
+                if (cl > BackupService.MaxBackupSizeBytes)
+                {
                     _pluginLog.LogWarning(
                         "API",
-                        $"Backup import rejected: Content-Length too large ({FormatBackupSize(contentLength)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
+                        $"Backup import rejected: Content-Length too large ({FormatBackupSize(cl)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
                         logger: _logger);
                     return BadRequest(
                         new
                         {
                             message =
-                                $"Backup too large ({FormatBackupSize(contentLength)}). Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB."
+                                $"Backup too large ({FormatBackupSize(cl)}). Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB."
                         });
-                case >= BackupService.LargeBackupWarningThresholdBytes:
+                }
+
+                if (cl >= BackupService.LargeBackupWarningThresholdBytes)
+                {
                     _pluginLog.LogWarning(
                         "API",
-                        $"Large backup import detected: {FormatBackupSize(contentLength)} of {FormatBackupSize(BackupService.MaxBackupSizeBytes)} limit.",
+                        $"Large backup import detected: {FormatBackupSize(cl)} of {FormatBackupSize(BackupService.MaxBackupSizeBytes)} limit.",
                         logger: _logger);
-                    break;
+                }
             }
 
             string json;
@@ -165,13 +199,18 @@ public class BackupController : ControllerBase
                         buffer,
                         Encoding.UTF8,
                         true,
-                        leaveOpen: false);
+                        leaveOpen: true);
                     json = await reader.ReadToEndAsync(HttpContext.RequestAborted).ConfigureAwait(false);
                 }
                 finally
                 {
                     await buffer.DisposeAsync().ConfigureAwait(false);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected or request was aborted - do not return a 400.
+                throw;
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or DecoderFallbackException)
             {
@@ -198,7 +237,7 @@ public class BackupController : ControllerBase
             }
 
             // Deserialize
-            var backup = BackupService.DeserializeBackup(json);
+            var backup = BackupService.DeserializeBackup(json, _logger);
             if (backup == null)
             {
                 _pluginLog.LogWarning(
@@ -238,8 +277,7 @@ public class BackupController : ControllerBase
                 return BadRequest(
                     new
                     {
-                        message =
-                            $"Backup validation failed with {validation.Errors.Count} error(s). Check the plugin logs for details.",
+                        message = $"Backup validation failed with {validation.Errors.Count} error(s). Check plugin logs for details.",
                         errors = validation.Errors,
                         warnings = validation.Warnings
                     });
@@ -262,7 +300,8 @@ public class BackupController : ControllerBase
                     {
                         summary.ConfigurationRestored,
                         summary.TimelineRestored,
-                        summary.BaselineRestored
+                        summary.BaselineRestored,
+                        summary.CredentialsChanged
                     }
                 });
         }

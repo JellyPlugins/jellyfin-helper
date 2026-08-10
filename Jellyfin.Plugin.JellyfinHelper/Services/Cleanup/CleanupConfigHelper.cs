@@ -84,6 +84,11 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         return IsDryRun(GetConfig().LinkRepairTaskMode);
     }
 
+    // NOTE: each IsDryRun* method above fetches config independently via GetConfig().
+    // If a caller needs to check multiple modes in one task execution, call GetConfig()
+    // once at the call site and read the TaskMode properties directly to avoid
+    // redundant configuration fetches.
+
     /// <inheritdoc />
     public IReadOnlyList<string> GetFilteredLibraryLocations(ILibraryManager libraryManager)
     {
@@ -123,12 +128,11 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return true;
         });
 
-        // Additional safety: filter out any locations that point to Jellyfin's internal
+        // Filter out any locations that point to Jellyfin's internal
         // collections directory (typically /config/data/collections or similar).
         return filteredFolders
             .SelectMany(f => f.Locations ?? [])
-            .Where(loc => !loc.Contains("/collections", StringComparison.OrdinalIgnoreCase)
-                          && !loc.Contains("\\collections", StringComparison.OrdinalIgnoreCase))
+            .Where(loc => !IsCollectionsPath(loc))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -150,7 +154,15 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 return false;
             }
 
-            var age = DateTime.UtcNow - dirInfo.CreationTimeUtc;
+            var created = dirInfo.CreationTimeUtc < dirInfo.LastWriteTimeUtc
+                ? dirInfo.CreationTimeUtc
+                : dirInfo.LastWriteTimeUtc;
+            if (created.Year < 1980)
+            {
+                return false;
+            }
+
+            var age = DateTime.UtcNow - created;
             return age.TotalDays >= config.OrphanMinAgeDays;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -177,7 +189,15 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 return false;
             }
 
-            var age = DateTime.UtcNow - fileInfo.CreationTimeUtc;
+            var created = fileInfo.CreationTimeUtc < fileInfo.LastWriteTimeUtc
+                ? fileInfo.CreationTimeUtc
+                : fileInfo.LastWriteTimeUtc;
+            if (created.Year < 1980)
+            {
+                return false;
+            }
+
+            var age = DateTime.UtcNow - created;
             return age.TotalDays >= config.OrphanMinAgeDays;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -200,7 +220,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
         if (Path.IsPathFullyQualified(trashPath))
         {
-            // Safety: absolute trash path must not be the library root itself.
+            // Absolute trash path must not be the library root itself.
             // If it is, TrashService would treat every source file as "already in trash" and skip all moves.
             try
             {
@@ -225,7 +245,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         }
 
         // Resolve relative path against the library root and verify it does not escape
-        // via ".." sequences. Path.Join does not resolve ".." — only GetFullPath does.
+        // via ".." sequences. Path.Join does not resolve ".." - only GetFullPath does.
         // Guard against malformed or excessively long paths that would otherwise throw.
         string resolved;
         string normalizedRoot;
@@ -249,14 +269,14 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
         if (string.Equals(resolvedTrimmed, rootTrimmed, pathComparison))
         {
-            // TrashFolderPath resolves to the library root itself (e.g. ".") — not safe.
+            // TrashFolderPath resolves to the library root itself (e.g. ".") - not safe.
             return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
 
         var rootPrefix = rootTrimmed + Path.DirectorySeparatorChar;
         if (!resolved.StartsWith(rootPrefix, pathComparison))
         {
-            // Relative path escapes the library root — fall back to the safe default.
+            // Relative path escapes the library root - fall back to the safe default.
             // Note: admins who intend a path outside the library root should use an absolute path.
             return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
@@ -277,9 +297,33 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return existingPaths;
         }
 
+        // Fetch virtual folders once; derive both collections from the same snapshot.
+        var virtualFolders = libraryManager.GetVirtualFolders();
+
         // Use ALL library roots (unfiltered) for the safety guard so that music, boxset,
         // and user-excluded libraries are still protected from accidental deletion/relocation.
-        var allLibraryRoots = GetAllLibraryLocations(libraryManager);
+        var allLibraryRoots = virtualFolders
+            .SelectMany(f => f.Locations ?? [])
+            .Where(loc => !string.IsNullOrWhiteSpace(loc))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Pre-normalize all roots once so the inner Any check is O(n) rather than O(n*m).
+        var comparison = GetOsPathComparison();
+        var normalizedAllRoots = new List<string>(allLibraryRoots.Count);
+        foreach (var root in allLibraryRoots)
+        {
+            try
+            {
+                normalizedAllRoots.Add(
+                    Path.GetFullPath(root)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                // Skip roots whose paths cannot be resolved
+            }
+        }
 
         if (Path.IsPathFullyQualified(queryPath))
         {
@@ -288,15 +332,11 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             {
                 var fullPath = Path.GetFullPath(queryPath);
 
-                // Safety: never report a library root as an existing trash folder.
+                // Never report a library root as an existing trash folder.
                 // If it were reported, the relocate/delete flow could target the entire library.
                 var fullPathTrimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var comparison = GetOsPathComparison();
-                var isLibraryRoot = allLibraryRoots.Any(root =>
-                    string.Equals(
-                        Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                        fullPathTrimmed,
-                        comparison));
+                var isLibraryRoot = normalizedAllRoots.Any(root =>
+                    string.Equals(root, fullPathTrimmed, comparison));
 
                 if (isLibraryRoot)
                 {
@@ -315,9 +355,40 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         }
         else
         {
-            // Relative path: resolve per filtered library (only managed libraries have trash)
-            var libraryFolders = GetFilteredLibraryLocations(libraryManager);
-            var comparison = GetOsPathComparison();
+            // Relative path: resolve per filtered library (only managed libraries have trash).
+            // Derive the filtered set from the already-fetched virtualFolders snapshot.
+            var config = GetConfig();
+            var excludedSet = ParseCommaSeparated(config.ExcludedLibraries);
+            var libraryFolders = virtualFolders
+                .Where(f =>
+                {
+                    var name = f.Name ?? string.Empty;
+
+                    // Always exclude non-video library types
+                    if (f.CollectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets)
+                    {
+                        return false;
+                    }
+
+                    // Fallback: also exclude by name pattern in case CollectionType is null/unknown
+                    if (name.Contains("collection", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("boxset", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+
+                    if (excludedSet.Count > 0 && excludedSet.Contains(name))
+                    {
+                        return false;
+                    }
+
+                    return true;
+                })
+                .SelectMany(f => f.Locations ?? [])
+                .Where(loc => !IsCollectionsPath(loc))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             foreach (var folder in libraryFolders)
             {
                 try
@@ -333,14 +404,11 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                         continue;
                     }
 
-                    // Safety: never report ANY library root as an existing trash folder.
+                    // Never report ANY library root as an existing trash folder.
                     // Check against all roots (not just filtered) to protect music/boxset libraries too.
                     var resolvedTrimmed = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    var isAnyLibraryRoot = allLibraryRoots.Any(root =>
-                        string.Equals(
-                            Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                            resolvedTrimmed,
-                            comparison));
+                    var isAnyLibraryRoot = normalizedAllRoots.Any(root =>
+                        string.Equals(root, resolvedTrimmed, comparison));
 
                     if (isAnyLibraryRoot)
                     {
@@ -364,29 +432,13 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
     // ===== Private helpers =====
 
-    /// <summary>
-    ///     Gets ALL library root locations from the library manager without any filtering.
-    ///     Used exclusively for safety guards (e.g., preventing trash operations on any library root)
-    ///     where even music, boxset, and user-excluded libraries must be protected.
-    /// </summary>
-    /// <param name="libraryManager">The library manager.</param>
-    /// <returns>A deduplicated list of all library root paths.</returns>
-    private static List<string> GetAllLibraryLocations(ILibraryManager libraryManager)
-    {
-        return libraryManager.GetVirtualFolders()
-            .SelectMany(f => f.Locations ?? [])
-            .Where(loc => !string.IsNullOrWhiteSpace(loc))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
     // ===== Pure static helpers (no state, no config access) =====
 
     /// <summary>
     ///     Returns the OS-appropriate <see cref="StringComparison" /> for file-system path comparisons.
     ///     Note: macOS is treated as case-insensitive because the overwhelming majority of installations
     ///     use case-insensitive APFS/HFS+. While case-sensitive APFS volumes exist, using OrdinalIgnoreCase
-    ///     is the safer default for a cleanup/trash tool — it may produce false positives (treating two
+    ///     is the safer default for a cleanup/trash tool - it may produce false positives (treating two
     ///     case-differing paths as identical) but never false negatives (missing a match that could lead
     ///     to operating on a library root). If case-sensitive macOS volumes become a reported issue,
     ///     a volume-aware probe can be added here.
@@ -400,14 +452,38 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
     /// <summary>
     ///     Determines whether a task should run in dry-run mode based on its <see cref="TaskMode" />.
-    ///     Returns true for <see cref="TaskMode.DryRun" />, false for <see cref="TaskMode.Activate" />.
-    ///     Should NOT be called if the task mode is <see cref="TaskMode.Deactivate" /> (check first).
+    ///     Returns true only for <see cref="TaskMode.DryRun" />; false for all other modes.
+    ///     Callers must handle <see cref="TaskMode.Deactivate" /> separately before calling this.
     /// </summary>
     /// <param name="mode">The task mode.</param>
     /// <returns>True if the task should run in dry-run mode.</returns>
     public static bool IsDryRun(TaskMode mode)
     {
-        return mode != TaskMode.Activate;
+        return mode == TaskMode.DryRun;
+    }
+
+    /// <summary>
+    ///     Returns true when any path segment of <paramref name="location" /> is exactly "collections"
+    ///     (case-insensitive). Handles both forward-slash and backslash separators.
+    ///     Used to exclude Jellyfin's internal collections directory from all library-location filters.
+    /// </summary>
+    /// <param name="location">The filesystem path to test.</param>
+    /// <returns>
+    ///     <see langword="true" /> when a segment of the path equals "collections" (case-insensitive);
+    ///     otherwise <see langword="false" />.
+    /// </returns>
+    internal static bool IsCollectionsPath(string location)
+    {
+        if (string.IsNullOrEmpty(location))
+        {
+            return false;
+        }
+
+        // Split on all three possible separators so the check works correctly on both
+        // Linux (separator='/') and Windows (separator='\'), including Windows-style paths
+        // stored in config on a Linux host.
+        var segments = location.Split('/', '\\');
+        return segments.Any(s => string.Equals(s, "collections", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
@@ -30,7 +31,15 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _baselineFilePath;
     private readonly ICleanupConfigHelper _configHelper;
+
+    // Guards individual file I/O operations (load/save).
     private readonly SemaphoreSlim _fileLock = new(1, 1);
+
+    // Guards the entire load-compute-save sequence so two concurrent invocations of
+    // ComputeTimelineAsync cannot both read the same baseline and then overwrite each
+    // other's results (TOCTOU on the baseline/timeline files).
+    private readonly SemaphoreSlim _computeLock = new(1, 1);
+
     private readonly IFileSystem _fileSystem;
 
     private readonly ILibraryManager _libraryManager;
@@ -89,6 +98,13 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        // Serialise the entire read-compute-write sequence. Without this gate two concurrent
+        // callers (e.g. a scheduled task and an API-triggered scan) both read the same baseline,
+        // compute independently, and the second SaveBaseline/SaveTimeline call silently discards
+        // the first caller's updates (TOCTOU on the persisted files).
+        await _computeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
         var now = DateTime.UtcNow;
         var currentDirs = CollectDirectoryEntries(cancellationToken);
 
@@ -214,7 +230,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
             // Calculate current absolute totals in a single pass (avoids two iterations)
             long currentTotalSize = 0;
-            var currentTotalCount = 0;
+            long currentTotalCount = 0;
             foreach (var dir in currentDirs)
             {
                 currentTotalSize += dir.Size;
@@ -298,7 +314,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             Granularity = finalGranularity,
             EarliestFileDate = dataPoints[0].Date,
             ComputedAt = now,
-            TotalFilesScanned = currentDirs.Count,
+            TotalDirectoriesScanned = currentDirs.Count,
             FirstScanTimestamp = baseline.FirstScanTimestamp
         };
 
@@ -316,6 +332,11 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             $"Growth timeline computed: {dataPoints.Count} data points ({finalGranularity})",
             _logger);
         return result;
+        }
+        finally
+        {
+            _computeLock.Release();
+        }
     }
 
     /// <summary>
@@ -434,9 +455,19 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
                     // Use directory creation date as "when this media was added"
                     var createdUtc = Directory.GetCreationTimeUtc(subDir.FullName);
-                    if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+                    if (createdUtc.Year < 1990)
                     {
-                        continue;
+                        // Fall back to last-write time on filesystems that don't track creation
+                        // time (e.g. Linux ext4), matching the same pattern used for files below.
+                        var fallback = Directory.GetLastWriteTimeUtc(subDir.FullName);
+                        if (fallback.Year >= 1990)
+                        {
+                            createdUtc = DateTime.SpecifyKind(fallback, DateTimeKind.Utc);
+                        }
+                        else
+                        {
+                            continue;
+                        }
                     }
 
                     // Sum up all file sizes recursively within this directory
@@ -465,18 +496,18 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                 {
                     var ext = Path.GetExtension(file.FullName);
                     if (!MediaExtensions.VideoExtensions.Contains(ext) &&
-                        !MediaExtensions.AudioExtensions.Contains(ext))
+                        !MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
                     {
                         continue;
                     }
 
                     var createdUtc = File.GetCreationTimeUtc(file.FullName);
-                    if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+                    if (createdUtc.Year < 1990)
                     {
                         createdUtc = File.GetLastWriteTimeUtc(file.FullName);
                     }
 
-                    if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+                    if (createdUtc.Year < 1990)
                     {
                         continue;
                     }
@@ -530,10 +561,10 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Calculates the total size of all files within a directory (recursively).
-    ///     Discovered child directories that are symlinks or junction points are skipped
-    ///     to prevent infinite loops caused by circular directory structures (A → B → A).
-    ///     Note: the root <paramref name="directoryPath"/> itself is not checked for reparse points.
+    ///     Calculates the total size of all files within a directory tree (iterative, stack-based).
+    ///     Symlinks and junction points are skipped to prevent cycles. The explicit stack eliminates
+    ///     the StackOverflowException risk that a recursive implementation would carry on very deep
+    ///     or pathologically wide library trees.
     /// </summary>
     /// <param name="directoryPath">The directory to measure.</param>
     /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
@@ -547,55 +578,63 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         CancellationToken cancellationToken)
     {
         long total = 0;
-        try
+        var stack = new Stack<string>();
+        stack.Push(directoryPath);
+
+        while (stack.Count > 0)
         {
-            foreach (var file in _fileSystem.GetFiles(directoryPath))
+            cancellationToken.ThrowIfCancellationRequested();
+            var current = stack.Pop();
+
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                total += file.Length;
-            }
+                foreach (var file in _fileSystem.GetFiles(current))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    total += file.Length;
+                }
 
-            foreach (var subDir in _fileSystem.GetDirectories(directoryPath))
+                foreach (var subDir in _fileSystem.GetDirectories(current))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var dirName = Path.GetFileName(subDir.FullName);
+
+                    // Skip .trickplay and trash subdirectories
+                    if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                    {
+                        continue;
+                    }
+
+                    // Never follow symlinks or junction points - they can form cycles (A → B → A).
+                    FileAttributes attributes;
+                    try
+                    {
+                        attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogDebug(
+                            "GrowthTimeline",
+                            $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
+                            _logger);
+                        continue;
+                    }
+
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+
+                    stack.Push(subDir.FullName);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var dirName = Path.GetFileName(subDir.FullName);
-
-                // Skip .trickplay and trash subdirectories
-                if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
-                {
-                    continue;
-                }
-
-                // Never follow symlinks or junction points — they can form cycles (A → B → A)
-                // that cause infinite recursion and a StackOverflowException.
-                FileAttributes attributes;
-                try
-                {
-                    attributes = new DirectoryInfo(subDir.FullName).Attributes;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    _pluginLog.LogDebug(
-                        "GrowthTimeline",
-                        $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
-                        _logger);
-                    continue;
-                }
-
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    continue;
-                }
-
-                total += GetDirectorySize(subDir.FullName, trashFolderName, fullTrashPath, cancellationToken);
+                _pluginLog.LogDebug(
+                    "GrowthTimeline",
+                    $"Skipping inaccessible directory: {current}: {ex.Message}",
+                    _logger);
             }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _pluginLog.LogDebug(
-                "GrowthTimeline",
-                $"Skipping inaccessible directory: {directoryPath}: {ex.Message}",
-                _logger);
         }
 
         return total;
@@ -644,14 +683,8 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var directory = Path.GetDirectoryName(_baselineFilePath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
             var json = JsonSerializer.Serialize(baseline, JsonOptions);
-            await File.WriteAllTextAsync(_baselineFilePath, json, cancellationToken).ConfigureAwait(false);
+            await AtomicFile.WriteAllTextAsync(_baselineFilePath, json, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -677,14 +710,8 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var directory = Path.GetDirectoryName(_timelineFilePath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
             var json = JsonSerializer.Serialize(result, JsonOptions);
-            await File.WriteAllTextAsync(_timelineFilePath, json, cancellationToken).ConfigureAwait(false);
+            await AtomicFile.WriteAllTextAsync(_timelineFilePath, json, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -709,6 +736,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         if (disposing)
         {
             _fileLock.Dispose();
+            _computeLock.Dispose();
         }
     }
 
@@ -719,7 +747,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     {
         public DateTime CreatedUtc;
         public long Size;
-        public int CountDelta;
+        public long CountDelta;
     }
 
     /// <summary>
@@ -731,6 +759,6 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         public string Path;
         public DateTime CreatedUtc;
         public long Size;
-        public int Count;
+        public long Count;
     }
 }

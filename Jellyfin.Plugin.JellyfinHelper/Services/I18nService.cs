@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
@@ -18,7 +19,7 @@ public static class I18NService
 {
     private static readonly Assembly ThisAssembly = typeof(I18NService).Assembly;
 
-    private static readonly ConcurrentDictionary<string, Dictionary<string, string>> Cache =
+    private static readonly ConcurrentDictionary<string, Lazy<Dictionary<string, string>>> Cache =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -51,10 +52,17 @@ public static class I18NService
             lang = "en";
         }
 
-        // Load from cache or parse the embedded JSON resource.
-        var cached = Cache.GetOrAdd(lang, static key => LoadFromResource(key));
+        // GetOrAdd with Lazy<T> ensures LoadFromResource is called at most once per language,
+        // even under concurrent first-load requests.
+        var lazy = Cache.GetOrAdd(lang, static key => new Lazy<Dictionary<string, string>>(
+            () => LoadFromResource(key),
+            LazyThreadSafetyMode.PublicationOnly));
+        var cached = lazy.Value;
 
-        pluginLog?.LogDebug("I18n", $"Loaded {cached.Count} translation keys for '{lang}'.");
+        if (pluginLog != null)
+        {
+            pluginLog.LogDebug("I18n", $"Loaded {cached.Count} translation keys for '{lang}'.");
+        }
 
         // Return a defensive copy so callers cannot mutate the cache.
         return new Dictionary<string, string>(cached, StringComparer.Ordinal);

@@ -58,9 +58,9 @@ public sealed class RecommendationResult
     ///     Assigned by <see cref="Scoring.IStrategySelector.GetCohortName"/> based on
     ///     deterministic user-ID hashing. Possible values:
     ///     <list type="bullet">
-    ///       <item><description><c>"control"</c> — baseline alpha (no offset applied).</description></item>
-    ///       <item><description><c>"explore-high"</c> — positive alpha offset (more ML weight).</description></item>
-    ///       <item><description><c>"explore-low"</c> — negative alpha offset (more heuristic weight).</description></item>
+    ///       <item><description><c>"control"</c> - baseline alpha (no offset applied).</description></item>
+    ///       <item><description><c>"explore-high"</c> - positive alpha offset (more ML weight).</description></item>
+    ///       <item><description><c>"explore-low"</c> - negative alpha offset (more heuristic weight).</description></item>
     ///     </list>
     ///     Returns <c>"control"</c> when alpha exploration is inactive (insufficient training data).
     ///     May be <c>null</c> for results that bypass the strategy selector entirely.

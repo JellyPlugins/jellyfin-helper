@@ -56,9 +56,12 @@ public class LibraryInsightsController : ControllerBase
             return Ok(cached);
         }
 
-        await CacheFillLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var acquired = false;
         try
         {
+            await CacheFillLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            acquired = true;
+
             // Double-check: another thread may have populated the cache while we waited
             if (_cache.TryGetValue(InsightsCacheKey, out cached) && cached != null)
             {
@@ -71,7 +74,10 @@ public class LibraryInsightsController : ControllerBase
         }
         finally
         {
-            CacheFillLock.Release();
+            if (acquired)
+            {
+                CacheFillLock.Release();
+            }
         }
     }
 }

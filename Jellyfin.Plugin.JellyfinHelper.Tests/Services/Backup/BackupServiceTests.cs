@@ -15,12 +15,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 /// </summary>
 public class BackupServiceTests
 {
+    private static readonly DateTime ReferenceTime = new DateTime(2025, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+
     private static BackupData CreateValidBackup()
     {
         var backup = new BackupData
         {
             BackupVersion = 1,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = ReferenceTime,
             PluginVersion = "1.0.0",
             Language = "en",
             ExcludedLibraries = "",
@@ -105,7 +107,7 @@ public class BackupServiceTests
     public void Validate_FutureTimestamp_ReturnsWarning()
     {
         var backup = CreateValidBackup();
-        backup.CreatedAt = DateTime.UtcNow.AddDays(5);
+        backup.CreatedAt = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var result = BackupValidator.Validate(backup);
 
         Assert.True(result.IsValid);
@@ -389,7 +391,7 @@ public class BackupServiceTests
         for (var i = 0; i < BackupValidator.MaxTimelineDataPoints + 100; i++)
             backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
             {
-                Date = DateTime.UtcNow.AddDays(-i),
+                Date = ReferenceTime.AddDays(-i),
                 CumulativeSize = i * 1000,
                 CumulativeFileCount = i
             });
@@ -407,7 +409,7 @@ public class BackupServiceTests
         backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
         backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
         {
-            Date = DateTime.UtcNow,
+            Date = ReferenceTime,
             CumulativeSize = -1000
         });
 
@@ -439,7 +441,7 @@ public class BackupServiceTests
             {
                 ["<script>alert(1)</script>"] = new BaselineDirectoryEntry
                 {
-                    CreatedUtc = DateTime.UtcNow,
+                    CreatedUtc = ReferenceTime,
                     Size = 1000
                 }
             }
@@ -461,7 +463,7 @@ public class BackupServiceTests
             {
                 [new string('A', 1001)] = new BaselineDirectoryEntry
                 {
-                    CreatedUtc = DateTime.UtcNow,
+                    CreatedUtc = ReferenceTime,
                     Size = 1000
                 }
             }
@@ -685,7 +687,7 @@ public class BackupServiceTests
         var backup = new BackupData
         {
             BackupVersion = 1,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = ReferenceTime
         };
         var result = BackupValidator.Validate(backup);
 
@@ -788,12 +790,12 @@ public class BackupServiceTests
             backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
             backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
             {
-                Date = DateTime.UtcNow,
+                Date = ReferenceTime,
                 CumulativeSize = 1000
             });
             backup.GrowthBaseline = new GrowthTimelineBaseline
             {
-                FirstScanTimestamp = DateTime.UtcNow
+                FirstScanTimestamp = ReferenceTime
             };
             // RestoreBackup won't restore config (no Plugin.Instance), but should write files
             var summary = service.RestoreBackup(backup);
@@ -855,6 +857,58 @@ public class BackupServiceTests
     }
 
     [Fact]
+    public void SeerrCleanupAgeDays_BelowMin_ClampedToZero()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrCleanupAgeDays = -5;
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal(0, backup.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void SeerrCleanupAgeDays_AboveMax_ClampedToMax()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrCleanupAgeDays = 99999;
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal(BackupValidator.MaxRetentionDays, backup.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void SeerrCleanupAgeDays_Null_LeftNull()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrCleanupAgeDays = null;
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Null(backup.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void TimelineTrimming_OverLimit_OldestRemoved()
+    {
+        var backup = CreateValidBackup();
+        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
+        var totalPoints = BackupValidator.MaxTimelineDataPoints + 5;
+        for (var i = 0; i < totalPoints; i++)
+            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
+            {
+                Date = ReferenceTime.AddDays(-i),
+                CumulativeSize = i * 1000,
+                CumulativeFileCount = i
+            });
+
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal(BackupValidator.MaxTimelineDataPoints, backup.GrowthTimeline.DataPoints.Count);
+        // All remaining points should be the newest (closest to ReferenceTime)
+        Assert.All(backup.GrowthTimeline.DataPoints,
+            p => Assert.True(p.Date >= ReferenceTime.AddDays(-(BackupValidator.MaxTimelineDataPoints - 1))));
+    }
+
+    [Fact]
     public void Sanitize_InvalidSeerrCleanupTaskMode_DefaultsToDeactivate()
     {
         var backup = CreateValidBackup();
@@ -872,5 +926,42 @@ public class BackupServiceTests
         BackupSanitizer.Sanitize(backup);
 
         Assert.Equal("DryRun", backup.RecommendationsTaskMode);
+    }
+
+    // ===== ValidateGrowthTimeline: loop breaks once both flags set (#335) =====
+
+    [Fact]
+    public void Validate_TimelineWithBothNegativeSizeAndCount_EmitsBothWarningsOnce()
+    {
+        var backup = CreateValidBackup();
+        var timeline = new GrowthTimelineResult { Granularity = "monthly" };
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -1, CumulativeFileCount = -1 });
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 2, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -2, CumulativeFileCount = -2 });
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -3, CumulativeFileCount = -3 });
+        backup.GrowthTimeline = timeline;
+
+        var result = BackupValidator.Validate(backup);
+
+        // Should warn exactly once per flag (break fires as soon as both are set)
+        Assert.Equal(1, result.Warnings.Count(w => w.Contains("negative cumulative size")));
+        Assert.Equal(1, result.Warnings.Count(w => w.Contains("negative cumulative file count")));
+    }
+
+    // ===== Baseline path: injection check runs unconditionally before length check (#339) =====
+
+    [Fact]
+    public void Validate_BaselinePathWithScriptInjectionAndLongPath_ReportsInjectionError()
+    {
+        var backup = CreateValidBackup();
+        // Path that both triggers script injection AND exceeds length limit.
+        // Injection check must fire (not be skipped by a length-guard continue).
+        var injectionPath = "<script>x</script>" + new string('A', 990);
+        var baseline = new GrowthTimelineBaseline();
+        baseline.Directories[injectionPath] = new BaselineDirectoryEntry { Size = 100, Count = 1 };
+        backup.GrowthBaseline = baseline;
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Errors, e => e.Contains("script injection"));
     }
 }

@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -95,7 +92,7 @@ public class UserActivityUpdateTaskTests
         var sut = CreateSut();
 
         // Act
-        await sut.ExecuteAsync(new Progress<double>(), CancellationToken.None, Configuration.TaskMode.DryRun);
+        await sut.ExecuteAsync(new Progress<double>(), CancellationToken.None, TaskMode.DryRun);
 
         // Assert - dry-run still builds the report but does NOT persist to cache
         _insightsMock.Verify(x => x.BuildActivityReport(), Times.Once);
@@ -109,7 +106,7 @@ public class UserActivityUpdateTaskTests
         var sut = CreateSut();
 
         // Act
-        await sut.ExecuteAsync(new Progress<double>(), CancellationToken.None, Configuration.TaskMode.Deactivate);
+        await sut.ExecuteAsync(new Progress<double>(), CancellationToken.None, TaskMode.Deactivate);
 
         // Assert - Deactivate is a true no-op: no report building, no cache save
         _insightsMock.Verify(x => x.BuildActivityReport(), Times.Never);

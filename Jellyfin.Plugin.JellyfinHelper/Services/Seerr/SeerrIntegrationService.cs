@@ -49,12 +49,22 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         string apiKey,
         CancellationToken cancellationToken)
     {
+        // Validate inputs before entering the catch-all try block so programming-error
+        // exceptions (invalid key format) propagate instead of being swallowed as
+        // connection failures.
+        if (apiKey.Contains('\r', StringComparison.Ordinal)
+            || apiKey.Contains('\n', StringComparison.Ordinal)
+            || apiKey.Contains('\t', StringComparison.Ordinal)
+            || apiKey.Contains('\0', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
+        }
+
         try
         {
-            using var client = CreateClient(baseUrl, apiKey);
-            using var response = await client.GetAsync(
-                new Uri("api/v1/settings/main", UriKind.Relative),
-                cancellationToken).ConfigureAwait(false);
+            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
+            using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
+            using var response = await client.SendAsync(req, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -96,10 +106,12 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         var result = new SeerrCleanupResult { DryRun = dryRun };
         var cutoffDate = DateTimeOffset.UtcNow.AddDays(-maxAgeDays);
 
-        HttpClient unsafeClient;
+        HttpClient client;
+        Uri baseUri;
+        string key;
         try
         {
-            unsafeClient = CreateClient(baseUrl, apiKey);
+            (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException or FormatException)
         {
@@ -112,12 +124,12 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             return result;
         }
 
-        using var client = unsafeClient;
-
         // Phase 1: Paginate through all requests and collect expired ones
         var expiredRequests = new List<SeerrRequest>();
         var skip = 0;
         bool hasMore;
+        var phaseOneFailed = false;
+        const int MaxPages = 200;
 
         do
         {
@@ -128,9 +140,8 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             SeerrRequestPage? page;
             try
             {
-                using var response = await client.GetAsync(
-                    new Uri(requestUrl, UriKind.Relative),
-                    cancellationToken).ConfigureAwait(false);
+                using var pageReq = BuildRequest(HttpMethod.Get, baseUri, requestUrl, key);
+                using var response = await client.SendAsync(pageReq, cancellationToken).ConfigureAwait(false);
 
                 response.EnsureSuccessStatusCode();
 
@@ -144,6 +155,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
                 result.Failed++;
+                phaseOneFailed = true;
                 _pluginLog.LogWarning(
                     "SeerrCleanup",
                     $"Timed out fetching requests page (skip={skip}): {ex.Message}",
@@ -154,6 +166,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             catch (Exception ex) when (ex is HttpRequestException or JsonException)
             {
                 result.Failed++;
+                phaseOneFailed = true;
                 _pluginLog.LogWarning(
                     "SeerrCleanup",
                     $"Failed to fetch requests page (skip={skip}): {ex.Message}",
@@ -165,6 +178,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             if (page?.Results == null)
             {
                 result.Failed++;
+                phaseOneFailed = true;
                 _pluginLog.LogWarning(
                     "SeerrCleanup",
                     $"Unexpected null response deserializing requests page (skip={skip})",
@@ -180,6 +194,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             if (page.PageInfo == null)
             {
                 result.Failed++;
+                phaseOneFailed = true;
                 _pluginLog.LogWarning(
                     "SeerrCleanup",
                     "Unexpected API response: missing pageInfo, aborting pagination",
@@ -191,8 +206,28 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             {
                 result.TotalChecked++;
 
-                // Compare dates in UTC to avoid timezone issues
-                if (request.CreatedAt >= cutoffDate)
+                // Fail CLOSED on unknown creation date: only delete when we have a genuinely parsed,
+                // non-default timestamp strictly older than the cutoff. A missing/null createdAt
+                // (fork / reshaped API / reverse proxy) deserializes to null and MUST be preserved -
+                // otherwise brand-new requests get deleted and the maxAgeDays safety is bypassed.
+                // A future-dated timestamp is likewise not "expired".
+                var createdAt = request.CreatedAt;
+                if (createdAt is null
+                    || createdAt.Value == default
+                    || createdAt.Value >= cutoffDate
+                    || createdAt.Value > DateTimeOffset.UtcNow)
+                {
+                    continue;
+                }
+
+                // Allowlist, not denylist: only PENDING (1) and DECLINED (3) requests are ever safe
+                // to delete. A denylist ("skip 2/4/5") fails OPEN - a missing status field
+                // (deserializes to 0) or a future/unknown Seerr status code would fall through and be
+                // deleted. Approved/available/failed/completed and any unrecognized status must be
+                // preserved, since Seerr uses them to track downloads and deleting them can trigger
+                // duplicate re-requests. (Current Jellyseerr: 1=pending, 2=approved, 3=declined,
+                // 4=failed, 5=completed.)
+                if (request.Status is not (1 or 3))
                 {
                     continue;
                 }
@@ -201,47 +236,57 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 expiredRequests.Add(request);
             }
 
-            skip += page.Results.Count;
-            hasMore = skip < page.PageInfo.Results;
+            skip += PageSize;
+            hasMore = skip < page.PageInfo.Results && (skip / PageSize) < MaxPages;
         }
         while (hasMore);
 
-        // Phase 2: Process expired requests (log in dry-run, delete otherwise)
-        // Cache resolved titles to avoid redundant API calls for the same TMDB ID
+        // Phase 2: skip deletion if Phase 1 did not complete cleanly
+        if (phaseOneFailed)
+        {
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                "Phase 1 pagination did not complete successfully; skipping deletion to avoid acting on an incomplete snapshot.",
+                logger: _logger);
+            return result;
+        }
+
         var titleCache = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var request in expiredRequests)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var mediaTitle = await ResolveMediaTitleCachedAsync(client, request.Media, titleCache, cancellationToken).ConfigureAwait(false);
+            // Guaranteed non-null: every item in expiredRequests passed the fail-closed age guard above.
+            var createdAt = request.CreatedAt!.Value;
+
+            var mediaTitle = await ResolveMediaTitleCachedAsync(client, baseUri, key, request.Media, titleCache, cancellationToken).ConfigureAwait(false);
             var mediaInfo = request.Media != null
                 ? $"\"{mediaTitle}\" ({request.Media.MediaType}, TMDB: {request.Media.TmdbId})"
                 : $"request #{request.Id}";
 
-            var ageDays = (DateTimeOffset.UtcNow - request.CreatedAt).Days;
+            var ageDays = (DateTimeOffset.UtcNow - createdAt).Days;
 
             if (dryRun)
             {
                 _pluginLog.LogInfo(
                     "SeerrCleanup",
-                    $"[Dry Run] Would delete expired request #{request.Id} ({mediaInfo}), created {request.CreatedAt:O}, age {ageDays} days",
+                    $"[Dry Run] Would delete expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
                     _logger);
             }
             else
             {
                 try
                 {
-                    using var deleteResponse = await client.DeleteAsync(
-                        new Uri($"api/v1/request/{request.Id}", UriKind.Relative),
-                        cancellationToken).ConfigureAwait(false);
+                    using var deleteReq = BuildRequest(HttpMethod.Delete, baseUri, $"api/v1/request/{request.Id}", key);
+                    using var deleteResponse = await client.SendAsync(deleteReq, cancellationToken).ConfigureAwait(false);
 
                     if (deleteResponse.IsSuccessStatusCode)
                     {
                         result.Deleted++;
                         _pluginLog.LogInfo(
                             "SeerrCleanup",
-                            $"Deleted expired request #{request.Id} ({mediaInfo}), created {request.CreatedAt:O}, age {ageDays} days",
+                            $"Deleted expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
                             _logger);
                     }
                     else
@@ -272,8 +317,17 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                         _logger);
                 }
 
-                // Small delay between DELETE calls to avoid overwhelming the Seerr API
-                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                // Small delay between DELETE calls to avoid overwhelming the Seerr API.
+                // Break on cancellation so the caller receives partial results with an accurate
+                // count rather than silently skipping remaining items without indication.
+                try
+                {
+                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
         }
 
@@ -285,12 +339,16 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     ///     redundant API calls when the same TMDB ID appears in multiple requests.
     /// </summary>
     /// <param name="client">The configured HTTP client.</param>
+    /// <param name="baseUri">The normalised base URI of the Seerr instance.</param>
+    /// <param name="apiKey">The API key used for per-request authentication.</param>
     /// <param name="media">The media info from the request (may be null).</param>
     /// <param name="titleCache">Cache mapping "mediaType:tmdbId" to resolved titles.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The resolved title, or "Unknown" if resolution fails.</returns>
     internal async Task<string> ResolveMediaTitleCachedAsync(
         HttpClient client,
+        Uri baseUri,
+        string apiKey,
         SeerrMedia? media,
         Dictionary<string, string> titleCache,
         CancellationToken cancellationToken)
@@ -306,7 +364,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             return cachedTitle;
         }
 
-        var title = await ResolveMediaTitleAsync(client, media, cancellationToken).ConfigureAwait(false);
+        var title = await ResolveMediaTitleAsync(client, baseUri, apiKey, media, cancellationToken).ConfigureAwait(false);
         titleCache[cacheKey] = title;
         return title;
     }
@@ -315,11 +373,15 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     ///     Resolves the human-readable title for a media item by querying the Seerr movie/TV detail endpoint.
     /// </summary>
     /// <param name="client">The configured HTTP client.</param>
+    /// <param name="baseUri">The normalised base URI of the Seerr instance.</param>
+    /// <param name="apiKey">The API key used for per-request authentication.</param>
     /// <param name="media">The media info from the request (may be null).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The resolved title, or "Unknown" if resolution fails.</returns>
     internal async Task<string> ResolveMediaTitleAsync(
         HttpClient client,
+        Uri baseUri,
+        string apiKey,
         SeerrMedia? media,
         CancellationToken cancellationToken)
     {
@@ -334,9 +396,8 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 ? $"api/v1/tv/{media.TmdbId}"
                 : $"api/v1/movie/{media.TmdbId}";
 
-            using var response = await client.GetAsync(
-                new Uri(endpoint, UriKind.Relative),
-                cancellationToken).ConfigureAwait(false);
+            using var req = BuildRequest(HttpMethod.Get, baseUri, endpoint, apiKey);
+            using var response = await client.SendAsync(req, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -363,13 +424,12 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     }
 
     /// <summary>
-    ///     Creates an HttpClient configured for the Seerr API with the appropriate base URL and API key header.
+    ///     Validates the base URL and API key, returning the factory-managed HTTP client and
+    ///     the normalised base URI. The API key is passed back so callers can attach it per-request
+    ///     instead of mutating the shared client's DefaultRequestHeaders.
     /// </summary>
-    private HttpClient CreateClient(string baseUrl, string apiKey)
+    private (HttpClient Client, Uri BaseUri, string ApiKey) ValidateAndGetClient(string baseUrl, string apiKey)
     {
-        var client = _httpClientFactory.CreateClient("SeerrIntegration");
-
-        // Validate and normalize the base URL
         if (!Uri.TryCreate(baseUrl?.Trim(), UriKind.Absolute, out var parsedBaseUrl) ||
             (parsedBaseUrl.Scheme != Uri.UriSchemeHttp && parsedBaseUrl.Scheme != Uri.UriSchemeHttps))
         {
@@ -381,11 +441,29 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             throw new ArgumentException("API key is required.", nameof(apiKey));
         }
 
-        client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
+        // Reject keys containing CR, LF, tab, or NUL to prevent header injection via TryAddWithoutValidation.
+        if (apiKey.Contains('\r', StringComparison.Ordinal)
+            || apiKey.Contains('\n', StringComparison.Ordinal)
+            || apiKey.Contains('\t', StringComparison.Ordinal)
+            || apiKey.Contains('\0', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
+        }
 
-        client.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
-        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        var baseUri = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
+        var client = _httpClientFactory.CreateClient("SeerrIntegration");
+        return (client, baseUri, apiKey);
+    }
 
-        return client;
+    /// <summary>
+    ///     Builds an <see cref="HttpRequestMessage" /> for the given method and relative path,
+    ///     attaching the API key per-request so the shared factory-managed client is not mutated.
+    /// </summary>
+    private static HttpRequestMessage BuildRequest(HttpMethod method, Uri baseUri, string relPath, string apiKey)
+    {
+        var request = new HttpRequestMessage(method, new Uri(baseUri, relPath));
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        return request;
     }
 }

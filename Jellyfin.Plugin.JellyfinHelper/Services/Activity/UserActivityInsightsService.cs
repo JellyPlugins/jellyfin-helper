@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -49,7 +50,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     /// <inheritdoc />
     public UserActivityResult BuildActivityReport()
     {
-        var users = _userManager.GetUsers().ToList();
+        var users = _userManager.GetUsers()?.ToList() ?? new List<Jellyfin.Database.Implementations.Entities.User>();
         _pluginLog.LogInfo(
             "UserActivity",
             $"Building activity report for {users.Count} users",
@@ -67,6 +68,11 @@ public class UserActivityInsightsService : IUserActivityInsightsService
             $"Scanning {allItems.Count} items across {users.Count} users",
             _logger);
 
+        // Pre-fetch user data in one batch per user (Jellyfin 12+ API) to avoid N×M database
+        // roundtrips. Falls back to per-item lookup for a user if the batch call fails, so
+        // that the report never regresses to worse behavior than the pre-batch implementation.
+        var userDataByUser = BuildUserDataLookup(users, allItems);
+
         // Build per-item summaries with all user interactions
         var summaries = new Dictionary<Guid, UserActivitySummary>();
         long totalPlayCount = 0;
@@ -74,7 +80,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
         foreach (var item in allItems)
         {
             var itemActivities = new List<UserItemActivity>();
-            var itemTotalPlays = 0;
+            var itemTotalPlays = 0L;
             var completionSum = 0.0;
             var viewerCount = 0;
             var favoriteCount = 0;
@@ -84,7 +90,19 @@ public class UserActivityInsightsService : IUserActivityInsightsService
             {
                 try
                 {
-                    var userData = _userDataManager.GetUserData(user, item);
+                    // O(1) lookup from the pre-fetched batch dictionary; falls back to
+                    // per-item GetUserData for this user if the batch load failed earlier
+                    // (BuildUserDataLookup returns null for that user in the outer dict).
+                    UserItemData? userData;
+                    if (userDataByUser.TryGetValue(user.Id, out var userLookup) && userLookup is not null)
+                    {
+                        userLookup.TryGetValue(item.Id, out userData);
+                    }
+                    else
+                    {
+                        userData = _userDataManager.GetUserData(user, item);
+                    }
+
                     if (userData is null)
                     {
                         continue;
@@ -143,7 +161,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                         mostRecent = lastPlayedUtc;
                     }
                 }
-                catch (InvalidOperationException ex)
+                catch (Exception ex)
                 {
                     _pluginLog.LogWarning(
                         "UserActivity",
@@ -247,5 +265,77 @@ public class UserActivityInsightsService : IUserActivityInsightsService
 
         var percent = (double)positionTicks / runtimeTicks * 100.0;
         return Math.Min(Math.Round(percent, 1), 100.0);
+    }
+
+    /// <summary>
+    ///     Runs one batch call per user to pre-load their user data for every library item.
+    ///     If a user's batch call fails, we record <c>null</c> in the outer dictionary as a
+    ///     "please fall back to per-item lookup for this user" marker - the caller checks
+    ///     for this on every row. Cancellation propagation is handled by
+    ///     <see cref="BatchFallbackHelper"/> to keep parity with the other batch call sites.
+    ///     <para>
+    ///         Cancellation semantics: <see cref="BatchFallbackHelper.TryRunBatch{T}"/> lets
+    ///         <see cref="OperationCanceledException"/> propagate out of the batch delegate.
+    ///         When that happens mid-loop the entire method unwinds - earlier-user entries in
+    ///         the local <c>result</c> dictionary are discarded together with the reference,
+    ///         and the caller (<c>BuildActivityReport</c>) never receives a half-built report.
+    ///         The invariant is: cancellation aborts the whole scan; a partial report is never
+    ///         observable to any caller.
+    ///     </para>
+    ///     <para>
+    ///         <b>Memory trade-off:</b> pre-fetching keeps one per-item <see cref="UserItemData"/>
+    ///         dictionary in memory <i>per user</i> for the entire report duration, so peak memory
+    ///         scales as <c>O(users × items)</c>. The previous per-pair path only ever held the
+    ///         one row currently being scored. On a 5-user / 50k-item library this is roughly
+    ///         5–50 MB of transient state, well below the memory ceiling of a Jellyfin
+    ///         scheduled task, and is amortised by cutting the DB roundtrip count from
+    ///         <c>users × items</c> down to <c>users</c>. Callers with hundreds of users on very
+    ///         large libraries may want to revisit this if the report ever begins to page.
+    ///     </para>
+    /// </summary>
+    /// <param name="users">The users to pre-load data for.</param>
+    /// <param name="allItems">The library items to load user data against.</param>
+    /// <returns>
+    ///     A dictionary keyed by user ID. A <c>null</c> inner value signals batch failure
+    ///     for that user - the caller then falls back to per-item <c>GetUserData</c>.
+    /// </returns>
+    private Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?> BuildUserDataLookup(
+        List<Jellyfin.Database.Implementations.Entities.User> users,
+        IReadOnlyList<BaseItem> allItems)
+    {
+        var result = new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>(users.Count);
+        foreach (var user in users)
+        {
+            // We deliberately do the batch call per-user (not per-library) because
+            // GetUserDataBatch is keyed on a single user. A failure for one user must not
+            // block the others, which is why the fallback marker is stored per-user.
+            var perUser = user;
+            var lookup = BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
+                batchCall: () =>
+                {
+                    var batch = _userDataManager.GetUserDataBatch(allItems, perUser);
+                    if (batch is null)
+                    {
+                        return null;
+                    }
+
+                    // Accept any dictionary shape Jellyfin returns (Dictionary<>, IDictionary<>,
+                    // IReadOnlyDictionary<>). Returning IReadOnlyDictionary means the caller
+                    // can't accidentally mutate the batch and we don't lock ourselves to a
+                    // specific concrete return type across Jellyfin patch versions.
+                    return batch as IReadOnlyDictionary<Guid, UserItemData>
+                           ?? new Dictionary<Guid, UserItemData>(batch);
+                },
+                fallbackValue: null,
+                onFailure: ex => _pluginLog.LogWarning(
+                    "UserActivity",
+                    $"Batch user-data load failed for user '{perUser.Username}'; falling back to per-item lookup for this user.",
+                    ex,
+                    _logger));
+
+            result[user.Id] = lookup;
+        }
+
+        return result;
     }
 }

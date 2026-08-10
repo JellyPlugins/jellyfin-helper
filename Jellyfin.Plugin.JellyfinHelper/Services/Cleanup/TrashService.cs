@@ -40,6 +40,8 @@ public class TrashService : ITrashService
         OperatingSystem.IsMacOS() ? 1023 :
         4095;
 
+    private static readonly int SeparatorSize = MeasureString(Path.DirectorySeparatorChar.ToString());
+
     private readonly IPluginLogService _pluginLog;
 
     /// <summary>
@@ -92,7 +94,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            var dirName = Path.GetFileName(sourcePath);
+            var dirName = Path.GetFileName(normalizedSource);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{dirName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
@@ -133,7 +135,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            // Guard: prevent re-trashing files that are already inside the trash folder.
+            // Prevent re-trashing files that are already inside the trash folder.
             // This mirrors the equivalent guard in MoveDirectoryToTrash() and prevents
             // path-length growth from repeated timestamp prefixing.
             var normalizedFile = Path.GetFullPath(sourceFilePath)
@@ -151,16 +153,16 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            var fileName = Path.GetFileName(sourceFilePath);
+            var fileName = Path.GetFileName(normalizedFile);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{fileName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
 
+            // Ensure trash folder exists before ResolveCollision so File.Exists checks are valid
+            Directory.CreateDirectory(trashBasePath);
+
             // Avoid collision if an item with the same name was already trashed in the same second
             trashItemPath = ResolveCollision(trashItemPath);
-
-            // Ensure trash folder exists
-            Directory.CreateDirectory(trashBasePath);
 
             // Get size before moving
             var size = new FileInfo(sourceFilePath).Length;
@@ -196,6 +198,15 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
+        // retentionDays <= 0 is treated as "disabled" - never purge anything.
+        // Callers that want to purge everything immediately should pass retentionDays = 1
+        // (or use a positive value). Zero and negative values are sentinel "off" states
+        // consistent with how SeerrCleanupAgeDays = 0 means "feature disabled".
+        if (retentionDays <= 0)
+        {
+            return (0, 0);
+        }
+
         var cutoff = (utcNow ?? DateTime.UtcNow).AddDays(-retentionDays);
 
         try
@@ -211,14 +222,29 @@ public class TrashService : ITrashService
 
                 try
                 {
-                    var size = CalculateDirectorySize(dir);
-                    Directory.Delete(dir, true);
-                    totalBytesFreed += size;
-                    itemsPurged++;
-                    _pluginLog.LogInfo(
-                        "Trash",
-                        $"Purged expired trash directory: {dir} ({size} bytes, created {timestamp})",
-                        logger);
+                    var dirInfo = new DirectoryInfo(dir);
+                    if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    {
+                        // Delete only the symlink/junction itself, not what it points to.
+                        // Size is 0 - only the link entry is removed, not the target data.
+                        dirInfo.Delete();
+                        itemsPurged++;
+                        _pluginLog.LogInfo(
+                            "Trash",
+                            $"Purged expired trash directory: {dir} (reparse point, created {timestamp})",
+                            logger);
+                    }
+                    else
+                    {
+                        var size = CalculateDirectorySize(dir);
+                        Directory.Delete(dir, true);
+                        totalBytesFreed += size;
+                        itemsPurged++;
+                        _pluginLog.LogInfo(
+                            "Trash",
+                            $"Purged expired trash directory: {dir} ({size} bytes, created {timestamp})",
+                            logger);
+                    }
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -261,7 +287,7 @@ public class TrashService : ITrashService
     }
 
     /// <inheritdoc />
-    public (long TotalSize, int ItemCount) GetTrashSummary(string trashBasePath)
+    public (long TotalSize, int ItemCount) GetTrashSummary(string trashBasePath, ILogger? logger = null)
     {
         if (!Directory.Exists(trashBasePath))
         {
@@ -273,24 +299,30 @@ public class TrashService : ITrashService
 
         try
         {
-            var dirs = Directory.GetDirectories(trashBasePath);
-            itemCount += dirs.Length;
-            totalSize += dirs.Sum(CalculateDirectorySize);
+            var dirs = Directory.EnumerateDirectories(trashBasePath);
+            foreach (var dir in dirs)
+            {
+                itemCount++;
+                totalSize += CalculateDirectorySize(dir);
+            }
 
-            var files = Directory.GetFiles(trashBasePath);
-            itemCount += files.Length;
-            totalSize += files.Sum(f => new FileInfo(f).Length);
+            var files = Directory.EnumerateFiles(trashBasePath);
+            foreach (var f in files)
+            {
+                itemCount++;
+                totalSize += new FileInfo(f).Length;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Access errors are expected for inaccessible trash directories
+            _pluginLog.LogWarning("Trash", $"Partial trash summary - could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
         }
 
         return (totalSize, itemCount);
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays)
+    public IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays, ILogger? logger = null)
     {
         var items = new List<TrashItemInfo>();
 
@@ -313,7 +345,7 @@ public class TrashService : ITrashService
                 if (TryParseTrashTimestamp(dirName, out var timestamp))
                 {
                     trashedAt = timestamp;
-                    purgesAt = timestamp.AddDays(retentionDays);
+                    purgesAt = retentionDays > 0 ? timestamp.AddDays(retentionDays) : (DateTime?)null;
                 }
 
                 items.Add(
@@ -340,7 +372,7 @@ public class TrashService : ITrashService
                 if (TryParseTrashTimestamp(fileName, out var timestamp))
                 {
                     trashedAt = timestamp;
-                    purgesAt = timestamp.AddDays(retentionDays);
+                    purgesAt = retentionDays > 0 ? timestamp.AddDays(retentionDays) : (DateTime?)null;
                 }
 
                 items.Add(
@@ -357,7 +389,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Access errors are expected for inaccessible trash directories
+            _pluginLog.LogWarning("Trash", $"Partial trash contents - could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
         }
 
         // Sort by trashed date descending (newest first)
@@ -378,7 +410,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // Safety: normalize paths and create destination — guard against invalid/malformed paths
+        // Normalize paths and create destination - guard against invalid/malformed paths
         string normalizedOld;
         string normalizedNew;
         try
@@ -400,7 +432,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // Safety: new path must not be inside old path (would cause recursive move)
+        // New path must not be inside old path (would cause recursive move)
         var oldPrefix = normalizedOld + Path.DirectorySeparatorChar;
         if (normalizedNew.StartsWith(oldPrefix, PathComparison))
         {
@@ -408,7 +440,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // Safety: old path must not be inside new path (would cause data loss)
+        // Old path must not be inside new path (would cause data loss)
         var newPrefix = normalizedNew + Path.DirectorySeparatorChar;
         if (normalizedOld.StartsWith(newPrefix, PathComparison))
         {
@@ -511,7 +543,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Non-critical: old folder stays if it can't be removed
+            // Old folder stays if it can't be removed
             _pluginLog.LogWarning("Trash", $"Could not remove old trash folder: {directoryPath}", ex, logger);
         }
     }
@@ -533,7 +565,9 @@ public class TrashService : ITrashService
         if (trashItemName[TimestampFormat.Length] == '_' &&
             TryParseTrashTimestamp(trashItemName, out _))
         {
-            return trashItemName[(TimestampFormat.Length + 1)..];
+            var original = trashItemName[(TimestampFormat.Length + 1)..];
+            // Fall back to the full name when the original part is empty (e.g. item named "")
+            return string.IsNullOrEmpty(original) ? trashItemName : original;
         }
 
         return trashItemName;
@@ -646,7 +680,7 @@ public class TrashService : ITrashService
         var availableForBase = maxNameSize - suffixSize;
         if (availableForBase <= 0)
         {
-            // Suffix alone fills the budget — truncate suffix as last resort.
+            // Suffix alone fills the budget - truncate suffix as last resort.
             var truncatedSuffix = TruncateToSize(suffix, Math.Max(0, maxNameSize));
             return Path.Join(directory, truncatedSuffix);
         }
@@ -669,7 +703,7 @@ public class TrashService : ITrashService
         var maxNameSize = GetMaxComponentSize(directory);
         if (maxNameSize <= 0)
         {
-            // Directory itself is already at or over the limit — nothing safe to do;
+            // Directory itself is already at or over the limit - nothing safe to do;
             // return the path as-is and let the caller's IOException handler log it.
             return path;
         }
@@ -679,6 +713,32 @@ public class TrashService : ITrashService
         if (pathSize <= MaxPathLimit && nameSize <= MaxPathComponentLimit)
         {
             return path;
+        }
+
+        // Trash entries carry a fixed 16-char "yyyyMMdd-HHmmss_" prefix that PurgeExpiredTrash and
+        // the trash UI parse to recover the trashed-at time. Naively truncating the WHOLE name from
+        // the end would chop into (or off) that prefix once the per-component budget drops below the
+        // original name length, producing an entry that TryParseTrashTimestamp rejects - so it is
+        // never purged (retention silently defeated) and shows no date in the UI. Preserve the prefix
+        // intact and truncate ONLY the original-name portion after it. Non-trash names (no valid
+        // prefix) fall through to the previous whole-name truncation, so other callers are unchanged.
+        const int trashPrefixLength = 15 + 1; // TimestampFormat length + '_' separator; all ASCII (1 byte/char)
+        if (TryParseTrashTimestamp(name, out _))
+        {
+            if (maxNameSize <= trashPrefixLength)
+            {
+                // Cannot even keep the parseable prefix - refuse rather than emit an unpurgeable,
+                // date-less entry. Mirrors the fail-fast IOException the collision resolver throws
+                // when the directory budget is exhausted.
+                throw new IOException(
+                    $"Trash path directory is too deep to preserve the timestamp prefix for '{name}' "
+                    + $"(budget {maxNameSize} <= required {trashPrefixLength}).");
+            }
+
+            var prefix = name[..trashPrefixLength];
+            var originalName = name[trashPrefixLength..];
+            var truncatedOriginal = TruncateToSize(originalName, maxNameSize - trashPrefixLength);
+            return Path.Join(directory, prefix + truncatedOriginal);
         }
 
         var truncatedName = TruncateToSize(name, maxNameSize);
@@ -694,9 +754,8 @@ public class TrashService : ITrashService
     {
         // +1 accounts for the path separator between directory and name
         var directorySize = MeasureString(directory);
-        var separatorSize = MeasureString(Path.DirectorySeparatorChar.ToString());
         return Math.Min(
-            MaxPathLimit - directorySize - separatorSize,
+            MaxPathLimit - directorySize - SeparatorSize,
             MaxPathComponentLimit);
     }
 
@@ -769,7 +828,7 @@ public class TrashService : ITrashService
             }
             else
             {
-                // Isolated surrogate or invalid — treat as replacement char (3 bytes in UTF-8)
+                // Isolated surrogate or invalid - treat as replacement char (3 bytes in UTF-8)
                 runeByteCount = 3;
                 charsConsumed = 1;
             }
@@ -798,7 +857,23 @@ public class TrashService : ITrashService
         try
         {
             var dirInfo = new DirectoryInfo(path);
-            size += dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+
+            // AttributesToSkip = ReparsePoint prunes directory symlinks/junctions DURING recursion,
+            // so the walk never descends INTO a linked tree. SearchOption.AllDirectories does not do
+            // this: it follows directory junctions, which inflates the byte total for a link pointing
+            // at a large tree and can loop unboundedly on a cyclic junction. It also skips reparse
+            // files, so the size only counts real files physically under this trash entry.
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+                IgnoreInaccessible = true
+            };
+
+            foreach (var fi in dirInfo.EnumerateFiles("*", options))
+            {
+                size += fi.Length;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -829,7 +904,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _pluginLog.LogWarning("Trash", $"Path access check failed — invalid path: {path} ({ex.Message})", ex, logger);
+            _pluginLog.LogWarning("Trash", $"Path access check failed - invalid path: {path} ({ex.Message})", ex, logger);
             return new TrashPathAccessResult
             {
                 Exists = false,
@@ -863,7 +938,7 @@ public class TrashService : ITrashService
             return new TrashPathAccessResult { Exists = true, CanRead = true, CanWrite = true };
         }
 
-        // Path does not exist — walk up to the nearest existing parent and check if we can create there.
+        // Path does not exist - walk up to the nearest existing parent and check if we can create there.
         var parent = fullPath;
         while (!string.IsNullOrEmpty(parent))
         {
@@ -931,19 +1006,34 @@ public class TrashService : ITrashService
     private static bool CanWriteDirectory(string directoryPath)
     {
         var probePath = Path.Join(directoryPath, $".jfh-access-probe-{Guid.NewGuid():N}");
+        var created = false;
         try
         {
             using (File.Create(probePath))
             {
-                // File created successfully — write access confirmed.
+                // File created successfully - write access confirmed.
             }
 
-            File.Delete(probePath);
+            created = true;
             return true;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
             return false;
+        }
+        finally
+        {
+            if (created)
+            {
+                try
+                {
+                    File.Delete(probePath);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+            }
         }
     }
 }

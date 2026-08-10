@@ -18,11 +18,11 @@
 *.js text eol=lf
 *.ts text eol=lf
 *.ruleset text eol=lf
-*.editorconfig text eol=lf
-*.gitignore text eol=lf
-*.gitattributes text eol=lf
+.editorconfig text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
 
-# Binary files — do not touch.
+# Binary files - do not touch.
 *.png binary
 *.gif binary
 *.jpg binary

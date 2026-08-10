@@ -1,97 +1,527 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Library;
+using Microsoft.Extensions.Logging;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Activity;
 
 public class UserActivityInsightsServiceTests
 {
-    // === CalculateCompletion (internal static) ===
+    // === CalculateCompletion (internal static helper) ===
 
     [Fact]
     public void CalculateCompletion_Played_Returns100()
-    {
-        var result = UserActivityInsightsService.CalculateCompletion(0, 1000, played: true);
-        Assert.Equal(100.0, result);
-    }
+        => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(0, 1000, played: true));
 
     [Fact]
     public void CalculateCompletion_Played_IgnoresPosition()
-    {
-        var result = UserActivityInsightsService.CalculateCompletion(500, 1000, played: true);
-        Assert.Equal(100.0, result);
-    }
+        => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(500, 1000, played: true));
 
     [Fact]
     public void CalculateCompletion_ZeroRuntime_ReturnsZero()
-    {
-        var result = UserActivityInsightsService.CalculateCompletion(500, 0, played: false);
-        Assert.Equal(0.0, result);
-    }
+        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(500, 0, played: false));
 
     [Fact]
     public void CalculateCompletion_NegativeRuntime_ReturnsZero()
-    {
-        var result = UserActivityInsightsService.CalculateCompletion(500, -100, played: false);
-        Assert.Equal(0.0, result);
-    }
+        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(500, -100, played: false));
 
     [Fact]
     public void CalculateCompletion_ZeroPosition_ReturnsZero()
-    {
-        var result = UserActivityInsightsService.CalculateCompletion(0, 1000, played: false);
-        Assert.Equal(0.0, result);
-    }
+        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(0, 1000, played: false));
 
     [Fact]
     public void CalculateCompletion_NegativePosition_ReturnsZero()
-    {
-        var result = UserActivityInsightsService.CalculateCompletion(-100, 1000, played: false);
-        Assert.Equal(0.0, result);
-    }
+        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(-100, 1000, played: false));
 
     [Fact]
     public void CalculateCompletion_HalfWatched_Returns50()
-    {
-        var result = UserActivityInsightsService.CalculateCompletion(500, 1000, played: false);
-        Assert.Equal(50.0, result);
-    }
+        => Assert.Equal(50.0, UserActivityInsightsService.CalculateCompletion(500, 1000, played: false));
 
     [Fact]
     public void CalculateCompletion_PartialWatch_RoundsToOneDecimal()
-    {
-        // 333 / 1000 = 33.3%
-        var result = UserActivityInsightsService.CalculateCompletion(333, 1000, played: false);
-        Assert.Equal(33.3, result, 1);
-    }
+        => Assert.Equal(33.3, UserActivityInsightsService.CalculateCompletion(333, 1000, played: false), 1);
 
     [Fact]
     public void CalculateCompletion_ExceedsRuntime_CapsAt100()
-    {
-        // Position > runtime should not exceed 100%
-        var result = UserActivityInsightsService.CalculateCompletion(1500, 1000, played: false);
-        Assert.Equal(100.0, result);
-    }
+        => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(1500, 1000, played: false));
 
     [Fact]
     public void CalculateCompletion_AlmostComplete_RoundsCorrectly()
-    {
-        // 999 / 1000 = 99.9%
-        var result = UserActivityInsightsService.CalculateCompletion(999, 1000, played: false);
-        Assert.Equal(99.9, result, 1);
-    }
+        => Assert.Equal(99.9, UserActivityInsightsService.CalculateCompletion(999, 1000, played: false), 1);
 
     [Fact]
     public void CalculateCompletion_BothZero_ReturnsZero()
-    {
-        var result = UserActivityInsightsService.CalculateCompletion(0, 0, played: false);
-        Assert.Equal(0.0, result);
-    }
+        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(0, 0, played: false));
 
     [Fact]
     public void CalculateCompletion_Played_ZeroRuntime_StillReturns100()
+        => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(0, 0, played: true));
+
+    // === BuildActivityReport (end-to-end behavioral tests) ===
+    // These lock in observable behavior so internal fetch-path swaps
+    // (e.g. batch user-data on Jellyfin 12+) can be verified against the same suite.
+
+    private static (
+        UserActivityInsightsService Service,
+        Mock<ILibraryManager> Library,
+        Mock<IUserManager> UserManager,
+        Mock<IUserDataManager> UserData) CreateSut()
     {
-        // Played flag takes precedence regardless of runtime/position values
-        var result = UserActivityInsightsService.CalculateCompletion(0, 0, played: true);
-        Assert.Equal(100.0, result);
+        var library = new Mock<ILibraryManager>();
+        var userManager = new Mock<IUserManager>();
+        var userData = new Mock<IUserDataManager>();
+        var pluginLog = new Mock<IPluginLogService>();
+        var logger = new Mock<ILogger<UserActivityInsightsService>>();
+        var service = new UserActivityInsightsService(
+            library.Object, userManager.Object, userData.Object, pluginLog.Object, logger.Object);
+        return (service, library, userManager, userData);
+    }
+
+    private static Jellyfin.Database.Implementations.Entities.User User(string username)
+        => new(username, "default", "default") { Id = Guid.NewGuid() };
+
+    private static UserItemData Played(int count = 1, DateTime? at = null)
+        => new()
+        {
+            Key = Guid.NewGuid().ToString("N"),
+            Played = true,
+            PlayCount = count,
+            PlaybackPositionTicks = 0,
+            LastPlayedDate = at ?? DateTime.UtcNow,
+            IsFavorite = false
+        };
+
+    private static UserItemData Partial(long positionTicks, DateTime? at = null)
+        => new()
+        {
+            Key = Guid.NewGuid().ToString("N"),
+            Played = false,
+            PlayCount = 0,
+            PlaybackPositionTicks = positionTicks,
+            LastPlayedDate = at,
+            IsFavorite = false
+        };
+
+    private static UserItemData Fav() => new()
+    {
+        Key = Guid.NewGuid().ToString("N"),
+        Played = false,
+        PlayCount = 0,
+        PlaybackPositionTicks = 0,
+        LastPlayedDate = null,
+        IsFavorite = true
+    };
+
+    private static UserItemData Idle() => new()
+    {
+        Key = Guid.NewGuid().ToString("N"),
+        Played = false,
+        PlayCount = 0,
+        PlaybackPositionTicks = 0,
+        LastPlayedDate = null,
+        IsFavorite = false
+    };
+
+    private static Movie NewMovie(string name, long runtimeMinutes = 100) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = name,
+        RunTimeTicks = TimeSpan.FromMinutes(runtimeMinutes).Ticks,
+        Genres = ["Drama"]
+    };
+
+    private static Episode NewEpisode(string series, int season, int number, string name = "Episode") => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = name,
+        SeriesName = series,
+        ParentIndexNumber = season,
+        IndexNumber = number,
+        RunTimeTicks = TimeSpan.FromMinutes(45).Ticks,
+        Genres = []
+    };
+
+    [Fact]
+    public void BuildActivityReport_NoUsers_ReturnsEmptyResult()
+    {
+        var (svc, lib, um, _) = CreateSut();
+        um.Setup(m => m.GetUsers()).Returns(Enumerable.Empty<Jellyfin.Database.Implementations.Entities.User>());
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+
+        var r = svc.BuildActivityReport();
+
+        Assert.NotNull(r);
+        Assert.Equal(0, r.TotalUsersAnalyzed);
+        Assert.Equal(0, r.TotalItemsWithActivity);
+        Assert.Equal(0L, r.TotalPlayCount);
+        Assert.Empty(r.Items);
+    }
+
+    [Fact]
+    public void BuildActivityReport_NoItems_ReturnsEmptyItemsWithUserCount()
+    {
+        var (svc, lib, um, _) = CreateSut();
+        var alice = User("alice");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Equal(1, r.TotalUsersAnalyzed);
+        Assert.Empty(r.Items);
+    }
+
+    [Fact]
+    public void BuildActivityReport_UserDataNull_ItemIsExcluded()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("Ghost");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserData(alice, movie)).Returns((UserItemData?)null);
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Empty(r.Items);
+    }
+
+    [Fact]
+    public void BuildActivityReport_IdleUserData_ItemIsExcluded()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("Untouched");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserData(alice, movie)).Returns(Idle());
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Empty(r.Items);
+    }
+
+    [Fact]
+    public void BuildActivityReport_PlayedMovie_IncludedWithCorrectMetrics()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("Played Movie", 120);
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        var lastPlayed = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+        ud.Setup(m => m.GetUserData(alice, movie)).Returns(Played(count: 3, at: lastPlayed));
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Single(r.Items);
+        var s = r.Items.Single();
+        Assert.Equal(movie.Id, s.ItemId);
+        Assert.Equal("Played Movie", s.ItemName);
+        Assert.Equal("Movie", s.ItemType);
+        Assert.Equal(3, s.TotalPlayCount);
+        Assert.Equal(1, s.UniqueViewers);
+        Assert.Equal(100.0, s.AverageCompletionPercent);
+        Assert.Equal(0, s.FavoriteCount);
+        Assert.Equal(lastPlayed, s.MostRecentWatch);
+        Assert.Single(s.UserActivities);
+        Assert.Equal(alice.Id, s.UserActivities[0].UserId);
+        Assert.True(s.UserActivities[0].Played);
+        Assert.Equal(3L, r.TotalPlayCount);
+    }
+
+    [Fact]
+    public void BuildActivityReport_FavoriteWithoutPlayback_IsFavoriteButNoViewer()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("Favorite Only");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserData(alice, movie)).Returns(Fav());
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Single(r.Items);
+        var s = r.Items.Single();
+        Assert.Equal(1, s.FavoriteCount);
+        Assert.Equal(0, s.UniqueViewers);
+        Assert.Equal(0, s.TotalPlayCount);
+        Assert.Equal(0.0, s.AverageCompletionPercent);
+        Assert.Null(s.MostRecentWatch);
+        Assert.Single(s.UserActivities);
+        Assert.True(s.UserActivities[0].IsFavorite);
+    }
+
+    [Fact]
+    public void BuildActivityReport_PartialPlayback_ReportsCompletionPercent()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("Half Watched", 100);
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        var half = movie.RunTimeTicks!.Value / 2;
+        ud.Setup(m => m.GetUserData(alice, movie))
+            .Returns(Partial(half, at: new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Single(r.Items);
+        var s = r.Items.Single();
+        Assert.Equal(1, s.UniqueViewers);
+        Assert.Equal(50.0, s.AverageCompletionPercent);
+    }
+
+    [Fact]
+    public void BuildActivityReport_MultipleUsers_AggregatesTotalsAndViewers()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var bob = User("bob");
+        var carol = User("carol");
+        var movie = NewMovie("Popular", 100);
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice, bob, carol });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserData(alice, movie))
+            .Returns(Played(count: 2, at: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
+        ud.Setup(m => m.GetUserData(bob, movie))
+            .Returns(Played(count: 1, at: new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc)));
+        ud.Setup(m => m.GetUserData(carol, movie)).Returns(Idle());
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Single(r.Items);
+        var s = r.Items.Single();
+        Assert.Equal(3, s.TotalPlayCount);
+        Assert.Equal(2, s.UniqueViewers);          // carol excluded (idle)
+        Assert.Equal(2, s.UserActivities.Count);   // one entry per active user
+        Assert.Equal(new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc), s.MostRecentWatch);
+        Assert.Equal(3, r.TotalUsersAnalyzed);      // count reflects total users, not just active
+    }
+
+    [Fact]
+    public void BuildActivityReport_SortsByTotalPlayCountDescending()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var low = NewMovie("Low");
+        var high = NewMovie("High");
+        var mid = NewMovie("Mid");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([low, high, mid]);
+        ud.Setup(m => m.GetUserData(alice, low)).Returns(Played(count: 1));
+        ud.Setup(m => m.GetUserData(alice, high)).Returns(Played(count: 10));
+        ud.Setup(m => m.GetUserData(alice, mid)).Returns(Played(count: 5));
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Equal(3, r.Items.Count);
+        Assert.Equal("High", r.Items[0].ItemName);
+        Assert.Equal("Mid", r.Items[1].ItemName);
+        Assert.Equal("Low", r.Items[2].ItemName);
+    }
+
+    [Fact]
+    public void BuildActivityReport_EpisodeItem_PopulatesSeriesNameAndEpisodeLabel()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var episode = NewEpisode("Breaking Bad", season: 3, number: 7, name: "One Minute");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([episode]);
+        ud.Setup(m => m.GetUserData(alice, episode)).Returns(Played());
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Single(r.Items);
+        var s = r.Items.Single();
+        Assert.Equal("Episode", s.ItemType);
+        Assert.Equal("Breaking Bad", s.SeriesName);
+        Assert.Equal("S03E07", s.EpisodeLabel);
+    }
+
+    [Fact]
+    public void BuildActivityReport_InvalidOperationException_IsCaughtAndUserSkipped()
+    {
+        // Contract: a per-(user,item) InvalidOperationException must not abort the whole report.
+        // The affected user is skipped for that item; other users remain in the summary.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var bob = User("bob");
+        var movie = NewMovie("Shared");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice, bob });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserData(alice, movie)).Returns(Played(count: 1));
+        ud.Setup(m => m.GetUserData(bob, movie)).Throws(new InvalidOperationException("db oops"));
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Single(r.Items);
+        var s = r.Items.Single();
+        Assert.Single(s.UserActivities);
+        Assert.Equal(alice.Id, s.UserActivities[0].UserId);
+    }
+
+    // === Batch user-data fallback contract (Jellyfin 12+ GetUserDataBatch) ===
+    // Locks in the same contract that SimilarityComputerTests enforces for
+    // GetPeopleNamesByItems: non-cancellation failures degrade gracefully to
+    // per-item GetUserData, but OperationCanceledException must propagate.
+
+    [Fact]
+    public void BuildActivityReport_BatchApiThrows_FallsBackToPerItemGetUserData()
+    {
+        // If GetUserDataBatch throws a non-cancellation exception, the service must
+        // fall back to per-item GetUserData for that user so the report still succeeds.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("BatchThrows");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Throws(new InvalidOperationException("batch API unavailable"));
+        ud.Setup(m => m.GetUserData(alice, movie)).Returns(Played(count: 1));
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Single(r.Items);
+        Assert.Equal(1, r.Items.Single().TotalPlayCount);
+        // Fallback path was exercised: per-item GetUserData was called for the affected user.
+        ud.Verify(m => m.GetUserData(alice, movie), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void BuildActivityReport_BatchApiCancelled_PropagatesWithoutFallback()
+    {
+        // OperationCanceledException from GetUserDataBatch must propagate to the caller
+        // without triggering per-item fallback. Cancellation is a stop signal, not a
+        // degradable error. Mirrors SimilarityComputer.BuildCandidatePeopleLookup.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("BatchCancelled");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => svc.BuildActivityReport());
+        // Per-item fallback must NOT have been invoked once cancellation was requested.
+        ud.Verify(m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()), Times.Never);
+    }
+
+    [Fact]
+    public void BuildActivityReport_BatchApiCancelledOnSecondUser_PropagatesWithoutPartialReport()
+    {
+        // Multi-user variant of BuildActivityReport_BatchApiCancelled_PropagatesWithoutFallback.
+        // Locks in the invariant documented on BuildUserDataLookup: cancellation mid-scan aborts
+        // the entire report; no caller ever observes a partial result even when earlier users
+        // already had their batch loaded successfully.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var bob = User("bob");
+        var movie = NewMovie("Shared");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice, bob });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+
+        // Alice's batch succeeds; Bob's batch is cancelled.
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Returns(new Dictionary<Guid, UserItemData> { [movie.Id] = Played(count: 1) });
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), bob))
+          .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => svc.BuildActivityReport());
+        // Both users' batch calls must have fired exactly once so the assertion actually
+        // exercises "cancellation after a partial preload" - not the shortcut where the
+        // scan aborts before ever reaching Bob. Alice's successful batch proves the loop
+        // was already several iterations in before Bob's cancellation propagated.
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice), Times.Once);
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), bob), Times.Once);
+        // Neither user is allowed to trigger the per-item fallback once cancellation was requested,
+        // and no partially-scored summary ever reaches the caller.
+        ud.Verify(m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()), Times.Never);
+    }
+
+    [Fact]
+    public void BuildActivityReport_UserDataThrowsObjectDisposedException_OtherUsersStillProcessed()
+    {
+        // Contract: ObjectDisposedException from GetUserData for one user must not abort the
+        // whole report. The affected user is skipped for that item; other users are still
+        // included in the summary. This mirrors the InvalidOperationException resilience test
+        // but exercises the ObjectDisposedException branch of the same catch clause.
+        //
+        // Setup: both users hit the per-item fallback path (batch throws for both so that
+        // GetUserData is exercised for each). User1's GetUserData throws
+        // ObjectDisposedException; user2's GetUserData succeeds with a played entry.
+        var (svc, lib, um, ud) = CreateSut();
+        var user1 = User("user1");
+        var user2 = User("user2");
+        var movie = NewMovie("Shared Movie");
+        um.Setup(m => m.GetUsers()).Returns(new[] { user1, user2 });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+
+        // Force both users onto the per-item fallback path by making the batch call throw.
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user1))
+          .Throws(new InvalidOperationException("batch unavailable"));
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user2))
+          .Throws(new InvalidOperationException("batch unavailable"));
+
+        // Per-item: user1 throws ObjectDisposedException; user2 succeeds.
+        ud.Setup(m => m.GetUserData(user1, movie))
+          .Throws(new ObjectDisposedException("userDataRepo"));
+        ud.Setup(m => m.GetUserData(user2, movie))
+          .Returns(Played(count: 2));
+
+        var r = svc.BuildActivityReport();
+
+        // The report must not throw and must include user2's activity.
+        Assert.Single(r.Items);
+        var s = r.Items.Single();
+        Assert.Equal(movie.Id, s.ItemId);
+        Assert.Equal(1, s.UniqueViewers);
+        Assert.Single(s.UserActivities);
+        Assert.Equal(user2.Id, s.UserActivities[0].UserId);
+        // user1 must be absent from the item's activity list.
+        Assert.DoesNotContain(s.UserActivities, a => a.UserId == user1.Id);
+    }
+
+    [Fact]
+    public void BuildActivityReport_BatchApiHappyPath_ConsumesBatchAndSkipsPerItemLookup()
+    {
+        // Happy path: a populated batch dictionary must be consumed via the O(1) lookup,
+        // and per-item GetUserData must not be touched. This locks in the core batch optimisation.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movieA = NewMovie("Alpha");
+        var movieB = NewMovie("Beta");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movieA, movieB]);
+
+        var lastPlayedA = new DateTime(2026, 4, 1, 12, 0, 0, DateTimeKind.Utc);
+        var lastPlayedB = new DateTime(2026, 4, 2, 18, 30, 0, DateTimeKind.Utc);
+        var batchData = new Dictionary<Guid, UserItemData>
+        {
+            [movieA.Id] = Played(count: 4, at: lastPlayedA),
+            [movieB.Id] = Played(count: 2, at: lastPlayedB)
+        };
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Returns(batchData);
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Equal(2, r.Items.Count);
+        Assert.Equal(6L, r.TotalPlayCount);
+        var alpha = r.Items.Single(i => i.ItemName == "Alpha");
+        var beta = r.Items.Single(i => i.ItemName == "Beta");
+        Assert.Equal(4, alpha.TotalPlayCount);
+        Assert.Equal(2, beta.TotalPlayCount);
+        Assert.Equal(lastPlayedA, alpha.MostRecentWatch);
+        Assert.Equal(lastPlayedB, beta.MostRecentWatch);
+        ud.Verify(m => m.GetUserData(alice, It.IsAny<BaseItem>()), Times.Never);
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice), Times.Once);
     }
 }

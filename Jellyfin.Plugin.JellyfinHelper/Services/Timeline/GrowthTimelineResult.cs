@@ -38,10 +38,10 @@ public class GrowthTimelineResult
     public DateTime? FirstScanTimestamp { get; set; }
 
     /// <summary>
-    /// Gets or sets the total number of media files scanned.
+    /// Gets or sets the total number of media directories scanned.
     /// </summary>
-    [JsonPropertyName("totalFilesScanned")]
-    public int TotalFilesScanned { get; set; }
+    [JsonPropertyName("totalDirectoriesScanned")]
+    public int TotalDirectoriesScanned { get; set; }
 
     /// <summary>
     /// Gets the cumulative growth data points.

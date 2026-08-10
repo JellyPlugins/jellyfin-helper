@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Xunit;
 
@@ -20,7 +21,7 @@ public class CleanOrphanedSubtitlesTaskTests
     [InlineData("/movies/Movie.srt", "Movie")]
     public void GetSubtitleBaseName_StripsLanguageAndFlagSuffixes(string filePath, string expected)
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath);
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
 
@@ -32,35 +33,35 @@ public class CleanOrphanedSubtitlesTaskTests
     [InlineData("/movies/Movie.2160p.srt", "Movie.2160p")]
     public void GetSubtitleBaseName_DoesNotStripNonLanguageSuffixes(string filePath, string expected)
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath);
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
 
     [Fact]
     public void GetSubtitleBaseName_HandlesFileWithNoDots()
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName("/movies/MovieName.srt");
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName("/movies/MovieName.srt", new HashSet<string> { "MovieName" });
         Assert.Equal("MovieName", result);
     }
 
     [Fact]
     public void GetSubtitleBaseName_HandlesMultipleLanguageSuffixes()
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName("/movies/Movie.en.forced.default.srt");
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName("/movies/Movie.en.forced.default.srt", new HashSet<string> { "Movie" });
         Assert.Equal("Movie", result);
     }
 
     [Fact]
     public void GetSubtitleBaseName_HandlesThreeLetterLanguageCode()
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName("/movies/Movie.ger.srt");
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName("/movies/Movie.ger.srt", new HashSet<string> { "Movie" });
         Assert.Equal("Movie", result);
     }
 
     [Fact]
     public void GetSubtitleBaseName_PreservesYearInParentheses()
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName("/movies/The Movie (2023).fr.srt");
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName("/movies/The Movie (2023).fr.srt", new HashSet<string> { "The Movie (2023)" });
         Assert.Equal("The Movie (2023)", result);
     }
 
@@ -73,7 +74,7 @@ public class CleanOrphanedSubtitlesTaskTests
     [InlineData("/movies/Movie.FLAC.srt", "Movie.FLAC")]
     public void GetSubtitleBaseName_DoesNotStripEncodingOrQualityTokens(string filePath, string expected)
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath);
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
 
@@ -93,7 +94,7 @@ public class CleanOrphanedSubtitlesTaskTests
     [InlineData("/movies/Movie Name (2021).no-NO.srt", "Movie Name (2021)")]
     public void GetSubtitleBaseName_StripsBcp47RegionalTags(string filePath, string expected)
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath);
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
 
@@ -106,7 +107,7 @@ public class CleanOrphanedSubtitlesTaskTests
     [InlineData("/movies/Movie Name (2021).sr-Cyrl.srt", "Movie Name (2021)")]
     public void GetSubtitleBaseName_StripsBcp47ScriptTags(string filePath, string expected)
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath);
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
 
@@ -120,11 +121,9 @@ public class CleanOrphanedSubtitlesTaskTests
     [InlineData("/movies/Movie Name (2021).fr-CA.cc.srt", "Movie Name (2021)")]
     public void GetSubtitleBaseName_StripsBcp47TagsWithFlags(string filePath, string expected)
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath);
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
-
-    // === Regression: encoding/release tags with hyphens must NOT be stripped ===
 
     [Theory]
     [InlineData("/movies/Movie.DTS-HD.srt", "Movie.DTS-HD")]
@@ -136,11 +135,9 @@ public class CleanOrphanedSubtitlesTaskTests
     [InlineData("/movies/Movie.AAC2-0.srt", "Movie.AAC2-0")]
     public void GetSubtitleBaseName_DoesNotStripHyphenatedEncodingTokens(string filePath, string expected)
     {
-        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath);
+        var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
-
-    // === Real-world regression: the exact filename from the bug report ===
 
     [Fact]
     public void GetSubtitleBaseName_RealWorldBugReport_SpanishLatino()
@@ -155,7 +152,7 @@ public class CleanOrphanedSubtitlesTaskTests
         const string videoBaseName =
             "Rocky (1976) [tmdbid-1366] - [Remux-2160p][DTS-HD MA 5.1][DV HDR10][h265]-seleZen";
 
-        var subtitleBase = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(subtitlePath);
+        var subtitleBase = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(subtitlePath, new HashSet<string> { videoBaseName });
         Assert.Equal(videoBaseName, subtitleBase);
     }
 

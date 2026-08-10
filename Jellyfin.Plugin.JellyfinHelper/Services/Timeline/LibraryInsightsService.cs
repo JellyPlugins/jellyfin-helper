@@ -207,7 +207,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
 
             var ext = Path.GetExtension(file.FullName);
             if (!MediaExtensions.VideoExtensions.Contains(ext) &&
-                !MediaExtensions.AudioExtensions.Contains(ext))
+                !MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
             {
                 continue;
             }
@@ -305,13 +305,15 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     }
 
     /// <summary>
-    ///     Returns the relevant date for a recent entry: ModifiedUtc for "changed", CreatedUtc for "added".
+    ///     Returns the relevant date for a recent entry: the LATER of created/modified. Using the max
+    ///     (rather than "modified when changed, created when added") guarantees the recency filter can
+    ///     never hide a genuinely new item behind a stale, preserved mtime that predates its created
+    ///     time (common when media is copied with -p / restored from backup - the mtime is older than
+    ///     the moment Jellyfin first saw the file).
     /// </summary>
     private static DateTime GetRelevantDate(LibraryInsightEntry entry)
     {
-        return string.Equals(entry.ChangeType, "changed", StringComparison.OrdinalIgnoreCase)
-            ? entry.ModifiedUtc
-            : entry.CreatedUtc;
+        return entry.ModifiedUtc > entry.CreatedUtc ? entry.ModifiedUtc : entry.CreatedUtc;
     }
 
     /// <summary>
@@ -319,11 +321,15 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     /// </summary>
     /// <param name="createdUtc">The creation date in UTC.</param>
     /// <param name="modifiedUtc">The last modified date in UTC.</param>
-    /// <returns>"added" if both dates are close together, otherwise "changed".</returns>
+    /// <returns>"changed" only when modified is meaningfully AFTER created; otherwise "added".</returns>
     internal static string DetermineChangeType(DateTime createdUtc, DateTime modifiedUtc)
     {
-        var diff = Math.Abs((modifiedUtc - createdUtc).TotalHours);
-        return diff < AddedVsChangedThresholdHours ? "added" : "changed";
+        // Signed, not Math.Abs: a modified time EARLIER than created (a stale/preserved mtime) is not
+        // a real "change" - it must classify as "added" so GetRelevantDate ranks it by the newer
+        // created time. Only a modified time that is genuinely later than created by the threshold
+        // counts as "changed".
+        var hoursAfterCreation = (modifiedUtc - createdUtc).TotalHours;
+        return hoursAfterCreation >= AddedVsChangedThresholdHours ? "changed" : "added";
     }
 
     private static bool IsMovieType(string collectionType)
@@ -357,7 +363,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     }
 
     /// <summary>
-    ///     Calculates the total size and newest file modification time within a directory (recursively).
+    ///     Calculates the total size and newest file modification time within a directory (iterative, stack-based).
     /// </summary>
     private (long Size, DateTime NewestFileTime) GetDirectorySizeAndNewestTime(
         string directoryPath,
@@ -367,48 +373,71 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     {
         long total = 0;
         var newestTime = DateTime.MinValue;
-        try
+        var stack = new Stack<string>();
+        stack.Push(directoryPath);
+
+        while (stack.Count > 0)
         {
-            foreach (var file in _fileSystem.GetFiles(directoryPath))
+            var current = stack.Pop();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                total += file.Length;
-                if (file.LastWriteTimeUtc > newestTime)
+                foreach (var file in _fileSystem.GetFiles(current))
                 {
-                    newestTime = file.LastWriteTimeUtc;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    total += file.Length;
+                    if (file.LastWriteTimeUtc > newestTime)
+                    {
+                        newestTime = file.LastWriteTimeUtc;
+                    }
+                }
+
+                foreach (var subDir in _fileSystem.GetDirectories(current))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var dirName = Path.GetFileName(subDir.FullName);
+
+                    // Check for reparse point (symlink/junction) to avoid cycles
+                    FileAttributes attributes;
+                    try
+                    {
+                        attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogDebug(
+                            "LibraryInsights",
+                            $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
+                            _logger);
+                        continue;
+                    }
+
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+
+                    if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (ShouldSkipAsTrash(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                    {
+                        continue;
+                    }
+
+                    stack.Push(subDir.FullName);
                 }
             }
-
-            foreach (var subDir in _fileSystem.GetDirectories(directoryPath))
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var dirName = Path.GetFileName(subDir.FullName);
-
-                if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (ShouldSkipAsTrash(subDir.FullName, dirName, trashFolderName, fullTrashPath))
-                {
-                    continue;
-                }
-
-                var (subSize, subNewest) = GetDirectorySizeAndNewestTime(
-                    subDir.FullName, trashFolderName, fullTrashPath, cancellationToken);
-                total += subSize;
-                if (subNewest > newestTime)
-                {
-                    newestTime = subNewest;
-                }
+                _pluginLog.LogDebug(
+                    "LibraryInsights",
+                    $"Skipping inaccessible directory: {current}: {ex.Message}",
+                    _logger);
             }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _pluginLog.LogDebug(
-                "LibraryInsights",
-                $"Skipping inaccessible directory: {directoryPath}: {ex.Message}",
-                _logger);
         }
 
         return (total, newestTime);

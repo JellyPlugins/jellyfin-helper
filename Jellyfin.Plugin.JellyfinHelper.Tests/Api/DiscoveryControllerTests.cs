@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
@@ -17,25 +18,46 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     If future tests add cache-mutating scenarios, consider per-test isolation
 ///     via a temp-directory-backed cache or mocked <c>IDiscoveryCacheService</c>.
 /// </summary>
-public class DiscoveryControllerTests
+public class DiscoveryControllerTests : IDisposable
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock;
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock;
     private readonly DiscoveryCacheService _cache;
+    private readonly string _tempCachePath;
 
     public DiscoveryControllerTests()
     {
         var pluginLog = new Mock<IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
-        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
+        _tempCachePath = Path.GetTempFileName();
+        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: _tempCachePath);
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
     }
 
-    private DiscoveryController CreateController(Mock<ISeerrDiscoveryService>? discovery = null)
+    public void Dispose()
+    {
+        _cache.Dispose();
+        try { File.Delete(_tempCachePath); } catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        GC.SuppressFinalize(this);
+    }
+
+    private DiscoveryController CreateController(Mock<ISeerrDiscoveryService>? discovery = null, Guid? userId = null)
     {
         var disc = discovery ?? _discoveryMock;
-        return new DiscoveryController(_cache, disc.Object, _feedbackStoreMock.Object);
+        var controller = new DiscoveryController(_cache, disc.Object, _feedbackStoreMock.Object, new Mock<ILogger<DiscoveryController>>().Object);
+        var claims = new System.Collections.Generic.List<System.Security.Claims.Claim>();
+        var id = userId ?? Guid.NewGuid();
+        claims.Add(new System.Security.Claims.Claim("Jellyfin-UserId", id.ToString()));
+        controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+        {
+            HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+            {
+                User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "Test"))
+            }
+        };
+        return controller;
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,6 +8,7 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -17,9 +18,9 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
-using IFileSystem = MediaBrowser.Model.IO.IFileSystem;
 
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
@@ -130,16 +131,22 @@ public class HelperCleanupTask : IScheduledTask
     {
         var config = _configHelper.GetConfig();
 
-        var subTasks = new (string Name, TaskMode Mode, Func<IProgress<double>, CancellationToken, Task> Execute)[]
+        // RunOnDeactivate: most sub-tasks are true no-ops when Deactivated and are skipped.
+        // "Smart Recommendations" is the exception - on Deactivate it must still run so its
+        // handler can PURGE any previously-created recommendation playlists (switching a
+        // library from Activate to Deactivate should not leave stale managed playlists
+        // behind). RunRecommendationsUpdate short-circuits all expensive work in Deactivate
+        // mode and only performs the cleanup.
+        var subTasks = new (string Name, TaskMode Mode, bool RunOnDeactivate, Func<IProgress<double>, CancellationToken, Task> Execute)[]
         {
-            ("Trickplay Cleanup", config.TrickplayTaskMode, RunTrickplayCleanup),
-            ("Empty Media Folder Cleanup", config.EmptyMediaFolderTaskMode, RunEmptyMediaFolderCleanup),
-            ("Orphaned Subtitle Cleanup", config.OrphanedSubtitleTaskMode, RunOrphanedSubtitleCleanup),
-            ("Link Repair", config.LinkRepairTaskMode, RunLinkRepair),
-            ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct)),
-            ("User Watch Activity", config.RecommendationsTaskMode, (p, ct) => RunUserActivityUpdate(config, p, ct)),
-            ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
-            ("Seerr Discovery", config.RecommendationsTaskMode, (p, ct) => RunSeerrDiscovery(config, p, ct))
+            ("Trickplay Cleanup", config.TrickplayTaskMode, false, RunTrickplayCleanup),
+            ("Empty Media Folder Cleanup", config.EmptyMediaFolderTaskMode, false, RunEmptyMediaFolderCleanup),
+            ("Orphaned Subtitle Cleanup", config.OrphanedSubtitleTaskMode, false, RunOrphanedSubtitleCleanup),
+            ("Link Repair", config.LinkRepairTaskMode, false, RunLinkRepair),
+            ("Seerr Cleanup", config.SeerrCleanupTaskMode, false, (p, ct) => RunSeerrCleanup(config, p, ct)),
+            ("User Watch Activity", config.RecommendationsTaskMode, false, (p, ct) => RunUserActivityUpdate(config, p, ct)),
+            ("Smart Recommendations", config.RecommendationsTaskMode, true, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
+            ("Seerr Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunSeerrDiscovery(config, p, ct))
         };
 
         var totalTasks = subTasks.Length;
@@ -147,16 +154,21 @@ public class HelperCleanupTask : IScheduledTask
         for (var i = 0; i < totalTasks; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var (name, mode, execute) = subTasks[i];
+            var (name, mode, runOnDeactivate, execute) = subTasks[i];
 
-            if (mode == TaskMode.Deactivate)
+            if (mode == TaskMode.Deactivate && !runOnDeactivate)
             {
                 _pluginLog.LogInfo("HelperCleanup", $"Skipping {name} (deactivated in settings).", _logger);
                 progress.Report((double)(i + 1) / totalTasks * 100);
                 continue;
             }
 
-            var modeLabel = mode == TaskMode.DryRun ? "Dry Run" : "Active";
+            var modeLabel = mode switch
+            {
+                TaskMode.DryRun => "Dry Run",
+                TaskMode.Deactivate => "Deactivated - cleanup only",
+                _ => "Active"
+            };
             _pluginLog.LogInfo("HelperCleanup", $"Starting {name} ({modeLabel})...", _logger);
 
             var succeeded = true;
@@ -173,7 +185,7 @@ public class HelperCleanupTask : IScheduledTask
                 _pluginLog.LogWarning("HelperCleanup", $"Helper Cleanup was cancelled during {name}.", logger: _logger);
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 succeeded = false;
                 _pluginLog.LogError("HelperCleanup", $"Error executing {name}. Continuing with next task.", ex, _logger);
@@ -183,24 +195,51 @@ public class HelperCleanupTask : IScheduledTask
             progress.Report((double)(i + 1) / totalTasks * 100);
         }
 
-        if (config is { UseTrash: true, TrashRetentionDays: >= 0 })
+        if (config is { UseTrash: true, TrashRetentionDays: > 0 })
         {
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 _pluginLog.LogInfo("HelperCleanup", $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
-                var libraryLocations = LibraryPathResolver.GetDistinctLibraryLocations(_libraryManager);
+                // Purge only the trash of libraries the cleanup actually operates on:
+                // GetFilteredLibraryLocations honours ExcludedLibraries and skips
+                // music/boxset libraries, so an admin-excluded library's trash is left
+                // untouched (matching the contract the cleanup stages themselves follow).
+                var libraryLocations = _configHelper.GetFilteredLibraryLocations(_libraryManager);
                 long totalBytesFreed = 0;
                 var totalItemsPurged = 0;
+
+                // Resolve each library's trash path, then purge the DISTINCT set so a shared absolute
+                // TrashFolderPath is purged exactly once. Reject only a path that resolves to a library
+                // root itself (never a valid trash folder); an absolute trash path OUTSIDE every root is
+                // a supported configuration and MUST be purged, else TrashRetentionDays is silently
+                // defeated. Deletion stays bounded regardless: PurgeExpiredTrash only removes entries
+                // whose names match the strict "yyyyMMdd-HHmmss_" trash-timestamp prefix, so even a
+                // misconfigured absolute path loses nothing that is not a real trash entry.
+                var pathComparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+
+                var libraryRoots = new HashSet<string>(pathComparer);
                 foreach (var location in libraryLocations)
                 {
-                    var candidatePath = _configHelper.GetTrashPath(location);
-                    var libraryRoot = Path.GetFullPath(location).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    var trashPath = Path.GetFullPath(candidatePath);
-                    var pathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-                    if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, pathComparison))
+                    libraryRoots.Add(Path.GetFullPath(location).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                }
+
+                var purgedPaths = new HashSet<string>(pathComparer);
+                foreach (var location in libraryLocations)
+                {
+                    var trashPath = Path.GetFullPath(_configHelper.GetTrashPath(location));
+                    var trashPathTrimmed = trashPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                    // Defense in depth: never purge a library root even if GetTrashPath ever regressed.
+                    if (libraryRoots.Contains(trashPathTrimmed))
                     {
-                        _pluginLog.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: resolved trash path {trashPath} is outside library root.", logger: _logger);
+                        _pluginLog.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: resolved trash path {trashPath} is a library root.", logger: _logger);
+                        continue;
+                    }
+
+                    // Dedup a shared absolute trash path so it is purged only once.
+                    if (!purgedPaths.Add(trashPathTrimmed))
+                    {
                         continue;
                     }
 
@@ -221,7 +260,7 @@ public class HelperCleanupTask : IScheduledTask
                 _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during trash purge.", logger: _logger);
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogError("HelperCleanup", "Error during trash purge. Continuing.", ex, _logger);
             }
@@ -240,7 +279,7 @@ public class HelperCleanupTask : IScheduledTask
             _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during post-cleanup statistics scan.", logger: _logger);
             throw;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning("HelperCleanup", "Failed to run post-cleanup statistics scan.", ex, _logger);
         }
@@ -257,7 +296,7 @@ public class HelperCleanupTask : IScheduledTask
             _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during growth timeline computation.", logger: _logger);
             throw;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning("HelperCleanup", "Failed to recompute growth timeline.", ex, _logger);
         }
