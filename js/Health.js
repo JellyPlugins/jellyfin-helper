@@ -1,4 +1,5 @@
 // --- Health Tab ---
+'use strict';
 
 var _lastScanResult = null;
 
@@ -34,26 +35,26 @@ function renderHealthChecks(data) {
     html += '<div class="health-item health-clickable" data-health-type="noSubs" role="button" tabindex="0"><div class="health-value '
         + (totalNoSubs > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoSubs
         + '</div>';
-    html += '<div class="health-label">' + T('noSubtitles',
-        'Videos without subtitles') + '</div></div>';
+    html += '<div class="health-label">' + escHtml(T('noSubtitles',
+        'Videos without subtitles')) + '</div></div>';
 
     html += '<div class="health-item health-clickable" data-health-type="noImages" role="button" tabindex="0"><div class="health-value '
         + (totalNoImages > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoImages
         + '</div>';
-    html += '<div class="health-label">' + T('noImages', 'Videos without images')
+    html += '<div class="health-label">' + escHtml(T('noImages', 'Videos without images'))
         + '</div></div>';
 
     html += '<div class="health-item health-clickable" data-health-type="noNfo" role="button" tabindex="0"><div class="health-value '
         + (totalNoNfo > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoNfo
         + '</div>';
-    html += '<div class="health-label">' + T('noNfo', 'Videos without NFO')
+    html += '<div class="health-label">' + escHtml(T('noNfo', 'Videos without NFO'))
         + '</div></div>';
 
     html += '<div class="health-item health-clickable" data-health-type="orphaned" role="button" tabindex="0"><div class="health-value '
         + (totalOrphaned > 0 ? 'health-bad' : 'health-ok') + '">' + totalOrphaned
         + '</div>';
-    html += '<div class="health-label">' + T('orphanedDirs',
-        'Orphaned metadata dirs') + '</div></div>';
+    html += '<div class="health-label">' + escHtml(T('orphanedDirs',
+        'Orphaned metadata dirs')) + '</div></div>';
 
     html += '</div>';
     html += '<div class="file-tree-panel" id="healthDetailPanel"></div>';
@@ -139,58 +140,57 @@ function loadTrashHealthSection() {
                 }
             }
 
-            var html = '<div id="trashHealthSection">';
-            html += '<div class="section-divider" style="margin:1.5em 0;"></div>';
-            html += '<div class="section-title">' + mi('delete') + T('trashContents',
-                'Trash Contents') + '</div>';
+            var html = '<div class="health-card" id="trashHealthSection">';
+            html += '<div class="section-title">' + mi('delete') + escHtml(T('trashContents',
+                'Trash Contents')) + '</div>';
 
             // Summary card
             html += '<div class="health-grid">';
             html += '<div class="health-item"><div class="health-value ' + (totalItems
             > 0 ? 'health-warn' : 'health-ok') + '">' + totalItems + '</div>';
-            html += '<div class="health-label">' + T('trashItems', 'Items in Trash')
+            html += '<div class="health-label">' + escHtml(T('trashItems', 'Items in Trash'))
                 + '</div></div>';
             html += '<div class="health-item"><div class="health-value" style="font-size:1.2em;">'
                 + formatBytes(totalSize) + '</div>';
-            html += '<div class="health-label">' + T('trashTotalSize', 'Trash Size')
+            html += '<div class="health-label">' + escHtml(T('trashTotalSize', 'Trash Size'))
                 + '</div></div>';
             html += '<div class="health-item"><div class="health-value" style="font-size:1.2em;">'
                 + data.RetentionDays + 'd</div>';
-            html += '<div class="health-label">' + T('trashRetentionDays',
-                'Retention') + '</div></div>';
+            html += '<div class="health-label">' + escHtml(T('trashRetentionDays',
+                'Retention')) + '</div></div>';
             html += '</div>';
 
             if (data.Libraries.length > 0) {
                 html += '<div id="trashDetailContainer">';
                 for (var li = 0; li < data.Libraries.length; li++) {
                     var trashLib = data.Libraries[li];
-                    html += '<div style="margin-top:1em;">';
-                    html += '<h4 style="margin:0 0 0.3em 0;opacity:0.8;">' + mi('folder') + ' ' + escHtml(
+                    html += '<div class="trash-library-block">';
+                    html += '<h4 class="trash-library-heading">' + mi('folder') + escHtml(
                             trashLib.LibraryName)
-                        + ' <span style="opacity:0.5;font-weight:400;">('
-                        + trashLib.Items.length + ' ' + T('items', 'items')
+                        + ' <span class="trash-library-count">('
+                        + trashLib.Items.length + ' ' + escHtml(T('items', 'items'))
                         + ')</span></h4>';
                     html += '<div class="health-detail-list"><ul>';
                     for (var ti = 0; ti < trashLib.Items.length; ti++) {
                         var item = trashLib.Items[ti];
-                        var purgeInfo = item.PurgeDate ? ' - ' + T('purgesOn', 'purges')
+                        var purgeInfo = item.PurgeDate ? ' - ' + escHtml(T('purgesOn', 'purges'))
                             + ' ' + new Date(item.PurgeDate).toLocaleDateString() : '';
                         html += '<li>' + escHtml(item.OriginalName || item.Name)
-                            + ' <span style="opacity:0.5;">(' + formatBytes(item.Size)
+                            + ' <span class="trash-item-meta">(' + formatBytes(item.Size)
                             + purgeInfo + ')</span></li>';
                     }
                     html += '</ul></div></div>';
                 }
                 html += '</div>';
             } else {
-                html += '<p style="opacity:0.5;padding:0.5em;">' + T('trashEmpty',
-                    'Trash is empty.') + '</p>';
+                html += '<p class="trash-empty-hint">' + escHtml(T('trashEmpty',
+                    'Trash is empty.')) + '</p>';
             }
 
             html += '</div>';
             container.insertAdjacentHTML('beforeend', html);
         }, function () {
-            console.log(
+            console.warn(
                 'Jellyfin Helper: Could not load trash contents for health tab');
         });
     }, function () { /* Config load failed - silently skip */
@@ -198,9 +198,11 @@ function loadTrashHealthSection() {
 }
 
 function fillHealthData(data) {
-    var healthHtml = '<div class="section-title">' + T('healthChecks',
+    var healthHtml = '<div class="health-card" id="healthChecksCard">';
+    healthHtml += '<div class="section-title">' + T('healthChecks',
         'Library Health Checks') + '</div>';
     healthHtml += renderHealthChecks(data);
+    healthHtml += '</div>';
 
     var healthContainer = document.getElementById('healthContent');
     if (healthContainer) {

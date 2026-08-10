@@ -1,7 +1,6 @@
 // --- Trends Tab (Growth Timeline) ---
+'use strict';
 
-// In-memory cache for trend point data to avoid expensive DOM round-trips
-var _lastTrendPointData = null;
 
 function formatGranularityLabel(dateStr, granularity) {
     var d = new Date(dateStr);
@@ -105,7 +104,7 @@ function advanceBucketDate(date, granularity) {
 
 function renderTrendChart(timeline) {
     if (!timeline || !timeline.dataPoints || timeline.dataPoints.length < 2) {
-        return '<div class="trend-empty">' + T('trendEmpty', 'Not enough data yet. Growth timeline is computed during each scheduled scan.') + '</div>';
+        return { html: '<div class="trend-empty">' + T('trendEmpty', 'Not enough data yet. Growth timeline is computed during each scheduled scan.') + '</div>', pointData: [] };
     }
 
     // The backend already groups data into the correct granularity and deduplicates
@@ -145,7 +144,7 @@ function renderTrendChart(timeline) {
     }
 
     if (dataPoints.length < 2) {
-        return '<div class="trend-empty">' + T('trendEmpty', 'Not enough data yet. Growth timeline is computed during each scheduled scan.') + '</div>';
+        return { html: '<div class="trend-empty">' + T('trendEmpty', 'Not enough data yet. Growth timeline is computed during each scheduled scan.') + '</div>', pointData: [] };
     }
 
     var width = 880, height = 240, padL = 65, padR = 45, padT = 20, padB = 56;
@@ -189,6 +188,7 @@ function renderTrendChart(timeline) {
     // Build Y-axis ticks (from 0 to yMax)
     var yTicks = [];
     for (var t = 0; t <= yMax; t += niceInterval) {
+        if (niceInterval <= 0) break;
         yTicks.push(Math.round(t));
     }
     // Ensure yMax is included
@@ -215,12 +215,14 @@ function renderTrendChart(timeline) {
     }
 
     // Area fill - use theme variable for consistent primary tint
-    var areaFill = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-light').trim() || 'rgba(0,164,220,0.15)';
+    var areaFillRaw = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-light').trim() || 'rgba(0,164,220,0.15)';
+    var areaFill = /^[a-zA-Z0-9#(),.\s%]+$/.test(areaFillRaw) ? areaFillRaw : 'rgba(0,164,220,0.15)';
     var areaPoints = padL + ',' + (padT + chartH) + ' ' + points.join(' ') + ' ' + (padL + (dataPoints.length - 1) * step) + ',' + (padT + chartH);
     svg += '<polygon points="' + areaPoints + '" fill="' + areaFill + '" />';
 
     // Line
-    var trendColor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#00a4dc';
+    var trendColorRaw = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#00a4dc';
+    var trendColor = /^[a-zA-Z0-9#(),.\s%]+$/.test(trendColorRaw) ? trendColorRaw : '#00a4dc';
     svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="' + trendColor + '" stroke-width="2" />';
 
     // Invisible interaction overlay - full chart area rect for mouse/touch tracking
@@ -264,12 +266,12 @@ function renderTrendChart(timeline) {
 
     // Metadata line below chart
     var meta = '<div class="trend-meta" style="text-align:center;color:rgba(255,255,255,0.35);font-size:11px;margin-top:4px;">';
-    meta += T('trendGranularity', 'Granularity') + ': ' + granularity;
-    var safeFileCount = Number(timeline.totalFilesScanned);
+    meta += escHtml(T('trendGranularity', 'Granularity')) + ': ' + escHtml(granularity);
+    var safeFileCount = Number(timeline.totalDirectoriesScanned);
     if (!isFinite(safeFileCount) || safeFileCount < 0) safeFileCount = 0;
-    meta += ' &middot; ' + safeFileCount + ' ' + T('trendFiles', 'media files');
+    meta += ' &middot; ' + safeFileCount + ' ' + escHtml(T('trendFiles', 'media files'));
     if (timeline.earliestFileDate) {
-        meta += ' &middot; ' + T('trendEarliest', 'Earliest') + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString(undefined, {timeZone: 'UTC'});
+        meta += ' &middot; ' + escHtml(T('trendEarliest', 'Earliest')) + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString(undefined, {timeZone: 'UTC'});
     }
     meta += '</div>';
 
@@ -293,9 +295,6 @@ function renderTrendChart(timeline) {
             c: dataPoints[pd].cumulativeFileCount
         });
     }
-    // Store as data attribute (HTML-encode quotes so it survives the single-file build)
-    // Store point data in memory instead of serializing into the DOM
-    _lastTrendPointData = pointData;
 
     // Diff panel - appears below chart on hover, shows delta vs current (last) data point
     var diffPanel = '<div class="trend-diff-panel">'
@@ -319,16 +318,17 @@ function renderTrendChart(timeline) {
         + '</div>'
         + '</div></div>';
 
-    return '<div class="trend-chart"' + chartDataAttr + '>'
+    var html = '<div class="trend-chart"' + chartDataAttr + '>'
         + svg + overlays
         + '</div>' + diffPanel + meta;
+    return { html: html, pointData: pointData };
 }
 
 /**
  * Attaches interactive tooltip/crosshair behavior to the trend chart.
  * Called after renderTrendChart HTML is inserted into the DOM.
  */
-function attachTrendInteraction(container) {
+function attachTrendInteraction(container, pointData) {
     var chart = container.querySelector('.trend-chart');
     if (!chart) return;
 
@@ -338,7 +338,6 @@ function attachTrendInteraction(container) {
     var activeDot = chart.querySelector('.trend-active-dot');
     if (!svgEl || !tooltip || !crosshair || !activeDot) return;
 
-    var pointData = _lastTrendPointData;
     if (!pointData || pointData.length === 0) return;
 
     var padL = parseFloat(chart.getAttribute('data-trend-padl'));
@@ -535,19 +534,18 @@ var _insightsLoadSeq = 0;
  */
 function loadInsightsData() {
     var seq = ++_insightsLoadSeq;
-    var apiClient = ApiClient;
-    var url = apiClient.getUrl('JellyfinHelper/LibraryInsights');
 
     var container = document.getElementById('insightsContainer');
     if (container) {
         container.innerHTML = '<div class="trend-empty">' + T('loadingInsights', 'Loading insights…') + '</div>';
     }
 
-    apiClient.ajax({type: 'GET', url: url, dataType: 'json'}).then(function (data) {
+    apiGet('JellyfinHelper/LibraryInsights', function (data) {
         if (seq !== _insightsLoadSeq) return;
         renderInsightCards(data);
-    }, function () {
+    }, function (err) {
         if (seq !== _insightsLoadSeq) return;
+        _apiDefaultError('GET', 'JellyfinHelper/LibraryInsights')(err);
         var c = document.getElementById('insightsContainer');
         if (c) c.innerHTML = '<div class="trend-empty">' + T('insightsError', 'Could not load insights.') + '</div>';
     });
@@ -591,12 +589,16 @@ function renderInsightCards(data) {
     // Toggle handlers
     var largestBtn = document.getElementById('insightLargestBtn');
     var recentBtn = document.getElementById('insightRecentBtn');
-    largestBtn.addEventListener('click', function () {
-        toggleInsightPanel('insightLargestPanel', 'insightRecentPanel', largestBtn, recentBtn);
-    });
-    recentBtn.addEventListener('click', function () {
-        toggleInsightPanel('insightRecentPanel', 'insightLargestPanel', recentBtn, largestBtn);
-    });
+    if (largestBtn) {
+        largestBtn.addEventListener('click', function () {
+            toggleInsightPanel('insightLargestPanel', 'insightRecentPanel', largestBtn, recentBtn);
+        });
+    }
+    if (recentBtn) {
+        recentBtn.addEventListener('click', function () {
+            toggleInsightPanel('insightRecentPanel', 'insightLargestPanel', recentBtn, largestBtn);
+        });
+    }
 }
 
 function toggleInsightPanel(showId, hideId, activeBtn, otherBtn) {
@@ -765,25 +767,19 @@ var _trendLoadRequestSeq = 0;
 
 function loadTrendData(forceRefresh) {
     var requestSeq = ++_trendLoadRequestSeq;
-    var apiClient = ApiClient;
-    var url = apiClient.getUrl('JellyfinHelper/GrowthTimeline');
-    if (forceRefresh) {
-        url += (url.indexOf('?') === -1 ? '?' : '&') + 'forceRefresh=true';
-    }
+    var path = 'JellyfinHelper/GrowthTimeline' + (forceRefresh ? '?forceRefresh=true' : '');
 
-    apiClient.ajax({
-        type: 'GET',
-        url: url,
-        dataType: 'json'
-    }).then(function (timeline) {
+    apiGet(path, function (timeline) {
         if (requestSeq !== _trendLoadRequestSeq) return;
         var container = document.getElementById('trendChartContainer');
         if (container) {
-            container.innerHTML = renderTrendChart(timeline);
-            attachTrendInteraction(container);
+            var result = renderTrendChart(timeline);
+            container.innerHTML = result.html;
+            attachTrendInteraction(container, result.pointData);
         }
-    }, function () {
+    }, function (err) {
         if (requestSeq !== _trendLoadRequestSeq) return;
+        _apiDefaultError('GET', path)(err);
         var container = document.getElementById('trendChartContainer');
         if (container) {
             container.innerHTML = '<div class="trend-empty">' + T('trendError', 'Could not load trend data.') + '</div>';

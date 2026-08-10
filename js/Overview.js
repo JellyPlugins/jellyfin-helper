@@ -1,9 +1,10 @@
 // --- Overview Tab ---
+'use strict';
 function getCollectionBadge(type) {
     var t = (type || '').toLowerCase();
-    if (t === 'tvshows') return '<span class="badge badge-tvshows">' + T('tvShows', 'TV Shows') + '</span>';
-    if (t === 'movies' || t === '') return '<span class="badge badge-movies">' + T('movies', 'Movies') + '</span>';
-    if (t === 'music') return '<span class="badge badge-music">' + T('music', 'Music') + '</span>';
+    if (t === 'tvshows') return '<span class="badge badge-tvshows">' + escHtml(T('tvShows', 'TV Shows')) + '</span>';
+    if (t === 'movies' || t === '') return '<span class="badge badge-movies">' + escHtml(T('movies', 'Movies')) + '</span>';
+    if (t === 'music') return '<span class="badge badge-music">' + escHtml(T('music', 'Music')) + '</span>';
     return '<span class="badge badge-other">' + escHtml(type || T('mixed', 'Mixed')) + '</span>';
 }
 
@@ -54,85 +55,91 @@ function loadCleanupStats() {
     apiGet('JellyfinHelper/CleanupStatistics', function (stats) {
         var cleanupContainer = document.getElementById('cleanup-stats-container');
         if (!cleanupContainer) return;
-        var h = '<div class="section-title">' + mi('cleaning_services') + T('cleanupStatistics', 'Cleanup Statistics') + '</div>';
+        var h = '<div class="section-title">' + mi('cleaning_services') + escHtml(T('cleanupStatistics', 'Cleanup Statistics')) + '</div>';
         h += '<div class="stats-grid">';
-        h += '<div class="stat-card highlight"><h3>' + T('totalBytesFreed', 'Total Space Freed') + '</h3>';
-        h += '<p class="stat-value">' + formatBytes(stats.TotalBytesFreed) + '</p></div>';
-        h += '<div class="stat-card highlight"><h3>' + T('totalItemsDeleted', 'Total Items Deleted') + '</h3>';
-        h += '<p class="stat-value">' + stats.TotalItemsDeleted + '</p>';
+        h += '<div class="stat-card highlight"><h3>' + escHtml(T('totalBytesFreed', 'Total Space Freed')) + '</h3>';
+        h += '<p class="stat-value">' + escHtml(formatBytes(stats.TotalBytesFreed)) + '</p></div>';
+        h += '<div class="stat-card highlight"><h3>' + escHtml(T('totalItemsDeleted', 'Total Items Deleted')) + '</h3>';
+        h += '<p class="stat-value">' + escHtml(String(stats.TotalItemsDeleted)) + '</p>';
         var parsedTs = new Date(stats.LastCleanupTimestamp);
         var hasValidTs = stats.LastCleanupTimestamp &&
             stats.LastCleanupTimestamp !== '0001-01-01T00:00:00' &&
             !Number.isNaN(parsedTs.getTime());
         var lastTs = hasValidTs ? parsedTs.toLocaleString() : T('never', 'Never');
-        h += '<p class="stat-detail">' + T('lastCleanup', 'Last cleanup') + ': ' + lastTs + '</p></div>';
+        h += '<p class="stat-detail">' + escHtml(T('lastCleanup', 'Last cleanup')) + ': ' + escHtml(lastTs) + '</p></div>';
         h += '</div>';
         cleanupContainer.innerHTML = h;
     }, function () {
         var cleanupContainer = document.getElementById('cleanup-stats-container');
         if (cleanupContainer) {
-            cleanupContainer.innerHTML = '<div class="section-title">' + mi('cleaning_services') + T('cleanupStatistics', 'Cleanup Statistics') + '</div>' +
-                '<p style="opacity:0.5;">' + T('cleanupStatsError', 'Could not load cleanup statistics.') + '</p>';
+            cleanupContainer.innerHTML = '<div class="section-title">' + mi('cleaning_services') + escHtml(T('cleanupStatistics', 'Cleanup Statistics')) + '</div>' +
+                '<p style="opacity:0.5;">' + escHtml(T('cleanupStatsError', 'Could not load cleanup statistics.')) + '</p>';
         }
     });
 }
 
 function fillOverviewData(data) {
+    var movies = (data.Movies && Array.isArray(data.Movies)) ? data.Movies : [];
+    var tvShows = (data.TvShows && Array.isArray(data.TvShows)) ? data.TvShows : [];
+    var libraries = (data.Libraries && Array.isArray(data.Libraries)) ? data.Libraries : [];
+    var totalVideoFileCount = data.TotalVideoFileCount || 0;
+    var totalAudioFileCount = data.TotalAudioFileCount || 0;
+
     var overviewHtml = '';
     overviewHtml += '<div class="stats-grid">';
-    overviewHtml += '<div class="stat-card"><h3>' + mi('movie') + T('movieVideoData', 'Video Data - Movies') + '</h3>';
+    overviewHtml += '<div class="stat-card"><h3>' + mi('movie') + escHtml(T('movieVideoData', 'Video Data - Movies')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMovieVideoSize) + '</p>';
     var movieFiles = 0;
-    for (var m = 0; m < data.Movies.length; m++) movieFiles += data.Movies[m].VideoFileCount;
-    overviewHtml += '<p class="stat-detail">' + movieFiles + ' ' + (movieFiles === 1 ? T('file', 'file') : T('files', 'files')) + ' ' + T('across', 'across') + ' ' + data.Movies.length + ' ' + T('libraries', 'libraries') + '</p>';
+    for (var m = 0; m < movies.length; m++) movieFiles += movies[m].VideoFileCount;
+    overviewHtml += '<p class="stat-detail">' + movieFiles + ' ' + (movieFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + ' ' + escHtml(T('across', 'across')) + ' ' + movies.length + ' ' + escHtml(T('libraries', 'libraries')) + '</p>';
     overviewHtml += '</div>';
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('tv') + T('tvVideoData', 'Video Data - TV Shows') + '</h3>';
+    overviewHtml += '<div class="stat-card"><h3>' + mi('tv') + escHtml(T('tvVideoData', 'Video Data - TV Shows')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTvShowVideoSize) + '</p>';
     var tvFiles = 0;
-    for (var t = 0; t < data.TvShows.length; t++) tvFiles += data.TvShows[t].VideoFileCount;
-    overviewHtml += '<p class="stat-detail">' + tvFiles + ' ' + (tvFiles === 1 ? T('episode', 'episode') : T('episodes', 'episodes')) + ' ' + T('across', 'across') + ' ' + data.TvShows.length + ' ' + T('libraries', 'libraries') + '</p>';
+    for (var t = 0; t < tvShows.length; t++) tvFiles += tvShows[t].VideoFileCount;
+    overviewHtml += '<p class="stat-detail">' + tvFiles + ' ' + (tvFiles === 1 ? escHtml(T('episode', 'episode')) : escHtml(T('episodes', 'episodes'))) + ' ' + escHtml(T('across', 'across')) + ' ' + tvShows.length + ' ' + escHtml(T('libraries', 'libraries')) + '</p>';
     overviewHtml += '</div>';
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('music_note') + T('musicAudioData', 'Music / Audio') + '</h3>';
+    overviewHtml += '<div class="stat-card"><h3>' + mi('music_note') + escHtml(T('musicAudioData', 'Music / Audio')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMusicAudioSize) + '</p>';
-    overviewHtml += '<p class="stat-detail">' + data.TotalAudioFileCount + ' ' + (data.TotalAudioFileCount === 1 ? T('file', 'file') : T('files', 'files')) + '</p>';
+    overviewHtml += '<p class="stat-detail">' + totalAudioFileCount + ' ' + (totalAudioFileCount === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
     overviewHtml += '</div>';
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('image') + T('trickplayData', 'Trickplay Data') + '</h3>';
+    overviewHtml += '<div class="stat-card"><h3>' + mi('image') + escHtml(T('trickplayData', 'Trickplay Data')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTrickplaySize) + '</p>';
     var trickplayFolders = 0;
-    for (var tp = 0; tp < data.Libraries.length; tp++) trickplayFolders += data.Libraries[tp].TrickplayFolderCount;
-    overviewHtml += '<p class="stat-detail">' + trickplayFolders + ' ' + (trickplayFolders === 1 ? T('folder', 'folder') : T('folders', 'folders')) + '</p>';
+    for (var tp = 0; tp < libraries.length; tp++) trickplayFolders += libraries[tp].TrickplayFolderCount;
+    overviewHtml += '<p class="stat-detail">' + trickplayFolders + ' ' + (trickplayFolders === 1 ? escHtml(T('folder', 'folder')) : escHtml(T('folders', 'folders'))) + '</p>';
     overviewHtml += '</div>';
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('edit_note') + T('subtitleData', 'Subtitles') + '</h3>';
+    overviewHtml += '<div class="stat-card"><h3>' + mi('edit_note') + escHtml(T('subtitleData', 'Subtitles')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalSubtitleSize) + '</p>';
     var subFiles = 0;
-    for (var sb = 0; sb < data.Libraries.length; sb++) subFiles += data.Libraries[sb].SubtitleFileCount;
-    overviewHtml += '<p class="stat-detail">' + subFiles + ' ' + (subFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</p>';
+    for (var sb = 0; sb < libraries.length; sb++) subFiles += libraries[sb].SubtitleFileCount;
+    overviewHtml += '<p class="stat-detail">' + subFiles + ' ' + (subFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
     overviewHtml += '</div>';
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('bar_chart') + T('totalFiles', 'Total Files') + '</h3>';
-    var totalMediaFiles = data.TotalVideoFileCount + data.TotalAudioFileCount;
-    overviewHtml += '<p class="stat-value">' + totalMediaFiles + ' ' + (totalMediaFiles === 1 ? T('mediaFile', 'media file') : T('mediaFiles', 'media files')) + '</p>';
-    overviewHtml += '<p class="stat-detail">' + data.TotalVideoFileCount + ' ' + T('video', 'video') + ', ' + data.TotalAudioFileCount + ' ' + T('audio', 'audio') + '</p>';
+    overviewHtml += '<div class="stat-card"><h3>' + mi('bar_chart') + escHtml(T('totalFiles', 'Total Files')) + '</h3>';
+    var totalMediaFiles = totalVideoFileCount + totalAudioFileCount;
+    overviewHtml += '<p class="stat-value">' + totalMediaFiles + ' ' + (totalMediaFiles === 1 ? escHtml(T('mediaFile', 'media file')) : escHtml(T('mediaFiles', 'media files'))) + '</p>';
+    overviewHtml += '<p class="stat-detail">' + totalVideoFileCount + ' ' + escHtml(T('video', 'video')) + ', ' + totalAudioFileCount + ' ' + escHtml(T('audio', 'audio')) + '</p>';
     overviewHtml += '</div>';
     overviewHtml += '</div>';
 
     var grandTotal = 0;
-    for (var gt = 0; gt < data.Libraries.length; gt++) grandTotal += data.Libraries[gt].TotalSize;
-    overviewHtml += '<div class="section-title">' + mi('storage') + T('storageDistribution', 'Storage Distribution') + ' - <span class="color-primary">' + formatBytes(grandTotal) + ' ' + T('total', 'Total') + '</span></div>';
+    for (var gt = 0; gt < libraries.length; gt++) grandTotal += libraries[gt].TotalSize;
+    overviewHtml += '<div class="section-title">' + mi('storage') + escHtml(T('storageDistribution', 'Storage Distribution')) + ' - <span class="color-primary">' + formatBytes(grandTotal) + ' ' + escHtml(T('total', 'Total')) + '</span></div>';
     overviewHtml += buildBarSegments(data);
 
-    overviewHtml += '<div class="section-title">' + mi('library_books') + T('perLibraryBreakdown', 'Per-Library Breakdown') + '</div>';
+    overviewHtml += '<div class="section-title">' + mi('library_books') + escHtml(T('perLibraryBreakdown', 'Per-Library Breakdown')) + '</div>';
     overviewHtml += '<div class="library-table-wrapper"><table class="library-table">';
     overviewHtml += '<thead><tr>';
-    overviewHtml += '<th>' + T('library', 'Library') + '</th><th>' + T('type', 'Type') + '</th><th>' + T('video', 'Video') + '</th><th>' + T('audio', 'Audio') + '</th><th>' + T('subtitles', 'Subtitles') + '</th><th>' + T('images', 'Images') + '</th><th>' + T('trickplay', 'Trickplay') + '</th><th>' + T('total', 'Total') + '</th>';
+    overviewHtml += '<th>' + escHtml(T('library', 'Library')) + '</th><th>' + escHtml(T('type', 'Type')) + '</th><th>' + escHtml(T('video', 'Video')) + '</th><th>' + escHtml(T('audio', 'Audio')) + '</th><th>' + escHtml(T('subtitles', 'Subtitles')) + '</th><th>' + escHtml(T('images', 'Images')) + '</th><th>' + escHtml(T('trickplay', 'Trickplay')) + '</th><th>' + escHtml(T('total', 'Total')) + '</th>';
     overviewHtml += '</tr></thead><tbody>';
 
-    for (var i = 0; i < data.Libraries.length; i++) {
-        var lib = data.Libraries[i];
+    for (var i = 0; i < libraries.length; i++) {
+        var lib = libraries[i];
         overviewHtml += '<tr>';
         overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
         overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';

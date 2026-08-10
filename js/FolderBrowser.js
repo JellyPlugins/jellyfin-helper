@@ -1,6 +1,7 @@
 // --- Folder Browser Dialog for Trash Path Selection ---
 // This file adds a server-side folder picker to the Trash Folder Path setting.
 // It hooks into the existing Settings.js by attaching to the Browse button after render.
+'use strict';
 
 /**
  * Initializes the folder browser functionality.
@@ -40,7 +41,7 @@ function openFolderBrowserDialog() {
     // Header
     var header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:1em;';
-    header.innerHTML = '<h3 id="folderBrowserTitle" style="margin:0;font-size:1.1em;display:flex;align-items:center;gap:0.4em;"><span style="color:#00a4dc;">' + mi('folder_open') + '</span>' + T('trashBrowseTitle', 'Select Trash Folder') + '</h3>'
+    header.innerHTML = '<h3 id="folderBrowserTitle" style="margin:0;font-size:1.1em;display:flex;align-items:center;gap:0.4em;"><span style="color:#00a4dc;">' + mi('folder_open') + '</span>' + escHtml(T('trashBrowseTitle', 'Select Trash Folder')) + '</h3>'
         + '<button type="button" id="folderBrowserClose" style="background:none;border:none;color:inherit;font-size:1.5em;cursor:pointer;padding:0.2em;line-height:1;opacity:0.7;" aria-label="' + escAttr(T('close', 'Close')) + '">&times;</button>';
     dialog.appendChild(header);
 
@@ -65,15 +66,15 @@ function openFolderBrowserDialog() {
     // New folder name input
     var newFolderRow = document.createElement('div');
     newFolderRow.style.cssText = 'margin-top:0.8em;';
-    newFolderRow.innerHTML = '<label style="font-size:0.82em;opacity:0.8;">' + T('trashBrowseCreateNew', 'Or type a new folder name:') + '</label>'
+    newFolderRow.innerHTML = '<label style="font-size:0.82em;opacity:0.8;">' + escHtml(T('trashBrowseCreateNew', 'Or type a new folder name:')) + '</label>'
         + '<input type="text" id="folderBrowserNewName" placeholder=".jellyfin-trash" style="width:100%;margin-top:0.3em;padding:0.4em 0.6em;border-radius:4px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.2);color:inherit;font-size:0.9em;">';
     dialog.appendChild(newFolderRow);
 
     // Action buttons
     var btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex;gap:0.5em;justify-content:flex-end;margin-top:1em;';
-    btnRow.innerHTML = '<button type="button" class="action-btn" id="folderBrowserCancel" style="padding:0.4em 1em;">' + T('cancel', 'Cancel') + '</button>'
-        + '<button type="button" class="action-btn" id="folderBrowserSelect" style="padding:0.4em 1em;background:#00a4dc;color:#fff;">' + T('trashBrowseSelect', 'Select This Folder') + '</button>';
+    btnRow.innerHTML = '<button type="button" class="action-btn" id="folderBrowserCancel" style="padding:0.4em 1em;">' + escHtml(T('cancel', 'Cancel')) + '</button>'
+        + '<button type="button" class="action-btn" id="folderBrowserSelect" style="padding:0.4em 1em;background:#00a4dc;color:#fff;">' + escHtml(T('trashBrowseSelect', 'Select This Folder')) + '</button>';
     dialog.appendChild(btnRow);
 
     overlay.appendChild(dialog);
@@ -118,7 +119,7 @@ function openFolderBrowserDialog() {
             selectedPath += newName.trim();
         }
         if (selectedPath) {
-            // Validate path locally before attempting save — shows specific error in picker
+            // Validate path locally before attempting save - shows specific error in picker
             var pathError = validateTrashPath(selectedPath, true);
             if (pathError) {
                 var listingEl = document.getElementById('folderBrowserListing');
@@ -193,7 +194,7 @@ function loadLibraryPathsForBrowser(quickJumpEl, state, listing, breadcrumb) {
         var paths = (data && (data.libraryPaths || data.LibraryPaths)) || [];
         if (paths.length === 0) return;
 
-        var h = '<div style="font-size:0.8em;opacity:0.7;margin-bottom:0.3em;">' + T('trashBrowseLibraryRoots', 'Library Roots') + ':</div>';
+        var h = '<div style="font-size:0.8em;opacity:0.7;margin-bottom:0.3em;">' + escHtml(T('trashBrowseLibraryRoots', 'Library Roots')) + ':</div>';
         h += '<div style="display:flex;flex-wrap:wrap;gap:0.3em;">';
         for (var i = 0; i < paths.length; i++) {
             var itemPath = paths[i].path || paths[i].Path || '';

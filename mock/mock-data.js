@@ -128,7 +128,7 @@ var avg=(1.5+yi*0.5+rnd()*1.5)*1073741824;
 cs+=Math.floor(bf*avg);cf+=bf;
 dp.push({date:new Date(y,mo,1).toISOString(),cumulativeSize:cs,cumulativeFileCount:cf});
 m.setMonth(m.getMonth()+1);}
-return{granularity:"monthly",earliestFileDate:start.toISOString(),computedAt:now.toISOString(),totalFilesScanned:cf,dataPoints:dp};})();
+return{granularity:"monthly",earliestFileDate:start.toISOString(),computedAt:now.toISOString(),totalDirectoriesScanned:cf,dataPoints:dp};})();
 
 var MOCK_LIBRARY_INSIGHTS={
 Largest:[
@@ -231,7 +231,7 @@ profiles:[{id:4,name:"HD-1080p"},{id:6,name:"Ultra-HD"}],
 rootFolders:[{id:1,path:"/data/movies"}]
 }];
 
-// Sonarr services: empty (no popup for TV requests — uses server defaults)
+// Sonarr services: empty (no popup for TV requests - uses server defaults)
 var MOCK_SEERR_SERVICES_SONARR=[];
 
 var MOCK_RECOMMENDATIONS=[
@@ -300,7 +300,7 @@ else if(url.indexOf("Discovery/Services/sonarr")!==-1)resolve(JSON.parse(JSON.st
 else if(url.indexOf("Discovery/Request")!==-1&&method==="POST")resolve({Success:true,Message:"Request submitted to Jellyseerr."});
 else if(url.indexOf("Discovery")!==-1&&url.indexOf("Services")===-1&&url.indexOf("Request")===-1)resolve(JSON.parse(JSON.stringify(MOCK_DISCOVERY)));
 else if(url.indexOf("Seerr/Test")!==-1)resolve({success:true,message:"Connected to Jellyseerr (demo)"});
-else if(url.indexOf("ArrIntegration/TestConnection")!==-1)resolve({success:true,message:"Connection successful (demo)"});
+else if(url.indexOf("ArrIntegration/TestConnection")!==-1)resolve({Success:true,Message:"Connection successful (demo)"});
 else if(url.indexOf("ArrIntegration/Compare/")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_ARR_COMPARE)));
 else if(url.indexOf("Logs/Download")!==-1){var lt=MOCK_LOGS.Entries.map(function(e){return e.Timestamp+" ["+e.Level+"] "+e.Source+": "+e.Message;}).join("\n");resolve(lt);}
 else if(url.indexOf("Logs")!==-1&&method==="DELETE"){MOCK_LOGS.Entries=[];MOCK_LOGS.TotalCount=0;resolve({});}

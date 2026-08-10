@@ -1,9 +1,13 @@
 // --- Recommendations Tab (Smart Suggestions) ---
-const MAX_ACTIVITY_ROWS = 15;
+'use strict';
+var MAX_ACTIVITY_ROWS = 15;
 
-let _profileReqId = 0;
-let _activityReqId = 0;
-let _recsListReqId = 0;
+var _profileReqId = 0;
+var _activityReqId = 0;
+var _recsListReqId = 0;
+var _recsResults = null;
+var _recsTimestamp = null;
+var _seerrServicesCache = null;
 
 function initRecommendationsTab() {
     // If browser-cache already has results (e.g. from a previous tab visit), render directly
@@ -11,9 +15,9 @@ function initRecommendationsTab() {
     // Also caches empty results (length === 0) so empty-state responses don't re-trigger the API.
     // TTL: invalidate after 5 minutes so the UI picks up fresh results after the scheduled task runs.
     var ttlMs = 5 * 60 * 1000; // 5 minutes
-    if (window._recsResults !== undefined && window._recsTimestamp && (Date.now() - window._recsTimestamp) < ttlMs) {
+    if (_recsResults !== null && _recsTimestamp && (Date.now() - _recsTimestamp) < ttlMs) {
         var container = document.getElementById('recsContent');
-        if (container) { renderRecommendations(container, window._recsResults); }
+        if (container) { renderRecommendations(container, _recsResults); }
         return;
     }
     loadRecommendations();
@@ -26,7 +30,7 @@ function loadRecommendations() {
     var reqId = ++_recsListReqId;
     apiGet('JellyfinHelper/Recommendations', function (data) {
         if (reqId !== _recsListReqId) return;
-        window._recsTimestamp = Date.now();
+        _recsTimestamp = Date.now();
         renderRecommendations(container, data);
     }, function (err) {
         if (reqId !== _recsListReqId) return;
@@ -38,8 +42,7 @@ function loadRecommendations() {
 function renderRecommendations(container, results) {
     // Cache results (including empty) so tab re-visits don't re-trigger API calls.
     // Timestamp tracks when the cache was populated for TTL-based invalidation.
-    window._recsResults = results || [];
-    window._recsTimestamp = window._recsTimestamp || Date.now();
+    _recsResults = results || [];
     if (!results || results.length === 0) {
         container.innerHTML = '<div class="recs-empty"><div class="recs-empty-icon">' + mi('smart_toy') + '</div><p>' + T('recsEmpty', 'No recommendations available yet. Run the "Helper Cleanup" scheduled task first.') + '</p></div>';
         return;
@@ -47,21 +50,21 @@ function renderRecommendations(container, results) {
     var html = '';
     var totalRecs = 0, totalUsers = results.length;
     for (var i = 0; i < results.length; i++) { totalRecs += results[i].Recommendations ? results[i].Recommendations.length : 0; }
-    html += '<div class="recs-info-line"><span class="icon-label-inline">' + mi('group') + totalUsers + ' ' + T('recsUsers', 'Users') + '</span><span class="recs-info-sep">\u2022</span><span class="icon-label-inline">' + mi('track_changes') + totalRecs + ' ' + T('recsTotal', 'Recommendations') + '</span></div>';
-    html += '<div class="recs-user-selector"><label for="recsUserSelect">' + T('recsSelectUser', 'Select User') + ': </label><select id="recsUserSelect" class="recs-select">';
+    html += '<div class="recs-info-line"><span class="icon-label-inline">' + mi('group') + totalUsers + ' ' + escHtml(T('recsUsers', 'Users')) + '</span><span class="recs-info-sep">\u2022</span><span class="icon-label-inline">' + mi('track_changes') + totalRecs + ' ' + escHtml(T('recsTotal', 'Recommendations')) + '</span></div>';
+    html += '<div class="recs-user-selector"><label for="recsUserSelect">' + escHtml(T('recsSelectUser', 'Select User')) + ': </label><select id="recsUserSelect" class="recs-select">';
     for (var u = 0; u < results.length; u++) {
-        html += '<option value="' + u + '">' + escHtml(results[u].UserName) + ' (' + (results[u].Recommendations ? results[u].Recommendations.length : 0) + ' ' + T('recsItems', 'items') + ')</option>';
+        html += '<option value="' + u + '">' + escHtml(results[u].UserName) + ' (' + (results[u].Recommendations ? results[u].Recommendations.length : 0) + ' ' + escHtml(T('recsItems', 'items')) + ')</option>';
     }
     html += '</select></div>';
 
     // Collapsible Recommendations section
-    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsGridToggle" aria-expanded="false" aria-controls="recsGridBody"><span class="recs-collapsible-arrow">\u25B6</span> ' + mi('track_changes') + ' ' + T('recsSubtabRecommendations', 'Recommendations') + ' <span>(<span id="recsGridCount">0</span> ' + T('recsItems', 'items') + ')</span></button>';
+    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsGridToggle" aria-expanded="false" aria-controls="recsGridBody"><span class="recs-collapsible-arrow">\u25B6</span> ' + mi('track_changes') + ' ' + escHtml(T('recsSubtabRecommendations', 'Recommendations')) + ' <span>(<span id="recsGridCount">0</span> ' + escHtml(T('recsItems', 'items')) + ')</span></button>';
     html += '<div class="recs-collapsible-body" id="recsGridBody">';
     html += '<div id="recsUserGrid"></div>';
     html += '</div></div>';
 
     // Collapsible Watch Activity section
-    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsActivityToggle" aria-expanded="false" aria-controls="recsActivityBody"><span class="recs-collapsible-arrow">\u25B6</span> ' + mi('bar_chart') + ' ' + T('recsActivityToggle', 'Watch Activity') + '</button>';
+    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsActivityToggle" aria-expanded="false" aria-controls="recsActivityBody"><span class="recs-collapsible-arrow">\u25B6</span> ' + mi('bar_chart') + ' ' + escHtml(T('recsActivityToggle', 'Watch Activity')) + '</button>';
     html += '<div class="recs-collapsible-body" id="recsActivityBody">';
     html += '<div id="recsUserProfile"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '<div id="recsUserActivity"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
@@ -130,8 +133,8 @@ function toggleCollapsible(bodyId, toggleId) {
 function renderUserRecommendations(index) {
     var grid = document.getElementById('recsUserGrid');
     var countSpan = document.getElementById('recsGridCount');
-    if (!grid || !window._recsResults) return;
-    var result = window._recsResults[index];
+    if (!grid || !_recsResults) return;
+    var result = _recsResults[index];
     if (!result) return;
     var recs = result.Recommendations || [];
 
@@ -178,8 +181,8 @@ function renderRecommendationCard(rec, rank) {
 
 function loadUserWatchProfile(index) {
     var container = document.getElementById('recsUserProfile');
-    if (!container || !window._recsResults) return;
-    var result = window._recsResults[index];
+    if (!container || !_recsResults) return;
+    var result = _recsResults[index];
     if (!result || !result.UserId) { container.innerHTML = ''; return; }
     // Return cached profile if already fetched (avoids redundant API calls on user switch)
     if (result._cachedProfile !== undefined) {
@@ -219,8 +222,8 @@ function renderCompactWatchProfile(container, profile) {
 
 function loadUserActivity(index) {
     var container = document.getElementById('recsUserActivity');
-    if (!container || !window._recsResults) return;
-    var result = window._recsResults[index];
+    if (!container || !_recsResults) return;
+    var result = _recsResults[index];
     if (!result || !result.UserId) { container.innerHTML = ''; return; }
     // Return cached activity if already fetched (avoids redundant API calls on user switch)
     if (result._cachedActivity !== undefined) {
@@ -264,7 +267,9 @@ function renderCompactActivityTable(container, items) {
         html += '<tr><td class="activity-cell-title">' + escHtml(dn) + '</td>';
         html += '<td><span class="recs-tag recs-tag-type">' + escHtml(it.ItemType || '') + '</span></td>';
         html += '<td class="activity-cell-num">' + (it.TotalPlayCount || 0) + '</td>';
-        html += '<td>' + (it.MostRecentWatch ? new Date(it.MostRecentWatch).toLocaleDateString() : '\u2014') + '</td>';
+        var d = new Date(it.MostRecentWatch);
+        var dateStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+        html += '<td>' + (dateStr || '\u2014') + '</td>';
         html += '<td><div class="activity-completion-bar"><div class="activity-completion-fill ' + sc + '" style="width:' + pct + '%"></div>';
         html += '<span class="activity-completion-text">' + pct + '%</span></div></td></tr>';
     }
@@ -319,7 +324,7 @@ function loadDiscoveryForUser(index) {
     var countSpan = document.getElementById('discoveryCount');
     if (!grid) return;
 
-    var results = window._recsResults;
+    var results = _recsResults;
     if (!results || !results[index]) return;
     var result = results[index];
 
@@ -338,7 +343,7 @@ function loadDiscoveryForUser(index) {
         return;
     }
 
-    // Cache expired — invalidate ALL per-user caches so fresh data is fetched
+    // Cache expired - invalidate ALL per-user caches so fresh data is fetched
     if (_discoveryAllUsersCache !== undefined && cacheAge >= _discoveryCacheTtlMs) {
         _discoveryAllUsersCache = undefined;
         for (var k = 0; k < results.length; k++) {
@@ -418,8 +423,11 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
 function renderDiscoveryCard(rec, index) {
     var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
     var scoreClass = scorePercent >= 80 ? 'recs-score-high' : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
-    var posterUrl = rec.PosterPath
-        ? 'https://image.tmdb.org/t/p/w185' + escHtml(rec.PosterPath)
+    var rawPoster = rec.PosterPath && /^\/[a-zA-Z0-9/_.-]+\.(?:jpg|png|webp)$/.test(rec.PosterPath)
+        ? rec.PosterPath
+        : '';
+    var posterUrl = rawPoster
+        ? 'https://image.tmdb.org/t/p/w185' + encodeURI(rawPoster)
         : '';
 
     var html = '<div class="discovery-card" data-index="' + index + '">';
@@ -493,17 +501,21 @@ function handleDiscoveryRequest(e) {
 // Ensures that Seerr configuration changes (new servers, profiles, root folders)
 // are picked up without requiring a full page reload.
 var _seerrServicesCacheTtlMs = 5 * 60 * 1000;
+// Module-level cache: keyed by serviceType ('sonarr' or 'radarr').
+// Each entry: { data: [], cachedAt: <timestamp> }
+// (replaces the previous window['_seerrServices_*'] pattern)
 
 function showSeerrUserPopup(tmdbId, mediaType, btn) {
     // Determine which service to query based on media type
     var serviceType = (mediaType === 'tv') ? 'sonarr' : 'radarr';
-    var cacheKey = '_seerrServices_' + serviceType;
-    var cacheTimestampKey = cacheKey + '_ts';
+
+    // Lazily initialise the module-level cache object
+    if (!_seerrServicesCache) { _seerrServicesCache = {}; }
+    var entry = _seerrServicesCache[serviceType];
 
     // Check if we have cached service info that is still fresh
-    var cachedAt = window[cacheTimestampKey] || 0;
-    if (window[cacheKey] !== undefined && (Date.now() - cachedAt) < _seerrServicesCacheTtlMs) {
-        renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
+    if (entry && (Date.now() - entry.cachedAt) < _seerrServicesCacheTtlMs) {
+        renderQualityProfilePopup(tmdbId, mediaType, btn, entry.data);
         return;
     }
 
@@ -512,18 +524,16 @@ function showSeerrUserPopup(tmdbId, mediaType, btn) {
     btn.innerHTML = '<div class="spinner" style="width:1em;height:1em;"></div>';
 
     apiGet('JellyfinHelper/Discovery/Services/' + serviceType, function (services) {
-        window[cacheKey] = services || [];
-        window[cacheTimestampKey] = Date.now();
+        _seerrServicesCache[serviceType] = { data: services || [], cachedAt: Date.now() };
         if (!btn.isConnected) return;
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
-        renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
+        renderQualityProfilePopup(tmdbId, mediaType, btn, _seerrServicesCache[serviceType].data);
     }, function () {
         // Fail closed: do NOT auto-submit when profile lookup fails.
         // A transient network/Seerr error could route the request to a wrong server/profile.
         // Allow retry on next click by not caching the failure.
-        delete window[cacheKey];
-        delete window[cacheTimestampKey];
+        if (_seerrServicesCache) { delete _seerrServicesCache[serviceType]; }
         if (!btn.isConnected) return;
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
@@ -556,7 +566,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
         for (var p = 0; p < profiles.length; p++) {
             allProfiles.push({
                 serverId: svc.Id || svc.id,
-                serverName: svc.Name || svc.name || ('Server #' + (svc.Id || svc.id)),
+                serverName: svc.Name || svc.name || ('Server #' + escHtml(String(svc.Id || svc.id || ''))),
                 profileId: profiles[p].Id || profiles[p].id,
                 profileName: profiles[p].Name || profiles[p].name,
                 isDefault: (profiles[p].Id || profiles[p].id) === (svc.ActiveProfileId || svc.activeProfileId),
@@ -681,6 +691,7 @@ function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
                         countSpan.textContent = '' + Math.max(0, current - 1);
                     }
                     // Show empty state when all cards have been removed
+                    if (!document.contains(grid)) return;
                     if (grid && grid.querySelectorAll('.discovery-card').length === 0) {
                         grid.innerHTML = '<div class="recs-empty"><div class="recs-empty-icon">' + mi('smart_toy') + '</div><p>' + T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.') + '</p></div>';
                     }
@@ -756,7 +767,7 @@ function markDiscoveryItemRequested(tmdbId, mediaType) {
     }
 
     // Mark in per-user cached discovery (from _recsResults)
-    var results = window._recsResults;
+    var results = _recsResults;
     if (results) {
         for (var i = 0; i < results.length; i++) {
             markInDiscovery(results[i] && results[i]._cachedDiscovery);
