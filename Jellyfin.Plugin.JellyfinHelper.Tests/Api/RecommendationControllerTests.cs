@@ -542,4 +542,87 @@ public class RecommendationControllerTests
             e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()),
             Times.AtMostOnce());
     }
+
+    [Fact]
+    public async Task GetAllRecommendations_CacheFilledUnderLock_ReturnsCachedWithoutGenerating()
+    {
+        // The pre-lock LoadResults misses, but by the time we re-check under the lock another
+        // caller has filled the cache. The controller must serve that late-arriving cache
+        // (trimmed) and never invoke the engine.
+        var userId = Guid.NewGuid();
+        var filled = new Collection<RecommendationResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "Alice",
+                Recommendations = new Collection<RecommendedItem>(
+                    Enumerable.Range(0, 12)
+                        .Select(i => new RecommendedItem { ItemId = Guid.NewGuid(), Name = $"Item{i}" })
+                        .ToList())
+            }
+        };
+        _mockCache.SetupSequence(c => c.LoadResults())
+            .Returns((Collection<RecommendationResult>?)null) // pre-lock miss
+            .Returns(filled); // re-check under lock hits
+
+        var result = await _controller.GetAllRecommendations(maxPerUser: 5);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
+        Assert.Single(data);
+        Assert.Equal(5, data[0].Recommendations.Count);
+        // Under-lock re-check short-circuits generation entirely.
+        _mockEngine.Verify(
+            e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        // Cache source untouched by the trim.
+        Assert.Equal(12, filled[0].Recommendations.Count);
+    }
+
+    [Fact]
+    public async Task GetAllRecommendations_MixedTrimNeeds_TrimsOnlyOversizedUsersLeavingOthersUntouched()
+    {
+        // One user is over the limit (must be trimmed to a copy), another is under it and must
+        // pass through by reference - proving the else branch does not needlessly copy.
+        var oversized = new RecommendationResult
+        {
+            UserId = Guid.NewGuid(),
+            UserName = "Alice",
+            Recommendations = new Collection<RecommendedItem>(
+                Enumerable.Range(0, 10)
+                    .Select(i => new RecommendedItem { ItemId = Guid.NewGuid(), Name = $"Item{i}" })
+                    .ToList())
+        };
+        var underLimit = new RecommendationResult
+        {
+            UserId = Guid.NewGuid(),
+            UserName = "Bob",
+            Recommendations = new Collection<RecommendedItem>(
+                Enumerable.Range(0, 2)
+                    .Select(i => new RecommendedItem { ItemId = Guid.NewGuid(), Name = $"B{i}" })
+                    .ToList())
+        };
+        var cached = new Collection<RecommendationResult> { oversized, underLimit };
+        _mockCache.Setup(c => c.LoadResults()).Returns(cached);
+
+        var result = await _controller.GetAllRecommendations(maxPerUser: 3);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
+        Assert.Equal(2, data.Count);
+
+        var trimmed = data.Single(r => r.UserId == oversized.UserId);
+        Assert.Equal(3, trimmed.Recommendations.Count);
+        Assert.NotSame(oversized, trimmed);
+
+        var passthrough = data.Single(r => r.UserId == underLimit.UserId);
+        // Under-limit entry re-added by reference, not copied.
+        Assert.Same(underLimit, passthrough);
+        Assert.Equal(2, passthrough.Recommendations.Count);
+
+        // Neither source entry mutated.
+        Assert.Equal(10, oversized.Recommendations.Count);
+        Assert.Equal(2, underLimit.Recommendations.Count);
+    }
 }

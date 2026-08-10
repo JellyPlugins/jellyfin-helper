@@ -946,4 +946,54 @@ public sealed class FolderBrowserServiceTests : IDisposable
             // Best-effort - the tempdir cleanup will still try to delete.
         }
     }
+
+    // ===== GetChildren: POSIX dot-directory visibility contract =====
+
+    [Fact]
+    public void GetChildren_Posix_HidesUnknownDotDirectoriesButKeepsTrashPrefixes()
+    {
+        // On Linux/macOS unknown dot-dirs (like .ssh/.gnupg/.aws) must be hidden, but the
+        // known-safe trash prefixes stay visible so admins can pick them as trash targets.
+        if (OperatingSystem.IsWindows()) return;
+
+        Directory.CreateDirectory(Path.Combine(_tempRoot, "movies"));
+        Directory.CreateDirectory(Path.Combine(_tempRoot, ".ssh"));
+        Directory.CreateDirectory(Path.Combine(_tempRoot, ".jellyfin-trash"));
+        Directory.CreateDirectory(Path.Combine(_tempRoot, ".Trash-1000"));
+
+        var result = _service.GetChildren(_tempRoot);
+
+        Assert.Null(result.Error);
+        var names = result.Directories.Select(d => d.Name).ToList();
+        Assert.Contains("movies", names);
+        Assert.Contains(".jellyfin-trash", names);
+        Assert.Contains(".Trash-1000", names);
+        Assert.DoesNotContain(".ssh", names);
+    }
+
+    // ===== ValidatePath: enabled-logger debug branch on invalid path shape =====
+
+    [Fact]
+    public void ValidatePath_EnabledLogger_InvalidPathShape_LogsAtDebugAndReturnsInvalidPath()
+    {
+        // The default _service uses an enabled logger, so an invalid path shape drives the
+        // outer catch through the IsEnabled(Debug)==true LogDebug branch and must still return
+        // a stable error contract without propagating the exception.
+        //
+        // This is inherently OS-specific. An over-MAX_PATH string is rejected by
+        // Path.GetFullPath on Windows (PathTooLongException BEFORE the existence probe) so the
+        // outer catch fires and returns "Invalid path.". On Linux the same string is a valid
+        // absolute path - GetFullPath accepts it and the length failure only surfaces later as
+        // a plain IOException from the filesystem probe, which the inner catch maps to
+        // "Cannot access this directory." Both are the correct contract for their platform, so
+        // we assert each sharply rather than weakening to a shared, tautological check.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal("Invalid path.", _service.ValidatePath(@"C:\" + new string('a', 32800)));
+        }
+        else
+        {
+            Assert.Equal("Cannot access this directory.", _service.ValidatePath("/" + new string('a', 32800)));
+        }
+    }
 }

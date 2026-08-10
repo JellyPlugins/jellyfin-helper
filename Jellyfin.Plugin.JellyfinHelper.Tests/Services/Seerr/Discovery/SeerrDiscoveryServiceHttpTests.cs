@@ -827,6 +827,205 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Single(result.Profiles);
         Assert.Equal(10, result.Profiles[0].ProfileId);
     }
+
+    // ============================================================
+    // Config-boundary guards, cancellation, pagination and header-injection defence
+    // ============================================================
+
+    [Fact]
+    public void MaxVisiblePerUser_ExplicitInterfaceMember_ReturnsTen()
+    {
+        // The API layer trims the persisted pool down to this count; it must match the
+        // internal const the frontend relies on (10 visible items per user).
+        Assert.Equal(10, ((ISeerrDiscoveryService)_sut).MaxVisiblePerUser);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_WhitespaceSeerrUrl_ReturnsNotConfigured()
+    {
+        // Empty URL trips the not-configured guard BEFORE any URL validation - distinct
+        // from the invalid-URL path which returns "Invalid Seerr configuration".
+        Plugin.Instance!.Configuration.SeerrUrl = string.Empty;
+
+        var (success, message) = await _sut.SubmitRequestAsync(
+            1234, "movie", null, null, null, null, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("not configured", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_RootFolderWithTraversal_ThrowsArgumentException()
+    {
+        // Path traversal must be rejected at the service boundary before any HTTP call.
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            _sut.SubmitRequestAsync(1234, "movie", null, null, null, "/movies/../etc", CancellationToken.None));
+
+        Assert.Equal("rootFolder", ex.ParamName);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_ApiKeyWithCrlf_ReturnsInvalidConfiguration()
+    {
+        // A CRLF-laced key passes the whitespace guard but must be blocked by
+        // EnsureApiKeyHeaderSafe (HTTP header-injection defence). The ArgumentException is
+        // caught and mapped to a generic "Invalid" message; no request is ever sent.
+        Plugin.Instance!.Configuration.SeerrApiKey = "key\r\ninject";
+        _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
+
+        var (success, message) = await _sut.SubmitRequestAsync(
+            1234, "movie", null, null, null, null, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("Invalid", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(_handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_MalformedBaseUrl_ReturnsEmpty()
+    {
+        // A non-empty but unparseable URL passes the whitespace guard and trips
+        // ValidateSeerrConfig's UriFormatException - which must be swallowed into an
+        // empty roster, never surfaced.
+        Plugin.Instance!.Configuration.SeerrUrl = "not-a-url";
+
+        var users = await _sut.GetSeerrUsersAsync(CancellationToken.None);
+
+        Assert.Empty(users);
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_EmptyResultsPage_StopsAndReturnsEmpty()
+    {
+        // A page with an empty results array must exit the loop cleanly (fetch complete),
+        // yielding an empty roster without erroring.
+        const string json = """
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 0, "page": 1 },
+          "results": []
+        }
+        """;
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, json);
+
+        var users = await _sut.GetSeerrUsersAsync(CancellationToken.None);
+
+        Assert.Empty(users);
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_CancelledToken_ThrowsOperationCanceled()
+    {
+        // A pre-cancelled token must propagate as OCE from the pagination loop's
+        // ThrowIfCancellationRequested - cancellation is never swallowed into an empty roster.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _sut.GetSeerrUsersAsync(cts.Token));
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_TransportException_ReturnsEmpty()
+    {
+        // A transport failure (not cancellation) must be caught and yield an empty roster
+        // rather than surfacing a partial or failed fetch.
+        _handler.ThrowNext = new HttpRequestException("connection refused");
+
+        var users = await _sut.GetSeerrUsersAsync(CancellationToken.None);
+
+        Assert.Empty(users);
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_ExceedsPageSafetyCap_ReturnsWithoutInfiniteLoop()
+    {
+        // Every page reports 50 results and a page count far above the 20-page safety cap so
+        // neither early-exit guard fires. The loop must terminate at the cap and mark the
+        // fetch incomplete - an incomplete fetch is NOT cached and surfaces as an empty roster
+        // (callers stay on the retriable "temporarily unavailable" path). The key guarantee is
+        // that it returns at all instead of looping forever.
+        for (var skip = 0; skip <= 950; skip += 50)
+        {
+            var results = string.Join(",\n", Enumerable.Range(skip + 1, 50).Select(i =>
+                $"{{ \"id\": {i}, \"displayName\": \"user{i}\", \"jellyfinUserId\": \"{i:D32}\" }}"));
+            var json = $$"""
+            {
+              "pageInfo": { "pages": 100, "pageSize": 50, "results": 5000, "page": {{(skip / 50) + 1}} },
+              "results": [{{results}}]
+            }
+            """;
+            _handler.RegisterResponse(HttpMethod.Get, $"skip={skip}&sort=displayname", HttpStatusCode.OK, json);
+        }
+
+        var users = await _sut.GetSeerrUsersAsync(CancellationToken.None);
+
+        // Incomplete (capped) fetch is not surfaced as a truncated roster.
+        Assert.Empty(users);
+    }
+
+    [Fact]
+    public async Task GetServiceInfoAsync_PluginInstanceNull_ReturnsEmpty()
+    {
+        // Null plugin config is a valid state - the method must return an empty list, not throw.
+        ControllerTestFactory.TeardownPluginInstance();
+        try
+        {
+            var services = await _sut.GetServiceInfoAsync("radarr", CancellationToken.None);
+            Assert.Empty(services);
+        }
+        finally
+        {
+            ControllerTestFactory.InitializePluginInstance();
+        }
+    }
+
+    [Fact]
+    public async Task GetServiceInfoAsync_MalformedBaseUrl_ReturnsEmpty()
+    {
+        // A non-empty but unparseable URL trips ValidateSeerrConfig; the invalid-config catch
+        // returns an empty list rather than throwing.
+        Plugin.Instance!.Configuration.SeerrUrl = "not-a-url";
+
+        var services = await _sut.GetServiceInfoAsync("radarr", CancellationToken.None);
+
+        Assert.Empty(services);
+    }
+
+    [Fact]
+    public async Task GetServiceInfoAsync_CancelledToken_ThrowsOperationCanceled()
+    {
+        // The service-list SendAsync throws OCE under a cancelled token; the outer
+        // cancellation guard must re-throw rather than mapping to an empty list.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _sut.GetServiceInfoAsync("radarr", cts.Token));
+    }
+
+    [Fact]
+    public async Task GetServiceInfoAsync_ListTransportException_ReturnsEmpty()
+    {
+        // A transport failure on the service-list request (not cancellation) must be caught
+        // and yield an empty list.
+        _handler.ThrowNext = new HttpRequestException("connection refused");
+
+        var services = await _sut.GetServiceInfoAsync("radarr", CancellationToken.None);
+
+        Assert.Empty(services);
+    }
+
+    [Fact]
+    public async Task ResolveSeerrUserIdAsync_CancelledToken_ThrowsOperationCanceled()
+    {
+        // A non-empty Guid with a pre-cancelled token drives the underlying roster fetch to
+        // throw OCE, which ResolveSeerrUserIdAsync must re-throw, never mapping to null.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _sut.ResolveSeerrUserIdAsync(Guid.NewGuid(), cts.Token));
+    }
 }
 
 /// <summary>

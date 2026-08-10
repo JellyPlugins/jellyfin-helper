@@ -235,4 +235,14 @@ public class UserDiscoveryControllerTests
         var fileResult = Assert.IsType<FileStreamResult>(result);
         Assert.Equal("text/javascript", fileResult.ContentType);
     }
+
+    [Fact]
+    public void GetExternalLinksConfig_WhenAccessDisabled_Returns403()
+    {
+        // The ExternalLinks endpoint must honour the same admin gate as every other user endpoint.
+        var controller = CreateController(Guid.NewGuid());
+        var result = controller.GetExternalLinksConfig();
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, statusResult.StatusCode);
+    }
 }

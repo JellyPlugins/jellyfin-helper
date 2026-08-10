@@ -173,4 +173,36 @@ public sealed class TmdbDiscoverItemTests
         Assert.NotNull(result.EffectiveReleaseDate);
         Assert.Equal(2008, result.EffectiveReleaseDate!.Value.Year);
     }
+
+    [Fact]
+    public void JsonDeserialize_PosterPath_RoundTrips()
+    {
+        // The poster path is a CDN-relative segment the UI concatenates onto the image
+        // base URL; any mangling would break every artwork render downstream.
+        var json = "{\"id\":603,\"mediaType\":\"movie\",\"title\":\"The Matrix\",\"posterPath\":\"/abc123.jpg\"}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.Equal("/abc123.jpg", result!.PosterPath);
+    }
+
+    [Fact]
+    public void JsonDeserialize_Overview_RoundTrips()
+    {
+        var json = "{\"id\":603,\"mediaType\":\"movie\",\"title\":\"The Matrix\",\"overview\":\"A hacker learns the truth about his reality.\"}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.Equal("A hacker learns the truth about his reality.", result!.Overview);
+    }
+
+    [Fact]
+    public void JsonDeserialize_MissingPosterAndOverview_YieldNull()
+    {
+        // Both fields are optional on TMDb; they must default to null (not empty string)
+        // so consumers can distinguish "absent" from "present but blank".
+        var json = "{\"id\":603,\"mediaType\":\"movie\",\"title\":\"The Matrix\"}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.Null(result!.PosterPath);
+        Assert.Null(result.Overview);
+    }
 }

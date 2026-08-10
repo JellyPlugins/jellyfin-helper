@@ -610,4 +610,230 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         VerifyLogContains("Could not enumerate subdirectories of", LogLevel.Warning);
         VerifyLogNeverContains("Error scanning directory", LogLevel.Error);
     }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_ChildDirectoryEnumerationError_IsIsolatedAndDeeperTreeStillScanned()
+    {
+        // A failure enumerating one subdirectory must not abort the whole walk: sibling
+        // branches still have to be scanned so reachable orphans are not missed.
+        var libraryPath = TestPath("media");
+        var badBranch = TestPath("media", "BadBranch");
+        var goodBranch = TestPath("media", "GoodBranch");
+        var orphanFullName = TestPath("media", "GoodBranch", "Movie.trickplay");
+        var orphanParent = Path.GetDirectoryName(orphanFullName)!;
+
+        var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var badDir = new FileSystemMetadata { FullName = badBranch, Name = "BadBranch", IsDirectory = true };
+        var goodDir = new FileSystemMetadata { FullName = goodBranch, Name = "GoodBranch", IsDirectory = true };
+        var orphanDir = new FileSystemMetadata
+        {
+            FullName = orphanFullName,
+            Name = "Movie.trickplay",
+            IsDirectory = true
+        };
+
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([badDir, goodDir]);
+        // Enumerating children of one branch throws; the walk must log and keep going.
+        _fileSystemMock.Setup(f => f.GetDirectories(badBranch)).Throws(new IOException("Access denied"));
+        _fileSystemMock.Setup(f => f.GetDirectories(goodBranch)).Returns([orphanDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(orphanFullName)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(orphanParent)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Could not enumerate subdirectories of", LogLevel.Warning);
+        VerifyLogContains("Deleting orphaned trickplay folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_OrphanNestedTwoLevelsDeep_IsDiscoveredAndDeleted()
+    {
+        // The scan must recurse past the top level: an orphan two levels below the library
+        // root should still be found and deleted.
+        var libraryPath = TestPath("media");
+        var level1 = TestPath("media", "Shows");
+        var orphanFullName = TestPath("media", "Shows", "Episode.trickplay");
+        var orphanParent = Path.GetDirectoryName(orphanFullName)!;
+
+        var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var level1Dir = new FileSystemMetadata { FullName = level1, Name = "Shows", IsDirectory = true };
+        var orphanDir = new FileSystemMetadata
+        {
+            FullName = orphanFullName,
+            Name = "Episode.trickplay",
+            IsDirectory = true
+        };
+
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([level1Dir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(level1)).Returns([orphanDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(orphanFullName)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(orphanParent)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Deleting orphaned trickplay folder", LogLevel.Information);
+        // The intermediate directory has to be descended into for the grandchild to be reached.
+        _fileSystemMock.Verify(f => f.GetDirectories(level1), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_FileListingError_LogsWarningAndSkipsFolder()
+    {
+        // If the parent's files cannot be listed we cannot know whether media exists,
+        // so the orphan must be skipped (not deleted) with a warning.
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
+
+        var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var trickplayDir = new FileSystemMetadata
+        {
+            FullName = trickplayFullName,
+            Name = "Movie.trickplay",
+            IsDirectory = true
+        };
+
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Throws(new IOException("Access denied"));
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Could not list files in", LogLevel.Warning);
+        VerifyLogNeverContains("Deleting orphaned trickplay folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_OrphanTooNew_IsSkippedWithDebugLog()
+    {
+        // The OrphanMinAgeDays gate must keep recently created orphans: a too-new folder
+        // is skipped with a debug log and never deleted.
+        MockConfigHelper.Setup(x => x.IsOldEnoughForDeletion(It.IsAny<string>())).Returns(false);
+
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
+
+        var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var trickplayDir = new FileSystemMetadata
+        {
+            FullName = trickplayFullName,
+            Name = "Movie.trickplay",
+            IsDirectory = true
+        };
+
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Skipping too-new orphan", LogLevel.Debug);
+        VerifyLogNeverContains("Deleting orphaned trickplay folder", LogLevel.Information);
+        MockTrashService.Verify(
+            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_TrashMoveReturnsPositiveSize_CountsAndBytesAccumulated()
+    {
+        // A successful trash move (size > 0) must accumulate both the deleted count and
+        // the freed bytes reported in the finished summary.
+        Config.UseTrash = true;
+        MockTrashService
+            .Setup(t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))
+            .Returns(4096);
+
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
+
+        var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var trickplayDir = new FileSystemMetadata
+        {
+            FullName = trickplayFullName,
+            Name = "Movie.trickplay",
+            IsDirectory = true
+        };
+
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("freed 4096 bytes", LogLevel.Information);
+        VerifyLogContains("Deleted 1 folders", LogLevel.Information);
+        MockTrashService.Verify(
+            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_PermanentDeleteSucceeds_RemovesDirectoryAndCounts()
+    {
+        // The permanent-delete path uses real System.IO, so exercise it against a genuine
+        // temp directory to prove the folder is actually removed and counted.
+        Config.UseTrash = false;
+
+        var libraryPath = Path.Combine(Path.GetTempPath(), "jf-trickplay-" + Guid.NewGuid().ToString("N"));
+        var trickplayDirPath = Path.Combine(libraryPath, "Movie.trickplay");
+        Directory.CreateDirectory(trickplayDirPath);
+
+        try
+        {
+            var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
+            _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+            var trickplayDir = new FileSystemMetadata
+            {
+                FullName = trickplayDirPath,
+                Name = "Movie.trickplay",
+                IsDirectory = true
+            };
+
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+            _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(Array.Empty<FileSystemMetadata>());
+
+            await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            Assert.False(Directory.Exists(trickplayDirPath));
+            VerifyLogContains("Deleted 1 folders", LogLevel.Information);
+            VerifyLogNeverContains("Failed to delete directory", LogLevel.Error);
+        }
+        finally
+        {
+            if (Directory.Exists(libraryPath))
+            {
+                Directory.Delete(libraryPath, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_UnexpectedErrorDuringScan_LoggedByOuterHandlerAndSwallowed()
+    {
+        // A non-IO error inside ProcessLocation must be caught by the broad outer handler,
+        // logged, and swallowed so the overall task completes and still reports its summary.
+        var libraryPath = TestPath("media");
+        MockConfigHelper.Setup(x => x.GetTrashPath(libraryPath)).Throws(new InvalidOperationException("boom"));
+
+        var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Error scanning directory", LogLevel.Error);
+        VerifyLogContains("Deleted 0 folders", LogLevel.Information);
+    }
 }

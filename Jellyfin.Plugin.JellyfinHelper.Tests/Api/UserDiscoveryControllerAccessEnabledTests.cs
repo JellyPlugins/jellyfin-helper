@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -235,5 +236,130 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         Assert.Equal(2, svc.Profiles.Count); // Both profiles preserved
         Assert.Equal(2, svc.RootFolders.Count); // Both root folders preserved
         Assert.Equal(10, svc.ActiveProfileId); // Default was 2160p
+    }
+
+    [Fact]
+    public void GetMyDiscoveryResults_KnownUser_ReturnsVisibleRecommendations_ExcludingDismissedAndRequestedAndAlreadyRequested()
+    {
+        var userId = Guid.NewGuid();
+        var generatedAt = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+
+        _cache.Save(new List<DiscoveryResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "alice",
+                GeneratedAt = generatedAt,
+                Recommendations =
+                {
+                    new DiscoveryRecommendation { TmdbId = 1, MediaType = "movie", AlreadyRequested = true },
+                    new DiscoveryRecommendation { TmdbId = 2, MediaType = "movie", AlreadyRequested = false },
+                    new DiscoveryRecommendation { TmdbId = 3, MediaType = "tv", AlreadyRequested = false },
+                    new DiscoveryRecommendation { TmdbId = 4, MediaType = "movie", AlreadyRequested = false },
+                    new DiscoveryRecommendation { TmdbId = 5, MediaType = "tv", AlreadyRequested = false }
+                }
+            }
+        });
+
+        // 2/movie is dismissed, 3/tv is requested; both must be filtered out alongside the AlreadyRequested item.
+        _feedbackStoreMock.Setup(f => f.GetDismissedItems(userId))
+            .Returns(new HashSet<(int, string)> { (2, "movie") });
+        _feedbackStoreMock.Setup(f => f.GetRequestedItems(userId))
+            .Returns(new HashSet<(int, string)> { (3, "tv") });
+
+        var result = CreateController(userId).GetMyDiscoveryResults();
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var body = Assert.IsType<DiscoveryResult>(ok.Value);
+        Assert.Equal(userId, body.UserId);
+        Assert.Equal("alice", body.UserName);
+        Assert.Equal(generatedAt, body.GeneratedAt);
+        Assert.Equal(new[] { 4, 5 }, body.Recommendations.Select(r => r.TmdbId).OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
+    public void GetMyDiscoveryResults_ExclusionMatchesRegardlessOfMediaTypeCasing()
+    {
+        var userId = Guid.NewGuid();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+
+        _cache.Save(new List<DiscoveryResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "bob",
+                GeneratedAt = DateTime.UtcNow,
+                Recommendations =
+                {
+                    // MediaType stored with mixed case + surrounding whitespace must still match the canonical key.
+                    new DiscoveryRecommendation { TmdbId = 7, MediaType = "  Movie  ", AlreadyRequested = false }
+                }
+            }
+        });
+
+        _feedbackStoreMock.Setup(f => f.GetDismissedItems(userId))
+            .Returns(new HashSet<(int, string)> { (7, "movie") });
+
+        var result = CreateController(userId).GetMyDiscoveryResults();
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var body = Assert.IsType<DiscoveryResult>(ok.Value);
+        Assert.Empty(body.Recommendations);
+    }
+
+    [Fact]
+    public void GetMyDiscoveryResults_CapsVisibleAtMaxVisiblePerUser()
+    {
+        var userId = Guid.NewGuid();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+
+        var result = new DiscoveryResult { UserId = userId, UserName = "cara", GeneratedAt = DateTime.UtcNow };
+        for (var i = 1; i <= 25; i++)
+        {
+            result.Recommendations.Add(new DiscoveryRecommendation { TmdbId = i, MediaType = "movie", AlreadyRequested = false });
+        }
+
+        _cache.Save(new List<DiscoveryResult> { result });
+
+        var response = CreateController(userId).GetMyDiscoveryResults();
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<DiscoveryResult>(ok.Value);
+        Assert.Equal(10, body.Recommendations.Count);
+    }
+
+    [Fact]
+    public void GetMyDiscoveryResults_WhenFeedbackStoreThrows_LogsAndServesUnfilteredVisiblePool()
+    {
+        var userId = Guid.NewGuid();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+
+        _cache.Save(new List<DiscoveryResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "dave",
+                GeneratedAt = DateTime.UtcNow,
+                Recommendations =
+                {
+                    new DiscoveryRecommendation { TmdbId = 11, MediaType = "movie", AlreadyRequested = false },
+                    new DiscoveryRecommendation { TmdbId = 12, MediaType = "tv", AlreadyRequested = false }
+                }
+            }
+        });
+
+        // A non-fatal store failure must not blow up the request: the exclusion set falls back to empty.
+        _feedbackStoreMock.Setup(f => f.GetDismissedItems(userId))
+            .Throws(new InvalidOperationException("store unavailable"));
+
+        var response = CreateController(userId).GetMyDiscoveryResults();
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<DiscoveryResult>(ok.Value);
+        Assert.Equal(new[] { 11, 12 }, body.Recommendations.Select(r => r.TmdbId).OrderBy(x => x).ToArray());
     }
 }

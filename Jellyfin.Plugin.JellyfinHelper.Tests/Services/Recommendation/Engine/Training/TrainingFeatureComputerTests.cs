@@ -1056,4 +1056,63 @@ public class TrainingFeatureComputerTests
         Assert.False(examples[0].Features.StudioMatch);
         Assert.Equal(0.0, examples[0].Features.TagSimilarity);
     }
+
+    [Fact]
+    public void AddAggregatedSeriesExample_AggregatesEpisodeContentFieldsIntoSeriesAffinities()
+    {
+        // The four per-episode content fields (franchise, production countries, inherited tags,
+        // writers) must be aggregated across episodes and scored against the user's preference maps.
+        // Every other series test leaves these at their empty defaults, so the aggregation loop
+        // never runs and each affinity stays a false 0.0. Populate them here and require the
+        // resulting features to be non-neutral, proving the collect-and-score wire-up is live.
+        var (seriesId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 3, playedEpisodes: 3);
+
+        episodes[0].TmdbCollectionName = "MarvelVerse"; // franchise: first non-empty name wins
+        episodes[0].ProductionCountries = new[] { "US" };
+        episodes[1].ProductionCountries = new[] { "GB" };
+        episodes[0].InheritedTags = new[] { "Superhero" };
+        episodes[1].InheritedTags = new[] { "Sequel" };
+        episodes[0].WriterNames = new[] { "WriterA" };
+        episodes[1].WriterNames = new[] { "WriterB" };
+
+        var examples = new List<TrainingExample>();
+        var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
+        var exposure = BuildExposure(genrePreferences, profile);
+
+        var preferredFranchises = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["MarvelVerse"] = 1.0 };
+        var preferredCountries = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["US"] = 1.0 };
+        var preferredInheritedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Superhero" };
+        var preferredWriterWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["WriterA"] = 1.0 };
+
+        TrainingFeatureComputer.AddAggregatedSeriesExample(
+            examples,
+            episodes,
+            seriesId,
+            profile,
+            genrePreferences,
+            new Dictionary<Guid, double>(),
+            0.0,
+            2020.0,
+            exposure,
+            new Dictionary<Guid, HashSet<string>>(),
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            preferredFranchises,
+            preferredCountries,
+            preferredInheritedTags,
+            preferredWriterWeights,
+            genreStudioIdf: null,
+            organicFallbackTimestamp: DateTime.UtcNow);
+
+        Assert.Single(examples);
+        var ex = examples[0];
+        // Each affinity would collapse to 0.0 if its aggregation loop body were skipped.
+        Assert.True(ex.Features.FranchiseAffinity > 0.0, "Franchise name was not captured from episode 0.");
+        Assert.True(ex.Features.ProductionLocationAffinity > 0.0, "Production countries were not aggregated across episodes.");
+        Assert.True(ex.Features.InheritedTagSimilarity > 0.0, "Inherited tags were not aggregated across episodes.");
+        Assert.True(ex.Features.WriterAffinity > 0.0, "Writer names were not aggregated across episodes.");
+    }
 }

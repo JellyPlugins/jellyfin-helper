@@ -712,6 +712,46 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     }
 
     [Fact]
+    public void LoadForUser_CorruptedJsonFile_DeleteFails_DegradesGracefullyWithoutThrowing()
+    {
+        // The corrupt-file recovery deletes the poisoned file, but the delete itself is
+        // best-effort: if the OS refuses (a handle is open without FileShare.Delete), the
+        // store must swallow the IOException rather than surface it to the caller.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
+        File.WriteAllText(filePath, "{ not valid json ]]]");
+
+        // Forcing the best-effort File.Delete to fail relies on a mandatory file lock:
+        // an open handle without FileShare.Delete makes File.Delete throw IOException on
+        // Windows. POSIX has no such mandatory lock - an open handle never blocks unlink -
+        // so this specific "delete fails" branch can only be reproduced on Windows. On
+        // Linux we still assert the cross-platform contract: the corrupt file is treated
+        // as absent, no exception escapes, and the store degrades to empty.
+        var store = CreateStore();
+
+        if (!OperatingSystem.IsWindows())
+        {
+            var linuxEx = Record.Exception(() => store.LoadForUser(Guid.NewGuid()));
+            Assert.Null(linuxEx);
+            Assert.Null(store.LoadForUser(Guid.NewGuid()));
+            return;
+        }
+
+        // Grant the read the store needs (ReadAllText) but withhold FileShare.Delete so
+        // the subsequent File.Delete inside TryDeleteFile fails.
+        using var handle = new FileStream(
+            filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        var ex = Record.Exception(() => store.LoadForUser(Guid.NewGuid()));
+
+        // Delete failure is swallowed, never propagated.
+        Assert.Null(ex);
+        // Store degraded to empty.
+        Assert.Null(store.LoadForUser(Guid.NewGuid()));
+        // The file is still present, proving the delete genuinely failed and the catch body ran.
+        Assert.True(File.Exists(filePath));
+    }
+
+    [Fact]
     public void RecordShown_AfterCorruptedFile_StartsClean()
     {
         // After the corrupted-file recovery path runs, subsequent writes must work.
@@ -1127,5 +1167,112 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var second = store2.LoadForUser(userId);
         Assert.NotNull(second);
         Assert.Equal(originalShownAt, second!.Entries[0].ShownAtUtc);
+    }
+
+    // -----------------------------------------------------------------------
+    // NormalizeMediaType: defensive defaulting to "movie"
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RecordDismissed_NullOrWhitespaceMediaType_DefaultsToMovie(string? mediaType)
+    {
+        // Blank media type is the ambiguous case: the store documents "movie" as the safe
+        // default so a null/blank value never yields an empty MediaType that breaks the
+        // composite-key lookup.
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        store.RecordDismissed(userId, 700, mediaType!);
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        var entry = Assert.Single(result!.Entries);
+        Assert.Equal("movie", entry.MediaType);
+    }
+
+    [Fact]
+    public void RecordDismissed_UnrecognizedMediaType_NormalizesToMovieAndLogsDebug()
+    {
+        // An unexpected media type (neither "movie" nor "tv") must still normalize to
+        // "movie" and emit a debug diagnostic so operators can spot bad upstream data.
+        var pluginLog = new Mock<IPluginLogService>();
+        var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
+        logger.Setup(l => l.IsEnabled(LogLevel.Debug)).Returns(true);
+        var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
+        var userId = Guid.NewGuid();
+
+        store.RecordDismissed(userId, 800, "podcast");
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        Assert.Equal("movie", Assert.Single(result!.Entries).MediaType);
+
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("Unexpected mediaType")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    // -----------------------------------------------------------------------
+    // SaveInternal: directory creation + graceful degradation on unwritable path
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void RecordShown_DataFolderDoesNotYetExist_CreatesDirectoryAndPersists()
+    {
+        // A brand-new plugin install has no data subfolder yet. The save path must
+        // create the missing directory before the atomic write rather than throwing.
+        var pluginLog = new Mock<IPluginLogService>();
+        var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
+        var nestedDir = Path.Join(_tempDir, "not", "yet", "created");
+        var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, nestedDir);
+        var userId = Guid.NewGuid();
+
+        store.RecordShown(userId, "User", new List<DiscoveryRecommendation>
+        {
+            new() { TmdbId = 1, MediaType = "movie", Title = "FirstRun" }
+        });
+
+        Assert.True(File.Exists(Path.Join(nestedDir, "jellyfin-helper-discovery-feedback.json")));
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        Assert.Equal("FirstRun", Assert.Single(result!.Entries).Title);
+    }
+
+    [Fact]
+    public void RecordShown_UnwritableFilePath_DegradesGracefullyAndLogsWarning()
+    {
+        // A directory occupying the exact feedback file name makes the atomic move fail.
+        // The store must swallow the IO failure (best-effort persistence) and log a
+        // warning instead of propagating the exception to the caller's request/task.
+        var dataDir = Path.Join(_tempDir, "blocked");
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(Path.Join(dataDir, "jellyfin-helper-discovery-feedback.json"));
+
+        var pluginLog = new Mock<IPluginLogService>();
+        var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
+        var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, dataDir);
+        var userId = Guid.NewGuid();
+
+        var ex = Record.Exception(() => store.RecordShown(userId, "User", new List<DiscoveryRecommendation>
+        {
+            new() { TmdbId = 1, MediaType = "movie", Title = "Unwritable" }
+        }));
+
+        Assert.Null(ex);
+        pluginLog.Verify(
+            p => p.LogWarning(
+                "DiscoveryFeedback",
+                It.Is<string>(m => m.Contains("Could not save", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.AtLeastOnce);
     }
 }

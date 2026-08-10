@@ -1,11 +1,14 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
@@ -202,8 +205,156 @@ public class BackupControllerExtendedTests
     }
 
     // ================================================================================================
+    // Non-JSON Content-Type - the controller must reject before touching the body.
+    // ================================================================================================
+
+    [Fact]
+    public async Task ImportBackup_WhenContentTypeIsNotJson_ReturnsBadRequest()
+    {
+        // A client that POSTs the file with the wrong Content-Type (text/plain) must be told
+        // plainly what is expected, rather than having the body streamed and mis-parsed.
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            var controller = CreateController(tempDir);
+
+            // AddJsonBodyToController hardcodes application/json, so build the context by hand
+            // to exercise the HasJsonContentType() == false guard.
+            var httpContext = new DefaultHttpContext();
+            var bodyBytes = Encoding.UTF8.GetBytes("{\"backupVersion\":1}");
+            var bodyStream = new MemoryStream(bodyBytes);
+            httpContext.Request.Body = bodyStream;
+            httpContext.Response.RegisterForDispose(bodyStream);
+            httpContext.Request.ContentType = "text/plain";
+            httpContext.Request.ContentLength = bodyBytes.Length;
+            controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+            var result = await controller.ImportBackupAsync();
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            var payloadJson = JsonSerializer.Serialize(badRequest.Value);
+            Assert.Contains("Expected Content-Type: application/json", payloadJson, StringComparison.Ordinal);
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // ================================================================================================
+    // Body read fails with a non-cancellation I/O error - must map to a clean 400, not escape as 500.
+    // ================================================================================================
+
+    [Fact]
+    public async Task ImportBackup_WhenBodyReadThrowsIOException_ReturnsBadRequestFailedToRead()
+    {
+        // A disk/socket failure mid-read is a real, non-hostile condition. It is NOT a cancellation,
+        // so it must be caught by the inner typed catch and surfaced as a client-friendly 400 rather
+        // than an opaque 500.
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            var controller = CreateController(tempDir);
+
+            var httpContext = new DefaultHttpContext();
+            var throwingStream = new ThrowingBodyStream();
+            httpContext.Request.Body = throwingStream;
+            httpContext.Response.RegisterForDispose(throwingStream);
+            httpContext.Request.ContentType = "application/json";
+            // No Content-Length so the early size guard is a no-op and the chunk loop runs the read.
+            controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+            var result = await controller.ImportBackupAsync();
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            var payloadJson = JsonSerializer.Serialize(badRequest.Value);
+            Assert.Contains("Failed to read the request body.", payloadJson, StringComparison.Ordinal);
+
+            var logs = _log.GetEntries(source: "API", limit: 20);
+            Assert.Contains(logs,
+                entry => entry.Level == "ERROR" &&
+                         entry.Message.Contains("Failed to read backup request body", StringComparison.Ordinal));
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // ================================================================================================
+    // Deserializable backup that fails hard validation - must return 400 with the errors surfaced,
+    // and log both the per-error detail and the aggregate rejection.
+    // ================================================================================================
+
+    [Fact]
+    public async Task ImportBackup_WhenBackupFailsValidation_ReturnsBadRequestWithErrorsAndWarnings()
+    {
+        // An unsupported backupVersion parses fine but is a hard validation error, so IsValid is
+        // false and the restore must be refused - a partial import of an unknown-format backup is
+        // the worst case for data integrity.
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            var backupJson = JsonSerializer.Serialize(new { backupVersion = 2, useTrash = false });
+            var controller = CreateControllerWithJsonBody(tempDir, backupJson);
+
+            var result = await controller.ImportBackupAsync();
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            var payloadJson = JsonSerializer.Serialize(badRequest.Value);
+            Assert.Contains("Backup validation failed with", payloadJson, StringComparison.Ordinal);
+            Assert.Contains("errors", payloadJson, StringComparison.OrdinalIgnoreCase);
+
+            var backupLogs = _log.GetEntries(source: "Backup", limit: 20);
+            Assert.Contains(backupLogs,
+                entry => entry.Level == "ERROR" &&
+                         entry.Message.Contains("Validation error:", StringComparison.Ordinal));
+
+            var apiLogs = _log.GetEntries(source: "API", limit: 20);
+            Assert.Contains(apiLogs,
+                entry => entry.Level == "WARN" &&
+                         entry.Message.Contains("Backup import rejected:", StringComparison.Ordinal));
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // ================================================================================================
     // Reflection glue
     // ================================================================================================
+
+    /// <summary>
+    ///     A request-body stream whose read throws <see cref="IOException"/> to simulate a disk or
+    ///     socket failure mid-upload. Only <c>ReadAsync</c> needs to fault for the controller's
+    ///     chunk loop to hit the inner typed catch.
+    /// </summary>
+    private sealed class ThrowingBodyStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            => throw new IOException("Simulated body read failure.");
+
+        public override int Read(byte[] buffer, int offset, int count)
+            => throw new IOException("Simulated body read failure.");
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 
     private BackupController CreateController(string dataPath)
         => ControllerTestFactory.CreateBackupController(dataPath: dataPath, pluginLog: _log);

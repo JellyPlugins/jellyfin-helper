@@ -5,6 +5,7 @@ using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -221,5 +222,141 @@ public class TrashControllerTests : IDisposable
         var data = badRequest.Value as dynamic;
         Assert.Contains("unsafe", (string)data!.Error);
         Assert.True(Directory.Exists(lib1));
+    }
+
+    [Fact]
+    public void GetTrashSummary_SumsSizeAndCountAcrossLibraries_DeduplicatingSharedPaths()
+    {
+        // Two libraries whose trash resolves to the SAME absolute path plus a third distinct path.
+        // The shared trash must be counted once (HashSet dedup), not twice.
+        var (controller, _, configHelper, trashService) = ControllerTestFactory.CreateTrashController();
+        var lib1 = Path.Join(_tempPath, "Movies");
+        var lib2 = Path.Join(_tempPath, "TV");
+        var lib3 = Path.Join(_tempPath, "Music");
+        var sharedTrash = Path.Join(_tempPath, "shared-trash");
+        var distinctTrash = Path.Join(lib3, ".trash");
+
+        configHelper.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
+        configHelper.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns([lib1, lib2, lib3]);
+        configHelper.Setup(c => c.GetTrashPath(lib1)).Returns(sharedTrash);
+        configHelper.Setup(c => c.GetTrashPath(lib2)).Returns(sharedTrash);
+        configHelper.Setup(c => c.GetTrashPath(lib3)).Returns(distinctTrash);
+
+        trashService.Setup(t => t.GetTrashSummary(sharedTrash, It.IsAny<ILogger>())).Returns((100L, 2));
+        trashService.Setup(t => t.GetTrashSummary(distinctTrash, It.IsAny<ILogger>())).Returns((50L, 1));
+
+        var result = controller.GetTrashSummary();
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashSizeResponse>(okResult.Value);
+        Assert.Equal(150, data.TotalSize);
+        Assert.Equal(3, data.TotalItems);
+    }
+
+    [Fact]
+    public void GetTrashSummary_NoLibraries_ReturnsZeroTotals()
+    {
+        SetupLibraries();
+
+        var result = _controller.GetTrashSummary();
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashSizeResponse>(okResult.Value);
+        Assert.Equal(0, data.TotalSize);
+        Assert.Equal(0, data.TotalItems);
+    }
+
+    [Fact]
+    public void GetTrashContents_GroupsNonEmptyLibrariesWithNamesAndConfig()
+    {
+        // Library A has trash items, library B is empty. Only A should be projected,
+        // with its name derived from the folder and config values echoed back.
+        var (controller, _, configHelper, trashService) = ControllerTestFactory.CreateTrashController();
+        var libA = Path.Join(_tempPath, "Movies");
+        var libB = Path.Join(_tempPath, "TV");
+        var trashA = Path.Join(libA, ".trash");
+        var trashB = Path.Join(libB, ".trash");
+
+        configHelper.Setup(c => c.GetConfig())
+            .Returns(new PluginConfiguration { UseTrash = true, TrashRetentionDays = 30 });
+        configHelper.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns([libA, libB]);
+        configHelper.Setup(c => c.GetTrashPath(libA)).Returns(trashA);
+        configHelper.Setup(c => c.GetTrashPath(libB)).Returns(trashB);
+
+        trashService.Setup(t => t.GetTrashContents(trashA, 30, It.IsAny<ILogger>()))
+            .Returns(new List<TrashItemInfo> { new() { Name = "Old Movie" }, new() { Name = "Another" } });
+        trashService.Setup(t => t.GetTrashContents(trashB, 30, It.IsAny<ILogger>()))
+            .Returns(new List<TrashItemInfo>());
+
+        var result = controller.GetTrashContents();
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashConfigResponse>(okResult.Value);
+        Assert.True(data.UseTrash);
+        Assert.Equal(30, data.RetentionDays);
+        var lib = Assert.Single(data.Libraries);
+        Assert.Equal(libA, lib.LibraryPath);
+        Assert.Equal(Path.GetFileName(libA), lib.LibraryName);
+        Assert.Equal(2, lib.Items.Count);
+    }
+
+    [Fact]
+    public void GetTrashContents_SkipsDuplicateTrashPathAcrossLibraries()
+    {
+        // Both libraries resolve to the same absolute trash path; it must appear once.
+        var (controller, _, configHelper, trashService) = ControllerTestFactory.CreateTrashController();
+        var libA = Path.Join(_tempPath, "Movies");
+        var libB = Path.Join(_tempPath, "TV");
+        var sharedTrash = Path.Join(_tempPath, "shared-trash");
+
+        configHelper.Setup(c => c.GetConfig())
+            .Returns(new PluginConfiguration { UseTrash = true, TrashRetentionDays = 7 });
+        configHelper.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns([libA, libB]);
+        configHelper.Setup(c => c.GetTrashPath(libA)).Returns(sharedTrash);
+        configHelper.Setup(c => c.GetTrashPath(libB)).Returns(sharedTrash);
+
+        trashService.Setup(t => t.GetTrashContents(sharedTrash, 7, It.IsAny<ILogger>()))
+            .Returns(new List<TrashItemInfo> { new() { Name = "item" } });
+
+        var result = controller.GetTrashContents();
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashConfigResponse>(okResult.Value);
+        Assert.Single(data.Libraries);
+    }
+
+    [Fact]
+    public void DeleteTrashFolders_DeleteThrowsIOException_CountsAsFailedNotDeleted()
+    {
+        // A locked file inside the trash dir makes Directory.Delete throw; the controller
+        // must catch it and tally the path as Failed, not propagate or count it Deleted.
+        // The exclusive FileShare.None lock only blocks deletion on Windows; on POSIX the
+        // open handle does not prevent Directory.Delete, so no IOException is thrown and
+        // the contract cannot be exercised. Sibling failure tests gate the same way.
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var trashPath = Path.Join(_tempPath, "LockedTrash");
+        Directory.CreateDirectory(trashPath);
+        var lockedFile = Path.Join(trashPath, "locked.dat");
+
+        SetupConfig(new PluginConfiguration { TrashFolderPath = trashPath });
+        // Empty library list so the absolute path passes the safety gate.
+        _configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns(new List<string>());
+
+        using var fs = new FileStream(lockedFile, FileMode.Create, FileAccess.Write, FileShare.None);
+
+        var result = _controller.DeleteTrashFolders();
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashDeleteResponse>(okResult.Value);
+        Assert.Equal(0, data.Deleted);
+        Assert.Equal(1, data.Failed);
     }
 }

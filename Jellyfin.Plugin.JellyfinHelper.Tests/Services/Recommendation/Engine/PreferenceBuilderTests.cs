@@ -1,5 +1,7 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
@@ -1429,5 +1431,258 @@ public class PreferenceBuilderTests
         };
         var weights = PreferenceBuilder.BuildWriterPreferenceWeights(profile);
         Assert.Single(weights); // per-row de-dup, case-insensitive
+    }
+
+    // ===================== Studio / Tag preference sets (BaseItem lookup) =====================
+    // These exercise the direct-item and episode->parent-series branches of
+    // BuildStudioPreferenceSet / BuildTagPreferenceSet, including the whitespace filter that
+    // keeps blank Studios/Tags out of the returned set.
+
+    [Fact]
+    public void BuildStudioPreferenceSet_MovieDirectMatch_CollectsStudiosSkippingBlank()
+    {
+        var movieId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, BaseItem>
+        {
+            { movieId, new Movie { Id = Guid.NewGuid(), Studios = ["A24", " ", ""] } }
+        };
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = true }] };
+
+        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup);
+
+        Assert.Contains("A24", result);
+        Assert.Single(result); // whitespace/empty studios filtered out
+    }
+
+    [Fact]
+    public void BuildStudioPreferenceSet_EpisodeSeriesMatch_CollectsSeriesStudios()
+    {
+        // Episode row has no direct lookup entry, so studios must come from the parent series.
+        var episodeId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, BaseItem>
+        {
+            { seriesId, new Movie { Id = Guid.NewGuid(), Studios = ["HBO", "  "] } }
+        };
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = episodeId, SeriesId = seriesId, Played = true }]
+        };
+
+        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup);
+
+        Assert.Contains("HBO", result);
+        Assert.Single(result); // blank series studio excluded
+    }
+
+    [Fact]
+    public void BuildTagPreferenceSet_MovieDirectMatch_CollectsTagsSkippingBlank()
+    {
+        var movieId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, BaseItem>
+        {
+            { movieId, new Movie { Id = Guid.NewGuid(), Tags = ["heist", ""] } }
+        };
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = true }] };
+
+        var result = PreferenceBuilder.BuildTagPreferenceSet(profile, lookup);
+
+        Assert.Contains("heist", result);
+        Assert.Single(result); // empty tag filtered out
+    }
+
+    [Fact]
+    public void BuildTagPreferenceSet_EpisodeSeriesMatch_CollectsSeriesTags()
+    {
+        var episodeId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, BaseItem>
+        {
+            { seriesId, new Movie { Id = Guid.NewGuid(), Tags = ["christmas", "  "] } }
+        };
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = episodeId, SeriesId = seriesId, Played = true }]
+        };
+
+        var result = PreferenceBuilder.BuildTagPreferenceSet(profile, lookup);
+
+        Assert.Contains("christmas", result);
+        Assert.Single(result); // blank series tag excluded
+    }
+
+    // ===================== ComputePreferenceRowWeight: no-date temporal fallback =====================
+    // A row without LastPlayedDate takes one of two temporal arms: favorites use a full 1.0,
+    // non-favorites use the ~365-day decayed value. This pins that the favorite arm is used only
+    // for favorites (and that the non-favorite arm is materially weaker).
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_NoLastPlayedDate_FavoriteVsNonFavoriteTemporalFallback()
+    {
+        // Combined profile: a favorite franchise ("Fav") and a non-favorite one ("Old"), both with
+        // LastPlayedDate=null. The favorite takes the temporal=1.0 arm plus the +3.0 favorite additive;
+        // the non-favorite takes the decayed 365-day fallback plus a small log1p from PlayCount=1.
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), IsFavorite = true, PlayCount = 0, LastPlayedDate = null, TmdbCollectionName = "Fav" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), IsFavorite = false, PlayCount = 1, LastPlayedDate = null, TmdbCollectionName = "Old" }
+            ]
+        };
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        // Favorite is the vector max (temporal 1.0 + favorite additive), so it normalizes to 1.0.
+        Assert.Equal(1.0, vector["Fav"], 10);
+
+        // The non-favorite used the decayed 365-day fallback, not 1.0, so it must be far below the favorite.
+        Assert.True(vector["Fav"] > vector["Old"],
+            $"Favorite no-date row (temporal 1.0) must outrank non-favorite no-date row (365-day decay). Got Fav={vector["Fav"]:F4}, Old={vector["Old"]:F4}");
+    }
+
+    // ===================== BuildGenreExposureAnalysis: underexposed-genre flagging =====================
+
+    [Fact]
+    public void BuildGenreExposureAnalysis_LowShareGenre_MarkedUnderexposed()
+    {
+        // >= MinWatchCountForGenreExposure rows dominated by one genre plus a single rare genre
+        // whose normalized share falls below GenreUnderexposureThreshold, so it is flagged underexposed.
+        var profile = new UserWatchProfile { WatchedItems = [] };
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 60; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = now.AddDays(-i), Genres = ["Action"]
+            });
+        }
+
+        // One old, single-play rare-genre row → tiny normalized share, well under the 2% threshold.
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = now.AddDays(-3000), Genres = ["Polka"]
+        });
+
+        var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var analysis = PreferenceBuilder.BuildGenreExposureAnalysis(genrePrefs, profile);
+
+        Assert.True(analysis.IsValid);
+        Assert.Contains("Polka", analysis.UnderexposedGenres);
+    }
+
+    // ===================== ComputeGenreExposureFeatures: all-blank candidate genres =====================
+    // Distinct from the empty-list guard: a non-empty candidate list of only whitespace collapses to
+    // validCount==0 after the whitespace filter, hitting the second neutral-return guard.
+
+    [Fact]
+    public void ComputeGenreExposureFeatures_ValidAnalysisAllBlankGenres_ReturnsNeutral()
+    {
+        var analysis = new PreferenceBuilder.GenreExposureAnalysis
+        {
+            UnderexposedGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" },
+            AveragePreferenceWeight = 0.5,
+            GenrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { { "Action", 1.0 } },
+            IsValid = true
+        };
+
+        var (underexposure, dominance, gap) =
+            PreferenceBuilder.ComputeGenreExposureFeatures(["", " "], analysis);
+
+        Assert.Equal(0.0, underexposure);
+        Assert.Equal(0.0, dominance);
+        Assert.Equal(0.0, gap);
+    }
+
+    // ===================== ComputeProgressionMultiplier: pathological zero-length series =====================
+    // A series present in seriesEpisodeCounts but with totalEpisodes <= 0 must fall back to the neutral
+    // 1.0 multiplier, NOT the ProgressionCeiling. Compared against a control where the same series maps
+    // to 1 episode (rawRatio 1.0 → ceiling ~1.5).
+
+    [Fact]
+    public void BuildGenrePreferenceVector_SeriesEpisodeCountZero_UsesNeutralMultiplier()
+    {
+        var series = Guid.NewGuid();
+        var now = DateTime.UtcNow.AddDays(-1);
+
+        WatchedItemInfo SciFiEpisode() => new()
+        {
+            ItemId = Guid.NewGuid(), SeriesId = series, Played = true, LastPlayedDate = now, Genres = ["SciFi"]
+        };
+
+        WatchedItemInfo Anchor() => new()
+        {
+            ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = now, Genres = ["Anchor"]
+        };
+
+        var profileZero = new UserWatchProfile { WatchedItems = [SciFiEpisode(), Anchor()] };
+        var profileMapped = new UserWatchProfile { WatchedItems = [SciFiEpisode(), Anchor()] };
+
+        var countsZero = new Dictionary<Guid, int> { { series, 0 } };
+        var countsOne = new Dictionary<Guid, int> { { series, 1 } };
+
+        var vectorZeroTotal = PreferenceBuilder.BuildGenrePreferenceVector(profileZero, countsZero);
+        var vectorMappedOne = PreferenceBuilder.BuildGenrePreferenceVector(profileMapped, countsOne);
+
+        var zeroRatio = vectorZeroTotal["SciFi"] / vectorZeroTotal["Anchor"];
+        var mappedRatio = vectorMappedOne["SciFi"] / vectorMappedOne["Anchor"];
+
+        // totalEps<=0 → neutral 1.0 (same as Anchor); the 1-episode control → ceiling ~1.5 boost.
+        Assert.True(zeroRatio < mappedRatio,
+            $"Zero-total series must use the neutral 1.0 multiplier, not the ceiling. Got zeroRatio={zeroRatio:F4}, mappedRatio={mappedRatio:F4}");
+    }
+
+    // ===================== ExpandGenreProximity: phantom rows still feed the proximity map =====================
+    // The direct-vector loop skips phantom-series rows, but ExpandGenreProximity has no phantom guard,
+    // so a genre appearing ONLY on phantom rows can still be inserted as a new proximity entry.
+
+    [Fact]
+    public void BuildGenrePreferenceVector_PhantomMultiGenreRows_InsertNewProximityGenre()
+    {
+        var liveSeries = Guid.NewGuid();
+        var phantomSeries = Guid.NewGuid();
+        var counts = new Dictionary<Guid, int> { { liveSeries, 20 } };
+        var baseDate = new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var profile = new UserWatchProfile();
+
+        // Live, non-phantom rows establishing "Action" (and "Adventure") as direct-vector genres.
+        for (var i = 0; i < 12; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = liveSeries,
+                Played = true,
+                LastPlayedDate = baseDate.AddHours(-i),
+                Genres = ["Action", "Adventure"]
+            });
+        }
+
+        // Phantom rows: their series is absent from counts so the direct-vector loop skips them,
+        // but ExpandGenreProximity has no phantom guard, so Action<->Ghost co-occurs and Ghost
+        // (never a direct entry) is inserted via the new-genre proximity path.
+        for (var i = 0; i < 3; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = phantomSeries,
+                Played = true,
+                LastPlayedDate = baseDate.AddHours(-200 - i),
+                Genres = ["Action", "Ghost"]
+            });
+        }
+
+        var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, counts);
+
+        // Ghost never contributed a direct row (all its rows are phantom), yet proximity inserts it.
+        Assert.True(vector.ContainsKey("Ghost"), "Ghost must be inserted via the new-genre proximity path.");
+        Assert.InRange(vector["Ghost"], 0.0000001, 1.0);
+
+        // Vector stays max-normalized.
+        var max = vector.Values.Max();
+        Assert.InRange(max, 0.999, 1.0001);
     }
 }

@@ -875,6 +875,157 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             Times.Never);
     }
 
+    // An orphan that fails the age gate must be left untouched: neither deleted nor reported.
+    // The base default IsOldEnoughForDeletion==true, so override to false to reach the age branch.
+    [Fact]
+    public async Task ExecuteInternalAsync_OrphanTooNew_IsSkippedWithMinAgeLog()
+    {
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+        Config.OrphanMinAgeDays = 7;
+
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Fresh Orphan (2026)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Fresh Orphan (2026)", movieDir));
+
+        // NFO + subtitle → would be an orphan, but the age gate blocks it.
+        SetupFiles(movieDir, "movie.nfo", "movie.srt");
+        SetupTopLevelDirs(movieDir);
+
+        MockConfigHelper.Setup(x => x.IsOldEnoughForDeletion(movieDir)).Returns(false);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Skipping too-new orphan", LogLevel.Debug);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    // Hard-delete path (non-dry-run, no trash). Directory.Delete is a real static I/O call, so a
+    // real temp dir must back the mocked analysis; treeBytes (from the mocked file Length) and the
+    // deleted count must both flow into RecordCleanup.
+    [Fact]
+    public async Task ExecuteInternalAsync_HardDeleteOrphan_RemovesFolderAndRecordsTreeBytes()
+    {
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+        Config.UseTrash = false;
+
+        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var realDir = Path.Combine(libraryPath, "Orphan");
+        Directory.CreateDirectory(realDir);
+        File.WriteAllText(Path.Combine(realDir, "movie.srt"), "sub");
+
+        try
+        {
+            SetupLibrary(libraryPath);
+            SetupTopLevelDirs(libraryPath, ("Orphan", realDir));
+
+            // Non-zero Length so treeBytes is accumulated and recorded.
+            const long fileBytes = 4096L;
+            _fileSystemMock.Setup(f => f.GetFiles(realDir)).Returns([
+                new FileSystemMetadata { FullName = realDir + "/movie.srt", IsDirectory = false, Length = fileBytes }
+            ]);
+            SetupTopLevelDirs(realDir);
+
+            long? capturedBytes = null;
+            var capturedCount = 0;
+            MockTrackingService
+                .Setup(t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()))
+                .Callback<long, int, ILogger>((bytes, count, _) =>
+                {
+                    capturedBytes = bytes;
+                    capturedCount = count;
+                });
+
+            await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            VerifyLogContains("Deleting orphaned media folder", LogLevel.Information);
+            Assert.False(Directory.Exists(realDir));
+            Assert.Equal(fileBytes, capturedBytes);
+            Assert.Equal(1, capturedCount);
+        }
+        finally
+        {
+            if (Directory.Exists(libraryPath))
+            {
+                Directory.Delete(libraryPath, true);
+            }
+        }
+    }
+
+    // A folder whose file listing throws is unreadable: it must never be flagged for deletion.
+    [Fact]
+    public async Task ExecuteInternalAsync_GetFilesThrows_LogsWarningAndSkipsFolder()
+    {
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Locked Movie (2020)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Locked Movie (2020)", movieDir));
+
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir)).Throws(new IOException("locked"));
+        SetupTopLevelDirs(movieDir);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Could not list files in", LogLevel.Warning);
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    // Traversal must survive an unreadable subdirectory listing: a subtitle already found at the
+    // top still qualifies the folder as an orphan even though GetDirectories throws.
+    [Fact]
+    public async Task ExecuteInternalAsync_GetSubdirectoriesThrows_LogsWarningAndContinues()
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Half Read (2019)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Half Read (2019)", movieDir));
+
+        // Subtitle → non-metadata → orphan candidate.
+        SetupFiles(movieDir, "movie.srt");
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Throws(new UnauthorizedAccessException());
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Could not list subdirectories in", LogLevel.Warning);
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    // Deactivate mode short-circuits ExecuteAsync before any scan: it must report 100 once and
+    // never touch the library manager or file system. A regression that fell through to RunCleanup
+    // would emit "Task started" and enumerate directories; one that skipped the report would leave
+    // the scheduler stuck below 100%.
+    [Fact]
+    public async Task ExecuteInternalAsync_DeactivateMode_ReportsFullProgressAndSkipsScan()
+    {
+        Config.EmptyMediaFolderTaskMode = TaskMode.Deactivate;
+
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Old Movie (2020)";
+
+        // A genuine orphan candidate so any scan would be observable via GetDirectories.
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Old Movie (2020)", movieDir));
+        SetupFiles(movieDir, "movie.nfo", "movie.srt");
+        SetupTopLevelDirs(movieDir);
+
+        var reportedValues = new List<double>();
+        var progress = new SynchronousProgress<double>(reportedValues.Add);
+
+        await _task.ExecuteAsync(progress, CancellationToken.None);
+
+        Assert.Single(reportedValues);
+        Assert.Equal(100, reportedValues[0]);
+        MockConfigHelper.Verify(x => x.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()), Times.Never);
+        _fileSystemMock.Verify(f => f.GetDirectories(It.IsAny<string>()), Times.Never);
+        VerifyLogNeverContains("Task started", LogLevel.Information);
+    }
+
     // ========== Helper methods ==========
 
     private void SetupLibrary(string libraryPath)

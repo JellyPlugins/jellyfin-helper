@@ -154,4 +154,66 @@ public class PluginConfigurationServiceTests
         Assert.Equal(Plugin.Instance != null, sut.IsInitialized);
         Assert.False(string.IsNullOrWhiteSpace(sut.PluginVersion));
     }
+
+    // ===== ReadAndMutate =====
+
+    [Fact]
+    public void ReadAndMutate_ThrowsArgumentNullException_WhenMutateIsNull()
+    {
+        // The null-guard must fire before the lock and before any save, so a caller
+        // passing a null delegate can never accidentally persist an unchanged config.
+        var accessor = new FakePluginAccessor { Configuration = new PluginConfiguration() };
+        var sut = new PluginConfigurationService(accessor);
+
+        Assert.Throws<ArgumentNullException>(() => sut.ReadAndMutate(null!));
+        Assert.Equal(0, accessor.SaveCallCount);
+    }
+
+    [Fact]
+    public void ReadAndMutate_NoOps_WhenConfigurationIsNull()
+    {
+        // Plugin not initialised: there is nothing to mutate, so the delegate must not
+        // run and no save may happen - an early return, not a silent write of a null.
+        var accessor = new FakePluginAccessor { Configuration = null };
+        var sut = new PluginConfigurationService(accessor);
+
+        var mutateInvoked = false;
+        sut.ReadAndMutate(_ => mutateInvoked = true);
+
+        Assert.False(mutateInvoked);
+        Assert.Equal(0, accessor.SaveCallCount);
+    }
+
+    [Fact]
+    public void ReadAndMutate_InvokesMutateThenSaves_WhenConfigurationPresent()
+    {
+        // The delegate must receive the live shared config object (so edits stick), and
+        // the save must follow the mutation exactly once to persist it atomically.
+        var config = new PluginConfiguration { Language = "en" };
+        var accessor = new FakePluginAccessor { Configuration = config };
+        var sut = new PluginConfigurationService(accessor);
+
+        PluginConfiguration? received = null;
+        sut.ReadAndMutate(c =>
+        {
+            received = c;
+            c.Language = "fr";
+        });
+
+        Assert.Same(config, received);
+        Assert.Equal("fr", config.Language);
+        Assert.Equal(1, accessor.SaveCallCount);
+    }
+
+    [Fact]
+    public void ReadAndMutate_DoesNotSave_WhenMutateThrows()
+    {
+        // A failed mutation must propagate and must not persist a partially-applied config.
+        var accessor = new FakePluginAccessor { Configuration = new PluginConfiguration() };
+        var sut = new PluginConfigurationService(accessor);
+
+        Assert.Throws<InvalidOperationException>(
+            () => sut.ReadAndMutate(_ => throw new InvalidOperationException("boom")));
+        Assert.Equal(0, accessor.SaveCallCount);
+    }
 }

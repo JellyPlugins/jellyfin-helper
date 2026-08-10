@@ -1,5 +1,7 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Microsoft.Extensions.Logging;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
@@ -378,5 +380,248 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         // Passing min > max - implementation clamps max to min
         ensemble.Reconfigure(alphaMin: 0.8, alphaMax: 0.3, genrePenaltyFloor: 0.1);
         Assert.InRange(ensemble.CurrentAlpha, 0.0, 1.0);
+    }
+
+    // ===== Neural-active blending through the offset paths =====
+
+    private static List<TrainingExample> NeuralTrainingExamples(int count)
+    {
+        // Cleanly separable, low-noise data so both learned and neural generalize well
+        // (validation loss <= threshold), which is what lets the neural beta ramp fire.
+        var examples = new List<TrainingExample>(count);
+        var rng = new Random(42);
+        for (var i = 0; i < count; i++)
+        {
+            var positive = i % 2 == 0;
+            examples.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures
+                {
+                    GenreSimilarity = positive ? 0.9 : 0.05,
+                    CombinedCriticScore = positive ? 0.85 : 0.1,
+                    RecencyScore = positive ? 0.7 : 0.2,
+                    CollaborativeScore = rng.NextDouble() * 0.1,
+                    GenreCount = positive ? 4 : 1
+                },
+                Label = positive ? 1.0 : 0.0
+            });
+        }
+
+        return examples;
+    }
+
+    private static EnsembleScoringStrategy BuildNeuralActiveEnsemble()
+    {
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var neural = new NeuralScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+
+        // Train well past NeuralActivationThreshold (75) so the neural ramp activates beta > 0.
+        ensemble.Train(NeuralTrainingExamples(120));
+        ensemble.Train(NeuralTrainingExamples(120));
+        return ensemble;
+    }
+
+    [Fact]
+    public void ScoreWithOffset_NeuralActiveWithBeta_BlendsNeuralIntoMlBudget()
+    {
+        var ensemble = BuildNeuralActiveEnsemble();
+        var beta = ensemble.CurrentNeuralBeta;
+        Assert.True(beta > 0, $"Neural beta must have activated for this test, was {beta:F4}");
+
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.7,
+            CombinedCriticScore = 0.6,
+            RecencyScore = 0.5,
+            CollaborativeScore = 0.4
+        };
+
+        const double offset = 0.15;
+        var score = ensemble.ScoreWithOffset(features, offset);
+
+        // Reconstruct the documented blend: mlScore = (1-β)·learned + β·neural,
+        // final = clamp(α+offset)·ml + (1-α+offset weight)·heuristic, times the genre penalty.
+        var learned = ensemble.LearnedStrategy.Score(features);
+        var heuristic = ensemble.HeuristicStrategy.Score(features);
+        var neural = ensemble.NeuralStrategy!.Score(features);
+        var alpha = Math.Clamp(
+            ensemble.CurrentAlpha + offset,
+            EnsembleScoringStrategy.DefaultAlphaMin,
+            EnsembleScoringStrategy.DefaultAlphaMax);
+        var ml = ((1.0 - beta) * learned) + (beta * neural);
+        var penalty = EnsembleScoringStrategy.ComputeSoftGenrePenalty(
+            features.GenreSimilarity, EnsembleScoringStrategy.DefaultGenrePenaltyFloor);
+        var expected = ((alpha * ml) + ((1.0 - alpha) * heuristic)) * penalty;
+
+        Assert.True(double.IsFinite(score));
+        Assert.InRange(score, 0.0, 1.0);
+        Assert.Equal(expected, score, 6);
+    }
+
+    [Fact]
+    public void ScoreWithExplanationAndOffset_NeuralActiveWithBeta_BlendsNeuralExplanation()
+    {
+        var ensemble = BuildNeuralActiveEnsemble();
+        Assert.True(ensemble.CurrentNeuralBeta > 0,
+            "Neural beta must have activated for this test");
+
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.7,
+            CombinedCriticScore = 0.6,
+            RecencyScore = 0.5,
+            CollaborativeScore = 0.4
+        };
+
+        const double offset = 0.15;
+        var explanation = ensemble.ScoreWithExplanationAndOffset(features, offset);
+
+        Assert.Equal("Ensemble (Adaptive ML + Rules)", explanation.StrategyName);
+        Assert.True(double.IsFinite(explanation.FinalScore));
+        Assert.InRange(explanation.FinalScore, 0.0, 1.0);
+
+        // The explanation path must agree with the scalar path for the same offset.
+        // Neural blending routes through per-contribution explanation math, so a small
+        // floating-point divergence from the scalar path is expected (same tolerance the
+        // sibling neural-explanation test uses).
+        Assert.Equal(ensemble.ScoreWithOffset(features, offset), explanation.FinalScore, 2);
+    }
+
+    // ===== Cohort-feedback logging branches =====
+
+    private static EnsembleScoringStrategy BuildLoggingEnsemble(Mock<ILogger> logger)
+    {
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        return new EnsembleScoringStrategy(learned, heuristic, logger: logger.Object);
+    }
+
+    [Fact]
+    public void ApplyCohortFeedback_ExploreHighBeatsControl_LogsMidpointAdjustment()
+    {
+        var logger = new Mock<ILogger>();
+        logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        var ensemble = BuildLoggingEnsemble(logger);
+
+        var control = BuildCohortResult("control", 10, 5, out var cw);
+        var high = BuildCohortResult("explore-high", 10, 9, out var hw);
+
+        ensemble.ApplyCohortFeedback(new[] { control, high },
+            new Dictionary<Guid, HashSet<Guid>>
+            {
+                { control.UserId, cw },
+                { high.UserId, hw }
+            });
+
+        Assert.Equal(-EnsembleScoringStrategy.MidpointAdaptationStep, ensemble.SigmoidMidpointOffset, 6);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                null,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void ApplyCohortFeedback_ExploreLowBeatsControl_LogsMidpointAdjustment()
+    {
+        var logger = new Mock<ILogger>();
+        logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        var ensemble = BuildLoggingEnsemble(logger);
+
+        var control = BuildCohortResult("control", 10, 3, out var cw);
+        var low = BuildCohortResult("explore-low", 10, 9, out var lw);
+
+        ensemble.ApplyCohortFeedback(new[] { control, low },
+            new Dictionary<Guid, HashSet<Guid>>
+            {
+                { control.UserId, cw },
+                { low.UserId, lw }
+            });
+
+        Assert.Equal(EnsembleScoringStrategy.MidpointAdaptationStep, ensemble.SigmoidMidpointOffset, 6);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                null,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void ApplyCohortFeedback_ControlOptimal_LogsDebugDecay()
+    {
+        var logger = new Mock<ILogger>();
+        logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        var ensemble = BuildLoggingEnsemble(logger);
+
+        // Seed a non-zero offset via a low-cohort win (logs one Information message).
+        var seedControl = BuildCohortResult("control", 10, 3, out var scw);
+        var seedLow = BuildCohortResult("explore-low", 10, 9, out var slw);
+        ensemble.ApplyCohortFeedback(new[] { seedControl, seedLow },
+            new Dictionary<Guid, HashSet<Guid>>
+            {
+                { seedControl.UserId, scw },
+                { seedLow.UserId, slw }
+            });
+        var seededOffset = ensemble.SigmoidMidpointOffset;
+        Assert.True(seededOffset > 0);
+
+        // Now control beats both qualifying explore cohorts -> anti-drift decay + Debug log.
+        var control = BuildCohortResult("control", 10, 9, out var cw);
+        var high = BuildCohortResult("explore-high", 10, 3, out var hw);
+        var low = BuildCohortResult("explore-low", 10, 3, out var lw);
+        ensemble.ApplyCohortFeedback(new[] { control, high, low },
+            new Dictionary<Guid, HashSet<Guid>>
+            {
+                { control.UserId, cw },
+                { high.UserId, hw },
+                { low.UserId, lw }
+            });
+
+        Assert.Equal(seededOffset * EnsembleScoringStrategy.MidpointDecayFactor, ensemble.SigmoidMidpointOffset, 4);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                null,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void EffectiveSigmoidMidpoint_ReflectsDefaultPlusAdaptiveOffset()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+
+        // Fresh ensemble: no offset yet, so the effective midpoint is exactly the default.
+        Assert.Equal(EnsembleScoringStrategy.DefaultSigmoidMidpoint, ensemble.EffectiveSigmoidMidpoint, 6);
+
+        // An explore-high cohort win shifts the offset down by one adaptation step (ML trusted sooner).
+        var control = BuildCohortResult("control", 10, 5, out var cw);
+        var high = BuildCohortResult("explore-high", 10, 9, out var hw);
+        ensemble.ApplyCohortFeedback(new[] { control, high },
+            new Dictionary<Guid, HashSet<Guid>>
+            {
+                { control.UserId, cw },
+                { high.UserId, hw }
+            });
+
+        // The effective midpoint must track default + offset, and land one step earlier.
+        Assert.Equal(
+            EnsembleScoringStrategy.DefaultSigmoidMidpoint + ensemble.SigmoidMidpointOffset,
+            ensemble.EffectiveSigmoidMidpoint,
+            6);
+        Assert.Equal(
+            EnsembleScoringStrategy.DefaultSigmoidMidpoint - EnsembleScoringStrategy.MidpointAdaptationStep,
+            ensemble.EffectiveSigmoidMidpoint,
+            6);
     }
 }

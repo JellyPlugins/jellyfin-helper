@@ -123,4 +123,27 @@ public sealed class TrashServiceAccessTests : IDisposable
         // We just verify it doesn't throw and returns a result
         Assert.NotNull(result);
     }
+
+    [Fact]
+    public void CheckPathAccess_MalformedPath_ReturnsInvalidPathError()
+    {
+        // A non-whitespace path with an embedded null char passes the IsNullOrWhiteSpace
+        // guard but makes Path.GetFullPath throw ArgumentException. The catch must report
+        // an invalid-path result rather than let the exception escape.
+        var result = _service.CheckPathAccess("bad\0path", _mockLogger.Object);
+
+        Assert.False(result.HasFullAccess);
+        Assert.False(result.Exists);
+        Assert.False(result.CanRead);
+        Assert.False(result.CanWrite);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.StartsWith("Invalid path:", result.ErrorMessage, StringComparison.Ordinal);
+        _mockPluginLog.Verify(
+            l => l.LogWarning(
+                "Trash",
+                It.Is<string>(msg => msg.Contains("invalid path")),
+                It.IsAny<Exception>(),
+                It.IsAny<ILogger>()),
+            Times.Once);
+    }
 }

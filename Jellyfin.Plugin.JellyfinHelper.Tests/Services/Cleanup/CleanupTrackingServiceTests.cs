@@ -78,4 +78,24 @@ public class CleanupTrackingServiceTests
         Assert.Equal(300, totalBytesFreed);
         Assert.Equal(3, totalItemsDeleted);
     }
+
+    [Fact]
+    public void RecordCleanup_WithNegativeBytesFreed_ThrowsArgumentOutOfRange()
+    {
+        // Freed bytes can never be negative; the contract rejects it before touching config.
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            _trackingService.RecordCleanup(-1, 5, _loggerMock.Object));
+
+        Assert.Equal("bytesFreed", exception.ParamName);
+    }
+
+    [Fact]
+    public void RecordCleanup_WithNegativeItemsDeleted_ThrowsArgumentOutOfRange()
+    {
+        // Zero bytes passes the first guard so the item-count guard is the one that must fire.
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            _trackingService.RecordCleanup(0, -1, _loggerMock.Object));
+
+        Assert.Equal("itemsDeleted", exception.ParamName);
+    }
 }

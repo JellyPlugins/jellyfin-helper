@@ -400,4 +400,35 @@ public class NullableDateTimeConverterTests
         public DateTime? Value { get; set; }
         public int After { get; set; }
     }
+
+    // -----------------------------------------------------------------------
+    // Direct Read/Write invocation - System.Text.Json short-circuits JSON null
+    // for Nullable<T> converters (HandleNull=false), so these branches are never
+    // reached through the JsonSerializer path above. Call the converter directly.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Read_DirectInvocation_NullToken_ReturnsNull()
+    {
+        var converter = new NullableDateTimeConverter();
+        var reader = new Utf8JsonReader(System.Text.Encoding.UTF8.GetBytes("null"));
+        reader.Read(); // advance to the Null token
+        var result = converter.Read(ref reader, typeof(DateTime?), new JsonSerializerOptions());
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void Write_DirectInvocation_NullValue_WritesJsonNull()
+    {
+        var converter = new NullableDateTimeConverter();
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            converter.Write(writer, (DateTime?)null, new JsonSerializerOptions());
+            writer.Flush();
+        }
+
+        // Literal "null" proves WriteNullValue ran, not WriteStringValue.
+        Assert.Equal("null", System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan));
+    }
 }

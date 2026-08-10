@@ -87,4 +87,24 @@ public class LogsControllerTests : IDisposable
 
         Assert.IsType<OkObjectResult>(result);
     }
+
+    [Fact]
+    public void DownloadLogs_InvalidMinLevel_Returns400()
+    {
+        // An unrecognized filter must reject the request, not export a bogus-filtered file.
+        var result = _controller.DownloadLogs(minLevel: "hack");
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void DownloadLogs_SourceTooLong_Returns400()
+    {
+        // The >200-char source guard applies to the download path too, before any file is produced.
+        var source = new string('x', 201);
+
+        var result = _controller.DownloadLogs(source: source);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
 }

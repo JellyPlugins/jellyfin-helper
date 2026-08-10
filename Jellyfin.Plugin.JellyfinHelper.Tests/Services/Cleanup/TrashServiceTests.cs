@@ -716,4 +716,40 @@ public class TrashServiceTests : IDisposable
         Assert.Equal(1500, totalSize);
         Assert.Equal(2, itemCount);
     }
+
+    [Fact]
+    public void PurgeExpiredTrash_ExpiredDirectorySymlink_DeletesLinkOnlyWithZeroBytes()
+    {
+        // An expired trash entry that is a directory symlink/junction must have only the
+        // link removed - never the pointed-to data - and it reports 0 bytes freed because
+        // CalculateDirectorySize is skipped for reparse points.
+        var trashPath = Path.Join(_testRoot, "trash");
+        Directory.CreateDirectory(trashPath);
+
+        // Real target holding data that must survive.
+        var targetDir = Path.Join(_testRoot, "link-target");
+        Directory.CreateDirectory(targetDir);
+        var targetFile = Path.Join(targetDir, "movie.mkv");
+        File.WriteAllBytes(targetFile, new byte[512]);
+
+        var oldTimestamp = Now.AddDays(-30).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var linkDir = Path.Join(trashPath, $"{oldTimestamp}_LinkedMovie");
+        try
+        {
+            Directory.CreateSymbolicLink(linkDir, targetDir);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            // Symlink creation needs elevation/Developer Mode on Windows; stay green when unavailable.
+            return;
+        }
+
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
+
+        Assert.Equal(1, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.False(Directory.Exists(linkDir), "The symlink entry must be removed");
+        Assert.True(Directory.Exists(targetDir), "The link target must be untouched");
+        Assert.True(File.Exists(targetFile), "Data behind the link must survive");
+    }
 }

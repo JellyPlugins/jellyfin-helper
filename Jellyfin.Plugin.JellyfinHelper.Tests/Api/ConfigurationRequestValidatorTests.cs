@@ -524,4 +524,103 @@ public class ConfigurationRequestValidatorTests
         var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
         Assert.Null(error);
     }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenSeerrUrlTooLong()
+    {
+        // A syntactically-valid URL over 2048 chars must be rejected by the length guard
+        // BEFORE the Uri format / API-key checks fire.
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local/" + new string('a', 2100),
+            SeerrApiKey = "key"
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("2048 characters or fewer", error);
+    }
+
+    [Fact]
+    public void ValidateTrashPathStrict_ReturnsError_WhenPathTooLong()
+    {
+        // A single overlong segment clears the char/traversal filters and reaches Path.GetFullPath.
+        // Only Windows enforces MAX_PATH here: GetFullPath throws PathTooLongException, which the
+        // catch converts into a blocking error. POSIX (Linux) has no such length ceiling, so the
+        // same value is a perfectly legal single-segment relative name and GetFullPath succeeds -
+        // there is no cross-platform input that hits this specific catch, so the assertion is gated.
+        var longPath = new string('a', 40000);
+
+        if (OperatingSystem.IsWindows())
+        {
+            var error = ConfigurationRequestValidator.ValidateTrashPathStrict(longPath, true);
+            Assert.NotNull(error);
+            Assert.Contains("is invalid", error);
+        }
+        else
+        {
+            // On Linux an overlong relative name is valid: it must be accepted, not blocked.
+            Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(longPath, true));
+        }
+    }
+
+    [Fact]
+    public void ValidateArrInstances_ReturnsError_WhenNameTooLong()
+    {
+        var instances = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://radarr.local", ApiKey = "key", Name = new string('n', 101) }
+        };
+        var error = ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr");
+        Assert.NotNull(error);
+        Assert.Contains("name must be 100 characters or fewer", error);
+        Assert.Contains("Radarr", error);
+        Assert.Contains("#1", error);
+    }
+
+    [Fact]
+    public void ValidateArrInstances_ReturnsError_WhenNameContainsControlChar()
+    {
+        // Name is short enough to pass the length check, so it reaches the IsControl guard.
+        var instances = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://radarr.local", ApiKey = "key", Name = "badname" }
+        };
+        var error = ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr");
+        Assert.NotNull(error);
+        Assert.Contains("name contains invalid characters", error);
+    }
+
+    [Fact]
+    public void ValidateArrInstances_ReturnsError_WhenUrlTooLong()
+    {
+        // Over-length URL fires the length guard before the format guard, and the named-label
+        // branch must surface the instance Name rather than the "#1" fallback.
+        var instances = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://radarr.local/" + new string('a', 2100), ApiKey = "key", Name = "MyRadarr" }
+        };
+        var error = ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr");
+        Assert.NotNull(error);
+        Assert.Contains("URL must be 2048 characters or fewer", error);
+        Assert.Contains("MyRadarr", error);
+    }
+
+    [Fact]
+    public void ValidateTrashPathStrict_RejectsAbsoluteSensitiveSystemPath_Windows()
+    {
+        // Windows counterpart of the Posix sensitive-path test: a rooted system folder is
+        // refused, while a normal rooted path falls through to the final null.
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var systemError = ConfigurationRequestValidator.ValidateTrashPathStrict(@"C:\Windows", true);
+        Assert.NotNull(systemError);
+        Assert.Contains("protected system folder", systemError);
+
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(@"C:\Trash", true));
+    }
 }

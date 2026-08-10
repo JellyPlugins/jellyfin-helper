@@ -875,4 +875,255 @@ public class CleanupConfigHelperTests
     {
         Assert.Equal(expected, CleanupConfigHelper.IsCollectionsPath(path));
     }
+
+    // ===== IsFileOldEnoughForDeletion pre-1980 guard =====
+
+    [Fact]
+    public void IsFileOldEnoughForDeletion_Pre1980Timestamp_ReturnsFalse()
+    {
+        // A file whose timestamps predate 1980 is treated as corrupted (FAT epoch / clock drift).
+        // Mirrors the directory pre-1980 guard: a bogus old timestamp must not make the file
+        // look arbitrarily old and thus immediately eligible for deletion.
+        var cfg = new PluginConfiguration { OrphanMinAgeDays = 1 };
+        var helper = CreateHelper(cfg);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.SetCreationTimeUtc(tempFile, new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            File.SetLastWriteTimeUtc(tempFile, new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+            Assert.False(helper.IsFileOldEnoughForDeletion(tempFile));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    // ===== GetTrashPath unresolvable-path fallbacks =====
+
+    [Fact]
+    public void GetTrashPath_AbsolutePathThatCannotBeResolved_FallsBackToDefault()
+    {
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        // Build a genuinely fully-qualified path off the real filesystem root ("C:\" on Windows,
+        // "/" on Linux) and embed a NUL. IsPathFullyQualified stays true on both OSes, but the NUL
+        // makes GetFullPath throw ArgumentException inside the absolute branch on both platforms.
+        // ("C:\<40000 chars>" is only fully-qualified-and-throwing on Windows; on Linux it is a
+        // valid relative name, so it would take the relative branch and never hit the fallback.)
+        var fsRoot = Path.GetPathRoot(Path.GetFullPath(root))!;
+        var cfg = new PluginConfiguration { TrashFolderPath = Path.Join(fsRoot, "bad\0dir") };
+        var helper = CreateHelper(cfg);
+        var result = helper.GetTrashPath(root);
+        Assert.Equal(Path.GetFullPath(Path.Join(root, ".jellyfin-trash")), result);
+    }
+
+    [Fact]
+    public void GetTrashPath_RelativePathThatCannotBeResolved_FallsBackToDefault()
+    {
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        // A NUL char keeps the path relative (IsPathFullyQualified false) but makes
+        // GetFullPath throw ArgumentException in the relative branch - must fall back safely.
+        var cfg = new PluginConfiguration { TrashFolderPath = "bad\0dir" };
+        var helper = CreateHelper(cfg);
+        var result = helper.GetTrashPath(root);
+        Assert.Equal(Path.GetFullPath(Path.Join(root, ".jellyfin-trash")), result);
+    }
+
+    // ===== GetExistingTrashFoldersForPath invalid-path handling =====
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_UnresolvableLibraryRoot_IsSkipped_AndValidResultReturned()
+    {
+        // One library root is a NUL-containing string that fails root normalization; it must be
+        // skipped without aborting the scan, so a valid absolute trash query still resolves.
+        var helper = CreateHelper();
+        var trash = Path.Join(Path.GetTempPath(), "jfh-trash-" + Guid.NewGuid().ToString("N"));
+        var realLib = Path.Join(Path.GetTempPath(), "jfh-lib-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(trash);
+        Directory.CreateDirectory(realLib);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "Broken", Locations = ["bad\0root"] },
+                new VirtualFolderInfo { Name = "Movies", Locations = [realLib] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, trash);
+            Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(trash), result[0]);
+        }
+        finally
+        {
+            Directory.Delete(trash, recursive: true);
+            Directory.Delete(realLib, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsoluteQueryThatCannotBeResolved_ReturnsEmpty()
+    {
+        // Fully-qualified over-long query throws PathTooLongException while resolving the query;
+        // the invalid path is skipped silently and yields no candidates.
+        var helper = CreateHelper();
+        var realLib = Path.Join(Path.GetTempPath(), "jfh-lib-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(realLib);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "Movies", Locations = [realLib] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, "C:\\" + new string('a', 40000));
+            Assert.Empty(result);
+        }
+        finally
+        {
+            Directory.Delete(realLib, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativeQuery_ExcludesMusicAndBoxsetLibraries()
+    {
+        // Relative trash resolution must skip non-video library types entirely, even when they
+        // physically contain the trash subfolder - only the movies library should be scanned.
+        var helper = CreateHelper();
+        var music = Path.Join(Path.GetTempPath(), "jfh-music-" + Guid.NewGuid().ToString("N"));
+        var boxset = Path.Join(Path.GetTempPath(), "jfh-box-" + Guid.NewGuid().ToString("N"));
+        var movies = Path.Join(Path.GetTempPath(), "jfh-mov-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Join(music, ".trash"));
+        Directory.CreateDirectory(Path.Join(boxset, ".trash"));
+        Directory.CreateDirectory(Path.Join(movies, ".trash"));
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "Music", CollectionType = CollectionTypeOptions.music, Locations = [music] },
+                new VirtualFolderInfo { Name = "Box", CollectionType = CollectionTypeOptions.boxsets, Locations = [boxset] },
+                new VirtualFolderInfo { Name = "Movies", CollectionType = CollectionTypeOptions.movies, Locations = [movies] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
+            Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), result[0]);
+        }
+        finally
+        {
+            Directory.Delete(music, recursive: true);
+            Directory.Delete(boxset, recursive: true);
+            Directory.Delete(movies, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativeQuery_ExcludesLibrariesNamedLikeCollections()
+    {
+        // Name-pattern fallback: a video-typed library whose name contains "collection" is filtered
+        // out of relative trash resolution even though its CollectionType is not music/boxset.
+        var helper = CreateHelper();
+        var named = Path.Join(Path.GetTempPath(), "jfh-named-" + Guid.NewGuid().ToString("N"));
+        var movies = Path.Join(Path.GetTempPath(), "jfh-mov-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Join(named, ".trash"));
+        Directory.CreateDirectory(Path.Join(movies, ".trash"));
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "My Collection", CollectionType = CollectionTypeOptions.movies, Locations = [named] },
+                new VirtualFolderInfo { Name = "Movies", CollectionType = CollectionTypeOptions.movies, Locations = [movies] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
+            Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), result[0]);
+        }
+        finally
+        {
+            Directory.Delete(named, recursive: true);
+            Directory.Delete(movies, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativeQuery_ExcludesUserExcludedLibraries()
+    {
+        // The configured exclude list must apply to relative trash resolution too.
+        var cfg = new PluginConfiguration { ExcludedLibraries = "TV Shows" };
+        var helper = CreateHelper(cfg);
+        var excluded = Path.Join(Path.GetTempPath(), "jfh-excl-" + Guid.NewGuid().ToString("N"));
+        var movies = Path.Join(Path.GetTempPath(), "jfh-mov-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Join(excluded, ".trash"));
+        Directory.CreateDirectory(Path.Join(movies, ".trash"));
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "TV Shows", CollectionType = CollectionTypeOptions.tvshows, Locations = [excluded] },
+                new VirtualFolderInfo { Name = "Movies", CollectionType = CollectionTypeOptions.movies, Locations = [movies] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
+            Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), result[0]);
+        }
+        finally
+        {
+            Directory.Delete(excluded, recursive: true);
+            Directory.Delete(movies, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativeResolvesToAnotherLibraryRoot_IsSkipped()
+    {
+        // A relative trash path that stays within library A but coincides with a SECOND library's
+        // root must never be reported - otherwise relocate/delete could target that whole library.
+        var helper = CreateHelper();
+        var parent = Path.Join(Path.GetTempPath(), "jfh-par-" + Guid.NewGuid().ToString("N"));
+        var libA = Path.Join(parent, "A");
+        var libTrash = Path.Join(libA, "trash"); // a real library registered here
+        Directory.CreateDirectory(libTrash);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "A", CollectionType = CollectionTypeOptions.movies, Locations = [libA] },
+                new VirtualFolderInfo { Name = "Trash", CollectionType = CollectionTypeOptions.movies, Locations = [libTrash] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, "trash");
+            Assert.Empty(result);
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativeQueryThatCannotBeResolved_IsSkipped()
+    {
+        // A NUL-containing relative query makes per-library GetFullPath throw ArgumentException;
+        // the library is skipped silently rather than throwing out of the scan.
+        var helper = CreateHelper();
+        var lib = Path.Join(Path.GetTempPath(), "jfh-lib-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(lib);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "Movies", CollectionType = CollectionTypeOptions.movies, Locations = [lib] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, "bad\0trash");
+            Assert.Empty(result);
+        }
+        finally
+        {
+            Directory.Delete(lib, recursive: true);
+        }
+    }
 }

@@ -333,6 +333,74 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         Assert.Equal(100, reported[0]);
     }
 
+    [Fact]
+    public async Task Execute_GetTrashPathThrowsUnexpected_LogsErrorAndDoesNotCrash()
+    {
+        // The trash-path setup is hoisted outside the per-directory loop. A non-IO failure there
+        // (e.g. a bad configuration surfacing as InvalidOperationException) must be caught by the
+        // outer catch-all so a single library does not abort the whole task.
+        const string lib = "/media/movies";
+        const string dir = "/media/movies/M";
+        SetupLibrary(lib);
+        SetupRecursiveDirs(lib, dir);
+        SetupFilesInDir(lib);
+        SetupFilesInDir(dir, "MovieA.mkv", "Orphan.en.srt");
+
+        MockConfigHelper.Setup(c => c.GetTrashPath(It.IsAny<string>()))
+            .Throws(new InvalidOperationException("bad trash config"));
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains(_loggerMock, "Error scanning directory", LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Execute_DeeplyNestedDirs_AllLevelsScanned()
+    {
+        // The recursive descent uses an explicit stack. A grandchild directory is only reachable
+        // when GetDirectories(child) is walked, so an orphan there proves the deep push works.
+        const string lib = "/media/movies";
+        const string child = "/media/movies/Show";
+        const string grandchild = "/media/movies/Show/Season 01";
+        SetupLibrary(lib);
+        SetupRecursiveDirs(lib, child);
+        _fileSystemMock.Setup(f => f.GetDirectories(child)).Returns(new[]
+        {
+            new FileSystemMetadata { FullName = grandchild, Name = "Season 01", IsDirectory = true }
+        });
+        _fileSystemMock.Setup(f => f.GetDirectories(grandchild)).Returns([]);
+        SetupFilesInDir(lib);
+        SetupFilesInDir(child);
+        SetupFilesInDir(grandchild, "S01E01.mkv", "S01E02.en.srt");
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains(_loggerMock, "Would delete orphaned subtitle", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task Execute_NestedGetDirectoriesThrows_WarnsAndContinuesScan()
+    {
+        // A nested subdirectory that cannot be enumerated must warn (in-loop catch) but not stop
+        // the scan: a readable sibling's orphan should still be detected.
+        const string lib = "/media/movies";
+        const string blockedDir = "/media/movies/Locked";
+        const string okDir = "/media/movies/Open";
+        SetupLibrary(lib);
+        SetupRecursiveDirs(lib, blockedDir, okDir);
+        _fileSystemMock.Setup(f => f.GetDirectories(blockedDir))
+            .Throws(new UnauthorizedAccessException("Access denied"));
+        _fileSystemMock.Setup(f => f.GetDirectories(okDir)).Returns([]);
+        SetupFilesInDir(lib);
+        SetupFilesInDir(blockedDir);
+        SetupFilesInDir(okDir, "MovieA.mkv", "Orphan.en.srt");
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains(_loggerMock, "Could not enumerate subdirectories", LogLevel.Warning);
+        VerifyLogContains(_loggerMock, "Would delete orphaned subtitle", LogLevel.Information);
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
     /// <summary>Populate a library with a single top-level path.</summary>

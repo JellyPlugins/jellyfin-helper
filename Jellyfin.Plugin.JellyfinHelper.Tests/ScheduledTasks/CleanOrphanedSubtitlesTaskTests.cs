@@ -244,4 +244,28 @@ public class CleanOrphanedSubtitlesTaskTests
         var result = CleanOrphanedSubtitlesTask.IsSubtitleSuffix(segment);
         Assert.Equal(expected, result);
     }
+
+    // === Three-subtag {lang}-{script}-{region} tags ===
+
+    [Theory]
+    [InlineData("zh-Hans-TW")]
+    [InlineData("zh-Hant-HK")]
+    [InlineData("sr-Latn-RS")]
+    [InlineData("zh-Hans-419")]
+    public void IsSubtitleSuffix_RecognizesLangScriptRegionTags(string segment)
+    {
+        // Full BCP-47 lang-script-region tags are valid subtitle suffixes and must be stripped.
+        Assert.True(CleanOrphanedSubtitlesTask.IsSubtitleSuffix(segment));
+    }
+
+    [Theory]
+    [InlineData("zh-XX-TW")]  // middle subtag is not a 4-letter script
+    [InlineData("zh-Hans-XYZ")] // trailing region is neither 2-alpha nor 3-digit
+    [InlineData("zh-Hans-1")]   // trailing region too short to be a numeric region
+    public void IsSubtitleSuffix_RejectsInvalidThreeSubtagTags(string segment)
+    {
+        // The script&&region rule must reject malformed three-subtag inputs so a title like
+        // "Foo.zh-XX-TW" is not wrongly treated as language-tagged and stripped.
+        Assert.False(CleanOrphanedSubtitlesTask.IsSubtitleSuffix(segment));
+    }
 }

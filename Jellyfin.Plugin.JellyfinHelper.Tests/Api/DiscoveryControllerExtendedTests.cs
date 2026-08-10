@@ -565,4 +565,88 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         Assert.False(otherEntry.Recommendations[0].AlreadyRequested,
             "other user's cache entry must not be marked by admin's request");
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task PostRequest_NoUserIdentityClaim_ReturnsUnauthorized()
+    {
+        // Without a resolvable caller identity the mark can't be scoped to a user, so the
+        // request must be rejected up front - never forwarded to Seerr with an unscoped mark.
+        var controller = CreateController();
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
+
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+
+        Assert.IsType<UnauthorizedResult>(result.Result);
+        _discoveryMock.Verify(
+            d => d.SubmitRequestAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
+                It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task PostRequest_UnparseableUserIdClaim_ReturnsUnauthorized()
+    {
+        // A malformed Jellyfin-UserId (non-Guid) must be treated as no identity, not silently
+        // accepted. Built inline because the CreateController helper only emits parseable Guids.
+        var controller = new DiscoveryController(
+            _cache,
+            _discoveryMock.Object,
+            _feedbackStoreMock.Object,
+            new Mock<ILogger<DiscoveryController>>().Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(
+                        new ClaimsIdentity(
+                            [new Claim("Jellyfin-UserId", "not-a-guid")],
+                            "Test"))
+                }
+            }
+        };
+
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+
+        Assert.IsType<UnauthorizedResult>(result.Result);
+        _discoveryMock.Verify(
+            d => d.SubmitRequestAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
+                It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task PostRequest_FeedbackStoreRecordRequestedThrows_StillReturnsOk()
+    {
+        // Recording request feedback is best-effort: a non-fatal throw from RecordRequested
+        // must not turn an accepted Seerr request into a 500. The controller swallows it (200 OK).
+        var callerUserId = Guid.NewGuid();
+        _discoveryMock.Setup(d => d.SubmitRequestAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
+                It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+        _feedbackStoreMock.Setup(s => s.RecordRequested(
+                It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()))
+            .Throws(new InvalidOperationException("simulated"));
+
+        var controller = CreateController(userId: callerUserId);
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
+
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var body = Assert.IsType<RequestResult>(ok.Value);
+        Assert.True(body.Success);
+        _feedbackStoreMock.Verify(
+            s => s.RecordRequested(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()),
+            Times.Once);
+    }
 }

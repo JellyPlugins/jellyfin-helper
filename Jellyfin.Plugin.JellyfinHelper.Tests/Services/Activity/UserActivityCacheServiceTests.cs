@@ -295,4 +295,41 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         // silently swallowed the JsonException without diagnostics.
         Assert.True(warningCount >= 1, $"expected at least one warning to be logged, got {warningCount}");
     }
+
+    [Fact]
+    public void SaveResult_WriteFails_SwallowsIoErrorAndLogsWarning()
+    {
+        // BUG GUARD: SaveResult runs inside the scheduled task. A write failure
+        // (here: a directory occupying the exact cache-file path, so AtomicFile's
+        // final File.Move/Replace onto a directory throws IOException) must be
+        // swallowed and logged, never propagated - a narrowed catch filter would
+        // let the IOException escape and crash the task run.
+        var mockPaths = new Mock<IApplicationPaths>();
+        mockPaths.Setup(p => p.DataPath).Returns(_tempDir);
+        var mockPluginLog = new Mock<IPluginLogService>();
+        var warningCount = 0;
+        Exception? capturedException = null;
+        mockPluginLog.Setup(l => l.LogWarning(
+                "UserActivityCache",
+                It.Is<string>(m => m.Contains("Could not save activity result", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()))
+            .Callback<string, string, Exception?, ILogger?>((_, _, ex, _) =>
+            {
+                warningCount++;
+                capturedException = ex;
+            });
+        var mockLogger = new Mock<ILogger<UserActivityCacheService>>();
+
+        var service = new UserActivityCacheService(mockPaths.Object, mockPluginLog.Object, mockLogger.Object);
+
+        // Occupy the exact cache-file path with a directory so the atomic move fails.
+        Directory.CreateDirectory(Path.Join(_tempDir, "jellyfin-helper-useractivity-latest.json"));
+
+        var thrown = Record.Exception(() => service.SaveResult(new UserActivityResult()));
+
+        Assert.Null(thrown);
+        Assert.Equal(1, warningCount);
+        Assert.NotNull(capturedException);
+    }
 }

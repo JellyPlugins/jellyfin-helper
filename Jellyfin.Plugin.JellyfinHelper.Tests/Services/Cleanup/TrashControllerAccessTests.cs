@@ -97,4 +97,72 @@ public class TrashControllerAccessTests : IDisposable
         var allAccessible = data!.GetType().GetProperty("AllAccessible")!.GetValue(data);
         Assert.True((bool)allAccessible!);
     }
+
+    [Fact]
+    public void CheckAccess_NullBody_ReturnsBadRequest()
+    {
+        var config = new PluginConfiguration { UseTrash = true, TrashFolderPath = ".jellyfin-trash" };
+        var controller = CreateController(config, new List<string> { _testRoot });
+
+        var result = controller.CheckAccess(null!);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void CheckAccess_TraversalSegment_ReturnsBadRequest()
+    {
+        // A real ".." segment is rejected before any path access is attempted.
+        var config = new PluginConfiguration { UseTrash = true, TrashFolderPath = ".jellyfin-trash" };
+        var controller = CreateController(config, new List<string> { _testRoot });
+
+        var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = "../../etc" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void CheckAccess_OverLengthPath_ReturnsBadRequest()
+    {
+        // Length cap (>512) is enforced independently of traversal segments.
+        var config = new PluginConfiguration { UseTrash = true, TrashFolderPath = ".jellyfin-trash" };
+        var controller = CreateController(config, new List<string> { _testRoot });
+
+        var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = new string('a', 513) });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void CheckAccess_RelativePathThatFailsPathResolution_SkipsLibrary()
+    {
+        // An embedded NUL in the relative path makes Path.GetFullPath throw inside
+        // ResolveRelativeTrashPath; the exception is swallowed and the library is skipped,
+        // so the endpoint still returns 200 with no accessible results.
+        var config = new PluginConfiguration { UseTrash = true, TrashFolderPath = ".jellyfin-trash" };
+        var controller = CreateController(config, new List<string> { _testRoot });
+
+        var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = "bad\0name" });
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = okResult.Value!;
+        var results = (System.Collections.IEnumerable)data.GetType().GetProperty("Results")!.GetValue(data)!;
+        Assert.Empty(results.Cast<object>());
+        var allAccessible = (bool)data.GetType().GetProperty("AllAccessible")!.GetValue(data)!;
+        Assert.False(allAccessible);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void CheckAccess_AbsolutePathOutsideLibraries_ReturnsBadRequest()
+    {
+        // An absolute path equal to the library root is unsafe (IsPathSafeForDeletion false):
+        // the containment gate must refuse it so no probe file is created outside a trash dir.
+        var config = new PluginConfiguration { UseTrash = true, TrashFolderPath = ".jellyfin-trash" };
+        var controller = CreateController(config, new List<string> { _testRoot });
+
+        var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = _testRoot });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
 }

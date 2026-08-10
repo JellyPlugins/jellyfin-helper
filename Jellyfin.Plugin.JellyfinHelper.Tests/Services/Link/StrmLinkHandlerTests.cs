@@ -100,6 +100,51 @@ public class StrmLinkHandlerTests
         Assert.Equal("https://example.com/video.mp4", result);
     }
 
+    [Fact]
+    public void ReadTarget_WhenReadThrowsIOException_ReturnsNull()
+    {
+        // A .strm that passes the Exists/size guard but faults mid-read is a broken pointer, not a
+        // fatal error: the caller must see null, not a propagated exception. MockFileSystem can't
+        // inject a read fault, so mock the file-info guard true and force ReadAllText to throw.
+        const string linkFile = "/series/episode.strm";
+        var fs = new Mock<IFileSystem>();
+        var file = new Mock<IFile>();
+        var infoFactory = new Mock<IFileInfoFactory>();
+        var info = new Mock<IFileInfo>();
+        fs.SetupGet(f => f.File).Returns(file.Object);
+        fs.SetupGet(f => f.FileInfo).Returns(infoFactory.Object);
+        infoFactory.Setup(x => x.New(linkFile)).Returns(info.Object);
+        info.SetupGet(i => i.Exists).Returns(true);
+        info.SetupGet(i => i.Length).Returns(100);
+        file.Setup(f => f.ReadAllText(linkFile)).Throws(new IOException("read fault"));
+
+        var handler = new StrmLinkHandler(fs.Object);
+
+        Assert.Null(handler.ReadTarget(linkFile));
+    }
+
+    [Fact]
+    public void ReadTarget_WhenReadThrowsUnauthorizedAccess_ReturnsNull()
+    {
+        // Second arm of the exception filter: permission-denied on read must also map to null (a
+        // broken pointer), never bubble up to the caller.
+        const string linkFile = "/series/episode.strm";
+        var fs = new Mock<IFileSystem>();
+        var file = new Mock<IFile>();
+        var infoFactory = new Mock<IFileInfoFactory>();
+        var info = new Mock<IFileInfo>();
+        fs.SetupGet(f => f.File).Returns(file.Object);
+        fs.SetupGet(f => f.FileInfo).Returns(infoFactory.Object);
+        infoFactory.Setup(x => x.New(linkFile)).Returns(info.Object);
+        info.SetupGet(i => i.Exists).Returns(true);
+        info.SetupGet(i => i.Length).Returns(100);
+        file.Setup(f => f.ReadAllText(linkFile)).Throws(new UnauthorizedAccessException("denied"));
+
+        var handler = new StrmLinkHandler(fs.Object);
+
+        Assert.Null(handler.ReadTarget(linkFile));
+    }
+
     // ===== WriteTarget =====
 
     [Fact]

@@ -206,6 +206,22 @@ public sealed class LanguageAffinityTests
     [InlineData("heb", "he")]
     [InlineData("ell", "el")]
     [InlineData("gre", "el")]
+    [InlineData("ind", "id")]
+    [InlineData("msa", "ms")]
+    [InlineData("may", "ms")]
+    [InlineData("hrv", "hr")]
+    [InlineData("srp", "sr")]
+    [InlineData("slk", "sk")]
+    [InlineData("slo", "sk")]
+    [InlineData("slv", "sl")]
+    [InlineData("bul", "bg")]
+    [InlineData("cat", "ca")]
+    [InlineData("est", "et")]
+    [InlineData("lav", "lv")]
+    [InlineData("lit", "lt")]
+    [InlineData("fas", "fa")]
+    [InlineData("per", "fa")]
+    [InlineData("urd", "ur")]
     public void NormalizeLanguage_ThreeLetterToTwoLetter(string input, string expected)
     {
         Assert.Equal(expected, WatchHistoryService.NormalizeLanguage(input));

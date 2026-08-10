@@ -121,4 +121,39 @@ public sealed class TrashServiceGuardTests
 
         Assert.Equal(0, result);
     }
+
+    [Fact]
+    public void MoveFileToTrash_SourceFileInsideTrashFolder_ReturnsZeroAndLogsWarning()
+    {
+        // A file that already lives under the trash prefix must not be re-trashed:
+        // repeated timestamp prefixing would grow the path past PATH_MAX. The guard
+        // must short-circuit before any move happens.
+        var tempBase = Path.Join(Path.GetTempPath(), $"trash-guard-file-inside-{Guid.NewGuid():N}");
+        var trashBasePath = Path.Join(tempBase, ".jellyfin-trash");
+        var sourceFile = Path.Join(trashBasePath, "20260510-010001_x.srt");
+
+        Directory.CreateDirectory(trashBasePath);
+        File.WriteAllText(sourceFile, "sub");
+        try
+        {
+            var result = _service.MoveFileToTrash(sourceFile, trashBasePath, _mockLogger.Object);
+
+            Assert.Equal(0, result);
+            Assert.True(File.Exists(sourceFile), "File inside trash must be left in place");
+            _mockPluginLog.Verify(
+                l => l.LogWarning(
+                    "Trash",
+                    It.Is<string>(msg => msg.Contains("already inside trash folder")),
+                    It.IsAny<Exception>(),
+                    It.IsAny<ILogger>()),
+                Times.Once);
+        }
+        finally
+        {
+            if (Directory.Exists(tempBase))
+            {
+                Directory.Delete(tempBase, true);
+            }
+        }
+    }
 }

@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Moq;
 using Xunit;
 
@@ -233,5 +234,122 @@ public sealed class EngineEpisodicWatchHistoryTests
 
         Assert.NotNull(result);
         Assert.Equal(userId, result!.UserId);
+    }
+
+    [Fact]
+    public void GetRecommendations_WarmUser_SeriesCandidateWithEpisodeStreams_ResolvesLanguageAffinityViaFallback()
+    {
+        // A Series candidate has no direct media streams, so ResolveMediaLanguages must fall back
+        // to the first child episode (ParentId query) to compute LanguageAffinity. This drives the
+        // series-child stream fallback and the ParseLanguagesFromStreams pass that the no-stream
+        // tests never reach. GetMediaStreams is virtual, so the child episode can surface real
+        // audio+subtitle language tracks that match the user's language profile.
+        var harness = EngineTestFactory.Create();
+        var userId = Guid.NewGuid();
+
+        var seriesId = Guid.NewGuid();
+        var movieId = Guid.NewGuid();
+        var watchedMovieId = Guid.NewGuid();
+
+        // The Series candidate reports an EMPTY (not throwing) media-stream list so ResolveMediaLanguages
+        // takes the series-child fallback branch rather than the graceful catch. GetMediaStreams is
+        // virtual, so the mock returns [] while every other BaseItem member behaves like a real Series.
+        var seriesMock = new Mock<Series> { CallBase = true };
+        seriesMock.Object.Id = seriesId;
+        seriesMock.Object.Name = "Streamless Show";
+        seriesMock.Object.Path = $"/media/series/{seriesId:N}";
+        seriesMock.Object.Genres = ["Drama"];
+        seriesMock.Object.ProductionYear = 2019;
+        seriesMock.Object.CommunityRating = 8.2f;
+        seriesMock.Setup(s => s.GetMediaStreams()).Returns([]);
+        var series = seriesMock.Object;
+
+        var movie = MakeMovie(movieId, "Some Movie", ["Drama"]);
+
+        // The episode returned by the ParentId fallback exposes English audio + subtitle streams.
+        var childEpisode = new Mock<Episode> { CallBase = true };
+        childEpisode.Object.Id = Guid.NewGuid();
+        childEpisode.Object.SeriesId = seriesId;
+        childEpisode.Setup(e => e.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Audio, Language = "eng" },
+            new MediaStream { Type = MediaStreamType.Subtitle, Language = "eng" }
+        ]);
+
+        // Episode that makes the series survive LoadCandidateItems (general Episode query).
+        var indexEpisode = MakeEpisode(Guid.NewGuid(), seriesId);
+
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Movie)))
+            .Returns(new List<BaseItem> { movie });
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Series)))
+            .Returns(new List<BaseItem> { series });
+        // General Episode query (no ParentId) used by the empty-series filter.
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Episode
+                && q.ParentId == Guid.Empty)))
+            .Returns(new List<BaseItem> { indexEpisode });
+        // ParentId fallback query used by ResolveMediaLanguages for the streamless series.
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.ParentId == seriesId
+                && q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Episode)))
+            .Returns(new List<BaseItem> { childEpisode.Object });
+
+        // No people for the candidates (empty), forcing the neutral people-similarity path.
+        harness.LibraryManager
+            .Setup(lm => lm.GetPeopleNamesByItems(It.IsAny<IReadOnlyList<Guid>>(), It.IsAny<IReadOnlyList<string>>()))
+            .Throws(new NotSupportedException("force per-item people fallback"));
+        harness.LibraryManager
+            .Setup(lm => lm.GetPeople(It.IsAny<BaseItem>()))
+            .Returns(new List<PersonInfo>());
+
+        // Warm user with a matching English language profile and a watched movie so the warm path runs.
+        var profile = new UserWatchProfile
+        {
+            UserId = userId,
+            UserName = "lang-user",
+            LanguageProfile = new Dictionary<string, LanguageProfileEntry>
+            {
+                { "en", new LanguageProfileEntry { ChosenCount = 10, ForcedCount = 0 } }
+            },
+            SubtitleLanguageProfile = new Dictionary<string, LanguageProfileEntry>
+            {
+                { "en", new LanguageProfileEntry { ChosenCount = 10, ForcedCount = 0 } }
+            },
+            WatchedItems = new Collection<WatchedItemInfo>
+            {
+                new()
+                {
+                    ItemId = watchedMovieId,
+                    Name = "Watched",
+                    ItemType = "Movie",
+                    Played = true,
+                    PlayCount = 1,
+                    Genres = new List<string> { "Drama" }
+                }
+            }
+        };
+
+        harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId)).Returns(profile);
+        harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile> { profile });
+
+        var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(userId, result!.UserId);
+
+        // The series-child stream fallback must have been consulted: the ParentId episode query
+        // is issued ONLY from ResolveMediaLanguages for a streamless series candidate.
+        harness.LibraryManager.Verify(
+            lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.ParentId == seriesId
+                && q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Episode)),
+            Times.AtLeastOnce);
     }
 }

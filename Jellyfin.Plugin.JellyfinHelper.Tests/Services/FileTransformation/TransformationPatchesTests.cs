@@ -261,4 +261,36 @@ public class TransformationPatchesTests
         // The stale on-disk version must have been stripped, leaving only the freshly emitted tag.
         Assert.DoesNotContain("0.0.1-old", served, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void IndexHtml_ClosingBodyAfterHtmlClose_NotChosenAsAnchor_ReturnsContentWithoutInjection()
+    {
+        // The </body> search is bounded to text BEFORE </html>. Here the only literal
+        // </body> sits after </html> (inside a trailing script string), so nothing is
+        // found in-bounds: bodyIndex is -1 and the content must come back untouched.
+        const string html =
+            "<html>" +
+            "<head></head>" +
+            "</html>" +
+            "<script>var x=\"</body>\";</script>";
+
+        var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
+
+        Assert.DoesNotContain("plugin=\"Jellyfin Helper\"", result, StringComparison.Ordinal);
+        Assert.Equal(html, result);
+    }
+
+    [Fact]
+    public void IndexHtml_NoHtmlAndNoBodyAnchor_ReturnsContentVerbatim()
+    {
+        // A bare fragment with neither </html> nor </body>: searchEnd falls back to the
+        // full length and LastIndexOf(</body>) returns -1, so the method reaches its final
+        // return with no injection and hands the content straight back.
+        const string html = "<div>just a fragment, no closing body or html here</div>";
+
+        var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
+
+        Assert.Equal(html, result);
+        Assert.DoesNotContain("<script", result, StringComparison.OrdinalIgnoreCase);
+    }
 }

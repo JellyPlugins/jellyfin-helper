@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Moq;
@@ -335,6 +336,33 @@ public sealed class EngineInstanceTests
 
         // All batches must complete without throwing.
         Assert.All(allResults, r => Assert.NotNull(r));
+    }
+
+    // ================================================================================
+    // Dispose - resource-release contract
+    // ================================================================================
+
+    [Fact]
+    public void Dispose_WithNonDisposableStrategy_DoesNotThrow()
+    {
+        // The default HeuristicScoringStrategy does not implement IDisposable, so Dispose must
+        // skip the strategy branch and still dispose the internal training service without throwing.
+        var harness = EngineTestFactory.Create();
+        harness.Engine.Dispose();
+    }
+
+    [Fact]
+    public void Dispose_WithDisposableStrategy_DisposesStrategy()
+    {
+        // When the injected strategy is IDisposable, Dispose must release it exactly once - the
+        // engine owns the strategy's lifetime and a leak here would keep native/ML resources alive.
+        var strategy = new Mock<IScoringStrategy>();
+        var disposable = strategy.As<IDisposable>();
+
+        var harness = EngineTestFactory.Create(strategy.Object);
+        harness.Engine.Dispose();
+
+        disposable.Verify(d => d.Dispose(), Times.Once);
     }
 
     // ================================================================================

@@ -594,4 +594,189 @@ public sealed class SimilarityComputerTests
         // Matched = 8+8 = 16. Score = 16/27.5 ≈ 0.582. Two heavy matches must not clamp to 1.0.
         Assert.InRange(result, 0.5, 0.7);
     }
+
+    // === Per-item fallback debug logging ===
+
+    [Fact]
+    public void BuildCandidatePeopleLookup_PerItemGetPeopleThrows_LogsSkipAtDebugLevel()
+    {
+        // With Debug logging enabled, a per-item GetPeople failure must be recorded via LogDebug
+        // (so an admin running at Debug can see which candidate was skipped) while still gracefully
+        // omitting that candidate. Force the fallback path by throwing a non-cancellation exception
+        // from the batch API, then throw again per-item to hit the Debug branch.
+        var library = new Mock<ILibraryManager>();
+        var pluginLog = new Mock<IPluginLogService>();
+        var logger = new Mock<ILogger>();
+        logger.Setup(l => l.IsEnabled(LogLevel.Debug)).Returns(true);
+        var computer = new SimilarityComputer(library.Object, pluginLog.Object, logger.Object);
+
+        var candidate = NewCandidate("DebugSkip");
+        library
+            .Setup(l => l.GetPeopleNamesByItems(It.IsAny<IReadOnlyList<Guid>>(), It.IsAny<IReadOnlyList<string>>()))
+            .Throws(new InvalidOperationException("batch unavailable"));
+        library.Setup(l => l.GetPeople(candidate)).Throws(new InvalidOperationException("metadata corrupt"));
+
+        var result = computer.BuildCandidatePeopleLookup([candidate]);
+
+        Assert.False(result.ContainsKey(candidate.Id));
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    // === Genre similarity: degenerate / guarded inputs ===
+
+    [Fact]
+    public void ComputeGenreSimilarity_AllWhitespaceCandidateGenres_ReturnsZero()
+    {
+        // A candidate whose only genre strings are blank carries no genre signal: after
+        // whitespace filtering the unique-genre set is empty and the score must be exactly 0.
+        var candidateGenres = new List<string> { " ", "", "\t" };
+        var preferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Action", 3.0 }
+        };
+
+        var result = SimilarityComputer.ComputeGenreSimilarity(candidateGenres, preferences, 9.0);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Theory]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NaN)]
+    public void ComputeGenreSimilarity_NonFiniteUserNorm_ReturnsZero(double userNormSq)
+    {
+        // A corrupt/degenerate precomputed user norm (Inf or NaN) must short-circuit to 0
+        // rather than propagate a non-finite value into the ranking, even when a real genre matches.
+        var candidateGenres = new List<string> { "Action" };
+        var preferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Action", 3.0 }
+        };
+
+        var result = SimilarityComputer.ComputeGenreSimilarity(candidateGenres, preferences, userNormSq);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputeGenreSimilarity_ZeroUserNorm_ReturnsZero()
+    {
+        // A zero-magnitude user vector has no cosine direction: even with a positive dot product
+        // the score must short-circuit to 0 instead of dividing by zero.
+        var candidateGenres = new List<string> { "Action" };
+        var preferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Action", 3.0 }
+        };
+
+        var result = SimilarityComputer.ComputeGenreSimilarity(candidateGenres, preferences, 0.0);
+
+        Assert.Equal(0.0, result);
+    }
+
+    // === Average preferred weight ===
+
+    [Fact]
+    public void ComputeAveragePreferredWeight_AllNonPositiveWeights_ReturnsZero()
+    {
+        // Every weight is zero or negative, so there are no positive entries to average.
+        // Without a positive preference mass there is no meaningful denominator anchor.
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "A", 0.0 },
+            { "B", -2.0 }
+        };
+
+        var result = SimilarityComputer.ComputeAveragePreferredWeight(weights);
+
+        Assert.Equal(0.0, result);
+    }
+
+    // === Tag similarity (Jaccard) ===
+
+    [Fact]
+    public void ComputeTagSimilarity_OverlappingTags_ReturnsJaccard()
+    {
+        // Jaccard = |A ∩ B| / |A ∪ B|. Two of the candidate's three tags match the preferred set
+        // (case-insensitively), so the score is 2/3.
+        var candidate = NewCandidate("Tagged");
+        candidate.Tags = new[] { "Space", "Robots", "Drama" };
+        var preferredTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "space", "robots" };
+
+        var result = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags);
+
+        Assert.Equal(2.0 / 3.0, result, 10);
+    }
+
+    [Fact]
+    public void ComputeTagSimilarity_DisjointTags_ReturnsZero()
+    {
+        // No overlap means an empty intersection, so Jaccard collapses to 0.
+        var candidate = NewCandidate("Disjoint");
+        candidate.Tags = new[] { "Comedy", "Musical" };
+        var preferredTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Horror", "Thriller" };
+
+        var result = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputeTagSimilarity_CaseVariantTags_MatchOrdinalIgnoreCase()
+    {
+        // Tag matching is OrdinalIgnoreCase: a fully case-mismatched but otherwise identical tag set
+        // yields perfect overlap (Jaccard = 1).
+        var candidate = NewCandidate("CaseTags");
+        candidate.Tags = new[] { "SPACE", "robots" };
+        var preferredTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "space", "ROBOTS" };
+
+        var result = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags);
+
+        Assert.Equal(1.0, result, 10);
+    }
+
+    // === Billed-people extraction: duplicate-name weight resolution ===
+
+    [Fact]
+    public void ExtractBilledPeople_DuplicateNameHigherWeightWins_KeepsMaxWeight()
+    {
+        // The same actor appears twice: first low-billed (high SortOrder), then top-billed
+        // (SortOrder 0 → weight 1.0). Duplicates must collapse to a single name carrying the
+        // MAX billing weight, not last-write-wins.
+        var people = new List<PersonInfo>
+        {
+            new() { Name = "Sigourney Weaver", Type = PersonKind.Actor, SortOrder = 9 },
+            new() { Name = "Sigourney Weaver", Type = PersonKind.Actor, SortOrder = 0 }
+        };
+
+        var (names, weights) = SimilarityComputer.ExtractBilledPeople(people);
+
+        Assert.Single(names);
+        Assert.Equal("Sigourney Weaver", names[0]);
+        Assert.Equal(EngineConstants.ComputeBillingWeight(0), weights[0]);
+    }
+
+    [Fact]
+    public void ExtractBilledPeople_DuplicateNameLowerWeightLater_DoesNotOverwriteMax()
+    {
+        // When the later occurrence is LOWER billed than the first, the earlier (higher) weight
+        // must be retained - proving the code keeps the max rather than overwriting with the last.
+        var people = new List<PersonInfo>
+        {
+            new() { Name = "Ripley", Type = PersonKind.Actor, SortOrder = 0 },
+            new() { Name = "Ripley", Type = PersonKind.Actor, SortOrder = 9 }
+        };
+
+        var (names, weights) = SimilarityComputer.ExtractBilledPeople(people);
+
+        Assert.Single(names);
+        Assert.Equal(EngineConstants.ComputeBillingWeight(0), weights[0]);
+    }
 }

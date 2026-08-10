@@ -186,6 +186,81 @@ public class BackupControllerTests
         }
     }
 
+    [Fact]
+    public void ExportBackup_WhenSerializedPayloadExceedsLimit_ReturnsBadRequestAndLogsPayloadSize()
+    {
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            // Two source files each comfortably under the 10 MB cap so the AnySourceFileOversized
+            // pre-check stays false, but their combined re-serialized backup crosses the cap. This
+            // is the post-serialization gate (case > MaxBackupSizeBytes), distinct from the single
+            // oversized-source-file pre-check exercised elsewhere.
+            const int perFileBytes = 6 * 1024 * 1024;
+            WriteBaselineJsonAtLeast(
+                Path.Join(tempDir, "jellyfin-helper-growth-baseline.json"),
+                perFileBytes);
+            WriteTimelineJsonAtLeast(
+                Path.Join(tempDir, "jellyfin-helper-growth-timeline.json"),
+                perFileBytes);
+
+            var controller = CreateController(tempDir);
+
+            var result = controller.ExportBackup();
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            var payloadJson = JsonSerializer.Serialize(badRequest.Value);
+            Assert.Contains("too large to export", payloadJson, StringComparison.Ordinal);
+            // The formatted MB size is part of the message on this branch (unlike the pre-check).
+            Assert.Contains("MB", payloadJson, StringComparison.Ordinal);
+
+            var logs = _log.GetEntries(source: "API", limit: 20);
+            Assert.Contains(logs,
+                entry => entry.Level == "WARN" &&
+                         entry.Message.Contains("Backup export rejected: payload size", StringComparison.Ordinal));
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task ImportBackup_WhenActualBodyIsLargeButWithinLimit_LogsLargeBodyWarning()
+    {
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            // A real body whose byte length is >= the warning threshold but < the hard cap, so the
+            // jsonLength-based "Large backup body detected" warning fires. Content-Length matches the
+            // body length so the earlier Content-Length warning path is not what we are measuring.
+            // The padding is insignificant JSON whitespace between tokens: it inflates the byte count
+            // the controller measures without tripping any per-field length validator, so the backup
+            // still deserializes and validates, letting control reach the success path.
+            var whitespace = new string(' ', (int)BackupService.LargeBackupWarningThresholdBytes + (64 * 1024));
+            var backupJson = "{" + whitespace + "\"backupVersion\":1,\"useTrash\":false}";
+
+            var controller = CreateControllerWithJsonBody(tempDir, backupJson);
+
+            var result = await controller.ImportBackupAsync();
+
+            Assert.IsType<OkObjectResult>(result);
+
+            var logs = _log.GetEntries(source: "API", limit: 20);
+            Assert.Contains(logs,
+                entry => entry.Level == "WARN" &&
+                         entry.Message.Contains("Large backup body detected", StringComparison.Ordinal));
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private BackupController CreateController(string dataPath)
         => ControllerTestFactory.CreateBackupController(dataPath: dataPath, pluginLog: _log);
 
@@ -228,6 +303,38 @@ public class BackupControllerTests
         }
 
         sb.Append("}}");
+        File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
+    }
+
+    private static void WriteTimelineJsonAtLeast(string filePath, int targetBytes)
+    {
+        var sb = new StringBuilder();
+        sb.Append("{\"granularity\":\"monthly\",\"dataPoints\":[");
+
+        var first = true;
+        var index = 0;
+
+        while (sb.Length < targetBytes)
+        {
+            if (!first)
+            {
+                sb.Append(',');
+            }
+
+            first = false;
+            // Distinct dates keep the points from collapsing on deserialize; the extra digits
+            // in cumulativeSize pad each point so we reach the target byte count in fewer entries.
+            sb.Append("{\"date\":\"2024-")
+                .Append(((index % 12) + 1).ToString("D2", CultureInfo.InvariantCulture))
+                .Append("-01T00:00:00Z\",\"cumulativeSize\":")
+                .Append((1_000_000_000L + index).ToString(CultureInfo.InvariantCulture))
+                .Append(",\"cumulativeFileCount\":")
+                .Append(index.ToString(CultureInfo.InvariantCulture))
+                .Append('}');
+            index++;
+        }
+
+        sb.Append("]}");
         File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
     }
 

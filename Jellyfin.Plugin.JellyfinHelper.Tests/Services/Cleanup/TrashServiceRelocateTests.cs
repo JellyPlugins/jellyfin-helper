@@ -198,4 +198,69 @@ public class TrashServiceRelocateTests : IDisposable
         Assert.True(Directory.Exists(newTrash));
         Assert.True(File.Exists(Path.Combine(newTrash, "20260101-120000_file.txt")));
     }
+
+    [Fact]
+    public void RelocateTrashContents_MalformedPath_ReturnsZeroWithoutThrowing()
+    {
+        // oldTrash exists so the Directory.Exists guard passes and control reaches the
+        // normalize block; an embedded null char makes Path.GetFullPath(newTrash) throw
+        // ArgumentException, which must be caught and reported as a no-op relocation.
+        var oldTrash = Path.Combine(_testRoot, "old-trash");
+        Directory.CreateDirectory(oldTrash);
+        File.WriteAllText(Path.Combine(oldTrash, "20260101-120000_file.txt"), "data");
+
+        var malformedNew = Path.Combine(_testRoot, "bad\0path");
+
+        var (moved, failed) = _sut.RelocateTrashContents(oldTrash, malformedNew, _logger);
+
+        Assert.Equal(0, moved);
+        Assert.Equal(0, failed);
+        // Old contents must remain intact after the failed normalize.
+        Assert.True(File.Exists(Path.Combine(oldTrash, "20260101-120000_file.txt")));
+    }
+
+    [Fact]
+    public void RelocateTrashContents_NewPathBlockedByExistingFile_ReturnsZero()
+    {
+        // A file occupying the exact newTrashPath location makes Directory.CreateDirectory
+        // throw IOException; the method must abort cleanly without moving anything.
+        var oldTrash = Path.Combine(_testRoot, "old-trash");
+        Directory.CreateDirectory(oldTrash);
+        File.WriteAllText(Path.Combine(oldTrash, "20260101-120000_file.txt"), "data");
+
+        var newTrash = Path.Combine(_testRoot, "blocked-trash");
+        File.WriteAllText(newTrash, "i-am-a-file-not-a-dir");
+
+        var (moved, failed) = _sut.RelocateTrashContents(oldTrash, newTrash, _logger);
+
+        Assert.Equal(0, moved);
+        Assert.Equal(0, failed);
+        // Old entry stays put and the blocking file is untouched.
+        Assert.True(File.Exists(Path.Combine(oldTrash, "20260101-120000_file.txt")));
+        Assert.True(File.Exists(newTrash));
+        Assert.False(Directory.Exists(newTrash));
+    }
+
+    [Fact]
+    public void RelocateTrashContents_AllEntriesMoved_RemovesEmptiedOldTrash()
+    {
+        // After every entry moves out, the old trash directory is left empty and must be
+        // removed, while the success path still reports the full moved count.
+        var oldTrash = Path.Combine(_testRoot, "old-trash");
+        var newTrash = Path.Combine(_testRoot, "new-trash");
+        Directory.CreateDirectory(oldTrash);
+
+        var dir = Path.Combine(oldTrash, "20260101-120000_MyMovie");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "movie.mkv"), "content");
+        File.WriteAllText(Path.Combine(oldTrash, "20260102-100000_subtitle.srt"), "sub");
+
+        var (moved, failed) = _sut.RelocateTrashContents(oldTrash, newTrash, _logger);
+
+        Assert.Equal(2, moved);
+        Assert.Equal(0, failed);
+        Assert.False(Directory.Exists(oldTrash), "Emptied old trash folder must be removed");
+        Assert.True(Directory.Exists(Path.Combine(newTrash, "20260101-120000_MyMovie")));
+        Assert.True(File.Exists(Path.Combine(newTrash, "20260102-100000_subtitle.srt")));
+    }
 }

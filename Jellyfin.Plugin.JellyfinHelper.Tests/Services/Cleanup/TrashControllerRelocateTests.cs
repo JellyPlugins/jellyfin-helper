@@ -405,4 +405,120 @@ public class TrashControllerRelocateTests : IDisposable
             ts => ts.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
             Times.Never);
     }
+
+    [Fact]
+    public void RelocateTrash_NullBody_ReturnsBadRequest()
+    {
+        var trashServiceMock = new Mock<ITrashService>();
+        var controller = CreateController(new PluginConfiguration(), [], trashServiceMock);
+
+        var result = controller.RelocateTrash(null!);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        trashServiceMock.Verify(
+            ts => ts.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void RelocateTrash_TraversalSegmentInOldPath_ReturnsBadRequest()
+    {
+        // A real ".." segment must be rejected up front, before any resolution or move.
+        var trashServiceMock = new Mock<ITrashService>();
+        var controller = CreateController(new PluginConfiguration(), [_testRoot], trashServiceMock);
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = "../escape", NewTrashPath = ".new-trash" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        trashServiceMock.Verify(
+            ts => ts.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void RelocateTrash_MalformedAbsolutePath_ReturnsInvalidPathBadRequest()
+    {
+        // Fully-qualified but malformed (embedded NUL) so Path.GetFullPath throws and is
+        // caught, yielding the "paths are invalid" 400 rather than propagating.
+        var trashServiceMock = new Mock<ITrashService>();
+        var controller = CreateController(new PluginConfiguration(), [_testRoot], trashServiceMock);
+        var malformed = Path.Combine(_testRoot, "bad\0name");
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = malformed, NewTrashPath = ".new-trash" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        trashServiceMock.Verify(
+            ts => ts.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void RelocateTrash_AbsoluteUnsafeOldRelativeNew_ReturnsBadRequest()
+    {
+        // Old absolute equals the library root (unsafe): the abs-old/rel-new branch must
+        // refuse before touching disk, so trash is never drained from the library root.
+        var libraryRoot = Path.Combine(_testRoot, "movies");
+        Directory.CreateDirectory(libraryRoot);
+
+        var trashServiceMock = new Mock<ITrashService>();
+        var controller = CreateController(new PluginConfiguration(), [libraryRoot], trashServiceMock);
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = libraryRoot, NewTrashPath = ".new-trash" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        trashServiceMock.Verify(
+            ts => ts.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void RelocateTrash_RelativeOldAbsoluteUnsafeNew_ReturnsBadRequest()
+    {
+        // Old relative, new absolute equal to the library root (unsafe): the rel-old/abs-new
+        // branch must refuse so trash cannot merge into an unsafe absolute target.
+        var libraryRoot = Path.Combine(_testRoot, "movies");
+        Directory.CreateDirectory(libraryRoot);
+
+        var trashServiceMock = new Mock<ITrashService>();
+        var controller = CreateController(new PluginConfiguration(), [libraryRoot], trashServiceMock);
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = ".old-trash", NewTrashPath = libraryRoot });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        trashServiceMock.Verify(
+            ts => ts.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void GetTrashFoldersForPath_NullBody_ReturnsBadRequest()
+    {
+        var controller = CreateController(new PluginConfiguration(), []);
+
+        var result = controller.GetTrashFoldersForPath(null!);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void GetTrashFoldersForPath_TraversalSegment_ReturnsBadRequest()
+    {
+        var controller = CreateController(new PluginConfiguration(), [_testRoot]);
+
+        var result = controller.GetTrashFoldersForPath(new TrashPathQueryRequest { TrashFolderPath = "a/../b" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void GetTrashFoldersForPath_OverLengthPath_ReturnsBadRequest()
+    {
+        // Length cap (>512) is enforced independently of traversal segments.
+        var controller = CreateController(new PluginConfiguration(), [_testRoot]);
+        var longPath = new string('a', 513);
+
+        var result = controller.GetTrashFoldersForPath(new TrashPathQueryRequest { TrashFolderPath = longPath });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
 }

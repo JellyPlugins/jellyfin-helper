@@ -85,4 +85,54 @@ public class GrowthTimelineControllerTests
         var tooManyRequests = Assert.IsType<ObjectResult>(secondResult.Result);
         Assert.Equal(StatusCodes.Status429TooManyRequests, tooManyRequests.StatusCode);
     }
+
+    [Fact]
+    public async Task GetGrowthTimeline_ForceRefresh_WithinWindow_SetsRetryAfterHeader()
+    {
+        ResetRateLimitState();
+
+        // Response.Headers is written on the throttled path, so the controller needs an HttpContext.
+        _controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        _serviceMock
+            .Setup(s => s.ComputeTimelineAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GrowthTimelineResult { Granularity = "Weekly" });
+
+        // Prime _lastRefreshTime, then hit the rate-limit branch immediately.
+        await _controller.GetGrowthTimelineAsync(forceRefresh: true, CancellationToken.None);
+        var throttled = await _controller.GetGrowthTimelineAsync(forceRefresh: true, CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(throttled.Result);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, objectResult.StatusCode);
+
+        // Retry-After must communicate the remaining window: a positive integer no larger than 30s.
+        Assert.True(_controller.Response.Headers.ContainsKey("Retry-After"));
+        var retryAfter = int.Parse(_controller.Response.Headers["Retry-After"]!, System.Globalization.CultureInfo.InvariantCulture);
+        Assert.InRange(retryAfter, 1, 30);
+    }
+
+    [Fact]
+    public async Task GetGrowthTimeline_ForceRefresh_ComputeThrows_RethrowsAndRestoresRefreshTime()
+    {
+        ResetRateLimitState();
+
+        _serviceMock
+            .Setup(s => s.ComputeTimelineAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("compute failed"));
+
+        // The failing compute must surface to the caller.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _controller.GetGrowthTimelineAsync(forceRefresh: true, CancellationToken.None));
+
+        // A failed attempt must not consume the rate-limit window: the catch block rolls _lastRefreshTime
+        // back to its previous value, so an immediate retry succeeds instead of returning 429.
+        var success = new GrowthTimelineResult { Granularity = "Monthly" };
+        _serviceMock
+            .Setup(s => s.ComputeTimelineAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(success);
+
+        var result = await _controller.GetGrowthTimelineAsync(forceRefresh: true, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Same(success, okResult.Value);
+    }
 }

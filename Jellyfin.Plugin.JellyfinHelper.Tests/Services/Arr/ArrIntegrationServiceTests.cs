@@ -947,4 +947,67 @@ public class ArrIntegrationServiceTests
         Assert.False(success);
         Assert.Contains("Check", message, StringComparison.OrdinalIgnoreCase);
     }
+
+    // === User-initiated cancellation must propagate, not collapse into the null timeout branch ===
+    // TaskCanceledException derives from OperationCanceledException, so with an already-canceled
+    // token the `when (cancellationToken.IsCancellationRequested)` filter rethrows instead of
+    // returning null (which is reserved for HttpClient.Timeout).
+
+    [Fact]
+    public async Task GetRadarrMovies_UserCancellation_RethrowsOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mockHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new TaskCanceledException("Request was canceled"));
+        mockHandler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+
+        var service = CreateService(mockHandler.Object);
+
+        await Assert.ThrowsAsync<TaskCanceledException>(() =>
+            service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey", cts.Token));
+    }
+
+    [Fact]
+    public async Task GetSonarrSeries_UserCancellation_RethrowsOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mockHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new TaskCanceledException("Request was canceled"));
+        mockHandler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+
+        var service = CreateService(mockHandler.Object);
+
+        await Assert.ThrowsAsync<TaskCanceledException>(() =>
+            service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey", cts.Token));
+    }
+
+    // A folder present only in the Jellyfin set (no matching Sonarr series) must land under
+    // InJellyfinOnly - the Sonarr counterpart to CompareRadarr_MovieOnlyInJellyfin.
+    [Fact]
+    public void CompareSonarr_SeriesOnlyInJellyfin()
+    {
+        var series = Array.Empty<ArrSeries>();
+        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Old Show (2000)" };
+
+        var result = ArrIntegrationService.CompareSonarrWithJellyfin(series, jellyfinFolders);
+
+        Assert.Empty(result.InBoth);
+        Assert.Empty(result.InArrOnly);
+        Assert.Single(result.InJellyfinOnly);
+        Assert.Contains("Old Show (2000)", result.InJellyfinOnly);
+    }
 }

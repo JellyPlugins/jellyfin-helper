@@ -518,6 +518,29 @@ public class HelperCleanupTaskTests
         VerifyLogNeverContains("Running trash purge", LogLevel.Information);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_SeerrActivated_NonPositiveCleanupAge_SkipsAndDoesNotCallSeerr()
+    {
+        // Seerr is configured, but a non-positive cleanup age is invalid: the task must reject it
+        // and never issue a deletion call that could purge every request under a bad threshold.
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            SeerrCleanupTaskMode = TaskMode.Activate,
+            SeerrUrl = "http://localhost:5055",
+            SeerrApiKey = "test-key",
+            SeerrCleanupAgeDays = 0
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Invalid Seerr cleanup age '0'", LogLevel.Warning);
+        VerifySeerrNeverCalled();
+    }
+
     private void VerifySeerrCalledWith(string url, string apiKey, int ageDays, bool dryRun)
     {
         _seerrServiceMock.Verify(

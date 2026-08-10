@@ -315,4 +315,38 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
             JsonSerializer.Serialize(bad.Value),
             StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task CompareSonarrAsync_ValidIndex_UsesOnlyThatInstance()
+    {
+        // Twin of CompareRadarrAsync_ValidIndex_UsesOnlyThatInstance: with two instances
+        // configured, a valid index must narrow the working set to that single instance
+        // (line 207) rather than merging all. A match therefore proves the indexed
+        // instance was the one queried.
+        var libPath = Path.Join(_tempPath, "TVShows");
+        Directory.CreateDirectory(libPath);
+        var showDir = Path.Join(libPath, "ShowA");
+        Directory.CreateDirectory(showDir);
+        ConfigWithSonarr(("http://s1", "k1", "S1"), ("http://s2", "k2", "S2"));
+        _configHelperMock.Setup(c => c.GetTrashPath(It.IsAny<string>()))
+            .Returns(Path.Join(libPath, ".jellyfin-trash"));
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo
+            {
+                Name = "TVShows", Locations = [libPath], CollectionType = CollectionTypeOptions.tvshows
+            }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(It.IsAny<string>(), It.IsAny<bool>()))
+            .Returns([new FileSystemMetadata { Name = "ShowA", FullName = showDir, IsDirectory = true }]);
+
+        var handler = TestMockFactory.CreateHttpMessageHandler(
+            HttpStatusCode.OK,
+            "[{\"title\":\"ShowA\",\"path\":\"/tv/ShowA\",\"statistics\":{\"episodeFileCount\":10,\"totalEpisodeCount\":10}}]");
+        using var httpClient = new HttpClient(handler.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        var result = await _controller.CompareSonarrAsync(1, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsType<ArrComparisonResult>(ok.Value);
+        Assert.Single(data.InBoth);
+    }
 }

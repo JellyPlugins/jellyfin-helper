@@ -82,4 +82,43 @@ public class LibraryInsightsControllerTests
         Assert.Equal(2, data.RecentTotalCount);
         _serviceMock.Verify(s => s.ComputeInsightsAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
+
+    [Fact]
+    public async Task GetInsightsAsync_ReturnsCachedResult_WhenPopulatedByConcurrentCallDuringLockWait()
+    {
+        // Two callers miss the initial cache check and race for CacheFillLock. The winner must
+        // compute+cache once while the loser, blocked in WaitAsync, then hits the double-check
+        // (line 66) and returns the already-cached value instead of scanning the filesystem again.
+        var started = new TaskCompletionSource();
+        var gate = new TaskCompletionSource();
+        var callCount = 0;
+        LibraryInsightsResult? computed = null;
+        _serviceMock
+            .Setup(s => s.ComputeInsightsAsync(It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                computed = new LibraryInsightsResult { RecentTotalCount = ++callCount };
+                started.TrySetResult();
+                await gate.Task;
+                return computed;
+            });
+
+        var first = Task.Run(() => _controller.GetInsightsAsync(CancellationToken.None));
+        // Wait until the winner is inside ComputeInsightsAsync (holding the lock), then give the
+        // loser time to park in WaitAsync before releasing the gate.
+        await started.Task;
+        var second = Task.Run(() => _controller.GetInsightsAsync(CancellationToken.None));
+        await Task.Delay(100);
+        gate.SetResult();
+
+        var firstResult = await first;
+        var secondResult = await second;
+
+        var firstOk = Assert.IsType<OkObjectResult>(firstResult.Result);
+        var secondOk = Assert.IsType<OkObjectResult>(secondResult.Result);
+        // Both return the single computed instance; the loser reused the cached value.
+        Assert.Same(computed, firstOk.Value);
+        Assert.Same(computed, secondOk.Value);
+        _serviceMock.Verify(s => s.ComputeInsightsAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

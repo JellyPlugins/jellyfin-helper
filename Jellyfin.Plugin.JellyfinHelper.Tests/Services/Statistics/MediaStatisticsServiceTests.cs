@@ -1811,6 +1811,84 @@ public class MediaStatisticsServiceTests
         // Movie library has MKV, music library has no container formats (only video files tracked)
         Assert.Contains("MKV", result.TotalContainerFormats.Keys);
     }
+
+    // ===== Trickplay Sizing Resilience Tests =====
+
+    [Fact]
+    public void CalculateStatistics_TrickplayGetFilesThrowsIoException_TreatsSizeAsZeroAndContinues()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var trickplayPath = TestPath("media", "movies", "Film.trickplay");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+
+        var trickplayDir = new FileSystemMetadata
+        {
+            FullName = trickplayPath,
+            Name = "Film.trickplay",
+            IsDirectory = true
+        };
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+
+        // A transient IO failure enumerating the trickplay folder must not abort the scan;
+        // the folder is still counted, but its size contribution collapses to zero.
+        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath)).Throws(new IOException());
+
+        var result = _service.CalculateStatistics();
+
+        Assert.Equal(1, result.Libraries[0].TrickplayFolderCount);
+        Assert.Equal(0, result.Libraries[0].TrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_TrickplayGetDirectoriesThrowsUnauthorizedAccess_TreatsPartialSizeAndContinues()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var trickplayPath = TestPath("media", "movies", "Film.trickplay");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+
+        var trickplayDir = new FileSystemMetadata
+        {
+            FullName = trickplayPath,
+            Name = "Film.trickplay",
+            IsDirectory = true
+        };
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+
+        // Files enumerate fine (sized), but descending into subdirectories is denied.
+        // The running total accumulated before the throw must be preserved, not discarded.
+        var trickplayFile = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "movies", "Film.trickplay", "001.jpg"),
+            Name = "001.jpg",
+            Length = 25_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath)).Returns([trickplayFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath)).Throws(new UnauthorizedAccessException());
+
+        var result = _service.CalculateStatistics();
+
+        Assert.Equal(1, result.Libraries[0].TrickplayFolderCount);
+        Assert.Equal(25_000, result.Libraries[0].TrickplaySize);
+    }
 }
 
 // ===== Embedded Subtitle Detection Tests =====
@@ -3064,6 +3142,47 @@ public class MetadataExtractionTests
         // ClassifyAudioCodec returns "Unknown" for null codec → extension fallback kicks in
         Assert.Equal(1, stats.MusicAudioCodecs["MP3"]);
         Assert.Equal(5_000_000, stats.MusicAudioCodecSizes["MP3"]);
+    }
+
+    [Fact]
+    public void BuildItemLookup_PopulatesMapFromItems_AndSkipsItemsWithEmptyPath()
+    {
+        var pathA = TestPath("media", "movies", "A.mkv");
+        var pathB = TestPath("media", "music", "B.flac");
+
+        var itemA = new Mock<BaseItem>();
+        itemA.SetupGet(i => i.Path).Returns(pathA);
+
+        var itemB = new Mock<BaseItem>();
+        itemB.SetupGet(i => i.Path).Returns(pathB);
+
+        // A second item sharing pathA's path: TryAdd keeps the first, so the duplicate is dropped.
+        var itemADuplicate = new Mock<BaseItem>();
+        itemADuplicate.SetupGet(i => i.Path).Returns(pathA);
+
+        // An item with no path must never enter the lookup (guards the FindByPath key space).
+        var itemEmpty = new Mock<BaseItem>();
+        itemEmpty.SetupGet(i => i.Path).Returns((string)null!);
+
+        _libraryManagerMock.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns([itemA.Object, itemB.Object, itemADuplicate.Object, itemEmpty.Object]);
+
+        var baseService = new MediaStatisticsService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<MediaStatisticsService>().Object,
+            TestMockFactory.CreateCleanupConfigHelper().Object);
+
+        var lookup = baseService.BuildItemLookup();
+
+        Assert.Equal(2, lookup.Count);
+        Assert.True(lookup.ContainsKey(pathA));
+        Assert.True(lookup.ContainsKey(pathB));
+        // Case-insensitive keying: an upper-cased variant resolves to the same entry.
+        Assert.True(lookup.ContainsKey(pathA.ToUpperInvariant()));
+        // First writer wins on a duplicate path.
+        Assert.Same(itemA.Object, lookup[pathA]);
     }
 
     /// <summary>

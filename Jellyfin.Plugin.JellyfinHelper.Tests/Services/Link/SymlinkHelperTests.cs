@@ -467,4 +467,43 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.Contains(dest, ex.Message, StringComparison.Ordinal);
         Assert.Contains("data loss", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void ReplaceSymlink_DestVanished_MovesRegularFileSourceIntoPlace()
+    {
+        // The scan-time dest was removed before the repair ran. File.GetAttributes throws
+        // FileNotFoundException, the catch treats it as "nothing to lose", and the source is
+        // moved into place. Uses plain files so it needs no symlink privileges and covers the
+        // catch/early-move branch the symlink-gated DestDoesNotExist test skips on Windows.
+        var source = Path.Join(_tempDir, "repair-source.txt");
+        File.WriteAllText(source, "moved payload");
+        var dest = Path.Join(_tempDir, "gone.txt"); // never created → vanished
+
+        _sut.ReplaceSymlink(source, dest);
+
+        Assert.True(File.Exists(dest));
+        Assert.Equal("moved payload", File.ReadAllText(dest));
+        Assert.False(File.Exists(source), "the source must be moved, not copied");
+    }
+
+    [Fact]
+    public void ReplaceSymlink_DestIsRealFile_ThrowsBeforeAnyMove_OnAllPlatforms()
+    {
+        // DATA-LOSS GUARD, privilege-free variant: both source and dest are plain files, so the
+        // guard throws before File.Move without needing any symlink. The symlink-based
+        // DestIsRealFile test is skipped on the Windows coverage host, leaving this branch
+        // uncovered there. The throw must happen before the move so both files stay intact.
+        var source = Path.Join(_tempDir, "repair-source.txt");
+        File.WriteAllText(source, "repair payload");
+        var dest = Path.Join(_tempDir, "real-media.txt");
+        File.WriteAllText(dest, "REAL MEDIA BYTES");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => _sut.ReplaceSymlink(source, dest));
+
+        Assert.Contains(dest, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("no longer a symbolic link", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // Proof the throw preceded the move: both files still exist with original bytes.
+        Assert.Equal("REAL MEDIA BYTES", File.ReadAllText(dest));
+        Assert.Equal("repair payload", File.ReadAllText(source));
+    }
 }

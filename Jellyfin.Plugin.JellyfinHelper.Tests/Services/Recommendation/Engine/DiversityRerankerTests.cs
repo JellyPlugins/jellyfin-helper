@@ -435,6 +435,140 @@ public class DiversityRerankerTests
         Assert.Equal("winnerRelated", result[0].RelatedItem);
     }
 
+    // === MMR multi-dimensional similarity blend (ComputeItemSimilarity) ===
+
+    [Fact]
+    public void ApplyDiversityReranking_GenreDuplicatesAreDiversifiedAgainstEachOther()
+    {
+        // Two genre clusters, cluster A ({Action,SciFi}) scoring highest. Pure relevance would
+        // stack the two top A items back-to-back; MMR must instead demote the near-duplicate
+        // A item so a disjoint-genre B item ({Comedy}) surfaces second. Genres only (no studio/
+        // year) so ComputeItemSimilarity fires the genre branch and renormalises by 0.5 -> a
+        // same-genre pair scores similarity 1.0, the strongest possible diversity penalty.
+        var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+        var score = 1.0;
+        var clusterAGenres = new[] { "Action", "SciFi" };
+        var clusterBGenres = new[] { "Comedy" };
+
+        // Cluster A occupies the top 20 scores; cluster B the next 20. Both clusters have
+        // enough members to fill the 18 MMR slots, so the second pick is a real choice.
+        for (var i = 0; i < 20; i++)
+        {
+            candidates.Add((BuildItem(clusterAGenres, [], null, score), score, string.Empty, string.Empty, null));
+            score -= 0.01;
+        }
+
+        for (var i = 0; i < 20; i++)
+        {
+            candidates.Add((BuildItem(clusterBGenres, [], null, score), score, string.Empty, string.Empty, null));
+            score -= 0.01;
+        }
+
+        var result = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
+
+        var firstGenres = new HashSet<string>(result[0].Item.Genres, StringComparer.OrdinalIgnoreCase);
+        var secondGenres = new HashSet<string>(result[1].Item.Genres, StringComparer.OrdinalIgnoreCase);
+
+        // Top slot is always the single highest-relevance item (a cluster-A item).
+        Assert.True(firstGenres.SetEquals(clusterAGenres));
+        // MMR must not place the 2nd cluster-A near-duplicate second: 0.7*rel_B beats
+        // 0.7*rel_A2 - 0.3*1.0, so the second pick is a genre-disjoint cluster-B item.
+        Assert.Empty(secondGenres.Intersect(firstGenres));
+    }
+
+    [Fact]
+    public void ApplyDiversityReranking_StudioIsAnIndependentDiversityAxis()
+    {
+        // Identical genre everywhere ({Action}) so genre similarity is constant; the only thing
+        // MMR can vary is studio. Highest-relevance items are studio A. With genre+studio both
+        // present ComputeItemSimilarity renormalises by 0.8, so a same-studio pair scores 1.0
+        // and a cross-studio pair scores 0.625 - enough to pull studio B into the MMR head.
+        var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+        var score = 1.0;
+        var sharedGenre = new[] { "Action" };
+
+        for (var i = 0; i < 20; i++)
+        {
+            candidates.Add((BuildItem(sharedGenre, ["StudioA"], null, score), score, string.Empty, string.Empty, null));
+            score -= 0.01;
+        }
+
+        for (var i = 0; i < 20; i++)
+        {
+            candidates.Add((BuildItem(sharedGenre, ["StudioB"], null, score), score, string.Empty, string.Empty, null));
+            score -= 0.01;
+        }
+
+        var result = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
+
+        // Only assert on the MMR head (first mmrSlotCount picks) so exploration randomness cannot
+        // influence the result. mmrSlotCount = count - explorationSlots.
+        var explorationSlots = Math.Min(
+            EngineConstants.ExplorationSlotCount,
+            Math.Min(Math.Max(1, 20 / EngineConstants.ExplorationSlotDivisor), 19));
+        var mmrSlotCount = 20 - explorationSlots;
+
+        var distinctStudios = result
+            .Take(mmrSlotCount)
+            .SelectMany(r => r.Item.Studios)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        // A genre-only similarity would exhaust studio A first; studio diversification means both
+        // studio groups must be represented in the MMR head.
+        Assert.True(distinctStudios >= 2);
+    }
+
+    [Fact]
+    public void ApplyDiversityReranking_YearOnlyMetadataIsAWeakDiversitySignal()
+    {
+        // No genres, no studios, only ProductionYear. Two tight year clusters (1995 vs 2020) with
+        // the highest relevance in 1995. Year alone is the weak dimension: ComputeItemSimilarity
+        // skips renormalisation and returns the raw 0.2*yearSim, capped at 0.2 for same-year pairs.
+        // 0.7*relevance ordering therefore dominates and two high-relevance same-year items are NOT
+        // treated as duplicates - unlike the aggressive eviction the genre branch produces.
+        var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+        var score = 1.0;
+
+        for (var i = 0; i < 20; i++)
+        {
+            candidates.Add((BuildItem([], [], 1995, score), score, string.Empty, string.Empty, null));
+            score -= 0.01;
+        }
+
+        for (var i = 0; i < 20; i++)
+        {
+            candidates.Add((BuildItem([], [], 2020, score), score, string.Empty, string.Empty, null));
+            score -= 0.01;
+        }
+
+        var result = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
+
+        // The two highest-relevance items are both 1995; the weak year-only penalty (0.06 for a
+        // same-year pair) cannot overcome the 0.7*0.01 relevance gap to a 2020 item, so year did
+        // not reorder them. If year were (wrongly) renormalised to 1.0 it would evict the second
+        // 1995 item and a 2020 item would take slot two.
+        Assert.Equal(1995, result[0].Item.ProductionYear);
+        Assert.Equal(1995, result[1].Item.ProductionYear);
+    }
+
+    /// <summary>
+    ///     Builds a single <see cref="Movie"/> candidate carrying the given genre/studio/year
+    ///     metadata. The <paramref name="idSeed"/> only needs to be unique per item; it is unused
+    ///     beyond guaranteeing a fresh <see cref="Guid"/>, so callers pass the score for readability.
+    /// </summary>
+    private static Movie BuildItem(string[] genres, string[] studios, int? year, double idSeed)
+    {
+        _ = idSeed;
+        return new Movie
+        {
+            Id = Guid.NewGuid(),
+            Genres = genres,
+            Studios = studios,
+            ProductionYear = year
+        };
+    }
+
     /// <summary>
     ///     Builds a linearly decreasing candidate list of the requested length. Each item is a
     ///     <see cref="Movie"/> with a unique <see cref="Guid"/> and a distinct decreasing score,

@@ -736,4 +736,181 @@ public sealed class PluginTests : IDisposable
                 $"'{candidate}' must NOT match the exact File Transformation assembly name");
         }
     }
+
+    [Fact]
+    public void Logger_ExposesTheInjectedLoggerInstance()
+    {
+        // Internal helpers (InjectScript, cleanup, etc.) log through Plugin.Logger and must share
+        // the plugin's ILogger<Plugin> category. A getter that fabricated a new/null logger would
+        // silently split the logging category, so the property must hand back the SAME reference
+        // the constructor received.
+        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: _dataPath, configPath: _dataPath);
+        appPathsMock.Setup(p => p.WebPath).Returns(_webPath);
+        var xmlSerializerMock = new Mock<IXmlSerializer>();
+        var loggerMock = new Mock<ILogger<Plugin>>();
+        loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+
+        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
+
+        Assert.Same(loggerMock.Object, plugin.Logger);
+    }
+
+    [Fact]
+    public void UpdateConfiguration_PluginConfiguration_NormalizesAlphaRangeBeforePersisting()
+    {
+        // UpdateConfiguration is the override Jellyfin invokes when the operator saves the config
+        // page. A PluginConfiguration whose Min > Max must be normalized (swapped) before base
+        // persistence so downstream ensemble scoring never sees an inverted range. The property
+        // setters self-normalize, so force the invariant violation directly on the backing fields
+        // to prove UpdateConfiguration's own NormalizeAlphaRange call (line 122) does the work.
+        var config = new global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration();
+        var configType = typeof(global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration);
+        var minField = configType.GetField("_ensembleAlphaMin", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var maxField = configType.GetField("_ensembleAlphaMax", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(minField);
+        Assert.NotNull(maxField);
+        minField!.SetValue(config, 0.9); // Min above Max - the inverted state UpdateConfiguration must fix
+        maxField!.SetValue(config, 0.2);
+
+        var plugin = CreatePlugin();
+        var ex = Record.Exception(() => plugin.UpdateConfiguration(config));
+
+        Assert.Null(ex);
+        Assert.True(
+            config.EnsembleAlphaMin <= config.EnsembleAlphaMax,
+            "UpdateConfiguration must normalize the alpha range so Min <= Max before persisting");
+    }
+
+    [Fact]
+    public void CleanupWebPathTempFiles_LockedTempFile_SkipsItAndPreservesOthers()
+    {
+        // A hard-killed prior run can leave several orphaned index.html.<guid>.tmp files behind.
+        // If one is still locked (AV scanner / handle held), File.Delete throws IOException; the
+        // per-file catch must swallow it and keep sweeping, so the unlocked orphans are reclaimed
+        // and the real index.html is never touched.
+        // Construct the plugin first: its constructor already sweeps the web dir once, so the orphans
+        // we want to test against must be created afterwards.
+        var plugin = CreatePlugin();
+
+        var indexPath = Path.Combine(_webPath, "index.html");
+        File.WriteAllText(indexPath, "<html><body></body></html>");
+        var lockedOrphan = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        var freeOrphan = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        File.WriteAllText(lockedOrphan, "leftover");
+        File.WriteAllText(freeOrphan, "leftover");
+
+        // A FileShare.None handle only blocks File.Delete on Windows; POSIX unlink ignores the
+        // open handle, so on Linux the "locked" orphan would just be deleted. The skip-and-continue
+        // contract is therefore only observable on Windows - gate that branch and still assert the
+        // full sweep (both orphans gone, index preserved) on the platforms where nothing is locked.
+        if (OperatingSystem.IsWindows())
+        {
+            using var handle = new FileStream(lockedOrphan, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+            var ex = Record.Exception(plugin.CleanupWebPathTempFiles);
+
+            Assert.Null(ex);
+            Assert.True(File.Exists(lockedOrphan), "the locked temp file must survive - the per-file catch skips it");
+            Assert.False(File.Exists(freeOrphan), "the unlocked orphan must still be swept after the locked one is skipped");
+            Assert.True(File.Exists(indexPath), "the real index.html must be preserved");
+        }
+        else
+        {
+            var ex = Record.Exception(plugin.CleanupWebPathTempFiles);
+
+            Assert.Null(ex);
+            Assert.False(File.Exists(lockedOrphan), "orphaned index.html.*.tmp files must be swept");
+            Assert.False(File.Exists(freeOrphan), "orphaned index.html.*.tmp files must be swept");
+            Assert.True(File.Exists(indexPath), "the real index.html must be preserved");
+        }
+    }
+
+    [Fact]
+    public void OnUninstalling_LockedRecommendationPlaylistFolder_SkipsItWithoutThrowing()
+    {
+        // Uninstall purges every managed recommendation playlist folder. If one folder holds a
+        // locked file, Directory.Delete(recursive) throws IOException; the per-folder catch must
+        // swallow it and continue so the other managed folders are still removed and uninstall
+        // never surfaces an exception to Jellyfin.
+        var playlistsRoot = Path.Combine(_dataPath, "playlists");
+        Directory.CreateDirectory(playlistsRoot);
+        var lockedManaged = Path.Combine(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Bob");
+        var freeManaged = Path.Combine(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Carol");
+        Directory.CreateDirectory(lockedManaged);
+        Directory.CreateDirectory(freeManaged);
+        File.WriteAllText(Path.Combine(freeManaged, "playlist.xml"), "<x/>");
+        var lockedFile = Path.Combine(lockedManaged, "playlist.xml");
+        File.WriteAllText(lockedFile, "<x/>");
+
+        var plugin = CreatePlugin();
+
+        // A FileShare.None handle only makes Directory.Delete(recursive) throw on Windows. On
+        // POSIX (Linux CI, Docker) an open exclusive handle does NOT block unlink, so the folder
+        // is deleted regardless and the per-folder catch is never reached. Mirror the repo's
+        // sibling failure tests and assert the "skip the locked folder, keep going" contract only
+        // where the OS can actually produce the lock; on Linux assert the clean-sweep contract.
+        if (OperatingSystem.IsWindows())
+        {
+            using (new FileStream(lockedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var ex = Record.Exception(() => plugin.OnUninstalling());
+
+                Assert.Null(ex);
+                Assert.True(Directory.Exists(lockedManaged), "the locked managed folder must survive - the per-folder catch skips it");
+                Assert.False(Directory.Exists(freeManaged), "the unlocked managed folder must still be deleted after the locked one is skipped");
+            }
+        }
+        else
+        {
+            var ex = Record.Exception(() => plugin.OnUninstalling());
+
+            Assert.Null(ex);
+            Assert.False(Directory.Exists(lockedManaged), "every managed playlist folder must be purged on uninstall");
+            Assert.False(Directory.Exists(freeManaged), "every managed playlist folder must be purged on uninstall");
+        }
+    }
+
+    [Fact]
+    public void OnUninstalling_LockedDataFile_SkipsItAndDeletesOthers()
+    {
+        // Uninstall sweeps every jellyfin-helper-*.json data file. If one is undeletable, File.Delete
+        // throws (IOException/UnauthorizedAccessException); the per-file catch must swallow it and keep
+        // going so the other data files are still removed and uninstall never surfaces an exception.
+        //
+        // Forcing a real File.Delete failure is inherently OS-specific here: the SUT enumerates plain
+        // files via Directory.GetFiles, and the only portable way to make a regular file undeletable is
+        // an exclusive handle - which POSIX does not honour (Linux happily deletes an open file), and a
+        // read-only chmod is ignored when CI runs as root. So we exercise the per-file catch on Windows
+        // (holding a FileShare.None handle makes File.Delete throw), and on Linux assert the same
+        // observable contract the catch guarantees: uninstall deletes matching files, never throws, and
+        // leaves the data directory intact.
+        var lockedFile = Path.Combine(_dataPath, "jellyfin-helper-statistics-latest.json");
+        var freeFile = Path.Combine(_dataPath, "jellyfin-helper-recommendations-latest.json");
+        File.WriteAllText(lockedFile, "{}");
+        File.WriteAllText(freeFile, "{}");
+
+        var plugin = CreatePlugin();
+
+        if (OperatingSystem.IsWindows())
+        {
+            using (new FileStream(lockedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var ex = Record.Exception(() => plugin.OnUninstalling());
+
+                Assert.Null(ex);
+                Assert.True(File.Exists(lockedFile), "the locked data file must survive - the per-file catch skips it");
+                Assert.False(File.Exists(freeFile), "the unlocked data file must still be deleted after the locked one is skipped");
+                Assert.True(Directory.Exists(_dataPath), "the data directory itself must remain intact");
+            }
+        }
+        else
+        {
+            var ex = Record.Exception(() => plugin.OnUninstalling());
+
+            Assert.Null(ex);
+            Assert.False(File.Exists(lockedFile), "matching data files must be swept on uninstall");
+            Assert.False(File.Exists(freeFile), "matching data files must be swept on uninstall");
+            Assert.True(Directory.Exists(_dataPath), "the data directory itself must remain intact");
+        }
+    }
 }

@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using Microsoft.Extensions.Logging;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
@@ -1513,6 +1516,198 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         Assert.All(scores, s => Assert.True(
             double.IsFinite(s) && s >= 0.0 && s <= 1.0,
             $"Score {s} is not in the expected finite [0,1] range"));
+    }
+
+    // ============================================================
+    // Ranking-metric getters / debug diagnostics / load guards
+    // ============================================================
+
+    [Fact]
+    public void Train_PopulatesRankingMetricGetters_WithValuesInUnitRange()
+    {
+        var strategy = new NeuralScoringStrategy();
+
+        // Contract: the P@K/R@K/NDCG getters default to NaN and are only populated once
+        // Train() has run RankingMetrics.ComputeAll on a scored held-out slice.
+        Assert.True(double.IsNaN(strategy.LastPrecisionAtK));
+        Assert.True(double.IsNaN(strategy.LastRecallAtK));
+        Assert.True(double.IsNaN(strategy.LastNdcgAtK));
+
+        strategy.Train(GenerateExamples(30));
+
+        // All three must now be finite ranking scores in [0,1]; a getter wired to the wrong
+        // backing field (or never assigned) would still read NaN and fail here.
+        Assert.False(double.IsNaN(strategy.LastPrecisionAtK));
+        Assert.False(double.IsNaN(strategy.LastRecallAtK));
+        Assert.False(double.IsNaN(strategy.LastNdcgAtK));
+        Assert.InRange(strategy.LastPrecisionAtK, 0.0, 1.0);
+        Assert.InRange(strategy.LastRecallAtK, 0.0, 1.0);
+        Assert.InRange(strategy.LastNdcgAtK, 0.0, 1.0);
+    }
+
+    [Fact]
+    public void Train_WithDebugLogger_EmitsFeatureImportanceAndPermutationLogs()
+    {
+        // A Debug-enabled logger must trigger both the L2-norm feature-importance log and the
+        // expensive permutation-importance block at the tail of Train().
+        var loggerMock = TestMockFactory.CreateLogger();
+        var weightsPath = Path.Join(_tempDir, "debug_importance.json");
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+
+        strategy.Train(GenerateExamples(30));
+
+        VerifyDebugLogContains(loggerMock, "feature importance (L2 norm)");
+        VerifyDebugLogContains(loggerMock, "permutation importance");
+    }
+
+    [Fact]
+    public void Train_WithDisabledDebugLogger_SkipsFeatureImportanceLogging()
+    {
+        // With Debug disabled, LogFeatureImportance must early-return and the permutation
+        // block must be skipped entirely - no Debug-level Log call may fire.
+        var loggerMock = TestMockFactory.CreateDisabledLogger();
+        var weightsPath = Path.Join(_tempDir, "disabled_importance.json");
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+
+        strategy.Train(GenerateExamples(30));
+
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void TryLoadWeights_OversizedFile_SkipsLoadAndWarns()
+    {
+        // A weights file above the 10 MB DoS ceiling must be rejected before any parse so the
+        // in-memory defaults are left untouched.
+        var weightsPath = Path.Join(_tempDir, "oversized.json");
+        File.WriteAllText(weightsPath, new string('a', 11 * 1024 * 1024));
+
+        var loggerMock = TestMockFactory.CreateLogger();
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+
+        var features = new CandidateFeatures { GenreSimilarity = 0.7 };
+        var expectedFreshScore = new NeuralScoringStrategy(null).Score(features);
+        Assert.Equal(expectedFreshScore, strategy.Score(features), 10);
+
+        VerifyWarningLogContains(loggerMock, "exceeds");
+        VerifyWarningLogContains(loggerMock, "Skipping load");
+    }
+
+    [Fact]
+    public void TryLoadWeights_NaNWeight_DiscardsWeightsAndFallsBackToDefault()
+    {
+        // A persisted file carrying a NaN weight must never be applied. The neural loader uses the
+        // default JSON reader, which rejects the bare NaN token, so the file is discarded on parse
+        // and the strategy falls back to a fresh default score.
+        var weightsPath = Path.Join(_tempDir, "nan_discard.json");
+        new NeuralScoringStrategy(weightsPath).Train(GenerateExamples(20));
+
+        var json = File.ReadAllText(weightsPath);
+        var corrupted = System.Text.RegularExpressions.Regex.Replace(
+            json,
+            @"""WeightsIH""\s*:\s*\[([^,\]]+)",
+            m => m.Value.Replace(m.Groups[1].Value, "NaN"),
+            System.Text.RegularExpressions.RegexOptions.None,
+            TimeSpan.FromSeconds(2));
+        File.WriteAllText(weightsPath, corrupted);
+
+        var loggerMock = TestMockFactory.CreateLogger();
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+
+        VerifyWarningLogContains(loggerMock, "Failed to parse weights");
+
+        // Discarded, not applied: the score must match a fresh default.
+        var features = new CandidateFeatures { GenreSimilarity = 0.7 };
+        Assert.Equal(new NeuralScoringStrategy(null).Score(features), strategy.Score(features), 10);
+    }
+
+    [Fact]
+    public void TryLoadWeights_InfinityWeight_DiscardsWeightsAndFallsBackToDefault()
+    {
+        // Unlike the bare NaN token, 1e400 is valid JSON: the default reader deserializes it to
+        // +Infinity, so the file clears the version/length/standardization structural gate but must
+        // still be rejected by the AllFinite finiteness check - propagating Infinity would poison
+        // every forward pass. The loader must warn and keep the in-memory defaults untouched.
+        var weightsPath = Path.Join(_tempDir, "infinity_discard.json");
+        new NeuralScoringStrategy(weightsPath).Train(GenerateExamples(20));
+
+        var json = File.ReadAllText(weightsPath);
+        var corrupted = System.Text.RegularExpressions.Regex.Replace(
+            json,
+            @"""WeightsIH""\s*:\s*\[([^,\]]+)",
+            m => m.Value.Replace(m.Groups[1].Value, "1e400"),
+            System.Text.RegularExpressions.RegexOptions.None,
+            TimeSpan.FromSeconds(2));
+        File.WriteAllText(weightsPath, corrupted);
+
+        var loggerMock = TestMockFactory.CreateLogger();
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+
+        VerifyWarningLogContains(loggerMock, "NaN/Infinity");
+
+        // Poisoned weights were not applied: the score matches a fresh default and stays finite in [0,1].
+        var features = new CandidateFeatures { GenreSimilarity = 0.7 };
+        var score = strategy.Score(features);
+        Assert.Equal(new NeuralScoringStrategy(null).Score(features), score, 10);
+        Assert.True(double.IsFinite(score));
+        Assert.InRange(score, 0.0, 1.0);
+    }
+
+    // ============================================================
+    // Dispose guards (ScoreVector / ScoreWithExplanation)
+    // ============================================================
+
+    [Fact]
+    public void ScoreVector_AfterDispose_ReturnsNeutralScore()
+    {
+        var strategy = new NeuralScoringStrategy(null);
+        strategy.Dispose();
+
+        // Disposed early-return must fire before EnterReadLock, yielding the neutral 0.5 fallback.
+        var score = strategy.ScoreVector(new double[CandidateFeatures.FeatureCount]);
+        Assert.Equal(0.5, score, 10);
+    }
+
+    [Fact]
+    public void ScoreWithExplanation_AfterDispose_ReturnsNeutralExplanation()
+    {
+        var strategy = new NeuralScoringStrategy(null);
+        strategy.Dispose();
+
+        var explanation = strategy.ScoreWithExplanation(new CandidateFeatures());
+        Assert.Equal(0.5, explanation.FinalScore, 10);
+        Assert.Equal(strategy.Name, explanation.StrategyName);
+    }
+
+    private static void VerifyDebugLogContains(Mock<ILogger> loggerMock, string messagePart)
+    {
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains(messagePart)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
+    }
+
+    private static void VerifyWarningLogContains(Mock<ILogger> loggerMock, string messagePart)
+    {
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains(messagePart)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
     }
 
     // ============================================================

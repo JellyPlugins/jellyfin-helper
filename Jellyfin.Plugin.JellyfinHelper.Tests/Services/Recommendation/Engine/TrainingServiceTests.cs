@@ -538,5 +538,137 @@ public class TrainingServiceTests
             $"Incremental training must not enlarge the training set. baseline={baselineCount}, incremental={incrementalCount}.");
     }
 
+    /// <summary>
+    ///     Strategy whose Train callback re-enters TrainingService.Train on the SAME instance,
+    ///     letting us prove the non-blocking gate rejects the reentrant call.
+    /// </summary>
+    private sealed class ReentrantStrategy : IScoringStrategy, ITrainableStrategy
+    {
+        private readonly Func<bool> _reentrantCall;
+
+        public ReentrantStrategy(Func<bool> reentrantCall) => _reentrantCall = reentrantCall;
+
+        public string Name => "Reentrant";
+
+        public string NameKey => "strategyReentrant";
+
+        public int TrainInvocationCount { get; private set; }
+
+        public bool? NestedReturnValue { get; private set; }
+
+        public double Score(CandidateFeatures features) => 0.5;
+
+        public ScoreExplanation ScoreWithExplanation(CandidateFeatures features) => new()
+        {
+            StrategyName = Name,
+            FinalScore = 0.5
+        };
+
+        public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, null);
+
+        public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
+        {
+            TrainInvocationCount++;
+            // Re-enter Train while the outer call still holds the gate - must be rejected.
+            NestedReturnValue = _reentrantCall();
+            return true;
+        }
+    }
+
+    [Fact]
+    public void Dispose_ReleasesTrainGate_AllowsSubsequentTrain()
+    {
+        // Dispose() disposes the gate; no existing test drives it. Prove disposal is clean and,
+        // because the gate is per-instance, a fresh SUT still trains normally afterwards.
+        var disposed = CreateSut();
+        disposed.Dispose();
+
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile>());
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var sut = CreateSut();
+        var strategy = new RecordingStrategy { NextTrainReturns = false };
+
+        // Empty fixture => false; the point is that disposal of the prior SUT did not corrupt shared state.
+        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
+
+        Assert.False(result);
+        Assert.Equal(1, strategy.TrainInvocationCount);
+    }
+
+    [Fact]
+    public void Train_WhenAlreadyRunningOnSameInstance_SkipsReentrantCallAndReturnsFalse()
+    {
+        // The gate is per-instance and non-blocking (Wait(0)). A reentrant Train on the same
+        // instance, issued while the outer call still holds the gate, must be rejected and
+        // return false without building examples or invoking the strategy a second time.
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile>());
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var sut = CreateSut();
+        var previous = new[] { new RecommendationResult { UserId = Guid.NewGuid() } };
+
+        ReentrantStrategy? strategy = null;
+        strategy = new ReentrantStrategy(() => sut!.Train(strategy!, previous));
+
+        var outerResult = sut.Train(strategy, previous);
+
+        Assert.False(strategy.NestedReturnValue);
+        Assert.Equal(1, strategy.TrainInvocationCount);
+        Assert.True(outerResult);
+    }
+
+    [Fact]
+    public void Train_FeedbackStoreThrowsOperationCanceled_PropagatesInsteadOfSwallowing()
+    {
+        // Best-effort IO failures are swallowed, but cancellation must NOT be: the dedicated
+        // catch(OperationCanceledException){throw;} has to re-surface it so callers observe the cancel.
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile>());
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Throws(new OperationCanceledException());
+
+        var sut = CreateSut();
+        var strategy = new RecordingStrategy();
+
+        Assert.Throws<OperationCanceledException>(() =>
+            sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]));
+
+        Assert.Equal(0, strategy.TrainInvocationCount);
+    }
+
+    [Fact]
+    public void Train_IncrementalWithAllRecentExamples_KeepsAllAndSubsamplesNothing()
+    {
+        // A single recommendation batch stamps every example at one GeneratedAt, so all examples
+        // land newer than cutoff (latest-1day) and oldExamples is empty. The else-branch must keep
+        // the full recent set (trainingExamples = newExamples) with no old-sample subsampling.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var sut = CreateSut();
+        var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
+
+        var baselineStrategy = new RecordingStrategy();
+        var incrementalStrategy = new RecordingStrategy();
+
+        var baselineResult = sut.Train(baselineStrategy, previous, incremental: false);
+        var incrementalResult = sut.Train(incrementalStrategy, previous, incremental: true);
+
+        Assert.True(baselineResult);
+        Assert.True(incrementalResult);
+        Assert.NotNull(incrementalStrategy.LastReceivedTrainSet);
+        Assert.NotEmpty(incrementalStrategy.LastReceivedTrainSet!);
+
+        // No example is older than cutoff, so nothing is dropped: the incremental train set matches
+        // the non-incremental baseline on the identical single-batch fixture.
+        Assert.Equal(
+            baselineStrategy.LastReceivedTrainSet!.Count,
+            incrementalStrategy.LastReceivedTrainSet!.Count);
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 }

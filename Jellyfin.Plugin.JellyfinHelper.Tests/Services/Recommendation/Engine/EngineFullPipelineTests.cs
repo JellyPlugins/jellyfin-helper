@@ -7,6 +7,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Moq;
 using Xunit;
@@ -289,5 +290,278 @@ public sealed class EngineFullPipelineTests
 
         Assert.NotNull(results);
         Assert.Equal(2, results.Count);
+    }
+
+    [Fact]
+    public void GetAllRecommendations_PlaceholderMovieAndEmptySeries_AreFilteredAndLogged()
+    {
+        // LoadCandidateItems must drop Arr placeholders: a Movie with no Path (file not yet
+        // downloaded) and a Series with zero indexed episodes cannot be played, so both are
+        // filtered out of the candidate pool and a single summary line is logged. A regression
+        // that stopped filtering would recommend un-playable items and waste recommendation slots.
+        var harness = EngineTestFactory.Create();
+        var userId = Guid.NewGuid();
+        var watchedId = Guid.NewGuid();
+        harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile> { MakeWarmProfile(userId, "user", watchedId) });
+
+        var goodMovie = MakeMovie("Playable", 2022, ["Action"], 8.0f);
+        var placeholder = MakeMovie("Not Downloaded Yet", 2022, ["Action"], 8.0f);
+        placeholder.Path = null; // Arr placeholder - no media file on disk
+
+        var emptySeries = new Series
+        {
+            Id = Guid.NewGuid(),
+            Name = "No Episodes Yet",
+            Path = "/media/series/empty",
+            Genres = ["Drama"],
+            ProductionYear = 2021,
+            CommunityRating = 7.0f
+        };
+
+        // The Episode query returns an episode for an UNRELATED series id, so seriesEpisodeCounts
+        // never contains emptySeries.Id and the series is skipped.
+        var strayEpisode = new Episode
+        {
+            Id = Guid.NewGuid(),
+            SeriesId = Guid.NewGuid(),
+            Name = "Stray",
+            Path = "/media/series/other/S01E01.mkv"
+        };
+
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Movie)))
+            .Returns(new List<BaseItem> { goodMovie, placeholder });
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Series)))
+            .Returns(new List<BaseItem> { emptySeries });
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Episode)))
+            .Returns(new List<BaseItem> { strayEpisode });
+
+        var results = harness.Engine.GetAllRecommendations(10, CancellationToken.None);
+
+        Assert.NotNull(results);
+        // The filter summary is logged exactly once with the correct skipped counts.
+        harness.PluginLog.Verify(
+            p => p.LogInfo(
+                It.IsAny<string>(),
+                It.Is<string>(msg => msg.Contains("Filtered 1 empty movies and 1 empty series")),
+                It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
+            Times.Once);
+
+        // Neither the path-less movie nor the episode-less series may appear in any result.
+        foreach (var r in results)
+        {
+            Assert.DoesNotContain(r.Recommendations, i => i.ItemId == placeholder.Id);
+            Assert.DoesNotContain(r.Recommendations, i => i.ItemId == emptySeries.Id);
+        }
+    }
+
+    [Fact]
+    public void GetAllRecommendations_ColdStartUserWithCommunityHistory_UsesCommunityBlendedFormula()
+    {
+        // A cold-start user (no watch history) is scored with the enhanced 40/30/30 community
+        // formula when at least two OTHER users share watch history: the community-popularity
+        // map is non-empty, so a candidate watched by the crowd must outrank an identical
+        // candidate the crowd has never touched. This proves the 30% community term influenced
+        // the cold-start score rather than the classic 60/40 rating+recency branch.
+        var harness = EngineTestFactory.Create();
+
+        var coldUser = Guid.NewGuid();
+        var warmA = Guid.NewGuid();
+        var warmB = Guid.NewGuid();
+
+        // Two candidates with identical rating/genre/year so rating+recency terms tie; the only
+        // differentiator is community popularity.
+        var crowdFavorite = MakeMovie("Crowd Favorite", 2020, ["Action"], 7.0f);
+        var unseenByCrowd = MakeMovie("Unseen", 2020, ["Action"], 7.0f);
+        WireLibrary(harness, [crowdFavorite, unseenByCrowd]);
+
+        UserWatchProfile MakeCrowdMember(Guid id, string name) => new()
+        {
+            UserId = id,
+            UserName = name,
+            WatchedItems = new Collection<WatchedItemInfo>
+            {
+                new()
+                {
+                    ItemId = crowdFavorite.Id,
+                    Name = "Crowd Favorite",
+                    ItemType = "Movie",
+                    Played = true,
+                    PlayCount = 1
+                }
+            }
+        };
+
+        var profiles = new Collection<UserWatchProfile>
+        {
+            new() { UserId = coldUser, UserName = "cold", WatchedItems = [] },
+            MakeCrowdMember(warmA, "warmA"),
+            MakeCrowdMember(warmB, "warmB")
+        };
+        harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+
+        var results = harness.Engine.GetAllRecommendations(10, CancellationToken.None);
+
+        var coldResult = results.FirstOrDefault(r => r.UserId == coldUser);
+        Assert.NotNull(coldResult);
+        Assert.Equal("strategyColdStart", coldResult!.ScoringStrategyKey);
+
+        var favoriteRec = coldResult.Recommendations.FirstOrDefault(i => i.ItemId == crowdFavorite.Id);
+        var unseenRec = coldResult.Recommendations.FirstOrDefault(i => i.ItemId == unseenByCrowd.Id);
+        Assert.NotNull(favoriteRec);
+        Assert.NotNull(unseenRec);
+
+        // The community-watched candidate must score strictly higher - the only signal that can
+        // separate two otherwise-identical items is the 30% community-popularity term.
+        Assert.True(
+            favoriteRec!.Score > unseenRec!.Score,
+            $"Community-watched candidate (score={favoriteRec.Score}) must outrank the crowd-unseen " +
+            $"candidate (score={unseenRec.Score}) under the community-blended cold-start formula.");
+    }
+
+    [Fact]
+    public void GetRecommendations_WarmUser_FavoriteSeriesAndManyCandidates_ProducesWellFormedResult()
+    {
+        // Warm path with a non-empty FavoriteSeriesIds set and a large candidate pool. This drives
+        // the favorite-series exclusion (a favorited series is never recommended) and forces the
+        // periodic cancellation check inside the scoring loop to execute at least once by supplying
+        // more than CancellationCheckBatchSize candidates under a live (non-cancelled) token.
+        var harness = EngineTestFactory.Create();
+        var userId = Guid.NewGuid();
+        var watchedId = Guid.NewGuid();
+        var favoriteSeriesId = Guid.NewGuid();
+
+        var profile = MakeWarmProfile(userId, "warm", watchedId);
+        profile.FavoriteSeriesIds.Add(favoriteSeriesId);
+
+        harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId)).Returns(profile);
+        harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile> { profile });
+
+        // A favorited series that IS a candidate must be excluded from the output.
+        var favoriteSeries = new Series
+        {
+            Id = favoriteSeriesId,
+            Name = "Favorited Show",
+            Path = "/media/series/fav",
+            Genres = ["Action", "Drama"],
+            ProductionYear = 2020,
+            CommunityRating = 8.0f
+        };
+
+        // > CancellationCheckBatchSize (200) movie candidates so the periodic ct check runs.
+        var movies = new List<BaseItem>();
+        for (var i = 0; i < 250; i++)
+        {
+            movies.Add(MakeMovie($"Cand {i}", 2015 + (i % 8), ["Action", "Drama"], 6.0f + (i % 4)));
+        }
+
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Movie)))
+            .Returns(movies);
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Series)))
+            .Returns(new List<BaseItem> { favoriteSeries });
+        // The favorite series survives LoadCandidateItems only if an episode matches its id.
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Episode)))
+            .Returns(new List<BaseItem>
+            {
+                new Episode
+                {
+                    Id = Guid.NewGuid(),
+                    SeriesId = favoriteSeriesId,
+                    Name = "Ep1",
+                    Path = "/media/series/fav/S01E01.mkv"
+                }
+            });
+
+        var result = harness.Engine.GetRecommendations(userId, 20, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.NotEmpty(result!.Recommendations);
+        // A favorited series must never be recommended - the user already committed to it.
+        Assert.DoesNotContain(result.Recommendations, i => i.ItemId == favoriteSeriesId);
+    }
+
+    [Fact]
+    public void GetRecommendations_WarmUser_CalledTwice_ReusesCachedSnapshot_NoSecondLibraryScan()
+    {
+        // The first live request publishes a candidate snapshot; a second request within the
+        // CandidateSnapshotMaxAge TTL must take the still-valid fast-path in GetOrRefreshLiveSnapshot
+        // and reuse those candidates rather than re-scanning the library. If the TTL fast-path
+        // regressed, LoadCandidateItems would run again and fire the Movie query a second time.
+        var harness = EngineTestFactory.Create();
+        var userId = Guid.NewGuid();
+        var watchedId = Guid.NewGuid();
+
+        harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))
+            .Returns(MakeWarmProfile(userId, "warm", watchedId));
+        harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile> { MakeWarmProfile(userId, "warm", watchedId) });
+
+        var candidates = new List<BaseItem>
+        {
+            MakeMovie("Cand 1", 2022, ["Action", "Thriller"], 8.0f),
+            MakeMovie("Cand 2", 2020, ["Drama"], 7.0f)
+        };
+        WireLibrary(harness, candidates);
+
+        var first = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
+        var second = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.Equal(userId, first!.UserId);
+        Assert.Equal(userId, second!.UserId);
+
+        // The Movie candidate scan must have happened exactly once across BOTH calls: the second
+        // call served from the still-valid TTL snapshot instead of re-scanning the library.
+        harness.LibraryManager.Verify(
+            lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Movie)),
+            Times.Once);
+    }
+
+    [Fact]
+    public void GetAllRecommendations_GetPeopleThrows_StillCachesMetadataAndCompletes()
+    {
+        // BuildCandidateContentAffinityLookup must swallow a non-fatal GetPeople failure (people=null)
+        // and still cache the five candidate metadata fields, so scoring proceeds with empty
+        // writer/billing signals. A regression that dropped the guard would crash the batch on the
+        // first candidate whose people index is unreadable.
+        var harness = EngineTestFactory.Create();
+        var userId = Guid.NewGuid();
+        var watchedId = Guid.NewGuid();
+        harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile> { MakeWarmProfile(userId, "user", watchedId) });
+
+        var candidates = new List<BaseItem>
+        {
+            MakeMovie("Cand 1", 2022, ["Action"], 8.0f),
+            MakeMovie("Cand 2", 2021, ["Drama"], 7.0f)
+        };
+        WireLibrary(harness, candidates);
+
+        // People index unreadable for every candidate: the catch-and-continue contract must hold.
+        harness.LibraryManager
+            .Setup(lm => lm.GetPeople(It.IsAny<BaseItem>()))
+            .Throws(new InvalidOperationException("people index offline"));
+
+        var results = harness.Engine.GetAllRecommendations(10, CancellationToken.None);
+
+        // Batch completes with one result for the single user - the guard absorbed the failure.
+        Assert.NotNull(results);
+        Assert.Single(results);
+        Assert.Equal(userId, results[0].UserId);
     }
 }

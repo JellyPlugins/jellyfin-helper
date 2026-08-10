@@ -224,4 +224,83 @@ public sealed class ContentScoringTests
         Assert.Equal(before, after);
         Assert.InRange(score, 0.0, 1.0);
     }
+
+    [Fact]
+    public void ComputeContentNearestNeighborScore_NoWatchedItems_ReturnsZero()
+    {
+        // Cold-start user with no history: the empty-set guard must short-circuit to 0.0
+        // BEFORE the parallel-array length check runs. The three lists are equal-length here,
+        // so a stray increment would prove the mismatch check ran when it should not have.
+        var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" };
+        var watchedGenres = new List<HashSet<string>>();
+        var watchedPeople = new List<HashSet<string>>();
+        var watchedStudios = new List<HashSet<string>>();
+
+        var before = ContentScoring.ParallelArrayMismatchCount;
+
+        var score = ContentScoring.ComputeContentNearestNeighborScore(
+            candidateGenres,
+            candidatePeople: null,
+            candidateStudios: null,
+            watchedGenres,
+            watchedPeople,
+            watchedStudios);
+
+        Assert.Equal(0.0, score);
+        Assert.Equal(before, ContentScoring.ParallelArrayMismatchCount);
+    }
+
+    // ============================================================
+    // NormalizeCriticRating Tests
+    // ============================================================
+
+    [Fact]
+    public void NormalizeCriticRating_ValidPercentage_NormalizesToZeroOne()
+    {
+        // A finite, in-range Tomatometer takes the normal path: divide by 100, not the 0.5 fallback.
+        var result = ContentScoring.NormalizeCriticRating(80f);
+        Assert.Equal(0.80, result, 10);
+    }
+
+    [Fact]
+    public void NormalizeCriticRating_AboveHundred_ClampsToOne()
+    {
+        // Values above 100 must saturate at 1.0 per the Math.Clamp upper bound.
+        var result = ContentScoring.NormalizeCriticRating(150f);
+        Assert.Equal(1.0, result, 10);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(-5f)]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public void NormalizeCriticRating_MissingOrNegativeOrNonFinite_ReturnsNeutralHalf(float? criticRating)
+    {
+        // Every guarded input returns the documented neutral 0.5 - a broken guard that fell
+        // through (e.g. NaN/100) would produce NaN or a negative value and fail here.
+        var result = ContentScoring.NormalizeCriticRating(criticRating);
+        Assert.Equal(0.5, result, 10);
+    }
+
+    // ============================================================
+    // ComputeCombinedCriticScore Tests
+    // ============================================================
+
+    [Fact]
+    public void ComputeCombinedCriticScore_BothSources_Blends55Tmdb45Tomatometer()
+    {
+        // Both present: locks the exact documented blend 0.55*tmdb + 0.45*tomatometer.
+        var result = ContentScoring.ComputeCombinedCriticScore(8f, 60f);
+        Assert.Equal((0.55 * 0.8) + (0.45 * 0.6), result, 10); // 0.71
+    }
+
+    [Fact]
+    public void ComputeCombinedCriticScore_OnlyCritic_UsesTomatometerExclusively()
+    {
+        // Community rating absent but critic present: must use Tomatometer/100 only,
+        // not the neutral 0.5 fallback nor the blended path.
+        var result = ContentScoring.ComputeCombinedCriticScore((float?)null, 90f);
+        Assert.Equal(0.90, result, 10);
+    }
 }

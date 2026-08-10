@@ -1486,4 +1486,180 @@ public class ConfigurationControllerTests
         Assert.Equal("key-primary",   primary.ApiKey);
         Assert.Equal("key-secondary", secondary.ApiKey);
     }
+
+    // ===== Null-body / null-list guards =====
+
+    [Fact]
+    public void UpdateLogLevel_NullRequestBody_ReturnsBadRequest()
+    {
+        // This endpoint has no ModelBindingLogFilter, so a literal null JSON body binds to null.
+        // The guard must return a clean 400 rather than dereferencing null into a 500.
+        var result = _controller.UpdateLogLevel(null!);
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var response = Assert.IsType<LogLevelResponse>(bad.Value);
+        Assert.Contains("required", response.Message, StringComparison.OrdinalIgnoreCase);
+        _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_NullRequestBody_ReturnsBadRequest()
+    {
+        // Defense-in-depth for a detached ModelBindingLogFilter: a null request must be
+        // rejected with 400, never dereferenced into an NRE.
+        var result = await _controller.UpdateConfigurationAsync(null!, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Never);
+        _arrServiceMock.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _seerrServiceMock.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_NullInstanceLists_SkipsArrTestsAndSaves()
+    {
+        // The init-only list properties can deserialize as null from JSON. The Arr group
+        // tester must early-return on the null list instead of iterating a null reference.
+        var request = new ConfigurationUpdateRequest { RadarrInstances = null!, SonarrInstances = null! };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        _arrServiceMock.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OptionalNullableFields_AppliedWhenPresent()
+    {
+        // Seed values that differ from every incoming value so the HasValue branches
+        // are proven to copy each field rather than leaving the pre-existing state.
+        _config.RecommendationsTaskMode = TaskMode.DryRun;
+        _config.EnsembleAlphaMin = 0.9;
+        _config.EnsembleAlphaMax = 0.95;
+        _config.EnsembleGenrePenaltyFloor = 0.5;
+        _config.SyncRecommendationsToPlaylist = false;
+        _config.DiscoveryUserAccessEnabled = false;
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RecommendationsTaskMode = TaskMode.Activate,
+            EnsembleAlphaMin = 0.3,
+            EnsembleAlphaMax = 0.7,
+            EnsembleGenrePenaltyFloor = 0.15,
+            SyncRecommendationsToPlaylist = true,
+            DiscoveryUserAccessEnabled = true
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(TaskMode.Activate, _config.RecommendationsTaskMode);
+        Assert.Equal(0.3, _config.EnsembleAlphaMin);
+        Assert.Equal(0.7, _config.EnsembleAlphaMax);
+        Assert.Equal(0.15, _config.EnsembleGenrePenaltyFloor);
+        Assert.True(_config.SyncRecommendationsToPlaylist);
+        Assert.True(_config.DiscoveryUserAccessEnabled);
+    }
+
+    // ===== Cancellation: token cancellation is silent, distinct from network-error warnings =====
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrTestCancelled_SwallowsWithoutWarning()
+    {
+        // When the caller cancels via the token, the Seerr test must stop silently -
+        // no warning surfaced or logged - unlike the network-error path which DOES warn.
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "real-key",
+            SeerrCleanupAgeDays = 30
+        };
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var result = await _controller.UpdateConfigurationAsync(request, cts.Token);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
+        Assert.DoesNotContain(payload.Warnings, w => w.Contains("Seerr", StringComparison.Ordinal));
+        Assert.Equal("real-key", _config.SeerrApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ArrTestCancelled_StopsRemainingInstancesWithoutWarning()
+    {
+        // Token cancellation during an Arr test must return early without adding a warning,
+        // contrasting the HttpRequestException path that surfaces a reachability warning.
+        _arrServiceMock
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "Radarr-1", Url = "http://r1:7878", ApiKey = "key1" }
+            ]
+        };
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var result = await _controller.UpdateConfigurationAsync(request, cts.Token);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
+        Assert.Empty(payload.Warnings);
+        Assert.Single(_config.RadarrInstances);
+        Assert.Equal("key1", _config.RadarrInstances[0].ApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_EnsembleAlphaMinExceedsMax_SwapsToKeepBandOrdered()
+    {
+        // Both values are in [0,1] so the range guards leave them alone. Each setter normalizes on
+        // assignment by swapping when min > max, so an inverted request can never persist an inverted
+        // band - whatever the exact endpoints, min must end up <= max.
+        var request = new ConfigurationUpdateRequest
+        {
+            EnsembleAlphaMin = 0.8,
+            EnsembleAlphaMax = 0.2
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+        Assert.True(_config.EnsembleAlphaMin <= _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_UseTrashWithValidRelativePath_SavesWithoutTrashEscapeWarning()
+    {
+        // A plain relative path passes strict validation and resolves cleanly under the root,
+        // so the soft runtime check produces no escape warning and the value is persisted as-is.
+        var request = new ConfigurationUpdateRequest
+        {
+            UseTrash = true,
+            TrashFolderPath = ".jellyfin-trash"
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
+        Assert.DoesNotContain(
+            payload.Warnings,
+            w => w.Contains("TrashFolderPath", StringComparison.Ordinal)
+                 || w.Contains("escapes", StringComparison.Ordinal));
+        Assert.True(_config.UseTrash);
+        Assert.Equal(".jellyfin-trash", _config.TrashFolderPath);
+    }
 }

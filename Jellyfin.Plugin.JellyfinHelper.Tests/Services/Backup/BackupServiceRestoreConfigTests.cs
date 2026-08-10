@@ -854,4 +854,40 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal("de", liveConfig.Language);
         configMock.Verify(c => c.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Once);
     }
+
+    [Fact]
+    public void CreateBackup_ExcludeSecrets_RedactsArrInstanceApiKeys()
+    {
+        // Default export (includeSecrets:false) must strip every Arr API key so the file
+        // can be shared without leaking plaintext credentials, while leaving the Name/Url
+        // intact so a restore can still preserve the live key by name. Redaction must be
+        // surgical, and the export must not be flagged as carrying secrets.
+        var liveConfig = new PluginConfiguration();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+            { Name = "R1", Url = "http://r:7878", ApiKey = "radarr-secret" });
+        liveConfig.SonarrInstances.Add(new ArrInstanceConfig
+            { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-secret" });
+
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = service.CreateBackup();
+
+        Assert.All(backup.RadarrInstances, i => Assert.Equal(string.Empty, i.ApiKey));
+        Assert.All(backup.SonarrInstances, i => Assert.Equal(string.Empty, i.ApiKey));
+        Assert.False(backup.ContainsSecrets);
+        // Non-key fields survive the redaction.
+        Assert.Equal("R1", backup.RadarrInstances[0].Name);
+        Assert.Equal("http://r:7878", backup.RadarrInstances[0].Url);
+        Assert.Equal("S1", backup.SonarrInstances[0].Name);
+        Assert.Equal("http://s:8989", backup.SonarrInstances[0].Url);
+    }
 }

@@ -763,6 +763,102 @@ public sealed class WatchHistoryServiceTests
         Assert.False(counts.ContainsKey(Guid.Empty));
     }
 
+    [Fact]
+    public void BuildProfile_FavoritedPlayedMovieInMainLoop_IncrementsFavoriteCount()
+    {
+        // A movie favorited directly (not a series-level favorite) must bump FavoriteCount
+        // from the main watched-items loop, independent of the series-favorite pass.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var movie = new Movie { Id = Guid.NewGuid(), Name = "Fav Movie", RunTimeTicks = 1 };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { movie })
+            .Returns(new List<BaseItem>());
+        _mockUserDataManager.Setup(m => m.GetUserData(user, movie))
+            .Returns(new UserItemData { Key = "k", Played = true, PlayCount = 1, IsFavorite = true });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Equal(1, profile!.FavoriteCount);
+        Assert.Contains(profile.WatchedItems, w => w.ItemId == movie.Id && w.IsFavorite);
+    }
+
+    [Fact]
+    public void BuildProfile_FavoriteSeriesGetPeopleThrows_StillAddsSyntheticItem()
+    {
+        // A non-fatal GetPeople failure on a favorited series must degrade people resolution
+        // to empty rather than aborting the profile: the synthetic favorite row still appears.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var series = new Series { Id = Guid.NewGuid(), Name = "Fav Show", Genres = new[] { "Drama" } };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>())
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager.Setup(m => m.GetUserData(user, series))
+            .Returns(new UserItemData { Key = "k", Played = false, IsFavorite = true });
+        _mockLibraryManager.Setup(m => m.GetPeople(series))
+            .Throws(new InvalidOperationException("corrupted people metadata"));
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Contains(series.Id, profile!.FavoriteSeriesIds);
+        var synthetic = Assert.Single(profile.WatchedItems, w => w.ItemId == series.Id && w.IsFavorite);
+        Assert.Empty(synthetic.PeopleNames);
+    }
+
+    [Fact]
+    public void BuildProfile_FavoriteSeriesGetPeopleCancelled_PropagatesOperationCanceled()
+    {
+        // Cancellation during the favorite-series people resolution must propagate,
+        // matching the main-loop and AggregatePeopleFromItem contracts.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var series = new Series { Id = Guid.NewGuid(), Name = "Fav Show" };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>())
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager.Setup(m => m.GetUserData(user, series))
+            .Returns(new UserItemData { Key = "k", Played = false, IsFavorite = true });
+        _mockLibraryManager.Setup(m => m.GetPeople(series))
+            .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => _service.GetUserWatchProfile(user.Id));
+    }
+
+    [Fact]
+    public void BuildProfile_SeriesLevelAggregationGetPeopleCancelled_Propagates()
+    {
+        // A played episode whose parent series is present but NOT favorited reaches
+        // AggregatePeopleFromItem(series); a cancellation there must propagate too.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var seriesId = Guid.NewGuid();
+        var series = new Series { Id = seriesId, Name = "Show" };
+        var episode = new Episode
+        {
+            Id = Guid.NewGuid(),
+            Name = "Pilot",
+            SeriesId = seriesId,
+            RunTimeTicks = TimeSpan.FromMinutes(45).Ticks
+        };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { episode })
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager.Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "k", Played = true, PlayCount = 1, IsFavorite = false });
+        _mockLibraryManager.Setup(m => m.GetPeople(series))
+            .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => _service.GetUserWatchProfile(user.Id));
+        _mockLibraryManager.Verify(m => m.GetPeople(series), Times.Once);
+    }
+
     private static Jellyfin.Database.Implementations.Entities.User CreateTestUser(string username)
     {
         return new Jellyfin.Database.Implementations.Entities.User(username, "default", "default") { Id = Guid.NewGuid() };

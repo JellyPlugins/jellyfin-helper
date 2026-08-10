@@ -432,4 +432,59 @@ public sealed class AtomicFileTests : IDisposable
         using var reader = new StreamReader(stream, new UTF8Encoding(false));
         Assert.Equal(payload, reader.ReadToEnd());
     }
+
+    [Fact]
+    public async Task WriteAllTextAsync_TransientLockOnEveryAttempt_RetriesThenPropagatesLastError()
+    {
+        // Force the move-into-place step to fail on every attempt in a platform-neutral way.
+        // A FileShare.None lock only blocks writes on Windows - POSIX advisory locks do not
+        // stop File.Delete/Move/Replace on Linux, so that trick would pass on Windows and fail
+        // in CI. Instead we make the destination an existing DIRECTORY: File.Exists(path) is
+        // false for a directory on both OSes (so the code takes the File.Move branch), and
+        // moving a file onto an existing directory name throws IOException on both Windows and
+        // Linux. The temp write itself (a sibling ".tmp" file) still succeeds, so we genuinely
+        // exercise the write-then-move failure path.
+        //
+        // With maxAttempts:2 the first failure takes the transient-retry path (temp cleanup +
+        // backoff) and the second the final path (temp cleanup + rethrow). The contract is that
+        // the pre-existing destination entry is never clobbered and no temp files are left behind.
+        var path = Path.Join(_tempDir, "locked-retry");
+        Directory.CreateDirectory(path);
+
+        await Assert.ThrowsAnyAsync<IOException>(
+            () => AtomicFile.WriteAllTextAsync(path, "NEW", maxAttempts: 2));
+
+        // The destination must still be the untouched directory - the failed write must neither
+        // replace it with a file nor corrupt it.
+        Assert.True(Directory.Exists(path));
+        Assert.False(File.Exists(path));
+        // Both attempts' temp files must be cleaned up despite the failures.
+        var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
+        Assert.Empty(orphans);
+    }
+
+    [Fact]
+    public async Task WriteAllTextAsync_SingleAttemptLocked_PropagatesImmediatelyWithoutRetry()
+    {
+        // With maxAttempts:1 the transient guard (attempt < maxAttempts) is false, so the first
+        // move/replace failure goes straight to the final catch: clean up and rethrow, no backoff.
+        //
+        // We force that failure by pointing the destination at an existing *directory*. This is
+        // cross-platform on purpose: a FileShare.None lock only blocks File.Move/Replace on Windows
+        // (POSIX advisory locks don't stop the rename on Linux), whereas moving a temp file onto an
+        // existing directory name throws IOException on both Windows and Linux. Since the target is
+        // a directory, File.Exists(path) is false and the code takes the File.Move branch - which
+        // is exactly where the single-attempt final catch lives.
+        var path = Path.Join(_tempDir, "locked-single");
+        Directory.CreateDirectory(path);
+
+        await Assert.ThrowsAnyAsync<IOException>(
+            () => AtomicFile.WriteAllTextAsync(path, "NEW", maxAttempts: 1));
+
+        // The failed write must not have clobbered the destination: the directory is still there.
+        Assert.True(Directory.Exists(path));
+        // The single failed attempt's temp file must be cleaned up before the rethrow.
+        var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
+        Assert.Empty(orphans);
+    }
 }

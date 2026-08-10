@@ -409,9 +409,64 @@ public sealed class SeerrDiscoveryServiceHelperTests
         Assert.Single(result);
     }
 
+    [Fact]
+    public void DeduplicateAndFilter_MidEraViewer_AppliesWideYearWindow()
+    {
+        // Non-child viewer whose avgYear is 2005 (>= 2000 but older than currentYear-6) gets
+        // the wide window: minYear = 2005 - 15 = 1990. A 1985 film falls below and is dropped;
+        // a 2000 film survives. Distinct from the modern 12-year window branch.
+        var oldFilm = new TmdbDiscoverItem
+        {
+            Id = 1,
+            VoteAverage = 8.0,
+            MediaType = "movie",
+            ReleaseDate = new DateTime(1985, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+        var midEraFilm = new TmdbDiscoverItem
+        {
+            Id = 2,
+            VoteAverage = 8.0,
+            MediaType = "movie",
+            ReleaseDate = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        var result = InvokeDeduplicateAndFilter(
+            [oldFilm, midEraFilm],
+            [],
+            maxParentalRating: null,
+            minVoteAverage: 5.0,
+            avgYear: 2005,
+            isChildAccount: false);
+
+        Assert.Single(result);
+        Assert.Equal(2, result[0].Id);
+    }
+
+    [Fact]
+    public void ValidateSeerrConfig_EmptyApiKey_ThrowsArgumentException()
+    {
+        // Even with a valid https URL, an empty API key must be rejected - the public callers
+        // guard earlier but this defensive check owns the "key is required" contract.
+        var ex = Assert.Throws<TargetInvocationException>(() =>
+            InvokeValidateSeerrConfig("https://seerr.example.com", string.Empty));
+
+        var inner = Assert.IsType<ArgumentException>(ex.InnerException);
+        Assert.Equal("apiKey", inner.ParamName);
+        Assert.Contains("API key is required", inner.Message, StringComparison.Ordinal);
+    }
+
     // ============================================================================
     // Reflection glue
     // ============================================================================
+
+    private static void InvokeValidateSeerrConfig(string baseUrl, string apiKey)
+    {
+        var method = typeof(SeerrDiscoveryService).GetMethod(
+            "ValidateSeerrConfig",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(null, [baseUrl, apiKey]);
+    }
 
     private static void InvokeStampMediaType(List<TmdbDiscoverItem> items, string mediaType)
     {

@@ -158,6 +158,21 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(CandidateFeatures.FeatureCount, vector.Length);
     }
 
+    [Fact]
+    public void CandidateFeatures_WriteToVector_BufferSmallerThanFeatureCount_ThrowsArgumentException()
+    {
+        // The documented contract rejects undersized buffers up front; without the guard,
+        // WriteToVector would either throw IndexOutOfRange mid-write or silently emit a partial
+        // vector, which would poison training/scoring downstream.
+        var undersized = new double[CandidateFeatures.FeatureCount - 1];
+
+        var ex = Assert.Throws<ArgumentException>(() => new CandidateFeatures().WriteToVector(undersized));
+
+        Assert.Equal("buffer", ex.ParamName);
+        Assert.Contains($"need {CandidateFeatures.FeatureCount} elements", ex.Message);
+        Assert.Contains($"got {undersized.Length}", ex.Message);
+    }
+
     // ============================================================
     // HeuristicScoringStrategy Tests
     // ============================================================
@@ -2691,4 +2706,109 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(countBefore, ensemble2.MetricsHistoryCount);
     }
 
+    // ============================================================
+    // ITrainableStrategy Default Method Tests
+    // ============================================================
+
+    [Fact]
+    public void ITrainableStrategy_DefaultTrain_ForwardsToSingleArgOverload()
+    {
+        // The two-arg Train has a default body that drops heldOutForMetrics and forwards to the
+        // single-arg overload. All three production strategies (Learned/Neural/Ensemble) override
+        // the two-arg overload, so only a 1-arg-only implementer exercises the default. The contract
+        // is: return exactly what the single-arg Train returned, pass through the same examples list,
+        // and ignore the held-out slice.
+        var examples = new List<TrainingExample>
+        {
+            new() { Features = new CandidateFeatures { GenreSimilarity = 1.0 }, Label = 1.0 },
+            new() { Features = new CandidateFeatures(), Label = 0.0 }
+        };
+        var heldOut = new List<TrainingExample>
+        {
+            new() { Features = new CandidateFeatures { GenreSimilarity = 0.5 }, Label = 1.0 }
+        };
+
+        var stubTrue = new SingleArgTrainableStub(returnValue: true);
+        var resultTrue = ((ITrainableStrategy)stubTrue).Train(examples, heldOutForMetrics: heldOut);
+
+        Assert.True(resultTrue);
+        Assert.True(stubTrue.WasCalled);
+        Assert.Same(examples, stubTrue.ReceivedExamples);
+
+        // A separate stub returning false confirms the default relays the callee's value verbatim
+        // rather than hard-coding a truthy result.
+        var stubFalse = new SingleArgTrainableStub(returnValue: false);
+        var resultFalse = ((ITrainableStrategy)stubFalse).Train(examples, heldOutForMetrics: heldOut);
+
+        Assert.False(resultFalse);
+        Assert.Same(examples, stubFalse.ReceivedExamples);
+    }
+
+    [Fact]
+    public void ScoringHelper_BuildExplanation_TruncatedWeights_OutOfBoundsFeaturesContributeZero()
+    {
+        // A shorter-than-FeatureCount weight array mirrors loading an older/corrupted model
+        // that persisted fewer weights. GetContribution must tolerate this by returning 0.0
+        // for every feature index beyond the array, never indexing out of bounds.
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.8,
+            CollaborativeScore = 0.5,
+            CombinedCriticScore = 0.7,
+            RecencyScore = 0.4,
+            YearProximityScore = 0.9,
+            UserRatingScore = 0.6,
+            PeopleSimilarity = 0.3,
+            StudioMatch = true,
+            PopularityScore = 0.5
+        };
+
+        var vector = features.ToVector();
+        // Only the first three channels (genre, collab, rating) have weights; index >= 3 is out of bounds.
+        var weights = new double[] { 0.5, 0.4, 0.3 };
+        const double bias = 0.0;
+
+        var explanation = ScoringHelper.BuildExplanation(vector, weights, bias, "Truncated");
+
+        // In-bounds rating channel still multiplies vector[2] * weights[2].
+        Assert.Equal(vector[(int)FeatureIndex.CombinedCriticScore] * weights[2], explanation.RatingContribution, 12);
+
+        // Every channel beyond the weight array must contribute exactly nothing.
+        Assert.Equal(0.0, explanation.RecencyContribution);
+        Assert.Equal(0.0, explanation.YearProximityContribution);
+        Assert.Equal(0.0, explanation.UserRatingContribution);
+        Assert.Equal(0.0, explanation.PeopleContribution);
+        Assert.Equal(0.0, explanation.StudioContribution);
+        Assert.Equal(0.0, explanation.InteractionContribution);
+
+        // FinalScore reflects only the three in-bounds contributions plus bias, proving the
+        // out-of-bounds channels added nothing to the total.
+        var genreContrib = vector[(int)FeatureIndex.GenreSimilarity] * weights[0];
+        var collabContrib = vector[(int)FeatureIndex.CollaborativeScore] * weights[1];
+        var ratingContrib = vector[(int)FeatureIndex.CombinedCriticScore] * weights[2];
+        var expected = Math.Clamp(genreContrib + collabContrib + ratingContrib + bias, 0.0, 1.0);
+        Assert.Equal(expected, explanation.FinalScore, 12);
+    }
+
+    /// <summary>
+    ///     Implements ONLY the single-arg <see cref="ITrainableStrategy.Train(IReadOnlyList{TrainingExample})" />
+    ///     so the two-arg interface default (which drops the held-out slice and forwards) is exercised.
+    /// </summary>
+    private sealed class SingleArgTrainableStub : ITrainableStrategy
+    {
+        private readonly bool _returnValue;
+
+        public SingleArgTrainableStub(bool returnValue) => _returnValue = returnValue;
+
+        public bool WasCalled { get; private set; }
+
+        public IReadOnlyList<TrainingExample>? ReceivedExamples { get; private set; }
+
+        public bool Train(IReadOnlyList<TrainingExample> examples)
+        {
+            WasCalled = true;
+            ReceivedExamples = examples;
+            return _returnValue;
+        }
+    }
 }

@@ -176,6 +176,88 @@ public class GrowthTimelineSymlinkTests : IDisposable
             _service.GetDirectorySize(dir, string.Empty, string.Empty, cts.Token));
     }
 
+    // ── Library-root reparse point is skipped by ComputeTimelineAsync ─────────
+
+    [Fact]
+    [Trait("Category", "Symlink")]
+    public async Task ComputeTimelineAsync_LibraryRootIsSymlink_IsSkippedToPreventDoubleCounting()
+    {
+        // A library root that is a symlink/junction must be skipped entirely - it likely points
+        // at another library's tree and would otherwise be double-counted in the timeline.
+        var realDir = Path.Join(_testRoot, "real_lib_target");
+        var linkDir = Path.Join(_testRoot, "symlink_lib");
+        var movieDir = Path.Join(realDir, "Movie");
+        Directory.CreateDirectory(movieDir);
+        File.WriteAllBytes(Path.Join(movieDir, "movie.mkv"), new byte[2048]);
+
+        try
+        {
+            Directory.CreateSymbolicLink(linkDir, realDir);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            _ = ex;
+            return;
+        }
+
+        var service = BuildServiceForLocation(linkDir);
+
+        var result = await service.ComputeTimelineAsync(CancellationToken.None);
+
+        // The symlinked root contributed nothing.
+        Assert.Equal(0, result.TotalDirectoriesScanned);
+    }
+
+    // ── Top-level subdirectory reparse point is skipped ───────────────────────
+
+    [Fact]
+    [Trait("Category", "Symlink")]
+    public async Task ComputeTimelineAsync_TopLevelSubdirIsSymlink_IsSkipped()
+    {
+        // A real library root whose only top-level entry is a symlink/junction must exclude
+        // that subdir, so externally-hosted media isn't pulled into (and double-counted by) the timeline.
+        var libRoot = Path.Join(_testRoot, "real_lib");
+        var externalTarget = Path.Join(_testRoot, "external_media");
+        var linkSubDir = Path.Join(libRoot, "linked_movie");
+        Directory.CreateDirectory(libRoot);
+        Directory.CreateDirectory(externalTarget);
+        File.WriteAllBytes(Path.Join(externalTarget, "movie.mkv"), new byte[4096]);
+
+        try
+        {
+            Directory.CreateSymbolicLink(linkSubDir, externalTarget);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            _ = ex;
+            return;
+        }
+
+        var service = BuildServiceForLocation(libRoot);
+
+        var result = await service.ComputeTimelineAsync(CancellationToken.None);
+
+        // The reparse-point subdirectory is excluded even though it contains a media file.
+        Assert.Equal(0, result.TotalDirectoriesScanned);
+    }
+
+    // Builds a service whose library manager exposes a single virtual folder at the given location,
+    // backed by the real-filesystem adapter so on-disk symlinks are exercised end-to-end.
+    private GrowthTimelineService BuildServiceForLocation(string location)
+    {
+        var libraryManager = TestMockFactory.CreateLibraryManager();
+        libraryManager.Setup(m => m.GetVirtualFolders())
+            .Returns([new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [location] }]);
+
+        return new GrowthTimelineService(
+            libraryManager.Object,
+            new RealFileSystemAdapter(),
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateAppPaths(_testRoot).Object,
+            TestMockFactory.CreateLogger<GrowthTimelineService>().Object,
+            TestMockFactory.CreateCleanupConfigHelper().Object);
+    }
+
     // ── Minimal IFileSystem adapter that reads from the real filesystem ───────
 
     /// <summary>

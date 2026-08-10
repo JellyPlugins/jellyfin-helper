@@ -136,6 +136,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── ArrIntegrationControllerExtendedTests.cs      # Index bounds, 502 with named instance, trash exclusion, partial-config 400 contract
 │   ├── BackupControllerTests.cs
 │   ├── BackupControllerExtendedTests.cs               # Malformed JSON → 400, null body, chunk-loop MaxSize defence, whitespace-only body
+│   ├── BackupControllerErrorHandlingTests.cs          # Service-layer failures surfaced as the right status codes (mocked IBackupService)
 │   ├── ConfigurationControllerTests.cs               # Key-masking: non-empty → "***", empty stays empty, sentinel preserves stored key, PluginLogLevel TOCTOU
 │   ├── ConfigurationResponseTests.cs                 # ConfigurationResponse.FromConfig + MaskedArrInstanceConfig: masking, field pass-through, real key never in response
 │   ├── DiscoveryControllerTests.cs
@@ -173,12 +174,17 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── ScheduledTasks/                # Task execution tests
 │   ├── CleanTrickplayTrashExclusionTests.cs              # Trash folder excluded from trickplay scan
 │   ├── CleanOrphanedSubtitlesTaskProcessLocationTests.cs # ProcessLocation: library setup, GetDirectories, file-leaf enumeration
+│   ├── CleanOrphanedSubtitlesTaskDirectDeleteTests.cs   # Direct File.Delete path: success, failure, trash-path fallthrough, nested enumeration errors
+│   ├── HelperCleanupTaskErrorHandlingTests.cs           # Per-step failure isolation: one failing cleanup step must not abort the rest
+│   ├── RecommendationsTaskErrorHandlingTests.cs         # Engine/training failures logged and swallowed so the task run completes
 │   ├── RepairLinksTaskTests.cs                           # Dry-run flag, cancellation, progress reporting; no filesystem I/O
 │   ├── RecommendationsTaskTests.cs
 │   ├── UserActivityUpdateTaskTests.cs
 │   └── ...
 ├── Services/
 │   ├── DateTimeNormalizationTests.cs      # UTC coercion helper: guards against Local→SpecifyKind bugs in cache timestamps
+│   ├── FileSystemHelperErrorHandlingTests.cs # Directory-size walk skips entries whose Length throws (Windows-gated) and swallows access-denied
+│   ├── LibraryPathResolverErrorHandlingTests.cs # GetFullPath fallback returns the original path when normalization throws
 │   ├── Activity/                  # User activity service tests
 │   ├── Arr/                       # Arr integration tests
 │   │   └── ArrIntegrationServiceTests.cs               # Timeout → LogWarning (not LogError); parity with TestConnectionAsync
@@ -186,6 +192,9 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── BackupServiceTests.cs                       # Validation, sanitization + credential contracts: ContainsSecrets, CredentialsChanged, audit Warning
 │   │   ├── BackupServicePerformanceTests.cs
 │   │   ├── BackupServiceRestoreConfigTests.cs          # RestoreBackup round-trip: language fallback, clamping, task-mode rejection, credential preserve/overwrite
+│   │   ├── BackupServiceErrorHandlingTests.cs          # Redaction loops, partial-apply warn+rethrow, JSON save/load dir-create and size/corrupt guards
+│   │   ├── BackupSanitizerArrInstancesTests.cs         # Arr-instance credential redaction across multiple configured instances
+│   │   ├── BackupValidatorSecurityTests.cs             # SECURITY: trash-path null-byte/newline injection and script-pattern guards
 │   │   ├── BackupSanitizerTests.cs                     # Timeline-trimming path: under-limit no-op, over-limit trims to MaxTimelineDataPoints, newest points kept, result sorted ascending
 │   │   └── BackupValidatorTests.cs                     # SeerrCleanupAgeDays range (null=absent, 0=immediate, negative=error, >Max=error); CreatedAt timezone warnings (Unspecified emits warning, Utc/Local silent)
 │   ├── Cleanup/                   # Cleanup task tests
@@ -195,6 +204,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
 │   │   ├── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
 │   │   ├── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
+│   │   ├── TrashServiceFailureTests.cs    # Delete failures counted as Failed not Deleted (Windows-gated IO error simulation)
 │   │   └── TrashServiceInternalHelpersTests.cs # TruncateToSize / MeasureString / ExtractOriginalName / TryParseTrashTimestamp edge cases
 │   ├── Common/                    # Shared cross-service helper tests
 │   │   ├── AtomicFileTests.cs             # UTF-8 no-BOM, temp-file cleanup, transient-IO retry, async CancellationToken
@@ -208,17 +218,25 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   └── TransformationPatchesTests.cs   # IndexHtml callback: null/empty-Contents, idempotent re-serving, case-insensitive </BODY>
 │   ├── FolderBrowser/             # Server-side folder browsing tests
 │   │   ├── FolderBrowserDtoTests.cs        # DTO defaults, mutability, reference-equality (guards against accidental record conversion)
-│   │   └── FolderBrowserServiceTests.cs    # GetRoots per-OS, ValidatePath (traversal/null-byte/access-denied), GetChildren (symlinks)
+│   │   ├── FolderBrowserServiceTests.cs    # GetRoots per-OS, ValidatePath (traversal/null-byte/access-denied), GetChildren (symlinks)
+│   │   └── FolderBrowserServiceSecurityTests.cs # SECURITY: directory-traversal and access-denied enumeration guards
 │   ├── Link/                      # Link repair tests
 │   │   └── SymlinkHelperTests.cs           # Real-filesystem integration; graceful skip without privileges; meta-test ensures Linux CI runs the branch
 │   ├── PluginLog/                 # Plugin log tests
 │   ├── Seerr/                     # Seerr integration tests
 │   │   ├── SeerrIntegrationServiceTests.cs             # Connection/cleanup contract; FormatException guard: non-ASCII/spaced API keys must not throw
+│   │   ├── SeerrIntegrationServiceErrorHandlingTests.cs # Cancellation-vs-timeout paths, null-results fail-closed, CRLF header-injection guard
 │   │   ├── SeerrMediaDetailsTests.cs
 │   │   ├── SeerrRequestPageTests.cs                    # Null-coalescing on Results; non-null same-reference contract; reassignment clears to empty
 │   │   └── Discovery/            # Seerr Discovery tests
 │   │       ├── DiscoveryCacheServiceTests.cs            # Disk + memory persistence; per-test real file to avoid cross-test contamination
+│   │       ├── DiscoveryCacheServiceConstructionTests.cs # Constructor guards and directory-creation behaviour
 │   │       ├── DiscoveryFeedbackStoreTests.cs
+│   │       ├── DiscoveryFeedbackStoreConstructionTests.cs # NormalizeMediaType defaults, directory creation, graceful save degradation
+│   │       ├── DiscoveryFeedbackExampleBuilderLabelTests.cs # Label assignment, latest-interaction timestamp, people-similarity parity
+│   │       ├── SeerrDiscoveryServiceGenerationTests.cs   # GenerateDiscoveryRecommendationsAsync pipeline: guards, child/language routing, exclusions, credits, Arr exclusion
+│   │       ├── SeerrDiscoveryServicePersistenceFailureTests.cs # Feedback/cache persistence failures degrade gracefully
+│   │       ├── TmdbGenreMapReverseLookupTests.cs         # Reverse id→name lookup: known ids, unknown fallthrough
 │   │       ├── DiscoveryRecommendationTests.cs         # DTO setter guards: Score/TmdbRating/Popularity clamp, non-finite→0
 │   │       ├── DiscoveryRegressionTests.cs              # v2.1.0.3 regressions (ServerId=0, profile dedup, MissingMethodException)
 │   │       ├── ExternalCandidateFeatureBuilderTests.cs  # inference↔training feature parity (genre-exposure + popularity skew)
@@ -235,15 +253,21 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip
 │   ├── Statistics/                # Statistics service tests
+│   │   └── MediaStatisticsServiceTrashPathResolutionTests.cs # Trash-path resolution and BuildItemLookup case-insensitive keying / empty-path skip
 │   ├── Timeline/                  # Growth timeline tests
 │   │   ├── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks
+│   │   ├── GrowthTimelinePersistenceFailureTests.cs # Baseline save/load failures degrade gracefully without throwing
+│   │   ├── LibraryInsightsServiceTraversalTests.cs  # Directory-walk over a real tree with a scripted IFileSystem for sizes/timestamps
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
 │   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/quarterly/yearly thresholds) and GenerateBucketStarts bucket spacing.
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
+│       │   ├── ContentAffinityResolverTests.cs         # ResolveSeriesStatus train/serve parity; non-fatal exception fallbacks
 │       │   ├── ContentScoringTests.cs
 │       │   ├── DiversityRerankerTests.cs
+│       │   ├── EngineDiscoveryWatchedStatusTests.cs     # TrainStrategy marks favorited movies/series watched with the correct media type
+│       │   ├── EngineIdfRarityTests.cs                  # IDF rarity weighting: rare genres/studios contribute more than common ones
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
 │       │   ├── EngineCommunityPopularityTests.cs      # BuildCommunityPopularityMap: batch and live paths produce identical output
@@ -263,13 +287,22 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   └── Training/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
+│       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
 │       │       └── TrainingFeatureComputerTests.cs    # Training features must stay in lock-step with live scoring path
 │       ├── Playlist/              # Playlist sync tests
-│       │   └── RecommendationPlaylistServiceTests.cs
+│       │   ├── RecommendationPlaylistServiceTests.cs
+│       │   ├── RecommendationPlaylistServiceDeletionFallbackTests.cs # Fallback delete path + OperationCanceled rethrow
+│       │   └── RecommendationPlaylistServiceSecurityTests.cs # SECURITY: path-escape guard on managed playlist folders
 │       ├── Scoring/               # Strategy-specific tests
 │       │   ├── ScoringStrategyTests.cs
 │       │   ├── NeuralScoringStrategyTests.cs
 │       │   ├── EnsembleScoringStrategyAdvancedTests.cs # ScoreWithOffset, ApplyCohortFeedback, constructor guards
+│       │   ├── EnsembleScoringStrategyNeuralTests.cs   # Neural sub-strategy blending and post-dispose degradation
+│       │   ├── EnsembleScoringStrategyStateTests.cs    # State-file persistence: save-failure swallowed and logged (cross-platform IO error)
+│       │   ├── EnsembleScoringStrategyTrainingTests.cs # Validation-loss dampening of alpha; quality-factor mapping
+│       │   ├── LearnedScoringStrategyStandardizationTests.cs # Feature standardization: mean/variance normalization and guards
+│       │   ├── LearnedScoringStrategyLoggingTests.cs   # Training log lines and level selection
+│       │   ├── LearnedScoringStrategyRobustnessTests.cs # NaN/degenerate inputs discarded, not applied
 │       │   ├── StrategySelectorTests.cs                # Cohort router: exploration gate, deterministic hash bucketing, routing
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
 │       │   ├── ScoreExplanationTests.cs
@@ -277,10 +310,12 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   └── RankingMetricsTests.cs
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
+│       │   ├── WatchHistoryServiceLanguageProfileTests.cs # Language-profile aggregation from watch history; NormalizeLanguage rows
 │       │   ├── UserWatchProfileTests.cs        # Cache invalidation for lazy props, case-insensitive dictionary re-assignment (guards case-sensitive cache-deserialisation from silently regressing genre/language matching), null-safe setters, TopPeople boundaries (min-count filter, tie-break, cap at 20)
 │       │   ├── WatchHistoryCompatTests.cs      # IUserManager API compatibility (MissingMethodException handling)
 │       │   └── WatchHistoryServiceTests.cs
 │       ├── RecommendationCacheServiceTests.cs
+│       ├── RecommendationCacheServiceErrorHandlingTests.cs # Save/load IO failures degrade gracefully under an exclusive lock (cross-platform)
 │       ├── RecommendationCacheServiceExtendedTests.cs  # Defensive branches missed by RecommendationCacheServiceTests: null-argument guard, directory auto-creation when DataPath does not exist, load of a file containing literal "null"
 │       ├── RecommendationDtoTests.cs
 │       ├── RecommendationEngineTests.cs

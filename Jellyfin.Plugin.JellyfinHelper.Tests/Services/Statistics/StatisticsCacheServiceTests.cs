@@ -239,4 +239,15 @@ public class StatisticsCacheServiceTests : IDisposable
         var exception = Record.Exception(() => System.Threading.Tasks.Task.WaitAll(tasks));
         Assert.Null(exception);
     }
+
+    [Fact]
+    public void SaveLatestResult_WriteFails_SwallowsExceptionAndDoesNotThrow()
+    {
+        // A directory sitting at the exact target file name makes AtomicFile's final
+        // File.Move throw IOException. The best-effort contract requires SaveLatestResult
+        // to log a warning and degrade gracefully so a scheduled scan task never crashes.
+        Directory.CreateDirectory(Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json"));
+
+        Assert.Null(Record.Exception(() => _service.SaveLatestResult(new MediaStatisticsResult())));
+    }
 }

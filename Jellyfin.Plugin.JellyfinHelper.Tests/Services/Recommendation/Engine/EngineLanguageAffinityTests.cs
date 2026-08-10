@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Model.Entities;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
@@ -182,5 +184,68 @@ public sealed class EngineLanguageAffinityTests
         var item = new Movie();
         Assert.Equal(0.5, Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine
             .ComputeSubtitleLanguageAffinity(profile, item));
+    }
+
+    // ============================================================================
+    // Positive-signal path: past both short-circuits, the real ComputeBestLanguageAffinity
+    // delegation runs. GetMediaStreams is virtual on BaseItem, so a mocked candidate can
+    // surface a matching-language stream and drive the aggregate above the neutral 0.5.
+    // ============================================================================
+
+    [Fact]
+    public void ComputeLanguageAffinity_ProfileAndCandidateStreamsMatchPrimary_ReturnsHighAffinity()
+    {
+        // The user's dominant (primary) language is 'en'; the candidate carries an English
+        // audio stream ('eng' → 'en'). This exercises the branch beyond both neutral returns
+        // where the real ComputeBestLanguageAffinity delegation actually runs and awards the
+        // 1.0 primary-match tier - so the result must be strictly above the 0.5 neutral value.
+        var profile = new UserWatchProfile
+        {
+            LanguageProfile = new Dictionary<string, LanguageProfileEntry>
+            {
+                { "en", new LanguageProfileEntry { ChosenCount = 10, ForcedCount = 0 } }
+            }
+        };
+
+        var candidate = new Mock<Movie> { CallBase = true };
+        candidate.Setup(m => m.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Audio, Language = "eng" }
+        ]);
+
+        var affinity = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine
+            .ComputeLanguageAffinity(profile, candidate.Object);
+
+        Assert.True(
+            affinity > 0.5,
+            $"A primary-language audio match must score above the 0.5 neutral value; got {affinity}.");
+    }
+
+    [Fact]
+    public void ComputeSubtitleLanguageAffinity_ProfileAndCandidateSubtitleStreamsMatch_ReturnsHighAffinity()
+    {
+        // Subtitle mirror of the audio positive path: primary subtitle language 'en', candidate
+        // exposes an English subtitle stream. Reaches the subtitle ComputeBestLanguageAffinity
+        // delegation, which must return an above-neutral score for the primary-match.
+        var profile = new UserWatchProfile
+        {
+            SubtitleLanguageProfile = new Dictionary<string, LanguageProfileEntry>
+            {
+                { "en", new LanguageProfileEntry { ChosenCount = 10, ForcedCount = 0 } }
+            }
+        };
+
+        var candidate = new Mock<Movie> { CallBase = true };
+        candidate.Setup(m => m.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Subtitle, Language = "eng" }
+        ]);
+
+        var affinity = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine
+            .ComputeSubtitleLanguageAffinity(profile, candidate.Object);
+
+        Assert.True(
+            affinity > 0.5,
+            $"A primary-language subtitle match must score above the 0.5 neutral value; got {affinity}.");
     }
 }

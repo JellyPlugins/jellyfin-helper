@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Reflection;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -527,5 +529,198 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         Assert.Equal(201, okA.StatusCode);
         var okB = Assert.IsType<ObjectResult>(resultB.Result);
         Assert.Equal(201, okB.StatusCode);
+    }
+
+    [Fact]
+    public async Task SubmitMyRequest_NoUserClaim_ReturnsUnauthorized()
+    {
+        // Access gate passes (enabled), so the authenticated-user guard is the next line of defence.
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
+        var result = await CreateController(null).SubmitMyRequest(dto, CancellationToken.None);
+        Assert.IsType<UnauthorizedResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task SubmitMyRequest_OverrideRequestedButUserHasNoAllowedProfiles_Returns403()
+    {
+        // Client sent a profile override but the user has zero allowed profiles → must not override.
+        var userId = Guid.NewGuid();
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult
+            {
+                CanRequest = true,
+                Profiles = new List<AllowedQualityProfile>()
+            });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 1, ProfileId = 10 };
+        var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+        var status = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(403, status.StatusCode);
+    }
+
+    [Fact]
+    public async Task SubmitMyRequest_MatchedProfileHasNoRootFolderButClientSendsOne_Returns403()
+    {
+        // The matched profile has no root-folder constraint, so the client must not smuggle an
+        // arbitrary path in - that would let a user write anywhere the profile never authorised.
+        var userId = Guid.NewGuid();
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult
+            {
+                CanRequest = true,
+                Profiles = new List<AllowedQualityProfile>
+                {
+                    new() { ServerId = 1, ProfileId = 10 }
+                }
+            });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 1, ProfileId = 10, RootFolder = "/movies/hd" };
+        var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+        var status = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(403, status.StatusCode);
+        var body = Assert.IsType<RequestResult>(status.Value);
+        Assert.Contains("root folder", body.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SubmitMyRequest_MarkAsRequestedThrows_StillReturns201()
+    {
+        // The local cache-mark is best-effort: even a matching cached item that fails to persist
+        // must not fail the request once Seerr has already accepted it, and RecordRequested still fires.
+        var userId = Guid.NewGuid();
+        _cache.Save(new List<DiscoveryResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "erin",
+                GeneratedAt = DateTime.UtcNow,
+                Recommendations =
+                {
+                    new DiscoveryRecommendation { TmdbId = 100, MediaType = "movie", AlreadyRequested = false }
+                }
+            }
+        });
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "queued"));
+
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
+        var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
+        var body = Assert.IsType<RequestResult>(ok.Value);
+        Assert.True(body.Success);
+        _feedbackStoreMock.Verify(f => f.RecordRequested(userId, 100, "movie"), Times.Once);
+    }
+
+    [Fact]
+    public async Task SubmitMyRequest_SameUser_AfterWindowElapsed_AcceptsRequest()
+    {
+        // A request made once the 10s per-user window has elapsed must be admitted again:
+        // the elapsed>=window branch refreshes the timestamp instead of rejecting.
+        var userId = Guid.NewGuid();
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "queued"));
+
+        var lastRequestTime = GetLastRequestTime();
+        try
+        {
+            // Seed a stale timestamp 30s in the past so the window is already expired.
+            lastRequestTime[userId] = DateTime.UtcNow - TimeSpan.FromSeconds(30);
+
+            var result = await CreateController(userId).SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" }, CancellationToken.None);
+
+            var ok = Assert.IsType<ObjectResult>(result.Result);
+            Assert.Equal(201, ok.StatusCode);
+            var body = Assert.IsType<RequestResult>(ok.Value);
+            Assert.True(body.Success);
+        }
+        finally
+        {
+            ResetRateLimitState();
+        }
+    }
+
+    [Fact]
+    public async Task SubmitMyRequest_HundredthAcceptedRequest_EvictsExpiredRateLimitEntries()
+    {
+        // Every 100th accepted request opportunistically sweeps the dictionary: an entry older
+        // than the 10s window (belonging to a user NOT making this call) must be evicted, while
+        // the fresh caller's own recent entry survives.
+        var caller = Guid.NewGuid();
+        var staleUser = Guid.NewGuid();
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(caller, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(caller, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "queued"));
+
+        var lastRequestTime = GetLastRequestTime();
+        try
+        {
+            // Increment to 100 triggers the sweep; the stale entry is 30s old (> 10s window).
+            SetAcceptedRequestCount(99);
+            lastRequestTime[staleUser] = DateTime.UtcNow - TimeSpan.FromSeconds(30);
+
+            var result = await CreateController(caller).SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" }, CancellationToken.None);
+
+            var ok = Assert.IsType<ObjectResult>(result.Result);
+            Assert.Equal(201, ok.StatusCode);
+            Assert.False(lastRequestTime.ContainsKey(staleUser));
+            Assert.True(lastRequestTime.ContainsKey(caller));
+        }
+        finally
+        {
+            ResetRateLimitState();
+        }
+    }
+
+    // Repo precedent (MediaStatisticsControllerTests) reaches private static rate-limit state via
+    // reflection; the same seam exposes LastRequestTime and _acceptedRequestCount here.
+    private static ConcurrentDictionary<Guid, DateTime> GetLastRequestTime()
+    {
+        var field = typeof(UserDiscoveryController).GetField("LastRequestTime", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Static field 'LastRequestTime' not found on UserDiscoveryController.");
+        return (ConcurrentDictionary<Guid, DateTime>)field.GetValue(null)!;
+    }
+
+    private static void SetAcceptedRequestCount(int value)
+    {
+        var field = typeof(UserDiscoveryController).GetField("_acceptedRequestCount", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Static field '_acceptedRequestCount' not found on UserDiscoveryController.");
+        field.SetValue(null, value);
+    }
+
+    private static void ResetRateLimitState()
+    {
+        GetLastRequestTime().Clear();
+        SetAcceptedRequestCount(0);
     }
 }

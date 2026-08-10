@@ -1,3 +1,4 @@
+using System;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
 
@@ -490,5 +491,39 @@ public sealed class RankingMetricsTests
 
         Assert.Equal(1.0, perfect, 6);
         Assert.True(swapped < perfect, $"Swapped ({swapped:F4}) should be < perfect ({perfect:F4})");
+    }
+
+    // === Mismatched array lengths ===
+    // Predictions and labels are paired per example; a length mismatch is caller error.
+    // The guard must reject it up front rather than index into the shorter array.
+
+    [Fact]
+    public void PrecisionAtK_MismatchedArrayLengths_Throws()
+    {
+        var pred = new[] { 0.9, 0.8, 0.7 };
+        var lbl = new[] { 1.0, 0.0 };
+
+        var ex = Assert.Throws<ArgumentException>(() => RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 3));
+        Assert.Equal("labels", ex.ParamName);
+    }
+
+    [Fact]
+    public void RecallAtK_MismatchedArrayLengths_Throws()
+    {
+        var pred = new[] { 0.9, 0.8, 0.7 };
+        var lbl = new[] { 1.0, 0.0, 0.8, 0.6 };
+
+        var ex = Assert.Throws<ArgumentException>(() => RankingMetrics.ComputeRecallAtK(pred, lbl, k: 3));
+        Assert.Equal("labels", ex.ParamName);
+    }
+
+    [Fact]
+    public void NdcgAtK_MismatchedArrayLengths_Throws()
+    {
+        var pred = new[] { 0.9, 0.8 };
+        var lbl = new[] { 1.0, 0.0, 0.8 };
+
+        var ex = Assert.Throws<ArgumentException>(() => RankingMetrics.ComputeNdcgAtK(pred, lbl, k: 2));
+        Assert.Equal("labels", ex.ParamName);
     }
 }

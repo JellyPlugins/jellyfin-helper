@@ -1394,4 +1394,259 @@ public class LinkRepairServiceTests
     {
         protected override int VisitedDirectoryCap => 2;
     }
+
+    // =========================================================================
+    // FindLinkFiles: per-file & per-directory fault isolation, cancellation,
+    // directory-symlink resolution
+    // =========================================================================
+
+    [Fact]
+    public void FindLinkFiles_HandlerCanHandleThrowsIOException_SkipsFileAndContinuesScan()
+    {
+        // A locked/unreadable file whose CanHandle throws must not abort the whole scan -
+        // the per-file catch has to swallow it and keep enumerating so sibling links are
+        // still discovered.
+        var seriesDir = _fileSystem.Path.GetFullPath("/series/Show1");
+        var goodFile = _fileSystem.Path.GetFullPath("/series/Show1/good.strm");
+        var badFile = _fileSystem.Path.GetFullPath("/series/Show1/bad.strm");
+        _fileSystem.AddFile(goodFile, new MockFileData("target"));
+        _fileSystem.AddFile(badFile, new MockFileData("target"));
+
+        var throwingHandler = new Mock<ILinkHandler>();
+        throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        throwingHandler.Setup(h => h.CanHandle(badFile)).Throws(new IOException("file locked"));
+        throwingHandler.Setup(h => h.CanHandle(It.Is<string>(s => s != badFile))).Returns(false);
+
+        var service = new LinkRepairService(
+            _fileSystem,
+            [throwingHandler.Object, _strmHandler],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        var result = service.FindLinkFiles([seriesDir]);
+
+        Assert.Contains(result, r => r.FilePath == goodFile);
+        Assert.DoesNotContain(result, r => r.FilePath == badFile);
+    }
+
+    [Fact]
+    public void FindLinkFiles_CancellationDuringFileInspection_PropagatesOperationCanceled()
+    {
+        // Cancellation raised from inside the try block (during per-file inspection) must
+        // surface as OperationCanceledException via the dedicated OCE catch - it must NOT
+        // be swallowed by the broader IOException catch that guards directory access.
+        var seriesDir = _fileSystem.Path.GetFullPath("/series");
+        _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/a.strm"), new MockFileData("t"));
+        _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/b.strm"), new MockFileData("t"));
+
+        using var cts = new CancellationTokenSource();
+        var cancellingHandler = new Mock<ILinkHandler>();
+        cancellingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        cancellingHandler.Setup(h => h.CanHandle(It.IsAny<string>()))
+            .Returns<string>(_ =>
+            {
+                cts.Cancel();
+                return false;
+            });
+
+        var service = new LinkRepairService(
+            _fileSystem,
+            [cancellingHandler.Object],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        Assert.Throws<OperationCanceledException>(() => service.FindLinkFiles([seriesDir], cts.Token));
+    }
+
+    [Fact]
+    public void FindLinkFiles_DirectoryEnumerationThrowsIOException_SkipsDirectoryAndReturnsPartial()
+    {
+        // A directory that exists but throws IOException when enumerated (e.g. transient
+        // mount fault) must be logged and skipped, not crash the whole scan.
+        var fs = new EnumerateThrowsFileSystem();
+        var dir = fs.Path.GetFullPath("/throwing-dir");
+        fs.SetThrowOnEnumerate(dir);
+        fs.AddDirectory(dir);
+
+        var service = new LinkRepairService(
+            fs,
+            [new StrmLinkHandler(fs)],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        var result = service.FindLinkFiles([dir]);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindLinkFiles_DirectorySymlinkResolvedToTarget_EnumeratesTargetContents()
+    {
+        // When a scanned directory is itself a symlink, ResolveLinkTarget returns the real
+        // target and the visited-set is keyed on that resolved path (dedupe) - the .strm
+        // inside must still be discovered exactly once.
+        var fs = new ResolvingDirectoryFileSystem();
+        var link = fs.Path.GetFullPath("/series/linkdir");
+        var target = fs.Path.GetFullPath("/real/targetdir");
+        var strmFile = fs.Path.Combine(link, "movie.strm");
+        fs.AddFile(strmFile, new MockFileData("target"));
+        fs.AddDirectory(target);
+        fs.SetLink(link, target);
+
+        var service = new LinkRepairService(
+            fs,
+            [new StrmLinkHandler(fs)],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        var result = service.FindLinkFiles([link]);
+
+        Assert.Single(result);
+        Assert.Equal(strmFile, result[0].FilePath);
+    }
+
+    // =========================================================================
+    // ProcessLinkFile: link-file directory null & normalization exceptions
+    // =========================================================================
+
+    [Fact]
+    public void ProcessLinkFile_LinkFilePathIsRoot_DirectoryNameNull_ReturnsInvalidContent()
+    {
+        // Path.GetDirectoryName returns null for a filesystem root. A link file living at
+        // the root must map to InvalidContent, not crash on the null directory.
+        var root = _fileSystem.Path.GetPathRoot(_fileSystem.Path.GetFullPath("/x"))!;
+
+        var handler = new Mock<ILinkHandler>();
+        handler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        handler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        handler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns("sibling.mkv");
+
+        var result = _service.ProcessLinkFile(root, handler.Object, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_NormalizationThrowsArgumentException_ReturnsInvalidContent()
+    {
+        // GetFullPath throwing ArgumentException while normalizing a rooted target must be
+        // caught and mapped to InvalidContent - never propagate. (Deterministic counterpart
+        // to the PathTooLong test, which modern runtimes may not actually throw for.)
+        var fs = new GetFullPathThrowsForTargetFileSystem();
+        var rootedTarget = fs.Path.GetFullPath("/rooted/target.mkv");
+        fs.SetThrowTarget(rootedTarget);
+
+        var linkFile = fs.Path.GetFullPath("/series/Show1/movie.strm");
+        fs.AddFile(linkFile, new MockFileData("stub"));
+
+        var handler = new Mock<ILinkHandler>();
+        handler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        handler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        handler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(rootedTarget);
+
+        var service = new LinkRepairService(
+            fs,
+            [handler.Object],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        var result = service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    // MockFileSystem whose Directory.EnumerateFiles throws IOException for one path,
+    // exercising the directory-level fault catch in FindLinkFilesRecursive.
+    private sealed class EnumerateThrowsFileSystem : MockFileSystem
+    {
+        private string _throwOnEnumeratePath = string.Empty;
+
+        public override IDirectory Directory => new ThrowingDirectory(this, _throwOnEnumeratePath);
+
+        public void SetThrowOnEnumerate(string path) => _throwOnEnumeratePath = path;
+
+        private sealed class ThrowingDirectory : MockDirectory
+        {
+            private readonly string _throwPath;
+
+            public ThrowingDirectory(MockFileSystem fileSystem, string throwPath)
+                : base(fileSystem, System.IO.Path.GetTempPath()) => _throwPath = throwPath;
+
+            public override bool Exists(string? path) => true;
+
+            public override IEnumerable<string> EnumerateFiles(string path)
+            {
+                if (string.Equals(path, _throwPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new IOException("enumeration failed");
+                }
+
+                return base.EnumerateFiles(path);
+            }
+
+            public override IEnumerable<string> EnumerateDirectories(string path) => Array.Empty<string>();
+        }
+    }
+
+    // MockFileSystem whose Path.GetFullPath throws ArgumentException for a specific target,
+    // exercising the normalization catch in ProcessLinkFile.
+    private sealed class GetFullPathThrowsForTargetFileSystem : MockFileSystem
+    {
+        private string _throwOnGetFullPathFor = string.Empty;
+
+        public override IPath Path => new ThrowingPath(this, _throwOnGetFullPathFor);
+
+        public void SetThrowTarget(string path) => _throwOnGetFullPathFor = path;
+
+        private sealed class ThrowingPath(MockFileSystem fileSystem, string throwFor) : MockPath(fileSystem)
+        {
+            public override string GetFullPath(string path)
+            {
+                if (string.Equals(path, throwFor, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new ArgumentException("Invalid characters in path.", nameof(path));
+                }
+
+                return base.GetFullPath(path);
+            }
+        }
+    }
+
+    // MockFileSystem whose DirectoryInfo.New returns a directory whose ResolveLinkTarget
+    // reports a non-null resolved target - plain MockFileSystem throws IOException there,
+    // which would take the fallback catch instead of the resolved-target branch.
+    private sealed class ResolvingDirectoryFileSystem : MockFileSystem
+    {
+        private string _linkPath = string.Empty;
+        private string _targetPath = string.Empty;
+
+        public override IDirectoryInfoFactory DirectoryInfo => new ResolvingFactory(this, _linkPath, _targetPath);
+
+        public void SetLink(string linkPath, string targetPath)
+        {
+            _linkPath = linkPath;
+            _targetPath = targetPath;
+        }
+
+        private sealed class ResolvingFactory(MockFileSystem fileSystem, string linkPath, string targetPath)
+            : IDirectoryInfoFactory
+        {
+            public IFileSystem FileSystem => fileSystem;
+
+            public IDirectoryInfo New(string path)
+                => string.Equals(path, linkPath, StringComparison.OrdinalIgnoreCase)
+                    ? new ResolvingDirectoryInfo(fileSystem, path, targetPath)
+                    : new MockDirectoryInfo(fileSystem, path);
+
+            public IDirectoryInfo? Wrap(DirectoryInfo? directoryInfo)
+                => directoryInfo == null ? null : new MockDirectoryInfo(fileSystem, directoryInfo.FullName);
+        }
+
+        private sealed class ResolvingDirectoryInfo(MockFileSystem fileSystem, string path, string targetPath)
+            : MockDirectoryInfo(fileSystem, path)
+        {
+            public override IFileSystemInfo ResolveLinkTarget(bool returnFinalTarget)
+                => new MockDirectoryInfo(fileSystem, targetPath);
+        }
+    }
 }

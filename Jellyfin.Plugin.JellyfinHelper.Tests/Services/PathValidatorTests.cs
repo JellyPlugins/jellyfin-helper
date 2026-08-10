@@ -206,4 +206,73 @@ public class PathValidatorTests
         // literal string, so this holds on any host runner.
         Assert.True(PathValidator.IsSensitiveSystemPath(path));
     }
+
+    // An empty base means there is no directory anything could be inside of, so the
+    // empty-base guard must short-circuit to false before any path comparison runs.
+    [Fact]
+    public void IsSafePath_ReturnsFalse_WhenAllowedBaseDirectoryEmpty()
+    {
+        Assert.False(PathValidator.IsSafePath("/media/file.txt", ""));
+    }
+
+    // Deletion may only ever act on absolute paths; a relative path is ambiguous
+    // (resolved against an unknown cwd) and must be refused outright.
+    [Fact]
+    public void IsPathSafeForDeletion_RelativePath_Rejected()
+    {
+        Assert.False(PathValidator.IsPathSafeForDeletion(Path.Combine("relative", "dir"), []));
+    }
+
+    // Deleting a whole drive/filesystem root must be refused regardless of library folders.
+    [Fact]
+    public void IsPathSafeForDeletion_FilesystemRoot_Rejected()
+    {
+        Assert.False(PathValidator.IsPathSafeForDeletion(Path.GetPathRoot(Path.GetTempPath())!, []));
+    }
+
+    // The candidate equals a configured library root exactly - deleting the library
+    // root itself must be refused (distinct from the child-of-root branch).
+    [Fact]
+    public void IsPathSafeForDeletion_PathEqualsLibraryRoot_Rejected()
+    {
+        var sep = Path.DirectorySeparatorChar.ToString();
+        var libraryRoot = Path.Combine(sep, "media", "movies");
+        Assert.False(PathValidator.IsPathSafeForDeletion(libraryRoot, [libraryRoot]));
+    }
+
+    // The candidate is a parent of a library root - deleting it would take the library
+    // root down with it, so an ancestor must be refused too.
+    [Fact]
+    public void IsPathSafeForDeletion_PathIsAncestorOfLibraryRoot_Rejected()
+    {
+        var sep = Path.DirectorySeparatorChar.ToString();
+        Assert.False(PathValidator.IsPathSafeForDeletion(
+            Path.Combine(sep, "media"),
+            [Path.Combine(sep, "media", "movies")]));
+    }
+
+    // A name that reduces to a dot-segment survives char sanitization and GetFileName
+    // but is not a usable filename, so the contract falls back to the safe default.
+    [Theory]
+    [InlineData("..")]
+    [InlineData(".")]
+    public void SanitizeFileName_ReturnsExport_WhenNameReducesToDotSegments(string name)
+    {
+        Assert.Equal("export", PathValidator.SanitizeFileName(name));
+    }
+
+    // A path that clears the null-byte and ".."-segment guards but is malformed enough
+    // that Path.GetFullPath throws (a mid-string colon is illegal on Windows) must be
+    // refused via the exception filter, not surfaced as an exception to the caller.
+    [Fact]
+    public void IsSafePath_MalformedPath_ReturnsFalse()
+    {
+        var baseDir = Path.GetTempPath();
+        var malformed = "C:mid:colon:seg";
+
+        var result = Record.Exception(() =>
+            Assert.False(PathValidator.IsSafePath(malformed, baseDir)));
+
+        Assert.Null(result);
+    }
 }

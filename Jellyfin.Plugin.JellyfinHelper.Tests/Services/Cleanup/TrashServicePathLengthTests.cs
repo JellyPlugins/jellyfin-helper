@@ -316,4 +316,79 @@ public class TrashServicePathLengthTests : IDisposable
         var finalComponent = Path.GetFileName(result);
         Assert.DoesNotMatch(@"^x_\d+$", finalComponent);
     }
+
+    // ── Fail-fast: directory alone exhausts the path budget ──────────────────
+
+    [Fact]
+    public void ResolveCollision_DirectoryBudgetExhausted_ThrowsIOException()
+    {
+        // When the directory component alone measures at or beyond the OS path limit,
+        // no child name (not even one character) can fit, so ResolveCollision must fail
+        // fast rather than hand back an over-budget path that breaks Directory.Move later.
+        var maxLen = GetExpectedMaxPathLength();
+        var separator = Path.DirectorySeparatorChar.ToString();
+        var oversizedDir = _testRoot + separator + new string('a', maxLen);
+        var desiredPath = Path.Join(oversizedDir, "20260601-120000_Movie");
+
+        var ex = Assert.Throws<IOException>(() => TrashService.ResolveCollision(desiredPath));
+        Assert.Contains("too long to create an entry", ex.Message, StringComparison.Ordinal);
+    }
+
+    // ── Timestamp-prefix preservation under a shrinking component budget ──────
+
+    [Fact]
+    public void ResolveCollision_LongTimestampedName_PreservesParseablePrefix()
+    {
+        // A trash entry whose original-name portion overflows the per-component budget must keep
+        // its "yyyyMMdd-HHmmss_" prefix intact - only the tail is truncated - otherwise
+        // TryParseTrashTimestamp would reject it and retention/UI would silently break.
+        var maxLen = GetExpectedMaxPathLength();
+        var separator = Path.DirectorySeparatorChar.ToString();
+        var budget = maxLen - TrashService.MeasureString(_testRoot) - TrashService.MeasureString(separator);
+        budget = Math.Min(budget, 255);
+        if (budget <= 16)
+        {
+            // Temp root is too deep on this host to leave room past the 16-unit prefix.
+            return;
+        }
+
+        // Prefix (16 units) plus an over-budget ASCII tail so the component must be truncated.
+        var name = "20260601-120000_" + new string('a', budget + 50);
+        var path = Path.Join(_testRoot, name);
+
+        var result = TrashService.ResolveCollision(path);
+
+        var component = Path.GetFileName(result);
+        Assert.True(TrashService.TryParseTrashTimestamp(component, out _),
+            $"Truncated component '{component}' lost its parseable timestamp prefix");
+        Assert.True(TrashService.MeasureString(component) <= 255,
+            $"Component size {TrashService.MeasureString(component)} exceeds NAME_MAX 255");
+    }
+
+    [Fact]
+    public void ResolveCollision_TimestampPrefixCannotFit_ThrowsIOException()
+    {
+        // Under a directory so deep that the remaining budget cannot even hold the 16-char
+        // timestamp prefix, the service must refuse rather than emit an unpurgeable, date-less entry.
+        var maxLen = GetExpectedMaxPathLength();
+        var separator = Path.DirectorySeparatorChar.ToString();
+
+        // Build a directory (as a string only - never created on disk) whose measured length leaves a
+        // per-component budget of 8: positive so ResolveCollision does not fail fast, yet below the
+        // 16-unit prefix so EnsurePathLength hits the refuse branch.
+        var targetDirLen = maxLen - 9; // maxLen - budget(8) - separator(1)
+        var padLen = targetDirLen - TrashService.MeasureString(_testRoot) - TrashService.MeasureString(separator);
+        if (padLen <= 0)
+        {
+            // Temp root already exceeds the target directory length on this host.
+            return;
+        }
+
+        var deepDir = Path.Join(_testRoot, new string('d', padLen));
+        var name = "20260601-120000_" + new string('a', 300); // valid prefix, over-budget tail
+        var desiredPath = Path.Join(deepDir, name);
+
+        var ex = Assert.Throws<IOException>(() => TrashService.ResolveCollision(desiredPath));
+        Assert.Contains("timestamp prefix", ex.Message, StringComparison.Ordinal);
+    }
 }

@@ -587,6 +587,132 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.False(loaded[0].Recommendations[0].AlreadyRequested);
     }
 
+    [Fact]
+    public void RemoveItem_WriteFailure_RollsBackRemovalPreservingOriginalOrderAndDoesNotThrow()
+    {
+        // A failed persist must NOT silently drop the item AND must NOT reorder the surviving
+        // recommendations: RemoveItemLocked reinserts the removed item at its ORIGINAL index so a
+        // subsequent Save can't persist a shuffled ranking. Same directory-swap idiom as the
+        // MarkAsRequested write-failure test.
+        var userId = Guid.NewGuid();
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = userId,
+                Recommendations =
+                [
+                    new DiscoveryRecommendation { TmdbId = 100, MediaType = "movie", Title = "target" },
+                    new DiscoveryRecommendation { TmdbId = 200, MediaType = "movie", Title = "sibling" }
+                ]
+            }
+        ]);
+        Assert.True(File.Exists(_cacheFilePath));
+
+        SafeDelete(_cacheFilePath);
+        Directory.CreateDirectory(_cacheFilePath);
+
+        try
+        {
+            var ex = Record.Exception(() => _sut.RemoveItem(100, "movie", userId));
+
+            Assert.Null(ex);
+            var recs = _sut.Load()[0].Recommendations;
+            Assert.Equal(2, recs.Count);
+            Assert.Equal(100, recs[0].TmdbId); // restored at its original index 0
+            Assert.Equal(200, recs[1].TmdbId); // sibling order intact
+        }
+        finally
+        {
+            if (Directory.Exists(_cacheFilePath))
+            {
+                Directory.Delete(_cacheFilePath, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void RemoveItem_LoadThrowsCorruptedJson_IsSwallowedAndCacheReset()
+    {
+        // If EnsureLoadedLocked's deserialize throws before the write try (corrupt file, no
+        // pre-warmed cache), the broad outer catch must swallow it and reset the cache to []
+        // so the service stays usable rather than propagating the JsonException.
+        Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
+        File.WriteAllText(_cacheFilePath, "{ not valid json ");
+
+        using var freshSut = new DiscoveryCacheService(
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<DiscoveryCacheService>>().Object);
+
+        var ex = Record.Exception(() => freshSut.RemoveItem(1, "movie", Guid.NewGuid()));
+
+        Assert.Null(ex);
+        var loaded = freshSut.Load();
+        Assert.NotNull(loaded);
+        Assert.Empty(loaded);
+    }
+
+    [Fact]
+    public void Save_WriteFailure_ReturnsFalseWithoutThrowing()
+    {
+        // A write error (here: the cache path is a directory, so AtomicFile's File.Move throws
+        // IOException) must be caught and reported as false - distinct from the null-arg guard,
+        // which throws ArgumentNullException.
+        SafeDelete(_cacheFilePath);
+        Directory.CreateDirectory(_cacheFilePath);
+
+        try
+        {
+            bool result = true;
+            var ex = Record.Exception(() => result = _sut.Save([
+                new DiscoveryResult { UserId = Guid.NewGuid() }
+            ]));
+
+            Assert.Null(ex);
+            Assert.False(result);
+        }
+        finally
+        {
+            if (Directory.Exists(_cacheFilePath))
+            {
+                Directory.Delete(_cacheFilePath, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Load_OversizedFileUndeletable_ReturnsEmptyAndSwallowsDeleteFailure()
+    {
+        // The oversize guard's File.Delete is best-effort: if the file is locked by another
+        // handle, the delete failure must be swallowed and Load must still return []. We hold an
+        // exclusive read handle across the Load so the delete inside EnsureLoadedLocked fails.
+        Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
+        using (var stream = new FileStream(
+                   _cacheFilePath,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.SetLength((50L * 1024 * 1024) + 1);
+        }
+
+        // Keep an exclusive handle open so File.Delete inside the oversize guard throws.
+        using (new FileStream(_cacheFilePath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            using var freshSut = new DiscoveryCacheService(
+                new Mock<IPluginLogService>().Object,
+                new Mock<ILogger<DiscoveryCacheService>>().Object);
+
+            var ex = Record.Exception(() =>
+            {
+                var results = freshSut.Load();
+                Assert.NotNull(results);
+                Assert.Empty(results);
+            });
+
+            Assert.Null(ex);
+        }
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
     // -----------------------------------------------------------------------
