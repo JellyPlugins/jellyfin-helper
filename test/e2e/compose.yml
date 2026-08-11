@@ -1,12 +1,12 @@
 # End-to-end test stack for the Jellyfin Helper plugin.
 #
-# Brings up a real Jellyfin 12.0-rc4 server with the freshly-built plugin DLL
+# Brings up a real Jellyfin 12.0 server with the freshly-built plugin DLL
 # mounted in, plus mock Radarr/Sonarr/Seerr servers so the Arr/Seerr features
 # can be exercised against realistic (green-path) responses instead of only the
 # "unreachable" path.
 #
 # The Jellyfin image tag is pinned deliberately: the plugin targets ABI
-# 12.0.0.0 (built against Jellyfin.Controller 12.0.0-rc4). The stable 10.x
+# 12.0.0.0 (built against Jellyfin.Controller 12.0.0). The stable 10.x
 # line would refuse to load the plugin. Do NOT bump this to `latest`.
 #
 # Paths are relative to this file (test/e2e/). The runner (scripts/run.sh)
@@ -16,7 +16,7 @@ name: jellyfin-helper-e2e
 
 services:
   jellyfin:
-    image: jellyfin/jellyfin:12.0-rc4
+    image: jellyfin/jellyfin:12.0-rc5
     container_name: jfh-e2e-jellyfin
     # Run as the host-invoking user in CI so mounted config is writable.
     # Overridable via JELLYFIN_UID/GID (defaults keep it simple locally).
