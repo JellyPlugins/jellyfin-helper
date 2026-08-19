@@ -194,9 +194,22 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                         PluginLog.LogInfo(TaskName, $"Deleting orphaned subtitle: {file.FullName}", Logger);
                         try
                         {
-                            var size = file.Length;
+                            // Symlink guard: check whether this subtitle entry is a symbolic link.
+                            // On NAS setups with hardlink/symlink structures subtitle files may be
+                            // symlinks; deleting the link removes the reference but leaves the target
+                            // intact. Log a warning and skip to avoid unexpected behavior.
+                            var subtitleInfo = new FileInfo(file.FullName);
+                            if (subtitleInfo.LinkTarget != null)
+                            {
+                                PluginLog.LogWarning(TaskName, $"Skipping symlinked subtitle file: {file.FullName}", logger: Logger);
+                                continue;
+                            }
+
+                            // Re-read file size from disk immediately before deletion to avoid
+                            // stale values from the earlier directory-listing snapshot (H-13).
+                            var freshSize = subtitleInfo.Exists ? subtitleInfo.Length : 0;
                             File.Delete(file.FullName);
-                            bytesFreed += size;
+                            bytesFreed += freshSize;
                             deletedCount++;
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

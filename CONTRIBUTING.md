@@ -431,7 +431,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── Common/                      # Shared cross-service helpers
 │   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
 │   │   ├── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
-│   │   └── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
+│   │   ├── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
+│   │   └── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses
 │   ├── FolderBrowser/               # Server-side folder browsing
 │   │   ├── IFolderBrowserService.cs # Interface for folder listing
 │   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards

@@ -161,7 +161,9 @@ public static class ConfigurationRequestValidator
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return $"Trash folder path '{trashFolderPath}' is invalid: {ex.Message}";
+            // Do not surface ex.Message: for PathTooLongException/ArgumentException from GetFullPath
+            // it can embed the server temp path (dummyRoot), leaking the server filesystem layout.
+            return $"Trash folder path '{trashFolderPath}' is invalid or too long.";
         }
 
         // Reject an ABSOLUTE trash path that points at a sensitive system / application

@@ -147,7 +147,21 @@ public static class BackupSanitizer
             return string.Empty;
         }
 
-        return value.Length > maxLength ? value[..maxLength] : value;
+        if (value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        // Avoid splitting a UTF-16 surrogate pair (emoji, astral-plane CJK): if the last
+        // retained code unit is a high surrogate with no low surrogate following it, drop it
+        // so the result is never ill-formed UTF-16 that could corrupt on re-serialization.
+        var end = maxLength;
+        if (end > 0 && char.IsHighSurrogate(value[end - 1]))
+        {
+            end--;
+        }
+
+        return value[..end];
     }
 
     private static void SanitizeArrInstances(List<BackupArrInstance>? instances)

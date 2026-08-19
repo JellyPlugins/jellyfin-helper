@@ -49,16 +49,28 @@ public sealed class DiscoveryController : ControllerBase
     /// <summary>
     ///     Returns the cached discovery recommendations for all users.
     /// </summary>
+    /// <param name="skip">Number of users to skip (for pagination). Clamped to &gt;= 0.</param>
+    /// <param name="take">Maximum number of users to return. Clamped to 1..MaxPageSize (defaults to MaxPageSize).</param>
     /// <returns>A list of discovery results per user.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<IReadOnlyList<DiscoveryResult>> GetDiscoveryResults()
+    public ActionResult<IReadOnlyList<DiscoveryResult>> GetDiscoveryResults(
+        [FromQuery] int skip = 0,
+        [FromQuery] int? take = null)
     {
+        // The per-user recommendation pool is already capped by MaxVisiblePerUser, but the number
+        // of users is unbounded — a large deployment would return an arbitrarily large payload.
+        // Paginate the outer per-user list; clamp inputs so hostile/invalid values cannot force a
+        // huge response or a negative skip.
+        const int MaxPageSize = 100;
+        var effectiveSkip = Math.Max(0, skip);
+        var effectiveTake = Math.Clamp(take ?? MaxPageSize, 1, MaxPageSize);
+
         var results = _cache.Load();
 
         // Filter each user pool: only next N visible (non-dismissed, non-requested) items
-        var filtered = new List<DiscoveryResult>(results.Count);
-        foreach (var userResult in results)
+        var filtered = new List<DiscoveryResult>(Math.Min(results.Count, effectiveTake));
+        foreach (var userResult in results.Skip(effectiveSkip).Take(effectiveTake))
         {
             var excluded = BuildExcludedItemKeys(userResult.UserId);
             var visible = userResult.Recommendations

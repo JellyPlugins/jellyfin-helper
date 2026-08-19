@@ -577,6 +577,8 @@ public class ConfigurationControllerTests
     {
         // Contract: HttpRequestException / TimeoutException must be caught and reported as
         // a warning - the config save must NOT fail because of unreachable Arr instances.
+        // The client-facing warning identifies the instance but must NOT leak the raw exception
+        // detail (reachability oracle); that detail is logged server-side only.
         _arrServiceMock
             .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("network down"));
@@ -592,7 +594,9 @@ public class ConfigurationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result);
         var json = JsonSerializer.Serialize(ok.Value);
         Assert.Contains("Flaky", json, StringComparison.Ordinal);
-        Assert.Contains("network down", json, StringComparison.Ordinal);
+        Assert.Contains("connection test failed", json, StringComparison.OrdinalIgnoreCase);
+        // The raw exception message must not be reflected to the client.
+        Assert.DoesNotContain("network down", json, StringComparison.Ordinal);
     }
 
     // ===== TestSeerrConnectionAsync coverage =====
@@ -638,7 +642,8 @@ public class ConfigurationControllerTests
         var json = JsonSerializer.Serialize(ok.Value);
         Assert.Contains("Seerr", json, StringComparison.Ordinal);
         Assert.Contains("not reachable", json, StringComparison.Ordinal);
-        Assert.Contains("invalid api key", json, StringComparison.Ordinal);
+        // The upstream message must not be reflected to the client (info-leak / reachability oracle).
+        Assert.DoesNotContain("invalid api key", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -658,7 +663,9 @@ public class ConfigurationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result);
         var json = JsonSerializer.Serialize(ok.Value);
         Assert.Contains("Seerr", json, StringComparison.Ordinal);
-        Assert.Contains("dns timeout", json, StringComparison.Ordinal);
+        Assert.Contains("Connection test failed", json, StringComparison.OrdinalIgnoreCase);
+        // The raw exception message must not be reflected to the client (info-leak / reachability oracle).
+        Assert.DoesNotContain("dns timeout", json, StringComparison.Ordinal);
     }
 
     [Fact]

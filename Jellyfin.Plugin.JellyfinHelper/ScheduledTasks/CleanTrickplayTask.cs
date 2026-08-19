@@ -126,8 +126,13 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 ? StringComparison.Ordinal
                 : StringComparison.OrdinalIgnoreCase;
 
-            // Cache files per parent directory to avoid repeated filesystem calls
-            var fileCache = new Dictionary<string, FileSystemMetadata[]>(StringComparer.OrdinalIgnoreCase);
+            // Cache files per parent directory to avoid repeated filesystem calls.
+            // Use OS-aware case sensitivity: Linux paths are case-sensitive (Ordinal),
+            // Windows/macOS paths are case-insensitive (OrdinalIgnoreCase).
+            var fileCacheComparer = OperatingSystem.IsLinux()
+                ? StringComparer.Ordinal
+                : StringComparer.OrdinalIgnoreCase;
+            var fileCache = new Dictionary<string, FileSystemMetadata[]>(fileCacheComparer);
 
             foreach (var dirFullName in directories)
             {
@@ -223,6 +228,17 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                     PluginLog.LogInfo(TaskName, $"Deleting orphaned trickplay folder: {dirFullName}", Logger);
                     try
                     {
+                        // Symlink guard: never call Directory.Delete(recursive:true) on a symlink.
+                        // On Linux that follows the link and destroys the real target directory tree.
+                        var trickplayDirInfo = new DirectoryInfo(dirFullName);
+                        if ((trickplayDirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                        {
+                            PluginLog.LogWarning(TaskName, $"Skipping deletion of symlinked trickplay directory (removing link only): {dirFullName}", logger: Logger);
+                            trickplayDirInfo.Delete();
+                            deletedCount++;
+                            continue;
+                        }
+
                         var size = FileSystemHelper.CalculateDirectorySize(dirFullName);
                         Directory.Delete(dirFullName, true);
                         bytesFreed += size;

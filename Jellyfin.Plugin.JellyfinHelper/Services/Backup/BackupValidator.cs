@@ -93,9 +93,13 @@ public static class BackupValidator
         "daily", "weekly", "monthly", "quarterly", "yearly"
     };
 
-    // Regex to detect script injection in string fields
+    // Regex to detect script injection in string fields. Covers the common HTML/script
+    // vectors plus the two dangerous URL schemes (data:text/html and vbscript:) that the
+    // earlier pattern missed. Homoglyph/obfuscation variants are out of scope for a denylist —
+    // the real defense is that these config values are never rendered as raw HTML server-side
+    // and are HTML-encoded on display; this pattern is defense-in-depth on stored input.
     private static readonly Regex ScriptPattern = new(
-        @"<\s*script|javascript\s*:|on\w+\s*=|<\s*iframe|<\s*object|<\s*embed|<\s*form|<\s*svg\s+on",
+        @"<\s*script|javascript\s*:|vbscript\s*:|data\s*:\s*text/html|on\w+\s*=|<\s*iframe|<\s*object|<\s*embed|<\s*form|<\s*svg\s+on",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         TimeSpan.FromSeconds(1));
 

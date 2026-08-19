@@ -78,6 +78,18 @@ public class BackupController : ControllerBase
         }
 
         var backup = _backupService.CreateBackup(includeSecrets);
+
+        // Audit: a secrets-included export writes API keys as plaintext JSON. Record it at
+        // warning level so there is a trail of when credentials left the server. The endpoint
+        // is admin-only, but a plaintext-credential export still warrants an explicit log entry.
+        if (includeSecrets && backup.ContainsSecrets)
+        {
+            _pluginLog.LogWarning(
+                "API",
+                "Backup exported WITH plaintext secrets (includeSecrets=true). API keys are included in the exported file.",
+                logger: _logger);
+        }
+
         var json = BackupService.SerializeBackup(backup);
 
         var bytes = Encoding.UTF8.GetBytes(json);

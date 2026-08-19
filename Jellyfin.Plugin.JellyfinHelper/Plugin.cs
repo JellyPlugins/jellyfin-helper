@@ -338,6 +338,35 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return false;
             }
 
+            // Defense-in-depth: verify the assembly is loaded from within Jellyfin's plugin
+            // directory. This does not replace strong-name/signature verification but prevents
+            // a rogue assembly placed outside the plugin directory from passing the name check.
+            var assemblyLocation = fileTransformationAssembly.Location;
+            if (_logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation("[Discovery Sidebar] FileTransformation assembly found at: {Location}", assemblyLocation);
+            }
+
+            if (!string.IsNullOrEmpty(assemblyLocation) && !string.IsNullOrEmpty(_applicationPaths.PluginsPath))
+            {
+                var normalizedLocation = Path.GetFullPath(assemblyLocation);
+                var normalizedPluginsPath = Path.GetFullPath(_applicationPaths.PluginsPath);
+                var pluginsPathWithSep = normalizedPluginsPath.TrimEnd(
+                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+
+                if (!normalizedLocation.StartsWith(pluginsPathWithSep, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning(
+                        "[Discovery Sidebar] FileTransformation assembly is NOT in the Jellyfin plugins " +
+                        "directory (expected under '{PluginsPath}', found at '{Location}'). " +
+                        "Skipping registration as a security precaution.",
+                        normalizedPluginsPath,
+                        normalizedLocation);
+                    return false;
+                }
+            }
+
             var pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
             if (pluginInterfaceType == null)
             {

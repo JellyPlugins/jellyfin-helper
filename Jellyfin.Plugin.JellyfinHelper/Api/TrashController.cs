@@ -173,6 +173,23 @@ public class TrashController : ControllerBase
         {
             try
             {
+                // TOCTOU guard: between the Directory.Exists check above and this delete, the
+                // path could be swapped for a symlink/junction pointing at a real media library.
+                // Directory.Delete(recursive:true) would then follow the link and destroy the
+                // target tree. Re-stat immediately before deleting and skip reparse points.
+                var pathInfo = new DirectoryInfo(path);
+                if (!pathInfo.Exists)
+                {
+                    continue;
+                }
+
+                if ((pathInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    failed.Add(path);
+                    _pluginLog.LogError("API", $"Refusing to delete trash folder {path}: it is a reparse point (symlink/junction). Skipping to prevent symlink traversal.", logger: _logger);
+                    continue;
+                }
+
                 Directory.Delete(path, true);
                 deleted.Add(path);
                 _pluginLog.LogInfo("API", $"Deleted trash folder: {path}", _logger);
@@ -585,6 +602,36 @@ public class TrashController : ControllerBase
         => PathValidator.IsSensitiveSystemPath(normalizedPath);
 
     /// <summary>
+    ///     Normalizes OS-level exception messages in CheckAccess responses to prevent
+    ///     leaking internal path structures or system-specific error text to API callers.
+    ///     Returns a generic human-readable category string instead of raw OS exception text.
+    /// </summary>
+    private static string? SanitizeAccessErrorMessage(string? message)
+    {
+        if (string.IsNullOrEmpty(message))
+        {
+            return message;
+        }
+
+        if (message.Contains("denied", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("permission", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("access", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("unauthorized", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Access denied";
+        }
+
+        if (message.Contains("not found", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("no such", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Path not found";
+        }
+
+        return "Check failed";
+    }
+
+    /// <summary>
     /// Checks whether the Jellyfin process has read/write access to a given trash path.
     /// Used by the UI to proactively warn the user before attempting relocation or deletion
     /// on a path where permissions are insufficient.
@@ -649,7 +696,7 @@ public class TrashController : ControllerBase
                 CanRead = accessResult.CanRead,
                 CanWrite = accessResult.CanWrite,
                 HasFullAccess = accessResult.HasFullAccess,
-                ErrorMessage = accessResult.ErrorMessage,
+                ErrorMessage = SanitizeAccessErrorMessage(accessResult.ErrorMessage),
             });
         }
         else
@@ -681,7 +728,7 @@ public class TrashController : ControllerBase
                     CanRead = accessResult.CanRead,
                     CanWrite = accessResult.CanWrite,
                     HasFullAccess = accessResult.HasFullAccess,
-                    ErrorMessage = accessResult.ErrorMessage,
+                    ErrorMessage = SanitizeAccessErrorMessage(accessResult.ErrorMessage),
                 });
             }
         }

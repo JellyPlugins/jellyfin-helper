@@ -12,6 +12,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
@@ -30,10 +31,7 @@ public sealed class UserDiscoveryController : ControllerBase
 {
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> LastRequestTime = new();
-
-    private static int _acceptedRequestCount;
-
+    private readonly IMemoryCache _memoryCache;
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
@@ -47,18 +45,21 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="discovery">The discovery service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="configurationService">The plugin configuration service.</param>
+    /// <param name="memoryCache">The memory cache used for per-user rate limiting.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
         ISeerrDiscoveryService discovery,
         IDiscoveryFeedbackStore feedbackStore,
         IPluginConfigurationService configurationService,
+        IMemoryCache memoryCache,
         ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
         _discovery = discovery;
         _feedbackStore = feedbackStore;
         _configurationService = configurationService;
+        _memoryCache = memoryCache;
         _logger = logger;
     }
 
@@ -324,28 +325,22 @@ public sealed class UserDiscoveryController : ControllerBase
         var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
 
         // Per-user rate limit: prevent a single user from flooding Seerr with requests.
-        // Use AddOrUpdate for an atomic check-and-set so there is no TOCTOU window between
-        // reading LastRequestTime and writing the new timestamp (findings #118/#314).
+        // IMemoryCache auto-evicts entries after RequestRateLimit, so no manual sweep is needed
+        // and the dictionary cannot grow unbounded across plugin restarts.
         var now = DateTime.UtcNow;
         var rateLimitExceeded = false;
         var retryAfterSeconds = 0;
 
-        LastRequestTime.AddOrUpdate(
-            currentJellyfinUserId,
-            addValueFactory: _ => now,
-            updateValueFactory: (_, lastRequest) =>
+        var rateLimitKey = $"ratelimit:{currentJellyfinUserId:N}";
+        if (_memoryCache.TryGetValue<DateTime>(rateLimitKey, out var lastRequest))
+        {
+            var elapsed = now - lastRequest;
+            if (elapsed < RequestRateLimit)
             {
-                var elapsed = now - lastRequest;
-                if (elapsed < RequestRateLimit)
-                {
-                    rateLimitExceeded = true;
-                    retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
-                    // Return the original value unchanged so the window is not reset on a rejected request.
-                    return lastRequest;
-                }
-
-                return now;
-            });
+                rateLimitExceeded = true;
+                retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
+            }
+        }
 
         if (rateLimitExceeded)
         {
@@ -357,19 +352,7 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
-        // Opportunistic sweep: evict expired entries every 100 accepted requests to avoid
-        // an O(n) full-dictionary scan on every non-rate-limited call. With RequestRateLimit
-        // of 10 seconds the dictionary is naturally small, so deferred cleanup is sufficient.
-        if ((Interlocked.Increment(ref _acceptedRequestCount) % 100) == 0)
-        {
-            foreach (var entry in LastRequestTime)
-            {
-                if (now - entry.Value > RequestRateLimit)
-                {
-                    LastRequestTime.TryRemove(entry.Key, out _);
-                }
-            }
-        }
+        _memoryCache.Set(rateLimitKey, now, RequestRateLimit);
 
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(
@@ -537,7 +520,16 @@ public sealed class UserDiscoveryController : ControllerBase
     ///     <see cref="Plugin.OnUninstalling"/> so stale entries from a previous
     ///     plugin load do not leak into a subsequent reload (finding #313/#77/#117).
     /// </summary>
-    internal static void ClearRateLimitState() => LastRequestTime.Clear();
+    /// <summary>
+    ///     No-op: rate-limit state is now managed via <see cref="IMemoryCache"/> with automatic
+    ///     TTL expiry. Entries auto-expire after <see cref="RequestRateLimit"/> and cannot
+    ///     accumulate unboundedly. Kept for backward compatibility with <see cref="Plugin"/>
+    ///     constructor which calls this on every load.
+    /// </summary>
+    internal static void ClearRateLimitState()
+    {
+        /* IMemoryCache auto-expires entries — nothing to clear */
+    }
 
     /// <summary>
     ///     Reconstructs <see cref="SeerrServiceInfo"/> objects directly from the pre-evaluated

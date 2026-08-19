@@ -79,6 +79,24 @@ public class SymlinkHelper : ISymlinkHelper
     /// <inheritdoc />
     public void CreateSymlink(string linkPath, string targetPath)
     {
+        // Precondition validation: File.CreateSymbolicLink throws a bare ArgumentException on
+        // null/empty, and silently no-ops nothing useful if the link path already points at a
+        // file/dir. Fail fast with clear errors so callers cannot create a broken/ambiguous link.
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            throw new ArgumentException("Link path must not be null or empty.", nameof(linkPath));
+        }
+
+        if (string.IsNullOrWhiteSpace(targetPath))
+        {
+            throw new ArgumentException("Target path must not be null or empty.", nameof(targetPath));
+        }
+
+        if (File.Exists(linkPath) || Directory.Exists(linkPath))
+        {
+            throw new IOException($"Cannot create symlink at '{linkPath}': a file or directory already exists there.");
+        }
+
         File.CreateSymbolicLink(linkPath, targetPath);
     }
 
@@ -110,7 +128,35 @@ public class SymlinkHelper : ISymlinkHelper
                 + "(likely replaced by a real file since the scan). Aborting repair to avoid data loss.");
         }
 
-        File.Move(sourcePath, destPath, overwrite: true);
+        // TOCTOU: between the IsSymlinkFromAttributes check and File.Move, an import tool
+        // (Sonarr/Radarr) could replace the symlink with the real downloaded media file.
+        // We narrow the window and detect the race post-hoc via a re-stat on IOException.
+        try
+        {
+            File.Move(sourcePath, destPath, overwrite: true);
+        }
+        catch (IOException)
+        {
+            // Re-stat destPath: if it is now a real file the race occurred — do not overwrite.
+            try
+            {
+                var recheckAttrs = File.GetAttributes(destPath);
+                if (!IsSymlinkFromAttributes(destPath, recheckAttrs))
+                {
+                    throw new InvalidOperationException(
+                        $"Refusing to overwrite '{destPath}': it became a real file during the move operation. "
+                        + "Aborting repair to avoid data loss. The downloaded media file is safe.");
+                }
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                // destPath vanished between the IOException and the re-stat — retry without overwrite.
+                File.Move(sourcePath, destPath);
+                return;
+            }
+
+            throw; // Re-throw original IOException: destPath still looks like a symlink (other I/O failure).
+        }
     }
 
     /// <inheritdoc />

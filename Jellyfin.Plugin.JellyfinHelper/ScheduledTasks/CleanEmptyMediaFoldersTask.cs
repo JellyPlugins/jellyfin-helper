@@ -212,6 +212,18 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     PluginLog.LogInfo(TaskName, $"Deleting orphaned media folder: {topDir.FullName}", Logger);
                     try
                     {
+                        // Symlink guard: never call Directory.Delete(recursive:true) on a symlink —
+                        // on Linux that follows the link and destroys the real target directory tree.
+                        // Only delete the link node itself; let the actual directory contents remain.
+                        var dirInfo = new DirectoryInfo(topDir.FullName);
+                        if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                        {
+                            PluginLog.LogWarning(TaskName, $"Skipping deletion of symlinked directory (removing link only): {topDir.FullName}", logger: Logger);
+                            dirInfo.Delete(); // deletes the link node, not the target
+                            deletedCount++;
+                            continue;
+                        }
+
                         // Reuse the byte count already accumulated during the analysis pass
                         // instead of re-traversing the tree with CalculateDirectorySize.
                         Directory.Delete(topDir.FullName, true);

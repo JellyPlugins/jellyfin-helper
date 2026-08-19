@@ -268,6 +268,28 @@ public class ConfigurationController : ControllerBase
             }
         }
 
+        // Warn (do not block) when ExcludedLibraries names libraries that do not currently exist.
+        // A stale/typo'd name is benign at runtime — it simply never matches during cleanup — but
+        // surfacing it helps the admin catch a mistake. Libraries can be renamed/removed and later
+        // re-added, so this is advisory only and never rejects the save.
+        if (!string.IsNullOrWhiteSpace(request.ExcludedLibraries))
+        {
+            var excluded = CleanupConfigHelper.ParseCommaSeparated(request.ExcludedLibraries);
+            if (excluded.Count > 0)
+            {
+                var existingNames = _libraryManager.GetVirtualFolders()
+                    .Select(f => f.Name ?? string.Empty)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var unknown = excluded.Where(name => !existingNames.Contains(name)).ToList();
+                if (unknown.Count > 0)
+                {
+                    var libWarning = $"ExcludedLibraries references {unknown.Count} library name(s) that do not currently exist: {string.Join(", ", unknown)}. They will have no effect until a matching library exists.";
+                    warnings.Add(libWarning);
+                    _pluginLog.LogWarning("API", libWarning, logger: _logger);
+                }
+            }
+        }
+
         return Ok(new ConfigurationSaveResponse { Message = "Configuration saved.", Warnings = warnings });
     }
 
@@ -341,9 +363,11 @@ public class ConfigurationController : ControllerBase
             }
             else
             {
-                var warning = $"Seerr instance ({seerrUrl}) is not reachable: {message}";
-                warnings.Add(warning);
-                _pluginLog.LogWarning("API", warning, logger: _logger);
+                // Generic client-facing warning; the upstream `message` (which can reveal
+                // reachability/credential details) is logged server-side only. Matches the
+                // dedicated Seerr connection-test endpoint's behaviour.
+                warnings.Add($"Seerr instance ({seerrUrl}) is not reachable. Verify the URL and API Key.");
+                _pluginLog.LogWarning("API", $"Seerr instance ({seerrUrl}) is not reachable: {message}", logger: _logger);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -352,10 +376,12 @@ public class ConfigurationController : ControllerBase
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
         {
-            // Handles network errors, timeouts, and non-token OperationCanceledException (e.g., HttpClient timeout)
-            var warning = $"Connection test failed for Seerr ({seerrUrl}): {ex.Message}";
-            warnings.Add(warning);
-            _pluginLog.LogWarning("API", warning, ex, _logger);
+            // Handles network errors, timeouts, and non-token OperationCanceledException (e.g., HttpClient timeout).
+            // Return a GENERIC warning to the client — the raw ex.Message can reflect upstream reachability
+            // (e.g. "connection refused" vs "no such host") and turn the save endpoint into an internal-network
+            // oracle. The detailed exception is logged server-side only.
+            warnings.Add($"Connection test failed for Seerr ({seerrUrl}). Verify the URL and API Key.");
+            _pluginLog.LogWarning("API", $"Connection test failed for Seerr ({seerrUrl}): {ex.Message}", ex, _logger);
         }
     }
 
@@ -408,9 +434,10 @@ public class ConfigurationController : ControllerBase
                 }
                 else
                 {
-                    var warning = $"{typeName} instance '{label}' ({instance.Url}) is not reachable: {message}";
-                    warnings.Add(warning);
-                    _pluginLog.LogWarning("API", warning, logger: _logger);
+                    // Generic client-facing warning; the upstream `message` (which can reveal
+                    // reachability details) is logged server-side only.
+                    warnings.Add($"{typeName} instance '{label}' ({instance.Url}) is not reachable. Verify the URL and API Key.");
+                    _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({instance.Url}) is not reachable: {message}", logger: _logger);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -420,9 +447,9 @@ public class ConfigurationController : ControllerBase
             catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
             {
                 var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{i + 1}";
-                var warning = $"{typeName} instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";
-                warnings.Add(warning);
-                _pluginLog.LogWarning("API", warning, ex, _logger);
+                // Generic client-facing warning; the raw ex.Message is logged server-side only.
+                warnings.Add($"{typeName} instance '{label}' ({instance.Url}) connection test failed. Verify the URL and API Key.");
+                _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({instance.Url}) connection test failed: {ex.Message}", ex, _logger);
             }
         }
     }

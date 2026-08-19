@@ -87,6 +87,15 @@ public class ArrIntegrationController : ControllerBase
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
+        // Block well-known cloud metadata endpoints (AWS/Azure IMDS, GCP, Alibaba). Internal LAN
+        // addresses are intentionally NOT blocked (see the scheme-guard rationale above), but the
+        // instance-metadata endpoints are never a legitimate Arr target and are a classic SSRF sink.
+        if (IsCloudMetadataHost(parsedUrl.Host))
+        {
+            _pluginLog.LogWarning("API", $"Blocked connection test to cloud metadata endpoint: {parsedUrl.Host}", logger: _logger);
+            return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
+        }
+
         var (success, message) = await _arrService.TestConnectionAsync(
             parsedUrl.AbsoluteUri,
             request.ApiKey ?? string.Empty,
@@ -299,4 +308,16 @@ public class ArrIntegrationController : ControllerBase
 
         return result;
     }
+
+    /// <summary>
+    ///     Returns true if the host is a well-known cloud instance metadata endpoint.
+    ///     These addresses should never be targets for Arr connection tests.
+    ///     Note: RFC-1918 (192.168.x.x, 10.x.x.x) and loopback are intentionally NOT blocked
+    ///     because Radarr/Sonarr commonly run on LAN addresses alongside Jellyfin.
+    /// </summary>
+    private static bool IsCloudMetadataHost(string host) =>
+        host.Equals("169.254.169.254", StringComparison.OrdinalIgnoreCase) // AWS / Azure IMDS (link-local)
+        || host.Equals("metadata.google.internal", StringComparison.OrdinalIgnoreCase) // GCP metadata
+        || host.Equals("100.100.100.200", StringComparison.OrdinalIgnoreCase) // Alibaba Cloud IMDS
+        || host.Equals("[fd00:ec2::254]", StringComparison.OrdinalIgnoreCase); // AWS IPv6 IMDS
 }

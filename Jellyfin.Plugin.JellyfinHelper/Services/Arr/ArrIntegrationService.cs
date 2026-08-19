@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -356,12 +356,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        if (response.Content.Headers.ContentLength is long len && len > 100 * 1024 * 1024)
-        {
-            throw new InvalidOperationException("Response too large");
-        }
-
-        return await ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+        return await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
     }
 
     private static void ValidateArrUrl(string baseUrl)
@@ -381,15 +376,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         {
             throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
         }
-    }
-
-    private static async Task<string> ReadLimitedAsync(HttpContent content, CancellationToken cancellationToken)
-    {
-        const int MaxBytes = 100 * 1024 * 1024;
-        using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var limited = new LimitedStream(stream, MaxBytes);
-        using var reader = new StreamReader(limited);
-        return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private sealed class ArrSystemStatusDto
@@ -440,84 +426,5 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         public int EpisodeFileCount { get; set; }
 
         public int TotalEpisodeCount { get; set; }
-    }
-
-    private sealed class LimitedStream : Stream
-    {
-        // CA2213 suppressed: _inner is a borrowed reference - ReadLimitedAsync's outer
-        // `using var stream` owns the lifetime. Disposing here would cause a double-dispose.
-#pragma warning disable CA2213
-        private readonly Stream _inner;
-#pragma warning restore CA2213
-        private readonly long _maxBytes;
-        private long _bytesRead;
-
-        public LimitedStream(Stream inner, long maxBytes)
-        {
-            _inner = inner;
-            _maxBytes = maxBytes;
-        }
-
-        public override bool CanRead => true;
-
-        public override bool CanSeek => false;
-
-        public override bool CanWrite => false;
-
-        public override long Length => throw new NotSupportedException();
-
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            var remaining = _maxBytes - _bytesRead;
-            if (remaining <= 0)
-            {
-                throw new InvalidOperationException("Response too large");
-            }
-
-            var toRead = (int)Math.Min(count, remaining);
-            var n = _inner.Read(buffer, offset, toRead);
-            _bytesRead += n;
-            return n;
-        }
-
-        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-        {
-            return await ReadAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
-        }
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            var remaining = _maxBytes - _bytesRead;
-            if (remaining <= 0)
-            {
-                throw new InvalidOperationException("Response too large");
-            }
-
-            var toRead = (int)Math.Min(buffer.Length, remaining);
-            var n = await _inner.ReadAsync(buffer[..toRead], cancellationToken).ConfigureAwait(false);
-            _bytesRead += n;
-            return n;
-        }
-
-        public override void Flush() => throw new NotSupportedException();
-
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-
-        public override void SetLength(long value) => throw new NotSupportedException();
-
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-        protected override void Dispose(bool disposing)
-        {
-            // Do NOT dispose _inner here: ReadLimitedAsync's outer `using var stream` owns
-            // the inner stream's lifetime. Disposing it here would cause a double-dispose.
-            base.Dispose(disposing);
-        }
     }
 }

@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -71,7 +72,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 return (false, $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
             var settings = JsonSerializer.Deserialize<SeerrMainSettings>(json, JsonOptions);
 
             var title = !string.IsNullOrWhiteSpace(settings?.ApplicationTitle)
@@ -145,7 +146,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
                 response.EnsureSuccessStatusCode();
 
-                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
                 page = JsonSerializer.Deserialize<SeerrRequestPage>(json, JsonOptions);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -256,6 +257,19 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         foreach (var request in expiredRequests)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Guard against invalid IDs from deserialization failures.
+            // request.Id == 0 (default int) when JSON deserialization returns no value,
+            // and api/v1/request/0 is a valid but entirely unintended Seerr endpoint.
+            if (request.Id <= 0)
+            {
+                _pluginLog.LogWarning(
+                    "SeerrCleanup",
+                    $"Skipping expired request with invalid Id={request.Id} — likely a deserialization issue.",
+                    logger: _logger);
+                result.Failed++;
+                continue;
+            }
 
             // Guaranteed non-null: every item in expiredRequests passed the fail-closed age guard above.
             var createdAt = request.CreatedAt!.Value;
@@ -404,7 +418,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 return "Unknown";
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
             var details = JsonSerializer.Deserialize<SeerrMediaDetails>(json, JsonOptions);
 
             return details?.DisplayTitle ?? "Unknown";

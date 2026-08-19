@@ -108,8 +108,25 @@ public class TrashService : ITrashService
             // Calculate size before moving
             var size = CalculateDirectorySize(sourcePath);
 
-            // Move to trash
-            Directory.Move(sourcePath, trashItemPath);
+            // TOCTOU mitigation: ResolveCollision found a free path, but between that check
+            // and Directory.Move another process could claim the same path. On IOException
+            // where the destination already exists, re-resolve to a fresh GUID-based name and retry.
+            const int MoveRetries = 3;
+            for (var moveAttempt = 0; ; moveAttempt++)
+            {
+                try
+                {
+                    Directory.Move(sourcePath, trashItemPath);
+                    break;
+                }
+                catch (IOException) when (
+                    moveAttempt < MoveRetries &&
+                    (File.Exists(trashItemPath) || Directory.Exists(trashItemPath)))
+                {
+                    trashItemPath = EnsurePathLength(
+                        Path.Join(trashBasePath, $"{timestamp}_{dirName}_{Guid.NewGuid():N}"));
+                }
+            }
 
             _pluginLog.LogInfo("Trash", $"Moved to trash: {sourcePath} → {trashItemPath} ({size} bytes)", logger);
             return size;
@@ -211,6 +228,19 @@ public class TrashService : ITrashService
 
         try
         {
+            // Guard: refuse to enumerate a trash folder that is itself a symlink/reparse point.
+            // If trashBasePath were replaced with a symlink pointing to a media library, enumerating
+            // its contents and deleting timestamp-matching entries would destroy real media files.
+            var trashBaseInfo = new DirectoryInfo(trashBasePath);
+            if ((trashBaseInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                _pluginLog.LogError(
+                    "Trash",
+                    $"Trash folder is a reparse point (symlink/junction) — skipping purge to prevent symlink traversal: {trashBasePath}",
+                    logger: logger);
+                return (0, 0);
+            }
+
             // Purge old directories
             foreach (var dir in Directory.GetDirectories(trashBasePath))
             {
@@ -623,7 +653,7 @@ public class TrashService : ITrashService
         }
 
         var safePath = EnsurePathLength(desiredPath);
-        if (!File.Exists(safePath) && !Directory.Exists(safePath))
+        if (!Path.Exists(safePath))
         {
             return safePath;
         }
@@ -641,21 +671,26 @@ public class TrashService : ITrashService
                 $"(available: {maxNameSize}, minimum required: {MeasureString("_2")}).");
         }
 
-        for (var i = 2; i < 1000; i++)
+        // A short numeric scan keeps human-readable names for the common few-collisions case.
+        // We deliberately cap this low (was 998) so that on high-latency mounts (NFS/SMB) we do
+        // not perform hundreds of stat round-trips — after this we jump straight to a GUID suffix,
+        // which is collision-free in practice. Path.Exists checks file+dir in a single syscall.
+        const int NumericScanLimit = 20;
+        for (var i = 2; i < NumericScanLimit; i++)
         {
             var suffix = $"_{i}";
             var candidate = BuildSuffixSafeCandidate(directory, name, suffix);
-            if (!File.Exists(candidate) && !Directory.Exists(candidate))
+            if (!Path.Exists(candidate))
             {
                 return candidate;
             }
         }
 
-        // Extremely unlikely fallback: append a GUID and verify the final truncated path.
+        // Fallback: append a GUID and verify the final truncated path.
         for (var attempt = 0; attempt < 128; attempt++)
         {
             var guidCandidate = BuildSuffixSafeCandidate(directory, name, $"_{Guid.NewGuid():N}");
-            if (!File.Exists(guidCandidate) && !Directory.Exists(guidCandidate))
+            if (!Path.Exists(guidCandidate))
             {
                 return guidCandidate;
             }
