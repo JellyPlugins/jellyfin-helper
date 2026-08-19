@@ -412,6 +412,29 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => _sut.DeleteSymlink(path));
     }
 
+    [Fact]
+    public void DeleteSymlink_DirectorySymlink_RemovesLinkButNotTarget()
+    {
+        // Verifies the FileAttributes.Directory branch works properly and uses Directory.Delete
+        if (!SymlinksSupported())
+        {
+            return;
+        }
+
+        var targetDir = Path.Join(_tempDir, "target-dir");
+        Directory.CreateDirectory(targetDir);
+        File.WriteAllText(Path.Join(targetDir, "keep.txt"), "safe");
+
+        var linkDir = Path.Join(_tempDir, "link-dir");
+        File.CreateSymbolicLink(linkDir, targetDir);
+
+        _sut.DeleteSymlink(linkDir);
+
+        Assert.False(Directory.Exists(linkDir), "The symlink directory node must be deleted.");
+        Assert.True(Directory.Exists(targetDir), "The target directory must survive.");
+        Assert.True(File.Exists(Path.Join(targetDir, "keep.txt")), "Contents inside the target directory must survive.");
+    }
+
     // ReplaceSymlink - TOCTOU data-loss guard (audit finding link-service-1)
 
     [Fact]
