@@ -212,9 +212,12 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     PluginLog.LogInfo(TaskName, $"Deleting orphaned media folder: {topDir.FullName}", Logger);
                     try
                     {
-                        // Symlink guard: never call Directory.Delete(recursive:true) on a symlink —
-                        // on Linux that follows the link and destroys the real target directory tree.
-                        // Only delete the link node itself; let the actual directory contents remain.
+                        // Symlink guard: if this entry is itself a reparse point (symlink/junction),
+                        // do NOT recurse into it. .NET's Directory.Delete removes the final symlink
+                        // node itself rather than following it, but we still special-case it: we
+                        // delete only the link node and never treat its (real) target's contents as
+                        // orphaned. This also avoids any ambiguity around a symlinked directory being
+                        // reported as "empty".
                         var dirInfo = new DirectoryInfo(topDir.FullName);
                         if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
                         {

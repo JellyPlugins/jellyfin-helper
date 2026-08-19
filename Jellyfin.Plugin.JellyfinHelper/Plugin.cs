@@ -347,24 +347,39 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 _logger.LogInformation("[Discovery Sidebar] FileTransformation assembly found at: {Location}", assemblyLocation);
             }
 
-            if (!string.IsNullOrEmpty(assemblyLocation) && !string.IsNullOrEmpty(_applicationPaths.PluginsPath))
+            // Fail CLOSED: if we cannot determine the assembly location or the plugins path, we
+            // cannot verify the origin, so we must NOT register (previously this skipped the check
+            // and registered anyway).
+            if (string.IsNullOrWhiteSpace(assemblyLocation) || string.IsNullOrWhiteSpace(_applicationPaths.PluginsPath))
             {
-                var normalizedLocation = Path.GetFullPath(assemblyLocation);
-                var normalizedPluginsPath = Path.GetFullPath(_applicationPaths.PluginsPath);
-                var pluginsPathWithSep = normalizedPluginsPath.TrimEnd(
-                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    + Path.DirectorySeparatorChar;
+                _logger.LogWarning(
+                    "[Discovery Sidebar] Cannot verify the FileTransformation assembly origin "
+                    + "(assembly location or plugins path unavailable). Skipping registration as a security precaution.");
+                return false;
+            }
 
-                if (!normalizedLocation.StartsWith(pluginsPathWithSep, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning(
-                        "[Discovery Sidebar] FileTransformation assembly is NOT in the Jellyfin plugins " +
-                        "directory (expected under '{PluginsPath}', found at '{Location}'). " +
-                        "Skipping registration as a security precaution.",
-                        normalizedPluginsPath,
-                        normalizedLocation);
-                    return false;
-                }
+            var normalizedLocation = Path.GetFullPath(assemblyLocation);
+            var normalizedPluginsPath = Path.GetFullPath(_applicationPaths.PluginsPath);
+            var pluginsPathWithSep = normalizedPluginsPath.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+
+            // Path comparison must be OS-aware: Linux paths are case-sensitive, so an
+            // OrdinalIgnoreCase compare would treat /plugins and /PLUGINS as equal and could let a
+            // differently-cased outside path pass. Windows/macOS are case-insensitive.
+            var pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
+            if (!normalizedLocation.StartsWith(pluginsPathWithSep, pathComparison))
+            {
+                _logger.LogWarning(
+                    "[Discovery Sidebar] FileTransformation assembly is NOT in the Jellyfin plugins " +
+                    "directory (expected under '{PluginsPath}', found at '{Location}'). " +
+                    "Skipping registration as a security precaution.",
+                    normalizedPluginsPath,
+                    normalizedLocation);
+                return false;
             }
 
             var pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");

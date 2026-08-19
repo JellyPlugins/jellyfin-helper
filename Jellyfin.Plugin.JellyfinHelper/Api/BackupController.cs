@@ -79,17 +79,6 @@ public class BackupController : ControllerBase
 
         var backup = _backupService.CreateBackup(includeSecrets);
 
-        // Audit: a secrets-included export writes API keys as plaintext JSON. Record it at
-        // warning level so there is a trail of when credentials left the server. The endpoint
-        // is admin-only, but a plaintext-credential export still warrants an explicit log entry.
-        if (includeSecrets && backup.ContainsSecrets)
-        {
-            _pluginLog.LogWarning(
-                "API",
-                "Backup exported WITH plaintext secrets (includeSecrets=true). API keys are included in the exported file.",
-                logger: _logger);
-        }
-
         var json = BackupService.SerializeBackup(backup);
 
         var bytes = Encoding.UTF8.GetBytes(json);
@@ -120,6 +109,19 @@ public class BackupController : ControllerBase
             "API",
             $"Backup exported ({FormatBackupSize(bytes.LongLength)}, timelinePoints={backup.GrowthTimeline?.DataPoints.Count ?? 0}, baselineDirs={backup.GrowthBaseline?.Directories.Count ?? 0})",
             _logger);
+
+        // Audit: only now — after all size/validation checks have passed and the file is about to
+        // leave the server — record a secrets-included export. Logging earlier would falsely claim
+        // "credentials exported" even when the request was subsequently rejected (e.g. oversize)
+        // and no file ever left the server.
+        if (includeSecrets && backup.ContainsSecrets)
+        {
+            _pluginLog.LogWarning(
+                "API",
+                "Backup exported WITH plaintext secrets (includeSecrets=true). API keys are included in the exported file.",
+                logger: _logger);
+        }
+
         return File(bytes, "application/json", $"jellyfin-helper-backup-{timestamp}.json");
     }
 

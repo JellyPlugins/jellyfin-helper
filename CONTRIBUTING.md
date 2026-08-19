@@ -209,7 +209,9 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Common/                    # Shared cross-service helper tests
 │   │   ├── AtomicFileTests.cs             # UTF-8 no-BOM, temp-file cleanup, transient-IO retry, async CancellationToken
 │   │   ├── BatchFallbackHelperTests.cs    # try-batch/fall-back: cancellation propagates, non-fatal exceptions degrade gracefully
-│   │   └── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
+│   │   ├── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
+│   │   ├── HttpResponseReaderTests.cs     # Size-bounded read: under/at/over limit (EOF probe at exact limit), Content-Length fast-reject, null, cancellation
+│   │   └── SsrfGuardTests.cs              # Cloud metadata hosts blocked (incl. IPv6/case-insensitive); LAN/loopback/public allowed
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── FileTransformation/        # File Transformation plugin integration tests
 │   │   ├── DiscoveryScriptTagTests.cs      # Build() well-formed HTML, RemovalRegex round-trips, must not eat unrelated script tags
@@ -432,7 +434,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
 │   │   ├── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
 │   │   ├── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
-│   │   └── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses
+│   │   ├── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses
+│   │   ├── ResponseTooLargeException.cs # Typed exception thrown by HttpResponseReader when a body exceeds the size limit
+│   │   └── SsrfGuard.cs             # Shared SSRF guard: blocks cloud metadata hosts on every Arr/Seerr outbound path (controller + config-save)
 │   ├── FolderBrowser/               # Server-side folder browsing
 │   │   ├── IFolderBrowserService.cs # Interface for folder listing
 │   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards

@@ -105,10 +105,14 @@ public class SymlinkHelper : ISymlinkHelper
     {
         // TOCTOU guard (data-loss prevention): between LinkRepairService reading the broken
         // target and this move, an import (Sonarr/Radarr) can replace the placeholder symlink
-        // at destPath with the REAL downloaded media file. Moving our temp symlink over it with
-        // overwrite:true would destroy the real bytes with no trash/backup. Re-stat destPath and
-        // refuse unless it is still a symbolic link (reparse point WITH a non-null LinkTarget).
-        // If destPath no longer exists we allow the move (nothing to lose).
+        // at destPath with the REAL downloaded media file. Overwriting it blindly would destroy
+        // the real bytes with no trash/backup.
+        //
+        // We avoid File.Move(overwrite: true) entirely: that primitive clobbers whatever is at
+        // destPath, so a real file that appears AFTER our stat check but BEFORE the move would be
+        // silently destroyed. Instead we move WITHOUT overwrite (fails atomically if anything is
+        // there), and only when that fails do we re-stat: if — and only if — destPath is still a
+        // symlink do we delete that link and retry. A real file is never overwritten.
         FileAttributes destAttrs;
         try
         {
@@ -116,8 +120,8 @@ public class SymlinkHelper : ISymlinkHelper
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
-            // Destination vanished since the scan; safe to move into place.
-            File.Move(sourcePath, destPath, overwrite: true);
+            // Destination vanished since the scan; safe to move into place (no overwrite needed).
+            File.Move(sourcePath, destPath);
             return;
         }
 
@@ -128,34 +132,38 @@ public class SymlinkHelper : ISymlinkHelper
                 + "(likely replaced by a real file since the scan). Aborting repair to avoid data loss.");
         }
 
-        // TOCTOU: between the IsSymlinkFromAttributes check and File.Move, an import tool
-        // (Sonarr/Radarr) could replace the symlink with the real downloaded media file.
-        // We narrow the window and detect the race post-hoc via a re-stat on IOException.
         try
         {
-            File.Move(sourcePath, destPath, overwrite: true);
+            // Non-overwriting move: atomically fails if destPath still exists (it does — a symlink).
+            File.Move(sourcePath, destPath);
+            return;
         }
         catch (IOException)
         {
-            // Re-stat destPath: if it is now a real file the race occurred — do not overwrite.
+            // destPath exists. Re-stat: only remove it if it is STILL a symlink. If a real file
+            // raced into place we must not touch it.
+            FileAttributes recheckAttrs;
             try
             {
-                var recheckAttrs = File.GetAttributes(destPath);
-                if (!IsSymlinkFromAttributes(destPath, recheckAttrs))
-                {
-                    throw new InvalidOperationException(
-                        $"Refusing to overwrite '{destPath}': it became a real file during the move operation. "
-                        + "Aborting repair to avoid data loss. The downloaded media file is safe.");
-                }
+                recheckAttrs = File.GetAttributes(destPath);
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
-                // destPath vanished between the IOException and the re-stat — retry without overwrite.
+                // destPath vanished between the failed move and the re-stat — retry cleanly.
                 File.Move(sourcePath, destPath);
                 return;
             }
 
-            throw; // Re-throw original IOException: destPath still looks like a symlink (other I/O failure).
+            if (!IsSymlinkFromAttributes(destPath, recheckAttrs))
+            {
+                throw new InvalidOperationException(
+                    $"Refusing to overwrite '{destPath}': it became a real file during the move operation. "
+                    + "Aborting repair to avoid data loss. The downloaded media file is safe.");
+            }
+
+            // Still a symlink — delete just the link node (never follows to a target) and retry.
+            File.Delete(destPath);
+            File.Move(sourcePath, destPath);
         }
     }
 

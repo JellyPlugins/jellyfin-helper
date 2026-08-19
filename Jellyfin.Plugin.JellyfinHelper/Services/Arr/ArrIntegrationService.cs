@@ -91,7 +91,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 _logger);
             return (false, "Connection failed. Check the URL and network connectivity.");
         }
-        catch (InvalidOperationException ex)
+        catch (ResponseTooLargeException ex)
         {
             _pluginLog.LogWarning("ArrIntegration", $"Response too large from Arr at {baseUrl}", ex, _logger);
             return (false, "Response too large.");
@@ -151,7 +151,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
             return null;
         }
-        catch (InvalidOperationException ex)
+        catch (ResponseTooLargeException ex)
         {
             _pluginLog.LogWarning("ArrIntegration", $"Response too large from Radarr at {baseUrl}", ex, _logger);
             return null;
@@ -209,7 +209,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
             return null;
         }
-        catch (InvalidOperationException ex)
+        catch (ResponseTooLargeException ex)
         {
             _pluginLog.LogWarning("ArrIntegration", $"Response too large from Sonarr at {baseUrl}", ex, _logger);
             return null;
@@ -338,7 +338,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
     ///     and returns the response body as a string, enforcing the 100 MB size cap.
     ///     Throws <see cref="ArgumentException"/> for bad URLs,
     ///     <see cref="HttpRequestException"/> for non-2xx responses,
-    ///     and <see cref="InvalidOperationException"/> when the response exceeds the size limit.
+    ///     and <see cref="ResponseTooLargeException"/> when the response exceeds the size limit.
     /// </summary>
     private async Task<string> FetchJsonAsync(
         string baseUrl,
@@ -365,6 +365,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         {
             throw new ArgumentException("Invalid or unsupported URL scheme", nameof(baseUrl));
         }
+
+        // Central SSRF guard: block cloud metadata endpoints on EVERY path that reaches the network,
+        // including the configuration-save path which calls the service directly (bypassing the
+        // controller-level check).
+        SsrfGuard.ThrowIfCloudMetadataHost(uri.Host, nameof(baseUrl));
     }
 
     private static void EnsureApiKeyHeaderSafe(string apiKey)

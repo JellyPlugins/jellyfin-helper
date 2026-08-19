@@ -228,8 +228,11 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                     PluginLog.LogInfo(TaskName, $"Deleting orphaned trickplay folder: {dirFullName}", Logger);
                     try
                     {
-                        // Symlink guard: never call Directory.Delete(recursive:true) on a symlink.
-                        // On Linux that follows the link and destroys the real target directory tree.
+                        // Symlink guard: if this entry is itself a reparse point (symlink/junction),
+                        // do NOT recurse into it. .NET's Directory.Delete removes the final symlink
+                        // node itself rather than following it into the target, but we special-case
+                        // it so we only ever remove the link node and never delete the real target's
+                        // contents.
                         var trickplayDirInfo = new DirectoryInfo(dirFullName);
                         if ((trickplayDirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
                         {

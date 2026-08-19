@@ -683,7 +683,84 @@ public class ConfigurationControllerTests
             Times.Never);
     }
 
-    // ===== SeerrCleanupAgeDays clamp / disable =====
+    // ===== ExcludedLibraries validation warning (advisory, never blocks the save) =====
+
+    // Builds a controller whose library manager reports the given virtual-folder names, exposing
+    // the plugin-log mock so tests can assert an advisory warning was (or was not) logged.
+    private ConfigurationController CreateControllerWithLibraries(
+        out Mock<IPluginLogService> pluginLogMock,
+        params string[] libraryNames)
+    {
+        var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
+        var folders = new System.Collections.Generic.List<MediaBrowser.Model.Entities.VirtualFolderInfo>();
+        foreach (var name in libraryNames)
+        {
+            folders.Add(new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = name,
+                CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.movies
+            });
+        }
+
+        libraryManagerMock.Setup(lm => lm.GetVirtualFolders()).Returns(folders);
+
+        pluginLogMock = new Mock<IPluginLogService>();
+        var configHelperMock = new Mock<ICleanupConfigHelper>();
+        configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
+        return new ConfigurationController(
+            _arrServiceMock.Object,
+            pluginLogMock.Object,
+            new Mock<ILogger<ConfigurationController>>().Object,
+            configHelperMock.Object,
+            _configServiceMock.Object,
+            _seerrServiceMock.Object,
+            libraryManagerMock.Object,
+            new EnsembleScoringStrategy());
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ExcludedLibrariesUnknownName_ReturnsAdvisoryWarning()
+    {
+        var controller = CreateControllerWithLibraries(out var pluginLogMock, "Movies", "TV Shows");
+
+        var request = new ConfigurationUpdateRequest
+        {
+            ExcludedLibraries = "Movies, Nonexistent Library"
+        };
+
+        var result = await controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        // The unknown name is surfaced as a warning; the save still succeeds (advisory only).
+        Assert.Contains("Nonexistent Library", json, StringComparison.Ordinal);
+        Assert.Contains("do not currently exist", json, StringComparison.Ordinal);
+        pluginLogMock.Verify(
+            l => l.LogWarning(
+                "API",
+                It.Is<string>(m => m.Contains("Nonexistent Library", System.StringComparison.Ordinal)),
+                It.IsAny<System.Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ExcludedLibrariesMatchCaseInsensitive_NoWarning()
+    {
+        var controller = CreateControllerWithLibraries(out _, "Movies", "TV Shows");
+
+        var request = new ConfigurationUpdateRequest
+        {
+            // Different casing must still match — no "does not exist" warning.
+            ExcludedLibraries = "movies, TV SHOWS"
+        };
+
+        var result = await controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        Assert.DoesNotContain("do not currently exist", json, StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task UpdateConfiguration_SeerrCleanupAgeDays_TooLarge_ReturnsBadRequest()

@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Microsoft.AspNetCore.Authorization;
@@ -78,7 +79,7 @@ public class SeerrController : ControllerBase
         // Block well-known cloud metadata endpoints (AWS/Azure IMDS, GCP, Alibaba).
         // Internal LAN addresses are intentionally NOT blocked since Seerr typically runs
         // on the same host or LAN as Jellyfin.
-        if (IsCloudMetadataHost(parsedUrl.Host))
+        if (SsrfGuard.IsCloudMetadataHost(parsedUrl.Host))
         {
             _pluginLog.LogWarning("API", $"Blocked connection test to cloud metadata endpoint: {parsedUrl.Host}", logger: _logger);
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
@@ -117,16 +118,4 @@ public class SeerrController : ControllerBase
             return StatusCode(StatusCodes.Status504GatewayTimeout, new ConnectionTestResponse { Success = false, Message = "Connection timed out after 10 seconds." });
         }
     }
-
-    /// <summary>
-    ///     Returns true if the host is a well-known cloud instance metadata endpoint.
-    ///     These addresses should never be targets for Seerr connection tests.
-    ///     Note: RFC-1918 and loopback addresses are intentionally NOT blocked since Seerr
-    ///     commonly runs on LAN addresses alongside Jellyfin.
-    /// </summary>
-    private static bool IsCloudMetadataHost(string host) =>
-        host.Equals("169.254.169.254", StringComparison.OrdinalIgnoreCase) // AWS / Azure IMDS (link-local)
-        || host.Equals("metadata.google.internal", StringComparison.OrdinalIgnoreCase) // GCP metadata
-        || host.Equals("100.100.100.200", StringComparison.OrdinalIgnoreCase) // Alibaba Cloud IMDS
-        || host.Equals("[fd00:ec2::254]", StringComparison.OrdinalIgnoreCase); // AWS IPv6 IMDS
 }

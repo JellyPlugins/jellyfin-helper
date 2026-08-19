@@ -174,9 +174,12 @@ public class TrashController : ControllerBase
             try
             {
                 // TOCTOU guard: between the Directory.Exists check above and this delete, the
-                // path could be swapped for a symlink/junction pointing at a real media library.
-                // Directory.Delete(recursive:true) would then follow the link and destroy the
-                // target tree. Re-stat immediately before deleting and skip reparse points.
+                // path (or one of its ancestors) could be swapped for a symlink/junction pointing
+                // at a real media library, redirecting the recursive delete into that tree. .NET's
+                // Directory.Delete removes a FINAL symlink node itself rather than following it, but
+                // a symlinked ANCESTOR still redirects traversal — so we re-stat immediately before
+                // deleting and refuse if this path is now a reparse point. This narrows, but cannot
+                // fully close, the race (a purely pathname-based check is not an atomic binding).
                 var pathInfo = new DirectoryInfo(path);
                 if (!pathInfo.Exists)
                 {

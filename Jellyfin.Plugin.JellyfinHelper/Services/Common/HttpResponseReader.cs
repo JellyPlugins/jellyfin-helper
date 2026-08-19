@@ -21,7 +21,7 @@ internal static class HttpResponseReader
     public const int DefaultMaxBytes = 100 * 1024 * 1024;
 
     /// <summary>
-    ///     Reads the response body as a string, throwing <see cref="InvalidOperationException"/>
+    ///     Reads the response body as a string, throwing <see cref="ResponseTooLargeException"/>
     ///     if it exceeds <paramref name="maxBytes"/>.
     /// </summary>
     /// <param name="content">The HTTP content to read.</param>
@@ -37,7 +37,7 @@ internal static class HttpResponseReader
 
         if (content.Headers.ContentLength is long len && len > maxBytes)
         {
-            throw new InvalidOperationException("Response too large");
+            throw new ResponseTooLargeException();
         }
 
         using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -82,14 +82,23 @@ internal static class HttpResponseReader
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            var remaining = _maxBytes - _bytesRead;
-            if (remaining <= 0)
+            if (count == 0)
             {
-                throw new InvalidOperationException("Response too large");
+                return 0;
             }
 
-            var toRead = (int)Math.Min(count, remaining);
+            var remaining = _maxBytes - _bytesRead;
+
+            // At the limit we must still allow the reader's final EOF probe: a response of
+            // EXACTLY _maxBytes bytes is valid. Read a single byte — if it returns data the
+            // response is genuinely over the limit; if it returns 0 (EOF) the read is fine.
+            var toRead = remaining <= 0 ? 1 : (int)Math.Min(count, remaining);
             var n = _inner.Read(buffer, offset, toRead);
+            if (remaining <= 0 && n > 0)
+            {
+                throw new ResponseTooLargeException();
+            }
+
             _bytesRead += n;
             return n;
         }
@@ -101,14 +110,22 @@ internal static class HttpResponseReader
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            var remaining = _maxBytes - _bytesRead;
-            if (remaining <= 0)
+            if (buffer.Length == 0)
             {
-                throw new InvalidOperationException("Response too large");
+                return 0;
             }
 
-            var toRead = (int)Math.Min(buffer.Length, remaining);
+            var remaining = _maxBytes - _bytesRead;
+
+            // See Read(): allow a single-byte EOF probe at the limit so an exactly-_maxBytes
+            // response is accepted, and only throw if that probe actually returns data.
+            var toRead = remaining <= 0 ? 1 : (int)Math.Min(buffer.Length, remaining);
             var n = await _inner.ReadAsync(buffer[..toRead], cancellationToken).ConfigureAwait(false);
+            if (remaining <= 0 && n > 0)
+            {
+                throw new ResponseTooLargeException();
+            }
+
             _bytesRead += n;
             return n;
         }

@@ -85,6 +85,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             throw;
         }
+        catch (ResponseTooLargeException ex)
+        {
+            _pluginLog.LogWarning("SeerrCleanup", $"Seerr settings response exceeded the size limit: {ex.Message}", ex, _logger);
+            return (false, "Connection failed: the Seerr response was too large.");
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or UriFormatException or JsonException or ArgumentException or FormatException)
         {
             return (false, $"Connection failed: {ex.Message}");
@@ -164,7 +169,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                     _logger);
                 break;
             }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException)
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or ResponseTooLargeException)
             {
                 result.Failed++;
                 phaseOneFailed = true;
@@ -427,7 +432,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             throw;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException or ResponseTooLargeException)
         {
             _pluginLog.LogDebug(
                 "SeerrCleanup",
@@ -449,6 +454,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             throw new UriFormatException("Invalid Seerr base URL.");
         }
+
+        // Central SSRF guard: block cloud metadata endpoints on EVERY path that reaches the network,
+        // including the configuration-save path which calls TestConnectionAsync directly (bypassing
+        // the controller-level check).
+        SsrfGuard.ThrowIfCloudMetadataHost(parsedBaseUrl.Host, nameof(baseUrl));
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
