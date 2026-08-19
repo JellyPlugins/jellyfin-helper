@@ -261,6 +261,74 @@ public class BackupControllerTests
         }
     }
 
+    [Fact]
+    public void ExportBackup_WithSecrets_LogsPlaintextSecretsAudit()
+    {
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            var controller = CreateControllerWithSecrets(tempDir, seerrApiKey: "super-secret-key");
+
+            var result = controller.ExportBackup(includeSecrets: true);
+
+            Assert.IsType<FileContentResult>(result);
+            var logs = _log.GetEntries(source: "API", limit: 20);
+            Assert.Contains(logs,
+                entry => entry.Level == "WARN" &&
+                         entry.Message.Contains("plaintext secrets", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ExportBackup_WithoutSecrets_DoesNotLogSecretsAudit()
+    {
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            var controller = CreateControllerWithSecrets(tempDir, seerrApiKey: "super-secret-key");
+
+            // includeSecrets defaults to false → keys are redacted → no audit warning.
+            var result = controller.ExportBackup();
+
+            Assert.IsType<FileContentResult>(result);
+            var logs = _log.GetEntries(source: "API", limit: 20);
+            Assert.DoesNotContain(logs,
+                entry => entry.Message.Contains("plaintext secrets", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // Builds a controller whose plugin configuration carries a secret, so an includeSecrets=true
+    // export produces a backup with ContainsSecrets = true.
+    private BackupController CreateControllerWithSecrets(string dataPath, string seerrApiKey)
+    {
+        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath);
+        var configServiceMock = new Moq.Mock<Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess.IPluginConfigurationService>();
+        configServiceMock.Setup(c => c.GetConfiguration())
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { SeerrApiKey = seerrApiKey });
+        configServiceMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
+        var backupService = new BackupService(
+            appPathsMock.Object,
+            configServiceMock.Object,
+            _log,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+        return new BackupController(
+            backupService,
+            _log,
+            new Moq.Mock<Microsoft.Extensions.Logging.ILogger<BackupController>>().Object);
+    }
+
     private BackupController CreateController(string dataPath)
         => ControllerTestFactory.CreateBackupController(dataPath: dataPath, pluginLog: _log);
 

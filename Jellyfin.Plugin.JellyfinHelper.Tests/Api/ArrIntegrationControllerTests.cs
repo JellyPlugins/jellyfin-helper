@@ -9,6 +9,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
+using Moq.Protected;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
@@ -54,6 +55,28 @@ public class ArrIntegrationControllerTests : IDisposable
         var okResult = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
         Assert.True(payload.Success);
+    }
+
+    [Theory]
+    [InlineData("http://169.254.169.254")]
+    [InlineData("http://metadata.google.internal")]
+    [InlineData("http://100.100.100.200")]
+    public async Task TestArrConnectionAsync_CloudMetadataHost_ReturnsBadRequestWithoutRequest(string url)
+    {
+        // SSRF guard at the controller: metadata endpoints are rejected before any HTTP client is used.
+        var handlerMock = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, "{}");
+        using var httpClient = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        var request = new ArrTestConnectionRequest { Url = url, ApiKey = "key" };
+        var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        handlerMock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
     }
 
     [Fact]

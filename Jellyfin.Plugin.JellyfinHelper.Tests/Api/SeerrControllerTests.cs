@@ -72,6 +72,22 @@ public class SeerrControllerTests
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
+    [Theory]
+    [InlineData("http://169.254.169.254")]
+    [InlineData("http://metadata.google.internal")]
+    [InlineData("http://100.100.100.200")]
+    public async Task TestConnection_ReturnsBadRequest_ForCloudMetadataHost(string url)
+    {
+        // SSRF guard at the controller: metadata endpoints are rejected before any network call.
+        var request = new SeerrTestRequest { Url = url, ApiKey = "key" };
+        var result = await _controller.TestConnection(request);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        _seerrService.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task TestConnection_ReturnsOk_WhenConnectionSucceeds()
     {

@@ -64,6 +64,59 @@ public class TrashControllerTests : IDisposable
         _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
     }
 
+    [Theory]
+    [InlineData("Access to the path 'C:/secret/internal' is denied.", "Access denied")]
+    [InlineData("Permission denied for /etc/shadow", "Access denied")]
+    [InlineData("UnauthorizedAccessException at /root", "Access denied")]
+    [InlineData("Could not find file '/mnt/data/x' - no such file or directory", "Path not found")]
+    [InlineData("The system cannot find the path: does not exist", "Path not found")]
+    [InlineData("Some other low-level IO glitch 0x8007", "Check failed")]
+    public void CheckAccess_SanitizesRawErrorMessage_ToGenericCategory(string rawMessage, string expected)
+    {
+        // The raw OS error text (which can leak internal paths) must be normalized to a generic
+        // category before being returned to the API caller.
+        var libDir = Path.Join(_tempPath, "Movies");
+        Directory.CreateDirectory(libDir);
+        var trashDir = Path.Join(libDir, ".jellyfin-trash");
+
+        var (controller, _, configHelperMock, trashServiceMock) = ControllerTestFactory.CreateTrashController();
+        configHelperMock.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
+        configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns(new List<string> { libDir });
+        trashServiceMock.Setup(s => s.CheckPathAccess(It.IsAny<string>(), It.IsAny<ILogger>()))
+            .Returns(new TrashPathAccessResult { Exists = true, CanRead = false, CanWrite = false, ErrorMessage = rawMessage });
+
+        var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = trashDir });
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = System.Text.Json.JsonSerializer.Serialize(ok.Value);
+        Assert.Contains(expected, json, StringComparison.Ordinal);
+        // Raw internal detail must not leak through.
+        Assert.DoesNotContain("secret", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("shadow", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CheckAccess_NullOrEmptyErrorMessage_PassesThrough()
+    {
+        // Success path: no error message → nothing to sanitize (early return branch).
+        var libDir = Path.Join(_tempPath, "Movies");
+        Directory.CreateDirectory(libDir);
+        var trashDir = Path.Join(libDir, ".jellyfin-trash");
+
+        var (controller, _, configHelperMock, trashServiceMock) = ControllerTestFactory.CreateTrashController();
+        configHelperMock.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
+        configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns(new List<string> { libDir });
+        trashServiceMock.Setup(s => s.CheckPathAccess(It.IsAny<string>(), It.IsAny<ILogger>()))
+            .Returns(new TrashPathAccessResult { Exists = true, CanRead = true, CanWrite = true, ErrorMessage = null });
+
+        var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = trashDir });
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(ok.Value);
+    }
+
     [Fact]
     public void GetTrashFolders_AbsoluteTrashPath_ReturnsExistingPath()
     {
@@ -173,6 +226,41 @@ public class TrashControllerTests : IDisposable
         Assert.Equal(1, data.Deleted);
         Assert.Equal(0, data.Failed);
         Assert.False(Directory.Exists(trashPath));
+    }
+
+    [Fact]
+    public void DeleteTrashFolders_TrashPathIsSymlink_RefusesAndDoesNotFollow()
+    {
+        // TOCTOU/symlink-swap guard: if the trash path is a reparse point (symlink/junction),
+        // the recursive delete must be refused so it cannot be redirected into a real media tree.
+        var realTarget = Path.Join(_tempPath, "RealMedia");
+        Directory.CreateDirectory(realTarget);
+        var keeper = Path.Join(realTarget, "keeper.mkv");
+        File.WriteAllText(keeper, "precious");
+
+        var linkPath = Path.Join(_tempPath, "GlobalTrashLink");
+        try
+        {
+            Directory.CreateSymbolicLink(linkPath, realTarget);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return; // Symlinks unsupported in this environment — skip.
+        }
+
+        SetupConfig(new PluginConfiguration { TrashFolderPath = linkPath });
+        _configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns(new List<string>());
+
+        var result = _controller.DeleteTrashFolders();
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashDeleteResponse>(okResult.Value);
+        Assert.Equal(0, data.Deleted);
+        Assert.Equal(1, data.Failed);
+        // The real target and its content must be untouched.
+        Assert.True(File.Exists(keeper));
+        Assert.Equal("precious", File.ReadAllText(keeper));
     }
 
     [Fact]

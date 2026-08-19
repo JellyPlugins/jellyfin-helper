@@ -211,6 +211,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── BatchFallbackHelperTests.cs    # try-batch/fall-back: cancellation propagates, non-fatal exceptions degrade gracefully
 │   │   ├── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
 │   │   ├── HttpResponseReaderTests.cs     # Size-bounded read: under/at/over limit (EOF probe at exact limit), Content-Length fast-reject, null, cancellation
+│   │   ├── LimitedStreamTests.cs          # Direct stream tests: capability flags, sync/async read paths, over-limit throw, NotSupported members
 │   │   └── SsrfGuardTests.cs              # Cloud metadata hosts blocked (incl. IPv6/case-insensitive); LAN/loopback/public allowed
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── FileTransformation/        # File Transformation plugin integration tests
@@ -435,6 +436,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
 │   │   ├── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
 │   │   ├── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses
+│   │   ├── LimitedStream.cs         # Read-only Stream wrapper that throws ResponseTooLargeException past a byte cap (EOF probe at exact limit)
 │   │   ├── ResponseTooLargeException.cs # Typed exception thrown by HttpResponseReader when a body exceeds the size limit
 │   │   └── SsrfGuard.cs             # Shared SSRF guard: blocks cloud metadata hosts on every Arr/Seerr outbound path (controller + config-save)
 │   ├── FolderBrowser/               # Server-side folder browsing

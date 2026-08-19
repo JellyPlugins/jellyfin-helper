@@ -315,6 +315,49 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.ThrowsAny<IOException>(() => _sut.CreateSymlink(link, target));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CreateSymlink_NullOrEmptyLinkPath_ThrowsArgumentException(string? linkPath)
+    {
+        // Platform-independent precondition guard (no symlink support required).
+        var ex = Assert.Throws<ArgumentException>(() => _sut.CreateSymlink(linkPath!, "/some/target"));
+        Assert.Equal("linkPath", ex.ParamName);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CreateSymlink_NullOrEmptyTargetPath_ThrowsArgumentException(string? targetPath)
+    {
+        var link = Path.Join(_tempDir, "link.txt");
+        var ex = Assert.Throws<ArgumentException>(() => _sut.CreateSymlink(link, targetPath!));
+        Assert.Equal("targetPath", ex.ParamName);
+    }
+
+    [Fact]
+    public void CreateSymlink_LinkPathIsExistingRealFile_ThrowsIOException()
+    {
+        // A real file at the link path must never be silently clobbered — no symlink support needed.
+        var link = Path.Join(_tempDir, "already-a-file.txt");
+        File.WriteAllText(link, "real content");
+
+        Assert.Throws<IOException>(() => _sut.CreateSymlink(link, Path.Join(_tempDir, "target.txt")));
+        Assert.Equal("real content", File.ReadAllText(link)); // untouched
+    }
+
+    [Fact]
+    public void CreateSymlink_LinkPathIsExistingDirectory_ThrowsIOException()
+    {
+        var link = Path.Join(_tempDir, "already-a-dir");
+        Directory.CreateDirectory(link);
+
+        Assert.Throws<IOException>(() => _sut.CreateSymlink(link, Path.Join(_tempDir, "target.txt")));
+        Assert.True(Directory.Exists(link)); // untouched
+    }
+
     // -----------------------------------------------------------------------
     // DeleteSymlink - the interesting one: the guard clause must fail loudly
     // on non-symlinks so we never accidentally delete a real file.
