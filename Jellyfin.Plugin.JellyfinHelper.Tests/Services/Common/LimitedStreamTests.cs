@@ -174,4 +174,51 @@ public sealed class LimitedStreamTests
         Assert.Equal("wrapped", wrapped.Message);
         Assert.Same(inner, wrapped.InnerException);
     }
+
+    [Fact]
+    public void Dispose_LeaveOpenTrue_DoesNotDisposeInner()
+    {
+        var inner = new DisposeTrackingStream();
+
+        var sut = new LimitedStream(inner, 16, leaveOpen: true);
+        sut.Dispose();
+
+        Assert.False(inner.Disposed);
+        inner.Dispose();
+    }
+
+    [Fact]
+    public void Dispose_LeaveOpenFalse_DisposesInner()
+    {
+        var inner = new DisposeTrackingStream();
+
+        var sut = new LimitedStream(inner, 16, leaveOpen: false);
+        sut.Dispose();
+
+        Assert.True(inner.Disposed);
+    }
+
+    [Fact]
+    public void Dispose_DefaultLeaveOpen_DisposesInner()
+    {
+        // The default (matching StreamReader / CryptoStream) is leaveOpen: false.
+        var inner = new DisposeTrackingStream();
+
+        var sut = new LimitedStream(inner, 16);
+        sut.Dispose();
+
+        Assert.True(inner.Disposed);
+    }
+
+    /// <summary>A <see cref="MemoryStream" /> that records whether it has been disposed.</summary>
+    private sealed class DisposeTrackingStream : MemoryStream
+    {
+        public bool Disposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed = true;
+            base.Dispose(disposing);
+        }
+    }
 }

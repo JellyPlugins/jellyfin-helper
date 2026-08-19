@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
@@ -205,4 +206,33 @@ public abstract class BaseLibraryCleanupTask
             TrackingService.RecordCleanup(totalBytesFreed, totalDeleted, Logger);
         }
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Filesystem seams (overridable for tests).
+    //
+    // The symlink/junction guards in the concrete tasks read reparse-point attributes with real
+    // System.IO calls, which the mocked IFileSystem model can never trigger. Routing them through
+    // these thin wrappers lets a test subclass drive the guard branches deterministically without
+    // creating real symlinks (which require elevated privileges, unavailable in CI). Production
+    // always runs the real System.IO implementations below.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     Determines whether <paramref name="path" /> is an existing reparse point
+    ///     (symbolic link or junction).
+    /// </summary>
+    /// <param name="path">The directory path to inspect.</param>
+    /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
+    protected virtual bool IsReparsePoint(string path)
+    {
+        var info = new DirectoryInfo(path);
+        return info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0;
+    }
+
+    /// <summary>
+    ///     Deletes only the reparse-point link node at <paramref name="path" />, never following it
+    ///     to (or deleting) its target.
+    /// </summary>
+    /// <param name="path">The reparse-point directory whose link node should be removed.</param>
+    protected virtual void DeleteReparsePointLinkNode(string path) => new DirectoryInfo(path).Delete();
 }

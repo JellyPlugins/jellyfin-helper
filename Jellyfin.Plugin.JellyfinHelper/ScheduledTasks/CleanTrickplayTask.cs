@@ -233,11 +233,10 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                         // node itself rather than following it into the target, but we special-case
                         // it so we only ever remove the link node and never delete the real target's
                         // contents.
-                        var trickplayDirInfo = new DirectoryInfo(dirFullName);
-                        if ((trickplayDirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                        if (IsReparsePoint(dirFullName))
                         {
                             PluginLog.LogWarning(TaskName, $"Skipping deletion of symlinked trickplay directory (removing link only): {dirFullName}", logger: Logger);
-                            trickplayDirInfo.Delete();
+                            DeleteReparsePointLinkNode(dirFullName);
                             deletedCount++;
                             continue;
                         }

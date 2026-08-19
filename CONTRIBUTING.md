@@ -655,6 +655,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/ScheduledTasks/`
 
 - `CleanEmptyMediaFoldersTaskTests.cs` - Tests CleanEmptyMediaFoldersTask orphan detection, placeholder/library-type skips, and byte accounting
+- `CleanupTaskReparseGuardTests.cs` - Tests cleanup tasks skip reparse-point/symlink directories to prevent traversal outside libraries
 - `CleanOrphanedSubtitlesTaskProcessLocationTests.cs`
 - `CleanOrphanedSubtitlesTaskTests.cs` - Tests CleanOrphanedSubtitlesTask base-name parsing and BCP-47 language/flag suffix stripping
 - `CleanTrickplayTaskTests.cs` - Tests CleanTrickplayTask orphaned .trickplay folder detection, media-match keeps, and error handling
@@ -702,6 +703,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `TrashServiceInternalHelpersTests.cs`
 - `TrashServicePathLengthTests.cs`
 - `TrashServiceRelocateTests.cs`
+- `TrashServiceReparseAndRaceTests.cs` - Tests TrashService reparse-point guard and concurrent-move race safety
 - `TrashServiceSecurityTests.cs` - Security tests: TrashService resists path traversal, null bytes, and malicious names
 - `TrashServiceTests.cs` - Tests trash move, timestamp parsing, retention purge, and contents/summary listing
 

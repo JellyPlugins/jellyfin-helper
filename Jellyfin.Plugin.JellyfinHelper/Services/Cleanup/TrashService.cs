@@ -116,12 +116,12 @@ public class TrashService : ITrashService
             {
                 try
                 {
-                    Directory.Move(sourcePath, trashItemPath);
+                    MoveDirectory(sourcePath, trashItemPath);
                     break;
                 }
                 catch (IOException) when (
                     moveAttempt < MoveRetries &&
-                    (File.Exists(trashItemPath) || Directory.Exists(trashItemPath)))
+                    DestinationExists(trashItemPath))
                 {
                     trashItemPath = EnsurePathLength(
                         Path.Join(trashBasePath, $"{timestamp}_{dirName}_{Guid.NewGuid():N}"));
@@ -231,8 +231,7 @@ public class TrashService : ITrashService
             // Guard: refuse to enumerate a trash folder that is itself a symlink/reparse point.
             // If trashBasePath were replaced with a symlink pointing to a media library, enumerating
             // its contents and deleting timestamp-matching entries would destroy real media files.
-            var trashBaseInfo = new DirectoryInfo(trashBasePath);
-            if ((trashBaseInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+            if (IsReparsePoint(trashBasePath))
             {
                 _pluginLog.LogError(
                     "Trash",
@@ -252,12 +251,11 @@ public class TrashService : ITrashService
 
                 try
                 {
-                    var dirInfo = new DirectoryInfo(dir);
-                    if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    if (IsReparsePoint(dir))
                     {
                         // Delete only the symlink/junction itself, not what it points to.
                         // Size is 0 - only the link entry is removed, not the target data.
-                        dirInfo.Delete();
+                        DeleteReparsePointLinkNode(dir);
                         itemsPurged++;
                         _pluginLog.LogInfo(
                             "Trash",
@@ -1071,4 +1069,51 @@ public class TrashService : ITrashService
             }
         }
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Filesystem seams (overridable for tests).
+    //
+    // These thin wrappers isolate the handful of OS-level primitives that the mocked-filesystem
+    // model cannot exercise deterministically: reparse-point (symlink/junction) detection, deleting
+    // only the link node, and the directory move whose TOCTOU retry hinges on a filesystem race.
+    // Creating real symlinks needs elevated privileges (unavailable in CI) and provoking a genuine
+    // move race is non-deterministic, so a test subclass overrides these to drive the defensive
+    // branches. Production always runs the real System.IO implementations below.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     Determines whether <paramref name="path" /> is an existing reparse point
+    ///     (symbolic link or junction).
+    /// </summary>
+    /// <param name="path">The directory path to inspect.</param>
+    /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
+    internal virtual bool IsReparsePoint(string path)
+    {
+        var info = new DirectoryInfo(path);
+        return info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0;
+    }
+
+    /// <summary>
+    ///     Deletes only the reparse-point link node at <paramref name="path" />, never following it
+    ///     to (or deleting) its target.
+    /// </summary>
+    /// <param name="path">The reparse-point directory whose link node should be removed.</param>
+    internal virtual void DeleteReparsePointLinkNode(string path) => new DirectoryInfo(path).Delete();
+
+    /// <summary>
+    ///     Moves the directory at <paramref name="source" /> to <paramref name="destination" />.
+    /// </summary>
+    /// <param name="source">The source directory.</param>
+    /// <param name="destination">The destination directory.</param>
+    internal virtual void MoveDirectory(string source, string destination) =>
+        Directory.Move(source, destination);
+
+    /// <summary>
+    ///     Determines whether a file or directory already exists at <paramref name="path" />.
+    /// </summary>
+    /// <param name="path">The path to test.</param>
+    /// <returns>
+    ///     <see langword="true" /> if a file or directory exists at the path; otherwise <see langword="false" />.
+    /// </returns>
+    internal virtual bool DestinationExists(string path) => File.Exists(path) || Directory.Exists(path);
 }

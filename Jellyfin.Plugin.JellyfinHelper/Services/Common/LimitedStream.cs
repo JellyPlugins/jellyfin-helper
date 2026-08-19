@@ -9,25 +9,27 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 ///     A read-only, forward-only <see cref="Stream" /> wrapper that throws
 ///     <see cref="ResponseTooLargeException" /> once more than a fixed number of bytes have been
 ///     read from the inner stream. Used by <see cref="HttpResponseReader" /> to cap HTTP response
-///     bodies. The inner stream's lifetime is owned by the caller, not by this wrapper.
+///     bodies.
 /// </summary>
 internal sealed class LimitedStream : Stream
 {
-    // CA2213 suppressed: _inner is a borrowed reference - the caller owns its lifetime.
-    // Disposing here would cause a double-dispose.
-#pragma warning disable CA2213
     private readonly Stream _inner;
-#pragma warning restore CA2213
     private readonly long _maxBytes;
+    private readonly bool _leaveOpen;
     private long _bytesRead;
 
     /// <summary>Initializes a new instance of the <see cref="LimitedStream" /> class.</summary>
-    /// <param name="inner">The underlying stream to read from (not owned by this instance).</param>
+    /// <param name="inner">The underlying stream to read from.</param>
     /// <param name="maxBytes">The maximum number of bytes that may be read before throwing.</param>
-    public LimitedStream(Stream inner, long maxBytes)
+    /// <param name="leaveOpen">
+    ///     <see langword="true" /> to leave <paramref name="inner" /> open when this instance is
+    ///     disposed (the caller owns its lifetime); <see langword="false" /> (the default) to dispose it.
+    /// </param>
+    public LimitedStream(Stream inner, long maxBytes, bool leaveOpen = false)
     {
         _inner = inner;
         _maxBytes = maxBytes;
+        _leaveOpen = leaveOpen;
     }
 
     /// <inheritdoc />
@@ -113,4 +115,18 @@ internal sealed class LimitedStream : Stream
 
     /// <inheritdoc />
     public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        // Satisfies CA2213 without suppression: the inner disposable field IS disposed here,
+        // unless the caller opted to retain ownership via leaveOpen (mirroring StreamReader /
+        // CryptoStream / GZipStream semantics), which avoids a double-dispose.
+        if (disposing && !_leaveOpen)
+        {
+            _inner.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
 }

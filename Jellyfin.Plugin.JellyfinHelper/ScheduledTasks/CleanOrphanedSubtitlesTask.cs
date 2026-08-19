@@ -117,8 +117,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 // point (symlink/junction) — we only ever clean subtitles inside real directories.
                 try
                 {
-                    var dirInfo = new DirectoryInfo(dirPath);
-                    if (dirInfo.Exists && (dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                    if (IsReparsePoint(dirPath))
                     {
                         PluginLog.LogWarning(TaskName, $"Skipping symlinked directory (reparse point): {dirPath}", logger: Logger);
                         continue;

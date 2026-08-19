@@ -41,7 +41,10 @@ internal static class HttpResponseReader
         }
 
         using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var limited = new LimitedStream(stream, maxBytes);
+
+        // leaveOpen: true - the response stream is owned by the enclosing `using` above, so the
+        // wrapper must not dispose it a second time.
+        using var limited = new LimitedStream(stream, maxBytes, leaveOpen: true);
         using var reader = new StreamReader(limited);
         return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
     }

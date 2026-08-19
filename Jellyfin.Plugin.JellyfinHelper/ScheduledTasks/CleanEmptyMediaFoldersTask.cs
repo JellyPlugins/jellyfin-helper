@@ -218,11 +218,10 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                         // delete only the link node and never treat its (real) target's contents as
                         // orphaned. This also avoids any ambiguity around a symlinked directory being
                         // reported as "empty".
-                        var dirInfo = new DirectoryInfo(topDir.FullName);
-                        if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                        if (IsReparsePoint(topDir.FullName))
                         {
                             PluginLog.LogWarning(TaskName, $"Skipping deletion of symlinked directory (removing link only): {topDir.FullName}", logger: Logger);
-                            dirInfo.Delete(); // deletes the link node, not the target
+                            DeleteReparsePointLinkNode(topDir.FullName); // deletes the link node, not the target
                             deletedCount++;
                             continue;
                         }
