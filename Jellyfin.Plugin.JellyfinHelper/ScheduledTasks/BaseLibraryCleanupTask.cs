@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -223,11 +224,8 @@ public abstract class BaseLibraryCleanupTask
     /// </summary>
     /// <param name="path">The directory path to inspect.</param>
     /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
-    protected virtual bool IsReparsePoint(string path)
-    {
-        var info = new DirectoryInfo(path);
-        return info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0;
-    }
+    protected virtual bool IsReparsePoint(string path) =>
+        ReparsePointGuard.IsReparsePoint(path);
 
     /// <summary>
     ///     Deletes only the reparse-point link node at <paramref name="path" />, never following it
@@ -238,22 +236,8 @@ public abstract class BaseLibraryCleanupTask
     ///     Thrown when <paramref name="path" /> is no longer a reparse point at deletion time
     ///     (concurrent replacement detected — fail closed to avoid deleting a real directory).
     /// </exception>
-    protected virtual void DeleteReparsePointLinkNode(string path)
-    {
-        // Immediate re-check immediately before deletion to narrow the TOCTOU window between
-        // the caller's IsReparsePoint guard and this call.  The .NET BCL provides no
-        // identity-pinned (no-follow) unlink; if the node type changed in the interim, fail
-        // closed: throw so the caller skips the deletion and leaves the entry unchanged.
-        var info = new DirectoryInfo(path);
-        if (!info.Exists || (info.Attributes & FileAttributes.ReparsePoint) == 0)
-        {
-            throw new InvalidOperationException(
-                $"'{path}' is no longer a reparse point at deletion time; " +
-                "aborting to avoid data loss (concurrent replacement detected).");
-        }
-
-        InvokeDirectoryDelete(info);
-    }
+    protected virtual void DeleteReparsePointLinkNode(string path) =>
+        ReparsePointGuard.DeleteLinkNode(path, InvokeDirectoryDelete);
 
     /// <summary>
     ///     Thin seam around <see cref="DirectoryInfo.Delete()" />.  Excluded from coverage

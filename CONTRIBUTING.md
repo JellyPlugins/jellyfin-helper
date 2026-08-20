@@ -212,7 +212,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
 │   │   ├── HttpResponseReaderTests.cs     # Size-bounded read: under/at/over limit (EOF probe at exact limit), Content-Length fast-reject, null, cancellation
 │   │   ├── LimitedStreamTests.cs          # Direct stream tests: capability flags, sync/async read paths, over-limit throw, NotSupported members
-│   │   └── SsrfGuardTests.cs              # Cloud metadata hosts blocked (incl. IPv6/case-insensitive); LAN/loopback/public allowed
+│   │   ├── SsrfGuardTests.cs              # Cloud metadata hosts blocked (incl. IPv6/case-insensitive); LAN/loopback/public allowed
+│   │   └── ReparsePointGuardTests.cs      # Fail-closed guard: non-existent/real-dir throws, delete action never invoked, entry left unchanged
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── FileTransformation/        # File Transformation plugin integration tests
 │   │   ├── DiscoveryScriptTagTests.cs      # Build() well-formed HTML, RemovalRegex round-trips, must not eat unrelated script tags
@@ -438,7 +439,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses
 │   │   ├── LimitedStream.cs         # Read-only Stream wrapper that throws ResponseTooLargeException past a byte cap (EOF probe at exact limit)
 │   │   ├── ResponseTooLargeException.cs # Typed exception thrown by HttpResponseReader when a body exceeds the size limit
-│   │   └── SsrfGuard.cs             # Shared SSRF guard: blocks cloud metadata hosts on every Arr/Seerr outbound path (controller + config-save)
+│   │   ├── SsrfGuard.cs             # Shared SSRF guard: blocks cloud metadata hosts on every Arr/Seerr outbound path (controller + config-save)
+│   │   └── ReparsePointGuard.cs    # Shared fail-closed primitives for reparse-point detection and safe link-node deletion (used by cleanup tasks + TrashService)
 │   ├── FolderBrowser/               # Server-side folder browsing
 │   │   ├── IFolderBrowserService.cs # Interface for folder listing
 │   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards

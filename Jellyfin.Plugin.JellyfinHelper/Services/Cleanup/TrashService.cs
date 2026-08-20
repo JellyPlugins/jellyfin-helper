@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -1100,11 +1101,8 @@ public class TrashService : ITrashService
     /// </summary>
     /// <param name="path">The directory path to inspect.</param>
     /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
-    internal virtual bool IsReparsePoint(string path)
-    {
-        var info = new DirectoryInfo(path);
-        return info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0;
-    }
+    internal virtual bool IsReparsePoint(string path) =>
+        ReparsePointGuard.IsReparsePoint(path);
 
     /// <summary>
     ///     Deletes only the reparse-point link node at <paramref name="path" />, never following it
@@ -1115,21 +1113,8 @@ public class TrashService : ITrashService
     ///     Thrown when <paramref name="path" /> is no longer a reparse point at deletion time
     ///     (concurrent replacement detected — fail closed to avoid deleting a real directory).
     /// </exception>
-    internal virtual void DeleteReparsePointLinkNode(string path)
-    {
-        // Immediate re-check before deletion to narrow the TOCTOU window between the
-        // caller's IsReparsePoint guard and this call.  If the node type changed, fail
-        // closed: throw so the caller skips the deletion and leaves the entry unchanged.
-        var info = new DirectoryInfo(path);
-        if (!info.Exists || (info.Attributes & FileAttributes.ReparsePoint) == 0)
-        {
-            throw new InvalidOperationException(
-                $"'{path}' is no longer a reparse point at deletion time; " +
-                "aborting to avoid data loss (concurrent replacement detected).");
-        }
-
-        InvokeDirectoryDelete(info);
-    }
+    internal virtual void DeleteReparsePointLinkNode(string path) =>
+        ReparsePointGuard.DeleteLinkNode(path, InvokeDirectoryDelete);
 
     /// <summary>
     ///     Thin seam around <see cref="DirectoryInfo.Delete()" />.  Excluded from coverage
