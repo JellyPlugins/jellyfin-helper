@@ -401,6 +401,60 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         VerifyLogContains(_loggerMock, "Would delete orphaned subtitle", LogLevel.Information);
     }
 
+    /// <summary>
+    ///     When the seed-phase <c>GetDirectories(libraryPath)</c> call inside <c>TryGetSubdirectories</c>
+    ///     throws, the method must log a warning and return an empty list.  The task still processes
+    ///     <c>libraryPath</c> itself (it is prepended directly) and completes without crashing.
+    /// </summary>
+    [Fact]
+    public async Task Execute_TryGetSubdirectoriesSeedThrows_LogsWarningAndContinues()
+    {
+        const string lib = "/media/movies";
+        Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
+        SetupLibrary(lib);
+        _fileSystemMock.Setup(f => f.GetDirectories(lib))
+            .Throws(new IOException("Permission denied"));
+        SetupFilesInDir(lib); // no files → nothing to clean
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains(_loggerMock, "Could not enumerate subdirectories of", LogLevel.Warning);
+        // Task must not crash; no deletions occurred.
+        MockTrackingService.Verify(
+            t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    ///     When <c>GetDirectories</c> throws for a nested directory during the loop phase of
+    ///     <c>TryGetSubdirectories</c>, the method must log a warning and continue processing
+    ///     the remaining directories (not abort the whole scan).
+    /// </summary>
+    [Fact]
+    public async Task Execute_TryGetSubdirectoriesLoopThrows_LogsWarningAndContinues()
+    {
+        const string lib = "/media/movies";
+        const string subDir = "/media/movies/ShowA";
+        Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
+        SetupLibrary(lib);
+        // Seed succeeds: libraryPath → subDir.
+        _fileSystemMock.Setup(f => f.GetDirectories(lib)).Returns([
+            new FileSystemMetadata { FullName = subDir, Name = "ShowA", IsDirectory = true }
+        ]);
+        // Loop-phase: GetDirectories(subDir) throws → logged, loop continues.
+        _fileSystemMock.Setup(f => f.GetDirectories(subDir))
+            .Throws(new IOException("Access denied"));
+        SetupFilesInDir(lib);   // no files in root
+        SetupFilesInDir(subDir); // no files in subDir → nothing to clean
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains(_loggerMock, "Could not enumerate subdirectories of", LogLevel.Warning);
+        MockTrackingService.Verify(
+            t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            Times.Never);
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
     /// <summary>Populate a library with a single top-level path.</summary>

@@ -252,6 +252,15 @@ public abstract class BaseLibraryCleanupTask
                 "aborting to avoid data loss (concurrent replacement detected).");
         }
 
-        info.Delete();
+        InvokeDirectoryDelete(info);
     }
+
+    /// <summary>
+    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />.  Excluded from coverage
+    ///     because it requires an actual reparse-point node on disk (needs junction/symlink
+    ///     creation privileges not available in the unit-test environment).
+    /// </summary>
+    /// <param name="info">The <see cref="DirectoryInfo" /> whose link node should be removed.</param>
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    protected virtual void InvokeDirectoryDelete(DirectoryInfo info) => info.Delete();
 }

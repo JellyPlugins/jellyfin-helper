@@ -196,6 +196,37 @@ public sealed class CleanupTaskReparseGuardTests
             _fileSystemMock.Verify(f => f.GetDirectories(reparseSubDir), Times.Never);
         }
 
+        /// <summary>
+        ///     When <see cref="BaseLibraryCleanupTask.DeleteReparsePointLinkNode" /> throws an
+        ///     <see cref="IOException" /> (e.g. permission denied), the caller must log an error and
+        ///     leave the deletion count at 0 so <c>RecordCleanup</c> is never called.
+        /// </summary>
+        [Fact]
+        public async Task HardDelete_ReparsePoint_IOExceptionDuringDeletion_LogsErrorAndNoCount()
+        {
+            Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+
+            const string libraryPath = "/media/movies";
+            const string orphanDir = "/media/movies/Orphan (2019)";
+
+            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(orphanDir, "Orphan (2019)")]);
+
+            var task = new IOExceptionReparseTask(
+                _libraryManagerMock.Object, _fileSystemMock.Object,
+                TestMockFactory.CreatePluginLogService(), _loggerMock.Object,
+                MockConfigHelper.Object, MockTrackingService.Object, MockTrashService.Object,
+                orphanDir);
+
+            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            VerifyLogContains(_loggerMock, "Failed to delete reparse point link node", LogLevel.Error);
+            MockTrackingService.Verify(
+                t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+                Times.Never);
+        }
+
         private sealed class ReparseTask : CleanEmptyMediaFoldersTask
         {
             private readonly string _reparsePath;
@@ -218,6 +249,30 @@ public sealed class CleanupTaskReparseGuardTests
                 string.Equals(path, _reparsePath, StringComparison.Ordinal);
 
             protected override void DeleteReparsePointLinkNode(string path) => LinkNodeDeleted = true;
+        }
+
+        /// <summary>Overrides <c>DeleteReparsePointLinkNode</c> to throw <see cref="IOException" />.</summary>
+        private sealed class IOExceptionReparseTask : CleanEmptyMediaFoldersTask
+        {
+            private readonly string _reparsePath;
+
+            public IOExceptionReparseTask(
+                ILibraryManager libraryManager,
+                IFileSystem fileSystem,
+                IPluginLogService pluginLog,
+                ILogger<CleanEmptyMediaFoldersTask> logger,
+                ICleanupConfigHelper configHelper,
+                ICleanupTrackingService trackingService,
+                ITrashService trashService,
+                string reparsePath)
+                : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
+                => _reparsePath = reparsePath;
+
+            protected override bool IsReparsePoint(string path) =>
+                string.Equals(path, _reparsePath, StringComparison.Ordinal);
+
+            protected override void DeleteReparsePointLinkNode(string path) =>
+                throw new IOException("Simulated permission denied");
         }
 
         /// <summary>

@@ -1128,8 +1128,16 @@ public class TrashService : ITrashService
                 "aborting to avoid data loss (concurrent replacement detected).");
         }
 
-        info.Delete();
+        InvokeDirectoryDelete(info);
     }
+
+    /// <summary>
+    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />.  Excluded from coverage
+    ///     because it requires an actual reparse-point node on disk.
+    /// </summary>
+    /// <param name="info">The <see cref="DirectoryInfo" /> whose link node should be removed.</param>
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    internal virtual void InvokeDirectoryDelete(DirectoryInfo info) => info.Delete();
 
     /// <summary>
     ///     Moves the directory at <paramref name="source" /> to <paramref name="destination" />.
