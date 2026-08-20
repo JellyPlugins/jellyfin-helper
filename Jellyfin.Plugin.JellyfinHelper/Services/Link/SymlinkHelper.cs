@@ -152,11 +152,16 @@ public class SymlinkHelper : ISymlinkHelper
                 throw CreateDestBecameRealFileException();
             }
 
-            // Still a symlink — use File.Move(overwrite: true) which maps to the OS rename(2)
-            // syscall on Linux / MoveFileExW(MOVEFILE_REPLACE_EXISTING) on Windows.  Both are
-            // atomic: the kernel replaces the destination in a single operation so there is no
-            // window between deleting the link node and placing the new file where a concurrent
-            // process could swap in a real file and cause us to silently overwrite it.
+            // Still a symlink — use File.Move(overwrite: true) which calls rename(2) on Linux /
+            // MoveFileExW(MOVEFILE_REPLACE_EXISTING) on Windows.  This replaces the destination
+            // in a single kernel operation, removing the delete-then-move two-step gap.
+            //
+            // A narrow TOCTOU window remains: a concurrent process could swap the link node for a
+            // real file between the re-check above and the rename syscall.  The .NET BCL exposes no
+            // identity-pinned (no-follow) rename that would close this gap without P/Invoke.  Two
+            // attribute checks (lines 119 and 149) already fail closed for real files that arrive
+            // before this point; accepting the residual nanosecond-scale window is the safest
+            // option available in managed code.
             File.Move(sourcePath, destPath, overwrite: true);
         }
 

@@ -244,8 +244,17 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                         if (IsReparsePoint(dirFullName))
                         {
                             PluginLog.LogWarning(TaskName, $"Skipping deletion of symlinked trickplay directory (removing link only): {dirFullName}", logger: Logger);
-                            DeleteReparsePointLinkNode(dirFullName);
-                            deletedCount++;
+                            try
+                            {
+                                DeleteReparsePointLinkNode(dirFullName);
+                                deletedCount++;
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                // Concurrent replacement detected — fail closed: leave entry unchanged.
+                                PluginLog.LogWarning(TaskName, $"Reparse-point node changed type before deletion, skipping: {dirFullName}", logger: Logger);
+                            }
+
                             continue;
                         }
 

@@ -170,6 +170,12 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                             DeleteReparsePointLinkNode(topDir.FullName);
                             deletedCount++;
                         }
+                        catch (InvalidOperationException)
+                        {
+                            // Concurrent replacement detected inside DeleteReparsePointLinkNode —
+                            // fail closed: entry left unchanged, no deletion counted.
+                            PluginLog.LogWarning(TaskName, $"Reparse-point node changed type before deletion, skipping: {topDir.FullName}", logger: Logger);
+                        }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                         {
                             PluginLog.LogError(TaskName, $"Failed to delete reparse point link node: {topDir.FullName}", ex, Logger);

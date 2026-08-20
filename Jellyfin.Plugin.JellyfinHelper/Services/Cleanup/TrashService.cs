@@ -255,7 +255,20 @@ public class TrashService : ITrashService
                     {
                         // Delete only the symlink/junction itself, not what it points to.
                         // Size is 0 - only the link entry is removed, not the target data.
-                        DeleteReparsePointLinkNode(dir);
+                        try
+                        {
+                            DeleteReparsePointLinkNode(dir);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Concurrent replacement detected — fail closed: leave entry unchanged.
+                            _pluginLog.LogWarning(
+                                "Trash",
+                                $"Reparse-point node changed type before purge, skipping: {dir}",
+                                logger: logger);
+                            continue;
+                        }
+
                         itemsPurged++;
                         _pluginLog.LogInfo(
                             "Trash",
@@ -1098,7 +1111,25 @@ public class TrashService : ITrashService
     ///     to (or deleting) its target.
     /// </summary>
     /// <param name="path">The reparse-point directory whose link node should be removed.</param>
-    internal virtual void DeleteReparsePointLinkNode(string path) => new DirectoryInfo(path).Delete();
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown when <paramref name="path" /> is no longer a reparse point at deletion time
+    ///     (concurrent replacement detected — fail closed to avoid deleting a real directory).
+    /// </exception>
+    internal virtual void DeleteReparsePointLinkNode(string path)
+    {
+        // Immediate re-check before deletion to narrow the TOCTOU window between the
+        // caller's IsReparsePoint guard and this call.  If the node type changed, fail
+        // closed: throw so the caller skips the deletion and leaves the entry unchanged.
+        var info = new DirectoryInfo(path);
+        if (!info.Exists || (info.Attributes & FileAttributes.ReparsePoint) == 0)
+        {
+            throw new InvalidOperationException(
+                $"'{path}' is no longer a reparse point at deletion time; " +
+                "aborting to avoid data loss (concurrent replacement detected).");
+        }
+
+        info.Delete();
+    }
 
     /// <summary>
     ///     Moves the directory at <paramref name="source" /> to <paramref name="destination" />.

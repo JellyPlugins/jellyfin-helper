@@ -234,5 +234,24 @@ public abstract class BaseLibraryCleanupTask
     ///     to (or deleting) its target.
     /// </summary>
     /// <param name="path">The reparse-point directory whose link node should be removed.</param>
-    protected virtual void DeleteReparsePointLinkNode(string path) => new DirectoryInfo(path).Delete();
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown when <paramref name="path" /> is no longer a reparse point at deletion time
+    ///     (concurrent replacement detected — fail closed to avoid deleting a real directory).
+    /// </exception>
+    protected virtual void DeleteReparsePointLinkNode(string path)
+    {
+        // Immediate re-check immediately before deletion to narrow the TOCTOU window between
+        // the caller's IsReparsePoint guard and this call.  The .NET BCL provides no
+        // identity-pinned (no-follow) unlink; if the node type changed in the interim, fail
+        // closed: throw so the caller skips the deletion and leaves the entry unchanged.
+        var info = new DirectoryInfo(path);
+        if (!info.Exists || (info.Attributes & FileAttributes.ReparsePoint) == 0)
+        {
+            throw new InvalidOperationException(
+                $"'{path}' is no longer a reparse point at deletion time; " +
+                "aborting to avoid data loss (concurrent replacement detected).");
+        }
+
+        info.Delete();
+    }
 }
