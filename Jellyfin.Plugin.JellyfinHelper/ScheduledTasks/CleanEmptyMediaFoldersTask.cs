@@ -135,6 +135,50 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     continue;
                 }
 
+                // Symlink guard: handle reparse-point (symlink/junction) top-level entries
+                // BEFORE any traversal.  Traversing into a symlink can redirect analysis into a
+                // foreign tree (false orphan signal) and a cyclic link causes unbounded iteration.
+                // We delete only the link node itself and never recurse into — or report on — the
+                // real target's contents.
+                if (IsReparsePoint(topDir.FullName))
+                {
+                    if (!ConfigHelper.IsOldEnoughForDeletion(topDir.FullName))
+                    {
+                        PluginLog.LogDebug(
+                            TaskName,
+                            $"Skipping too-new reparse-point directory (min age {config.OrphanMinAgeDays}d): {topDir.FullName}",
+                            Logger);
+                        continue;
+                    }
+
+                    if (dryRun)
+                    {
+                        PluginLog.LogInfo(
+                            TaskName,
+                            $"[Dry Run] Would delete symlinked directory (link node only): {topDir.FullName}",
+                            Logger);
+                        deletedCount++;
+                    }
+                    else
+                    {
+                        // UseTrash is intentionally not applied to reparse-point nodes: moving a
+                        // symlink to trash is ambiguous (the target is not moved), so we always
+                        // remove just the link node directly.
+                        PluginLog.LogWarning(TaskName, $"Skipping deletion of symlinked directory (removing link only): {topDir.FullName}", logger: Logger);
+                        try
+                        {
+                            DeleteReparsePointLinkNode(topDir.FullName);
+                            deletedCount++;
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            PluginLog.LogError(TaskName, $"Failed to delete reparse point link node: {topDir.FullName}", ex, Logger);
+                        }
+                    }
+
+                    continue;
+                }
+
                 // Check the entire tree in a single pass: does it contain any files at all,
                 // any video files, any audio files, or any non-metadata files?
                 // The accumulated byte count is returned here so that the hard-delete path
@@ -212,22 +256,9 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     PluginLog.LogInfo(TaskName, $"Deleting orphaned media folder: {topDir.FullName}", Logger);
                     try
                     {
-                        // Symlink guard: if this entry is itself a reparse point (symlink/junction),
-                        // do NOT recurse into it. .NET's Directory.Delete removes the final symlink
-                        // node itself rather than following it, but we still special-case it: we
-                        // delete only the link node and never treat its (real) target's contents as
-                        // orphaned. This also avoids any ambiguity around a symlinked directory being
-                        // reported as "empty".
-                        if (IsReparsePoint(topDir.FullName))
-                        {
-                            PluginLog.LogWarning(TaskName, $"Skipping deletion of symlinked directory (removing link only): {topDir.FullName}", logger: Logger);
-                            DeleteReparsePointLinkNode(topDir.FullName); // deletes the link node, not the target
-                            deletedCount++;
-                            continue;
-                        }
-
                         // Reuse the byte count already accumulated during the analysis pass
                         // instead of re-traversing the tree with CalculateDirectorySize.
+                        // Note: reparse-point directories are already skipped before this point.
                         Directory.Delete(topDir.FullName, true);
                         bytesFreed += treeBytes;
                         deletedCount++;
@@ -315,7 +346,12 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
             foreach (var subDir in subDirs)
             {
-                stack.Push(subDir.FullName);
+                // Skip reparse-point subdirectories to prevent following symlinks or
+                // junctions into foreign trees during recursive analysis.
+                if (!IsReparsePoint(subDir.FullName))
+                {
+                    stack.Push(subDir.FullName);
+                }
             }
         }
 

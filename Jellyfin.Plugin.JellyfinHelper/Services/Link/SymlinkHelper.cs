@@ -152,9 +152,12 @@ public class SymlinkHelper : ISymlinkHelper
                 throw CreateDestBecameRealFileException();
             }
 
-            // Still a symlink — delete just the link node (never follows to a target) and retry.
-            File.Delete(destPath);
-            File.Move(sourcePath, destPath);
+            // Still a symlink — use File.Move(overwrite: true) which maps to the OS rename(2)
+            // syscall on Linux / MoveFileExW(MOVEFILE_REPLACE_EXISTING) on Windows.  Both are
+            // atomic: the kernel replaces the destination in a single operation so there is no
+            // window between deleting the link node and placing the new file where a concurrent
+            // process could swap in a real file and cause us to silently overwrite it.
+            File.Move(sourcePath, destPath, overwrite: true);
         }
 
         // --- Excluded Race Condition Handlers ---

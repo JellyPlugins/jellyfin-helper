@@ -389,6 +389,15 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             var current = stack.Pop();
             result.Add(current);
 
+            // Do not enumerate children of reparse-point (symlink/junction) directories.
+            // The per-directory guard in the caller already skips processing their content;
+            // not traversing here prevents following links into foreign trees before that
+            // guard has a chance to run.
+            if (IsReparsePoint(current))
+            {
+                continue;
+            }
+
             try
             {
                 foreach (var d in FileSystem.GetDirectories(current))

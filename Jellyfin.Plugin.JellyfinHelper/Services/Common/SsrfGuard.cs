@@ -19,13 +19,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 internal static class SsrfGuard
 {
     // Blocked metadata IP addresses (resolved once for efficient comparison).
-    private static readonly IPAddress AwsImdsV4 = IPAddress.Parse("169.254.169.254");
+    private static readonly IPAddress AwsImdsV4 = IPAddress.Parse("169.254.169.254");   // AWS & GCP share this IPv4 address
     private static readonly IPAddress AlibabaImds = IPAddress.Parse("100.100.100.200");
     private static readonly IPAddress AwsImdsV6 = IPAddress.Parse("fd00:ec2::254");
+    private static readonly IPAddress GcpImdsV6 = IPAddress.Parse("fd20:ce::254");      // GCP metadata IPv6
 
     /// <summary>
     ///     Returns <see langword="true" /> if <paramref name="host" /> is a well-known cloud
-    ///     instance-metadata endpoint (AWS/Azure IMDS, GCP, Alibaba).
+    ///     instance-metadata endpoint (AWS/Azure IMDS, GCP IPv4/IPv6/DNS, Alibaba).
+    ///     Blocked GCP endpoints: <c>metadata.google.internal</c>, <c>metadata.goog</c>,
+    ///     <c>169.254.169.254</c> (shared with AWS), and <c>fd20:ce::254</c> (GCP IPv6).
     ///     Also catches IPv4-mapped IPv6 representations such as <c>::ffff:169.254.169.254</c>
     ///     or the bracketed form <c>[::ffff:169.254.169.254]</c>.
     /// </summary>
@@ -38,8 +41,10 @@ internal static class SsrfGuard
             return false;
         }
 
-        // Hostname-based checks (GCP uses a DNS name, not an IP).
-        if (host.Equals("metadata.google.internal", StringComparison.OrdinalIgnoreCase))
+        // Hostname-based checks (GCP exposes metadata under multiple DNS names).
+        // metadata.goog is the short alias documented by GCP alongside metadata.google.internal.
+        if (host.Equals("metadata.google.internal", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("metadata.goog", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -62,7 +67,8 @@ internal static class SsrfGuard
 
         return ip.Equals(AwsImdsV4)
             || ip.Equals(AlibabaImds)
-            || ip.Equals(AwsImdsV6);
+            || ip.Equals(AwsImdsV6)
+            || ip.Equals(GcpImdsV6);
     }
 
     /// <summary>

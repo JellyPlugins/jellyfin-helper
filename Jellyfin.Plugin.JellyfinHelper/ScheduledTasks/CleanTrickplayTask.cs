@@ -92,6 +92,14 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                     var current = stack.Pop();
                     yield return current;
 
+                    // Do not enumerate children of reparse-point (symlink/junction) directories.
+                    // The per-entry guard in the caller handles the yielded entry; not traversing
+                    // here prevents following links into foreign trees.
+                    if (IsReparsePoint(current))
+                    {
+                        continue;
+                    }
+
                     IEnumerable<FileSystemMetadata> children;
                     try
                     {
