@@ -92,15 +92,18 @@ internal static class SsrfGuard
     ///     (e.g. <c>https://user:password@host</c>); reflecting or logging the raw string would
     ///     leak the password. This returns only the scheme, host, and port
     ///     (<see cref="UriComponents.SchemeAndServer" />), dropping any user-info, path, query,
-    ///     and fragment. Non-absolute or unparseable inputs fall back to a fixed placeholder so no
-    ///     raw credential-bearing text is ever surfaced.
+    ///     and fragment. Only <c>http</c>/<c>https</c> endpoints are accepted; anything else —
+    ///     non-absolute input, a bare path (which <see cref="Uri" /> resolves to <c>file://</c> on
+    ///     Unix), or another scheme — falls back to a fixed placeholder so no raw credential-bearing
+    ///     text is ever surfaced.
     /// </summary>
     /// <param name="url">The configured endpoint URL (may contain user-info credentials).</param>
     /// <returns>A scheme+host+port label, or <c>"(invalid URL)"</c> when parsing fails.</returns>
     public static string SafeEndpointLabel(string? url)
     {
         if (!string.IsNullOrWhiteSpace(url)
-            && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            && Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
         {
             return uri.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
         }

@@ -76,7 +76,9 @@ public sealed class SsrfGuardTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("not a url")]
-    [InlineData("/relative/path")]
-    public void SafeEndpointLabel_InvalidOrRelative_ReturnsPlaceholder(string? url)
+    [InlineData("/relative/path")]        // Uri resolves this to file:// on Unix — must still be rejected
+    [InlineData("file:///etc/passwd")]    // non-HTTP scheme
+    [InlineData("ftp://host/file")]       // non-HTTP scheme
+    public void SafeEndpointLabel_InvalidRelativeOrNonHttp_ReturnsPlaceholder(string? url)
         => Assert.Equal("(invalid URL)", SsrfGuard.SafeEndpointLabel(url));
 }
