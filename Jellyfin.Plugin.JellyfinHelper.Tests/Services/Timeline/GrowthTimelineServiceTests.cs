@@ -438,10 +438,9 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     public async Task ComputeTimelineAsync_DirectoryCreationTimePre1990_FallsBackToLastWriteTime()
     {
         // Filesystems that don't track creation time report a pre-1990 sentinel; the scan must
-        // fall back to last-write time so the directory is still counted with a sane date.
-        // Timestamps come from the FileSystemMetadata the injected filesystem returns (mockable and
-        // platform-independent) - the real dir is kept only so the reparse .Attributes read sees a
-        // real, non-reparse directory.
+        // fall back to last-write time so the directory is still counted with a sane date. The
+        // service reads these timestamps via a live stat (Directory.Get*TimeUtc), so we set them on
+        // the real directory rather than injecting them into the mock metadata.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
@@ -449,15 +448,13 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         var pre1990 = new DateTime(1980, 5, 5, 0, 0, 0, DateTimeKind.Utc);
         var post1990 = new DateTime(2015, 3, 3, 0, 0, 0, DateTimeKind.Utc);
+        Directory.SetCreationTimeUtc(movieDir, pre1990);
+        Directory.SetLastWriteTimeUtc(movieDir, post1990);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata
-            {
-                FullName = movieDir, Name = "Movie", IsDirectory = true,
-                CreationTimeUtc = pre1990, LastWriteTimeUtc = post1990
-            }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
@@ -473,25 +470,24 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_LooseFileCreationTimePre1990_FallsBackToLastWriteTime()
     {
-        // Same creation-time fallback as directories, but for a loose media file in the library root.
-        // Timestamps come from the mock FileSystemMetadata; only the real library root dir is kept so
-        // the reparse .Attributes read on the root sees a real, non-reparse directory.
+        // Same creation-time fallback as directories, but for a loose media file in the library
+        // root. The service reads timestamps via a live stat (File.Get*TimeUtc), so we set them on
+        // the real file rather than injecting them into the mock metadata.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var mkv = Path.Join(libRoot, "movie.mkv");
+        File.WriteAllText(mkv, "video");
 
         var pre1990 = new DateTime(1980, 5, 5, 0, 0, 0, DateTimeKind.Utc);
         var post1990 = new DateTime(2015, 3, 3, 0, 0, 0, DateTimeKind.Utc);
+        File.SetCreationTimeUtc(mkv, pre1990);
+        File.SetLastWriteTimeUtc(mkv, post1990);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(libRoot))
-            .Returns([new FileSystemMetadata
-            {
-                FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5,
-                CreationTimeUtc = pre1990, LastWriteTimeUtc = post1990
-            }]);
+            .Returns([new FileSystemMetadata { FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5 }]);
 
         var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
 
@@ -579,22 +575,21 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     {
         // When BOTH the creation and last-write timestamps are pre-1990 sentinels (a filesystem
         // that tracks neither), there is no sane date to attribute the directory to, so it must be
-        // skipped entirely rather than plotted at a bogus year.
+        // skipped entirely rather than plotted at a bogus year. Timestamps are read via a live stat,
+        // so set them on the real directory.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
         Directory.CreateDirectory(movieDir);
 
         var pre1990 = new DateTime(1980, 5, 5, 0, 0, 0, DateTimeKind.Utc);
+        Directory.SetCreationTimeUtc(movieDir, pre1990);
+        Directory.SetLastWriteTimeUtc(movieDir, pre1990);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata
-            {
-                FullName = movieDir, Name = "Movie", IsDirectory = true,
-                CreationTimeUtc = pre1990, LastWriteTimeUtc = pre1990
-            }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
@@ -609,21 +604,21 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     public async Task ComputeTimelineAsync_LooseFileBothCreationAndWriteTimePre1990_IsSkipped()
     {
         // Same both-timestamps-pre-1990 skip as directories, but for a loose media file in the root.
+        // Timestamps are read via a live stat, so set them on the real file.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var mkv = Path.Join(libRoot, "movie.mkv");
+        File.WriteAllText(mkv, "video");
 
         var pre1990 = new DateTime(1980, 5, 5, 0, 0, 0, DateTimeKind.Utc);
+        File.SetCreationTimeUtc(mkv, pre1990);
+        File.SetLastWriteTimeUtc(mkv, pre1990);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(libRoot))
-            .Returns([new FileSystemMetadata
-            {
-                FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5,
-                CreationTimeUtc = pre1990, LastWriteTimeUtc = pre1990
-            }]);
+            .Returns([new FileSystemMetadata { FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5 }]);
 
         var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
 
