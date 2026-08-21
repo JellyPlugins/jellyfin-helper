@@ -36,6 +36,12 @@ public sealed class UserDiscoveryController : ControllerBase
     // does. The critical section is only two IMemoryCache operations, so contention is negligible.
     private static readonly object RateLimitGate = new();
 
+    // Generation counter folded into every rate-limit cache key. ClearRateLimitState() bumps it
+    // (under RateLimitGate) so all keys minted by a previous plugin load become unreachable — an
+    // instant logical reset even when the IMemoryCache instance survives a reload, without waiting
+    // for the per-entry TTL to expire (which would otherwise leave a user seeing stale 429s).
+    private static long _rateLimitGeneration;
+
     private readonly IMemoryCache _memoryCache;
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
@@ -336,14 +342,15 @@ public sealed class UserDiscoveryController : ControllerBase
         var rateLimitExceeded = false;
         var retryAfterSeconds = 0;
 
-        var rateLimitKey = $"ratelimit:{currentJellyfinUserId:N}";
-
         // Atomic check-and-update: without the lock, concurrent requests for the same user could
         // all observe a cache miss (or a stale timestamp) and each write `now`, all passing the
         // limit and submitting duplicate upstream requests. Serializing the read+write closes that
-        // race so only the first request in a window proceeds.
+        // race so only the first request in a window proceeds. The key includes the current
+        // generation so a ClearRateLimitState() bump invalidates all prior-load entries at once.
         lock (RateLimitGate)
         {
+            var rateLimitKey = $"ratelimit:{_rateLimitGeneration}:{currentJellyfinUserId:N}";
+
             if (_memoryCache.TryGetValue<DateTime>(rateLimitKey, out var lastRequest))
             {
                 var elapsed = now - lastRequest;
@@ -533,20 +540,22 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Clears all per-user rate-limit state held in the static dictionary.
-    ///     Called from <see cref="Plugin"/>'s constructor on every plugin load and from
-    ///     <see cref="Plugin.OnUninstalling"/> so stale entries from a previous
-    ///     plugin load do not leak into a subsequent reload (finding #313/#77/#117).
-    /// </summary>
-    /// <summary>
-    ///     No-op: rate-limit state is now managed via <see cref="IMemoryCache"/> with automatic
-    ///     TTL expiry. Entries auto-expire after <see cref="RequestRateLimit"/> and cannot
-    ///     accumulate unboundedly. Kept for backward compatibility with <see cref="Plugin"/>
-    ///     constructor which calls this on every load.
+    ///     Resets all per-user rate-limit state. Called from <see cref="Plugin"/>'s constructor on
+    ///     every plugin load and from <see cref="Plugin.OnUninstalling"/> so stale entries from a
+    ///     previous plugin load do not leak into a subsequent reload (finding #313/#77/#117).
+    ///     <para>
+    ///         Rate-limit entries live in an <see cref="IMemoryCache"/> that may outlive a plugin
+    ///         reload. Rather than enumerate and evict keys, we bump a generation counter that is
+    ///         folded into every rate-limit key: all entries minted by the previous generation
+    ///         become unreachable at once, so no user carries a stale 429 window across a reload.
+    ///     </para>
     /// </summary>
     internal static void ClearRateLimitState()
     {
-        /* IMemoryCache auto-expires entries — nothing to clear */
+        lock (RateLimitGate)
+        {
+            _rateLimitGeneration++;
+        }
     }
 
     /// <summary>

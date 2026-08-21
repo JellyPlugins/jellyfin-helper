@@ -1142,11 +1142,15 @@ public class TrashService : ITrashService
         Directory.Move(source, destination);
 
     /// <summary>
-    ///     Determines whether a file or directory already exists at <paramref name="path" />.
+    ///     Determines whether anything already occupies <paramref name="path" />, including a
+    ///     dangling symlink's link node. Uses <see cref="Path.Exists(string?)" />, which does not
+    ///     follow the link (unlike <see cref="File.Exists(string?)" /> /
+    ///     <see cref="Directory.Exists(string?)" />), so a broken link still holding the destination
+    ///     name correctly drives the TOCTOU move-retry instead of being treated as free.
     /// </summary>
     /// <param name="path">The path to test.</param>
     /// <returns>
-    ///     <see langword="true" /> if a file or directory exists at the path; otherwise <see langword="false" />.
+    ///     <see langword="true" /> if a file, directory, or link node occupies the path; otherwise <see langword="false" />.
     /// </returns>
-    internal virtual bool DestinationExists(string path) => File.Exists(path) || Directory.Exists(path);
+    internal virtual bool DestinationExists(string path) => Path.Exists(path);
 }

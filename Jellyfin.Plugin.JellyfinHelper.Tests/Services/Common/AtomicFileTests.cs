@@ -489,22 +489,22 @@ public sealed class AtomicFileTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteAllTextAsync_CancelledDuringRetryBackoff_PropagatesAndLeavesNoOrphans()
+    public async Task WriteAllTextAsync_CancelledDuringRetry_PropagatesAndLeavesNoOrphans()
     {
-        // Targets the backoff-cancellation catch (the retry loop's Task.Delay honouring the token).
-        // Setup: the destination is an existing *directory*, so every File.Move attempt throws
-        // IOException (cross-platform) and the code enters the transient-retry branch with
-        // maxAttempts > 1. We cancel the token so the inter-attempt Task.Delay observes it and the
-        // write aborts with OperationCanceledException — never silently succeeding — and cleans up
-        // its temp file.
-        var path = Path.Join(_tempDir, "cancel-backoff");
+        // Exercises cancellation on the transient-retry path. Setup: the destination is an existing
+        // *directory*, so every File.Move attempt throws IOException (cross-platform) and the code
+        // enters the retry branch with maxAttempts > 1. The token is cancelled shortly after the
+        // call starts; the retry loop observes it — either at the loop-top ThrowIfCancellationRequested
+        // or in the inter-attempt Task.Delay(BaseBackoff * attempt, token). Both are valid
+        // cancellation checkpoints on this path; the test asserts the observable contract regardless
+        // of which one fires: an OperationCanceledException propagates (no silent success) and no
+        // temp files are left behind.
+        var path = Path.Join(_tempDir, "cancel-retry");
         Directory.CreateDirectory(path); // destination is a directory → File.Move always throws IOException
 
         using var cts = new CancellationTokenSource();
 
         var task = AtomicFile.WriteAllTextAsync(path, "NEW", maxAttempts: 5, cancellationToken: cts.Token);
-        // First attempt's write-to-temp succeeds, its Move throws IOException, then the loop backs
-        // off via Task.Delay(BaseBackoff * attempt, token). Cancel within that window.
         cts.CancelAfter(TimeSpan.FromMilliseconds(3));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);

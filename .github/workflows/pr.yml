@@ -243,6 +243,10 @@ jobs:
         echo "COUNT=$count" >> "$GITHUB_ENV"
 
     - name: Commit badge if changed
+      env:
+        # Pass the branch name via env, never interpolated directly into the shell script:
+        # a crafted same-repo branch name could otherwise inject commands (this job has write).
+        PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
       run: |
         set -euo pipefail
         if git diff --quiet -- README.md; then
@@ -255,7 +259,7 @@ jobs:
         git add README.md
         # [skip ci] prevents the pushed commit from re-triggering this workflow (no loop).
         git commit -m "chore: update test count badge to ${COUNT} [skip ci]"
-        git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+        git push origin "HEAD:${PR_HEAD_REF}"
 
   # Deploy a live preview of the dashboard demo for this PR
   demo-preview:

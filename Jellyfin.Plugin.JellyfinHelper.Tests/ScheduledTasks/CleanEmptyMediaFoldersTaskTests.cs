@@ -102,6 +102,34 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     }
 
     [Fact]
+    public async Task ExecuteInternalAsync_TopLevelFolderWithOnlyStrmFile_IsKept()
+    {
+        // A .strm file is a Jellyfin stream-link pointing at remote/relocated video. It is classified
+        // as a video file (MediaExtensions.VideoExtensions), so a folder whose only real content is a
+        // .strm must be treated as an active media folder and NEVER deleted — even though the .strm
+        // itself is a tiny text file that looks like a non-media file to a naive extension check.
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Streamed Movie (2022)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Streamed Movie (2022)", movieDir));
+
+        // Only a .strm link file plus metadata/artwork — no local video, no other files.
+        SetupFiles(movieDir, "movie.strm", "movie.nfo", "poster.jpg");
+        SetupTopLevelDirs(movieDir);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+        MockTrackingService.Verify(
+            t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ExecuteInternalAsync_CompletelyEmptyFolder_IsSkipped()
     {
         const string libraryPath = "/media/movies";

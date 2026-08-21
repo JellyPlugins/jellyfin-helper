@@ -438,10 +438,12 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         const string subDir = "/media/movies/ShowA";
         const string okDir = "/media/movies/ShowB";
         SetupLibrary(lib);
-        // Seed succeeds: libraryPath → subDir + okDir (both discovered in the seed enumeration).
+        // Seed order matters: TryGetSubdirectories uses a LIFO stack, so the FIRST-returned dir is
+        // processed LAST. Return okDir first (→ bottom of stack) so the failing subDir is popped and
+        // throws BEFORE okDir is reached — proving the loop continues past the failure, not around it.
         _fileSystemMock.Setup(f => f.GetDirectories(lib)).Returns([
-            new FileSystemMetadata { FullName = subDir, Name = "ShowA", IsDirectory = true },
-            new FileSystemMetadata { FullName = okDir, Name = "ShowB", IsDirectory = true }
+            new FileSystemMetadata { FullName = okDir, Name = "ShowB", IsDirectory = true },
+            new FileSystemMetadata { FullName = subDir, Name = "ShowA", IsDirectory = true }
         ]);
         // Loop-phase: GetDirectories(subDir) throws → logged, loop continues to okDir.
         _fileSystemMock.Setup(f => f.GetDirectories(subDir))

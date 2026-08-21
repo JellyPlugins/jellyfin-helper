@@ -177,19 +177,21 @@ public class TrashController : ControllerBase
                 // path (or one of its ancestors) could be swapped for a symlink/junction pointing
                 // at a real media library, redirecting the recursive delete into that tree. .NET's
                 // Directory.Delete removes a FINAL symlink node itself rather than following it, but
-                // a symlinked ANCESTOR still redirects traversal — so we re-stat immediately before
-                // deleting and refuse if this path is now a reparse point. This narrows, but cannot
-                // fully close, the race (a purely pathname-based check is not an atomic binding).
+                // a symlinked ANCESTOR still redirects traversal — so we re-stat this path AND every
+                // ancestor immediately before deleting and refuse if any is a reparse point. This
+                // narrows, but cannot fully close, the race (a pathname-based check is not an atomic
+                // binding), and is the safest option available without handle-relative syscalls.
                 var pathInfo = new DirectoryInfo(path);
                 if (!pathInfo.Exists)
                 {
                     continue;
                 }
 
-                if ((pathInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                if ((pathInfo.Attributes & FileAttributes.ReparsePoint) != 0
+                    || HasReparsePointAncestor(path))
                 {
                     failed.Add(path);
-                    _pluginLog.LogError("API", $"Refusing to delete trash folder {path}: it is a reparse point (symlink/junction). Skipping to prevent symlink traversal.", logger: _logger);
+                    _pluginLog.LogError("API", $"Refusing to delete trash folder {path}: it or an ancestor is a reparse point (symlink/junction). Skipping to prevent symlink traversal.", logger: _logger);
                     continue;
                 }
 
@@ -603,6 +605,46 @@ public class TrashController : ControllerBase
     /// </summary>
     private static bool IsSensitiveSystemPath(string normalizedPath)
         => PathValidator.IsSensitiveSystemPath(normalizedPath);
+
+    /// <summary>
+    ///     Returns <see langword="true" /> if any ANCESTOR directory of <paramref name="path" /> is a
+    ///     reparse point (symlink/junction). A symlinked ancestor would let a subsequent
+    ///     <c>Directory.Delete(path, recursive)</c> traverse into the link's real target — so callers
+    ///     must refuse deletion when this returns true. Walks parents up to the filesystem root; a
+    ///     stat failure on any ancestor is treated as "assume reparse point" (fail closed).
+    /// </summary>
+    /// <param name="path">The fully-qualified path whose ancestry is inspected.</param>
+    /// <returns><see langword="true" /> if an ancestor is (or cannot be proven not to be) a reparse point.</returns>
+    private static bool HasReparsePointAncestor(string path)
+    {
+        var parent = Path.GetDirectoryName(path);
+        while (!string.IsNullOrEmpty(parent))
+        {
+            try
+            {
+                var info = new DirectoryInfo(parent);
+                if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Cannot verify this ancestor — fail closed rather than risk a redirected delete.
+                return true;
+            }
+
+            var next = Path.GetDirectoryName(parent);
+            if (string.Equals(next, parent, StringComparison.Ordinal))
+            {
+                break; // reached the root component
+            }
+
+            parent = next;
+        }
+
+        return false;
+    }
 
     /// <summary>
     ///     Normalizes OS-level exception messages in CheckAccess responses to prevent

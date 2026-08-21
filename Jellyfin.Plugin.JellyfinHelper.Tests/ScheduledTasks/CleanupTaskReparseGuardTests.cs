@@ -37,20 +37,21 @@ public sealed class CleanupTaskReparseGuardTests
             TestMockFactory.CreateLogger<CleanEmptyMediaFoldersTask>();
 
         [Fact]
-        public async Task HardDelete_OrphanIsReparsePoint_RemovesLinkNodeOnlyAndWarns()
+        public async Task TopLevelReparsePoint_IsSkippedNeverDeleted()
         {
+            // Policy: a top-level symlink/junction is NEVER deleted — its target may hold live media
+            // (Radarr/Sonarr place symlinked media folders under the library root) and the task has
+            // no orphan evidence for an entry it did not analyze. It must be skipped with a warning,
+            // never traversed, and never counted as a cleanup.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
             const string libraryPath = "/media/movies";
-            const string orphanDir = "/media/movies/Orphan (2019)";
+            const string linkedDir = "/media/movies/Linked (2019)";
 
             _libraryManagerMock.Setup(m => m.GetVirtualFolders())
                 .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
-            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(orphanDir, "Orphan (2019)")]);
-            _fileSystemMock.Setup(f => f.GetDirectories(orphanDir)).Returns([]);
-            // A subtitle is a non-metadata file with no accompanying video -> the folder is an orphan.
-            _fileSystemMock.Setup(f => f.GetFiles(orphanDir)).Returns([FileMeta(orphanDir + "/movie.srt")]);
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(linkedDir, "Linked (2019)")]);
 
             var task = new ReparseTask(
                 _libraryManagerMock.Object,
@@ -60,106 +61,62 @@ public sealed class CleanupTaskReparseGuardTests
                 MockConfigHelper.Object,
                 MockTrackingService.Object,
                 MockTrashService.Object,
-                orphanDir);
+                linkedDir);
 
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-            VerifyLogContains(_loggerMock, "Skipping deletion of symlinked directory", LogLevel.Warning);
-            Assert.True(task.LinkNodeDeleted);
-            // Counted as one deletion, but a link-node removal frees no bytes.
-            MockTrackingService.Verify(
-                t => t.RecordCleanup(0L, 1, It.IsAny<ILogger>()),
-                Times.Once);
-        }
-
-        [Fact]
-        public async Task DryRun_OrphanIsReparsePoint_LogsInfoAndCountsWithoutDeleting()
-        {
-            Config.EmptyMediaFolderTaskMode = TaskMode.DryRun;
-
-            const string libraryPath = "/media/movies";
-            const string orphanDir = "/media/movies/Orphan (2019)";
-
-            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
-                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
-            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(orphanDir, "Orphan (2019)")]);
-
-            var task = new ReparseTask(
-                _libraryManagerMock.Object, _fileSystemMock.Object,
-                TestMockFactory.CreatePluginLogService(), _loggerMock.Object,
-                MockConfigHelper.Object, MockTrackingService.Object, MockTrashService.Object,
-                orphanDir);
-
-            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
-
-            VerifyLogContains(_loggerMock, "[Dry Run] Would delete symlinked directory (link node only)", LogLevel.Information);
+            VerifyLogContains(_loggerMock, "Skipping symlinked directory (reparse point)", LogLevel.Warning);
             Assert.False(task.LinkNodeDeleted);
-            // RecordCleanup must never be called in dry-run mode.
+            // The link is never traversed and never trashed.
+            _fileSystemMock.Verify(f => f.GetFiles(linkedDir), Times.Never);
+            MockTrashService.Verify(
+                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                Times.Never);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
                 Times.Never);
         }
 
         [Fact]
-        public async Task TooYoung_ReparsePoint_SkipsWithDebugLog()
+        public async Task FolderWithReparsePointSubdir_IsNotDeleted_OrphanVerdictUnproven()
         {
+            // Data-loss guard: a real folder whose only "orphan" signal is a stray non-video file,
+            // but which ALSO contains a symlinked subdirectory, must NOT be deleted — video files
+            // could live behind that link, so the orphan verdict is unproven.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
-            MockConfigHelper.Setup(x => x.IsOldEnoughForDeletion(It.IsAny<string>())).Returns(false);
+            Config.UseTrash = false;
 
             const string libraryPath = "/media/movies";
-            const string orphanDir = "/media/movies/Orphan (2019)";
+            const string folder = "/media/movies/Show (2019)";
+            const string reparseSubDir = "/media/movies/Show (2019)/season1";
 
             _libraryManagerMock.Setup(m => m.GetVirtualFolders())
                 .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
-            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(orphanDir, "Orphan (2019)")]);
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(folder, "Show (2019)")]);
+            // folder is a real dir with a non-metadata file (would look like an orphan on its own)
+            // plus a reparse-point subdir whose contents are unknown.
+            _fileSystemMock.Setup(f => f.GetFiles(folder)).Returns([FileMeta(folder + "/readme.txt")]);
+            _fileSystemMock.Setup(f => f.GetDirectories(folder)).Returns([DirMeta(reparseSubDir, "season1")]);
 
+            // Only the SUBdir is a reparse point; the top-level folder is a normal directory.
             var task = new ReparseTask(
-                _libraryManagerMock.Object, _fileSystemMock.Object,
-                TestMockFactory.CreatePluginLogService(), _loggerMock.Object,
-                MockConfigHelper.Object, MockTrackingService.Object, MockTrashService.Object,
-                orphanDir);
+                _libraryManagerMock.Object,
+                _fileSystemMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                _loggerMock.Object,
+                MockConfigHelper.Object,
+                MockTrackingService.Object,
+                MockTrashService.Object,
+                reparseSubDir);
 
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-            VerifyLogContains(_loggerMock, "too-new reparse-point directory", LogLevel.Debug);
-            Assert.False(task.LinkNodeDeleted);
-            MockTrackingService.Verify(
-                t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            VerifyLogContains(_loggerMock, "unresolved symlinked/unreadable subdirectory", LogLevel.Warning);
+            // The subtree behind the link was never enumerated, and nothing was deleted/trashed.
+            _fileSystemMock.Verify(f => f.GetFiles(reparseSubDir), Times.Never);
+            MockTrashService.Verify(
+                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
-        }
-
-        /// <summary>
-        ///     When <see cref="BaseLibraryCleanupTask.DeleteReparsePointLinkNode" /> (base implementation)
-        ///     detects that the path is no longer a reparse point at deletion time it throws
-        ///     <see cref="InvalidOperationException" />.  The caller must log a Warning and leave the
-        ///     entry unchanged (no count increment, no RecordCleanup call).
-        ///     This test also exercises the base <c>DeleteReparsePointLinkNode</c> throw path: the
-        ///     unoverridden production implementation creates a <see cref="DirectoryInfo" /> for the
-        ///     fake test path, finds it does not exist, and throws.
-        /// </summary>
-        [Fact]
-        public async Task HardDelete_ReparsePoint_ConcurrentReplacement_WarnsAndSkips()
-        {
-            Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
-
-            const string libraryPath = "/media/movies";
-            const string orphanDir = "/media/movies/Orphan (2019)";
-
-            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
-                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
-            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(orphanDir, "Orphan (2019)")]);
-
-            // Use the base DeleteReparsePointLinkNode (no override): the path does not exist on disk,
-            // so info.Exists == false and the base impl throws InvalidOperationException (fail closed).
-            var task = new BaseImplReparseTask(
-                _libraryManagerMock.Object, _fileSystemMock.Object,
-                TestMockFactory.CreatePluginLogService(), _loggerMock.Object,
-                MockConfigHelper.Object, MockTrackingService.Object, MockTrashService.Object,
-                orphanDir);
-
-            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
-
-            VerifyLogContains(_loggerMock, "Reparse-point node changed type before deletion, skipping", LogLevel.Warning);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
                 Times.Never);
@@ -196,37 +153,6 @@ public sealed class CleanupTaskReparseGuardTests
             _fileSystemMock.Verify(f => f.GetDirectories(reparseSubDir), Times.Never);
         }
 
-        /// <summary>
-        ///     When <see cref="BaseLibraryCleanupTask.DeleteReparsePointLinkNode" /> throws an
-        ///     <see cref="IOException" /> (e.g. permission denied), the caller must log an error and
-        ///     leave the deletion count at 0 so <c>RecordCleanup</c> is never called.
-        /// </summary>
-        [Fact]
-        public async Task HardDelete_ReparsePoint_IOExceptionDuringDeletion_LogsErrorAndNoCount()
-        {
-            Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
-
-            const string libraryPath = "/media/movies";
-            const string orphanDir = "/media/movies/Orphan (2019)";
-
-            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
-                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
-            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(orphanDir, "Orphan (2019)")]);
-
-            var task = new IOExceptionReparseTask(
-                _libraryManagerMock.Object, _fileSystemMock.Object,
-                TestMockFactory.CreatePluginLogService(), _loggerMock.Object,
-                MockConfigHelper.Object, MockTrackingService.Object, MockTrashService.Object,
-                orphanDir);
-
-            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
-
-            VerifyLogContains(_loggerMock, "Failed to delete reparse point link node", LogLevel.Error);
-            MockTrackingService.Verify(
-                t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
-                Times.Never);
-        }
-
         private sealed class ReparseTask : CleanEmptyMediaFoldersTask
         {
             private readonly string _reparsePath;
@@ -250,55 +176,6 @@ public sealed class CleanupTaskReparseGuardTests
 
             protected override void DeleteReparsePointLinkNode(string path) => LinkNodeDeleted = true;
         }
-
-        /// <summary>Overrides <c>DeleteReparsePointLinkNode</c> to throw <see cref="IOException" />.</summary>
-        private sealed class IOExceptionReparseTask : CleanEmptyMediaFoldersTask
-        {
-            private readonly string _reparsePath;
-
-            public IOExceptionReparseTask(
-                ILibraryManager libraryManager,
-                IFileSystem fileSystem,
-                IPluginLogService pluginLog,
-                ILogger<CleanEmptyMediaFoldersTask> logger,
-                ICleanupConfigHelper configHelper,
-                ICleanupTrackingService trackingService,
-                ITrashService trashService,
-                string reparsePath)
-                : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
-                => _reparsePath = reparsePath;
-
-            protected override bool IsReparsePoint(string path) =>
-                string.Equals(path, _reparsePath, StringComparison.Ordinal);
-
-            protected override void DeleteReparsePointLinkNode(string path) =>
-                throw new IOException("Simulated permission denied");
-        }
-
-        /// <summary>
-        ///     Overrides only <c>IsReparsePoint</c>; intentionally does NOT override
-        ///     <c>DeleteReparsePointLinkNode</c> so the base-class implementation (with its
-        ///     fail-closed re-check) runs against the fake test path.
-        /// </summary>
-        private sealed class BaseImplReparseTask : CleanEmptyMediaFoldersTask
-        {
-            private readonly string _reparsePath;
-
-            public BaseImplReparseTask(
-                ILibraryManager libraryManager,
-                IFileSystem fileSystem,
-                IPluginLogService pluginLog,
-                ILogger<CleanEmptyMediaFoldersTask> logger,
-                ICleanupConfigHelper configHelper,
-                ICleanupTrackingService trackingService,
-                ITrashService trashService,
-                string reparsePath)
-                : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
-                => _reparsePath = reparsePath;
-
-            protected override bool IsReparsePoint(string path) =>
-                string.Equals(path, _reparsePath, StringComparison.Ordinal);
-        }
     }
 
     // ── CleanTrickplayTask ────────────────────────────────────────────────────
@@ -311,8 +188,11 @@ public sealed class CleanupTaskReparseGuardTests
             TestMockFactory.CreateLogger<CleanTrickplayTask>();
 
         [Fact]
-        public async Task HardDelete_TrickplayIsReparsePoint_RemovesLinkNodeOnlyAndWarns()
+        public async Task TrickplayIsReparsePoint_IsSkippedNeverDeletedOrTrashed()
         {
+            // Policy (matching CleanEmptyMediaFoldersTask): a reparse-point .trickplay dir is never
+            // trashed and never recursively deleted — Directory.Delete/MoveToTrash could otherwise be
+            // redirected into the link's real target. It is skipped with a warning, counting nothing.
             Config.TrickplayTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -338,23 +218,23 @@ public sealed class CleanupTaskReparseGuardTests
 
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-            VerifyLogContains(_loggerMock, "Skipping deletion of symlinked trickplay directory", LogLevel.Warning);
-            Assert.True(task.LinkNodeDeleted);
-            // Counted as one deletion, but a link-node removal frees no bytes.
+            VerifyLogContains(_loggerMock, "Skipping symlinked trickplay directory (reparse point)", LogLevel.Warning);
+            Assert.False(task.LinkNodeDeleted);
+            MockTrashService.Verify(
+                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                Times.Never);
             MockTrackingService.Verify(
-                t => t.RecordCleanup(0L, 1, It.IsAny<ILogger>()),
-                Times.Once);
+                t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+                Times.Never);
         }
 
-        /// <summary>
-        ///     When the base <c>DeleteReparsePointLinkNode</c> detects a concurrent replacement it
-        ///     throws <see cref="InvalidOperationException" />.  The trickplay task must catch it,
-        ///     log a Warning, and not increment the deletion count.
-        /// </summary>
         [Fact]
-        public async Task HardDelete_TrickplayReparsePoint_ConcurrentReplacement_WarnsAndSkips()
+        public async Task TrickplayIsReparsePoint_WithTrashEnabled_IsSkippedNotTrashed()
         {
+            // Even with UseTrash=true, a reparse-point trickplay dir must be skipped, never moved to
+            // trash (relocating a link node while its target stays behind is an ambiguous half-op).
             Config.TrickplayTaskMode = TaskMode.Activate;
+            Config.UseTrash = true;
 
             const string libraryPath = "/media";
             const string trickplayDir = "/media/Movie.trickplay";
@@ -365,7 +245,7 @@ public sealed class CleanupTaskReparseGuardTests
             _fileSystemMock.Setup(f => f.GetDirectories(trickplayDir)).Returns([]);
             _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
 
-            var task = new BaseImplReparseTask(
+            var task = new ReparseTask(
                 _libraryManagerMock.Object, _fileSystemMock.Object,
                 TestMockFactory.CreatePluginLogService(), _loggerMock.Object,
                 MockConfigHelper.Object, MockTrackingService.Object, MockTrashService.Object,
@@ -373,9 +253,9 @@ public sealed class CleanupTaskReparseGuardTests
 
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-            VerifyLogContains(_loggerMock, "Reparse-point node changed type before deletion, skipping", LogLevel.Warning);
-            MockTrackingService.Verify(
-                t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            VerifyLogContains(_loggerMock, "Skipping symlinked trickplay directory (reparse point)", LogLevel.Warning);
+            MockTrashService.Verify(
+                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
         }
 
@@ -425,26 +305,6 @@ public sealed class CleanupTaskReparseGuardTests
                 string.Equals(path, _reparsePath, StringComparison.Ordinal);
 
             protected override void DeleteReparsePointLinkNode(string path) => LinkNodeDeleted = true;
-        }
-
-        private sealed class BaseImplReparseTask : CleanTrickplayTask
-        {
-            private readonly string _reparsePath;
-
-            public BaseImplReparseTask(
-                ILibraryManager libraryManager,
-                IFileSystem fileSystem,
-                IPluginLogService pluginLog,
-                ILogger<CleanTrickplayTask> logger,
-                ICleanupConfigHelper configHelper,
-                ICleanupTrackingService trackingService,
-                ITrashService trashService,
-                string reparsePath)
-                : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
-                => _reparsePath = reparsePath;
-
-            protected override bool IsReparsePoint(string path) =>
-                string.Equals(path, _reparsePath, StringComparison.Ordinal);
         }
     }
 

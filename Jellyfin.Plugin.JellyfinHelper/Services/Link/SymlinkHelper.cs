@@ -134,7 +134,10 @@ public class SymlinkHelper : ISymlinkHelper
             // Only the "destination already exists" case is recoverable here. Any other
             // IOException (EXDEV cross-device move, read-only mount, media error) is not related
             // to a racing file and must propagate unchanged rather than trigger a pointless retry.
-            if (!FileExists(destPath) && !DirectoryExists(destPath))
+            // Path.Exists (unlike File.Exists/Directory.Exists) reports the link NODE without
+            // following it, so a dangling symlink still occupying destPath is correctly seen as
+            // "occupied" and routes into the re-stat/overwrite recovery rather than being rethrown.
+            if (!PathExists(destPath))
             {
                 throw;
             }
@@ -248,13 +251,13 @@ public class SymlinkHelper : ISymlinkHelper
     /// <param name="path">The directory path to delete.</param>
     internal virtual void DeleteDirectory(string path) => Directory.Delete(path);
 
-    /// <summary>Determines whether a file exists at <paramref name="path" />.</summary>
+    /// <summary>
+    ///     Determines whether anything occupies <paramref name="path" />, including a dangling
+    ///     symlink's link node. Uses <see cref="Path.Exists(string?)" />, which — unlike
+    ///     <see cref="File.Exists(string?)" /> / <see cref="Directory.Exists(string?)" /> — does not
+    ///     follow the link, so a broken symlink still blocking the destination is reported as present.
+    /// </summary>
     /// <param name="path">The path to test.</param>
-    /// <returns><see langword="true" /> if a file exists at the path.</returns>
-    internal virtual bool FileExists(string path) => File.Exists(path);
-
-    /// <summary>Determines whether a directory exists at <paramref name="path" />.</summary>
-    /// <param name="path">The path to test.</param>
-    /// <returns><see langword="true" /> if a directory exists at the path.</returns>
-    internal virtual bool DirectoryExists(string path) => Directory.Exists(path);
+    /// <returns><see langword="true" /> if a file, directory, or link node occupies the path.</returns>
+    internal virtual bool PathExists(string path) => Path.Exists(path);
 }

@@ -567,6 +567,38 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     }
 
     [Fact]
+    public async Task ClearRateLimitState_AfterReset_UserNoLongerRateLimited()
+    {
+        // ClearRateLimitState is called on plugin load/uninstall and must actually reset the
+        // window: a user who just hit 429 must be allowed through again immediately after a reset,
+        // even though the underlying IMemoryCache entry has not yet expired.
+        var userId = Guid.NewGuid();
+        var dto = new DiscoveryRequestDto { TmdbId = 1, MediaType = "movie" };
+
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        var first = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+        Assert.Equal(201, Assert.IsType<ObjectResult>(first.Result).StatusCode);
+
+        var blocked = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+        Assert.Equal(429, Assert.IsType<ObjectResult>(blocked.Result).StatusCode);
+
+        // Simulate a plugin reload/uninstall resetting the rate-limit state.
+        UserDiscoveryController.ClearRateLimitState();
+
+        var afterReset = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+        Assert.Equal(201, Assert.IsType<ObjectResult>(afterReset.Result).StatusCode);
+    }
+
+    [Fact]
     public async Task SubmitMyRequest_DifferentUsers_BothSucceed()
     {
         var dto = new DiscoveryRequestDto { TmdbId = 2, MediaType = "movie" };

@@ -640,9 +640,9 @@ public sealed class SymlinkHelperTests : IDisposable
 
         internal override void MoveFileOverwrite(string source, string dest) => MoveFileOverwriteCalls++;
 
-        internal override bool FileExists(string path) => true;
-
-        internal override bool DirectoryExists(string path) => false;
+        // The destination is always "occupied" in these scripted races (a symlink node holds it),
+        // so the recovery path (re-stat + overwrite) is entered rather than rethrowing.
+        internal override bool PathExists(string path) => true;
 
         // Any entry the scripted attributes mark as a ReparsePoint is treated as a genuine symlink
         // (non-null LinkTarget), so IsSymlinkFromAttributes keys off the scripted attributes alone.

@@ -135,11 +135,11 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                // Symlink guard: handle reparse-point (symlink/junction) top-level entries
-                // BEFORE any traversal.  Traversing into a symlink can redirect analysis into a
-                // foreign tree (false orphan signal) and a cyclic link causes unbounded iteration.
-                // We delete only the link node itself and never recurse into — or report on — the
-                // real target's contents.
+                // Symlink guard: NEVER traverse into — or delete — a top-level reparse point
+                // (symlink/junction). Its target may hold live media (Radarr/Sonarr commonly place
+                // symlinked media folders directly under a library root), and this task has no
+                // orphan evidence for an entry it did not analyze. Deleting the link node on age
+                // alone would remove valid library entries. Mirror CleanOrphanedSubtitlesTask: skip.
                 bool topIsReparsePoint;
                 try
                 {
@@ -159,46 +159,10 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
                 if (topIsReparsePoint)
                 {
-                    if (!ConfigHelper.IsOldEnoughForDeletion(topDir.FullName))
-                    {
-                        PluginLog.LogDebug(
-                            TaskName,
-                            $"Skipping too-new reparse-point directory (min age {config.OrphanMinAgeDays}d): {topDir.FullName}",
-                            Logger);
-                        continue;
-                    }
-
-                    if (dryRun)
-                    {
-                        PluginLog.LogInfo(
-                            TaskName,
-                            $"[Dry Run] Would delete symlinked directory (link node only): {topDir.FullName}",
-                            Logger);
-                        deletedCount++;
-                    }
-                    else
-                    {
-                        // UseTrash is intentionally not applied to reparse-point nodes: moving a
-                        // symlink to trash is ambiguous (the target is not moved), so we always
-                        // remove just the link node directly.
-                        PluginLog.LogWarning(TaskName, $"Skipping deletion of symlinked directory (removing link only): {topDir.FullName}", logger: Logger);
-                        try
-                        {
-                            DeleteReparsePointLinkNode(topDir.FullName);
-                            deletedCount++;
-                        }
-                        catch (InvalidOperationException)
-                        {
-                            // Concurrent replacement detected inside DeleteReparsePointLinkNode —
-                            // fail closed: entry left unchanged, no deletion counted.
-                            PluginLog.LogWarning(TaskName, $"Reparse-point node changed type before deletion, skipping: {topDir.FullName}", logger: Logger);
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                        {
-                            PluginLog.LogError(TaskName, $"Failed to delete reparse point link node: {topDir.FullName}", ex, Logger);
-                        }
-                    }
-
+                    PluginLog.LogWarning(
+                        TaskName,
+                        $"Skipping symlinked directory (reparse point): {topDir.FullName}",
+                        logger: Logger);
                     continue;
                 }
 
@@ -206,8 +170,20 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 // any video files, any audio files, or any non-metadata files?
                 // The accumulated byte count is returned here so that the hard-delete path
                 // does not need a second traversal via CalculateDirectorySize.
-                var (hasAnyFiles, hasVideoFiles, hasAudioFiles, hasNonMetadataFiles, treeBytes) =
+                var (hasAnyFiles, hasVideoFiles, hasAudioFiles, hasNonMetadataFiles, treeBytes, hasUnresolvedLink) =
                     AnalyzeDirectoryRecursive(topDir.FullName, cancellationToken);
+
+                // If any subtree was hidden behind a symlink/junction (or an unreadable subdir),
+                // the orphan verdict is unproven: video files could live behind that link. Never
+                // delete such a folder — a false orphan here would destroy real media.
+                if (hasUnresolvedLink)
+                {
+                    PluginLog.LogWarning(
+                        TaskName,
+                        $"Skipping folder with an unresolved symlinked/unreadable subdirectory (orphan status unproven): {topDir.FullName}",
+                        logger: Logger);
+                    continue;
+                }
 
                 // If the folder tree is completely empty (no files at all), skip it.
                 // Empty folders are often pre-created by tools like Radarr/Sonarr for "wanted" media.
@@ -304,13 +280,19 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
     /// <summary>
     ///     Analyzes a directory tree in a single iterative pass (explicit stack, no recursion depth limit).
     ///     Returns early as soon as a video file is found anywhere in the subtree.
+    ///     <para>
+    ///         <c>HasUnresolvedLink</c> is set when a reparse-point subdirectory (or a subdirectory
+    ///         that could not be stat'd) was skipped: its contents were NOT analyzed, so the orphan
+    ///         verdict for the whole tree is unproven and the caller must NOT delete the folder.
+    ///     </para>
     /// </summary>
-    private (bool HasAnyFiles, bool HasVideoFiles, bool HasAudioFiles, bool HasNonMetadataFiles, long TotalBytes)
+    private (bool HasAnyFiles, bool HasVideoFiles, bool HasAudioFiles, bool HasNonMetadataFiles, long TotalBytes, bool HasUnresolvedLink)
         AnalyzeDirectoryRecursive(string directoryPath, CancellationToken cancellationToken)
     {
         var hasAnyFiles = false;
         var hasAudioFiles = false;
         var hasNonMetadataFiles = false;
+        var hasUnresolvedLink = false;
         long totalBytes = 0;
 
         var stack = new Stack<string>();
@@ -340,8 +322,9 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 if (MediaExtensions.VideoExtensions.Contains(ext))
                 {
                     // Return 0 bytes: the caller only uses treeBytes in the hard-delete branch,
-                    // which never runs when hasVideoFiles==true.
-                    return (true, true, hasAudioFiles, true, 0);
+                    // which never runs when hasVideoFiles==true. HasUnresolvedLink is irrelevant
+                    // here — a video file means the folder is kept regardless.
+                    return (true, true, hasAudioFiles, true, 0, false);
                 }
 
                 if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
@@ -379,6 +362,9 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
+                    // Could not determine — treat as an unresolved link so the caller does not
+                    // delete a folder whose subtree we failed to inspect.
+                    hasUnresolvedLink = true;
                     PluginLog.LogWarning(
                         TaskName,
                         $"Could not stat subdirectory, not traversing: {subDir.FullName}",
@@ -387,13 +373,18 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                if (!subIsReparsePoint)
+                if (subIsReparsePoint)
                 {
-                    stack.Push(subDir.FullName);
+                    // The subtree behind this link was not analyzed, so the orphan verdict for the
+                    // enclosing folder is unproven. Flag it so ProcessLocation suppresses deletion.
+                    hasUnresolvedLink = true;
+                    continue;
                 }
+
+                stack.Push(subDir.FullName);
             }
         }
 
-        return (hasAnyFiles, false, hasAudioFiles, hasNonMetadataFiles, totalBytes);
+        return (hasAnyFiles, false, hasAudioFiles, hasNonMetadataFiles, totalBytes, hasUnresolvedLink);
     }
 }
