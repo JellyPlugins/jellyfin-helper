@@ -504,6 +504,69 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     }
 
     [Fact]
+    public async Task SubmitMyRequest_SameUser_ConcurrentBurst_SubmitsUpstreamOnlyOnce()
+    {
+        // Regression for the non-atomic rate-limit check: without a lock around the cache
+        // read+write, concurrent requests for the same user could all observe a cache miss and
+        // each submit an upstream request, bypassing the 10-second limit. The check-and-update is
+        // now serialized, so exactly one request in the window reaches SubmitRequestAsync.
+        var userId = Guid.NewGuid();
+        var dto = new DiscoveryRequestDto { TmdbId = 7, MediaType = "movie" };
+
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        const int concurrency = 16;
+        var start = new TaskCompletionSource();
+
+        // Each request gets its own controller (per-request HttpContext), all sharing _memoryCache.
+        var tasks = new Task<ActionResult<RequestResult>>[concurrency];
+        for (var i = 0; i < concurrency; i++)
+        {
+            var controller = CreateController(userId);
+            tasks[i] = Task.Run(async () =>
+            {
+                await start.Task.ConfigureAwait(false);
+                return await controller.SubmitMyRequest(dto, CancellationToken.None).ConfigureAwait(false);
+            });
+        }
+
+        // Release all tasks at once to maximise the chance of interleaving the check-and-update.
+        start.SetResult();
+        var results = await Task.WhenAll(tasks);
+
+        var accepted = 0;
+        var rejected = 0;
+        foreach (var r in results)
+        {
+            var obj = Assert.IsType<ObjectResult>(r.Result);
+            if (obj.StatusCode == 201)
+            {
+                accepted++;
+            }
+            else if (obj.StatusCode == 429)
+            {
+                rejected++;
+            }
+        }
+
+        Assert.Equal(1, accepted);
+        Assert.Equal(concurrency - 1, rejected);
+
+        // The authoritative assertion: the upstream request was submitted exactly once.
+        _discoveryMock.Verify(
+            d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task SubmitMyRequest_DifferentUsers_BothSucceed()
     {
         var dto = new DiscoveryRequestDto { TmdbId = 2, MediaType = "movie" };

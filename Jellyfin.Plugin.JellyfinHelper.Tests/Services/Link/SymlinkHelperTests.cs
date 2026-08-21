@@ -572,4 +572,151 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.Equal("REAL MEDIA BYTES", File.ReadAllText(dest));
         Assert.Equal("repair payload", File.ReadAllText(source));
     }
+
+    // -----------------------------------------------------------------------
+    // Concurrent-replacement (TOCTOU) branches driven deterministically via
+    // filesystem seams. These paths previously carried [ExcludeFromCodeCoverage]
+    // because a real move race cannot be provoked reliably; the seams let a test
+    // subclass simulate each race outcome exactly.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    ///     A <see cref="SymlinkHelper" /> whose filesystem primitives are scripted so the TOCTOU
+    ///     branches of <see cref="SymlinkHelper.ReplaceSymlink" /> and
+    ///     <see cref="SymlinkHelper.DeleteSymlink" /> run without any real symlink or move race.
+    /// </summary>
+    private sealed class ScriptedSymlinkHelper : SymlinkHelper
+    {
+        // Queue of attribute results returned by successive GetAttributes calls. A null entry means
+        // "throw FileNotFoundException" (the entry vanished); otherwise the FileAttributes are returned.
+        private readonly Queue<FileAttributes?> _attributeScript = new();
+        private bool _firstMoveThrowsIoException;
+
+        public int MoveFileCalls { get; private set; }
+
+        public int MoveFileOverwriteCalls { get; private set; }
+
+        public bool GetAttributesThrowsUnauthorized { get; init; }
+
+        public void QueueAttributes(params FileAttributes?[] results)
+        {
+            foreach (var r in results)
+            {
+                _attributeScript.Enqueue(r);
+            }
+        }
+
+        public void MakeFirstMoveFailAsExists() => _firstMoveThrowsIoException = true;
+
+        internal override FileAttributes GetAttributes(string path)
+        {
+            if (GetAttributesThrowsUnauthorized)
+            {
+                throw new UnauthorizedAccessException("access denied (simulated)");
+            }
+
+            if (_attributeScript.Count == 0)
+            {
+                throw new InvalidOperationException("attribute script exhausted");
+            }
+
+            var next = _attributeScript.Dequeue();
+            if (next is null)
+            {
+                throw new FileNotFoundException("entry vanished (simulated)");
+            }
+
+            return next.Value;
+        }
+
+        internal override void MoveFile(string source, string dest)
+        {
+            MoveFileCalls++;
+            if (_firstMoveThrowsIoException && MoveFileCalls == 1)
+            {
+                throw new IOException("destination already exists (simulated)");
+            }
+        }
+
+        internal override void MoveFileOverwrite(string source, string dest) => MoveFileOverwriteCalls++;
+
+        internal override bool FileExists(string path) => true;
+
+        internal override bool DirectoryExists(string path) => false;
+
+        // Any entry the scripted attributes mark as a ReparsePoint is treated as a genuine symlink
+        // (non-null LinkTarget), so IsSymlinkFromAttributes keys off the scripted attributes alone.
+        internal override string? GetLinkTarget(string path) => "/some/target";
+    }
+
+    // A symlink-looking attribute set: ReparsePoint flag present. Combined with the overridden
+    // GetLinkTarget above, this satisfies IsSymlinkFromAttributes so the move/re-stat control flow
+    // is what the test exercises.
+    private const FileAttributes SymlinkAttrs = FileAttributes.ReparsePoint;
+
+    [Fact]
+    public void ReplaceSymlink_DestVanishesBetweenMoveAndRestat_RetriesCleanMove()
+    {
+        // Scripted race: initial stat says "symlink", the non-overwriting move fails because the
+        // destination exists, but by the re-stat the destination has vanished (FileNotFound). The
+        // helper must fall back to a clean, non-overwriting move rather than an overwrite.
+        var helper = new ScriptedSymlinkHelper();
+        helper.QueueAttributes(SymlinkAttrs, null); // 1st stat: symlink; re-stat: vanished
+        helper.MakeFirstMoveFailAsExists();
+
+        helper.ReplaceSymlink("/tmp/source", "/tmp/dest");
+
+        // Two non-overwriting moves (the failed first, then the clean retry); no overwrite move.
+        Assert.Equal(2, helper.MoveFileCalls);
+        Assert.Equal(0, helper.MoveFileOverwriteCalls);
+    }
+
+    [Fact]
+    public void ReplaceSymlink_DestBecomesRealFileBetweenMoveAndRestat_ThrowsDataLoss()
+    {
+        // Scripted race: initial stat says "symlink", the move fails (dest exists), and the re-stat
+        // now reports a NON-symlink (a real file raced into place). The helper must refuse with a
+        // data-loss error and never attempt the overwriting move.
+        var helper = new ScriptedSymlinkHelper();
+        helper.QueueAttributes(SymlinkAttrs, FileAttributes.Normal); // symlink → real file
+        helper.MakeFirstMoveFailAsExists();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => helper.ReplaceSymlink("/tmp/source", "/tmp/dest"));
+
+        Assert.Contains("became a real file", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("data loss", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, helper.MoveFileOverwriteCalls); // never overwrote the real file
+    }
+
+    [Fact]
+    public void ReplaceSymlink_DestStillSymlinkAfterFailedMove_UsesOverwriteMove()
+    {
+        // Scripted race: initial stat says "symlink", the non-overwriting move fails (dest exists),
+        // and the re-stat confirms it is STILL a symlink. The helper must complete via the
+        // single-syscall overwriting move.
+        var helper = new ScriptedSymlinkHelper();
+        helper.QueueAttributes(SymlinkAttrs, SymlinkAttrs); // symlink both times
+        helper.MakeFirstMoveFailAsExists();
+
+        helper.ReplaceSymlink("/tmp/source", "/tmp/dest");
+
+        Assert.Equal(1, helper.MoveFileCalls);           // the single failed non-overwriting attempt
+        Assert.Equal(1, helper.MoveFileOverwriteCalls);  // resolved via overwrite
+    }
+
+    [Fact]
+    public void DeleteSymlink_GetAttributesThrowsAccessError_ThrowsInspectionFailure()
+    {
+        // When the attribute read itself fails (permission denied / IO error), the helper must NOT
+        // claim "not a symbolic link" — that would send an operator investigating the wrong cause.
+        // It reports an inspection failure and refuses to delete the unverified entry.
+        var helper = new ScriptedSymlinkHelper { GetAttributesThrowsUnauthorized = true };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => helper.DeleteSymlink("/tmp/whatever"));
+
+        Assert.Contains("could not be inspected", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("UnauthorizedAccessException", ex.Message, StringComparison.Ordinal);
+        Assert.IsType<UnauthorizedAccessException>(ex.InnerException);
+    }
 }

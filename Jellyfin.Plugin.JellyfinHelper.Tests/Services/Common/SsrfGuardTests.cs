@@ -22,6 +22,8 @@ public sealed class SsrfGuardTests
     [InlineData("fd20:ce::254")]              // GCP IPv6 (bare)
     [InlineData("[fd20:ce::254]")]            // GCP IPv6 (bracketed)
     [InlineData("METADATA.GOOGLE.INTERNAL")] // case-insensitive
+    [InlineData("::ffff:169.254.169.254")]    // IPv4-mapped IPv6 form of AWS/GCP IMDS (bare)
+    [InlineData("[::ffff:169.254.169.254]")]  // IPv4-mapped IPv6 (bracketed, as Uri.Host returns it)
     public void IsCloudMetadataHost_BlockedHosts_ReturnsTrue(string host)
         => Assert.True(SsrfGuard.IsCloudMetadataHost(host));
 
@@ -48,4 +50,33 @@ public sealed class SsrfGuardTests
     [Fact]
     public void ThrowIfCloudMetadataHost_AllowedHost_DoesNotThrow()
         => SsrfGuard.ThrowIfCloudMetadataHost("192.168.1.10", "baseUrl");
+
+    // --- SafeEndpointLabel: never leak user-info credentials embedded in a URL ---
+
+    [Fact]
+    public void SafeEndpointLabel_UrlWithUserInfoCredentials_StripsPassword()
+    {
+        // A valid URL can embed user:password@host; the label must expose neither.
+        var label = SsrfGuard.SafeEndpointLabel("https://admin:s3cr3t@seerr.example.com:5055/api/v1");
+
+        Assert.Equal("https://seerr.example.com:5055", label);
+        Assert.DoesNotContain("s3cr3t", label, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("admin", label, System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("https://radarr.local:7878/", "https://radarr.local:7878")]
+    [InlineData("http://10.0.0.5:8989", "http://10.0.0.5:8989")]
+    [InlineData("https://user@host.example", "https://host.example")]
+    public void SafeEndpointLabel_StripsPathAndUserInfo(string url, string expected)
+        => Assert.Equal(expected, SsrfGuard.SafeEndpointLabel(url));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not a url")]
+    [InlineData("/relative/path")]
+    public void SafeEndpointLabel_InvalidOrRelative_ReturnsPlaceholder(string? url)
+        => Assert.Equal("(invalid URL)", SsrfGuard.SafeEndpointLabel(url));
 }

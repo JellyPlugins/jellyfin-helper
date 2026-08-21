@@ -274,6 +274,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineIdfRarityTests.cs                  # IDF rarity weighting: rare genres/studios contribute more than common ones
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
+│       │   ├── EngineStaticHelpersTests.cs           # Pure static helpers: episode counting, language parse/dedupe, billing-weight filtering
 │       │   ├── EngineCommunityPopularityTests.cs      # BuildCommunityPopularityMap: batch and live paths produce identical output
 │       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
 │       │   ├── EngineExceedsMaxRatingTests.cs         # Parental-rating gate - null max = unrestricted, missing rating = REJECT, inclusive boundary

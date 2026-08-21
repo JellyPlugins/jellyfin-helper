@@ -487,4 +487,32 @@ public sealed class AtomicFileTests : IDisposable
         var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
         Assert.Empty(orphans);
     }
+
+    [Fact]
+    public async Task WriteAllTextAsync_CancelledDuringRetryBackoff_PropagatesAndLeavesNoOrphans()
+    {
+        // Targets the backoff-cancellation catch (the retry loop's Task.Delay honouring the token).
+        // Setup: the destination is an existing *directory*, so every File.Move attempt throws
+        // IOException (cross-platform) and the code enters the transient-retry branch with
+        // maxAttempts > 1. We cancel the token so the inter-attempt Task.Delay observes it and the
+        // write aborts with OperationCanceledException — never silently succeeding — and cleans up
+        // its temp file.
+        var path = Path.Join(_tempDir, "cancel-backoff");
+        Directory.CreateDirectory(path); // destination is a directory → File.Move always throws IOException
+
+        using var cts = new CancellationTokenSource();
+
+        var task = AtomicFile.WriteAllTextAsync(path, "NEW", maxAttempts: 5, cancellationToken: cts.Token);
+        // First attempt's write-to-temp succeeds, its Move throws IOException, then the loop backs
+        // off via Task.Delay(BaseBackoff * attempt, token). Cancel within that window.
+        cts.CancelAfter(TimeSpan.FromMilliseconds(3));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+
+        // Cancellation must not have clobbered the destination directory.
+        Assert.True(Directory.Exists(path));
+        // Every attempt's temp file must be cleaned up — no orphans left behind.
+        var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
+        Assert.Empty(orphans);
+    }
 }

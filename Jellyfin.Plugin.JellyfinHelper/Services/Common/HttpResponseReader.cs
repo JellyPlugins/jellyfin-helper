@@ -34,6 +34,7 @@ internal static class HttpResponseReader
         long maxBytes = DefaultMaxBytes)
     {
         ArgumentNullException.ThrowIfNull(content);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
 
         if (content.Headers.ContentLength is long len && len > maxBytes)
         {

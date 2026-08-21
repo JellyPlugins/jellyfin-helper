@@ -27,6 +27,9 @@ internal sealed class LimitedStream : Stream
     /// </param>
     public LimitedStream(Stream inner, long maxBytes, bool leaveOpen = false)
     {
+        ArgumentNullException.ThrowIfNull(inner);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+
         _inner = inner;
         _maxBytes = maxBytes;
         _leaveOpen = leaveOpen;

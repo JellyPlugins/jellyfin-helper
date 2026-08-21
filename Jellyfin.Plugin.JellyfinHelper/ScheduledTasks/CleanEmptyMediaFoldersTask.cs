@@ -140,7 +140,24 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 // foreign tree (false orphan signal) and a cyclic link causes unbounded iteration.
                 // We delete only the link node itself and never recurse into — or report on — the
                 // real target's contents.
-                if (IsReparsePoint(topDir.FullName))
+                bool topIsReparsePoint;
+                try
+                {
+                    topIsReparsePoint = IsReparsePoint(topDir.FullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A stat failure on one entry must not abort the whole library scan (the outer
+                    // catch would otherwise stop it). Skip this entry only and continue.
+                    PluginLog.LogWarning(
+                        TaskName,
+                        $"Could not stat directory, skipping: {topDir.FullName}",
+                        ex,
+                        Logger);
+                    continue;
+                }
+
+                if (topIsReparsePoint)
                 {
                     if (!ConfigHelper.IsOldEnoughForDeletion(topDir.FullName))
                     {
@@ -353,8 +370,24 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             foreach (var subDir in subDirs)
             {
                 // Skip reparse-point subdirectories to prevent following symlinks or
-                // junctions into foreign trees during recursive analysis.
-                if (!IsReparsePoint(subDir.FullName))
+                // junctions into foreign trees during recursive analysis. A stat failure is
+                // treated as "do not traverse" (fail closed) and must not abort the scan.
+                bool subIsReparsePoint;
+                try
+                {
+                    subIsReparsePoint = IsReparsePoint(subDir.FullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    PluginLog.LogWarning(
+                        TaskName,
+                        $"Could not stat subdirectory, not traversing: {subDir.FullName}",
+                        ex,
+                        Logger);
+                    continue;
+                }
+
+                if (!subIsReparsePoint)
                 {
                     stack.Push(subDir.FullName);
                 }

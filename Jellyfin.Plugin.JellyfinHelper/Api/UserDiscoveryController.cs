@@ -31,6 +31,11 @@ public sealed class UserDiscoveryController : ControllerBase
 {
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
 
+    // Guards the rate-limit check-and-update so it is atomic. The controller is instantiated per
+    // request, so an instance lock would not serialize concurrent requests; a shared static lock
+    // does. The critical section is only two IMemoryCache operations, so contention is negligible.
+    private static readonly object RateLimitGate = new();
+
     private readonly IMemoryCache _memoryCache;
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
@@ -332,13 +337,28 @@ public sealed class UserDiscoveryController : ControllerBase
         var retryAfterSeconds = 0;
 
         var rateLimitKey = $"ratelimit:{currentJellyfinUserId:N}";
-        if (_memoryCache.TryGetValue<DateTime>(rateLimitKey, out var lastRequest))
+
+        // Atomic check-and-update: without the lock, concurrent requests for the same user could
+        // all observe a cache miss (or a stale timestamp) and each write `now`, all passing the
+        // limit and submitting duplicate upstream requests. Serializing the read+write closes that
+        // race so only the first request in a window proceeds.
+        lock (RateLimitGate)
         {
-            var elapsed = now - lastRequest;
-            if (elapsed < RequestRateLimit)
+            if (_memoryCache.TryGetValue<DateTime>(rateLimitKey, out var lastRequest))
             {
-                rateLimitExceeded = true;
-                retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
+                var elapsed = now - lastRequest;
+                if (elapsed < RequestRateLimit)
+                {
+                    rateLimitExceeded = true;
+                    retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
+                }
+            }
+
+            // Only claim the window when the request is actually allowed through; refreshing the
+            // timestamp on a rejected request would extend the block indefinitely under load.
+            if (!rateLimitExceeded)
+            {
+                _memoryCache.Set(rateLimitKey, now, RequestRateLimit);
             }
         }
 
@@ -351,8 +371,6 @@ public sealed class UserDiscoveryController : ControllerBase
                 Message = "Too many requests. Please wait before submitting another request."
             });
         }
-
-        _memoryCache.Set(rateLimitKey, now, RequestRateLimit);
 
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(

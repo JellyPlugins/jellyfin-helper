@@ -11,13 +11,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 internal static class ReparsePointGuard
 {
     /// <summary>
-    ///     Returns <see langword="true" /> if <paramref name="path" /> exists and carries the
-    ///     <see cref="FileAttributes.ReparsePoint" /> flag (symlink or junction).
+    ///     Returns <see langword="true" /> if <paramref name="path" /> exists as a DIRECTORY and
+    ///     carries the <see cref="FileAttributes.ReparsePoint" /> flag (symlink or junction).
+    ///     File link nodes always return <see langword="false" /> because the check uses
+    ///     <see cref="DirectoryInfo" />; use <c>FileInfo.LinkTarget</c> for file entries.
+    ///     All current callers pass directory paths.
     /// </summary>
-    /// <param name="path">Filesystem path to inspect.</param>
+    /// <param name="path">Directory path to inspect.</param>
     /// <returns>
-    ///     <see langword="true" /> when the path exists and is a reparse point;
-    ///     <see langword="false" /> otherwise.
+    ///     <see langword="true" /> when the path exists as a directory and is a reparse point;
+    ///     <see langword="false" /> otherwise (including when it is a file).
     /// </returns>
     internal static bool IsReparsePoint(string path)
     {

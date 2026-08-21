@@ -342,6 +342,10 @@ public class ConfigurationController : ControllerBase
         var seerrUrl = request.SeerrUrl.Trim();
         var seerrApiKey = request.SeerrApiKey.Trim();
 
+        // Credential-safe label (scheme+host+port only) for anything echoed to the client or logged;
+        // the raw URL can embed user-info credentials (https://user:password@host).
+        var seerrLabel = Services.Common.SsrfGuard.SafeEndpointLabel(seerrUrl);
+
         // When the client echoes back the mask sentinel, the key was not changed - skip the test.
         // ApplyRequestToConfig already preserved the real stored key; using "***" as a live
         // credential would produce a guaranteed 401 from Seerr and a misleading warning.
@@ -365,9 +369,10 @@ public class ConfigurationController : ControllerBase
             {
                 // Generic client-facing warning; the upstream `message` (which can reveal
                 // reachability/credential details) is logged server-side only. Matches the
-                // dedicated Seerr connection-test endpoint's behaviour.
-                warnings.Add($"Seerr instance ({seerrUrl}) is not reachable. Verify the URL and API Key.");
-                _pluginLog.LogWarning("API", $"Seerr instance ({seerrUrl}) is not reachable: {message}", logger: _logger);
+                // dedicated Seerr connection-test endpoint's behaviour. Uses the credential-safe
+                // label so a user-info password in the URL is never reflected or logged.
+                warnings.Add($"Seerr instance ({seerrLabel}) is not reachable. Verify the URL and API Key.");
+                _pluginLog.LogWarning("API", $"Seerr instance ({seerrLabel}) is not reachable: {message}", logger: _logger);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -380,8 +385,8 @@ public class ConfigurationController : ControllerBase
             // Return a GENERIC warning to the client — the raw ex.Message can reflect upstream reachability
             // (e.g. "connection refused" vs "no such host") and turn the save endpoint into an internal-network
             // oracle. The detailed exception is logged server-side only.
-            warnings.Add($"Connection test failed for Seerr ({seerrUrl}). Verify the URL and API Key.");
-            _pluginLog.LogWarning("API", $"Connection test failed for Seerr ({seerrUrl}): {ex.Message}", ex, _logger);
+            warnings.Add($"Connection test failed for Seerr ({seerrLabel}). Verify the URL and API Key.");
+            _pluginLog.LogWarning("API", $"Connection test failed for Seerr ({seerrLabel}): {ex.Message}", ex, _logger);
         }
     }
 
@@ -435,9 +440,11 @@ public class ConfigurationController : ControllerBase
                 else
                 {
                     // Generic client-facing warning; the upstream `message` (which can reveal
-                    // reachability details) is logged server-side only.
-                    warnings.Add($"{typeName} instance '{label}' ({instance.Url}) is not reachable. Verify the URL and API Key.");
-                    _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({instance.Url}) is not reachable: {message}", logger: _logger);
+                    // reachability details) is logged server-side only. The credential-safe label
+                    // strips any user-info password embedded in instance.Url.
+                    var urlLabel = Services.Common.SsrfGuard.SafeEndpointLabel(instance.Url);
+                    warnings.Add($"{typeName} instance '{label}' ({urlLabel}) is not reachable. Verify the URL and API Key.");
+                    _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) is not reachable: {message}", logger: _logger);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -448,8 +455,10 @@ public class ConfigurationController : ControllerBase
             {
                 var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{i + 1}";
                 // Generic client-facing warning; the raw ex.Message is logged server-side only.
-                warnings.Add($"{typeName} instance '{label}' ({instance.Url}) connection test failed. Verify the URL and API Key.");
-                _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({instance.Url}) connection test failed: {ex.Message}", ex, _logger);
+                // The credential-safe label strips any user-info password embedded in instance.Url.
+                var urlLabel = Services.Common.SsrfGuard.SafeEndpointLabel(instance.Url);
+                warnings.Add($"{typeName} instance '{label}' ({urlLabel}) connection test failed. Verify the URL and API Key.");
+                _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) connection test failed: {ex.Message}", ex, _logger);
             }
         }
     }

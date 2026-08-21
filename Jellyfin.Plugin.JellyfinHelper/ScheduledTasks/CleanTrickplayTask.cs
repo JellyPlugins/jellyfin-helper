@@ -94,8 +94,24 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
                     // Do not enumerate children of reparse-point (symlink/junction) directories.
                     // The per-entry guard in the caller handles the yielded entry; not traversing
-                    // here prevents following links into foreign trees.
-                    if (IsReparsePoint(current))
+                    // here prevents following links into foreign trees. A stat failure is treated
+                    // as "do not traverse" (fail closed) so the iterator does not fault mid-scan.
+                    bool currentIsReparsePoint;
+                    try
+                    {
+                        currentIsReparsePoint = IsReparsePoint(current);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        PluginLog.LogWarning(
+                            TaskName,
+                            $"Could not stat directory, not traversing: {current}",
+                            ex,
+                            Logger);
+                        continue;
+                    }
+
+                    if (currentIsReparsePoint)
                     {
                         continue;
                     }

@@ -85,4 +85,26 @@ internal static class SsrfGuard
             throw new ArgumentException("The target host is not a permitted destination.", paramName);
         }
     }
+
+    /// <summary>
+    ///     Produces a credential-free label for an endpoint URL, safe to echo back to clients and
+    ///     write to logs. A valid HTTP(S) URL can embed user-info credentials
+    ///     (e.g. <c>https://user:password@host</c>); reflecting or logging the raw string would
+    ///     leak the password. This returns only the scheme, host, and port
+    ///     (<see cref="UriComponents.SchemeAndServer" />), dropping any user-info, path, query,
+    ///     and fragment. Non-absolute or unparseable inputs fall back to a fixed placeholder so no
+    ///     raw credential-bearing text is ever surfaced.
+    /// </summary>
+    /// <param name="url">The configured endpoint URL (may contain user-info credentials).</param>
+    /// <returns>A scheme+host+port label, or <c>"(invalid URL)"</c> when parsing fails.</returns>
+    public static string SafeEndpointLabel(string? url)
+    {
+        if (!string.IsNullOrWhiteSpace(url)
+            && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return uri.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
+        }
+
+        return "(invalid URL)";
+    }
 }

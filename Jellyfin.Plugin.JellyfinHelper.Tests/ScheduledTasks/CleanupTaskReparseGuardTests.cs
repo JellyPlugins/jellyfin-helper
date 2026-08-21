@@ -68,7 +68,7 @@ public sealed class CleanupTaskReparseGuardTests
             Assert.True(task.LinkNodeDeleted);
             // Counted as one deletion, but a link-node removal frees no bytes.
             MockTrackingService.Verify(
-                t => t.RecordCleanup(It.IsAny<long>(), 1, It.IsAny<ILogger>()),
+                t => t.RecordCleanup(0L, 1, It.IsAny<ILogger>()),
                 Times.Once);
         }
 
@@ -340,8 +340,9 @@ public sealed class CleanupTaskReparseGuardTests
 
             VerifyLogContains(_loggerMock, "Skipping deletion of symlinked trickplay directory", LogLevel.Warning);
             Assert.True(task.LinkNodeDeleted);
+            // Counted as one deletion, but a link-node removal frees no bytes.
             MockTrackingService.Verify(
-                t => t.RecordCleanup(It.IsAny<long>(), 1, It.IsAny<ILogger>()),
+                t => t.RecordCleanup(0L, 1, It.IsAny<ILogger>()),
                 Times.Once);
         }
 

@@ -428,31 +428,35 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     /// <summary>
     ///     When <c>GetDirectories</c> throws for a nested directory during the loop phase of
     ///     <c>TryGetSubdirectories</c>, the method must log a warning and continue processing
-    ///     the remaining directories (not abort the whole scan).
+    ///     the remaining directories (not abort the whole scan). Proven by a readable sibling
+    ///     whose orphaned subtitle is still detected after the failing directory.
     /// </summary>
     [Fact]
     public async Task Execute_TryGetSubdirectoriesLoopThrows_LogsWarningAndContinues()
     {
         const string lib = "/media/movies";
         const string subDir = "/media/movies/ShowA";
-        Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
+        const string okDir = "/media/movies/ShowB";
         SetupLibrary(lib);
-        // Seed succeeds: libraryPath → subDir.
+        // Seed succeeds: libraryPath → subDir + okDir (both discovered in the seed enumeration).
         _fileSystemMock.Setup(f => f.GetDirectories(lib)).Returns([
-            new FileSystemMetadata { FullName = subDir, Name = "ShowA", IsDirectory = true }
+            new FileSystemMetadata { FullName = subDir, Name = "ShowA", IsDirectory = true },
+            new FileSystemMetadata { FullName = okDir, Name = "ShowB", IsDirectory = true }
         ]);
-        // Loop-phase: GetDirectories(subDir) throws → logged, loop continues.
+        // Loop-phase: GetDirectories(subDir) throws → logged, loop continues to okDir.
         _fileSystemMock.Setup(f => f.GetDirectories(subDir))
             .Throws(new IOException("Access denied"));
+        _fileSystemMock.Setup(f => f.GetDirectories(okDir)).Returns([]);
         SetupFilesInDir(lib);   // no files in root
-        SetupFilesInDir(subDir); // no files in subDir → nothing to clean
+        SetupFilesInDir(subDir); // failing dir yields no files
+        // Sibling has an orphaned subtitle (no matching video base name).
+        SetupFilesInDir(okDir, "MovieA.mkv", "Orphan.en.srt");
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains(_loggerMock, "Could not enumerate subdirectories of", LogLevel.Warning);
-        MockTrackingService.Verify(
-            t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
-            Times.Never);
+        // Proof the loop continued past the failing directory: the sibling's orphan was detected.
+        VerifyLogContains(_loggerMock, "Would delete orphaned subtitle", LogLevel.Information);
     }
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.

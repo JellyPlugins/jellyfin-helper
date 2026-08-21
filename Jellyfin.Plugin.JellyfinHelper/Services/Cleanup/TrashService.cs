@@ -124,7 +124,12 @@ public class TrashService : ITrashService
                     moveAttempt < MoveRetries &&
                     DestinationExists(trashItemPath))
                 {
-                    trashItemPath = EnsurePathLength(
+                    // Reuse the collision resolver so the retry path shares one naming strategy.
+                    // EnsurePathLength truncates the name from the END, which on a deep trash
+                    // directory with a tight budget would cut the trailing GUID and let two retries
+                    // collapse to the identical path. ResolveCollision preserves the suffix via
+                    // BuildSuffixSafeCandidate and verifies the candidate does not already exist.
+                    trashItemPath = ResolveCollision(
                         Path.Join(trashBasePath, $"{timestamp}_{dirName}_{Guid.NewGuid():N}"));
                 }
             }
@@ -1117,8 +1122,12 @@ public class TrashService : ITrashService
         ReparsePointGuard.DeleteLinkNode(path, InvokeDirectoryDelete);
 
     /// <summary>
-    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />.  Excluded from coverage
-    ///     because it requires an actual reparse-point node on disk.
+    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />. Zero-logic passthrough to a single
+    ///     BCL call with no branching of our own; the guard logic protecting it lives in
+    ///     <see cref="ReparsePointGuard.DeleteLinkNode" /> and is unit tested via this seam being
+    ///     overridden. Excluded from coverage because running the real body needs an actual
+    ///     reparse-point node on disk (junction/symlink creation privileges unavailable in CI); a
+    ///     test would assert nothing beyond "DirectoryInfo.Delete was invoked".
     /// </summary>
     /// <param name="info">The <see cref="DirectoryInfo" /> whose link node should be removed.</param>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]

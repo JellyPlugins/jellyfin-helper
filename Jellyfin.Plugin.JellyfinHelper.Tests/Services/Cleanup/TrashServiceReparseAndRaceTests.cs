@@ -90,6 +90,33 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
     }
 
     // ── TOCTOU move-retry race ────────────────────────────────────────────────
+    [Fact]
+    public void PurgeExpiredTrash_ReparseNodeChangesTypeBeforePurge_SkipsAndWarns()
+    {
+        // Concurrent-replacement race: the entry was a reparse point when the purge decided to
+        // remove its link node, but between that check and the delete it changed type. The guard
+        // in DeleteReparsePointLinkNode throws InvalidOperationException; the purge must catch it,
+        // log a warning, leave the entry untouched, and count nothing as purged.
+        Directory.CreateDirectory(_testRoot);
+        var expiredLink = Path.Join(_testRoot, "20200101-000000_Racy");
+        Directory.CreateDirectory(expiredLink);
+
+        var service = new TypeChangeRaceTrashService(_mockPluginLog.Object);
+        service.ReparsePaths.Add(expiredLink);
+
+        var (bytesFreed, itemsPurged) = service.PurgeExpiredTrash(_testRoot, 1, _logger);
+
+        Assert.Equal(0, bytesFreed);
+        Assert.Equal(0, itemsPurged);
+        Assert.True(Directory.Exists(expiredLink)); // fail closed: entry left unchanged
+        _mockPluginLog.Verify(
+            l => l.LogWarning(
+                "Trash",
+                It.Is<string>(m => m.Contains("changed type before purge")),
+                It.IsAny<Exception>(),
+                It.IsAny<ILogger>()),
+            Times.Once);
+    }
 
     [Fact]
     public void MoveToTrash_MoveRacesOnceThenSucceeds_RetriesWithFreshNameAndSucceeds()
@@ -205,6 +232,31 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
                 Directory.Delete(path, true);
             }
         }
+    }
+
+    /// <summary>
+    ///     A <see cref="TrashService"/> that reports a scripted set of paths as reparse points but
+    ///     whose <see cref="TrashService.DeleteReparsePointLinkNode"/> always throws
+    ///     <see cref="InvalidOperationException"/>, simulating the concurrent-replacement race the
+    ///     production guard detects.
+    /// </summary>
+    private sealed class TypeChangeRaceTrashService : TrashService
+    {
+        public TypeChangeRaceTrashService(IPluginLogService pluginLog)
+            : base(pluginLog)
+        {
+        }
+
+        public HashSet<string> ReparsePaths { get; } = new(StringComparer.Ordinal);
+
+        internal override bool IsReparsePoint(string path) =>
+            ReparsePaths.Contains(path)
+            || ReparsePaths.Any(p => string.Equals(
+                Path.GetFullPath(p), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase));
+
+        internal override void DeleteReparsePointLinkNode(string path) =>
+            throw new InvalidOperationException(
+                $"'{path}' is no longer a reparse point at deletion time (concurrent replacement).");
     }
 
     /// <summary>

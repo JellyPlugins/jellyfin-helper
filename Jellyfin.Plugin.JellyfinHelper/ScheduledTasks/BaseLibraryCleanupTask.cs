@@ -240,9 +240,13 @@ public abstract class BaseLibraryCleanupTask
         ReparsePointGuard.DeleteLinkNode(path, InvokeDirectoryDelete);
 
     /// <summary>
-    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />.  Excluded from coverage
-    ///     because it requires an actual reparse-point node on disk (needs junction/symlink
-    ///     creation privileges not available in the unit-test environment).
+    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />. This is a zero-logic passthrough
+    ///     to a single BCL call with no branching or error mapping of our own — the guard logic that
+    ///     protects it lives in <see cref="ReparsePointGuard.DeleteLinkNode" /> and is fully unit
+    ///     tested via this seam being overridden. Excluded from coverage because the only way to run
+    ///     the real body is against an actual reparse-point node on disk, which needs
+    ///     junction/symlink creation privileges not available in the unit-test environment; a test
+    ///     would assert nothing beyond "DirectoryInfo.Delete was invoked".
     /// </summary>
     /// <param name="info">The <see cref="DirectoryInfo" /> whose link node should be removed.</param>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]

@@ -566,6 +566,91 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
+    [Fact]
+    public async Task ComputeTimelineAsync_DirectoryBothCreationAndWriteTimePre1990_IsSkipped()
+    {
+        // When BOTH the creation and last-write timestamps are pre-1990 sentinels (a filesystem
+        // that tracks neither), there is no sane date to attribute the directory to, so it must be
+        // skipped entirely rather than plotted at a bogus year.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie");
+        Directory.CreateDirectory(movieDir);
+
+        var pre1990 = new DateTime(1980, 5, 5, 0, 0, 0, DateTimeKind.Utc);
+        Directory.SetCreationTimeUtc(movieDir, pre1990);
+        Directory.SetLastWriteTimeUtc(movieDir, pre1990);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.TotalDirectoriesScanned);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_LooseFileBothCreationAndWriteTimePre1990_IsSkipped()
+    {
+        // Same both-timestamps-pre-1990 skip as directories, but for a loose media file in the root.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var mkv = Path.Join(libRoot, "movie.mkv");
+        File.WriteAllText(mkv, "video");
+
+        var pre1990 = new DateTime(1980, 5, 5, 0, 0, 0, DateTimeKind.Utc);
+        File.SetCreationTimeUtc(mkv, pre1990);
+        File.SetLastWriteTimeUtc(mkv, pre1990);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot))
+            .Returns([new FileSystemMetadata { FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5 }]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.TotalDirectoriesScanned);
+    }
+
+    [Fact]
+    public void GetDirectorySize_ChildTrickplaySubdirectory_IsExcludedFromRecursiveTotal()
+    {
+        // The recursive traversal must skip .trickplay (and trash) subdirectories at every depth,
+        // not only at the top level, so their bytes never inflate a library's reported size.
+        var fsMock = new Mock<IFileSystem>();
+        var root = Path.Join(_dataPath, "Show");
+        var trickplayChild = Path.Join(root, "Season 1.trickplay");
+
+        fsMock.Setup(f => f.GetFiles(root))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(root, "ep.mkv"), Name = "ep.mkv", IsDirectory = false, Length = 100 }]);
+        fsMock.Setup(f => f.GetDirectories(root))
+            .Returns([new FileSystemMetadata { FullName = trickplayChild, Name = "Season 1.trickplay", IsDirectory = true }]);
+        // The trickplay child WOULD contribute 500 bytes if it were (wrongly) traversed.
+        fsMock.Setup(f => f.GetFiles(trickplayChild))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(trickplayChild, "thumbs.bif"), Name = "thumbs.bif", IsDirectory = false, Length = 500 }]);
+        fsMock.Setup(f => f.GetDirectories(trickplayChild)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var sut = new GrowthTimelineService(
+            _libraryManagerMock.Object,
+            fsMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateAppPaths(_dataPath).Object,
+            _loggerMock.Object,
+            _configHelperMock.Object);
+
+        var size = sut.GetDirectorySize(root, ".trash", Path.Join(root, ".trash"), CancellationToken.None);
+
+        // Only the real episode file is counted; the trickplay child was skipped.
+        Assert.Equal(100, size);
+    }
+
     // === Atomic save: crash-safe writes use temp-then-move ===
 
     [Fact]

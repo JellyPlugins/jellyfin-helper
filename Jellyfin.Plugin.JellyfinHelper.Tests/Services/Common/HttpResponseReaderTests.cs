@@ -111,6 +111,17 @@ public sealed class HttpResponseReaderTests
     }
 
     [Fact]
+    public async Task ReadLimitedAsync_NegativeMaxBytes_ThrowsArgumentOutOfRange()
+    {
+        // A negative limit is invalid and must be rejected up front, before any header check or
+        // read, so behaviour is consistent regardless of whether Content-Length is present.
+        using var content = new StringContent("payload", Encoding.UTF8);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: -1));
+    }
+
+    [Fact]
     public async Task ReadLimitedAsync_CancelledToken_ThrowsOperationCanceled()
     {
         var payload = Encoding.ASCII.GetBytes("some payload");

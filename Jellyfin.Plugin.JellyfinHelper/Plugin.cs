@@ -358,8 +358,27 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return false;
             }
 
-            var normalizedLocation = Path.GetFullPath(assemblyLocation);
-            var normalizedPluginsPath = Path.GetFullPath(_applicationPaths.PluginsPath);
+            // Resolve BOTH paths to their canonical physical form before comparing. Assembly.Location
+            // (and PluginsPath) can contain symlink/junction components, and Path.GetFullPath does NOT
+            // resolve reparse points — so a symlinked assembly whose physical file lives OUTSIDE the
+            // plugins tree could otherwise pass the string prefix check. Resolving the real path closes
+            // that escape. If resolution fails we fail closed (do not register).
+            string normalizedLocation;
+            string normalizedPluginsPath;
+            try
+            {
+                normalizedLocation = ResolveRealPath(assemblyLocation);
+                normalizedPluginsPath = ResolveRealPath(_applicationPaths.PluginsPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "[Discovery Sidebar] Could not resolve the physical path of the FileTransformation "
+                    + "assembly or the plugins directory. Skipping registration as a security precaution.");
+                return false;
+            }
+
             var pluginsPathWithSep = normalizedPluginsPath.TrimEnd(
                 Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 + Path.DirectorySeparatorChar;
@@ -460,6 +479,43 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning(ex, "[Discovery Sidebar] Failed to register with File Transformation plugin");
             return false;
         }
+    }
+
+    /// <summary>
+    ///     Resolves a filesystem path to its canonical physical form, following symlinks and
+    ///     junctions on the final component as well as every ancestor directory.
+    ///     <para>
+    ///         <see cref="Path.GetFullPath(string)" /> only normalizes <c>.</c>/<c>..</c> and
+    ///         separators — it does NOT resolve reparse points. Relying on it alone would let an
+    ///         assembly whose physical file lives outside the plugins tree, but is reached through a
+    ///         symlink inside it (or vice versa), slip past a string prefix check. Resolving the
+    ///         parent chain first and then the leaf collapses every link so the returned path
+    ///         reflects where the bytes actually live.
+    ///     </para>
+    /// </summary>
+    /// <param name="path">The path to canonicalize.</param>
+    /// <returns>The real, fully symlink-resolved absolute path.</returns>
+    private static string ResolveRealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+
+        var parent = Path.GetDirectoryName(full);
+        if (string.IsNullOrEmpty(parent))
+        {
+            // Root component (e.g. "C:\" or "/") — nothing above it to resolve.
+            return full;
+        }
+
+        // Canonicalize the parent directory chain first (recursively), then reattach this
+        // component's name and resolve the component itself if it is a link.
+        var realParent = ResolveRealPath(parent);
+        var candidate = Path.Combine(realParent, Path.GetFileName(full));
+
+        FileSystemInfo leaf = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
+        var resolvedLeaf = leaf.ResolveLinkTarget(returnFinalTarget: true);
+        return resolvedLeaf != null
+            ? ResolveRealPath(resolvedLeaf.FullName) // link may point through further links
+            : candidate;
     }
 
     /// <summary>

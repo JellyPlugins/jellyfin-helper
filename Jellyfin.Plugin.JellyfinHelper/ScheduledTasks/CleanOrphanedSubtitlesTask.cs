@@ -392,8 +392,20 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             // Do not enumerate children of reparse-point (symlink/junction) directories.
             // The per-directory guard in the caller already skips processing their content;
             // not traversing here prevents following links into foreign trees before that
-            // guard has a chance to run.
-            if (IsReparsePoint(current))
+            // guard has a chance to run. A stat failure is treated as "do not traverse"
+            // (fail closed) so a single unreadable entry does not abort the whole scan.
+            bool currentIsReparsePoint;
+            try
+            {
+                currentIsReparsePoint = IsReparsePoint(current);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                PluginLog.LogWarning(TaskName, $"Could not stat directory, not traversing: {current}", ex, Logger);
+                continue;
+            }
+
+            if (currentIsReparsePoint)
             {
                 continue;
             }
