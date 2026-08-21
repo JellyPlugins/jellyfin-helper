@@ -264,6 +264,30 @@ public class TrashControllerTests : IDisposable
     }
 
     [Fact]
+    public void HasReparsePointAncestor_AllAncestorsRealAndPlain_ReturnsFalse()
+    {
+        // A path whose every ancestor exists as a plain directory must NOT be flagged —
+        // otherwise the guard would block legitimate deletions.
+        var child = Path.Join(_tempPath, "lib", "show", "season");
+        Directory.CreateDirectory(child);
+
+        Assert.False(TrashController.HasReparsePointAncestor(child));
+    }
+
+    [Fact]
+    public void HasReparsePointAncestor_MissingAncestor_FailsClosed()
+    {
+        // Regression guard: DirectoryInfo.Exists returns false (no throw) for a missing
+        // ancestor. The old `Exists && isReparsePoint` short-circuit fell through and reported
+        // the ancestry as safe, letting a later recursive delete run after an incomplete check.
+        // An ancestor that cannot be proven not to be a reparse point must fail closed.
+        var missingAncestor = Path.Join(_tempPath, "does-not-exist");
+        var path = Path.Join(missingAncestor, "child");
+
+        Assert.True(TrashController.HasReparsePointAncestor(path));
+    }
+
+    [Fact]
     public void DeleteTrashFolders_RelativeTrashPath_DeletesMultipleFolders()
     {
         var lib1 = Path.Join(_tempPath, "Movies");

@@ -611,11 +611,12 @@ public class TrashController : ControllerBase
     ///     reparse point (symlink/junction). A symlinked ancestor would let a subsequent
     ///     <c>Directory.Delete(path, recursive)</c> traverse into the link's real target — so callers
     ///     must refuse deletion when this returns true. Walks parents up to the filesystem root; a
-    ///     stat failure on any ancestor is treated as "assume reparse point" (fail closed).
+    ///     missing/inaccessible ancestor (which cannot be proven not to be a reparse point) is treated
+    ///     as "assume reparse point" (fail closed).
     /// </summary>
     /// <param name="path">The fully-qualified path whose ancestry is inspected.</param>
     /// <returns><see langword="true" /> if an ancestor is (or cannot be proven not to be) a reparse point.</returns>
-    private static bool HasReparsePointAncestor(string path)
+    internal static bool HasReparsePointAncestor(string path)
     {
         var parent = Path.GetDirectoryName(path);
         while (!string.IsNullOrEmpty(parent))
@@ -623,7 +624,18 @@ public class TrashController : ControllerBase
             try
             {
                 var info = new DirectoryInfo(parent);
-                if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+
+                // A missing/inaccessible ancestor cannot be proven NOT to be a reparse point.
+                // DirectoryInfo.Exists returns false (no throw) for both cases, so relying on
+                // `Exists && isReparsePoint` would silently treat an unverifiable ancestor as safe
+                // and let a later Directory.Delete(path, recursive) run after an incomplete check.
+                // Fail closed: an ancestor we cannot stat is assumed to be a reparse point.
+                if (!info.Exists)
+                {
+                    return true;
+                }
+
+                if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
                 {
                     return true;
                 }
