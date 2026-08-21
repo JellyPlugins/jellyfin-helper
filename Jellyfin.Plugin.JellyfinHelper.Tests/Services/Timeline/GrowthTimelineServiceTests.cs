@@ -571,6 +571,69 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
     [Fact]
+    public async Task ComputeTimelineAsync_DirectoryEnumerationMetadataHasNoTimestamps_LiveStatStillCountsIt()
+    {
+        // REGRESSION GUARD (E2E growth-timeline-fs failure): the scan must derive the "added" date
+        // from a LIVE stat of the real path, never from the timestamps carried by the
+        // FileSystemMetadata the enumeration returned. Jellyfin's IFileSystem does not reliably
+        // populate CreationTimeUtc/LastWriteTimeUtc on every platform - they can arrive as the
+        // DateTime.MinValue (year 1) default. If the service trusted those, ResolveEntryDateUtc
+        // would return null for every entry and the whole timeline would come back empty (exactly
+        // what broke on the real Jellyfin server). Here the mock metadata is left at its default
+        // (no timestamps), but the real directory on disk has a valid current date, so the entry
+        // MUST still be counted.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2020)");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+
+        // Deliberately NO CreationTimeUtc/LastWriteTimeUtc set -> both are default(DateTime) (year 1).
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 5000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.TotalDirectoriesScanned);
+        Assert.NotEmpty(result.DataPoints);
+        Assert.True(result.DataPoints[^1].CumulativeFileCount > 0, "a scanned directory must yield a positive cumulative file count");
+        Assert.True(result.DataPoints[^1].CumulativeSize > 0, "a scanned directory must yield a positive cumulative size");
+        // The date came from a live stat (created just now), so it is a modern year, not the year-1 default.
+        Assert.True(result.EarliestFileDate.Year >= 1990, "the date must come from a real stat, not the empty metadata default");
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_LooseFileEnumerationMetadataHasNoTimestamps_LiveStatStillCountsIt()
+    {
+        // Same regression guard as the directory case, for a loose media file in the library root:
+        // empty enumeration-metadata timestamps must NOT cause the file to be skipped, because the
+        // service reads the date from a live File.Get*TimeUtc stat of the real file.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var mkv = Path.Join(libRoot, "movie.mkv");
+        File.WriteAllText(mkv, "video");
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        // No timestamps on the metadata -> default(DateTime); the real file's live stat must win.
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot))
+            .Returns([new FileSystemMetadata { FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5 }]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.TotalDirectoriesScanned);
+        Assert.NotEmpty(result.DataPoints);
+        Assert.True(result.EarliestFileDate.Year >= 1990, "the date must come from a real stat, not the empty metadata default");
+    }
+
+    [Fact]
     public async Task ComputeTimelineAsync_DirectoryBothCreationAndWriteTimePre1990_IsSkipped()
     {
         // When BOTH the creation and last-write timestamps are pre-1990 sentinels (a filesystem

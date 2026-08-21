@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it -
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **283 tests** (API + UI) across 44 spec files
+every UI interaction. **287 tests** (API + UI) across 45 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -311,6 +311,11 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
 - **Growth timeline** (`growth-timeline-fs.api.spec.ts`): the cumulative series is
   non-empty and monotonically non-decreasing, latest totals are positive/coherent
   (bytes > 0, files > 0), directories-scanned positive, no future-dated point.
+  **Growth is measured, not assumed:** adding a media file of a KNOWN byte size and
+  forcing a recompute grows the latest cumulative size by **at least** that many
+  bytes and the file count by at least one - the system-level regression guard for
+  the "added" date being read from a live stat (not the empty enumeration metadata,
+  which once skipped every entry and returned an empty timeline).
 - **Library insights** (`insights-fs.api.spec.ts`): "largest dirs" sorted by size
   descending over real `/media` dirs with `LargestTotalSize == sum(sizes)`, a known
   generated movie present - ranking/aggregate invariants that hold despite the 15m cache.
@@ -357,6 +362,14 @@ process that first plants them). Without Docker the destructive specs skip loudl
   upstreams degrade cleanly; Compare index overflow handled.
 - **Cleanup** (`cleanup-abuse.api.spec.ts`): symlink-out-of-library target survives cleanup;
   excluded library + its trash fully hands-off; emoji/long names ok.
+- **Cleanup reparse-point guards** (`cleanup-symlink-guards.api.spec.ts`): the cleanup
+  STAGES (not the trash purge) refuse to act on reparse points - a symlinked orphan
+  `.trickplay`, a symlinked orphan subtitle, and a folder whose orphan status is
+  unprovable because it holds a symlinked subtree all **survive** an `Activate` run
+  (the symlink NODE stays a link, its target data intact) - AND, in the same run, a
+  genuine (non-symlink) orphan sitting right beside each is **still deleted**. Proves
+  the safety guard didn't neuter the stage; complements `cleanup-abuse` (which proves
+  the external *target* survives) by proving the link node itself is kept.
 - **Discovery** (`discovery-abuse.api.spec.ts`): write endpoints 403 when access disabled
   with **no leak to Seerr**; adversarial Dismiss inputs 4xx; identity-spoof
   `SeerrUserId` not forwarded.
