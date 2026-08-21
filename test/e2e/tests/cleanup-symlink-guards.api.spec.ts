@@ -158,9 +158,20 @@ test.describe.serial('cleanup stages refuse reparse points but still delete genu
     // BUT contains a symlinked subdirectory. The Empty-Folder stage cannot prove
     // its orphan status through the link, so the "unresolved link" verdict must
     // keep the whole folder. Meanwhile the genuine Lonely Sub orphan is removed.
-    const linkTarget = `${M}/Empty Link Target (2099)`;
-    containerMkdir(linkTarget);
+    //
+    // The link TARGET must live OUTSIDE the media library. If it sat under
+    // /media/Movies it would itself be a top-level folder holding only a non-video
+    // file — i.e. a genuine orphan the very same Activate run correctly deletes —
+    // and the "target data survives" assertion would fail for a reason unrelated to
+    // the symlink guard. /config is the plugin's own data mount: outside /media,
+    // writable by the non-root container UID in CI, and a distinct subdir from the
+    // /config/jfh-canary canary. Mirrors cleanup-abuse.api.spec.ts.
+    const linkTarget = '/config/jfh-empty-link-target';
     containerWriteFile(`${linkTarget}/data.txt`, 'TARGET');
+    test.skip(
+      !containerFileExists(`${linkTarget}/data.txt`),
+      '/config/jfh-empty-link-target not writable in this environment - cannot seed the link target',
+    );
 
     containerMkdir(`${M}/Unresolved Folder (2020)`);
     // A non-video file so it looks like an empty/metadata-only orphan...
