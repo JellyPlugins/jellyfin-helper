@@ -43,8 +43,11 @@ internal static class SsrfGuard
 
         // Hostname-based checks (GCP exposes metadata under multiple DNS names).
         // metadata.goog is the short alias documented by GCP alongside metadata.google.internal.
-        if (host.Equals("metadata.google.internal", StringComparison.OrdinalIgnoreCase)
-            || host.Equals("metadata.goog", StringComparison.OrdinalIgnoreCase))
+        // A single trailing dot is a fully-qualified-domain-name terminator and resolves to the
+        // same host, so strip one before comparing (metadata.goog. ≡ metadata.goog).
+        var hostname = host.EndsWith('.') ? host[..^1] : host;
+        if (hostname.Equals("metadata.google.internal", StringComparison.OrdinalIgnoreCase)
+            || hostname.Equals("metadata.goog", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

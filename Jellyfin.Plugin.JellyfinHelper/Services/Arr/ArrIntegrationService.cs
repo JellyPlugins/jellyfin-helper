@@ -79,28 +79,28 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         catch (OperationCanceledException ex)
         {
             // HttpClient.Timeout elapsed - not a user cancellation
-            _pluginLog.LogWarning("ArrIntegration", $"Arr connection test timed out for {baseUrl}", ex, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Arr connection test timed out for {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return (false, "Connection timed out.");
         }
         catch (HttpRequestException ex)
         {
             _pluginLog.LogWarning(
                 "ArrIntegration",
-                $"Arr connection test failed for {baseUrl}: {ex.Message}",
+                $"Arr connection test failed for {SsrfGuard.SafeEndpointLabel(baseUrl)}: {ex.Message}",
                 ex,
                 _logger);
             return (false, "Connection failed. Check the URL and network connectivity.");
         }
         catch (ResponseTooLargeException ex)
         {
-            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Arr at {baseUrl}", ex, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Arr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return (false, "Response too large.");
         }
         catch (Exception ex) when (ex is JsonException or UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(
                 "ArrIntegration",
-                $"Arr connection test failed for {baseUrl}: {ex.Message}",
+                $"Arr connection test failed for {SsrfGuard.SafeEndpointLabel(baseUrl)}: {ex.Message}",
                 ex,
                 _logger);
             return (false, "Connection failed. Check the URL and network connectivity.");
@@ -148,17 +148,17 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         catch (OperationCanceledException)
         {
             // HttpClient.Timeout elapsed - not a user cancellation; warn that the instance is unreachable.
-            _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Request to {SsrfGuard.SafeEndpointLabel(baseUrl)} timed out", null, _logger);
             return null;
         }
         catch (ResponseTooLargeException ex)
         {
-            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Radarr at {baseUrl}", ex, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Radarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return null;
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException)
         {
-            _pluginLog.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {baseUrl}", ex, _logger);
+            _pluginLog.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return null;
         }
     }
@@ -206,17 +206,17 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         catch (OperationCanceledException)
         {
             // HttpClient.Timeout elapsed - not a user cancellation; warn that the instance is unreachable.
-            _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Request to {SsrfGuard.SafeEndpointLabel(baseUrl)} timed out", null, _logger);
             return null;
         }
         catch (ResponseTooLargeException ex)
         {
-            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Sonarr at {baseUrl}", ex, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Sonarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return null;
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException)
         {
-            _pluginLog.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {baseUrl}", ex, _logger);
+            _pluginLog.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return null;
         }
     }

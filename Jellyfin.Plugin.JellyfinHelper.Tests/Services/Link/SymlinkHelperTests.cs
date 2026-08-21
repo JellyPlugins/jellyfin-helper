@@ -426,7 +426,7 @@ public sealed class SymlinkHelperTests : IDisposable
         File.WriteAllText(Path.Join(targetDir, "keep.txt"), "safe");
 
         var linkDir = Path.Join(_tempDir, "link-dir");
-        File.CreateSymbolicLink(linkDir, targetDir);
+        Directory.CreateSymbolicLink(linkDir, targetDir);
 
         _sut.DeleteSymlink(linkDir);
 

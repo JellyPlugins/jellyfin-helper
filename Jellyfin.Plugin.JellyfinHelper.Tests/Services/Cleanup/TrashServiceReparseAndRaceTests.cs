@@ -89,7 +89,6 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
             Times.Once);
     }
 
-    // ── TOCTOU move-retry race ────────────────────────────────────────────────
     [Fact]
     public void PurgeExpiredTrash_ReparseNodeChangesTypeBeforePurge_SkipsAndWarns()
     {
@@ -118,6 +117,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
             Times.Once);
     }
 
+    // ── TOCTOU move-retry race ────────────────────────────────────────────────
     [Fact]
     public void MoveToTrash_MoveRacesOnceThenSucceeds_RetriesWithFreshNameAndSucceeds()
     {

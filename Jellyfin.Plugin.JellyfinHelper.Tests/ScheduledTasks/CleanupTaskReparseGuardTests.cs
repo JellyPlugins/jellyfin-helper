@@ -66,7 +66,6 @@ public sealed class CleanupTaskReparseGuardTests
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
             VerifyLogContains(_loggerMock, "Skipping symlinked directory (reparse point)", LogLevel.Warning);
-            Assert.False(task.LinkNodeDeleted);
             // The link is never traversed and never trashed.
             _fileSystemMock.Verify(f => f.GetFiles(linkedDir), Times.Never);
             MockTrashService.Verify(
@@ -183,7 +182,6 @@ public sealed class CleanupTaskReparseGuardTests
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
             VerifyLogContains(_loggerMock, "Could not stat directory, skipping", LogLevel.Warning);
-            Assert.False(task.LinkNodeDeleted);
             // The entry is never traversed, trashed, or counted.
             _fileSystemMock.Verify(f => f.GetFiles(unreadableDir), Times.Never);
             MockTrashService.Verify(
@@ -261,8 +259,6 @@ public sealed class CleanupTaskReparseGuardTests
                 _throwPath = throwPath;
             }
 
-            public bool LinkNodeDeleted { get; private set; }
-
             protected override bool IsReparsePoint(string path)
             {
                 if (_throwPath != null && string.Equals(path, _throwPath, StringComparison.Ordinal))
@@ -272,8 +268,6 @@ public sealed class CleanupTaskReparseGuardTests
 
                 return string.Equals(path, _reparsePath, StringComparison.Ordinal);
             }
-
-            protected override void DeleteReparsePointLinkNode(string path) => LinkNodeDeleted = true;
         }
     }
 
@@ -318,7 +312,6 @@ public sealed class CleanupTaskReparseGuardTests
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
             VerifyLogContains(_loggerMock, "Skipping symlinked trickplay directory (reparse point)", LogLevel.Warning);
-            Assert.False(task.LinkNodeDeleted);
             MockTrashService.Verify(
                 t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
@@ -415,7 +408,6 @@ public sealed class CleanupTaskReparseGuardTests
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
             VerifyLogContains(_loggerMock, "Could not stat directory, skipping", LogLevel.Warning);
-            Assert.False(task.LinkNodeDeleted);
             MockTrashService.Verify(
                 t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
@@ -445,8 +437,6 @@ public sealed class CleanupTaskReparseGuardTests
                 _throwPath = throwPath;
             }
 
-            public bool LinkNodeDeleted { get; private set; }
-
             protected override bool IsReparsePoint(string path)
             {
                 if (_throwPath != null && string.Equals(path, _throwPath, StringComparison.Ordinal))
@@ -456,8 +446,6 @@ public sealed class CleanupTaskReparseGuardTests
 
                 return string.Equals(path, _reparsePath, StringComparison.Ordinal);
             }
-
-            protected override void DeleteReparsePointLinkNode(string path) => LinkNodeDeleted = true;
         }
     }
 
@@ -532,9 +520,88 @@ public sealed class CleanupTaskReparseGuardTests
             _fileSystemMock.Verify(f => f.GetFiles(libraryPath), Times.Never);
         }
 
+        [Fact]
+        public async Task DirectoryStatFailure_IsSkippedBeforeListingFiles_FailClosed()
+        {
+            // Fail-closed guard (ProcessLocation): if the reparse-point stat on a directory throws
+            // (I/O or an access denial), the verdict is unknown, so the directory must be skipped
+            // with a warning before its files are ever listed — never deleted or trashed.
+            Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
+            Config.UseTrash = false;
+
+            const string libraryPath = "/media/tv";
+
+            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
+            // No subdirectories, so libraryPath itself is the only directory processed. Its stat
+            // (in ProcessLocation) throws; TryGetSubdirectories never stats the seed root.
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+            var task = new ReparseTask(
+                _libraryManagerMock.Object,
+                _fileSystemMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                _loggerMock.Object,
+                MockConfigHelper.Object,
+                MockTrackingService.Object,
+                MockTrashService.Object,
+                reparsePath: "/none",
+                throwPath: libraryPath);
+
+            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            VerifyLogContains(_loggerMock, "Could not stat directory, skipping", LogLevel.Warning);
+            // The guard short-circuits before any file listing happens.
+            _fileSystemMock.Verify(f => f.GetFiles(libraryPath), Times.Never);
+            MockTrashService.Verify(
+                t => t.MoveFileToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public async Task SubdirectoryStatFailure_ChildrenNeverEnumerated_FailClosed()
+        {
+            // Fail-closed guard (TryGetSubdirectories): if the reparse-point stat on a subdirectory
+            // throws, it must be treated as "do not traverse" so a symlinked/unreadable subtree is
+            // never descended into. Its children must never be enumerated.
+            Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
+
+            const string libraryPath = "/media/tv";
+            const string parentDir = "/media/tv/ShowDir";
+            const string unreadableSubDir = "/media/tv/ShowDir/Season1";
+
+            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
+            // TryGetSubdirectories seeds from GetDirectories(libraryPath) → parentDir → unreadableSubDir.
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(parentDir, "ShowDir")]);
+            _fileSystemMock.Setup(f => f.GetDirectories(parentDir)).Returns([DirMeta(unreadableSubDir, "Season1")]);
+            _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+            _fileSystemMock.Setup(f => f.GetFiles(parentDir)).Returns([]);
+
+            // Only the subdir stat throws; libraryPath and parentDir stat fine (reparsePath "/none").
+            var task = new ReparseTask(
+                _libraryManagerMock.Object,
+                _fileSystemMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                _loggerMock.Object,
+                MockConfigHelper.Object,
+                MockTrackingService.Object,
+                MockTrashService.Object,
+                reparsePath: "/none",
+                throwPath: unreadableSubDir);
+
+            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            VerifyLogContains(_loggerMock, "Could not stat directory, not traversing", LogLevel.Warning);
+            // The subtree behind the failed stat was never enumerated.
+            _fileSystemMock.Verify(f => f.GetDirectories(unreadableSubDir), Times.Never);
+            _fileSystemMock.Verify(f => f.GetFiles(unreadableSubDir), Times.Never);
+        }
+
         private sealed class ReparseTask : CleanOrphanedSubtitlesTask
         {
             private readonly string _reparsePath;
+            private readonly string? _throwPath;
 
             public ReparseTask(
                 ILibraryManager libraryManager,
@@ -544,12 +611,23 @@ public sealed class CleanupTaskReparseGuardTests
                 ICleanupConfigHelper configHelper,
                 ICleanupTrackingService trackingService,
                 ITrashService trashService,
-                string reparsePath)
+                string reparsePath,
+                string? throwPath = null)
                 : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
-                => _reparsePath = reparsePath;
+            {
+                _reparsePath = reparsePath;
+                _throwPath = throwPath;
+            }
 
-            protected override bool IsReparsePoint(string path) =>
-                string.Equals(path, _reparsePath, StringComparison.Ordinal);
+            protected override bool IsReparsePoint(string path)
+            {
+                if (_throwPath != null && string.Equals(path, _throwPath, StringComparison.Ordinal))
+                {
+                    throw new UnauthorizedAccessException("Access denied");
+                }
+
+                return string.Equals(path, _reparsePath, StringComparison.Ordinal);
+            }
         }
     }
 }

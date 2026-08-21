@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -46,7 +47,40 @@ internal static class HttpResponseReader
         // leaveOpen: true - the response stream is owned by the enclosing `using` above, so the
         // wrapper must not dispose it a second time.
         using var limited = new LimitedStream(stream, maxBytes, leaveOpen: true);
-        using var reader = new StreamReader(limited);
+
+        // Honor the charset declared by the upstream. A bare `new StreamReader(stream)` assumes
+        // UTF-8 when there is no BOM, so a non-BOM UTF-16 (or other-charset) response would decode
+        // to garbage and fail JSON parsing. Fall back to UTF-8 when the header is missing or names
+        // an encoding we cannot resolve, and keep BOM detection enabled so a present BOM still wins.
+        var encoding = ResolveEncoding(content);
+        using var reader = new StreamReader(limited, encoding, detectEncodingFromByteOrderMarks: true);
         return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Resolves the response body encoding from the <c>Content-Type</c> charset, defaulting to
+    ///     UTF-8 when the charset is absent or not a recognized encoding name.
+    /// </summary>
+    /// <param name="content">The HTTP content whose declared charset is inspected.</param>
+    /// <returns>The resolved <see cref="Encoding"/>, or <see cref="Encoding.UTF8"/> as a fallback.</returns>
+    private static Encoding ResolveEncoding(HttpContent content)
+    {
+        var charSet = content.Headers.ContentType?.CharSet;
+        if (string.IsNullOrWhiteSpace(charSet))
+        {
+            return Encoding.UTF8;
+        }
+
+        // Some servers wrap the charset value in quotes (e.g. charset="utf-16"); trim them.
+        charSet = charSet.Trim().Trim('"');
+
+        try
+        {
+            return Encoding.GetEncoding(charSet);
+        }
+        catch (ArgumentException)
+        {
+            return Encoding.UTF8;
+        }
     }
 }

@@ -65,7 +65,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
             using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
-            using var response = await client.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            using var response = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -147,7 +147,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             try
             {
                 using var pageReq = BuildRequest(HttpMethod.Get, baseUri, requestUrl, key);
-                using var response = await client.SendAsync(pageReq, cancellationToken).ConfigureAwait(false);
+                using var response = await client.SendAsync(pageReq, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
                 response.EnsureSuccessStatusCode();
 
@@ -416,7 +416,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 : $"api/v1/movie/{media.TmdbId}";
 
             using var req = BuildRequest(HttpMethod.Get, baseUri, endpoint, apiKey);
-            using var response = await client.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            using var response = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {

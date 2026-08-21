@@ -14,7 +14,9 @@ public sealed class SsrfGuardTests
     [Theory]
     [InlineData("169.254.169.254")]           // AWS / Azure IMDS (also GCP IPv4 — shared address)
     [InlineData("metadata.google.internal")]  // GCP hostname (long form)
+    [InlineData("metadata.google.internal.")] // GCP hostname (long form, FQDN trailing dot)
     [InlineData("metadata.goog")]             // GCP hostname (short alias)
+    [InlineData("metadata.goog.")]            // GCP hostname (short alias, FQDN trailing dot)
     [InlineData("METADATA.GOOG")]             // GCP hostname (case-insensitive)
     [InlineData("100.100.100.200")]           // Alibaba
     [InlineData("fd00:ec2::254")]             // AWS IPv6 (bare)

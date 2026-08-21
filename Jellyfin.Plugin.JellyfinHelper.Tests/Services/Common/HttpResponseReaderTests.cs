@@ -147,4 +147,41 @@ public sealed class HttpResponseReaderTests
     [Fact]
     public void DefaultMaxBytes_Is100MiB()
         => Assert.Equal(100 * 1024 * 1024, HttpResponseReader.DefaultMaxBytes);
+
+    [Fact]
+    public async Task ReadLimitedAsync_NonBomUtf16Charset_DecodesUsingDeclaredCharset()
+    {
+        // Regression guard: a UTF-16 response with NO byte-order mark would decode as garbage under
+        // the StreamReader UTF-8 default. When the Content-Type declares charset=utf-16, the reader
+        // must honor it. Encoding.Unicode.GetBytes emits no BOM, so only the header carries the hint.
+        const string body = "{\"title\":\"Ünïcödé ✓\"}";
+        var payload = Encoding.Unicode.GetBytes(body);
+        using var content = new ByteArrayContent(payload);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+        {
+            CharSet = "utf-16",
+        };
+
+        var result = await HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 1024);
+
+        Assert.Equal(body, result);
+    }
+
+    [Fact]
+    public async Task ReadLimitedAsync_UnknownCharset_FallsBackToUtf8()
+    {
+        // An unrecognized charset name must not throw; the reader falls back to UTF-8 (with BOM
+        // detection still enabled), so a plain UTF-8 body is returned verbatim.
+        const string body = "{\"ok\":true}";
+        var payload = Encoding.UTF8.GetBytes(body);
+        using var content = new ByteArrayContent(payload);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+        {
+            CharSet = "not-a-real-charset",
+        };
+
+        var result = await HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 1024);
+
+        Assert.Equal(body, result);
+    }
 }

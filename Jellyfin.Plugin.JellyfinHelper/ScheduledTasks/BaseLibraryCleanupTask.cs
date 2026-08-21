@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
@@ -226,29 +225,4 @@ public abstract class BaseLibraryCleanupTask
     /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
     protected virtual bool IsReparsePoint(string path) =>
         ReparsePointGuard.IsReparsePoint(path);
-
-    /// <summary>
-    ///     Deletes only the reparse-point link node at <paramref name="path" />, never following it
-    ///     to (or deleting) its target.
-    /// </summary>
-    /// <param name="path">The reparse-point directory whose link node should be removed.</param>
-    /// <exception cref="InvalidOperationException">
-    ///     Thrown when <paramref name="path" /> is no longer a reparse point at deletion time
-    ///     (concurrent replacement detected — fail closed to avoid deleting a real directory).
-    /// </exception>
-    protected virtual void DeleteReparsePointLinkNode(string path) =>
-        ReparsePointGuard.DeleteLinkNode(path, InvokeDirectoryDelete);
-
-    /// <summary>
-    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />. This is a zero-logic passthrough
-    ///     to a single BCL call with no branching or error mapping of our own — the guard logic that
-    ///     protects it lives in <see cref="ReparsePointGuard.DeleteLinkNode" /> and is fully unit
-    ///     tested via this seam being overridden. Excluded from coverage because the only way to run
-    ///     the real body is against an actual reparse-point node on disk, which needs
-    ///     junction/symlink creation privileges not available in the unit-test environment; a test
-    ///     would assert nothing beyond "DirectoryInfo.Delete was invoked".
-    /// </summary>
-    /// <param name="info">The <see cref="DirectoryInfo" /> whose link node should be removed.</param>
-    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    protected virtual void InvokeDirectoryDelete(DirectoryInfo info) => info.Delete();
 }
