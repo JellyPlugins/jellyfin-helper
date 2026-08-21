@@ -192,6 +192,71 @@ jobs:
         disable_search: true
         fail_ci_if_error: false
 
+  # Keeps the README test-count badge in sync automatically: counts the tests actually
+  # executed in CI (from the .trx artifacts the `test` job already produced) and commits the
+  # updated badge straight back onto the open PR branch — so contributors never hand-edit it.
+  test-badge:
+    # Same-repo PRs only: fork PRs get a read-only GITHUB_TOKEN and cannot push, so the guard
+    # skips them cleanly rather than failing. Never runs on push:main.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout PR head branch
+      uses: actions/checkout@v7
+      with:
+        # Check out the PR's source branch (not the merge ref) so we can commit back to it.
+        ref: ${{ github.event.pull_request.head.ref }}
+        # persist-credentials defaults to true here (unlike demo-preview) so the later
+        # `git push` can authenticate with the workflow token.
+
+    - name: Download test result artifacts
+      uses: actions/download-artifact@v7
+      with:
+        pattern: test-results-*
+        path: ./trx
+
+    - name: Count executed tests and update badge
+      run: |
+        set -euo pipefail
+        # Each bucket's .trx carries a <Counters passed="N" .../> in its <ResultSummary>.
+        # The three buckets use disjoint --filter expressions, so summing their passed
+        # counts yields the total number of tests that passed in this CI run.
+        count=0
+        while IFS= read -r n; do
+          count=$((count + n))
+        done < <(grep -rhoE 'passed="[0-9]+"' ./trx --include='*.trx' \
+                 | grep -oE '[0-9]+')
+
+        if [ "$count" -eq 0 ]; then
+          echo "::error::No test results found in the .trx artifacts (badge not updated)."
+          exit 1
+        fi
+
+        echo "Counted $count passing tests across all buckets."
+        sed -i -E "s|(badge/tests-)[0-9]+(%20passed)|\1${count}\2|" README.md
+        echo "COUNT=$count" >> "$GITHUB_ENV"
+
+    - name: Commit badge if changed
+      run: |
+        set -euo pipefail
+        if git diff --quiet -- README.md; then
+          echo "Test-count badge already at ${COUNT} — nothing to commit."
+          exit 0
+        fi
+
+        git config user.name  "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add README.md
+        # [skip ci] prevents the pushed commit from re-triggering this workflow (no loop).
+        git commit -m "chore: update test count badge to ${COUNT} [skip ci]"
+        git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+
   # Deploy a live preview of the dashboard demo for this PR
   demo-preview:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
