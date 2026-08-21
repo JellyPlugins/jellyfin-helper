@@ -286,7 +286,7 @@ jobs:
           }
 
       - name: Deploy PR preview
-        uses: rossjrw/pr-preview-action@v1
+        uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # v1.8.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           source-dir: ./docs
