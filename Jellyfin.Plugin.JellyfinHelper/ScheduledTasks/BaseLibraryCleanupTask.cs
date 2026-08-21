@@ -225,4 +225,16 @@ public abstract class BaseLibraryCleanupTask
     /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
     protected virtual bool IsReparsePoint(string path) =>
         ReparsePointGuard.IsReparsePoint(path);
+
+    /// <summary>
+    ///     Determines whether <paramref name="path" /> is a reparse point (symbolic link or
+    ///     junction) irrespective of whether the filesystem classifies the entry as a file or a
+    ///     directory. Use this when inspecting entries returned by file enumeration, because some
+    ///     mounts (e.g. Docker Desktop for Windows bind mounts) surface a directory symlink as a
+    ///     file, which <see cref="IsReparsePoint" /> (directory-only) would miss.
+    /// </summary>
+    /// <param name="path">The file or directory path to inspect.</param>
+    /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
+    protected virtual bool IsReparsePointAnyType(string path) =>
+        ReparsePointGuard.IsReparsePointAnyType(path);
 }

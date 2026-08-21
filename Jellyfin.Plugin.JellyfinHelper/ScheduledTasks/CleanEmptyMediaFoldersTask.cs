@@ -320,6 +320,18 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
             foreach (var file in files)
             {
+                // A directory symlink can surface as a FILE entry on some mounts (e.g. Docker
+                // Desktop for Windows bind mounts) rather than as a subdirectory. Such an entry
+                // hides a subtree we did not analyze, so the orphan verdict is unproven — flag it
+                // and never let it contribute to the file/extension classification (following the
+                // link to read a size or an extension would defeat the guard). The directory-classified
+                // case is handled by the reparse-point check in the subdirectory loop below.
+                if (IsReparsePointAnyType(file.FullName))
+                {
+                    hasUnresolvedLink = true;
+                    continue;
+                }
+
                 hasAnyFiles = true;
                 totalBytes += file.Length;
                 var ext = Path.GetExtension(file.FullName);

@@ -60,6 +60,43 @@ public sealed class ReparsePointGuardTests : IDisposable
         Assert.False(ReparsePointGuard.IsReparsePoint(dir));
     }
 
+    // ── IsReparsePointAnyType ─────────────────────────────────────────────────
+    // A real symlink cannot be created without elevated privileges in CI, so the
+    // link-node true-branch is covered by the E2E suite. The false branches — a
+    // plain file, a plain directory, and a missing path (both not-found shapes) —
+    // are all reachable here and must never report a reparse point.
+
+    [Fact]
+    public void IsReparsePointAnyType_NonExistentPath_ReturnsFalse()
+    {
+        var path = Path.Join(_tempDir, "does-not-exist");
+        Assert.False(ReparsePointGuard.IsReparsePointAnyType(path));
+    }
+
+    [Fact]
+    public void IsReparsePointAnyType_MissingParentDirectory_ReturnsFalse()
+    {
+        // Exercises the DirectoryNotFoundException branch (parent segment absent).
+        var path = Path.Join(_tempDir, "no-such-dir", "child.txt");
+        Assert.False(ReparsePointGuard.IsReparsePointAnyType(path));
+    }
+
+    [Fact]
+    public void IsReparsePointAnyType_RealFile_ReturnsFalse()
+    {
+        var file = Path.Join(_tempDir, "plain.txt");
+        File.WriteAllText(file, "x");
+        Assert.False(ReparsePointGuard.IsReparsePointAnyType(file));
+    }
+
+    [Fact]
+    public void IsReparsePointAnyType_RealDirectory_ReturnsFalse()
+    {
+        var dir = Path.Join(_tempDir, "real-dir");
+        Directory.CreateDirectory(dir);
+        Assert.False(ReparsePointGuard.IsReparsePointAnyType(dir));
+    }
+
     // ── DeleteLinkNode ────────────────────────────────────────────────────────
 
     [Fact]
