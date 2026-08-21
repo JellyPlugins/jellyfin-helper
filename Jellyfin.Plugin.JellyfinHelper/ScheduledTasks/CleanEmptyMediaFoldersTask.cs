@@ -310,6 +310,10 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // The files of this directory were not analyzed, so the orphan verdict for the
+                // enclosing tree is unproven — a video could live in the subtree we failed to read.
+                // Fail closed: flag the tree so ProcessLocation suppresses deletion.
+                hasUnresolvedLink = true;
                 PluginLog.LogWarning(TaskName, $"Could not list files in: {current}", ex, Logger);
                 continue;
             }
@@ -346,6 +350,9 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // Subdirectories could not be listed, so any subtree beneath them was not analyzed.
+                // Fail closed for the same reason as the file-enumeration failure above.
+                hasUnresolvedLink = true;
                 PluginLog.LogWarning(TaskName, $"Could not list subdirectories in: {current}", ex, Logger);
                 continue;
             }

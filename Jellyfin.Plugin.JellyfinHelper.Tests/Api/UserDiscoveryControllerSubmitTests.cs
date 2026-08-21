@@ -745,7 +745,9 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
         // Seed a stale rate-limit entry: the stored timestamp is 30s old (past the 10s window).
         // Use a long absolute TTL so the cache entry itself is still present when the controller reads it.
-        var rateLimitKey = $"ratelimit:{userId:N}";
+        // Use the controller's shared key builder so the seeded key can never drift from the one the
+        // controller reads (a mismatch would silently make this test pass vacuously).
+        var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
         _memoryCache.Set(rateLimitKey, DateTime.UtcNow - TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60));
 
         var result = await CreateController(userId).SubmitMyRequest(
@@ -778,7 +780,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
         // Seed a rate-limit entry that expires almost immediately, then wait past its TTL so
         // IMemoryCache evicts it. TryGetValue must then miss and the request must be accepted.
-        var rateLimitKey = $"ratelimit:{userId:N}";
+        // Use the controller's shared key builder so the seeded key matches the one it reads.
+        var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
         _memoryCache.Set(rateLimitKey, DateTime.UtcNow, TimeSpan.FromMilliseconds(1));
         await Task.Delay(50);
         Assert.False(_memoryCache.TryGetValue(rateLimitKey, out _));

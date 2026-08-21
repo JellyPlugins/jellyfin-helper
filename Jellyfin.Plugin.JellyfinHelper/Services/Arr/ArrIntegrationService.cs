@@ -353,7 +353,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        // ResponseHeadersRead: return as soon as headers arrive so HttpResponseReader's LimitedStream
+        // enforces the size cap while streaming the body, instead of HttpClient first buffering the
+        // whole body (up to MaxResponseContentBufferSize) and then reading it a second time.
+        using var response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         return await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);

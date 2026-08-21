@@ -153,9 +153,97 @@ public sealed class CleanupTaskReparseGuardTests
             _fileSystemMock.Verify(f => f.GetDirectories(reparseSubDir), Times.Never);
         }
 
+        [Fact]
+        public async Task TopLevelStatFailure_IsSkippedNeverDeleted_FailClosed()
+        {
+            // Fail-closed guard: if the reparse-point stat on a top-level entry throws (I/O or an
+            // access denial), the verdict is unknown, so the entry must be skipped with a warning —
+            // never traversed, deleted, trashed, or counted.
+            Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+            Config.UseTrash = false;
+
+            const string libraryPath = "/media/movies";
+            const string unreadableDir = "/media/movies/Unreadable (2019)";
+
+            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(unreadableDir, "Unreadable (2019)")]);
+
+            var task = new ReparseTask(
+                _libraryManagerMock.Object,
+                _fileSystemMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                _loggerMock.Object,
+                MockConfigHelper.Object,
+                MockTrackingService.Object,
+                MockTrashService.Object,
+                reparsePath: "/none",
+                throwPath: unreadableDir);
+
+            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            VerifyLogContains(_loggerMock, "Could not stat directory, skipping", LogLevel.Warning);
+            Assert.False(task.LinkNodeDeleted);
+            // The entry is never traversed, trashed, or counted.
+            _fileSystemMock.Verify(f => f.GetFiles(unreadableDir), Times.Never);
+            MockTrashService.Verify(
+                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                Times.Never);
+            MockTrackingService.Verify(
+                t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public async Task SubdirStatFailure_EnclosingFolderSurvives_OrphanVerdictUnproven()
+        {
+            // Fail-closed guard: a real folder that looks like an orphan (a stray non-video file) but
+            // whose subdirectory cannot be stat'd must NOT be deleted — a video could live in the
+            // subtree we failed to inspect. The stat-failure branch must set the unresolved-link flag
+            // so the enclosing folder is kept.
+            Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+            Config.UseTrash = false;
+
+            const string libraryPath = "/media/movies";
+            const string folder = "/media/movies/Show (2019)";
+            const string unreadableSubDir = "/media/movies/Show (2019)/season1";
+
+            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(folder, "Show (2019)")]);
+            _fileSystemMock.Setup(f => f.GetFiles(folder)).Returns([FileMeta(folder + "/readme.txt")]);
+            _fileSystemMock.Setup(f => f.GetDirectories(folder)).Returns([DirMeta(unreadableSubDir, "season1")]);
+
+            // The top-level folder stats fine (reparsePath "/none"); only the subdir stat throws.
+            var task = new ReparseTask(
+                _libraryManagerMock.Object,
+                _fileSystemMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                _loggerMock.Object,
+                MockConfigHelper.Object,
+                MockTrackingService.Object,
+                MockTrashService.Object,
+                reparsePath: "/none",
+                throwPath: unreadableSubDir);
+
+            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            VerifyLogContains(_loggerMock, "Could not stat subdirectory, not traversing", LogLevel.Warning);
+            VerifyLogContains(_loggerMock, "unresolved symlinked/unreadable subdirectory", LogLevel.Warning);
+            // The subtree behind the failed stat was never enumerated, and nothing was deleted/trashed.
+            _fileSystemMock.Verify(f => f.GetFiles(unreadableSubDir), Times.Never);
+            MockTrashService.Verify(
+                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                Times.Never);
+            MockTrackingService.Verify(
+                t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+                Times.Never);
+        }
+
         private sealed class ReparseTask : CleanEmptyMediaFoldersTask
         {
             private readonly string _reparsePath;
+            private readonly string? _throwPath;
 
             public ReparseTask(
                 ILibraryManager libraryManager,
@@ -165,14 +253,25 @@ public sealed class CleanupTaskReparseGuardTests
                 ICleanupConfigHelper configHelper,
                 ICleanupTrackingService trackingService,
                 ITrashService trashService,
-                string reparsePath)
+                string reparsePath,
+                string? throwPath = null)
                 : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
-                => _reparsePath = reparsePath;
+            {
+                _reparsePath = reparsePath;
+                _throwPath = throwPath;
+            }
 
             public bool LinkNodeDeleted { get; private set; }
 
-            protected override bool IsReparsePoint(string path) =>
-                string.Equals(path, _reparsePath, StringComparison.Ordinal);
+            protected override bool IsReparsePoint(string path)
+            {
+                if (_throwPath != null && string.Equals(path, _throwPath, StringComparison.Ordinal))
+                {
+                    throw new UnauthorizedAccessException("Access denied");
+                }
+
+                return string.Equals(path, _reparsePath, StringComparison.Ordinal);
+            }
 
             protected override void DeleteReparsePointLinkNode(string path) => LinkNodeDeleted = true;
         }
@@ -283,9 +382,52 @@ public sealed class CleanupTaskReparseGuardTests
             _fileSystemMock.Verify(f => f.GetDirectories(reparseDir), Times.Never);
         }
 
+        [Fact]
+        public async Task TrickplayStatFailure_IsSkippedNeverDeletedOrTrashed_FailClosed()
+        {
+            // Fail-closed guard: if the reparse-point stat on an orphaned .trickplay dir throws, the
+            // verdict is unknown, so the dir must be skipped with a warning — never trashed, deleted,
+            // or counted. The hoisted guard covers this before any mode branch runs.
+            Config.TrickplayTaskMode = TaskMode.Activate;
+            Config.UseTrash = false;
+
+            const string libraryPath = "/media";
+            const string trickplayDir = "/media/Movie.trickplay";
+
+            _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+                .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
+            _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(trickplayDir, "Movie.trickplay")]);
+            _fileSystemMock.Setup(f => f.GetDirectories(trickplayDir)).Returns([]);
+            // Parent has no matching video, so the .trickplay folder is orphaned and reaches the guard.
+            _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+
+            var task = new ReparseTask(
+                _libraryManagerMock.Object,
+                _fileSystemMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                _loggerMock.Object,
+                MockConfigHelper.Object,
+                MockTrackingService.Object,
+                MockTrashService.Object,
+                reparsePath: "/none",
+                throwPath: trickplayDir);
+
+            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            VerifyLogContains(_loggerMock, "Could not stat directory, skipping", LogLevel.Warning);
+            Assert.False(task.LinkNodeDeleted);
+            MockTrashService.Verify(
+                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                Times.Never);
+            MockTrackingService.Verify(
+                t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+                Times.Never);
+        }
+
         private sealed class ReparseTask : CleanTrickplayTask
         {
             private readonly string _reparsePath;
+            private readonly string? _throwPath;
 
             public ReparseTask(
                 ILibraryManager libraryManager,
@@ -295,14 +437,25 @@ public sealed class CleanupTaskReparseGuardTests
                 ICleanupConfigHelper configHelper,
                 ICleanupTrackingService trackingService,
                 ITrashService trashService,
-                string reparsePath)
+                string reparsePath,
+                string? throwPath = null)
                 : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
-                => _reparsePath = reparsePath;
+            {
+                _reparsePath = reparsePath;
+                _throwPath = throwPath;
+            }
 
             public bool LinkNodeDeleted { get; private set; }
 
-            protected override bool IsReparsePoint(string path) =>
-                string.Equals(path, _reparsePath, StringComparison.Ordinal);
+            protected override bool IsReparsePoint(string path)
+            {
+                if (_throwPath != null && string.Equals(path, _throwPath, StringComparison.Ordinal))
+                {
+                    throw new UnauthorizedAccessException("Access denied");
+                }
+
+                return string.Equals(path, _reparsePath, StringComparison.Ordinal);
+            }
 
             protected override void DeleteReparsePointLinkNode(string path) => LinkNodeDeleted = true;
         }

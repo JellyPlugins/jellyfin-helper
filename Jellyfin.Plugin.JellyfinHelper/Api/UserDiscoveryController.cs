@@ -349,7 +349,7 @@ public sealed class UserDiscoveryController : ControllerBase
         // generation so a ClearRateLimitState() bump invalidates all prior-load entries at once.
         lock (RateLimitGate)
         {
-            var rateLimitKey = $"ratelimit:{_rateLimitGeneration}:{currentJellyfinUserId:N}";
+            var rateLimitKey = BuildRateLimitKey(currentJellyfinUserId);
 
             if (_memoryCache.TryGetValue<DateTime>(rateLimitKey, out var lastRequest))
             {
@@ -557,6 +557,24 @@ public sealed class UserDiscoveryController : ControllerBase
             _rateLimitGeneration++;
         }
     }
+
+    /// <summary>
+    ///     Builds the per-user rate-limit cache key. The single source of truth for the key format,
+    ///     shared by the controller and its tests so the two can never drift.
+    ///     <para>
+    ///         The key is namespaced with a plugin-specific prefix because <see cref="_memoryCache"/>
+    ///         is the shared application <see cref="IMemoryCache"/>: a generic <c>ratelimit:</c> prefix
+    ///         could collide with another plugin or Jellyfin component and silently alter rate-limit
+    ///         decisions for real users. The current generation (bumped by
+    ///         <see cref="ClearRateLimitState"/>) is folded in so a reset invalidates all prior keys.
+    ///     </para>
+    ///     Must be called under <see cref="RateLimitGate"/> so the generation read is consistent with
+    ///     the surrounding check-and-update.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user the request belongs to.</param>
+    /// <returns>The fully-qualified, namespaced rate-limit cache key.</returns>
+    internal static string BuildRateLimitKey(Guid jellyfinUserId) =>
+        $"JellyfinHelper:discovery:ratelimit:{_rateLimitGeneration}:{jellyfinUserId:N}";
 
     /// <summary>
     ///     Reconstructs <see cref="SeerrServiceInfo"/> objects directly from the pre-evaluated

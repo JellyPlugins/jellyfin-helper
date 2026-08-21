@@ -227,6 +227,31 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                     continue;
                 }
 
+                // Symlink guard for ALL modes (dry-run, trash, hard-delete): a reparse-point
+                // (symlink/junction) trickplay dir is never trashed, never recursively deleted, and
+                // never reported as a dry-run deletion. Trashing would relocate the link node while
+                // its target stays behind, and Directory.Delete(recursive) could be redirected into
+                // the link's real target. Hoisted above the mode branches (which are mutually
+                // exclusive per iteration) so a single check covers all three and dry-run output
+                // matches the real run. A stat failure is treated as "skip" (fail closed) and must
+                // not surface as a misleading delete error.
+                bool dirIsReparsePoint;
+                try
+                {
+                    dirIsReparsePoint = IsReparsePoint(dirFullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirFullName}", ex, Logger);
+                    continue;
+                }
+
+                if (dirIsReparsePoint)
+                {
+                    PluginLog.LogWarning(TaskName, $"Skipping symlinked trickplay directory (reparse point): {dirFullName}", logger: Logger);
+                    continue;
+                }
+
                 if (dryRun)
                 {
                     PluginLog.LogInfo(
@@ -237,28 +262,6 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 }
                 else if (config.UseTrash)
                 {
-                    // Symlink guard BEFORE trashing: a reparse-point (symlink/junction) trickplay dir
-                    // must never be moved to trash — MoveToTrash would relocate the link node while
-                    // its target stays behind, an ambiguous half-operation. Skip it entirely, matching
-                    // CleanEmptyMediaFoldersTask's fail-safe reparse-point policy. A stat failure is
-                    // treated as "skip" (fail closed) and must not surface as a misleading delete error.
-                    bool trashReparse;
-                    try
-                    {
-                        trashReparse = IsReparsePoint(dirFullName);
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirFullName}", ex, Logger);
-                        continue;
-                    }
-
-                    if (trashReparse)
-                    {
-                        PluginLog.LogWarning(TaskName, $"Skipping symlinked trickplay directory (reparse point): {dirFullName}", logger: Logger);
-                        continue;
-                    }
-
                     PluginLog.LogInfo(TaskName, $"Moving orphaned trickplay folder to trash: {dirFullName}", Logger);
                     var size = TrashService.MoveToTrash(dirFullName, trashPath, Logger);
                     if (size <= 0)
@@ -274,27 +277,6 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                     PluginLog.LogInfo(TaskName, $"Deleting orphaned trickplay folder: {dirFullName}", Logger);
                     try
                     {
-                        // Symlink guard: never recurse into or delete a reparse-point (symlink/junction)
-                        // trickplay dir — Directory.Delete(recursive) could otherwise be redirected into
-                        // the link's real target. Skip it entirely (fail-safe), matching the trash path
-                        // above and CleanEmptyMediaFoldersTask. A stat failure is treated as "skip".
-                        bool hardReparse;
-                        try
-                        {
-                            hardReparse = IsReparsePoint(dirFullName);
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                        {
-                            PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirFullName}", ex, Logger);
-                            continue;
-                        }
-
-                        if (hardReparse)
-                        {
-                            PluginLog.LogWarning(TaskName, $"Skipping symlinked trickplay directory (reparse point): {dirFullName}", logger: Logger);
-                            continue;
-                        }
-
                         var size = FileSystemHelper.CalculateDirectorySize(dirFullName);
                         Directory.Delete(dirFullName, true);
                         bytesFreed += size;
