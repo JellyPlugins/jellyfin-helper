@@ -60,6 +60,19 @@ jobs:
           path: test/e2e/playwright-report/
           retention-days: 7
 
+      # Codecov Test Analytics (NOT coverage): uploads the Playwright JUnit results so the
+      # Codecov UI surfaces e2e failures + flaky-test detection on the PR. Runs on always()
+      # so a failing run still reports which e2e tests failed. This does not affect the
+      # project/patch coverage thresholds in codecov.yml - it is a separate report type.
+      - name: Upload E2E test results to Codecov
+        if: always()
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: test/e2e/test-results/junit.xml
+          flags: e2e
+          disable_search: true
+
       - name: Upload traces & screenshots
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
