@@ -10,27 +10,27 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 
 **Project**
 
-[![Live Demo](https://img.shields.io/badge/demo-live%20preview-ff69b4?style=flat-square)](https://jellyplugins.github.io/jellyfin-helper/)<br>
-[![Languages](https://img.shields.io/badge/i18n-8%20languages-blue?style=flat-square)](Jellyfin.Plugin.JellyfinHelper/i18n/)<br>
-[![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
+[![Live Demo](https://img.shields.io/badge/demo-live%20preview-ff69b4?style=flat-square&logo=githubpages&logoColor=white&labelColor=2d333b)](https://jellyplugins.github.io/jellyfin-helper/)<br>
+[![Languages](https://img.shields.io/badge/i18n-8%20languages-1f8feb?style=flat-square&logo=googletranslate&logoColor=white&labelColor=2d333b)](Jellyfin.Plugin.JellyfinHelper/i18n/)<br>
+[![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square&logo=github&logoColor=white&labelColor=2d333b)](https://github.com/JellyPlugins/jellyfin-helper/releases)
 
 </td>
 <td valign="top" align="center">
 
 **Quality**
 
-[![codecov](https://codecov.io/gh/JellyPlugins/jellyfin-helper/branch/main/graph/badge.svg?style=flat-square)](https://codecov.io/gh/JellyPlugins/jellyfin-helper)<br>
-[![Tests](https://img.shields.io/badge/tests-5062%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)<br>
-[![E2E](https://img.shields.io/badge/e2e-291%20tests-brightgreen?style=flat-square)](test/e2e/)
+[![codecov](https://img.shields.io/codecov/c/github/JellyPlugins/jellyfin-helper?style=flat-square&logo=codecov&logoColor=white&labelColor=2d333b)](https://codecov.io/gh/JellyPlugins/jellyfin-helper)<br>
+[![Tests](https://img.shields.io/badge/unit%20tests-5062-2ea043?style=flat-square&logo=checkmarx&logoColor=white&labelColor=2d333b)](Jellyfin.Plugin.JellyfinHelper.Tests/)<br>
+[![E2E](https://img.shields.io/badge/e2e%20tests-291-2ea043?style=flat-square&logo=docker&logoColor=white&labelColor=2d333b)](test/e2e/)
 
 </td>
 <td valign="top" align="center">
 
 **Stack**
 
-[![Jellyfin](https://img.shields.io/badge/Jellyfin-12.0+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white)](https://jellyfin.org/)<br>
-[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)<br>
-[![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square)](LICENSE)
+[![Jellyfin](https://img.shields.io/badge/Jellyfin-12.0+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white&labelColor=2d333b)](https://jellyfin.org/)<br>
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white&labelColor=2d333b)](https://dotnet.microsoft.com/)<br>
+[![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square&logo=gnu&logoColor=white&labelColor=2d333b)](LICENSE)
 
 </td>
 </tr>
