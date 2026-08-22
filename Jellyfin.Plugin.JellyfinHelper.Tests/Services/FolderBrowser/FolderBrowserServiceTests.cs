@@ -996,4 +996,110 @@ public sealed class FolderBrowserServiceTests : IDisposable
             Assert.Equal("Cannot access this directory.", _service.ValidatePath("/" + new string('a', 32800)));
         }
     }
+
+    // ===== POSIX symlink-escape guard: link inside a browsed dir pointing at a sensitive target =====
+
+    [Fact]
+    public void GetChildren_Posix_SymlinkPointingAtSensitiveTarget_IsHidden()
+    {
+        // A directory link whose OWN name is innocuous but that resolves to a sensitive root
+        // (/etc) must be filtered out of the listing by IsSystemOrHiddenCritical's reparse-point
+        // resolution - otherwise browsing into it would expose /etc's contents. This exercises
+        // the "resolvable link -> sensitive target" branch, distinct from the existing
+        // broken/deleted-target tests which only hit the unresolvable catch.
+        if (OperatingSystem.IsWindows()) return;
+
+        Directory.CreateDirectory(Path.Combine(_tempRoot, "movies"));
+        var link = Path.Combine(_tempRoot, "peek");
+
+        try
+        {
+            Directory.CreateSymbolicLink(link, "/etc");
+        }
+        catch (IOException)
+        {
+            return; // symlink creation not permitted on this host
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var result = _service.GetChildren(_tempRoot);
+
+        Assert.Null(result.Error);
+        var names = result.Directories.Select(d => d.Name).ToList();
+        Assert.Contains("movies", names);
+        Assert.DoesNotContain("peek", names);
+    }
+
+    [Fact]
+    public void ValidatePath_Posix_SymlinkPointingAtSensitiveTarget_IsRefused()
+    {
+        // ValidatePath's lexical IsSensitiveSystemPath check cannot see through a link whose
+        // own path is innocuous; the ResolveLinkTarget guard must dereference the final target
+        // and refuse a browse INTO a link that lands on /etc.
+        if (OperatingSystem.IsWindows()) return;
+
+        var link = Path.Combine(_tempRoot, "innocuous-link");
+
+        try
+        {
+            Directory.CreateSymbolicLink(link, "/etc");
+        }
+        catch (IOException)
+        {
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        Assert.Equal(
+            "This is a protected system folder and cannot be browsed.",
+            _service.ValidatePath(link));
+    }
+
+    // ===== POSIX SafeHiddenPrefixes: case-insensitive match keeps an upper-cased trash dir visible =====
+
+    [Fact]
+    public void GetChildren_Posix_UpperCaseTrashPrefixDir_StaysVisible()
+    {
+        // The SafeHiddenPrefixes comparison uses StringComparison.OrdinalIgnoreCase, so an
+        // upper-cased ".JELLYFIN-TRASH" must remain visible just like the lower-case form.
+        // A purely-ordinal comparison would hide it, so this sharply proves the OrdinalIgnoreCase branch.
+        if (OperatingSystem.IsWindows()) return;
+
+        Directory.CreateDirectory(Path.Combine(_tempRoot, ".JELLYFIN-TRASH"));
+        Directory.CreateDirectory(Path.Combine(_tempRoot, ".ssh"));
+
+        var result = _service.GetChildren(_tempRoot);
+
+        Assert.Null(result.Error);
+        var names = result.Directories.Select(d => d.Name).ToList();
+        Assert.Contains(".JELLYFIN-TRASH", names);
+        Assert.DoesNotContain(".ssh", names);
+    }
+
+    // ===== POSIX SafeHasSubdirectories: only-child is a hidden dot-dir => HasChildren false =====
+
+    [Fact]
+    public void GetChildren_Posix_SubdirectoryWithOnlyHiddenChild_HasChildrenFalse()
+    {
+        // SafeHasSubdirectories filters children through IsSystemOrHiddenCritical, so a parent
+        // whose ONLY child directory is a hidden dot-dir (.ssh) must report HasChildren=false -
+        // the child exists on disk but is not a *visible* subdirectory.
+        if (OperatingSystem.IsWindows()) return;
+
+        var parent = Path.Combine(_tempRoot, "parent");
+        Directory.CreateDirectory(parent);
+        Directory.CreateDirectory(Path.Combine(parent, ".ssh"));
+
+        var result = _service.GetChildren(_tempRoot);
+
+        var entry = Assert.Single(result.Directories);
+        Assert.Equal("parent", entry.Name);
+        Assert.False(entry.HasChildren);
+    }
 }

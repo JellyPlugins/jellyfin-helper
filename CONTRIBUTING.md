@@ -205,7 +205,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
 │   │   ├── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
 │   │   ├── TrashServiceFailureTests.cs    # Delete failures counted as Failed not Deleted (Windows-gated IO error simulation)
-│   │   └── TrashServiceInternalHelpersTests.cs # TruncateToSize / MeasureString / ExtractOriginalName / TryParseTrashTimestamp edge cases
+│   │   ├── TrashServiceInternalHelpersTests.cs # TruncateToSize / MeasureString / ExtractOriginalName / TryParseTrashTimestamp edge cases
+│   │   └── TrashServicePathAccessTests.cs # Permission-denied branches of CheckPathAccess/GetTrashSummary/GetTrashContents (deny ACL / UnixFileMode, root-bypass probe)
 │   ├── Common/                    # Shared cross-service helper tests
 │   │   ├── AtomicFileTests.cs             # UTF-8 no-BOM, temp-file cleanup, transient-IO retry, async CancellationToken
 │   │   ├── BatchFallbackHelperTests.cs    # try-batch/fall-back: cancellation propagates, non-fatal exceptions degrade gracefully
@@ -706,6 +707,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `TrashServiceAccessTests.cs`
 - `TrashServiceGuardTests.cs`
 - `TrashServiceInternalHelpersTests.cs`
+- `TrashServicePathAccessTests.cs` - Permission-denied branches: existing-dir-not-writable and non-existent-path-parent-not-writable in CheckPathAccess, plus unreadable-folder enumeration catch in GetTrashSummary/GetTrashContents (real OS denial with root-bypass probe)
 - `TrashServicePathLengthTests.cs`
 - `TrashServiceRelocateTests.cs`
 - `TrashServiceReparseAndRaceTests.cs` - Tests TrashService reparse-point guard and concurrent-move race safety

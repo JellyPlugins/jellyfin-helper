@@ -20,7 +20,7 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 **Quality**
 
 [![codecov](https://img.shields.io/codecov/c/github/JellyPlugins/jellyfin-helper?style=flat-square&logo=codecov&logoColor=white&labelColor=2d333b)](https://codecov.io/gh/JellyPlugins/jellyfin-helper)<br>
-[![Tests](https://img.shields.io/badge/unit%20tests-5062-2ea043?style=flat-square&logo=checkmarx&logoColor=white&labelColor=2d333b)](Jellyfin.Plugin.JellyfinHelper.Tests/)<br>
+[![Tests](https://img.shields.io/badge/unit%20tests-5073-2ea043?style=flat-square&logo=checkmarx&logoColor=white&labelColor=2d333b)](Jellyfin.Plugin.JellyfinHelper.Tests/)<br>
 [![E2E](https://img.shields.io/badge/e2e%20tests-291-2ea043?style=flat-square&logo=docker&logoColor=white&labelColor=2d333b)](test/e2e/)
 
 </td>

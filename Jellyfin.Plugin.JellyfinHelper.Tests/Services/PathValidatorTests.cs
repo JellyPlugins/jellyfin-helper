@@ -353,4 +353,37 @@ public class PathValidatorTests
     {
         Assert.True(PathValidator.IsPathSafeForDeletion("/etc", Array.Empty<string>()));
     }
+
+    // A candidate that is unrelated to every configured library root (not the root, not an
+    // ancestor, not a child) must be accepted. This is the method's success path WITH a
+    // non-empty library list, distinct from the empty-list cases above - it proves the loop
+    // runs to completion and falls through to the final "return true".
+    [Fact]
+    public void IsPathSafeForDeletion_CandidateUnrelatedToLibraryRoots_Allowed()
+    {
+        var sep = Path.DirectorySeparatorChar.ToString();
+        var libraryRoot = Path.Combine(sep, "media", "movies");
+        // Sibling tree, shares no ancestor/descendant relationship with the library root.
+        var candidate = Path.Combine(sep, "trash", "expired-item");
+
+        Assert.True(PathValidator.IsPathSafeForDeletion(candidate, [libraryRoot]));
+    }
+
+    // A null/whitespace entry in the library-folder list is not a real root and must be
+    // skipped, not treated as an empty-string root that would match everything. With an
+    // otherwise-unrelated candidate the method must still return true - proving the
+    // per-entry IsNullOrWhiteSpace guard skips the bogus entry rather than rejecting.
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void IsPathSafeForDeletion_SkipsBlankLibraryFolderEntries(string blank)
+    {
+        var sep = Path.DirectorySeparatorChar.ToString();
+        var candidate = Path.Combine(sep, "trash", "expired-item");
+
+        // The blank entry must be ignored; the real root is unrelated to the candidate.
+        Assert.True(PathValidator.IsPathSafeForDeletion(
+            candidate,
+            [blank, Path.Combine(sep, "media", "movies")]));
+    }
 }
