@@ -20,7 +20,8 @@ public sealed class DiscoveryRequestDto : IValidatableObject
     ///     Gets or sets the media type ("movie" or "tv").
     ///     Case-insensitive; the controller normalizes to lowercase before processing.
     ///     Defaults to "movie" when omitted from the request payload.
-    /// </summary>
+    [Required]
+    [RegularExpression("^(movie|tv)$", ErrorMessage = "MediaType must be either 'movie' or 'tv'.")]
     [Required]
     [RegularExpression("^(?i)(movie|tv)$", ErrorMessage = "MediaType must be either 'movie' or 'tv'.")]
     public string MediaType { get; set; } = "movie";
