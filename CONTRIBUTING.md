@@ -608,7 +608,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `ArrIntegrationControllerExtendedTests.cs`
 - `ArrIntegrationControllerTests.cs`
-- `ApiKeyMaskResolverTests.cs` - Tests the ApiKeyMask sentinel resolver: IsMask (exact/padded/non-sentinel), ResolveArrKey (non-mask passthrough, Name+URL match, URL-only rename fallback, same-URL collision, no-match→empty, null-guard)
+- `ApiKeyMaskResolverTests.cs` - Tests the ApiKeyMask sentinel resolver (IsMask + ResolveArrKey: passthrough, Name+URL / URL-only matching, duplicate-name collisions, no-match, null-guard)
 - `BackupControllerExtendedTests.cs`
 - `BackupControllerTests.cs`
 - `CleanupStatisticsControllerTests.cs` - Tests CleanupStatisticsController returns cleanup stats payload (bytes freed, items, timestamp)

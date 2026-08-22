@@ -98,6 +98,42 @@ public class ApiKeyMaskResolverTests
     }
 
     [Fact]
+    public void ResolveArrKey_MaskSameUrlSameName_ResolvesToAStoredKeyDeterministically()
+    {
+        // Duplicate instances (identical URL AND Name) are logically indistinguishable to the
+        // resolver, so it deterministically returns the FIRST matching stored key. The invariant
+        // that matters for security is preserved: a real stored key of THAT url is returned - never
+        // the mask, never a key from a different URL. Names are display labels, not required to be
+        // unique. This documents/locks the duplicate-name behaviour so it can't silently regress.
+        var stored = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://localhost:7878", ApiKey = "key-first", Name = "Dup" },
+            new() { Url = "http://localhost:7878", ApiKey = "key-second", Name = "Dup" }
+        };
+
+        var result = ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "http://localhost:7878", "Dup", stored);
+
+        Assert.Equal("key-first", result);
+        Assert.NotEqual(ApiKeyMask, result);
+    }
+
+    [Fact]
+    public void ResolveArrKey_MaskSameUrlEmptyNames_ResolvesToAStoredKey()
+    {
+        // Empty names collide the same way as duplicate names; still resolves to a real stored key
+        // of the matching URL rather than failing or leaking the mask.
+        var stored = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://localhost:7878", ApiKey = "key-first", Name = string.Empty },
+            new() { Url = "http://localhost:7878", ApiKey = "key-second", Name = string.Empty }
+        };
+
+        var result = ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "http://localhost:7878", string.Empty, stored);
+
+        Assert.Equal("key-first", result);
+    }
+
+    [Fact]
     public void ResolveArrKey_MaskNameMismatch_FallsBackToUrlOnly()
     {
         // Rename case: the stored Name differs (admin renamed), but the URL still matches, so the
