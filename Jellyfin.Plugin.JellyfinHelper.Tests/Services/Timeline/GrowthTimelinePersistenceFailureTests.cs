@@ -73,13 +73,15 @@ public sealed class GrowthTimelinePersistenceFailureTests : IDisposable
         var movieDir = Path.Join(libRoot, "Movie");
         Directory.CreateDirectory(movieDir);
 
+        var now = DateTime.UtcNow;
+
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = now, LastWriteTimeUtc = now }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
-            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000, CreationTimeUtc = now, LastWriteTimeUtc = now }]);
         _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
     }
 

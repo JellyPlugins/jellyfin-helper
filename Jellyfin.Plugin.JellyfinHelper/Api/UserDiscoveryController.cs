@@ -12,6 +12,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
@@ -30,10 +31,18 @@ public sealed class UserDiscoveryController : ControllerBase
 {
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> LastRequestTime = new();
+    // Guards the rate-limit check-and-update so it is atomic. The controller is instantiated per
+    // request, so an instance lock would not serialize concurrent requests; a shared static lock
+    // does. The critical section is only two IMemoryCache operations, so contention is negligible.
+    private static readonly object RateLimitGate = new();
 
-    private static int _acceptedRequestCount;
+    // Generation counter folded into every rate-limit cache key. ClearRateLimitState() bumps it
+    // (under RateLimitGate) so all keys minted by a previous plugin load become unreachable — an
+    // instant logical reset even when the IMemoryCache instance survives a reload, without waiting
+    // for the per-entry TTL to expire (which would otherwise leave a user seeing stale 429s).
+    private static long _rateLimitGeneration;
 
+    private readonly IMemoryCache _memoryCache;
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
@@ -47,18 +56,21 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="discovery">The discovery service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="configurationService">The plugin configuration service.</param>
+    /// <param name="memoryCache">The memory cache used for per-user rate limiting.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
         ISeerrDiscoveryService discovery,
         IDiscoveryFeedbackStore feedbackStore,
         IPluginConfigurationService configurationService,
+        IMemoryCache memoryCache,
         ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
         _discovery = discovery;
         _feedbackStore = feedbackStore;
         _configurationService = configurationService;
+        _memoryCache = memoryCache;
         _logger = logger;
     }
 
@@ -324,28 +336,38 @@ public sealed class UserDiscoveryController : ControllerBase
         var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
 
         // Per-user rate limit: prevent a single user from flooding Seerr with requests.
-        // Use AddOrUpdate for an atomic check-and-set so there is no TOCTOU window between
-        // reading LastRequestTime and writing the new timestamp (findings #118/#314).
+        // IMemoryCache auto-evicts entries after RequestRateLimit, so no manual sweep is needed
+        // and the dictionary cannot grow unbounded across plugin restarts.
         var now = DateTime.UtcNow;
         var rateLimitExceeded = false;
         var retryAfterSeconds = 0;
 
-        LastRequestTime.AddOrUpdate(
-            currentJellyfinUserId,
-            addValueFactory: _ => now,
-            updateValueFactory: (_, lastRequest) =>
+        // Atomic check-and-update: without the lock, concurrent requests for the same user could
+        // all observe a cache miss (or a stale timestamp) and each write `now`, all passing the
+        // limit and submitting duplicate upstream requests. Serializing the read+write closes that
+        // race so only the first request in a window proceeds. The key includes the current
+        // generation so a ClearRateLimitState() bump invalidates all prior-load entries at once.
+        lock (RateLimitGate)
+        {
+            var rateLimitKey = BuildRateLimitKey(currentJellyfinUserId);
+
+            if (_memoryCache.TryGetValue<DateTime>(rateLimitKey, out var lastRequest))
             {
                 var elapsed = now - lastRequest;
                 if (elapsed < RequestRateLimit)
                 {
                     rateLimitExceeded = true;
                     retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
-                    // Return the original value unchanged so the window is not reset on a rejected request.
-                    return lastRequest;
                 }
+            }
 
-                return now;
-            });
+            // Only claim the window when the request is actually allowed through; refreshing the
+            // timestamp on a rejected request would extend the block indefinitely under load.
+            if (!rateLimitExceeded)
+            {
+                _memoryCache.Set(rateLimitKey, now, RequestRateLimit);
+            }
+        }
 
         if (rateLimitExceeded)
         {
@@ -355,20 +377,6 @@ public sealed class UserDiscoveryController : ControllerBase
                 Success = false,
                 Message = "Too many requests. Please wait before submitting another request."
             });
-        }
-
-        // Opportunistic sweep: evict expired entries every 100 accepted requests to avoid
-        // an O(n) full-dictionary scan on every non-rate-limited call. With RequestRateLimit
-        // of 10 seconds the dictionary is naturally small, so deferred cleanup is sufficient.
-        if ((Interlocked.Increment(ref _acceptedRequestCount) % 100) == 0)
-        {
-            foreach (var entry in LastRequestTime)
-            {
-                if (now - entry.Value > RequestRateLimit)
-                {
-                    LastRequestTime.TryRemove(entry.Key, out _);
-                }
-            }
         }
 
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
@@ -532,12 +540,41 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Clears all per-user rate-limit state held in the static dictionary.
-    ///     Called from <see cref="Plugin"/>'s constructor on every plugin load and from
-    ///     <see cref="Plugin.OnUninstalling"/> so stale entries from a previous
-    ///     plugin load do not leak into a subsequent reload (finding #313/#77/#117).
+    ///     Resets all per-user rate-limit state. Called from <see cref="Plugin"/>'s constructor on
+    ///     every plugin load and from <see cref="Plugin.OnUninstalling"/> so stale entries from a
+    ///     previous plugin load do not leak into a subsequent reload (finding #313/#77/#117).
+    ///     <para>
+    ///         Rate-limit entries live in an <see cref="IMemoryCache"/> that may outlive a plugin
+    ///         reload. Rather than enumerate and evict keys, we bump a generation counter that is
+    ///         folded into every rate-limit key: all entries minted by the previous generation
+    ///         become unreachable at once, so no user carries a stale 429 window across a reload.
+    ///     </para>
     /// </summary>
-    internal static void ClearRateLimitState() => LastRequestTime.Clear();
+    internal static void ClearRateLimitState()
+    {
+        lock (RateLimitGate)
+        {
+            _rateLimitGeneration++;
+        }
+    }
+
+    /// <summary>
+    ///     Builds the per-user rate-limit cache key. The single source of truth for the key format,
+    ///     shared by the controller and its tests so the two can never drift.
+    ///     <para>
+    ///         The key is namespaced with a plugin-specific prefix because <see cref="_memoryCache"/>
+    ///         is the shared application <see cref="IMemoryCache"/>: a generic <c>ratelimit:</c> prefix
+    ///         could collide with another plugin or Jellyfin component and silently alter rate-limit
+    ///         decisions for real users. The current generation (bumped by
+    ///         <see cref="ClearRateLimitState"/>) is folded in so a reset invalidates all prior keys.
+    ///     </para>
+    ///     Must be called under <see cref="RateLimitGate"/> so the generation read is consistent with
+    ///     the surrounding check-and-update.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user the request belongs to.</param>
+    /// <returns>The fully-qualified, namespaced rate-limit cache key.</returns>
+    internal static string BuildRateLimitKey(Guid jellyfinUserId) =>
+        $"JellyfinHelper:discovery:ratelimit:{_rateLimitGeneration}:{jellyfinUserId:N}";
 
     /// <summary>
     ///     Reconstructs <see cref="SeerrServiceInfo"/> objects directly from the pre-evaluated

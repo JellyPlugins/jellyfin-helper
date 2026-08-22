@@ -25,6 +25,22 @@
     var _seerrBaseUrl = '';
     var EXTERNAL_LINKS_URL = '/JellyfinHelper/Discovery/My/ExternalLinks';
 
+    /**
+     * Returns the URL only if it uses a safe http(s) scheme, otherwise ''.
+     * The Seerr base URL is admin-controlled config; without this guard a value like
+     * "javascript:..." would survive HTML-escaping in the data-href attribute and then
+     * execute when read back and passed to window.open() (stored XSS, admin→user).
+     *
+     * @param {string} url - The URL to validate.
+     * @returns {string} The trimmed URL if http(s), otherwise an empty string.
+     */
+    function safeHttpUrl(url) {
+        if (typeof url !== 'string') return '';
+        var trimmed = url.trim();
+        // Leading-scheme check is case-insensitive; reject anything that is not http(s)://.
+        return /^https?:\/\//i.test(trimmed) ? trimmed : '';
+    }
+
     var _waitForApiRetries = 0;
     var MAX_FAST_RETRIES = 60;  // 30 seconds at 500ms intervals (fast polling)
     var MAX_SLOW_RETRIES = 40;  // 2 minutes at 3s intervals (slow polling); total cap ~150s
@@ -80,7 +96,9 @@
             dataType: 'json'
         }).then(function (data) {
             if (data && data.SeerrUrl) {
-                _seerrBaseUrl = data.SeerrUrl.replace(/\/+$/, '');
+                // Only accept http(s) URLs — reject javascript:/data:/etc. at the source so a
+                // misconfigured or hostile admin value can never reach the window.open() sink.
+                _seerrBaseUrl = safeHttpUrl(data.SeerrUrl).replace(/\/+$/, '');
             }
         }).catch(function () {
             // Non-critical - Seerr link option will be hidden in the popup
@@ -410,7 +428,10 @@
                 e.preventDefault();
                 e.stopPropagation();
                 var url = this.getAttribute('data-href');
-                if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                // Re-validate the scheme at the sink: even though data-href is HTML-escaped and
+                // the source is filtered, never hand a non-http(s) URL to window.open().
+                var safeUrl = safeHttpUrl(url);
+                if (safeUrl) window.open(safeUrl, '_blank', 'noopener,noreferrer');
             });
         }
     }
@@ -534,10 +555,25 @@
             var prof = profiles[i];
             var item = document.createElement('button');
             item.className = 'jfh-discovery-popup-item' + (prof.IsDefault ? ' jfh-discovery-popup-item-default' : '');
-            var label = esc(prof.ProfileName);
-            if (multiServer) label += ' <span style="opacity:0.6">(' + esc(prof.ServerName) + ')</span>';
-            if (prof.IsDefault) label += ' <span style="opacity:0.5;font-size:0.8em">\u2605 ' + esc(t('discoveryProfileDefault', 'default')) + '</span>';
-            item.innerHTML = label;
+            // Build the button label using safe DOM operations instead of innerHTML to prevent
+            // XSS if ProfileName/ServerName originates from a compromised Arr/Seerr instance.
+            // textContent auto-escapes HTML — esc() is NOT applied here to avoid double-encoding.
+            item.appendChild(document.createTextNode(prof.ProfileName));
+            if (multiServer) {
+                item.appendChild(document.createTextNode(' '));
+                var serverSpan = document.createElement('span');
+                serverSpan.style.opacity = '0.6';
+                serverSpan.textContent = '(' + prof.ServerName + ')';
+                item.appendChild(serverSpan);
+            }
+            if (prof.IsDefault) {
+                item.appendChild(document.createTextNode(' '));
+                var defaultSpan = document.createElement('span');
+                defaultSpan.style.opacity = '0.5';
+                defaultSpan.style.fontSize = '0.8em';
+                defaultSpan.textContent = '\u2605 ' + t('discoveryProfileDefault', 'default');
+                item.appendChild(defaultSpan);
+            }
             item.addEventListener('click', (function (sid, pid, rf) {
                 return function () { closePopup(); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
             })(prof.ServerId, prof.ProfileId, prof.RootFolder));

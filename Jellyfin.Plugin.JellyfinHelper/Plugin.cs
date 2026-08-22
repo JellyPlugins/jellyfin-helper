@@ -338,6 +338,71 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return false;
             }
 
+            // Defense-in-depth: verify the assembly is loaded from within Jellyfin's plugin
+            // directory. This does not replace strong-name/signature verification but prevents
+            // a rogue assembly placed outside the plugin directory from passing the name check.
+            var assemblyLocation = fileTransformationAssembly.Location;
+            if (_logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation("[Discovery Sidebar] FileTransformation assembly found at: {Location}", assemblyLocation);
+            }
+
+            // Fail CLOSED: if we cannot determine the assembly location or the plugins path, we
+            // cannot verify the origin, so we must NOT register (previously this skipped the check
+            // and registered anyway).
+            if (string.IsNullOrWhiteSpace(assemblyLocation) || string.IsNullOrWhiteSpace(_applicationPaths.PluginsPath))
+            {
+                _logger.LogWarning(
+                    "[Discovery Sidebar] Cannot verify the FileTransformation assembly origin "
+                    + "(assembly location or plugins path unavailable). Skipping registration as a security precaution.");
+                return false;
+            }
+
+            // Resolve BOTH paths to their canonical physical form before comparing. Assembly.Location
+            // (and PluginsPath) can contain symlink/junction components, and Path.GetFullPath does NOT
+            // resolve reparse points — so a symlinked assembly whose physical file lives OUTSIDE the
+            // plugins tree could otherwise pass the string prefix check. Resolving the real path closes
+            // that escape. If resolution fails we fail closed (do not register).
+            string normalizedLocation;
+            string normalizedPluginsPath;
+            try
+            {
+                normalizedLocation = ResolveRealPath(assemblyLocation);
+                normalizedPluginsPath = ResolveRealPath(_applicationPaths.PluginsPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "[Discovery Sidebar] Could not resolve the physical path of the FileTransformation "
+                    + "assembly or the plugins directory. Skipping registration as a security precaution.");
+                return false;
+            }
+
+            var pluginsPathWithSep = normalizedPluginsPath.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+
+            // Path comparison must be OS-aware: Linux paths are case-sensitive, so an
+            // OrdinalIgnoreCase compare would treat /plugins and /PLUGINS as equal and could let a
+            // differently-cased outside path pass. Only Windows uses the case-insensitive compare;
+            // macOS is deliberately treated as case-sensitive here, which can only reject a
+            // differently-cased path (fail closed), never accept one.
+            var pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
+            if (!normalizedLocation.StartsWith(pluginsPathWithSep, pathComparison))
+            {
+                _logger.LogWarning(
+                    "[Discovery Sidebar] FileTransformation assembly is NOT in the Jellyfin plugins " +
+                    "directory (expected under '{PluginsPath}', found at '{Location}'). " +
+                    "Skipping registration as a security precaution.",
+                    normalizedPluginsPath,
+                    normalizedLocation);
+                return false;
+            }
+
             var pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
             if (pluginInterfaceType == null)
             {
@@ -416,6 +481,43 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning(ex, "[Discovery Sidebar] Failed to register with File Transformation plugin");
             return false;
         }
+    }
+
+    /// <summary>
+    ///     Resolves a filesystem path to its canonical physical form, following symlinks and
+    ///     junctions on the final component as well as every ancestor directory.
+    ///     <para>
+    ///         <see cref="Path.GetFullPath(string)" /> only normalizes <c>.</c>/<c>..</c> and
+    ///         separators — it does NOT resolve reparse points. Relying on it alone would let an
+    ///         assembly whose physical file lives outside the plugins tree, but is reached through a
+    ///         symlink inside it (or vice versa), slip past a string prefix check. Resolving the
+    ///         parent chain first and then the leaf collapses every link so the returned path
+    ///         reflects where the bytes actually live.
+    ///     </para>
+    /// </summary>
+    /// <param name="path">The path to canonicalize.</param>
+    /// <returns>The real, fully symlink-resolved absolute path.</returns>
+    private static string ResolveRealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+
+        var parent = Path.GetDirectoryName(full);
+        if (string.IsNullOrEmpty(parent))
+        {
+            // Root component (e.g. "C:\" or "/") — nothing above it to resolve.
+            return full;
+        }
+
+        // Canonicalize the parent directory chain first (recursively), then reattach this
+        // component's name and resolve the component itself if it is a link.
+        var realParent = ResolveRealPath(parent);
+        var candidate = Path.Combine(realParent, Path.GetFileName(full));
+
+        FileSystemInfo leaf = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
+        var resolvedLeaf = leaf.ResolveLinkTarget(returnFinalTarget: true);
+        return resolvedLeaf != null
+            ? ResolveRealPath(resolvedLeaf.FullName) // link may point through further links
+            : candidate;
     }
 
     /// <summary>

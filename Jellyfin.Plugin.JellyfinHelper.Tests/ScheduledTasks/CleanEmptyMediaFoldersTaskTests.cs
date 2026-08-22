@@ -102,6 +102,34 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     }
 
     [Fact]
+    public async Task ExecuteInternalAsync_TopLevelFolderWithOnlyStrmFile_IsKept()
+    {
+        // A .strm file is a Jellyfin stream-link pointing at remote/relocated video. It is classified
+        // as a video file (MediaExtensions.VideoExtensions), so a folder whose only real content is a
+        // .strm must be treated as an active media folder and NEVER deleted — even though the .strm
+        // itself is a tiny text file that looks like a non-media file to a naive extension check.
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Streamed Movie (2022)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Streamed Movie (2022)", movieDir));
+
+        // Only a .strm link file plus metadata/artwork — no local video, no other files.
+        SetupFiles(movieDir, "movie.strm", "movie.nfo", "poster.jpg");
+        SetupTopLevelDirs(movieDir);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+        MockTrackingService.Verify(
+            t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ExecuteInternalAsync_CompletelyEmptyFolder_IsSkipped()
     {
         const string libraryPath = "/media/movies";
@@ -975,10 +1003,11 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
 
-    // Traversal must survive an unreadable subdirectory listing: a subtitle already found at the
-    // top still qualifies the folder as an orphan even though GetDirectories throws.
+    // Fail-closed: an unreadable subdirectory listing leaves the subtree unanalyzed, so the orphan
+    // verdict is unproven — a video could live behind the directory we failed to enumerate. Even
+    // though a subtitle was already found at the top, the folder must NOT be flagged for deletion.
     [Fact]
-    public async Task ExecuteInternalAsync_GetSubdirectoriesThrows_LogsWarningAndContinues()
+    public async Task ExecuteInternalAsync_GetSubdirectoriesThrows_LogsWarningAndSkipsFolder()
     {
         const string libraryPath = "/media/movies";
         const string movieDir = "/media/movies/Half Read (2019)";
@@ -986,14 +1015,15 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Half Read (2019)", movieDir));
 
-        // Subtitle → non-metadata → orphan candidate.
+        // Subtitle → non-metadata → looks like an orphan candidate on its own.
         SetupFiles(movieDir, "movie.srt");
         _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Throws(new UnauthorizedAccessException());
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Could not list subdirectories in", LogLevel.Warning);
-        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
+        VerifyLogContains("unresolved symlinked/unreadable subdirectory", LogLevel.Warning);
+        VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
     // Deactivate mode short-circuits ExecuteAsync before any scan: it must report 100 once and

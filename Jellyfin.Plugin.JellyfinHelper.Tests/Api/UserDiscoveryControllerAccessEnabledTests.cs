@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +11,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -32,6 +32,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     private readonly DiscoveryCacheService _cache;
     private readonly Mock<ILogger<UserDiscoveryController>> _loggerMock;
     private readonly Mock<IPluginConfigurationService> _configServiceMock;
+    private readonly MemoryCache _memoryCache;
 
     public UserDiscoveryControllerAccessEnabledTests()
     {
@@ -50,18 +51,20 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         _loggerMock = new Mock<ILogger<UserDiscoveryController>>();
         _configServiceMock = new Mock<IPluginConfigurationService>();
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration { DiscoveryUserAccessEnabled = true });
+        _memoryCache = new MemoryCache(new MemoryCacheOptions());
     }
 
     public void Dispose()
     {
         ControllerTestFactory.ResetPluginConfiguration();
         _cache.Dispose();
+        _memoryCache.Dispose();
     }
 
     private UserDiscoveryController CreateController(Guid? userId = null)
     {
         var controller = new UserDiscoveryController(
-            _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _loggerMock.Object);
+            _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, _loggerMock.Object);
         var claims = new List<Claim>();
         if (userId.HasValue)
         {

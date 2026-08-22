@@ -87,6 +87,25 @@ public class ArrIntegrationServiceTests
     }
 
     [Fact]
+    public async Task TestConnection_CloudMetadataHost_IsBlockedBeforeAnyRequest()
+    {
+        // SSRF guard: the service (not just the controller) must refuse cloud metadata endpoints,
+        // so the configuration-save path that calls the service directly cannot reach them. The
+        // block must happen before any HTTP request is dispatched.
+        var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
+        var service = CreateService(handler.Object);
+
+        var (success, _) = await service.TestConnectionAsync("http://169.254.169.254", "testapikey");
+
+        Assert.False(success);
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
     public async Task TestConnection_SuccessfulResponse_ReturnsTrue()
     {
         var json = """{"appName":"Radarr","version":"5.2.0.1234"}""";

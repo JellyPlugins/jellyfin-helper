@@ -77,7 +77,8 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Gets the current plugin configuration.
-    ///     API keys are replaced with a masked placeholder (<c>***</c>) so they
+    ///     API keys are replaced with a fixed-length masked placeholder
+    ///     (<see cref="ConfigurationResponse.ApiKeyMask"/>) so they
     ///     never leave the server in plain text. Clients that need to change a key must
     ///     send the real value via POST /Configuration; receiving the mask means the key
     ///     is already set. Sending the mask back via POST is a no-op - the real stored
@@ -268,6 +269,28 @@ public class ConfigurationController : ControllerBase
             }
         }
 
+        // Warn (do not block) when ExcludedLibraries names libraries that do not currently exist.
+        // A stale/typo'd name is benign at runtime — it simply never matches during cleanup — but
+        // surfacing it helps the admin catch a mistake. Libraries can be renamed/removed and later
+        // re-added, so this is advisory only and never rejects the save.
+        if (!string.IsNullOrWhiteSpace(request.ExcludedLibraries))
+        {
+            var excluded = CleanupConfigHelper.ParseCommaSeparated(request.ExcludedLibraries);
+            if (excluded.Count > 0)
+            {
+                var existingNames = _libraryManager.GetVirtualFolders()
+                    .Select(f => f.Name ?? string.Empty)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var unknown = excluded.Where(name => !existingNames.Contains(name)).ToList();
+                if (unknown.Count > 0)
+                {
+                    var libWarning = $"ExcludedLibraries references {unknown.Count} library name(s) that do not currently exist: {string.Join(", ", unknown)}. They will have no effect until a matching library exists.";
+                    warnings.Add(libWarning);
+                    _pluginLog.LogWarning("API", libWarning, logger: _logger);
+                }
+            }
+        }
+
         return Ok(new ConfigurationSaveResponse { Message = "Configuration saved.", Warnings = warnings });
     }
 
@@ -320,10 +343,14 @@ public class ConfigurationController : ControllerBase
         var seerrUrl = request.SeerrUrl.Trim();
         var seerrApiKey = request.SeerrApiKey.Trim();
 
+        // Credential-safe label (scheme+host+port only) for anything echoed to the client or logged;
+        // the raw URL can embed user-info credentials (https://user:password@host).
+        var seerrLabel = Services.Common.SsrfGuard.SafeEndpointLabel(seerrUrl);
+
         // When the client echoes back the mask sentinel, the key was not changed - skip the test.
-        // ApplyRequestToConfig already preserved the real stored key; using "***" as a live
+        // ApplyRequestToConfig already preserved the real stored key; using the mask as a live
         // credential would produce a guaranteed 401 from Seerr and a misleading warning.
-        if (string.Equals(seerrApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        if (ApiKeyMaskResolver.IsMask(seerrApiKey))
         {
             return;
         }
@@ -341,9 +368,12 @@ public class ConfigurationController : ControllerBase
             }
             else
             {
-                var warning = $"Seerr instance ({seerrUrl}) is not reachable: {message}";
-                warnings.Add(warning);
-                _pluginLog.LogWarning("API", warning, logger: _logger);
+                // Generic client-facing warning; the upstream `message` (which can reveal
+                // reachability/credential details) is logged server-side only. Matches the
+                // dedicated Seerr connection-test endpoint's behaviour. Uses the credential-safe
+                // label so a user-info password in the URL is never reflected or logged.
+                warnings.Add($"Seerr instance ({seerrLabel}) is not reachable. Verify the URL and API Key.");
+                _pluginLog.LogWarning("API", $"Seerr instance ({seerrLabel}) is not reachable: {message}", logger: _logger);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -352,10 +382,12 @@ public class ConfigurationController : ControllerBase
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
         {
-            // Handles network errors, timeouts, and non-token OperationCanceledException (e.g., HttpClient timeout)
-            var warning = $"Connection test failed for Seerr ({seerrUrl}): {ex.Message}";
-            warnings.Add(warning);
-            _pluginLog.LogWarning("API", warning, ex, _logger);
+            // Handles network errors, timeouts, and non-token OperationCanceledException (e.g., HttpClient timeout).
+            // Return a GENERIC warning to the client — the raw ex.Message can reflect upstream reachability
+            // (e.g. "connection refused" vs "no such host") and turn the save endpoint into an internal-network
+            // oracle. The detailed exception is logged server-side only.
+            warnings.Add($"Connection test failed for Seerr ({seerrLabel}). Verify the URL and API Key.");
+            _pluginLog.LogWarning("API", $"Connection test failed for Seerr ({seerrLabel}): {ex.Message}", ex, _logger);
         }
     }
 
@@ -386,9 +418,9 @@ public class ConfigurationController : ControllerBase
             }
 
             // Skip the live test when the client echoed back the mask sentinel - same guard as
-            // TestSeerrConnectionAsync. Sending "***" to Radarr/Sonarr produces a 401 and a
+            // TestSeerrConnectionAsync. Sending the mask to Radarr/Sonarr produces a 401 and a
             // spurious warning even though the real stored key is perfectly valid.
-            if (string.Equals(instance.ApiKey.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+            if (ApiKeyMaskResolver.IsMask(instance.ApiKey))
             {
                 continue;
             }
@@ -408,9 +440,12 @@ public class ConfigurationController : ControllerBase
                 }
                 else
                 {
-                    var warning = $"{typeName} instance '{label}' ({instance.Url}) is not reachable: {message}";
-                    warnings.Add(warning);
-                    _pluginLog.LogWarning("API", warning, logger: _logger);
+                    // Generic client-facing warning; the upstream `message` (which can reveal
+                    // reachability details) is logged server-side only. The credential-safe label
+                    // strips any user-info password embedded in instance.Url.
+                    var urlLabel = Services.Common.SsrfGuard.SafeEndpointLabel(instance.Url);
+                    warnings.Add($"{typeName} instance '{label}' ({urlLabel}) is not reachable. Verify the URL and API Key.");
+                    _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) is not reachable: {message}", logger: _logger);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -420,9 +455,11 @@ public class ConfigurationController : ControllerBase
             catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
             {
                 var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{i + 1}";
-                var warning = $"{typeName} instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";
-                warnings.Add(warning);
-                _pluginLog.LogWarning("API", warning, ex, _logger);
+                // Generic client-facing warning; the raw ex.Message is logged server-side only.
+                // The credential-safe label strips any user-info password embedded in instance.Url.
+                var urlLabel = Services.Common.SsrfGuard.SafeEndpointLabel(instance.Url);
+                warnings.Add($"{typeName} instance '{label}' ({urlLabel}) connection test failed. Verify the URL and API Key.");
+                _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) connection test failed: {ex.Message}", ex, _logger);
             }
         }
     }
@@ -492,10 +529,10 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        // If the client echoes back the mask sentinel ("***"), the key was not changed - preserve the stored value.
-        // Trim before comparing so a client that pads the sentinel (e.g. " *** ") is still recognised correctly
-        // and never overwrites the real stored key with a literal "***".
-        if (!string.Equals(request.SeerrApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value.
+        // Trim before comparing so a client that pads the sentinel (e.g. " <mask> ") is still recognised
+        // correctly and never overwrites the real stored key with a literal copy of the mask.
+        if (!ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
         {
             config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
         }
@@ -567,18 +604,14 @@ public class ConfigurationController : ControllerBase
         ArrInstanceConfig incoming,
         List<ArrInstanceConfig> previousInstances)
     {
-        if (!string.Equals(incoming.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
-        {
-            return incoming.ApiKey ?? string.Empty;
-        }
-
-        // Sentinel "***": recover stored key. Try Name+URL first (exact match, handles
-        // same-URL collision), then fall back to URL-only (handles rename).
-        return (previousInstances.FirstOrDefault(p =>
-                    string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)
-                    && p.Name == incoming.Name)
-                ?? previousInstances.FirstOrDefault(p =>
-                    string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)))?.ApiKey
-               ?? string.Empty;
+        // Delegates to the shared resolver so the save path and the stateless Test-Connection
+        // endpoints (ArrIntegrationController / SeerrController) use one implementation of the
+        // mask-sentinel semantics. Behaviour is unchanged: non-mask keys pass through as-is,
+        // the mask recovers the stored key by Name+URL then URL-only fallback.
+        return ApiKeyMaskResolver.ResolveArrKey(
+            incoming.ApiKey,
+            incoming.Url,
+            incoming.Name,
+            previousInstances);
     }
 }

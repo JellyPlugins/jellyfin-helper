@@ -17,6 +17,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PLUGIN_GUID = '0c737645-5cbb-4bd8-80c7-d377b560aaa4';
 export const CLEANUP_TASK_KEY = 'HelperCleanup';
 
+/**
+ * The fixed-length API-key mask sentinel emitted by GET /Configuration in place of any stored
+ * key (Seerr + every Radarr/Sonarr instance), and treated as "keep the stored key" on save.
+ * MUST equal ConfigurationResponse.ApiKeyMask on the server; keep the two in sync. Kept here as
+ * the single source of truth for the e2e layer so a change to the star count is a one-line edit.
+ */
+export const API_KEY_MASK = '********';
+
 export interface NormalUser {
   token: string;
   userId: string;

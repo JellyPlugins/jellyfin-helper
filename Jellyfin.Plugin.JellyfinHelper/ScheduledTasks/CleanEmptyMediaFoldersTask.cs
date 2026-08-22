@@ -135,12 +135,55 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     continue;
                 }
 
+                // Symlink guard: NEVER traverse into — or delete — a top-level reparse point
+                // (symlink/junction). Its target may hold live media (Radarr/Sonarr commonly place
+                // symlinked media folders directly under a library root), and this task has no
+                // orphan evidence for an entry it did not analyze. Deleting the link node on age
+                // alone would remove valid library entries. Mirror CleanOrphanedSubtitlesTask: skip.
+                bool topIsReparsePoint;
+                try
+                {
+                    topIsReparsePoint = IsReparsePoint(topDir.FullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A stat failure on one entry must not abort the whole library scan (the outer
+                    // catch would otherwise stop it). Skip this entry only and continue.
+                    PluginLog.LogWarning(
+                        TaskName,
+                        $"Could not stat directory, skipping: {topDir.FullName}",
+                        ex,
+                        Logger);
+                    continue;
+                }
+
+                if (topIsReparsePoint)
+                {
+                    PluginLog.LogWarning(
+                        TaskName,
+                        $"Skipping symlinked directory (reparse point): {topDir.FullName}",
+                        logger: Logger);
+                    continue;
+                }
+
                 // Check the entire tree in a single pass: does it contain any files at all,
                 // any video files, any audio files, or any non-metadata files?
                 // The accumulated byte count is returned here so that the hard-delete path
                 // does not need a second traversal via CalculateDirectorySize.
-                var (hasAnyFiles, hasVideoFiles, hasAudioFiles, hasNonMetadataFiles, treeBytes) =
+                var (hasAnyFiles, hasVideoFiles, hasAudioFiles, hasNonMetadataFiles, treeBytes, hasUnresolvedLink) =
                     AnalyzeDirectoryRecursive(topDir.FullName, cancellationToken);
+
+                // If any subtree was hidden behind a symlink/junction (or an unreadable subdir),
+                // the orphan verdict is unproven: video files could live behind that link. Never
+                // delete such a folder — a false orphan here would destroy real media.
+                if (hasUnresolvedLink)
+                {
+                    PluginLog.LogWarning(
+                        TaskName,
+                        $"Skipping folder with an unresolved symlinked/unreadable subdirectory (orphan status unproven): {topDir.FullName}",
+                        logger: Logger);
+                    continue;
+                }
 
                 // If the folder tree is completely empty (no files at all), skip it.
                 // Empty folders are often pre-created by tools like Radarr/Sonarr for "wanted" media.
@@ -214,6 +257,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     {
                         // Reuse the byte count already accumulated during the analysis pass
                         // instead of re-traversing the tree with CalculateDirectorySize.
+                        // Note: reparse-point directories are already skipped before this point.
                         Directory.Delete(topDir.FullName, true);
                         bytesFreed += treeBytes;
                         deletedCount++;
@@ -236,13 +280,19 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
     /// <summary>
     ///     Analyzes a directory tree in a single iterative pass (explicit stack, no recursion depth limit).
     ///     Returns early as soon as a video file is found anywhere in the subtree.
+    ///     <para>
+    ///         <c>HasUnresolvedLink</c> is set when a reparse-point subdirectory (or a subdirectory
+    ///         that could not be stat'd) was skipped: its contents were NOT analyzed, so the orphan
+    ///         verdict for the whole tree is unproven and the caller must NOT delete the folder.
+    ///     </para>
     /// </summary>
-    private (bool HasAnyFiles, bool HasVideoFiles, bool HasAudioFiles, bool HasNonMetadataFiles, long TotalBytes)
+    private (bool HasAnyFiles, bool HasVideoFiles, bool HasAudioFiles, bool HasNonMetadataFiles, long TotalBytes, bool HasUnresolvedLink)
         AnalyzeDirectoryRecursive(string directoryPath, CancellationToken cancellationToken)
     {
         var hasAnyFiles = false;
         var hasAudioFiles = false;
         var hasNonMetadataFiles = false;
+        var hasUnresolvedLink = false;
         long totalBytes = 0;
 
         var stack = new Stack<string>();
@@ -260,20 +310,52 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // The files of this directory were not analyzed, so the orphan verdict for the
+                // enclosing tree is unproven — a video could live in the subtree we failed to read.
+                // Fail closed: flag the tree so ProcessLocation suppresses deletion.
+                hasUnresolvedLink = true;
                 PluginLog.LogWarning(TaskName, $"Could not list files in: {current}", ex, Logger);
                 continue;
             }
 
             foreach (var file in files)
             {
+                // A directory symlink can surface as a FILE entry on some mounts (e.g. Docker
+                // Desktop for Windows bind mounts) rather than as a subdirectory. Such an entry
+                // hides a subtree we did not analyze, so the orphan verdict is unproven — flag it
+                // and never let it contribute to the file/extension classification (following the
+                // link to read a size or an extension would defeat the guard). The directory-classified
+                // case is handled by the reparse-point check in the subdirectory loop below.
+                // A stat failure (IOException/UnauthorizedAccessException from reading the entry's
+                // attributes) also leaves the entry unclassified: fail closed by flagging the tree
+                // rather than letting the exception abort the whole scan.
+                bool fileIsReparsePoint;
+                try
+                {
+                    fileIsReparsePoint = IsReparsePointAnyType(file.FullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    hasUnresolvedLink = true;
+                    PluginLog.LogWarning(TaskName, $"Could not stat entry, treating tree as unresolved: {file.FullName}", ex, Logger);
+                    continue;
+                }
+
+                if (fileIsReparsePoint)
+                {
+                    hasUnresolvedLink = true;
+                    continue;
+                }
+
                 hasAnyFiles = true;
                 totalBytes += file.Length;
                 var ext = Path.GetExtension(file.FullName);
                 if (MediaExtensions.VideoExtensions.Contains(ext))
                 {
                     // Return 0 bytes: the caller only uses treeBytes in the hard-delete branch,
-                    // which never runs when hasVideoFiles==true.
-                    return (true, true, hasAudioFiles, true, 0);
+                    // which never runs when hasVideoFiles==true. HasUnresolvedLink is irrelevant
+                    // here — a video file means the folder is kept regardless.
+                    return (true, true, hasAudioFiles, true, 0, false);
                 }
 
                 if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
@@ -295,16 +377,48 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // Subdirectories could not be listed, so any subtree beneath them was not analyzed.
+                // Fail closed for the same reason as the file-enumeration failure above.
+                hasUnresolvedLink = true;
                 PluginLog.LogWarning(TaskName, $"Could not list subdirectories in: {current}", ex, Logger);
                 continue;
             }
 
             foreach (var subDir in subDirs)
             {
+                // Skip reparse-point subdirectories to prevent following symlinks or
+                // junctions into foreign trees during recursive analysis. A stat failure is
+                // treated as "do not traverse" (fail closed) and must not abort the scan.
+                bool subIsReparsePoint;
+                try
+                {
+                    subIsReparsePoint = IsReparsePoint(subDir.FullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Could not determine — treat as an unresolved link so the caller does not
+                    // delete a folder whose subtree we failed to inspect.
+                    hasUnresolvedLink = true;
+                    PluginLog.LogWarning(
+                        TaskName,
+                        $"Could not stat subdirectory, not traversing: {subDir.FullName}",
+                        ex,
+                        Logger);
+                    continue;
+                }
+
+                if (subIsReparsePoint)
+                {
+                    // The subtree behind this link was not analyzed, so the orphan verdict for the
+                    // enclosing folder is unproven. Flag it so ProcessLocation suppresses deletion.
+                    hasUnresolvedLink = true;
+                    continue;
+                }
+
                 stack.Push(subDir.FullName);
             }
         }
 
-        return (hasAnyFiles, false, hasAudioFiles, hasNonMetadataFiles, totalBytes);
+        return (hasAnyFiles, false, hasAudioFiles, hasNonMetadataFiles, totalBytes, hasUnresolvedLink);
     }
 }

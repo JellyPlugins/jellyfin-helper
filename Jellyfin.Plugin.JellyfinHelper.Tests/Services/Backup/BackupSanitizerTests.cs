@@ -234,4 +234,42 @@ public class BackupSanitizerTests
         Assert.Equal(0, entry.Size);
         Assert.Equal(0, entry.Count);
     }
+
+    // ===== TruncateString: UTF-16 surrogate-pair safety =====
+
+    [Fact]
+    public void TruncateString_NullOrEmpty_ReturnsEmpty()
+    {
+        Assert.Equal(string.Empty, BackupSanitizer.TruncateString(null, 8));
+        Assert.Equal(string.Empty, BackupSanitizer.TruncateString(string.Empty, 8));
+    }
+
+    [Fact]
+    public void TruncateString_WithinLimit_ReturnsUnchanged()
+    {
+        Assert.Equal("hello", BackupSanitizer.TruncateString("hello", 8));
+    }
+
+    [Fact]
+    public void TruncateString_SplitPointInsideSurrogatePair_DropsTheLoneHighSurrogate()
+    {
+        // "A" + 😀 (U+1F600 = high+low surrogate). Truncating to length 2 would keep "A" plus the
+        // lone HIGH surrogate — ill-formed UTF-16. The guard must drop it, yielding just "A".
+        var value = "A😀"; // length 3 in UTF-16 code units
+        var result = BackupSanitizer.TruncateString(value, 2);
+
+        Assert.Equal("A", result);
+        // No unpaired surrogate remains.
+        Assert.DoesNotContain(result, c => char.IsHighSurrogate(c) || char.IsLowSurrogate(c));
+    }
+
+    [Fact]
+    public void TruncateString_SplitPointAfterCompletePair_KeepsThePair()
+    {
+        // Truncating to length 3 keeps "A" + the full emoji (both surrogate halves).
+        var value = "A😀B";
+        var result = BackupSanitizer.TruncateString(value, 3);
+
+        Assert.Equal("A😀", result);
+    }
 }

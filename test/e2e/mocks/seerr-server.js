@@ -183,13 +183,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (!apiKey) { send(res, 401, { error: 'missing X-Api-Key' }); return done(401); }
-  // A literal mask value is never a real key. The plugin masks a stored key as
-  // '***' in GET /Configuration; if a save regression ever persisted that mask
-  // AS the key, a connection test would otherwise still "succeed" against a mock
-  // that accepts any non-empty key - hiding a credential wipe. Reject it (and its
-  // whitespace-padded form) with 401 so the round-trip test can prove the real
-  // stored key was preserved, not overwritten with the mask.
-  if (String(apiKey).trim() === '***') { send(res, 401, { error: 'masked placeholder is not a valid api key' }); return done(401); }
+  // A literal mask value is never a real key. The plugin masks a stored key as a fixed run of
+  // asterisks in GET /Configuration; if a save regression ever persisted that mask AS the key, a
+  // connection test would otherwise still "succeed" against a mock that accepts any non-empty key
+  // - hiding a credential wipe. Reject any all-asterisk value (length-agnostic, so it survives a
+  // change to the mask's star count) and its whitespace-padded form with 401, so the round-trip
+  // test can prove the real stored key was preserved, not overwritten with the mask.
+  if (/^\*+$/.test(String(apiKey).trim())) { send(res, 401, { error: 'masked placeholder is not a valid api key' }); return done(401); }
   if (apiKey === FAIL_KEY) { send(res, 500, { error: 'forced failure' }); return done(500); }
 
   // Adversarial sentinel keys (hardening tests only). Green-path keys skip these.

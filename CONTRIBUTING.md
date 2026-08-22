@@ -137,7 +137,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── BackupControllerTests.cs
 │   ├── BackupControllerExtendedTests.cs               # Malformed JSON → 400, null body, chunk-loop MaxSize defence, whitespace-only body
 │   ├── BackupControllerErrorHandlingTests.cs          # Service-layer failures surfaced as the right status codes (mocked IBackupService)
-│   ├── ConfigurationControllerTests.cs               # Key-masking: non-empty → "***", empty stays empty, sentinel preserves stored key, PluginLogLevel TOCTOU
+│   ├── ConfigurationControllerTests.cs               # Key-masking: non-empty → fixed-length mask sentinel, empty stays empty, sentinel preserves stored key, PluginLogLevel TOCTOU
 │   ├── ConfigurationResponseTests.cs                 # ConfigurationResponse.FromConfig + MaskedArrInstanceConfig: masking, field pass-through, real key never in response
 │   ├── DiscoveryControllerTests.cs
 │   ├── DiscoveryControllerExtendedTests.cs           # Seerr users/services, request submission, filter logic, feedback-store error paths
@@ -209,7 +209,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Common/                    # Shared cross-service helper tests
 │   │   ├── AtomicFileTests.cs             # UTF-8 no-BOM, temp-file cleanup, transient-IO retry, async CancellationToken
 │   │   ├── BatchFallbackHelperTests.cs    # try-batch/fall-back: cancellation propagates, non-fatal exceptions degrade gracefully
-│   │   └── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
+│   │   ├── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
+│   │   ├── HttpResponseReaderTests.cs     # Size-bounded read: under/at/over limit (EOF probe at exact limit), Content-Length fast-reject, null, cancellation
+│   │   ├── LimitedStreamTests.cs          # Direct stream tests: capability flags, sync/async read paths, over-limit throw, NotSupported members
+│   │   ├── SsrfGuardTests.cs              # Cloud metadata hosts blocked (incl. IPv6/case-insensitive); LAN/loopback/public allowed
+│   │   └── ReparsePointGuardTests.cs      # Fail-closed guard: non-existent/real-dir throws, delete action never invoked, entry left unchanged
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── FileTransformation/        # File Transformation plugin integration tests
 │   │   ├── DiscoveryScriptTagTests.cs      # Build() well-formed HTML, RemovalRegex round-trips, must not eat unrelated script tags
@@ -270,6 +274,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineIdfRarityTests.cs                  # IDF rarity weighting: rare genres/studios contribute more than common ones
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
+│       │   ├── EngineStaticHelpersTests.cs           # Pure static helpers: episode counting, language parse/dedupe, billing-weight filtering
 │       │   ├── EngineCommunityPopularityTests.cs      # BuildCommunityPopularityMap: batch and live paths produce identical output
 │       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
 │       │   ├── EngineExceedsMaxRatingTests.cs         # Parental-rating gate - null max = unrestricted, missing rating = REJECT, inclusive boundary
@@ -370,8 +375,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── BackupController.cs              # Backup/restore API
 │   ├── CleanupStatisticsController.cs   # Cleanup statistics API
 │   ├── ConfigurationController.cs       # Plugin configuration API
-│   ├── ConfigurationResponse.cs         # Read-only masked projection of PluginConfiguration returned by GET /Configuration - all API key fields replaced with "***" sentinel; empty string when no key is stored. Static factory method FromConfig(PluginConfiguration) keeps the mapping in one place.
+│   ├── ConfigurationResponse.cs         # Read-only masked projection of PluginConfiguration returned by GET /Configuration - all API key fields replaced with a fixed-length mask sentinel (ApiKeyMask); empty string when no key is stored. Static factory method FromConfig(PluginConfiguration) keeps the mapping in one place.
 │   ├── MaskedArrInstanceConfig.cs       # Arr-instance view model used inside ConfigurationResponse (Name, Url, masked ApiKey). Separate from ArrInstanceConfig so the real key never appears in the serialized GET response.
+│   ├── ApiKeyMaskResolver.cs            # Shared logic for the ApiKeyMask sentinel: IsMask(candidate) + ResolveArrKey(incoming, url, name, stored). Used by the save path (ConfigurationController) AND the stateless Test-Connection endpoints (ArrIntegrationController/SeerrController) so a masked key echoed back is resolved to the real stored key server-side and the mask is never forwarded upstream. Unresolvable mask → empty string (caller must not test).
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
@@ -431,7 +437,12 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── Common/                      # Shared cross-service helpers
 │   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
 │   │   ├── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
-│   │   └── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
+│   │   ├── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
+│   │   ├── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses
+│   │   ├── LimitedStream.cs         # Read-only Stream wrapper that throws ResponseTooLargeException past a byte cap (EOF probe at exact limit)
+│   │   ├── ResponseTooLargeException.cs # Typed exception thrown by HttpResponseReader when a body exceeds the size limit
+│   │   ├── SsrfGuard.cs             # Shared SSRF guard: blocks cloud metadata hosts on every Arr/Seerr outbound path (controller + config-save)
+│   │   └── ReparsePointGuard.cs    # Shared fail-closed primitives for reparse-point detection and safe link-node deletion (used by cleanup tasks + TrashService)
 │   ├── FolderBrowser/               # Server-side folder browsing
 │   │   ├── IFolderBrowserService.cs # Interface for folder listing
 │   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards
@@ -597,6 +608,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `ArrIntegrationControllerExtendedTests.cs`
 - `ArrIntegrationControllerTests.cs`
+- `ApiKeyMaskResolverTests.cs` - Tests the ApiKeyMask sentinel resolver (IsMask + ResolveArrKey: passthrough, Name+URL / URL-only matching, duplicate-name collisions, no-match, null-guard)
 - `BackupControllerExtendedTests.cs`
 - `BackupControllerTests.cs`
 - `CleanupStatisticsControllerTests.cs` - Tests CleanupStatisticsController returns cleanup stats payload (bytes freed, items, timestamp)
@@ -648,6 +660,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/ScheduledTasks/`
 
 - `CleanEmptyMediaFoldersTaskTests.cs` - Tests CleanEmptyMediaFoldersTask orphan detection, placeholder/library-type skips, and byte accounting
+- `CleanupTaskReparseGuardTests.cs` - Tests cleanup tasks skip reparse-point/symlink directories to prevent traversal outside libraries
 - `CleanOrphanedSubtitlesTaskProcessLocationTests.cs`
 - `CleanOrphanedSubtitlesTaskTests.cs` - Tests CleanOrphanedSubtitlesTask base-name parsing and BCP-47 language/flag suffix stripping
 - `CleanTrickplayTaskTests.cs` - Tests CleanTrickplayTask orphaned .trickplay folder detection, media-match keeps, and error handling
@@ -695,6 +708,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `TrashServiceInternalHelpersTests.cs`
 - `TrashServicePathLengthTests.cs`
 - `TrashServiceRelocateTests.cs`
+- `TrashServiceReparseAndRaceTests.cs` - Tests TrashService reparse-point guard and concurrent-move race safety
 - `TrashServiceSecurityTests.cs` - Security tests: TrashService resists path traversal, null bytes, and malicious names
 - `TrashServiceTests.cs` - Tests trash move, timestamp parsing, retention purge, and contents/summary listing
 
@@ -848,7 +862,8 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/Api/`
 
 - `ArrIntegrationController.cs`
-- `ArrTestConnectionRequest.cs` - Request DTO carrying URL and API key for testing a Radarr/Sonarr connection
+- `ApiKeyMaskResolver.cs` - Shared ApiKeyMask sentinel logic (IsMask + ResolveArrKey) used by the save path and the Test-Connection endpoints so a masked key is resolved to the real stored key server-side and never forwarded upstream
+- `ArrTestConnectionRequest.cs` - Request DTO carrying URL, API key, and optional Name for testing a Radarr/Sonarr connection (Name disambiguates the stored key when the API key is the masked sentinel)
 - `BackupController.cs`
 - `CleanupStatisticsController.cs`
 - `ConfigurationController.cs`

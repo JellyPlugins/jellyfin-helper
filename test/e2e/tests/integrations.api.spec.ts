@@ -4,7 +4,7 @@
  * instances to be configured, which we do here.
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
+import { apiContext, loadAuth, p, assertPluginActive, API_KEY_MASK } from '../setup/api-client.ts';
 
 const ARR_URL = process.env.MOCK_ARR_URL ?? 'http://mock-arr:9000';
 const SEERR_URL = process.env.MOCK_SEERR_URL ?? 'http://mock-seerr:5055';
@@ -73,6 +73,59 @@ test('Seerr connection test succeeds against mock', async () => {
   const body = (await res.json()) as { Success: boolean; Message: string };
   expect(body.Success).toBe(true);
   expect(body.Message).toContain('Jellyseerr');
+});
+
+// === Masked-key Test Connection (regression for the reported "reload → Test → Failed" bug) ===
+// After a reload the API-key input holds the fixed-length mask (the real key never leaves the
+// server). Clicking Test Connection then sends the mask; the server MUST resolve it back to the
+// real stored key and perform a real reachability probe, not 401 on the literal mask.
+
+test('GET Configuration masks the stored Arr + Seerr keys', async () => {
+  const res = await ctx.get(p('Configuration'));
+  expect(res.ok()).toBeTruthy();
+  const cfg = (await res.json()) as {
+    RadarrInstances: Array<{ Name: string; Url: string; ApiKey: string }>;
+    SeerrApiKey: string;
+  };
+  expect(cfg.RadarrInstances[0].ApiKey, 'GET must never return the real Arr key').toBe(API_KEY_MASK);
+  expect(cfg.SeerrApiKey, 'GET must never return the real Seerr key').toBe(API_KEY_MASK);
+});
+
+test('Radarr Test Connection with the masked key resolves the stored key → success', async () => {
+  const res = await ctx.post(p('ArrIntegration/TestConnection'), {
+    headers: { 'Content-Type': 'application/json' },
+    // Exactly what the UI sends after a reload: the mask + the instance name.
+    data: { Url: ARR_URL, ApiKey: API_KEY_MASK, Name: 'Mock Radarr' },
+  });
+  expect(res.ok(), `masked Test Connection should succeed: ${res.status()}`).toBeTruthy();
+  const body = (await res.json()) as { Success: boolean };
+  expect(body.Success, 'server must resolve the mask to the real stored key').toBe(true);
+});
+
+test('Seerr Test Connection with the masked key resolves the stored key → success', async () => {
+  const res = await ctx.post(p('Seerr/Test'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { Url: SEERR_URL, ApiKey: API_KEY_MASK },
+  });
+  expect(res.ok(), `masked Seerr Test should succeed: ${res.status()}`).toBeTruthy();
+  const body = (await res.json()) as { Success: boolean };
+  expect(body.Success).toBe(true);
+});
+
+test('Masked key against an unrelated URL does NOT borrow a stored credential', async () => {
+  // The only stored instance is at mock-arr:9000 (seeded in beforeAll). A mask sent for a
+  // DIFFERENT url (:9001) has no stored instance to resolve against, so the server must fail
+  // the test rather than borrow another instance's key — and it fails WITHOUT probing upstream
+  // (the mask is never forwarded). We assert a clean non-success + the plugin stays healthy.
+  const res = await ctx.post(p('ArrIntegration/TestConnection'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { Url: 'http://mock-arr:9001', ApiKey: API_KEY_MASK, Name: 'Nonexistent' },
+  });
+  expect(res.ok(), 'unresolvable mask must not succeed').toBeFalsy();
+  expect(res.status(), 'must degrade cleanly, never 500').not.toBe(500);
+  const body = (await res.json()) as { Success: boolean };
+  expect(body.Success).toBe(false);
+  await assertPluginActive(ctx);
 });
 
 test('Discovery Users returns the mock user list', async () => {

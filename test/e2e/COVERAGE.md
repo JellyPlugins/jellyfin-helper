@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it -
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **283 tests** (API + UI) across 44 spec files
+every UI interaction. **291 tests** (API + UI) across 45 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -49,10 +49,10 @@ Beyond "does it route / does the UI render", the suite now proves features
 
 ## 3. Settings persistence & effect → `settings.api.spec.ts`
 - Task modes round-trip; numeric clamp; trash settings + blank-path reset.
-- API-key mask `***` **functionally proven** to preserve the stored key: after a
-  `***` (and whitespace-padded `' *** '`) re-save, an admin `Discovery/Request`
-  still authenticates to the mock with the real key - the mock now 401s a literal
-  `***`, so a wipe-to-mask would fail the test. `SeerrCleanupAgeDays→0` when URL blank.
+- API-key mask **functionally proven** to preserve the stored key: after a
+  mask (and whitespace-padded mask) re-save, an admin `Discovery/Request`
+  still authenticates to the mock with the real key - the mock now 401s any
+  all-asterisk value, so a wipe-to-mask would fail the test. `SeerrCleanupAgeDays→0` when URL blank.
 - PluginLogLevel ignored by PUT /Configuration, changed only via /LogLevel (+ invalid rejected).
 - Arr instances persist (max 3, masked); Language de↔en.
 
@@ -69,6 +69,13 @@ Beyond "does it route / does the UI render", the suite now proves features
 ## 6. Arr / Seerr integration (mock green-path) → `integrations.api.spec.ts`
 - Radarr/Sonarr connection test + Compare bucketing; Seerr connection test.
 - Discovery Users; Discovery Services quality profiles; invalid service type rejected.
+- **Masked-key Test Connection** (regression for the reported "reload → Test Connection → Failed"
+  bug): `GET /Configuration` returns the mask (`********`) for the stored Arr + Seerr keys, then
+  `POST ArrIntegration/TestConnection` and `POST Seerr/Test` with `ApiKey = ********` (exactly what
+  the UI sends after a reload) **succeed** because the server resolves the mask back to the real
+  stored key before probing upstream. A mask sent for an **unrelated URL** (no stored instance)
+  fails cleanly (`Success:false`, never 500) and never borrows another instance's credential — the
+  mask is never forwarded upstream.
 
 ## 7. Hardening / edge cases → `hardening.api.spec.ts`
 - Invalid Arr URLs; no-instances → 400; out-of-range index.
@@ -311,6 +318,11 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
 - **Growth timeline** (`growth-timeline-fs.api.spec.ts`): the cumulative series is
   non-empty and monotonically non-decreasing, latest totals are positive/coherent
   (bytes > 0, files > 0), directories-scanned positive, no future-dated point.
+  **Growth is measured, not assumed:** adding a media file of a KNOWN byte size and
+  forcing a recompute grows the latest cumulative size by **at least** that many
+  bytes and the file count by at least one - the system-level regression guard for
+  the "added" date being read from a live stat (not the empty enumeration metadata,
+  which once skipped every entry and returned an empty timeline).
 - **Library insights** (`insights-fs.api.spec.ts`): "largest dirs" sorted by size
   descending over real `/media` dirs with `LargestTotalSize == sum(sizes)`, a known
   generated movie present - ranking/aggregate invariants that hold despite the 15m cache.
@@ -357,6 +369,14 @@ process that first plants them). Without Docker the destructive specs skip loudl
   upstreams degrade cleanly; Compare index overflow handled.
 - **Cleanup** (`cleanup-abuse.api.spec.ts`): symlink-out-of-library target survives cleanup;
   excluded library + its trash fully hands-off; emoji/long names ok.
+- **Cleanup reparse-point guards** (`cleanup-symlink-guards.api.spec.ts`): the cleanup
+  STAGES (not the trash purge) refuse to act on reparse points - a symlinked orphan
+  `.trickplay`, a symlinked orphan subtitle, and a folder whose orphan status is
+  unprovable because it holds a symlinked subtree all **survive** an `Activate` run
+  (the symlink NODE stays a link, its target data intact) - AND, in the same run, a
+  genuine (non-symlink) orphan sitting right beside each is **still deleted**. Proves
+  the safety guard didn't neuter the stage; complements `cleanup-abuse` (which proves
+  the external *target* survives) by proving the link node itself is kept.
 - **Discovery** (`discovery-abuse.api.spec.ts`): write endpoints 403 when access disabled
   with **no leak to Seerr**; adversarial Dismiss inputs 4xx; identity-spoof
   `SeerrUserId` not forwarded.

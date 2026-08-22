@@ -109,7 +109,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
 
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([
@@ -186,8 +186,8 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(libRoot))
             .Returns([
-                new FileSystemMetadata { FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5 },
-                new FileSystemMetadata { FullName = mp3, Name = "song.mp3", IsDirectory = false, Length = 5 },
+                new FileSystemMetadata { FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new FileSystemMetadata { FullName = mp3, Name = "song.mp3", IsDirectory = false, Length = 5, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
                 new FileSystemMetadata { FullName = txt, Name = "readme.txt", IsDirectory = false, Length = 6 }
             ]);
 
@@ -208,7 +208,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
@@ -237,7 +237,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 100 }]);
@@ -280,7 +280,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 500 }]);
@@ -323,7 +323,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
@@ -367,7 +367,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1200 }]);
@@ -438,7 +438,9 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     public async Task ComputeTimelineAsync_DirectoryCreationTimePre1990_FallsBackToLastWriteTime()
     {
         // Filesystems that don't track creation time report a pre-1990 sentinel; the scan must
-        // fall back to last-write time so the directory is still counted with a sane date.
+        // fall back to last-write time so the directory is still counted with a sane date. The
+        // service reads these timestamps via a live stat (Directory.Get*TimeUtc), so we set them on
+        // the real directory rather than injecting them into the mock metadata.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
@@ -468,7 +470,9 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_LooseFileCreationTimePre1990_FallsBackToLastWriteTime()
     {
-        // Same creation-time fallback as directories, but for a loose media file in the library root.
+        // Same creation-time fallback as directories, but for a loose media file in the library
+        // root. The service reads timestamps via a live stat (File.Get*TimeUtc), so we set them on
+        // the real file rather than injecting them into the mock metadata.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var mkv = Path.Join(libRoot, "movie.mkv");
@@ -547,7 +551,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
@@ -566,6 +570,156 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
+    [Fact]
+    public async Task ComputeTimelineAsync_DirectoryEnumerationMetadataHasNoTimestamps_LiveStatStillCountsIt()
+    {
+        // REGRESSION GUARD (E2E growth-timeline-fs failure): the scan must derive the "added" date
+        // from a LIVE stat of the real path, never from the timestamps carried by the
+        // FileSystemMetadata the enumeration returned. Jellyfin's IFileSystem does not reliably
+        // populate CreationTimeUtc/LastWriteTimeUtc on every platform - they can arrive as the
+        // DateTime.MinValue (year 1) default. If the service trusted those, ResolveEntryDateUtc
+        // would return null for every entry and the whole timeline would come back empty (exactly
+        // what broke on the real Jellyfin server). Here the mock metadata is left at its default
+        // (no timestamps), but the real directory on disk has a valid current date, so the entry
+        // MUST still be counted.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2020)");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+
+        // Deliberately NO CreationTimeUtc/LastWriteTimeUtc set -> both are default(DateTime) (year 1).
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 5000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.TotalDirectoriesScanned);
+        Assert.NotEmpty(result.DataPoints);
+        Assert.True(result.DataPoints[^1].CumulativeFileCount > 0, "a scanned directory must yield a positive cumulative file count");
+        Assert.True(result.DataPoints[^1].CumulativeSize > 0, "a scanned directory must yield a positive cumulative size");
+        // The date came from a live stat (created just now), so it is a modern year, not the year-1 default.
+        Assert.True(result.EarliestFileDate.Year >= 1990, "the date must come from a real stat, not the empty metadata default");
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_LooseFileEnumerationMetadataHasNoTimestamps_LiveStatStillCountsIt()
+    {
+        // Same regression guard as the directory case, for a loose media file in the library root:
+        // empty enumeration-metadata timestamps must NOT cause the file to be skipped, because the
+        // service reads the date from a live File.Get*TimeUtc stat of the real file.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var mkv = Path.Join(libRoot, "movie.mkv");
+        File.WriteAllText(mkv, "video");
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        // No timestamps on the metadata -> default(DateTime); the real file's live stat must win.
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot))
+            .Returns([new FileSystemMetadata { FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5 }]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.TotalDirectoriesScanned);
+        Assert.NotEmpty(result.DataPoints);
+        Assert.True(result.EarliestFileDate.Year >= 1990, "the date must come from a real stat, not the empty metadata default");
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_DirectoryBothCreationAndWriteTimePre1990_IsSkipped()
+    {
+        // When BOTH the creation and last-write timestamps are pre-1990 sentinels (a filesystem
+        // that tracks neither), there is no sane date to attribute the directory to, so it must be
+        // skipped entirely rather than plotted at a bogus year. Timestamps are read via a live stat,
+        // so set them on the real directory.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie");
+        Directory.CreateDirectory(movieDir);
+
+        var pre1990 = new DateTime(1980, 5, 5, 0, 0, 0, DateTimeKind.Utc);
+        Directory.SetCreationTimeUtc(movieDir, pre1990);
+        Directory.SetLastWriteTimeUtc(movieDir, pre1990);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.TotalDirectoriesScanned);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_LooseFileBothCreationAndWriteTimePre1990_IsSkipped()
+    {
+        // Same both-timestamps-pre-1990 skip as directories, but for a loose media file in the root.
+        // Timestamps are read via a live stat, so set them on the real file.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var mkv = Path.Join(libRoot, "movie.mkv");
+        File.WriteAllText(mkv, "video");
+
+        var pre1990 = new DateTime(1980, 5, 5, 0, 0, 0, DateTimeKind.Utc);
+        File.SetCreationTimeUtc(mkv, pre1990);
+        File.SetLastWriteTimeUtc(mkv, pre1990);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot))
+            .Returns([new FileSystemMetadata { FullName = mkv, Name = "movie.mkv", IsDirectory = false, Length = 5 }]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.TotalDirectoriesScanned);
+    }
+
+    [Fact]
+    public void GetDirectorySize_ChildTrickplaySubdirectory_IsExcludedFromRecursiveTotal()
+    {
+        // The recursive traversal must skip .trickplay (and trash) subdirectories at every depth,
+        // not only at the top level, so their bytes never inflate a library's reported size.
+        var fsMock = new Mock<IFileSystem>();
+        var root = Path.Join(_dataPath, "Show");
+        var trickplayChild = Path.Join(root, "Season 1.trickplay");
+
+        fsMock.Setup(f => f.GetFiles(root))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(root, "ep.mkv"), Name = "ep.mkv", IsDirectory = false, Length = 100 }]);
+        fsMock.Setup(f => f.GetDirectories(root))
+            .Returns([new FileSystemMetadata { FullName = trickplayChild, Name = "Season 1.trickplay", IsDirectory = true }]);
+        // The trickplay child WOULD contribute 500 bytes if it were (wrongly) traversed.
+        fsMock.Setup(f => f.GetFiles(trickplayChild))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(trickplayChild, "thumbs.bif"), Name = "thumbs.bif", IsDirectory = false, Length = 500 }]);
+        fsMock.Setup(f => f.GetDirectories(trickplayChild)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var sut = new GrowthTimelineService(
+            _libraryManagerMock.Object,
+            fsMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateAppPaths(_dataPath).Object,
+            _loggerMock.Object,
+            _configHelperMock.Object);
+
+        var size = sut.GetDirectorySize(root, ".trash", Path.Join(root, ".trash"), CancellationToken.None);
+
+        // Only the real episode file is counted; the trickplay child was skipped.
+        Assert.Equal(100, size);
+    }
+
     // === Atomic save: crash-safe writes use temp-then-move ===
 
     [Fact]
@@ -580,7 +734,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2021)", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2021)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
@@ -609,7 +763,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2022)", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2022)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 2000 }]);
@@ -637,7 +791,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
         _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
-            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2023)", IsDirectory = true }]);
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2023)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
         _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
         _fileSystemMock.Setup(f => f.GetFiles(movieDir))
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 3000 }]);

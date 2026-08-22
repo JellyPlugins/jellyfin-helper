@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -87,9 +88,44 @@ public class ArrIntegrationController : ControllerBase
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
+        // Block well-known cloud metadata endpoints (AWS/Azure IMDS, GCP, Alibaba). Internal LAN
+        // addresses are intentionally NOT blocked (see the scheme-guard rationale above), but the
+        // instance-metadata endpoints are never a legitimate Arr target and are a classic SSRF sink.
+        if (SsrfGuard.IsCloudMetadataHost(parsedUrl.Host))
+        {
+            _pluginLog.LogWarning("API", $"Blocked connection test to cloud metadata endpoint: {parsedUrl.Host}", logger: _logger);
+            return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
+        }
+
+        // Resolve the masked-key sentinel to the real stored key BEFORE the live call. When the admin
+        // opens Settings after a reload, the API-key input is pre-filled with the fixed-length mask
+        // (the real key never leaves the server). Testing that instance must probe the upstream with
+        // the REAL stored key so the result reflects true reachability - not send the mask, which would
+        // always 401 and show a misleading failure even for a healthy, correctly-configured instance.
+        // Any non-mask value is treated as a new key the admin is entering, and is tested as-is.
+        // The endpoint is type-agnostic (a single instance is identified by URL, disambiguated by Name),
+        // so we search both Radarr and Sonarr stored instances.
+        var apiKey = request.ApiKey ?? string.Empty;
+        if (ApiKeyMaskResolver.IsMask(apiKey))
+        {
+            var config = _configHelper.GetConfig();
+            var storedInstances = (config.RadarrInstances ?? [])
+                .Concat(config.SonarrInstances ?? []);
+            apiKey = ApiKeyMaskResolver.ResolveArrKey(request.ApiKey, request.Url, request.Name, storedInstances);
+
+            // Mask sent but no stored instance matches this URL/Name. Do NOT forward the mask upstream
+            // (it would always fail with a misleading 401). Return the same generic failure the live
+            // path uses, so the client shows a truthful "not reachable" without a credential probe.
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                _pluginLog.LogWarning("API", "Arr connection test received the masked key sentinel but no stored instance matched the URL/Name; cannot resolve a real key.", logger: _logger);
+                return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
+            }
+        }
+
         var (success, message) = await _arrService.TestConnectionAsync(
             parsedUrl.AbsoluteUri,
-            request.ApiKey ?? string.Empty,
+            apiKey,
             cancellationToken).ConfigureAwait(false);
 
         if (!success)

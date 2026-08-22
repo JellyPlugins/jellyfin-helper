@@ -92,6 +92,30 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                     var current = stack.Pop();
                     yield return current;
 
+                    // Do not enumerate children of reparse-point (symlink/junction) directories.
+                    // The per-entry guard in the caller handles the yielded entry; not traversing
+                    // here prevents following links into foreign trees. A stat failure is treated
+                    // as "do not traverse" (fail closed) so the iterator does not fault mid-scan.
+                    bool currentIsReparsePoint;
+                    try
+                    {
+                        currentIsReparsePoint = IsReparsePoint(current);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        PluginLog.LogWarning(
+                            TaskName,
+                            $"Could not stat directory, not traversing: {current}",
+                            ex,
+                            Logger);
+                        continue;
+                    }
+
+                    if (currentIsReparsePoint)
+                    {
+                        continue;
+                    }
+
                     IEnumerable<FileSystemMetadata> children;
                     try
                     {
@@ -126,8 +150,13 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 ? StringComparison.Ordinal
                 : StringComparison.OrdinalIgnoreCase;
 
-            // Cache files per parent directory to avoid repeated filesystem calls
-            var fileCache = new Dictionary<string, FileSystemMetadata[]>(StringComparer.OrdinalIgnoreCase);
+            // Cache files per parent directory to avoid repeated filesystem calls.
+            // Use OS-aware case sensitivity: Linux paths are case-sensitive (Ordinal),
+            // Windows/macOS paths are case-insensitive (OrdinalIgnoreCase).
+            var fileCacheComparer = OperatingSystem.IsLinux()
+                ? StringComparer.Ordinal
+                : StringComparer.OrdinalIgnoreCase;
+            var fileCache = new Dictionary<string, FileSystemMetadata[]>(fileCacheComparer);
 
             foreach (var dirFullName in directories)
             {
@@ -195,6 +224,31 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                         TaskName,
                         $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {dirFullName}",
                         Logger);
+                    continue;
+                }
+
+                // Symlink guard for ALL modes (dry-run, trash, hard-delete): a reparse-point
+                // (symlink/junction) trickplay dir is never trashed, never recursively deleted, and
+                // never reported as a dry-run deletion. Trashing would relocate the link node while
+                // its target stays behind, and Directory.Delete(recursive) could be redirected into
+                // the link's real target. Hoisted above the mode branches (which are mutually
+                // exclusive per iteration) so a single check covers all three and dry-run output
+                // matches the real run. A stat failure is treated as "skip" (fail closed) and must
+                // not surface as a misleading delete error.
+                bool dirIsReparsePoint;
+                try
+                {
+                    dirIsReparsePoint = IsReparsePoint(dirFullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirFullName}", ex, Logger);
+                    continue;
+                }
+
+                if (dirIsReparsePoint)
+                {
+                    PluginLog.LogWarning(TaskName, $"Skipping symlinked trickplay directory (reparse point): {dirFullName}", logger: Logger);
                     continue;
                 }
 

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -108,8 +109,30 @@ public class TrashService : ITrashService
             // Calculate size before moving
             var size = CalculateDirectorySize(sourcePath);
 
-            // Move to trash
-            Directory.Move(sourcePath, trashItemPath);
+            // TOCTOU mitigation: ResolveCollision found a free path, but between that check
+            // and Directory.Move another process could claim the same path. On IOException
+            // where the destination already exists, re-resolve to a fresh GUID-based name and retry.
+            const int MoveRetries = 3;
+            for (var moveAttempt = 0; ; moveAttempt++)
+            {
+                try
+                {
+                    MoveDirectory(sourcePath, trashItemPath);
+                    break;
+                }
+                catch (IOException) when (
+                    moveAttempt < MoveRetries &&
+                    DestinationExists(trashItemPath))
+                {
+                    // Reuse the collision resolver so the retry path shares one naming strategy.
+                    // EnsurePathLength truncates the name from the END, which on a deep trash
+                    // directory with a tight budget would cut the trailing GUID and let two retries
+                    // collapse to the identical path. ResolveCollision preserves the suffix via
+                    // BuildSuffixSafeCandidate and verifies the candidate does not already exist.
+                    trashItemPath = ResolveCollision(
+                        Path.Join(trashBasePath, $"{timestamp}_{dirName}_{Guid.NewGuid():N}"));
+                }
+            }
 
             _pluginLog.LogInfo("Trash", $"Moved to trash: {sourcePath} → {trashItemPath} ({size} bytes)", logger);
             return size;
@@ -211,6 +234,18 @@ public class TrashService : ITrashService
 
         try
         {
+            // Guard: refuse to enumerate a trash folder that is itself a symlink/reparse point.
+            // If trashBasePath were replaced with a symlink pointing to a media library, enumerating
+            // its contents and deleting timestamp-matching entries would destroy real media files.
+            if (IsReparsePoint(trashBasePath))
+            {
+                _pluginLog.LogError(
+                    "Trash",
+                    $"Trash folder is a reparse point (symlink/junction) — skipping purge to prevent symlink traversal: {trashBasePath}",
+                    logger: logger);
+                return (0, 0);
+            }
+
             // Purge old directories
             foreach (var dir in Directory.GetDirectories(trashBasePath))
             {
@@ -222,12 +257,24 @@ public class TrashService : ITrashService
 
                 try
                 {
-                    var dirInfo = new DirectoryInfo(dir);
-                    if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    if (IsReparsePoint(dir))
                     {
                         // Delete only the symlink/junction itself, not what it points to.
                         // Size is 0 - only the link entry is removed, not the target data.
-                        dirInfo.Delete();
+                        try
+                        {
+                            DeleteReparsePointLinkNode(dir);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Concurrent replacement detected — fail closed: leave entry unchanged.
+                            _pluginLog.LogWarning(
+                                "Trash",
+                                $"Reparse-point node changed type before purge, skipping: {dir}",
+                                logger: logger);
+                            continue;
+                        }
+
                         itemsPurged++;
                         _pluginLog.LogInfo(
                             "Trash",
@@ -623,7 +670,7 @@ public class TrashService : ITrashService
         }
 
         var safePath = EnsurePathLength(desiredPath);
-        if (!File.Exists(safePath) && !Directory.Exists(safePath))
+        if (!Path.Exists(safePath))
         {
             return safePath;
         }
@@ -641,21 +688,26 @@ public class TrashService : ITrashService
                 $"(available: {maxNameSize}, minimum required: {MeasureString("_2")}).");
         }
 
-        for (var i = 2; i < 1000; i++)
+        // A short numeric scan keeps human-readable names for the common few-collisions case.
+        // We deliberately cap this low (was 998) so that on high-latency mounts (NFS/SMB) we do
+        // not perform hundreds of stat round-trips — after this we jump straight to a GUID suffix,
+        // which is collision-free in practice. Path.Exists checks file+dir in a single syscall.
+        const int NumericScanLimit = 20;
+        for (var i = 2; i < NumericScanLimit; i++)
         {
             var suffix = $"_{i}";
             var candidate = BuildSuffixSafeCandidate(directory, name, suffix);
-            if (!File.Exists(candidate) && !Directory.Exists(candidate))
+            if (!Path.Exists(candidate))
             {
                 return candidate;
             }
         }
 
-        // Extremely unlikely fallback: append a GUID and verify the final truncated path.
+        // Fallback: append a GUID and verify the final truncated path.
         for (var attempt = 0; attempt < 128; attempt++)
         {
             var guidCandidate = BuildSuffixSafeCandidate(directory, name, $"_{Guid.NewGuid():N}");
-            if (!File.Exists(guidCandidate) && !Directory.Exists(guidCandidate))
+            if (!Path.Exists(guidCandidate))
             {
                 return guidCandidate;
             }
@@ -1036,4 +1088,69 @@ public class TrashService : ITrashService
             }
         }
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Filesystem seams (overridable for tests).
+    //
+    // These thin wrappers isolate the handful of OS-level primitives that the mocked-filesystem
+    // model cannot exercise deterministically: reparse-point (symlink/junction) detection, deleting
+    // only the link node, and the directory move whose TOCTOU retry hinges on a filesystem race.
+    // Creating real symlinks needs elevated privileges (unavailable in CI) and provoking a genuine
+    // move race is non-deterministic, so a test subclass overrides these to drive the defensive
+    // branches. Production always runs the real System.IO implementations below.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     Determines whether <paramref name="path" /> is an existing reparse point
+    ///     (symbolic link or junction).
+    /// </summary>
+    /// <param name="path">The directory path to inspect.</param>
+    /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
+    internal virtual bool IsReparsePoint(string path) =>
+        ReparsePointGuard.IsReparsePoint(path);
+
+    /// <summary>
+    ///     Deletes only the reparse-point link node at <paramref name="path" />, never following it
+    ///     to (or deleting) its target.
+    /// </summary>
+    /// <param name="path">The reparse-point directory whose link node should be removed.</param>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown when <paramref name="path" /> is no longer a reparse point at deletion time
+    ///     (concurrent replacement detected — fail closed to avoid deleting a real directory).
+    /// </exception>
+    internal virtual void DeleteReparsePointLinkNode(string path) =>
+        ReparsePointGuard.DeleteLinkNode(path, InvokeDirectoryDelete);
+
+    /// <summary>
+    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />. Zero-logic passthrough to a single
+    ///     BCL call with no branching of our own; the guard logic protecting it lives in
+    ///     <see cref="ReparsePointGuard.DeleteLinkNode" /> and is unit tested via this seam being
+    ///     overridden. Excluded from coverage because running the real body needs an actual
+    ///     reparse-point node on disk (junction/symlink creation privileges unavailable in CI); a
+    ///     test would assert nothing beyond "DirectoryInfo.Delete was invoked".
+    /// </summary>
+    /// <param name="info">The <see cref="DirectoryInfo" /> whose link node should be removed.</param>
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    internal virtual void InvokeDirectoryDelete(DirectoryInfo info) => info.Delete();
+
+    /// <summary>
+    ///     Moves the directory at <paramref name="source" /> to <paramref name="destination" />.
+    /// </summary>
+    /// <param name="source">The source directory.</param>
+    /// <param name="destination">The destination directory.</param>
+    internal virtual void MoveDirectory(string source, string destination) =>
+        Directory.Move(source, destination);
+
+    /// <summary>
+    ///     Determines whether anything already occupies <paramref name="path" />, including a
+    ///     dangling symlink's link node. Uses <see cref="Path.Exists(string?)" />, which does not
+    ///     follow the link (unlike <see cref="File.Exists(string?)" /> /
+    ///     <see cref="Directory.Exists(string?)" />), so a broken link still holding the destination
+    ///     name correctly drives the TOCTOU move-retry instead of being treated as free.
+    /// </summary>
+    /// <param name="path">The path to test.</param>
+    /// <returns>
+    ///     <see langword="true" /> if a file, directory, or link node occupies the path; otherwise <see langword="false" />.
+    /// </returns>
+    internal virtual bool DestinationExists(string path) => Path.Exists(path);
 }

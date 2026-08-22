@@ -13,8 +13,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// </summary>
 public sealed class ConfigurationResponse
 {
-    /// <summary>Placeholder emitted in place of any non-empty API key.</summary>
-    internal const string ApiKeyMask = "***";
+    /// <summary>
+    ///     Placeholder emitted in place of any non-empty API key. Fixed length by design: it does
+    ///     NOT reflect the real key length, so the mask never leaks how long the stored secret is.
+    ///     Applies uniformly to the Seerr key and every Radarr/Sonarr instance key.
+    /// </summary>
+    internal const string ApiKeyMask = "********";
 
     /// <summary>Gets the excluded libraries (comma-separated).</summary>
     public string ExcludedLibraries { get; init; } = string.Empty;

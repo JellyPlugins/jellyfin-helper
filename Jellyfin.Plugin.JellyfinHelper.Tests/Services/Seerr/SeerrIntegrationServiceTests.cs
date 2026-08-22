@@ -198,6 +198,34 @@ public class SeerrIntegrationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task TestConnection_OversizedResponse_ReturnsFalseWithTooLargeMessage()
+    {
+        // A 200 OK whose declared Content-Length exceeds the 100 MiB cap must be rejected by the
+        // bounded reader (fast-reject via header) and surfaced as a failed connection — not thrown.
+        var response = new HttpResponseMessage
+        {
+            StatusCode = HttpStatusCode.OK,
+            Content = new StringContent("{}", Encoding.UTF8, "application/json")
+        };
+        response.Content.Headers.ContentLength = 101L * 1024 * 1024; // > 100 MiB cap
+        _trackedResponses.Add(response);
+
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(response);
+
+        var service = CreateService(mock.Object, out _, out _);
+        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("too large", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task TestConnection_NetworkError_ReturnsFalse()
     {
         var mock = new Mock<HttpMessageHandler>();
@@ -393,6 +421,36 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(1, result.ExpiredFound);
         Assert.Equal(0, result.Deleted);
         Assert.Equal(1, result.Failed);
+    }
+
+    [Fact]
+    public async Task Cleanup_ExpiredRequestWithInvalidId_IsSkippedAndCountedFailedNoDelete()
+    {
+        // Guard: a request whose Id deserialized to 0 (or negative) must be skipped — hitting
+        // api/v1/request/0 is an unintended endpoint. It is counted as failed and NEVER deleted.
+        var requests = new List<(int, DateTimeOffset)>
+        {
+            (0, DateTimeOffset.UtcNow.AddDays(-400)) // expired, but invalid Id
+        };
+        var page = MakeRequestPage(requests, 1);
+
+        // Only the page GET is expected — no title resolve, no DELETE.
+        var handler = CreateSequenceHandler((HttpStatusCode.OK, page));
+
+        var service = CreateService(handler.Object, out _, out _);
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+
+        Assert.Equal(1, result.ExpiredFound);
+        Assert.Equal(0, result.Deleted);
+        Assert.Equal(1, result.Failed);
+
+        // Assert no DELETE was ever attempted for the invalid request.
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Delete),
+            ItExpr.IsAny<CancellationToken>());
     }
 
     [Fact]

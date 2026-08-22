@@ -1,8 +1,6 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.Reflection;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +12,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -33,6 +32,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     private readonly DiscoveryCacheService _cache;
     private readonly Mock<ILogger<UserDiscoveryController>> _loggerMock;
     private readonly Mock<IPluginConfigurationService> _configServiceMock;
+    private readonly MemoryCache _memoryCache;
 
     public UserDiscoveryControllerSubmitTests()
     {
@@ -48,17 +48,19 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         _loggerMock = new Mock<ILogger<UserDiscoveryController>>();
         _configServiceMock = new Mock<IPluginConfigurationService>();
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration { DiscoveryUserAccessEnabled = true });
+        _memoryCache = new MemoryCache(new MemoryCacheOptions());
     }
 
     public void Dispose()
     {
         ControllerTestFactory.ResetPluginConfiguration();
         _cache.Dispose();
+        _memoryCache.Dispose();
     }
 
     private UserDiscoveryController CreateController(Guid? userId = null)
     {
-        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _loggerMock.Object);
+        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, _loggerMock.Object);
         var claims = new List<Claim>();
         if (userId.HasValue)
         {
@@ -502,6 +504,101 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     }
 
     [Fact]
+    public async Task SubmitMyRequest_SameUser_ConcurrentBurst_SubmitsUpstreamOnlyOnce()
+    {
+        // Regression for the non-atomic rate-limit check: without a lock around the cache
+        // read+write, concurrent requests for the same user could all observe a cache miss and
+        // each submit an upstream request, bypassing the 10-second limit. The check-and-update is
+        // now serialized, so exactly one request in the window reaches SubmitRequestAsync.
+        var userId = Guid.NewGuid();
+        var dto = new DiscoveryRequestDto { TmdbId = 7, MediaType = "movie" };
+
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        const int concurrency = 16;
+        var start = new TaskCompletionSource();
+
+        // Each request gets its own controller (per-request HttpContext), all sharing _memoryCache.
+        var tasks = new Task<ActionResult<RequestResult>>[concurrency];
+        for (var i = 0; i < concurrency; i++)
+        {
+            var controller = CreateController(userId);
+            tasks[i] = Task.Run(async () =>
+            {
+                await start.Task.ConfigureAwait(false);
+                return await controller.SubmitMyRequest(dto, CancellationToken.None).ConfigureAwait(false);
+            });
+        }
+
+        // Release all tasks at once to maximise the chance of interleaving the check-and-update.
+        start.SetResult();
+        var results = await Task.WhenAll(tasks);
+
+        var accepted = 0;
+        var rejected = 0;
+        foreach (var r in results)
+        {
+            var obj = Assert.IsType<ObjectResult>(r.Result);
+            if (obj.StatusCode == 201)
+            {
+                accepted++;
+            }
+            else if (obj.StatusCode == 429)
+            {
+                rejected++;
+            }
+        }
+
+        Assert.Equal(1, accepted);
+        Assert.Equal(concurrency - 1, rejected);
+
+        // The authoritative assertion: the upstream request was submitted exactly once.
+        _discoveryMock.Verify(
+            d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ClearRateLimitState_AfterReset_UserNoLongerRateLimited()
+    {
+        // ClearRateLimitState is called on plugin load/uninstall and must actually reset the
+        // window: a user who just hit 429 must be allowed through again immediately after a reset,
+        // even though the underlying IMemoryCache entry has not yet expired.
+        var userId = Guid.NewGuid();
+        var dto = new DiscoveryRequestDto { TmdbId = 1, MediaType = "movie" };
+
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        var first = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+        Assert.Equal(201, Assert.IsType<ObjectResult>(first.Result).StatusCode);
+
+        var blocked = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+        Assert.Equal(429, Assert.IsType<ObjectResult>(blocked.Result).StatusCode);
+
+        // Simulate a plugin reload/uninstall resetting the rate-limit state.
+        UserDiscoveryController.ClearRateLimitState();
+
+        var afterReset = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+        Assert.Equal(201, Assert.IsType<ObjectResult>(afterReset.Result).StatusCode);
+    }
+
+    [Fact]
     public async Task SubmitMyRequest_DifferentUsers_BothSucceed()
     {
         var dto = new DiscoveryRequestDto { TmdbId = 2, MediaType = "movie" };
@@ -632,8 +729,9 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_SameUser_AfterWindowElapsed_AcceptsRequest()
     {
-        // A request made once the 10s per-user window has elapsed must be admitted again:
-        // the elapsed>=window branch refreshes the timestamp instead of rejecting.
+        // A request made once the 10s per-user window has elapsed must be admitted again.
+        // With IMemoryCache the rate-limit value is the DateTime of the last request; when
+        // elapsed >= window the cache check passes and the request is accepted.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
@@ -645,82 +743,56 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "queued"));
 
-        var lastRequestTime = GetLastRequestTime();
-        try
-        {
-            // Seed a stale timestamp 30s in the past so the window is already expired.
-            lastRequestTime[userId] = DateTime.UtcNow - TimeSpan.FromSeconds(30);
+        // Seed a stale rate-limit entry: the stored timestamp is 30s old (past the 10s window).
+        // Use a long absolute TTL so the cache entry itself is still present when the controller reads it.
+        // Use the controller's shared key builder so the seeded key can never drift from the one the
+        // controller reads (a mismatch would silently make this test pass vacuously).
+        var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
+        _memoryCache.Set(rateLimitKey, DateTime.UtcNow - TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60));
 
-            var result = await CreateController(userId).SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" }, CancellationToken.None);
+        var result = await CreateController(userId).SubmitMyRequest(
+            new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" }, CancellationToken.None);
 
-            var ok = Assert.IsType<ObjectResult>(result.Result);
-            Assert.Equal(201, ok.StatusCode);
-            var body = Assert.IsType<RequestResult>(ok.Value);
-            Assert.True(body.Success);
-        }
-        finally
-        {
-            ResetRateLimitState();
-        }
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
+        var body = Assert.IsType<RequestResult>(ok.Value);
+        Assert.True(body.Success);
     }
 
     [Fact]
-    public async Task SubmitMyRequest_HundredthAcceptedRequest_EvictsExpiredRateLimitEntries()
+    public async Task SubmitMyRequest_ExpiredCacheEntry_DoesNotBlockAndIsNotRetained()
     {
-        // Every 100th accepted request opportunistically sweeps the dictionary: an entry older
-        // than the 10s window (belonging to a user NOT making this call) must be evicted, while
-        // the fresh caller's own recent entry survives.
-        var caller = Guid.NewGuid();
-        var staleUser = Guid.NewGuid();
+        // Replaces the old "100th-request opportunistic sweep" test. That manual eviction path
+        // no longer exists: rate-limit entries are stored in IMemoryCache with a TTL and expire
+        // automatically, so stale entries can neither block a later request nor accumulate.
+        // Here we seed an entry with a tiny TTL, let it expire, and assert the next request is
+        // admitted (the expired entry is gone, exactly as the sweep used to guarantee).
+        var userId = Guid.NewGuid();
         _discoveryMock
-            .Setup(d => d.GetUserRequestPermissionsAsync(caller, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
         _discoveryMock
-            .Setup(d => d.ResolveSeerrUserIdAsync(caller, It.IsAny<CancellationToken>()))
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "queued"));
 
-        var lastRequestTime = GetLastRequestTime();
-        try
-        {
-            // Increment to 100 triggers the sweep; the stale entry is 30s old (> 10s window).
-            SetAcceptedRequestCount(99);
-            lastRequestTime[staleUser] = DateTime.UtcNow - TimeSpan.FromSeconds(30);
+        // Seed a rate-limit entry that expires almost immediately, then wait past its TTL so
+        // IMemoryCache evicts it. TryGetValue must then miss and the request must be accepted.
+        // Use the controller's shared key builder so the seeded key matches the one it reads.
+        var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
+        _memoryCache.Set(rateLimitKey, DateTime.UtcNow, TimeSpan.FromMilliseconds(1));
+        await Task.Delay(50);
+        Assert.False(_memoryCache.TryGetValue(rateLimitKey, out _));
 
-            var result = await CreateController(caller).SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" }, CancellationToken.None);
+        var result = await CreateController(userId).SubmitMyRequest(
+            new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" }, CancellationToken.None);
 
-            var ok = Assert.IsType<ObjectResult>(result.Result);
-            Assert.Equal(201, ok.StatusCode);
-            Assert.False(lastRequestTime.ContainsKey(staleUser));
-            Assert.True(lastRequestTime.ContainsKey(caller));
-        }
-        finally
-        {
-            ResetRateLimitState();
-        }
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
+        var body = Assert.IsType<RequestResult>(ok.Value);
+        Assert.True(body.Success);
     }
 
-    // Repo precedent (MediaStatisticsControllerTests) reaches private static rate-limit state via
-    // reflection; the same seam exposes LastRequestTime and _acceptedRequestCount here.
-    private static ConcurrentDictionary<Guid, DateTime> GetLastRequestTime()
-    {
-        var field = typeof(UserDiscoveryController).GetField("LastRequestTime", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Static field 'LastRequestTime' not found on UserDiscoveryController.");
-        return (ConcurrentDictionary<Guid, DateTime>)field.GetValue(null)!;
-    }
-
-    private static void SetAcceptedRequestCount(int value)
-    {
-        var field = typeof(UserDiscoveryController).GetField("_acceptedRequestCount", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Static field '_acceptedRequestCount' not found on UserDiscoveryController.");
-        field.SetValue(null, value);
-    }
-
-    private static void ResetRateLimitState()
-    {
-        GetLastRequestTime().Clear();
-        SetAcceptedRequestCount(0);
-    }
 }

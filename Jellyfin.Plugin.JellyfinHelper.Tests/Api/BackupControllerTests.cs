@@ -261,6 +261,60 @@ public class BackupControllerTests
         }
     }
 
+    [Fact]
+    public void ExportBackup_WithSecrets_LogsPlaintextSecretsAudit()
+    {
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            var controller = ControllerTestFactory.CreateBackupController(
+                dataPath: tempDir,
+                pluginLog: _log,
+                configuration: new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { SeerrApiKey = "super-secret-key" });
+
+            var result = controller.ExportBackup(includeSecrets: true);
+
+            Assert.IsType<FileContentResult>(result);
+            var logs = _log.GetEntries(source: "API", limit: 20);
+            Assert.Contains(logs,
+                entry => entry.Level == "WARN" &&
+                         entry.Message.Contains("plaintext secrets", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ExportBackup_WithoutSecrets_DoesNotLogSecretsAudit()
+    {
+        _log.Clear();
+        var tempDir = CreateTempDir();
+        try
+        {
+            var controller = ControllerTestFactory.CreateBackupController(
+                dataPath: tempDir,
+                pluginLog: _log,
+                configuration: new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { SeerrApiKey = "super-secret-key" });
+
+            // includeSecrets defaults to false → keys are redacted → no audit warning.
+            var result = controller.ExportBackup();
+
+            Assert.IsType<FileContentResult>(result);
+            var logs = _log.GetEntries(source: "API", limit: 20);
+            Assert.DoesNotContain(logs,
+                entry => entry.Message.Contains("plaintext secrets", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _log.Clear();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private BackupController CreateController(string dataPath)
         => ControllerTestFactory.CreateBackupController(dataPath: dataPath, pluginLog: _log);
 

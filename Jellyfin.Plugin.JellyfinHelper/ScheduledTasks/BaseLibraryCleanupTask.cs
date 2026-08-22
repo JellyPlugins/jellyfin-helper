@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -205,4 +206,35 @@ public abstract class BaseLibraryCleanupTask
             TrackingService.RecordCleanup(totalBytesFreed, totalDeleted, Logger);
         }
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Filesystem seams (overridable for tests).
+    //
+    // The symlink/junction guards in the concrete tasks read reparse-point attributes with real
+    // System.IO calls, which the mocked IFileSystem model can never trigger. Routing them through
+    // these thin wrappers lets a test subclass drive the guard branches deterministically without
+    // creating real symlinks (which require elevated privileges, unavailable in CI). Production
+    // always runs the real System.IO implementations below.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     Determines whether <paramref name="path" /> is an existing reparse point
+    ///     (symbolic link or junction).
+    /// </summary>
+    /// <param name="path">The directory path to inspect.</param>
+    /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
+    protected virtual bool IsReparsePoint(string path) =>
+        ReparsePointGuard.IsReparsePoint(path);
+
+    /// <summary>
+    ///     Determines whether <paramref name="path" /> is a reparse point (symbolic link or
+    ///     junction) irrespective of whether the filesystem classifies the entry as a file or a
+    ///     directory. Use this when inspecting entries returned by file enumeration, because some
+    ///     mounts (e.g. Docker Desktop for Windows bind mounts) surface a directory symlink as a
+    ///     file, which <see cref="IsReparsePoint" /> (directory-only) would miss.
+    /// </summary>
+    /// <param name="path">The file or directory path to inspect.</param>
+    /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>
+    protected virtual bool IsReparsePointAnyType(string path) =>
+        ReparsePointGuard.IsReparsePointAnyType(path);
 }

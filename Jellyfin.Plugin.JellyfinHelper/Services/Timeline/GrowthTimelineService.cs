@@ -453,21 +453,18 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         continue;
                     }
 
-                    // Use directory creation date as "when this media was added"
-                    var createdUtc = Directory.GetCreationTimeUtc(subDir.FullName);
-                    if (createdUtc.Year < 1990)
+                    // Use directory creation date as "when this media was added". The timestamps
+                    // must come from a live stat (Directory.Get*TimeUtc), NOT from the
+                    // FileSystemMetadata the enumeration returned: Jellyfin's IFileSystem does not
+                    // reliably populate those on every platform (they can come back as the
+                    // DateTime.MinValue default), which would skip every entry. Skip only when no
+                    // sane date can be derived from a real stat.
+                    var createdUtc = ResolveEntryDateUtc(
+                        Directory.GetCreationTimeUtc(subDir.FullName),
+                        Directory.GetLastWriteTimeUtc(subDir.FullName));
+                    if (createdUtc is null)
                     {
-                        // Fall back to last-write time on filesystems that don't track creation
-                        // time (e.g. Linux ext4), matching the same pattern used for files below.
-                        var fallback = Directory.GetLastWriteTimeUtc(subDir.FullName);
-                        if (fallback.Year >= 1990)
-                        {
-                            createdUtc = DateTime.SpecifyKind(fallback, DateTimeKind.Utc);
-                        }
-                        else
-                        {
-                            continue;
-                        }
+                        continue;
                     }
 
                     // Sum up all file sizes recursively within this directory
@@ -482,7 +479,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                             new DirectoryEntry
                             {
                                 Path = subDir.FullName,
-                                CreatedUtc = createdUtc,
+                                CreatedUtc = createdUtc.Value,
                                 Size = totalSize,
                                 Count = 1
                             });
@@ -501,13 +498,13 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         continue;
                     }
 
-                    var createdUtc = File.GetCreationTimeUtc(file.FullName);
-                    if (createdUtc.Year < 1990)
-                    {
-                        createdUtc = File.GetLastWriteTimeUtc(file.FullName);
-                    }
-
-                    if (createdUtc.Year < 1990)
+                    // Read the "added" date from a live stat (same fallback rule as directories).
+                    // See the directory branch above for why the FileSystemMetadata timestamps are
+                    // not trusted here.
+                    var createdUtc = ResolveEntryDateUtc(
+                        File.GetCreationTimeUtc(file.FullName),
+                        File.GetLastWriteTimeUtc(file.FullName));
+                    if (createdUtc is null)
                     {
                         continue;
                     }
@@ -516,7 +513,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         new DirectoryEntry
                         {
                             Path = file.FullName,
-                            CreatedUtc = createdUtc,
+                            CreatedUtc = createdUtc.Value,
                             Size = file.Length,
                             Count = 1
                         });
@@ -558,6 +555,31 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return !string.IsNullOrEmpty(fullTrashPath) &&
                string.Equals(normalizedFullName, fullTrashPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    ///     Resolves the "added" date for a timeline entry from a live stat's creation/last-write
+    ///     timestamps. Single source of truth for the historical rule, shared by the directory and
+    ///     loose-file paths: prefer creation time; if it is a pre-1990 sentinel (filesystems that do
+    ///     not track creation time, e.g. Linux ext4, report a near-epoch value), fall back to
+    ///     last-write time; if both are pre-1990 the date is unusable and the caller skips the entry.
+    /// </summary>
+    /// <param name="creationTimeUtc">The entry's creation timestamp (UTC).</param>
+    /// <param name="lastWriteTimeUtc">The entry's last-write timestamp (UTC).</param>
+    /// <returns>The resolved UTC date, or <see langword="null"/> when neither timestamp is usable.</returns>
+    private static DateTime? ResolveEntryDateUtc(DateTime creationTimeUtc, DateTime lastWriteTimeUtc)
+    {
+        if (creationTimeUtc.Year >= 1990)
+        {
+            return DateTime.SpecifyKind(creationTimeUtc, DateTimeKind.Utc);
+        }
+
+        if (lastWriteTimeUtc.Year >= 1990)
+        {
+            return DateTime.SpecifyKind(lastWriteTimeUtc, DateTimeKind.Utc);
+        }
+
+        return null;
     }
 
     /// <summary>

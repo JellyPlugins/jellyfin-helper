@@ -577,6 +577,8 @@ public class ConfigurationControllerTests
     {
         // Contract: HttpRequestException / TimeoutException must be caught and reported as
         // a warning - the config save must NOT fail because of unreachable Arr instances.
+        // The client-facing warning identifies the instance but must NOT leak the raw exception
+        // detail (reachability oracle); that detail is logged server-side only.
         _arrServiceMock
             .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("network down"));
@@ -592,7 +594,9 @@ public class ConfigurationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result);
         var json = JsonSerializer.Serialize(ok.Value);
         Assert.Contains("Flaky", json, StringComparison.Ordinal);
-        Assert.Contains("network down", json, StringComparison.Ordinal);
+        Assert.Contains("connection test failed", json, StringComparison.OrdinalIgnoreCase);
+        // The raw exception message must not be reflected to the client.
+        Assert.DoesNotContain("network down", json, StringComparison.Ordinal);
     }
 
     // ===== TestSeerrConnectionAsync coverage =====
@@ -638,7 +642,8 @@ public class ConfigurationControllerTests
         var json = JsonSerializer.Serialize(ok.Value);
         Assert.Contains("Seerr", json, StringComparison.Ordinal);
         Assert.Contains("not reachable", json, StringComparison.Ordinal);
-        Assert.Contains("invalid api key", json, StringComparison.Ordinal);
+        // The upstream message must not be reflected to the client (info-leak / reachability oracle).
+        Assert.DoesNotContain("invalid api key", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -658,7 +663,9 @@ public class ConfigurationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result);
         var json = JsonSerializer.Serialize(ok.Value);
         Assert.Contains("Seerr", json, StringComparison.Ordinal);
-        Assert.Contains("dns timeout", json, StringComparison.Ordinal);
+        Assert.Contains("Connection test failed", json, StringComparison.OrdinalIgnoreCase);
+        // The raw exception message must not be reflected to the client (info-leak / reachability oracle).
+        Assert.DoesNotContain("dns timeout", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -676,7 +683,84 @@ public class ConfigurationControllerTests
             Times.Never);
     }
 
-    // ===== SeerrCleanupAgeDays clamp / disable =====
+    // ===== ExcludedLibraries validation warning (advisory, never blocks the save) =====
+
+    // Builds a controller whose library manager reports the given virtual-folder names, exposing
+    // the plugin-log mock so tests can assert an advisory warning was (or was not) logged.
+    private ConfigurationController CreateControllerWithLibraries(
+        out Mock<IPluginLogService> pluginLogMock,
+        params string[] libraryNames)
+    {
+        var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
+        var folders = new System.Collections.Generic.List<MediaBrowser.Model.Entities.VirtualFolderInfo>();
+        foreach (var name in libraryNames)
+        {
+            folders.Add(new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = name,
+                CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.movies
+            });
+        }
+
+        libraryManagerMock.Setup(lm => lm.GetVirtualFolders()).Returns(folders);
+
+        pluginLogMock = new Mock<IPluginLogService>();
+        var configHelperMock = new Mock<ICleanupConfigHelper>();
+        configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
+        return new ConfigurationController(
+            _arrServiceMock.Object,
+            pluginLogMock.Object,
+            new Mock<ILogger<ConfigurationController>>().Object,
+            configHelperMock.Object,
+            _configServiceMock.Object,
+            _seerrServiceMock.Object,
+            libraryManagerMock.Object,
+            new EnsembleScoringStrategy());
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ExcludedLibrariesUnknownName_ReturnsAdvisoryWarning()
+    {
+        var controller = CreateControllerWithLibraries(out var pluginLogMock, "Movies", "TV Shows");
+
+        var request = new ConfigurationUpdateRequest
+        {
+            ExcludedLibraries = "Movies, Nonexistent Library"
+        };
+
+        var result = await controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        // The unknown name is surfaced as a warning; the save still succeeds (advisory only).
+        Assert.Contains("Nonexistent Library", json, StringComparison.Ordinal);
+        Assert.Contains("do not currently exist", json, StringComparison.Ordinal);
+        pluginLogMock.Verify(
+            l => l.LogWarning(
+                "API",
+                It.Is<string>(m => m.Contains("Nonexistent Library", System.StringComparison.Ordinal)),
+                It.IsAny<System.Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ExcludedLibrariesMatchCaseInsensitive_NoWarning()
+    {
+        var controller = CreateControllerWithLibraries(out _, "Movies", "TV Shows");
+
+        var request = new ConfigurationUpdateRequest
+        {
+            // Different casing must still match — no "does not exist" warning.
+            ExcludedLibraries = "movies, TV SHOWS"
+        };
+
+        var result = await controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        Assert.DoesNotContain("do not currently exist", json, StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task UpdateConfiguration_SeerrCleanupAgeDays_TooLarge_ReturnsBadRequest()
@@ -997,7 +1081,7 @@ public class ConfigurationControllerTests
     public void GetConfiguration_NonEmptyKeys_ReturnsSentinelMask()
     {
         // BUG GUARD: GET must never return plain-text API keys.
-        // Non-empty keys must be replaced with the sentinel mask "***".
+        // Non-empty keys must be replaced with the mask sentinel (ConfigurationResponse.ApiKeyMask).
         _config.SeerrApiKey = "real-seerr-secret";
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r:7878", ApiKey = "real-radarr-key" });
         _config.SonarrInstances.Add(new ArrInstanceConfig { Name = "S1", Url = "http://s:8989", ApiKey = "real-sonarr-key" });
@@ -1034,9 +1118,9 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelSeerrApiKey_PreservesStoredKey()
     {
-        // Contract: when the client echoes "***" for SeerrApiKey the POST must leave
-        // the real stored key untouched. This is the round-trip case: GET → UI shows "***"
-        // → user saves without changing the key → POST receives "***" → key must not change.
+        // Contract: when the client echoes the mask sentinel for SeerrApiKey the POST must leave
+        // the real stored key untouched. This is the round-trip case: GET → UI shows the mask
+        // → user saves without changing the key → POST receives the mask → key must not change.
         _config.SeerrApiKey = "original-secret";
         _config.SeerrUrl = "https://seerr.example.com";
 
@@ -1076,8 +1160,8 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelRadarrApiKey_PreservesStoredKey()
     {
-        // Contract: GET masks Radarr keys as "***". When the user saves Settings without
-        // touching the key field the browser echoes "***" back. The POST must leave the
+        // Contract: GET masks Radarr keys with the mask sentinel. When the user saves Settings
+        // without touching the key field the browser echoes the mask back. The POST must leave the
         // real stored key untouched - identical to the Seerr sentinel contract.
         _config.RadarrInstances.Add(new ArrInstanceConfig
         {
@@ -1234,7 +1318,7 @@ public class ConfigurationControllerTests
         var request = new ConfigurationUpdateRequest
         {
             SeerrUrl = "https://seerr.example.com",
-            SeerrApiKey = "***",
+            SeerrApiKey = ConfigurationResponse.ApiKeyMask,
             SeerrCleanupAgeDays = 30
         };
 
@@ -1242,7 +1326,7 @@ public class ConfigurationControllerTests
 
         Assert.IsType<OkObjectResult>(result);
         _seerrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), "***", It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.Equal("real-stored-key", _config.SeerrApiKey);
     }
@@ -1259,14 +1343,14 @@ public class ConfigurationControllerTests
         {
             RadarrInstances = [new ArrInstanceConfig
             {
-                Name = "Radarr", Url = "http://radarr.local", ApiKey = "***"
+                Name = "Radarr", Url = "http://radarr.local", ApiKey = ConfigurationResponse.ApiKeyMask
             }]
         };
 
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), "***", It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
     }
@@ -1349,7 +1433,7 @@ public class ConfigurationControllerTests
 
     /// <summary>
     ///     When the admin renames a Radarr instance (Name changes)
-    ///     but keeps the same URL, and the client echoes the sentinel "***" for the key, the
+    ///     but keeps the same URL, and the client echoes the mask sentinel for the key, the
     ///     stored key must be preserved. The lookup matches by URL, so a rename alone must not
     ///     clear the API key.
     /// </summary>

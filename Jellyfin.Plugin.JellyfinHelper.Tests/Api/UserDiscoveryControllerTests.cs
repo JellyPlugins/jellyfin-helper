@@ -9,6 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -43,6 +44,7 @@ public class UserDiscoveryControllerTests
     private readonly DiscoveryCacheService _cache;
     private readonly Mock<ILogger<UserDiscoveryController>> _loggerMock;
     private readonly Mock<IPluginConfigurationService> _configServiceMock;
+    private readonly MemoryCache _memoryCache;
 
     public UserDiscoveryControllerTests()
     {
@@ -54,12 +56,13 @@ public class UserDiscoveryControllerTests
         _loggerMock = new Mock<ILogger<UserDiscoveryController>>();
         _configServiceMock = new Mock<IPluginConfigurationService>();
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
+        _memoryCache = new MemoryCache(new MemoryCacheOptions());
     }
 
     private UserDiscoveryController CreateController(Guid? userId = null)
     {
         var controller = new UserDiscoveryController(
-            _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _loggerMock.Object);
+            _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, _loggerMock.Object);
 
         // Set up HttpContext with user claims
         var claims = new List<Claim>();

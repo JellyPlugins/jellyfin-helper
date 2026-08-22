@@ -20,15 +20,6 @@ public class FolderBrowserService : IFolderBrowserService
         ".Trash-",
     ];
 
-    private static readonly HashSet<string> DangerousLinuxPaths =
-    [
-        "/proc",
-        "/sys",
-        "/dev",
-        "/run",
-        "/boot",
-    ];
-
     private readonly ILogger<FolderBrowserService> _logger;
     private readonly bool _isWindows;
 
@@ -487,9 +478,8 @@ public class FolderBrowserService : IFolderBrowserService
         // Hide sensitive system / application directories from listings entirely, on every
         // OS - Jellyfin's own /config, /data, /cache and OS roots like /etc, C:\Windows.
         // Uses the shared PathValidator source of truth so the picker, link-repair and trash
-        // guards all agree on what "sensitive" means. (This supersedes the narrow, Linux-only
-        // DangerousLinuxPaths set below, which is kept for its /proc,/sys,… entries that are
-        // also covered here.)
+        // guards all agree on what "sensitive" means. This also covers the Linux virtual
+        // file-systems (/proc, /sys, /dev, /run, /boot) via SensitiveSystemRoots.
         if (PathValidator.IsSensitiveSystemPath(dirInfo.FullName))
         {
             return true;
@@ -516,16 +506,6 @@ public class FolderBrowserService : IFolderBrowserService
             // Cannot resolve the link (broken, permission, cyclic) - treat as unlistable/critical
             // so an unresolvable reparse point is never browsed into.
             return true;
-        }
-
-        // Block dangerous Linux/macOS virtual file-systems by absolute path
-        if (!OperatingSystem.IsWindows())
-        {
-            var fullPath = dirInfo.FullName.TrimEnd('/');
-            if (DangerousLinuxPaths.Contains(fullPath))
-            {
-                return true;
-            }
         }
 
         // On Windows, filter out system-level hidden dirs (e.g. $RECYCLE.BIN, System Volume Information).

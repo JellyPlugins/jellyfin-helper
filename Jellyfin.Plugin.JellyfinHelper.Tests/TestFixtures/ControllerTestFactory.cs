@@ -27,13 +27,14 @@ public static class ControllerTestFactory
     /// </summary>
     /// <param name="dataPath">The data path returned by IApplicationPaths.DataPath.</param>
     /// <param name="pluginLog">The plugin log service; a new one is created if null.</param>
+    /// <param name="configuration">The plugin configuration returned by the mocked configuration service; an empty one is used if null.</param>
     /// <returns>The controller.</returns>
-    public static BackupController CreateBackupController(string? dataPath = null, IPluginLogService? pluginLog = null)
+    public static BackupController CreateBackupController(string? dataPath = null, IPluginLogService? pluginLog = null, PluginConfiguration? configuration = null)
     {
         var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath ?? Path.GetTempPath());
         var log = pluginLog ?? TestMockFactory.CreatePluginLogService();
         var configServiceMock = new Mock<IPluginConfigurationService>();
-        configServiceMock.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration());
+        configServiceMock.Setup(c => c.GetConfiguration()).Returns(configuration ?? new PluginConfiguration());
         configServiceMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
         var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, TestMockFactory.CreateLogger<BackupService>().Object);
 

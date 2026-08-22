@@ -111,6 +111,24 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                     continue;
                 }
 
+                // Symlink-traversal guard: FileInfo.LinkTarget below only inspects the FINAL
+                // subtitle file, so a symlinked ANCESTOR directory could still redirect our
+                // File.Delete into a real media tree. Skip any directory that is itself a reparse
+                // point (symlink/junction) — we only ever clean subtitles inside real directories.
+                try
+                {
+                    if (IsReparsePoint(dirPath))
+                    {
+                        PluginLog.LogWarning(TaskName, $"Skipping symlinked directory (reparse point): {dirPath}", logger: Logger);
+                        continue;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirPath}", ex, Logger);
+                    continue;
+                }
+
                 FileSystemMetadata[] files;
                 try
                 {
@@ -169,6 +187,32 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                         continue;
                     }
 
+                    // Symlink guard for ALL modes (dry-run, trash, hard-delete): a subtitle that is
+                    // itself a reparse point (symlink/junction) is never counted, never trashed, and
+                    // never deleted. On NAS setups the subtitle may be a link whose target lives in a
+                    // foreign tree; deleting or trashing the link relocates/removes the reference while
+                    // the target stays behind. Hoisted above the mode branches (mutually exclusive per
+                    // iteration) so a single check covers all three and dry-run output matches the real
+                    // run. Uses IsReparsePointAnyType because a directory-typed link can surface as a
+                    // file entry on some mounts. A stat failure is treated as "skip" (fail closed) and
+                    // must not surface as a misleading delete error.
+                    bool subtitleIsReparsePoint;
+                    try
+                    {
+                        subtitleIsReparsePoint = IsReparsePointAnyType(file.FullName);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        PluginLog.LogWarning(TaskName, $"Could not stat subtitle, skipping: {file.FullName}", ex, Logger);
+                        continue;
+                    }
+
+                    if (subtitleIsReparsePoint)
+                    {
+                        PluginLog.LogWarning(TaskName, $"Skipping symlinked subtitle file: {file.FullName}", logger: Logger);
+                        continue;
+                    }
+
                     if (dryRun)
                     {
                         PluginLog.LogInfo(
@@ -194,9 +238,12 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                         PluginLog.LogInfo(TaskName, $"Deleting orphaned subtitle: {file.FullName}", Logger);
                         try
                         {
-                            var size = file.Length;
+                            // Re-read file size from disk immediately before deletion to avoid
+                            // stale values from the earlier directory-listing snapshot (H-13).
+                            var subtitleInfo = new FileInfo(file.FullName);
+                            var freshSize = subtitleInfo.Exists ? subtitleInfo.Length : 0;
                             File.Delete(file.FullName);
-                            bytesFreed += size;
+                            bytesFreed += freshSize;
                             deletedCount++;
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -339,6 +386,26 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         var result = new List<string>();
         var stack = new Stack<string>();
 
+        // Reject a reparse-point (symlink/junction) library ROOT before enumerating its children.
+        // FileSystem.GetDirectories(libraryPath) returns the children as ordinary paths, and the
+        // root itself is never pushed onto the stack, so the per-directory reparse guard in
+        // ProcessLocation never sees the symlinked ancestor. Without this check the children of a
+        // symlinked root would be traversed and cleaned inside a foreign tree. A stat failure is
+        // treated as "do not traverse" (fail closed).
+        try
+        {
+            if (IsReparsePoint(libraryPath))
+            {
+                PluginLog.LogWarning(TaskName, $"Skipping symlinked library root (reparse point): {libraryPath}", logger: Logger);
+                return result;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not stat library root, not traversing: {libraryPath}", ex, Logger);
+            return result;
+        }
+
         // Seed the stack with the direct children of the library root.
         try
         {
@@ -357,6 +424,27 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         {
             var current = stack.Pop();
             result.Add(current);
+
+            // Do not enumerate children of reparse-point (symlink/junction) directories.
+            // The per-directory guard in the caller already skips processing their content;
+            // not traversing here prevents following links into foreign trees before that
+            // guard has a chance to run. A stat failure is treated as "do not traverse"
+            // (fail closed) so a single unreadable entry does not abort the whole scan.
+            bool currentIsReparsePoint;
+            try
+            {
+                currentIsReparsePoint = IsReparsePoint(current);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                PluginLog.LogWarning(TaskName, $"Could not stat directory, not traversing: {current}", ex, Logger);
+                continue;
+            }
+
+            if (currentIsReparsePoint)
+            {
+                continue;
+            }
 
             try
             {
