@@ -361,10 +361,12 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void CreateSymlink_LinkPathIsDanglingSymlink_ThrowsIOException()
     {
-        // A broken/dangling symlink already occupies linkPath. File.Exists/Directory.Exists both
-        // FOLLOW the link and report false, so the old guard would have missed it; the PathExists
-        // seam (Path.Exists) reports the link NODE without following, so the occupancy guard fires
-        // with the specific message rather than deferring to File.CreateSymbolicLink's own error.
+        // A broken/dangling symlink already occupies linkPath. The PathExists seam (Path.Exists)
+        // reports the link NODE without following it to the missing target, so the occupancy guard
+        // fires with the specific "already exists" message rather than deferring to
+        // File.CreateSymbolicLink's own error. (We deliberately do not assert File.Exists here: its
+        // result for a dangling link is not portable across runtimes/filesystems, whereas the guard
+        // behaviour under test is.)
         if (!SymlinksSupported())
         {
             return;
@@ -373,7 +375,7 @@ public sealed class SymlinkHelperTests : IDisposable
         var link = Path.Join(_tempDir, "dangling.link");
         var missingTarget = Path.Join(_tempDir, "never-created.txt");
         _sut.CreateSymlink(link, missingTarget); // target never created → dangling link node
-        Assert.False(File.Exists(link), "precondition: a dangling link follows to a missing target");
+        Assert.True(_sut.IsSymlink(link), "precondition: linkPath is occupied by a (dangling) symlink node");
 
         var ex = Assert.Throws<IOException>(() => _sut.CreateSymlink(link, Path.Join(_tempDir, "other.txt")));
         Assert.Contains("already exists", ex.Message, StringComparison.OrdinalIgnoreCase);
