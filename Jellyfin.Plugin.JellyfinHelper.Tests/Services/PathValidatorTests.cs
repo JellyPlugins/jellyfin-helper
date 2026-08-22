@@ -278,18 +278,21 @@ public class PathValidatorTests
         Assert.Null(result);
     }
 
-    // Backslash traversal is a Windows attack surface. There '\' is a real separator, so
-    // "\..\" walks up and the resolved path must be rejected. On Linux '\' is an ordinary
-    // filename char, the path never escapes "/media", so it is legitimately allowed there.
+    // Backslash traversal. On Windows '\' is a real separator, so "\..\" walks up and out and
+    // the path is rejected. On Linux '\' is an ordinary filename char, so "/media\..\etc" is a
+    // single leaf directly under "/", not under "/media/": there is no '/' after "media", so the
+    // base-prefix check fails and the path is rejected there too. Refused on both platforms, for
+    // different reasons.
     [Fact]
     public void IsSafePath_BackslashTraversal_Rejected()
     {
-        var expectedSafe = !OperatingSystem.IsWindows();
-        Assert.Equal(expectedSafe, PathValidator.IsSafePath("/media\\..\\etc", "/media"));
+        Assert.False(PathValidator.IsSafePath("/media\\..\\etc", "/media"));
     }
 
-    // Same split by platform for mixed separators. On Windows the '\..\' segments escape
-    // "/media" and must be refused; on Linux they stay inside it and are allowed.
+    // Mixed separators split by platform. The path keeps a real '/' after "/media", so on Linux
+    // it resolves to "/media/sub\..\..\etc", a leaf that still starts with "/media/" (backslashes
+    // are ordinary chars), so it is allowed. On Windows the '\..\' segments are real traversal that
+    // escapes "/media", so it is refused.
     [Fact]
     public void IsSafePath_MixedSeparatorTraversal()
     {
