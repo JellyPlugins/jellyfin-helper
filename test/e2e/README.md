@@ -19,7 +19,7 @@ server**.
 | Settings persistence | Flip each setting → save → reload → assert it stuck and took effect |
 | Backup round-trip | Export → tamper with JSON → import → assert validation & restore |
 | Trends integrity | Assert timeline/insights contain no garbage (negative sizes, false zeroes) |
-| Arr / Seerr | Against **mock servers**: connection test, Compare, reachability indicator |
+| Arr / Seerr | Against **mock servers**: connection test, Compare, reachability indicator, masked-key Test Connection resolves the stored key after reload |
 | UI - all 8 tabs | Overview, Codecs, Health, Trends, Settings, Arr, Recommendations, Logs |
 | UI interactions | Codec collapsible trees expand/collapse, Logs arrive + download, unsaved-changes dialog appears when leaving dirty settings |
 | Hardening | Empty library, broken backup XML/JSON, invalid Arr URLs, out-of-range numbers, Unicode paths, concurrent task runs - must degrade cleanly, never crash |

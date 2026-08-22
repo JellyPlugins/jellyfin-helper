@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it -
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **287 tests** (API + UI) across 45 spec files
+every UI interaction. **291 tests** (API + UI) across 45 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -69,6 +69,13 @@ Beyond "does it route / does the UI render", the suite now proves features
 ## 6. Arr / Seerr integration (mock green-path) → `integrations.api.spec.ts`
 - Radarr/Sonarr connection test + Compare bucketing; Seerr connection test.
 - Discovery Users; Discovery Services quality profiles; invalid service type rejected.
+- **Masked-key Test Connection** (regression for the reported "reload → Test Connection → Failed"
+  bug): `GET /Configuration` returns the mask (`********`) for the stored Arr + Seerr keys, then
+  `POST ArrIntegration/TestConnection` and `POST Seerr/Test` with `ApiKey = ********` (exactly what
+  the UI sends after a reload) **succeed** because the server resolves the mask back to the real
+  stored key before probing upstream. A mask sent for an **unrelated URL** (no stored instance)
+  fails cleanly (`Success:false`, never 500) and never borrows another instance's credential — the
+  mask is never forwarded upstream.
 
 ## 7. Hardening / edge cases → `hardening.api.spec.ts`
 - Invalid Arr URLs; no-instances → 400; out-of-range index.
