@@ -326,7 +326,22 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 // and never let it contribute to the file/extension classification (following the
                 // link to read a size or an extension would defeat the guard). The directory-classified
                 // case is handled by the reparse-point check in the subdirectory loop below.
-                if (IsReparsePointAnyType(file.FullName))
+                // A stat failure (IOException/UnauthorizedAccessException from reading the entry's
+                // attributes) also leaves the entry unclassified: fail closed by flagging the tree
+                // rather than letting the exception abort the whole scan.
+                bool fileIsReparsePoint;
+                try
+                {
+                    fileIsReparsePoint = IsReparsePointAnyType(file.FullName);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    hasUnresolvedLink = true;
+                    PluginLog.LogWarning(TaskName, $"Could not stat entry, treating tree as unresolved: {file.FullName}", ex, Logger);
+                    continue;
+                }
+
+                if (fileIsReparsePoint)
                 {
                     hasUnresolvedLink = true;
                     continue;

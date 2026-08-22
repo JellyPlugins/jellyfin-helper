@@ -187,6 +187,32 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                         continue;
                     }
 
+                    // Symlink guard for ALL modes (dry-run, trash, hard-delete): a subtitle that is
+                    // itself a reparse point (symlink/junction) is never counted, never trashed, and
+                    // never deleted. On NAS setups the subtitle may be a link whose target lives in a
+                    // foreign tree; deleting or trashing the link relocates/removes the reference while
+                    // the target stays behind. Hoisted above the mode branches (mutually exclusive per
+                    // iteration) so a single check covers all three and dry-run output matches the real
+                    // run. Uses IsReparsePointAnyType because a directory-typed link can surface as a
+                    // file entry on some mounts. A stat failure is treated as "skip" (fail closed) and
+                    // must not surface as a misleading delete error.
+                    bool subtitleIsReparsePoint;
+                    try
+                    {
+                        subtitleIsReparsePoint = IsReparsePointAnyType(file.FullName);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        PluginLog.LogWarning(TaskName, $"Could not stat subtitle, skipping: {file.FullName}", ex, Logger);
+                        continue;
+                    }
+
+                    if (subtitleIsReparsePoint)
+                    {
+                        PluginLog.LogWarning(TaskName, $"Skipping symlinked subtitle file: {file.FullName}", logger: Logger);
+                        continue;
+                    }
+
                     if (dryRun)
                     {
                         PluginLog.LogInfo(
@@ -212,19 +238,9 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                         PluginLog.LogInfo(TaskName, $"Deleting orphaned subtitle: {file.FullName}", Logger);
                         try
                         {
-                            // Symlink guard: check whether this subtitle entry is a symbolic link.
-                            // On NAS setups with hardlink/symlink structures subtitle files may be
-                            // symlinks; deleting the link removes the reference but leaves the target
-                            // intact. Log a warning and skip to avoid unexpected behavior.
-                            var subtitleInfo = new FileInfo(file.FullName);
-                            if (subtitleInfo.LinkTarget != null)
-                            {
-                                PluginLog.LogWarning(TaskName, $"Skipping symlinked subtitle file: {file.FullName}", logger: Logger);
-                                continue;
-                            }
-
                             // Re-read file size from disk immediately before deletion to avoid
                             // stale values from the earlier directory-listing snapshot (H-13).
+                            var subtitleInfo = new FileInfo(file.FullName);
                             var freshSize = subtitleInfo.Exists ? subtitleInfo.Length : 0;
                             File.Delete(file.FullName);
                             bytesFreed += freshSize;
@@ -369,6 +385,26 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     {
         var result = new List<string>();
         var stack = new Stack<string>();
+
+        // Reject a reparse-point (symlink/junction) library ROOT before enumerating its children.
+        // FileSystem.GetDirectories(libraryPath) returns the children as ordinary paths, and the
+        // root itself is never pushed onto the stack, so the per-directory reparse guard in
+        // ProcessLocation never sees the symlinked ancestor. Without this check the children of a
+        // symlinked root would be traversed and cleaned inside a foreign tree. A stat failure is
+        // treated as "do not traverse" (fail closed).
+        try
+        {
+            if (IsReparsePoint(libraryPath))
+            {
+                PluginLog.LogWarning(TaskName, $"Skipping symlinked library root (reparse point): {libraryPath}", logger: Logger);
+                return result;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not stat library root, not traversing: {libraryPath}", ex, Logger);
+            return result;
+        }
 
         // Seed the stack with the direct children of the library root.
         try

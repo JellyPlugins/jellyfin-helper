@@ -358,6 +358,27 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.True(Directory.Exists(link)); // untouched
     }
 
+    [Fact]
+    public void CreateSymlink_LinkPathIsDanglingSymlink_ThrowsIOException()
+    {
+        // A broken/dangling symlink already occupies linkPath. File.Exists/Directory.Exists both
+        // FOLLOW the link and report false, so the old guard would have missed it; the PathExists
+        // seam (Path.Exists) reports the link NODE without following, so the occupancy guard fires
+        // with the specific message rather than deferring to File.CreateSymbolicLink's own error.
+        if (!SymlinksSupported())
+        {
+            return;
+        }
+
+        var link = Path.Join(_tempDir, "dangling.link");
+        var missingTarget = Path.Join(_tempDir, "never-created.txt");
+        _sut.CreateSymlink(link, missingTarget); // target never created → dangling link node
+        Assert.False(File.Exists(link), "precondition: a dangling link follows to a missing target");
+
+        var ex = Assert.Throws<IOException>(() => _sut.CreateSymlink(link, Path.Join(_tempDir, "other.txt")));
+        Assert.Contains("already exists", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // -----------------------------------------------------------------------
     // DeleteSymlink - the interesting one: the guard clause must fail loudly
     // on non-symlinks so we never accidentally delete a real file.

@@ -114,7 +114,10 @@ public class TrashControllerTests : IDisposable
         var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = trashDir });
 
         var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(ok.Value);
+        var response = Assert.IsType<TrashAccessResponse>(ok.Value);
+        Assert.True(response.AllAccessible);
+        var entry = Assert.Single(response.Results);
+        Assert.Null(entry.ErrorMessage);
     }
 
     [Fact]

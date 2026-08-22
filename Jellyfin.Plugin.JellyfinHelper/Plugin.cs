@@ -385,7 +385,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             // Path comparison must be OS-aware: Linux paths are case-sensitive, so an
             // OrdinalIgnoreCase compare would treat /plugins and /PLUGINS as equal and could let a
-            // differently-cased outside path pass. Windows/macOS are case-insensitive.
+            // differently-cased outside path pass. Only Windows uses the case-insensitive compare;
+            // macOS is deliberately treated as case-sensitive here, which can only reject a
+            // differently-cased path (fail closed), never accept one.
             var pathComparison = OperatingSystem.IsWindows()
                 ? StringComparison.OrdinalIgnoreCase
                 : StringComparison.Ordinal;

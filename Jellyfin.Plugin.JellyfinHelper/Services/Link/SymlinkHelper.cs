@@ -93,7 +93,11 @@ public class SymlinkHelper : ISymlinkHelper
             throw new ArgumentException("Target path must not be null or empty.", nameof(targetPath));
         }
 
-        if (File.Exists(linkPath) || Directory.Exists(linkPath))
+        // Path.Exists (via the PathExists seam) reports the link NODE without following it, so a
+        // dangling symlink already occupying linkPath is correctly seen as "occupied" — unlike
+        // File.Exists/Directory.Exists, which both follow the link and would report false, letting
+        // File.CreateSymbolicLink throw its own less-specific IOException a line later.
+        if (PathExists(linkPath))
         {
             throw new IOException($"Cannot create symlink at '{linkPath}': a file or directory already exists there.");
         }

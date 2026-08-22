@@ -268,7 +268,10 @@ public class BackupControllerTests
         var tempDir = CreateTempDir();
         try
         {
-            var controller = CreateControllerWithSecrets(tempDir, seerrApiKey: "super-secret-key");
+            var controller = ControllerTestFactory.CreateBackupController(
+                dataPath: tempDir,
+                pluginLog: _log,
+                configuration: new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { SeerrApiKey = "super-secret-key" });
 
             var result = controller.ExportBackup(includeSecrets: true);
 
@@ -292,7 +295,10 @@ public class BackupControllerTests
         var tempDir = CreateTempDir();
         try
         {
-            var controller = CreateControllerWithSecrets(tempDir, seerrApiKey: "super-secret-key");
+            var controller = ControllerTestFactory.CreateBackupController(
+                dataPath: tempDir,
+                pluginLog: _log,
+                configuration: new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { SeerrApiKey = "super-secret-key" });
 
             // includeSecrets defaults to false → keys are redacted → no audit warning.
             var result = controller.ExportBackup();
@@ -307,26 +313,6 @@ public class BackupControllerTests
             _log.Clear();
             Directory.Delete(tempDir, true);
         }
-    }
-
-    // Builds a controller whose plugin configuration carries a secret, so an includeSecrets=true
-    // export produces a backup with ContainsSecrets = true.
-    private BackupController CreateControllerWithSecrets(string dataPath, string seerrApiKey)
-    {
-        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath);
-        var configServiceMock = new Moq.Mock<Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess.IPluginConfigurationService>();
-        configServiceMock.Setup(c => c.GetConfiguration())
-            .Returns(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { SeerrApiKey = seerrApiKey });
-        configServiceMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
-        var backupService = new BackupService(
-            appPathsMock.Object,
-            configServiceMock.Object,
-            _log,
-            TestMockFactory.CreateLogger<BackupService>().Object);
-        return new BackupController(
-            backupService,
-            _log,
-            new Moq.Mock<Microsoft.Extensions.Logging.ILogger<BackupController>>().Object);
     }
 
     private BackupController CreateController(string dataPath)
