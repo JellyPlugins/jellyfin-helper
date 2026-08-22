@@ -2,11 +2,16 @@ name: E2E (Docker)
 
 # Full end-to-end tests: real Jellyfin 12 container + mock Arr/Seerr, plugin
 # mounted in, wizard automated, every endpoint / task mode / UI tab exercised.
-# Runs on every PR (per project decision). Slower than the unit suite, so it
-# runs in parallel with pr.yml rather than gating it.
+# Runs on every PR and on push to main (per project decision). Slower than the
+# unit suite, so it runs in parallel with pr.yml rather than gating it.
 
 on:
   pull_request:
+  push:
+    # Mirror pr.yml's coverage-on-main behaviour for the e2e side: Codecov reports the
+    # DEFAULT-branch results, so main must run e2e itself for the e2e Test-Analytics report
+    # (uploaded below) to reflect main - otherwise it only ever sees PR-branch runs.
+    branches: [main]
   workflow_dispatch:
 
 permissions: {}
