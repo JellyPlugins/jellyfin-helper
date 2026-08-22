@@ -6,8 +6,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 
 /// <summary>
 ///     Tests for <see cref="ExceptionExtensions.IsFatal" />.
-///     Contract: <see cref="OutOfMemoryException" /> and <see cref="StackOverflowException" />
-///     must return <see langword="true" />; all other exception types must return <see langword="false" />.
+///     Contract: <see cref="OutOfMemoryException" />, <see cref="StackOverflowException" /> and
+///     <see cref="AccessViolationException" /> must return <see langword="true" />; all other
+///     exception types must return <see langword="false" />.
 /// </summary>
 public sealed class ExceptionExtensionsTests
 {
@@ -18,6 +19,10 @@ public sealed class ExceptionExtensionsTests
     [Fact]
     public void IsFatal_StackOverflowException_ReturnsTrue()
         => Assert.True(new StackOverflowException().IsFatal());
+
+    [Fact]
+    public void IsFatal_AccessViolationException_ReturnsTrue()
+        => Assert.True(new AccessViolationException().IsFatal());
 
     [Theory]
     [InlineData(typeof(InvalidOperationException))]

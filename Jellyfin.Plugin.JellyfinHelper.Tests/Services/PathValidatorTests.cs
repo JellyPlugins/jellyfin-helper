@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Xunit;
 
@@ -40,16 +42,16 @@ public class PathValidatorTests
     [Fact]
     public void IsSafePath_ReturnsTrue_WhenPathIsWithinBase()
     {
-        var basePath = System.IO.Path.GetTempPath();
-        var safePath = System.IO.Path.Join(basePath, "subdir", "file.txt");
+        var basePath = Path.GetTempPath();
+        var safePath = Path.Join(basePath, "subdir", "file.txt");
         Assert.True(PathValidator.IsSafePath(safePath, basePath));
     }
 
     [Fact]
     public void IsSafePath_ReturnsFalse_WhenPathIsOutsideBase()
     {
-        var basePath = System.IO.Path.Join(System.IO.Path.GetTempPath(), "allowed");
-        var outsidePath = System.IO.Path.Join(System.IO.Path.GetTempPath(), "outside", "file.txt");
+        var basePath = Path.Join(Path.GetTempPath(), "allowed");
+        var outsidePath = Path.Join(Path.GetTempPath(), "outside", "file.txt");
         Assert.False(PathValidator.IsSafePath(outsidePath, basePath));
     }
 
@@ -93,7 +95,7 @@ public class PathValidatorTests
         Assert.Equal("file.txt", result);
     }
 
-    // TEST-5: IsSafePath(base, base) must return true - the path IS the allowed root.
+    // IsSafePath(base, base) must return true. The path is the allowed root itself.
     [Fact]
     public void IsSafePath_PathEqualsBase_ReturnsTrue()
     {
@@ -127,8 +129,8 @@ public class PathValidatorTests
     // ===== IsPathSafeForDeletion =====
 
     /// <summary>
-    /// A path whose folder name contains ".." as a substring (but has no ".." segment)
-    /// must not be rejected - that would be a false positive.
+    /// A path whose folder name contains ".." as a substring, but has no ".." segment,
+    /// must not be rejected. That would be a false positive.
     /// </summary>
     [Fact]
     public void IsPathSafeForDeletion_PathWithDotDotInName_NotFalsePositive()
@@ -189,7 +191,7 @@ public class PathValidatorTests
     [InlineData("/media/Movies")]
     [InlineData("/mnt/library2")]
     [InlineData("/srv/media")]
-    [InlineData("/configuration")] // NOT /config - must not false-match on a prefix
+    [InlineData("/configuration")] // NOT /config, must not false-match on a prefix
     [InlineData("/etcetera")] // NOT /etc
     public void IsSensitiveSystemPath_MediaAndLookalikes_ReturnFalse(string path)
         => Assert.False(PathValidator.IsSensitiveSystemPath(path));
@@ -215,23 +217,23 @@ public class PathValidatorTests
         Assert.False(PathValidator.IsSafePath("/media/file.txt", ""));
     }
 
-    // Deletion may only ever act on absolute paths; a relative path is ambiguous
-    // (resolved against an unknown cwd) and must be refused outright.
+    // Deletion may only ever act on absolute paths. A relative path is ambiguous because
+    // it resolves against an unknown cwd, so it must be refused outright.
     [Fact]
     public void IsPathSafeForDeletion_RelativePath_Rejected()
     {
         Assert.False(PathValidator.IsPathSafeForDeletion(Path.Combine("relative", "dir"), []));
     }
 
-    // Deleting a whole drive/filesystem root must be refused regardless of library folders.
+    // Deleting a whole drive or filesystem root must be refused regardless of library folders.
     [Fact]
     public void IsPathSafeForDeletion_FilesystemRoot_Rejected()
     {
         Assert.False(PathValidator.IsPathSafeForDeletion(Path.GetPathRoot(Path.GetTempPath())!, []));
     }
 
-    // The candidate equals a configured library root exactly - deleting the library
-    // root itself must be refused (distinct from the child-of-root branch).
+    // The candidate equals a configured library root exactly. Deleting the library root
+    // itself must be refused, which is a different branch from child-of-root.
     [Fact]
     public void IsPathSafeForDeletion_PathEqualsLibraryRoot_Rejected()
     {
@@ -240,8 +242,8 @@ public class PathValidatorTests
         Assert.False(PathValidator.IsPathSafeForDeletion(libraryRoot, [libraryRoot]));
     }
 
-    // The candidate is a parent of a library root - deleting it would take the library
-    // root down with it, so an ancestor must be refused too.
+    // The candidate is a parent of a library root. Deleting it would take the library root
+    // down with it, so an ancestor must be refused too.
     [Fact]
     public void IsPathSafeForDeletion_PathIsAncestorOfLibraryRoot_Rejected()
     {
@@ -251,7 +253,7 @@ public class PathValidatorTests
             [Path.Combine(sep, "media", "movies")]));
     }
 
-    // A name that reduces to a dot-segment survives char sanitization and GetFileName
+    // A name that reduces to a dot-segment survives char sanitization and GetFileName,
     // but is not a usable filename, so the contract falls back to the safe default.
     [Theory]
     [InlineData("..")]
@@ -261,9 +263,9 @@ public class PathValidatorTests
         Assert.Equal("export", PathValidator.SanitizeFileName(name));
     }
 
-    // A path that clears the null-byte and ".."-segment guards but is malformed enough
-    // that Path.GetFullPath throws (a mid-string colon is illegal on Windows) must be
-    // refused via the exception filter, not surfaced as an exception to the caller.
+    // A path that clears the null-byte and ".."-segment guards but is still malformed
+    // enough that Path.GetFullPath throws, like a mid-string colon on Windows, must be
+    // refused via the exception filter instead of surfacing as an exception to the caller.
     [Fact]
     public void IsSafePath_MalformedPath_ReturnsFalse()
     {
@@ -274,5 +276,70 @@ public class PathValidatorTests
             Assert.False(PathValidator.IsSafePath(malformed, baseDir)));
 
         Assert.Null(result);
+    }
+
+    // On Linux '\' is not a separator, so the segment-split guard misses it.
+    // GetFullPath + StartsWith must still reject the traversal.
+    [Fact]
+    public void IsSafePath_BackslashTraversal_Rejected()
+    {
+        Assert.False(PathValidator.IsSafePath("/media\\..\\etc", "/media"));
+    }
+
+    // Mixed forward/back separators must not escape the base either. The resolved
+    // full path lands outside "/media" no matter which separator the split uses.
+    [Fact]
+    public void IsSafePath_MixedSeparatorTraversal_Rejected()
+    {
+        Assert.False(PathValidator.IsSafePath("/media/sub\\..\\..\\etc", "/media"));
+    }
+
+    // A null byte can truncate the path in downstream syscalls (injection vector).
+    // It must never survive into a real file operation.
+    [Fact]
+    public void SanitizeFileName_StripsNullByte()
+    {
+        var result = PathValidator.SanitizeFileName("evil\0.csv");
+        Assert.DoesNotContain('\0', result);
+        Assert.NotEmpty(result);
+    }
+
+    // A "filename" that is really an absolute path must be reduced to its leaf so it
+    // cannot keep directory components and escape the export directory.
+    [Fact]
+    public void SanitizeFileName_AbsolutePosixPath_ReducedToLeaf()
+    {
+        var result = PathValidator.SanitizeFileName("/etc/passwd");
+        Assert.Equal("passwd", result);
+        Assert.DoesNotContain('/', result);
+    }
+
+    // Same for a Windows path. No separators of either kind may survive, only the leaf.
+    [Fact]
+    public void SanitizeFileName_AbsoluteWindowsPath_ReducedToLeaf()
+    {
+        var result = PathValidator.SanitizeFileName("C:\\Windows\\system32\\evil.dll");
+        Assert.DoesNotContain('\\', result);
+        Assert.DoesNotContain('/', result);
+        Assert.Equal("evil.dll", result);
+    }
+
+    // Invalid filename chars like wildcards must each be replaced with '_' so the
+    // sanitized name is inert.
+    [Fact]
+    public void SanitizeFileName_ReplacesInvalidChars()
+    {
+        var result = PathValidator.SanitizeFileName("a<b>c?.txt");
+        Assert.Equal("a_b_c_.txt", result);
+    }
+
+    // Boundary contract: this helper guards only filesystem and library roots, not system
+    // paths, so "/etc" returns true here by design. Callers pair it with
+    // IsSensitiveSystemPath (see TrashController), which is what actually refuses /etc.
+    // Nothing in production treats this method alone as a full guard.
+    [Fact]
+    public void IsPathSafeForDeletion_DoesNotGuardSystemRoots_ByDesign()
+    {
+        Assert.True(PathValidator.IsPathSafeForDeletion("/etc", Array.Empty<string>()));
     }
 }

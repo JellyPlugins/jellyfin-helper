@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Xunit;
@@ -100,11 +101,11 @@ public class ApiKeyMaskResolverTests
     [Fact]
     public void ResolveArrKey_MaskSameUrlSameName_ResolvesToAStoredKeyDeterministically()
     {
-        // Duplicate instances (identical URL AND Name) are logically indistinguishable to the
-        // resolver, so it deterministically returns the FIRST matching stored key. The invariant
-        // that matters for security is preserved: a real stored key of THAT url is returned - never
-        // the mask, never a key from a different URL. Names are display labels, not required to be
-        // unique. This documents/locks the duplicate-name behaviour so it can't silently regress.
+        // Duplicate instances with identical URL and Name are indistinguishable to the resolver, so
+        // it deterministically returns the first matching stored key. The security invariant still
+        // holds: a real stored key for that URL comes back, never the mask and never a key from a
+        // different URL. Names are display labels, not unique keys. This locks the behaviour so it
+        // can't silently regress.
         var stored = new List<ArrInstanceConfig>
         {
             new() { Url = "http://localhost:7878", ApiKey = "key-first", Name = "Dup" },
@@ -120,8 +121,8 @@ public class ApiKeyMaskResolverTests
     [Fact]
     public void ResolveArrKey_MaskSameUrlEmptyNames_ResolvesToAStoredKey()
     {
-        // Empty names collide the same way as duplicate names; still resolves to a real stored key
-        // of the matching URL rather than failing or leaking the mask.
+        // Empty names collide the same way duplicate names do. Still resolves to a real stored key
+        // for the matching URL rather than failing or leaking the mask.
         var stored = new List<ArrInstanceConfig>
         {
             new() { Url = "http://localhost:7878", ApiKey = "key-first", Name = string.Empty },
@@ -136,8 +137,8 @@ public class ApiKeyMaskResolverTests
     [Fact]
     public void ResolveArrKey_MaskNameMismatch_FallsBackToUrlOnly()
     {
-        // Rename case: the stored Name differs (admin renamed), but the URL still matches, so the
-        // URL-only fallback recovers the key rather than losing it.
+        // Rename case: the stored Name differs because the admin renamed it, but the URL still
+        // matches, so the URL-only fallback recovers the key rather than losing it.
         var stored = new List<ArrInstanceConfig>
         {
             new() { Url = "http://localhost:7878", ApiKey = "stored-key", Name = "OldName" }
@@ -185,9 +186,63 @@ public class ApiKeyMaskResolverTests
     }
 
     [Fact]
+    public void ResolveArrKey_MaskWithReadOnlyListStore_UsesFastPath_RecoversStoredKey()
+    {
+        // The resolver reuses the list directly when it already implements IReadOnlyList, with no
+        // defensive copy. An array satisfies IReadOnlyList<T>, so this hits that fast path. Key
+        // recovery must be identical whatever the collection shape.
+        IReadOnlyList<ArrInstanceConfig> stored = new[]
+        {
+            new ArrInstanceConfig { Url = "http://localhost:7878", ApiKey = "stored-key", Name = "R" }
+        };
+
+        var result = ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "http://localhost:7878", "R", stored);
+
+        Assert.Equal("stored-key", result);
+    }
+
+    [Fact]
+    public void ResolveArrKey_MaskWithDeferredEnumerableStore_MaterializesOnce_RecoversStoredKey()
+    {
+        // A lazy IEnumerable that isn't an IReadOnlyList forces the ToList() branch instead. The
+        // Select projection guarantees it isn't already a list, so this covers the non-fast path.
+        var stored = new[] { ("http://localhost:7878", "stored-key", "R") }
+            .Select(t => new ArrInstanceConfig { Url = t.Item1, ApiKey = t.Item2, Name = t.Item3 });
+
+        var result = ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "http://localhost:7878", "R", stored);
+
+        Assert.Equal("stored-key", result);
+    }
+
+    [Fact]
     public void ResolveArrKey_NullStored_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>
             ApiKeyMaskResolver.ResolveArrKey("key", "http://localhost:7878", "R", null!));
+    }
+
+    [Fact]
+    public void ResolveArrKey_StoredKeyLiterallyEqualsMask_TreatedAsUnchanged_RoundTrips()
+    {
+        // Edge case: the admin's real stored key happens to equal the mask sentinel. Incoming is
+        // also the mask, so IsMask short-circuits and we recover the stored key by URL+Name.
+        // The returned value is the recovered stored key, never a freshly minted mask leaked as
+        // a new secret.
+        var stored = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://x", ApiKey = ApiKeyMask, Name = "R" }
+        };
+
+        var result = ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "http://x", "R", stored);
+
+        Assert.Equal(ApiKeyMask, result);
+    }
+
+    [Fact]
+    public void IsMask_TabAndNewlineWrappedSentinel_ReturnsTrue()
+    {
+        // Trim() drops all surrounding whitespace, not just spaces, so a tab/newline-padded copy
+        // still can't dodge detection and get forwarded upstream as a "key".
+        Assert.True(ApiKeyMaskResolver.IsMask("\t" + ApiKeyMask + "\n"));
     }
 }

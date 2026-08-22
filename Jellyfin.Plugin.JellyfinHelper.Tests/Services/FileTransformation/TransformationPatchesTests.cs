@@ -58,7 +58,7 @@ public class TransformationPatchesTests
     public void IndexHtml_NoBodyTag_ReturnsContentUnchanged_NoInjection()
     {
         // If there is no </body> to anchor against, we must NOT append the script tag
-        // at some arbitrary location - that would produce invalid HTML.
+        // at some arbitrary location, which would produce invalid HTML.
         const string html = "<html><head></head></html>";
         var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
         Assert.Equal(html, result);
@@ -104,7 +104,7 @@ public class TransformationPatchesTests
     {
         // File Transformation may re-invoke the callback whenever a client
         // reloads. Every invocation must produce a document with exactly one instance
-        // of the plugin script tag - not two, not three.
+        // of the plugin script tag, not two, not three.
         const string html = "<html><body></body></html>";
         var first = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
         var second = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = first });
@@ -115,7 +115,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_WithStaleOldVersionTag_ReplacesWithFreshTag()
     {
-        // Simulates upgrading the plugin - an old v0.9 tag is left behind and must
+        // Simulates upgrading the plugin. An old v0.9 tag is left behind and must
         // be removed by the RemovalRegex before the new tag goes in.
         const string html = "<html><body>" +
                             "<script plugin=\"Jellyfin Helper\" version=\"0.9\" src=\"stale?v=0.9\" defer></script>" +
@@ -150,7 +150,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_WithLiteralBodyInsideComment_InjectsBeforeRealClosingBody()
     {
-        // Contract: the injection target is the REAL closing </body> - the last one.
+        // Contract: the injection target is the real closing </body>, the last one.
         // A stray literal `</body>` inside an HTML comment must NOT trap the injection
         // inside a non-executing region. This fixture places a literal `</body>` inside
         // an HTML comment BEFORE the real closing tag; the implementation must skip
@@ -174,7 +174,7 @@ public class TransformationPatchesTests
         // otherwise the test degenerates to a single-occurrence check.
         Assert.NotEqual(firstBody, lastBody);
         // Locked contract: the script MUST land BETWEEN the comment's `</body>` and the
-        // real closing `</body>` - i.e. after the comment occurrence, before the last.
+        // real closing `</body>`, meaning after the comment occurrence and before the last.
         Assert.True(scriptIndex > firstBody,
             $"script must appear AFTER the </body> inside the comment (script={scriptIndex}, commentBody={firstBody})");
         Assert.True(scriptIndex < lastBody,
@@ -244,10 +244,10 @@ public class TransformationPatchesTests
         // For the "always run the disk fallback" design: when File
         // Transformation IS installed AND the disk fallback has ALSO already written the tag to
         // index.html, the File Transformation callback runs on that already-tagged on-disk content.
-        // It must de-duplicate to EXACTLY ONE tag - never stack a second copy.
+        // It must de-duplicate to exactly one tag and never stack a second copy.
         //
         // The tag is built by DiscoveryScriptTag.Build(version) in BOTH paths, and the version is
-        // NOT hard-coded here on purpose - the plugin version changes every release and the
+        // NOT hard-coded here on purpose, because the plugin version changes every release and the
         // de-duplication must never depend on it. We deliberately use a DIFFERENT (older) version
         // for the pre-existing on-disk tag than the callback will emit, to prove the RemovalRegex
         // matches our tag regardless of the version attribute (the real upgrade scenario), not just
@@ -292,5 +292,31 @@ public class TransformationPatchesTests
 
         Assert.Equal(html, result);
         Assert.DoesNotContain("<script", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void IndexHtml_LiteralBodyInsideHeadScript_NotChosenAsAnchor_InjectsBeforeRealBody()
+    {
+        // A literal "</body>" sits inside a script string in the head, before the real body.
+        // LastIndexOf (bounded to before </html>) must skip it and pick the real </body>,
+        // otherwise the tag lands inside a non-executing JS string in the head.
+        const string html =
+            "<html><head><script>var x=\"</body>\";</script></head><body><div>real</div></body></html>";
+
+        var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
+
+        Assert.Equal(1, CountOccurrences(result, "plugin=\"Jellyfin Helper\""));
+
+        var scriptIndex = result.IndexOf("plugin=\"Jellyfin Helper\"", StringComparison.Ordinal);
+        var headScriptIndex = result.IndexOf("var x=", StringComparison.Ordinal);
+        var realBodyIndex = result.LastIndexOf("</body>", StringComparison.Ordinal);
+
+        Assert.True(scriptIndex >= 0, "script tag must be present in the transformed output");
+        // After the head script (the head "</body>" string was not the anchor).
+        Assert.True(scriptIndex > headScriptIndex,
+            $"script must appear after the head script (script={scriptIndex}, headScript={headScriptIndex})");
+        // Before the real closing </body>.
+        Assert.True(scriptIndex < realBodyIndex,
+            $"script must appear before the real </body> (script={scriptIndex}, realBody={realBodyIndex})");
     }
 }
