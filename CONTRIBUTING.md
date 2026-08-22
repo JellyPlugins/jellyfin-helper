@@ -377,6 +377,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── ConfigurationController.cs       # Plugin configuration API
 │   ├── ConfigurationResponse.cs         # Read-only masked projection of PluginConfiguration returned by GET /Configuration - all API key fields replaced with a fixed-length mask sentinel (ApiKeyMask); empty string when no key is stored. Static factory method FromConfig(PluginConfiguration) keeps the mapping in one place.
 │   ├── MaskedArrInstanceConfig.cs       # Arr-instance view model used inside ConfigurationResponse (Name, Url, masked ApiKey). Separate from ArrInstanceConfig so the real key never appears in the serialized GET response.
+│   ├── ApiKeyMaskResolver.cs            # Shared logic for the ApiKeyMask sentinel: IsMask(candidate) + ResolveArrKey(incoming, url, name, stored). Used by the save path (ConfigurationController) AND the stateless Test-Connection endpoints (ArrIntegrationController/SeerrController) so a masked key echoed back is resolved to the real stored key server-side and the mask is never forwarded upstream. Unresolvable mask → empty string (caller must not test).
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
@@ -607,6 +608,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `ArrIntegrationControllerExtendedTests.cs`
 - `ArrIntegrationControllerTests.cs`
+- `ApiKeyMaskResolverTests.cs` - Tests the ApiKeyMask sentinel resolver: IsMask (exact/padded/non-sentinel), ResolveArrKey (non-mask passthrough, Name+URL match, URL-only rename fallback, same-URL collision, no-match→empty, null-guard)
 - `BackupControllerExtendedTests.cs`
 - `BackupControllerTests.cs`
 - `CleanupStatisticsControllerTests.cs` - Tests CleanupStatisticsController returns cleanup stats payload (bytes freed, items, timestamp)
@@ -860,7 +862,8 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/Api/`
 
 - `ArrIntegrationController.cs`
-- `ArrTestConnectionRequest.cs` - Request DTO carrying URL and API key for testing a Radarr/Sonarr connection
+- `ApiKeyMaskResolver.cs` - Shared ApiKeyMask sentinel logic (IsMask + ResolveArrKey) used by the save path and the Test-Connection endpoints so a masked key is resolved to the real stored key server-side and never forwarded upstream
+- `ArrTestConnectionRequest.cs` - Request DTO carrying URL, API key, and optional Name for testing a Radarr/Sonarr connection (Name disambiguates the stored key when the API key is the masked sentinel)
 - `BackupController.cs`
 - `CleanupStatisticsController.cs`
 - `ConfigurationController.cs`

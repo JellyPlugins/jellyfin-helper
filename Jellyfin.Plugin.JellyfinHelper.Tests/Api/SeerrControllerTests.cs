@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Http;
@@ -14,23 +15,36 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 public class SeerrControllerTests
 {
+    private const string ApiKeyMask = "********";
+
     private readonly Mock<ISeerrIntegrationService> _seerrService;
     private readonly SeerrController _controller;
 
     public SeerrControllerTests()
     {
         _seerrService = new Mock<ISeerrIntegrationService>();
+        _controller = CreateController(new PluginConfiguration());
+    }
 
-        _controller = new SeerrController(
+    /// <summary>
+    ///     Builds a controller wired to a config helper returning the supplied configuration.
+    ///     The shared <see cref="_seerrService"/> mock is reused so setups/verifications apply.
+    /// </summary>
+    private SeerrController CreateController(PluginConfiguration config)
+    {
+        var controller = new SeerrController(
             _seerrService.Object,
             TestMockFactory.CreatePluginLogService(),
-            TestMockFactory.CreateLogger<SeerrController>().Object);
+            TestMockFactory.CreateLogger<SeerrController>().Object,
+            TestMockFactory.CreateCleanupConfigHelper(config).Object);
 
         // Set up a default HttpContext so HttpContext.RequestAborted is available
-        _controller.ControllerContext = new ControllerContext
+        controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext()
         };
+
+        return controller;
     }
 
     [Fact]
@@ -160,4 +174,87 @@ public class SeerrControllerTests
         Assert.Contains("timed out", payload.Message);
     }
 
+    // ---------- Masked-key sentinel resolution ----------
+
+    [Fact]
+    public async Task TestConnection_MaskWithMatchingStoredUrl_UsesRealStoredKey()
+    {
+        // Arrange: a stored Seerr instance whose real key the client must NOT know.
+        const string realKey = "real-stored-seerr-key";
+        var config = new PluginConfiguration { SeerrUrl = "http://seerr.local", SeerrApiKey = realKey };
+        var controller = CreateController(config);
+
+        string? sentKey = null;
+        _seerrService
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, CancellationToken>((_, key, _) => sentKey = key)
+            .ReturnsAsync((true, "Connected"));
+
+        // Client echoes back the mask (unchanged stored key).
+        var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = ApiKeyMask };
+        var result = await controller.TestConnection(request);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.True(Assert.IsType<ConnectionTestResponse>(okResult.Value).Success);
+        // The REAL stored key was probed upstream, never the mask.
+        Assert.Equal(realKey, sentKey);
+        Assert.NotEqual(ApiKeyMask, sentKey);
+    }
+
+    [Fact]
+    public async Task TestConnection_MaskWithUnknownUrl_ReturnsFailureAndNeverSendsMask()
+    {
+        // Stored URL differs from the request URL → the mask cannot borrow the stored key.
+        var config = new PluginConfiguration { SeerrUrl = "http://other.local", SeerrApiKey = "real-key" };
+        var controller = CreateController(config);
+
+        var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = ApiKeyMask };
+        var result = await controller.TestConnection(request);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
+        Assert.False(Assert.IsType<ConnectionTestResponse>(objectResult.Value).Success);
+        // The upstream must never be probed with the masked sentinel.
+        _seerrService.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task TestConnection_MaskWithNoStoredKey_ReturnsFailureAndNeverSendsMask()
+    {
+        // URL matches but there is no stored key at all → cannot resolve, must not send the mask.
+        var config = new PluginConfiguration { SeerrUrl = "http://seerr.local", SeerrApiKey = string.Empty };
+        var controller = CreateController(config);
+
+        var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = ApiKeyMask };
+        var result = await controller.TestConnection(request);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
+        _seerrService.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task TestConnection_RealKey_IsPassedThroughUnchanged()
+    {
+        // A non-mask value is a new key the admin is entering; it must be tested as-is even if a
+        // different key is stored (this is how a key is changed).
+        var config = new PluginConfiguration { SeerrUrl = "http://seerr.local", SeerrApiKey = "old-stored-key" };
+        var controller = CreateController(config);
+
+        string? sentKey = null;
+        _seerrService
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, CancellationToken>((_, key, _) => sentKey = key)
+            .ReturnsAsync((true, "Connected"));
+
+        var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "brand-new-key" };
+        var result = await controller.TestConnection(request);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("brand-new-key", sentKey);
+    }
 }

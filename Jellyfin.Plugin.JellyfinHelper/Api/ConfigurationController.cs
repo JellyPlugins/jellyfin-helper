@@ -350,7 +350,7 @@ public class ConfigurationController : ControllerBase
         // When the client echoes back the mask sentinel, the key was not changed - skip the test.
         // ApplyRequestToConfig already preserved the real stored key; using the mask as a live
         // credential would produce a guaranteed 401 from Seerr and a misleading warning.
-        if (string.Equals(seerrApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        if (ApiKeyMaskResolver.IsMask(seerrApiKey))
         {
             return;
         }
@@ -420,7 +420,7 @@ public class ConfigurationController : ControllerBase
             // Skip the live test when the client echoed back the mask sentinel - same guard as
             // TestSeerrConnectionAsync. Sending the mask to Radarr/Sonarr produces a 401 and a
             // spurious warning even though the real stored key is perfectly valid.
-            if (string.Equals(instance.ApiKey.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+            if (ApiKeyMaskResolver.IsMask(instance.ApiKey))
             {
                 continue;
             }
@@ -532,7 +532,7 @@ public class ConfigurationController : ControllerBase
         // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value.
         // Trim before comparing so a client that pads the sentinel (e.g. " <mask> ") is still recognised
         // correctly and never overwrites the real stored key with a literal copy of the mask.
-        if (!string.Equals(request.SeerrApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        if (!ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
         {
             config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
         }
@@ -604,18 +604,14 @@ public class ConfigurationController : ControllerBase
         ArrInstanceConfig incoming,
         List<ArrInstanceConfig> previousInstances)
     {
-        if (!string.Equals(incoming.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
-        {
-            return incoming.ApiKey ?? string.Empty;
-        }
-
-        // Sentinel echoed back: recover stored key. Try Name+URL first (exact match, handles
-        // same-URL collision), then fall back to URL-only (handles rename).
-        return (previousInstances.FirstOrDefault(p =>
-                    string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)
-                    && p.Name == incoming.Name)
-                ?? previousInstances.FirstOrDefault(p =>
-                    string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)))?.ApiKey
-               ?? string.Empty;
+        // Delegates to the shared resolver so the save path and the stateless Test-Connection
+        // endpoints (ArrIntegrationController / SeerrController) use one implementation of the
+        // mask-sentinel semantics. Behaviour is unchanged: non-mask keys pass through as-is,
+        // the mask recovers the stored key by Name+URL then URL-only fallback.
+        return ApiKeyMaskResolver.ResolveArrKey(
+            incoming.ApiKey,
+            incoming.Url,
+            incoming.Name,
+            previousInstances);
     }
 }

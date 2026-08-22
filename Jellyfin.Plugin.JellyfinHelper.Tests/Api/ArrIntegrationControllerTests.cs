@@ -96,8 +96,148 @@ public class ArrIntegrationControllerTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(payload.Message));
     }
 
+    // ===== Masked-key sentinel resolution =====
+
+    private const string ApiKeyMask = "********";
+
+    /// <summary>
+    ///     Builds a mock handler that captures the outgoing <c>X-Api-Key</c> header so a test can
+    ///     assert which key was actually sent upstream (real key vs the mask sentinel).
+    /// </summary>
+    private static (Mock<HttpMessageHandler> Handler, Func<string?> GetSentKey) CreateKeyCapturingHandler(
+        HttpStatusCode statusCode,
+        string content)
+    {
+        string? sentKey = null;
+        var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((req, _) =>
+            {
+                if (req.Headers.TryGetValues("X-Api-Key", out var values))
+                {
+                    sentKey = string.Join(string.Empty, values);
+                }
+            })
+            .ReturnsAsync(() => new HttpResponseMessage
+            {
+                StatusCode = statusCode,
+                Content = new StringContent(content)
+            });
+        return (mock, () => sentKey);
+    }
+
     [Fact]
-    public async Task CompareRadarrAsync_NoInstancesConfigured_ReturnsBadRequest()
+    public async Task TestArrConnectionAsync_MaskWithMatchingStoredInstance_UsesRealStoredKey()
+    {
+        const string realKey = "real-radarr-key";
+        var config = new PluginConfiguration();
+        config.RadarrInstances.Add(new ArrInstanceConfig { Url = "http://localhost:7878", ApiKey = realKey, Name = "Radarr" });
+        _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
+
+        var (handlerMock, getSentKey) = CreateKeyCapturingHandler(HttpStatusCode.OK, "{\"version\": \"1.0\"}");
+        using var httpClient = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        // Client echoes back the mask (unchanged stored key) + the instance name.
+        var request = new ArrTestConnectionRequest { Url = "http://localhost:7878", ApiKey = ApiKeyMask, Name = "Radarr" };
+        var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.True(Assert.IsType<ConnectionTestResponse>(okResult.Value).Success);
+        Assert.Equal(realKey, getSentKey());
+        Assert.NotEqual(ApiKeyMask, getSentKey());
+    }
+
+    [Fact]
+    public async Task TestArrConnectionAsync_MaskResolvesFromSonarrInstances_TypeAgnostic()
+    {
+        // The stateless endpoint does not know Radarr vs Sonarr; it must search both stores.
+        const string realKey = "real-sonarr-key";
+        var config = new PluginConfiguration();
+        config.SonarrInstances.Add(new ArrInstanceConfig { Url = "http://localhost:8989", ApiKey = realKey, Name = "Sonarr" });
+        _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
+
+        var (handlerMock, getSentKey) = CreateKeyCapturingHandler(HttpStatusCode.OK, "{\"version\": \"1.0\"}");
+        using var httpClient = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        var request = new ArrTestConnectionRequest { Url = "http://localhost:8989", ApiKey = ApiKeyMask, Name = "Sonarr" };
+        var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(realKey, getSentKey());
+    }
+
+    [Fact]
+    public async Task TestArrConnectionAsync_MaskSameUrlCollision_ResolvesByName()
+    {
+        // Two instances share a URL with different keys; Name must select the right one.
+        var config = new PluginConfiguration();
+        config.RadarrInstances.Add(new ArrInstanceConfig { Url = "http://localhost:7878", ApiKey = "key-A", Name = "A" });
+        config.RadarrInstances.Add(new ArrInstanceConfig { Url = "http://localhost:7878", ApiKey = "key-B", Name = "B" });
+        _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
+
+        var (handlerMock, getSentKey) = CreateKeyCapturingHandler(HttpStatusCode.OK, "{\"version\": \"1.0\"}");
+        using var httpClient = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        var request = new ArrTestConnectionRequest { Url = "http://localhost:7878", ApiKey = ApiKeyMask, Name = "B" };
+        await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        Assert.Equal("key-B", getSentKey());
+    }
+
+    [Fact]
+    public async Task TestArrConnectionAsync_MaskWithNoStoredMatch_ReturnsFailureAndNeverSendsMask()
+    {
+        // No stored instance matches this URL → cannot resolve. Must not forward the mask upstream.
+        _configHelperMock.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
+
+        var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handlerMock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        using var httpClient = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        var request = new ArrTestConnectionRequest { Url = "http://localhost:7878", ApiKey = ApiKeyMask, Name = "Radarr" };
+        var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(502, statusResult.StatusCode);
+        Assert.False(Assert.IsType<ConnectionTestResponse>(statusResult.Value).Success);
+        // Strict handler with no SendAsync setup would throw if the upstream were called with the mask.
+        handlerMock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TestArrConnectionAsync_RealKey_IsPassedThroughUnchanged()
+    {
+        // A non-mask value is a new key the admin is entering; tested as-is even if a different
+        // key is stored for the same URL (this is how a key is changed).
+        var config = new PluginConfiguration();
+        config.RadarrInstances.Add(new ArrInstanceConfig { Url = "http://localhost:7878", ApiKey = "old-key", Name = "Radarr" });
+        _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
+
+        var (handlerMock, getSentKey) = CreateKeyCapturingHandler(HttpStatusCode.OK, "{\"version\": \"1.0\"}");
+        using var httpClient = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        var request = new ArrTestConnectionRequest { Url = "http://localhost:7878", ApiKey = "brand-new-key", Name = "Radarr" };
+        await _controller.TestArrConnectionAsync(request, CancellationToken.None);
+
+        Assert.Equal("brand-new-key", getSentKey());
+    }
+
+    [Fact]
+    public async Task CompareRadarrAsync_EmptyInstances_ReturnsBadRequest()
     {
         _configHelperMock.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
         // RadarrInstances is empty by default

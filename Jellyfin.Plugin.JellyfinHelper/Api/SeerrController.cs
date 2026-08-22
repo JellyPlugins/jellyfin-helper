@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
@@ -22,6 +23,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class SeerrController : ControllerBase
 {
+    private readonly ICleanupConfigHelper _configHelper;
     private readonly ILogger<SeerrController> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly ISeerrIntegrationService _seerrService;
@@ -32,14 +34,17 @@ public class SeerrController : ControllerBase
     /// <param name="seerrService">The Seerr integration service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
+    /// <param name="configHelper">The cleanup configuration helper, used to resolve the masked API-key sentinel.</param>
     public SeerrController(
         ISeerrIntegrationService seerrService,
         IPluginLogService pluginLog,
-        ILogger<SeerrController> logger)
+        ILogger<SeerrController> logger,
+        ICleanupConfigHelper configHelper)
     {
         _seerrService = seerrService;
         _pluginLog = pluginLog;
         _logger = logger;
+        _configHelper = configHelper;
     }
 
     /// <summary>
@@ -85,12 +90,41 @@ public class SeerrController : ControllerBase
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
+        // Resolve the masked-key sentinel to the real stored Seerr key BEFORE the live call. After a
+        // reload the API-key input holds the fixed-length mask (the real key never leaves the server),
+        // so testing the stored instance must probe Seerr with the REAL key to report true reachability
+        // - not send the mask, which would always 401 and show a misleading failure. Any non-mask value
+        // is a new key the admin is entering and is tested as-is. The stored key is only substituted
+        // when the request URL matches the persisted SeerrUrl, so a mask against an unknown URL cannot
+        // borrow an unrelated credential.
+        var apiKey = request.ApiKey;
+        if (ApiKeyMaskResolver.IsMask(apiKey))
+        {
+            var config = _configHelper.GetConfig();
+            var urlMatches = string.Equals(
+                config.SeerrUrl?.Trim(),
+                request.Url.Trim(),
+                StringComparison.OrdinalIgnoreCase);
+
+            if (urlMatches && !string.IsNullOrWhiteSpace(config.SeerrApiKey))
+            {
+                apiKey = config.SeerrApiKey;
+            }
+            else
+            {
+                // Mask sent but no matching stored key. Do NOT forward the mask upstream; return the
+                // same generic failure the live path uses so the client shows a truthful "not reachable".
+                _pluginLog.LogWarning("API", "Seerr connection test received the masked key sentinel but no stored key matched the URL; cannot resolve a real key.", logger: _logger);
+                return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
+            }
+        }
+
         try
         {
             var timeout = TimeSpan.FromSeconds(10);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
             cts.CancelAfter(timeout);
-            var (success, message) = await _seerrService.TestConnectionAsync(request.Url, request.ApiKey, cts.Token)
+            var (success, message) = await _seerrService.TestConnectionAsync(request.Url, apiKey, cts.Token)
                 .ConfigureAwait(false);
 
             if (success)
