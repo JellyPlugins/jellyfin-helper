@@ -10,7 +10,7 @@
  *     true on every valid import regardless of change. We also prove the stored
  *     config values are identical after both imports.
  *   - Config PUT: two identical PUTs → identical GET state. Keys are sent MASKED
- *     ('***') so no live Arr/Seerr connection test runs (its Warnings[] are
+ *     (the mask sentinel) so no live Arr/Seerr connection test runs (its Warnings[] are
  *     network-dependent and would be flaky - we assert stored state, not warnings).
  *   - Discovery (admin) Request: the plugin does NOT dedupe the Seerr submission.
  *     The correct, non-vacuous assertion is that a repeated request reaches the
@@ -19,7 +19,7 @@
  *     no-op (Moved:0, Failed:0, 200). Requires the container FS; skips loudly.
  */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
+import { apiContext, loadAuth, p, assertPluginActive, API_KEY_MASK } from '../setup/api-client.ts';
 import {
   ensureCanariesPlanted,
   verifyCanaries,
@@ -122,7 +122,7 @@ test.describe.serial('Backup/Import is idempotent (2nd import of the same file s
 // --- config PUT ------------------------------------------------------------
 
 test('PUT /Configuration twice with the same body yields identical stored state', async () => {
-  // Masked keys ('***') make the save skip the live Arr/Seerr connection tests,
+  // Masked keys (the mask sentinel) make the save skip the live Arr/Seerr connection tests,
   // so the result is deterministic and independent of mock reachability.
   const body = {
     Language: 'en',
@@ -131,7 +131,7 @@ test('PUT /Configuration twice with the same body yields identical stored state'
     TrashFolderPath: '.jellyfin-trash',
     TrashRetentionDays: 14,
     SeerrUrl: 'http://mock-seerr:5055',
-    SeerrApiKey: '***',
+    SeerrApiKey: API_KEY_MASK,
   };
   await putConfig(body);
   const afterFirst = await getConfig();

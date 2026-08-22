@@ -1081,7 +1081,7 @@ public class ConfigurationControllerTests
     public void GetConfiguration_NonEmptyKeys_ReturnsSentinelMask()
     {
         // BUG GUARD: GET must never return plain-text API keys.
-        // Non-empty keys must be replaced with the sentinel mask "***".
+        // Non-empty keys must be replaced with the mask sentinel (ConfigurationResponse.ApiKeyMask).
         _config.SeerrApiKey = "real-seerr-secret";
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r:7878", ApiKey = "real-radarr-key" });
         _config.SonarrInstances.Add(new ArrInstanceConfig { Name = "S1", Url = "http://s:8989", ApiKey = "real-sonarr-key" });
@@ -1118,9 +1118,9 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelSeerrApiKey_PreservesStoredKey()
     {
-        // Contract: when the client echoes "***" for SeerrApiKey the POST must leave
-        // the real stored key untouched. This is the round-trip case: GET → UI shows "***"
-        // → user saves without changing the key → POST receives "***" → key must not change.
+        // Contract: when the client echoes the mask sentinel for SeerrApiKey the POST must leave
+        // the real stored key untouched. This is the round-trip case: GET → UI shows the mask
+        // → user saves without changing the key → POST receives the mask → key must not change.
         _config.SeerrApiKey = "original-secret";
         _config.SeerrUrl = "https://seerr.example.com";
 
@@ -1160,8 +1160,8 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelRadarrApiKey_PreservesStoredKey()
     {
-        // Contract: GET masks Radarr keys as "***". When the user saves Settings without
-        // touching the key field the browser echoes "***" back. The POST must leave the
+        // Contract: GET masks Radarr keys with the mask sentinel. When the user saves Settings
+        // without touching the key field the browser echoes the mask back. The POST must leave the
         // real stored key untouched - identical to the Seerr sentinel contract.
         _config.RadarrInstances.Add(new ArrInstanceConfig
         {
@@ -1318,7 +1318,7 @@ public class ConfigurationControllerTests
         var request = new ConfigurationUpdateRequest
         {
             SeerrUrl = "https://seerr.example.com",
-            SeerrApiKey = "***",
+            SeerrApiKey = ConfigurationResponse.ApiKeyMask,
             SeerrCleanupAgeDays = 30
         };
 
@@ -1326,7 +1326,7 @@ public class ConfigurationControllerTests
 
         Assert.IsType<OkObjectResult>(result);
         _seerrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), "***", It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.Equal("real-stored-key", _config.SeerrApiKey);
     }
@@ -1343,14 +1343,14 @@ public class ConfigurationControllerTests
         {
             RadarrInstances = [new ArrInstanceConfig
             {
-                Name = "Radarr", Url = "http://radarr.local", ApiKey = "***"
+                Name = "Radarr", Url = "http://radarr.local", ApiKey = ConfigurationResponse.ApiKeyMask
             }]
         };
 
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), "***", It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
     }
@@ -1433,7 +1433,7 @@ public class ConfigurationControllerTests
 
     /// <summary>
     ///     When the admin renames a Radarr instance (Name changes)
-    ///     but keeps the same URL, and the client echoes the sentinel "***" for the key, the
+    ///     but keeps the same URL, and the client echoes the mask sentinel for the key, the
     ///     stored key must be preserved. The lookup matches by URL, so a rename alone must not
     ///     clear the API key.
     /// </summary>

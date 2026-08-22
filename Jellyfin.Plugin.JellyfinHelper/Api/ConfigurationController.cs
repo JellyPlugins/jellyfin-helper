@@ -77,7 +77,8 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Gets the current plugin configuration.
-    ///     API keys are replaced with a masked placeholder (<c>***</c>) so they
+    ///     API keys are replaced with a fixed-length masked placeholder
+    ///     (<see cref="ConfigurationResponse.ApiKeyMask"/>) so they
     ///     never leave the server in plain text. Clients that need to change a key must
     ///     send the real value via POST /Configuration; receiving the mask means the key
     ///     is already set. Sending the mask back via POST is a no-op - the real stored
@@ -347,7 +348,7 @@ public class ConfigurationController : ControllerBase
         var seerrLabel = Services.Common.SsrfGuard.SafeEndpointLabel(seerrUrl);
 
         // When the client echoes back the mask sentinel, the key was not changed - skip the test.
-        // ApplyRequestToConfig already preserved the real stored key; using "***" as a live
+        // ApplyRequestToConfig already preserved the real stored key; using the mask as a live
         // credential would produce a guaranteed 401 from Seerr and a misleading warning.
         if (string.Equals(seerrApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
         {
@@ -417,7 +418,7 @@ public class ConfigurationController : ControllerBase
             }
 
             // Skip the live test when the client echoed back the mask sentinel - same guard as
-            // TestSeerrConnectionAsync. Sending "***" to Radarr/Sonarr produces a 401 and a
+            // TestSeerrConnectionAsync. Sending the mask to Radarr/Sonarr produces a 401 and a
             // spurious warning even though the real stored key is perfectly valid.
             if (string.Equals(instance.ApiKey.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
             {
@@ -528,9 +529,9 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        // If the client echoes back the mask sentinel ("***"), the key was not changed - preserve the stored value.
-        // Trim before comparing so a client that pads the sentinel (e.g. " *** ") is still recognised correctly
-        // and never overwrites the real stored key with a literal "***".
+        // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value.
+        // Trim before comparing so a client that pads the sentinel (e.g. " <mask> ") is still recognised
+        // correctly and never overwrites the real stored key with a literal copy of the mask.
         if (!string.Equals(request.SeerrApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
         {
             config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
@@ -608,7 +609,7 @@ public class ConfigurationController : ControllerBase
             return incoming.ApiKey ?? string.Empty;
         }
 
-        // Sentinel "***": recover stored key. Try Name+URL first (exact match, handles
+        // Sentinel echoed back: recover stored key. Try Name+URL first (exact match, handles
         // same-URL collision), then fall back to URL-only (handles rename).
         return (previousInstances.FirstOrDefault(p =>
                     string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)

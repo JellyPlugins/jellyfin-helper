@@ -13,7 +13,7 @@
  *     Trash/Relocate.
  */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, runCleanupTask } from '../setup/api-client.ts';
+import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, runCleanupTask, API_KEY_MASK } from '../setup/api-client.ts';
 
 // MaxVisiblePerUser cap enforced by GetMyDiscoveryResults (SeerrDiscoveryService).
 const MAX_VISIBLE_PER_USER = 10;
@@ -41,7 +41,7 @@ test.beforeAll(async () => {
   user = await normalUserContext(auth);
 
   // Capture the pre-test config so afterAll can put it back verbatim. GET masks
-  // the API key as '***'; re-sending '***' preserves the stored key (no wipe).
+  // the API key with the mask sentinel; re-sending it preserves the stored key (no wipe).
   const current = await admin.get(p('Configuration'));
   if (current.ok()) {
     const c = (await current.json()) as ConfigSnapshot;
@@ -66,13 +66,13 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   // Restore the shared Configuration these tests mutated, so later specs run
   // against the original backend state. The snapshot never captured the plaintext
-  // SeerrApiKey, so we send the mask '***', which the backend treats as "keep the
+  // SeerrApiKey, so we send the mask sentinel, which the backend treats as "keep the
   // currently-stored key" rather than overwriting it.
   if (Object.keys(configSnapshot).length > 0) {
     await admin
       .put(p('Configuration'), {
         headers: { 'Content-Type': 'application/json' },
-        data: { ...configSnapshot, SeerrApiKey: '***' },
+        data: { ...configSnapshot, SeerrApiKey: API_KEY_MASK },
       })
       .catch(() => undefined);
   }
@@ -87,7 +87,7 @@ async function setDiscoveryAccess(enabled: boolean) {
     data: {
       RecommendationsTaskMode: 'Activate',
       SeerrUrl: 'http://mock-seerr:5055',
-      SeerrApiKey: '***',
+      SeerrApiKey: API_KEY_MASK,
       DiscoveryUserAccessEnabled: enabled,
     },
   });
@@ -178,7 +178,7 @@ test.describe.serial('Discovery/My access gating', () => {
 test('admin Discovery/Request submission reaches the mock', async () => {
   const cfg = await admin.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
-    data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***' },
+    data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: API_KEY_MASK },
   });
   expect(cfg.ok(), `request-test config failed: ${cfg.status()}`).toBeTruthy();
   const res = await admin.post(p('Discovery/Request'), {

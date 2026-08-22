@@ -8,7 +8,7 @@
  * provisioned.
  */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
+import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, API_KEY_MASK } from '../setup/api-client.ts';
 
 const MOCK = process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
 const auth = loadAuth();
@@ -44,7 +44,7 @@ async function setAccess(enabled: boolean) {
     data: {
       RecommendationsTaskMode: 'Activate',
       SeerrUrl: 'http://mock-seerr:5055',
-      SeerrApiKey: '***',
+      SeerrApiKey: API_KEY_MASK,
       DiscoveryUserAccessEnabled: enabled,
     },
   });

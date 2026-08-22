@@ -137,7 +137,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── BackupControllerTests.cs
 │   ├── BackupControllerExtendedTests.cs               # Malformed JSON → 400, null body, chunk-loop MaxSize defence, whitespace-only body
 │   ├── BackupControllerErrorHandlingTests.cs          # Service-layer failures surfaced as the right status codes (mocked IBackupService)
-│   ├── ConfigurationControllerTests.cs               # Key-masking: non-empty → "***", empty stays empty, sentinel preserves stored key, PluginLogLevel TOCTOU
+│   ├── ConfigurationControllerTests.cs               # Key-masking: non-empty → fixed-length mask sentinel, empty stays empty, sentinel preserves stored key, PluginLogLevel TOCTOU
 │   ├── ConfigurationResponseTests.cs                 # ConfigurationResponse.FromConfig + MaskedArrInstanceConfig: masking, field pass-through, real key never in response
 │   ├── DiscoveryControllerTests.cs
 │   ├── DiscoveryControllerExtendedTests.cs           # Seerr users/services, request submission, filter logic, feedback-store error paths
@@ -375,7 +375,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── BackupController.cs              # Backup/restore API
 │   ├── CleanupStatisticsController.cs   # Cleanup statistics API
 │   ├── ConfigurationController.cs       # Plugin configuration API
-│   ├── ConfigurationResponse.cs         # Read-only masked projection of PluginConfiguration returned by GET /Configuration - all API key fields replaced with "***" sentinel; empty string when no key is stored. Static factory method FromConfig(PluginConfiguration) keeps the mapping in one place.
+│   ├── ConfigurationResponse.cs         # Read-only masked projection of PluginConfiguration returned by GET /Configuration - all API key fields replaced with a fixed-length mask sentinel (ApiKeyMask); empty string when no key is stored. Static factory method FromConfig(PluginConfiguration) keeps the mapping in one place.
 │   ├── MaskedArrInstanceConfig.cs       # Arr-instance view model used inside ConfigurationResponse (Name, Url, masked ApiKey). Separate from ArrInstanceConfig so the real key never appears in the serialized GET response.
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)

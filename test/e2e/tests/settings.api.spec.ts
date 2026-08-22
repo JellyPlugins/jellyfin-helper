@@ -9,7 +9,7 @@
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { request as pwRequest } from '@playwright/test';
-import { apiContext, loadAuth, p } from '../setup/api-client.ts';
+import { apiContext, loadAuth, p, API_KEY_MASK } from '../setup/api-client.ts';
 
 const MOCK_SEERR_PUBLIC = process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
 
@@ -82,11 +82,11 @@ test('trash settings persist and toggle', async () => {
   expect((await getConfig()).TrashFolderPath).toBe('.jellyfin-trash');
 });
 
-test('Seerr API key mask (***): stored key is preserved on re-save (functionally proven)', async () => {
+test('Seerr API key mask: stored key is preserved on re-save (functionally proven)', async () => {
   // The admin Discovery/Request path submits to the mock using the STORED key and
   // returns a non-2xx if that key is rejected - a cache-immune, per-call probe
   // (unlike Discovery/Users, which caches for 5 min and swallows upstream 401s).
-  // The mock now 401s a literal '***' (mocks/seerr-server.js), so a wipe-to-mask
+  // The mock now 401s any all-asterisk mask (mocks/seerr-server.js), so a wipe-to-mask
   // is detectable: the submission would fail AND never reach the mock.
   const mock = await pwRequest.newContext();
   const resetAndSubmit = async (): Promise<{ recorded: number }> => {
@@ -106,23 +106,23 @@ test('Seerr API key mask (***): stored key is preserved on re-save (functionally
     // Set a REAL key the mock accepts, and confirm GET masks it.
     const set = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'seerr-key', SeerrCleanupAgeDays: 30 });
     expect(set.ok(), `initial key save failed: ${set.status()}`).toBeTruthy();
-    expect((await getConfig()).SeerrApiKey, 'GET must mask the stored key').toBe('***');
+    expect((await getConfig()).SeerrApiKey, 'GET must mask the stored key').toBe(API_KEY_MASK);
 
     // Baseline: the stored key authenticates to the mock (a request is recorded).
     expect((await resetAndSubmit()).recorded, 'stored key must reach the mock (baseline)').toBe(1);
 
-    // Re-save echoing the mask: '***' must mean "keep the stored key", never
+    // Re-save echoing the mask: the mask must mean "keep the stored key", never
     // persist the literal mask. Prove it - a submission must still reach the mock.
-    const resaveMask = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***', SeerrCleanupAgeDays: 30 });
+    const resaveMask = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: API_KEY_MASK, SeerrCleanupAgeDays: 30 });
     expect(resaveMask.ok(), `mask re-save failed: ${resaveMask.status()}`).toBeTruthy();
-    expect((await getConfig()).SeerrApiKey).toBe('***');
-    expect((await resetAndSubmit()).recorded, "stored key was WIPED by a '***' re-save").toBe(1);
+    expect((await getConfig()).SeerrApiKey).toBe(API_KEY_MASK);
+    expect((await resetAndSubmit()).recorded, 'stored key was WIPED by a mask re-save').toBe(1);
 
-    // Same guarantee for a whitespace-padded mask ' *** ' (server trims before the
+    // Same guarantee for a whitespace-padded mask (server trims before the
     // sentinel compare - ConfigurationController preserves the key here too).
-    const resavePadded = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: ' *** ', SeerrCleanupAgeDays: 30 });
+    const resavePadded = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: ` ${API_KEY_MASK} `, SeerrCleanupAgeDays: 30 });
     expect(resavePadded.ok(), `padded-mask re-save failed: ${resavePadded.status()}`).toBeTruthy();
-    expect((await resetAndSubmit()).recorded, "stored key was WIPED by a ' *** ' re-save").toBe(1);
+    expect((await resetAndSubmit()).recorded, 'stored key was WIPED by a padded-mask re-save').toBe(1);
   } finally {
     await mock.dispose();
   }
@@ -174,7 +174,7 @@ test('Arr instances persist (max 3, key masked)', async () => {
   expect(cfg.RadarrInstances[0].Name).toBe('Radarr Main');
   expect(cfg.RadarrInstances[0].Url).toBe('http://mock-arr:9000');
   // Key masked on read.
-  expect(cfg.RadarrInstances[0].ApiKey).toBe('***');
+  expect(cfg.RadarrInstances[0].ApiKey).toBe(API_KEY_MASK);
   expect(cfg.SonarrInstances).toHaveLength(1);
 });
 
@@ -251,7 +251,7 @@ test('Seerr URL with blank key is rejected and does not mutate stored URL', asyn
 });
 
 test('invalid Seerr URL scheme is rejected without mutating stored URL', async () => {
-  expect((await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***' })).ok(), 'setup seed').toBeTruthy();
+  expect((await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: API_KEY_MASK })).ok(), 'setup seed').toBeTruthy();
   const before = (await getConfig()).SeerrUrl;
   for (const url of ['ftp://x', 'javascript:alert(1)', 'file:///etc/passwd']) {
     const res = await putConfig({ SeerrUrl: url, SeerrApiKey: 'k' });

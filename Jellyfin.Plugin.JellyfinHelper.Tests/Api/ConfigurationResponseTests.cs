@@ -14,9 +14,12 @@ public class ConfigurationResponseTests
     // ── ApiKeyMask constant ──────────────────────────────────────────────────
 
     [Fact]
-    public void ApiKeyMask_IsTripleAsterisk()
+    public void ApiKeyMask_IsFixedLengthAsteriskRun()
     {
-        Assert.Equal("***", ConfigurationResponse.ApiKeyMask);
+        // Pin the exact sentinel value. The length is fixed (8) by design and must NOT track the
+        // real key length, so the mask never leaks how long the stored secret is.
+        Assert.Equal("********", ConfigurationResponse.ApiKeyMask);
+        Assert.All(ConfigurationResponse.ApiKeyMask, c => Assert.Equal('*', c));
     }
 
     // ── SeerrApiKey masking ──────────────────────────────────────────────────
@@ -41,7 +44,7 @@ public class ConfigurationResponseTests
     public void FromConfig_SeerrApiKey_Whitespace_ReturnsEmpty()
     {
         // Whitespace-only key is treated as "not configured" (IsNullOrWhiteSpace) - same
-        // behaviour as the save-path in ApplyRequestToConfig. Masking it as "***" would
+        // behaviour as the save-path in ApplyRequestToConfig. Emitting the mask sentinel would
         // mislead operators into thinking the key is valid when it will fail all API calls.
         var config = new PluginConfiguration { SeerrApiKey = "   " };
         var response = ConfigurationResponse.FromConfig(config);

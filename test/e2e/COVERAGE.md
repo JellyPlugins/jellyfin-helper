@@ -49,10 +49,10 @@ Beyond "does it route / does the UI render", the suite now proves features
 
 ## 3. Settings persistence & effect → `settings.api.spec.ts`
 - Task modes round-trip; numeric clamp; trash settings + blank-path reset.
-- API-key mask `***` **functionally proven** to preserve the stored key: after a
-  `***` (and whitespace-padded `' *** '`) re-save, an admin `Discovery/Request`
-  still authenticates to the mock with the real key - the mock now 401s a literal
-  `***`, so a wipe-to-mask would fail the test. `SeerrCleanupAgeDays→0` when URL blank.
+- API-key mask **functionally proven** to preserve the stored key: after a
+  mask (and whitespace-padded mask) re-save, an admin `Discovery/Request`
+  still authenticates to the mock with the real key - the mock now 401s any
+  all-asterisk value, so a wipe-to-mask would fail the test. `SeerrCleanupAgeDays→0` when URL blank.
 - PluginLogLevel ignored by PUT /Configuration, changed only via /LogLevel (+ invalid rejected).
 - Arr instances persist (max 3, masked); Language de↔en.
 
