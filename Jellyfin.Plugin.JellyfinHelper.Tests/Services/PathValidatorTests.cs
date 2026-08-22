@@ -278,20 +278,23 @@ public class PathValidatorTests
         Assert.Null(result);
     }
 
-    // On Linux '\' is not a separator, so the segment-split guard misses it.
-    // GetFullPath + StartsWith must still reject the traversal.
+    // Backslash traversal is a Windows attack surface. There '\' is a real separator, so
+    // "\..\" walks up and the resolved path must be rejected. On Linux '\' is an ordinary
+    // filename char, the path never escapes "/media", so it is legitimately allowed there.
     [Fact]
     public void IsSafePath_BackslashTraversal_Rejected()
     {
-        Assert.False(PathValidator.IsSafePath("/media\\..\\etc", "/media"));
+        var expectedSafe = !OperatingSystem.IsWindows();
+        Assert.Equal(expectedSafe, PathValidator.IsSafePath("/media\\..\\etc", "/media"));
     }
 
-    // Mixed forward/back separators must not escape the base either. The resolved
-    // full path lands outside "/media" no matter which separator the split uses.
+    // Same split by platform for mixed separators. On Windows the '\..\' segments escape
+    // "/media" and must be refused; on Linux they stay inside it and are allowed.
     [Fact]
-    public void IsSafePath_MixedSeparatorTraversal_Rejected()
+    public void IsSafePath_MixedSeparatorTraversal()
     {
-        Assert.False(PathValidator.IsSafePath("/media/sub\\..\\..\\etc", "/media"));
+        var expectedSafe = !OperatingSystem.IsWindows();
+        Assert.Equal(expectedSafe, PathValidator.IsSafePath("/media/sub\\..\\..\\etc", "/media"));
     }
 
     // A null byte can truncate the path in downstream syscalls (injection vector).
@@ -324,13 +327,18 @@ public class PathValidatorTests
         Assert.Equal("evil.dll", result);
     }
 
-    // Invalid filename chars like wildcards must each be replaced with '_' so the
-    // sanitized name is inert.
+    // Wildcards and reserved chars ('<', '>', '?') are invalid filenames on Windows and get
+    // replaced with '_'. On Linux they are legal chars, so SanitizeFileName leaves them intact.
+    // Either way the result is a single inert leaf with no path separators.
     [Fact]
     public void SanitizeFileName_ReplacesInvalidChars()
     {
         var result = PathValidator.SanitizeFileName("a<b>c?.txt");
-        Assert.Equal("a_b_c_.txt", result);
+
+        var expected = OperatingSystem.IsWindows() ? "a_b_c_.txt" : "a<b>c?.txt";
+        Assert.Equal(expected, result);
+        Assert.DoesNotContain('/', result);
+        Assert.DoesNotContain('\\', result);
     }
 
     // Boundary contract: this helper guards only filesystem and library roots, not system
