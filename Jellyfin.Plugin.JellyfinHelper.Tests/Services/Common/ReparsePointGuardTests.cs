@@ -60,6 +60,26 @@ public sealed class ReparsePointGuardTests : IDisposable
         Assert.False(ReparsePointGuard.IsReparsePoint(dir));
     }
 
+    [Fact]
+    public void IsReparsePoint_RealFile_ReturnsFalse()
+    {
+        // The guard requires the Directory flag: a plain file (never a reparse point, and not a
+        // directory) must report false. This branch became explicit when the implementation moved
+        // from DirectoryInfo (which reported files as non-existent) to File.GetAttributes.
+        var file = Path.Join(_tempDir, "plain.txt");
+        File.WriteAllText(file, "x");
+        Assert.False(ReparsePointGuard.IsReparsePoint(file));
+    }
+
+    [Fact]
+    public void IsReparsePoint_MissingParentDirectory_ReturnsFalse()
+    {
+        // Exercises the DirectoryNotFoundException branch: only genuine "path is absent" errors are
+        // mapped to false, so an absent parent segment (not an access failure) is a safe non-link.
+        var path = Path.Join(_tempDir, "no-such-dir", "child");
+        Assert.False(ReparsePointGuard.IsReparsePoint(path));
+    }
+
     // ── IsReparsePointAnyType ─────────────────────────────────────────────────
     // A real symlink cannot be created without elevated privileges in CI, so the
     // link-node true-branch is covered by the E2E suite. The false branches — a
