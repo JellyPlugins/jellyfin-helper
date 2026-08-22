@@ -224,6 +224,7 @@ function testArrConnection(type, index) {
     var prefix = type + '_' + index;
     var urlEl = document.getElementById(prefix + '_url');
     var keyEl = document.getElementById(prefix + '_key');
+    var nameEl = document.getElementById(prefix + '_name');
     var btn = document.getElementById(prefix + '_btnTest');
     if (!urlEl || !keyEl || !btn) {
         return;
@@ -231,6 +232,9 @@ function testArrConnection(type, index) {
 
     var url = urlEl.value.trim();
     var apiKey = keyEl.value.trim();
+    // Name disambiguates the stored key server-side when the API key is the masked
+    // sentinel and two instances share the same URL. Ignored for a real (typed) key.
+    var name = nameEl ? nameEl.value : '';
 
     var originalHtml = mi('extension') + T('testConnection', 'Test Connection');
 
@@ -252,7 +256,7 @@ function testArrConnection(type, index) {
         'Testing…');
 
     apiPost('JellyfinHelper/ArrIntegration/TestConnection',
-        {Url: url, ApiKey: apiKey}, function (data) {
+        {Url: url, ApiKey: apiKey, Name: name}, function (data) {
             btn.disabled = false;
             if (data.Success) {
                 _testTimers[timerKey] = showButtonFeedback(btn, true,
@@ -393,7 +397,7 @@ function refreshArrInstanceStatus(type, index) {
     _arrStatusReqSeq[type] = reqId;
 
     apiPost('JellyfinHelper/ArrIntegration/TestConnection',
-        {Url: inst.Url, ApiKey: inst.ApiKey}, function (data) {
+        {Url: inst.Url, ApiKey: inst.ApiKey, Name: inst.Name || ''}, function (data) {
             // Ignore stale responses (user picked a different instance in the
             // meantime, or a newer test superseded this one).
             if (reqId !== _arrStatusReqSeq[type]) {
