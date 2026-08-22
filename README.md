@@ -6,7 +6,7 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 
 <table>
 <tr>
-<td valign="top" align="center">
+<td style="vertical-align: top; text-align: center;">
 
 **Project**
 
@@ -15,7 +15,7 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square&logo=github&logoColor=white&labelColor=2d333b)](https://github.com/JellyPlugins/jellyfin-helper/releases)
 
 </td>
-<td valign="top" align="center">
+<td style="vertical-align: top; text-align: center;">
 
 **Quality**
 
@@ -24,7 +24,7 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 [![E2E](https://img.shields.io/badge/e2e%20tests-291-2ea043?style=flat-square&logo=docker&logoColor=white&labelColor=2d333b)](test/e2e/)
 
 </td>
-<td valign="top" align="center">
+<td style="vertical-align: top; text-align: center;">
 
 **Stack**
 
