@@ -74,7 +74,7 @@ function renderRecommendations(container, results) {
     var recsSelect = document.getElementById('recsUserSelect');
     if (recsSelect) {
         recsSelect.addEventListener('change', function () {
-            var idx = parseInt(recsSelect.value, 10);
+            var idx = Number.parseInt(recsSelect.value, 10);
             // Persist selected user in browser storage so it survives page refresh
             try { var uid = results[idx] && results[idx].UserId; if (uid) localStorage.setItem('jh_recsSelectedUser', uid); } catch (e) { /* localStorage unavailable */ }
             onUserChanged(idx);
@@ -90,7 +90,7 @@ function renderRecommendations(container, results) {
     if (toggleBtn) { toggleBtn.addEventListener('click', function () { toggleCollapsible('recsActivityBody', 'recsActivityToggle'); }); }
 
     var discoveryContainer = document.getElementById('discoverySection');
-    if (discoveryContainer) { renderDiscoverySection(discoveryContainer, results); }
+    if (discoveryContainer) { renderDiscoverySection(discoveryContainer); }
 
     // Restore previously selected user from browser storage (fallback: first user)
     var initialIdx = 0;
@@ -168,7 +168,7 @@ function renderRecommendationCard(rec, rank) {
     if (rec.RelatedItemName) {
         var parts = rec.RelatedItemName.split(' | ');
         reasonText = reasonText.replace(/\{(\d+)\}/g, function (m, idx) {
-            var i = parseInt(idx, 10);
+            var i = Number.parseInt(idx, 10);
             return (i >= 0 && i < parts.length) ? parts[i] : m;
         });
     }
@@ -268,7 +268,7 @@ function renderCompactActivityTable(container, items) {
         html += '<td><span class="recs-tag recs-tag-type">' + escHtml(it.ItemType || '') + '</span></td>';
         html += '<td class="activity-cell-num">' + (it.TotalPlayCount || 0) + '</td>';
         var d = new Date(it.MostRecentWatch);
-        var dateStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+        var dateStr = Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
         html += '<td>' + (dateStr || '\u2014') + '</td>';
         html += '<td><div class="activity-completion-bar"><div class="activity-completion-fill ' + sc + '" style="width:' + pct + '%"></div>';
         html += '<span class="activity-completion-text">' + pct + '%</span></div></td></tr>';
@@ -290,7 +290,7 @@ function getTopGenresFromDistribution(genreDistribution, maxGenres) {
 // === Discovery New Content Section ===
 var _discoveryReqId = 0;
 
-function renderDiscoverySection(container, results) {
+function renderDiscoverySection(container) {
     var html = '<div class="recs-collapsible">';
     html += '<button class="recs-collapsible-toggle" id="discoveryToggle" ';
     html += 'aria-expanded="false" aria-controls="discoveryBody">';
@@ -405,7 +405,7 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
     html += '</div>';
     if (userDiscovery.GeneratedAt) {
         var genDate = new Date(userDiscovery.GeneratedAt);
-        if (!isNaN(genDate.getTime())) {
+        if (!Number.isNaN(genDate.getTime())) {
             html += '<div class="discovery-footer">' +
                 T('discoveryGeneratedAt', 'Last updated') + ': ' +
                 genDate.toLocaleDateString() + ' ' + genDate.toLocaleTimeString() +
@@ -452,7 +452,7 @@ function renderDiscoveryCard(rec, index) {
     }
     if (rec.Year) { html += '<span class="recs-tag recs-tag-year">' + escHtml(String(rec.Year)) + '</span>'; }
     var ratingNum = Number(rec.TmdbRating);
-    if (!isNaN(ratingNum) && ratingNum > 0) { html += '<span class="recs-tag recs-tag-rating">' + ratingNum.toFixed(1) + '</span>'; }
+    if (!Number.isNaN(ratingNum) && ratingNum > 0) { html += '<span class="recs-tag recs-tag-rating">' + ratingNum.toFixed(1) + '</span>'; }
     html += '</div>';
 
     html += '<div class="recs-item-score ' + scoreClass + '">';
@@ -476,7 +476,7 @@ function renderDiscoveryCard(rec, index) {
         html += '</button>';
     } else if (mediaType) {
         html += '<button class="discovery-request-btn" ';
-        html += 'data-tmdb-id="' + (parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(mediaType) + '">';
+        html += 'data-tmdb-id="' + (Number.parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(mediaType) + '">';
         html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         html += '</button>';
     }
@@ -489,7 +489,7 @@ function handleDiscoveryRequest(e) {
     var btn = e.currentTarget;
     if (btn.disabled) return;
 
-    var tmdbId = parseInt(btn.getAttribute('data-tmdb-id'), 10);
+    var tmdbId = Number.parseInt(btn.getAttribute('data-tmdb-id'), 10);
     var mediaType = btn.getAttribute('data-media-type');
     if (!tmdbId || !mediaType) return;
 
@@ -687,7 +687,7 @@ function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
                     card.remove();
                     var countSpan = document.getElementById('discoveryCount');
                     if (countSpan) {
-                        var current = parseInt(countSpan.textContent, 10) || 0;
+                        var current = Number.parseInt(countSpan.textContent, 10) || 0;
                         countSpan.textContent = '' + Math.max(0, current - 1);
                     }
                     // Show empty state when all cards have been removed
@@ -758,7 +758,7 @@ function markDiscoveryItemRequested(tmdbId, mediaType) {
         if (!userDiscovery || !userDiscovery.Recommendations) return;
         for (var r = 0; r < userDiscovery.Recommendations.length; r++) {
             var rec = userDiscovery.Recommendations[r];
-            var recTmdbId = parseInt(rec.TmdbId, 10);
+            var recTmdbId = Number.parseInt(rec.TmdbId, 10);
             var recMediaType = String(rec.MediaType || '').trim().toLowerCase();
             if (recTmdbId === tmdbId && (!mediaType || recMediaType === mediaType)) {
                 rec.AlreadyRequested = true;

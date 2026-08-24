@@ -4,7 +4,7 @@
 
 function formatGranularityLabel(dateStr, granularity) {
     var d = new Date(dateStr);
-    if (isNaN(d.getTime())) return '-';
+    if (Number.isNaN(d.getTime())) return '-';
 
     switch (granularity) {
         case 'yearly':
@@ -754,7 +754,7 @@ function getInsightTypeBadge(collectionType) {
 function formatInsightDate(isoStr) {
     if (!isoStr) return '-';
     var d = new Date(isoStr);
-    if (isNaN(d.getTime())) return '-';
+    if (Number.isNaN(d.getTime())) return '-';
     return d.toLocaleDateString(undefined, {
         month: 'short',
         day: 'numeric',

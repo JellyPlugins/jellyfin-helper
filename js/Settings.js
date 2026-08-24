@@ -701,8 +701,8 @@ function buildSettingsPayload() {
     return {
         ExcludedLibraries: getLibraryMultiSelectValue('cfgExcludedWrapper'),
         OrphanMinAgeDays: (function () {
-            var v = parseInt(document.getElementById('cfgOrphanAge').value, 10);
-            if (isNaN(v) || v < 0) return 0;
+            var v = Number.parseInt(document.getElementById('cfgOrphanAge').value, 10);
+            if (Number.isNaN(v) || v < 0) return 0;
             if (v > 3650) return 3650;
             return v;
         })(),
@@ -722,14 +722,14 @@ function buildSettingsPayload() {
         })(),
         SeerrCleanupAgeDays: (function () {
             var el = document.getElementById('cfgSeerrAgeDays');
-            var v = el ? parseInt(el.value, 10) : 365;
-            return isNaN(v) || v < 1 ? 365 : v;
+            var v = el ? Number.parseInt(el.value, 10) : 365;
+            return Number.isNaN(v) || v < 1 ? 365 : v;
         })(),
         UseTrash: document.getElementById('cfgTrash')?.checked ?? false,
         TrashFolderPath: document.getElementById('cfgTrashPath')?.value ?? '',
         TrashRetentionDays: (function () {
-            var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
-            if (isNaN(v) || v < 0) return 30;
+            var v = Number.parseInt(document.getElementById('cfgTrashDays').value, 10);
+            if (Number.isNaN(v) || v < 0) return 30;
             if (v > 3650) return 3650;
             return v;
         })(),
@@ -809,7 +809,7 @@ function doSaveSettings(payload, options) {
  * is preserved server-side. See the block comment in doSaveSettings for the TOCTOU history.
  */
 function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
-    apiPut('JellyfinHelper/Configuration', payload, function (response) {
+    apiPut('JellyfinHelper/Configuration', payload, function () {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;
         _previousTrashPath = (payload.TrashFolderPath || '.jellyfin-trash').trim();
@@ -1029,10 +1029,10 @@ function showTrashDeleteConfirmation(payload, paths) {
             var summary = '';
             var statusClass = 'success-msg';
             if (result.deleted > 0) {
-                summary += mi('check_circle') + ' ' + escHtml(T('trashDeletedCount', 'Deleted')) + ': ' + (Math.max(0, parseInt(result.deleted, 10) || 0)) + ' ' + escHtml(T('folders', 'folders'));
+                summary += mi('check_circle') + ' ' + escHtml(T('trashDeletedCount', 'Deleted')) + ': ' + (Math.max(0, Number.parseInt(result.deleted, 10) || 0)) + ' ' + escHtml(T('folders', 'folders'));
             }
             if (result.failed > 0) {
-                summary += (summary ? ' | ' : '') + mi('error') + ' ' + escHtml(T('trashFailedCount', 'Failed')) + ': ' + (Math.max(0, parseInt(result.failed, 10) || 0));
+                summary += (summary ? ' | ' : '') + mi('error') + ' ' + escHtml(T('trashFailedCount', 'Failed')) + ': ' + (Math.max(0, Number.parseInt(result.failed, 10) || 0));
                 statusClass = 'error-msg';
             }
             if (!summary) {
@@ -1086,11 +1086,11 @@ function triggerBackupExport() {
         var blobUrl = URL.createObjectURL(blob);
         var link = document.createElement('a');
         link.href = blobUrl;
-        var timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        var timestamp = new Date().toISOString().replaceAll(/[:.]/g, '-').slice(0, 19);
         link.download = 'jellyfin-helper-backup-' + timestamp + '.json';
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
+        link.remove();
         setTimeout(function () {
             URL.revokeObjectURL(blobUrl);
         }, 5000);
@@ -1372,7 +1372,7 @@ function fallbackCopy(text) {
     } catch (e) {
         return false;
     } finally {
-        document.body.removeChild(textarea);
+        textarea.remove();
     }
 }
 
@@ -1614,7 +1614,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     }
     var missingSelected = [];
     for (var key in selectedSet) {
-        if (Object.prototype.hasOwnProperty.call(selectedSet, key) && !available[key]) {
+        if (Object.hasOwn(selectedSet, key) && !available[key]) {
             missingSelected.push(selectedSet[key]);
         }
     }
@@ -1629,7 +1629,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     var summaryText = noneSelectedLabel;
     if (selectedCount > 0) {
         var selectedNames = [];
-        for (var k in selectedSet) { if (Object.prototype.hasOwnProperty.call(selectedSet, k)) selectedNames.push(selectedSet[k]); }
+        for (var k in selectedSet) { if (Object.hasOwn(selectedSet, k)) selectedNames.push(selectedSet[k]); }
         summaryText = selectedNames.length <= 3 ? selectedNames.join(', ') : selectedNames.slice(0, 2).join(', ') + ' +' + (selectedNames.length - 2);
     }
     h += '<span class="library-multiselect-summary">' + escHtml(summaryText) + '</span>';
@@ -1666,7 +1666,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
     for (var ci = 0; ci < checkboxes.length; ci++) {
         checkboxes[ci].addEventListener('change', function () {
-            updateLibraryMultiSelectSummary(wrapperId, type);
+            updateLibraryMultiSelectSummary(wrapperId);
             var indicatorTarget = wrapper.querySelector('.library-multiselect-toggle') || wrapper;
             doSaveSettings(buildSettingsPayload(), { quiet: true, element: indicatorTarget });
         });
@@ -1687,7 +1687,7 @@ function toggleLibraryDropdown(btn) {
 /**
  * Updates the summary text after a checkbox change.
  */
-function updateLibraryMultiSelectSummary(wrapperId, type) {
+function updateLibraryMultiSelectSummary(wrapperId) {
     var wrapper = document.getElementById(wrapperId);
     if (!wrapper) return;
     var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
@@ -1761,8 +1761,8 @@ function attachOrphanAgeInputHandler() {
     });
     // Clamp on input to enforce max visually (handles paste, spinner clicks, etc.)
     input.addEventListener('input', function () {
-        var v = parseInt(input.value, 10);
-        if (!isNaN(v)) {
+        var v = Number.parseInt(input.value, 10);
+        if (!Number.isNaN(v)) {
             if (v > 3650) input.value = '3650';
             if (v < 0) input.value = '0';
         }
@@ -1795,8 +1795,8 @@ function attachTrashDaysInputHandler() {
         }
     });
     input.addEventListener('input', function () {
-        var v = parseInt(input.value, 10);
-        if (!isNaN(v)) {
+        var v = Number.parseInt(input.value, 10);
+        if (!Number.isNaN(v)) {
             if (v > 3650) input.value = '3650';
             if (v < 0) input.value = '0';
         }
@@ -1831,7 +1831,7 @@ function isSensitiveSystemPath(path) {
     var norm = path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
     for (var i = 0; i < SENSITIVE_SYSTEM_ROOTS.length; i++) {
         var root = SENSITIVE_SYSTEM_ROOTS[i].replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-        if (norm === root || norm.indexOf(root + '/') === 0) {
+        if (norm === root || norm.startsWith(root + '/')) {
             return true;
         }
     }
