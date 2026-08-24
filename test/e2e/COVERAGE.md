@@ -315,6 +315,14 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
 - **Media statistics** (`media-stats-fs.api.spec.ts`): codec / resolution / health
   breakdowns match the KNOWN fixtures - H.264 / HEVC / MPEG-4 keys with positive
   counts, sub-less clips reflected in the no-subtitle health count.
+- **Book library protection** (`books-protection.api.spec.ts`): a Book (eBook)
+  library is TRACKED but NEVER deleted. Stats expose `Books` / `TotalBookFileCount`
+  / `TotalBookFormats` with the KNOWN fixtures' `EPUB`+`PDF` keys (per-format counts
+  sum to the total); and with the most aggressive cleanup config (empty-folder +
+  all stages Activate, `UseTrash:false`, `OrphanMinAgeDays:0`) every `.epub`/`.pdf`
+  file and its folder survive on disk and no `.jellyfin-trash` is created - the
+  regression guard for the eBook-collection data-loss bug (books excluded by
+  collection type, never scanned by cleanup).
 - **Growth timeline** (`growth-timeline-fs.api.spec.ts`): the cumulative series is
   non-empty and monotonically non-decreasing, latest totals are positive/coherent
   (bytes > 0, files > 0), directories-scanned positive, no future-dated point.
