@@ -19,6 +19,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 /// </summary>
 public class MediaStatisticsService : IMediaStatisticsService
 {
+    /// <summary>Plugin-log category for all media-statistics log entries.</summary>
+    private const string LogCategory = "MediaStatistics";
+
+    /// <summary>Fallback label used when a codec, resolution, or library name cannot be determined.</summary>
+    private const string UnknownLabel = "Unknown";
+
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IFileSystem _fileSystem;
     private readonly ILibraryManager _libraryManager;
@@ -62,7 +68,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         var virtualFolders = _libraryManager.GetVirtualFolders();
         _pluginLog.LogInfo(
-            "MediaStatistics",
+            LogCategory,
             $"Starting media statistics scan for {virtualFolders.Count} libraries",
             _logger);
 
@@ -71,7 +77,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         // improving performance for large libraries.
         var itemLookup = BuildItemLookup();
         _pluginLog.LogDebug(
-            "MediaStatistics",
+            LogCategory,
             $"Pre-loaded {itemLookup.Count} library items for metadata lookup",
             _logger);
 
@@ -88,7 +94,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             var libraryStats = new LibraryStatistics
             {
-                LibraryName = vf.Name ?? "Unknown",
+                LibraryName = vf.Name ?? UnknownLabel,
                 CollectionType = collectionType?.ToString() ?? "mixed"
             };
 
@@ -100,7 +106,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             {
                 libraryStats.RootPaths.Add(location);
                 _pluginLog.LogDebug(
-                    "MediaStatistics",
+                    LogCategory,
                     $"Scanning library location: {location} (type: {collectionType})",
                     _logger);
 
@@ -115,7 +121,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
                 {
                     _pluginLog.LogWarning(
-                        "MediaStatistics",
+                        LogCategory,
                         $"Could not resolve trash path for library root: {location}",
                         ex,
                         _logger);
@@ -125,7 +131,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
 
             _pluginLog.LogDebug(
-                "MediaStatistics",
+                LogCategory,
                 $"Library '{libraryStats.LibraryName}': {libraryStats.VideoFileCount} videos, {libraryStats.AudioFileCount} audio, " +
                 $"{libraryStats.SubtitleFileCount} subs, {libraryStats.TrickplayFolderCount} trickplay folders",
                 _logger);
@@ -155,7 +161,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             l.OtherFileCount);
         var totalSize = result.Libraries.Sum(l => l.TotalSize);
         _pluginLog.LogInfo(
-            "MediaStatistics",
+            LogCategory,
             $"Scan complete: {result.Libraries.Count} libraries, {totalFiles} files, {totalSize / (1024 * 1024)} MB total, " +
             $"{result.Libraries.Sum(l => l.VideosWithoutSubtitles)} videos without subs, " +
             $"{result.Libraries.Sum(l => l.VideosWithoutImages)} without images, " +
@@ -183,18 +189,15 @@ public class MediaStatisticsService : IMediaStatisticsService
                     MediaTypes = [MediaType.Video, MediaType.Audio],
                     IsFolder = false
                 });
-            foreach (var item in allItems)
+            foreach (var item in allItems.Where(item => !string.IsNullOrEmpty(item.Path)))
             {
-                if (!string.IsNullOrEmpty(item.Path))
-                {
-                    lookup.TryAdd(item.Path, item);
-                }
+                lookup.TryAdd(item.Path, item);
             }
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(
-                "MediaStatistics",
+                LogCategory,
                 "Could not pre-load library items for metadata lookup; falling back to per-file lookup",
                 ex,
                 _logger);
@@ -325,7 +328,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogWarning("MediaStatistics", $"Could not access directory: {directoryPath}", ex, _logger);
+            _pluginLog.LogWarning(LogCategory, $"Could not access directory: {directoryPath}", ex, _logger);
         }
 
         return containsVideo;
@@ -586,7 +589,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "MediaStatistics",
+                LogCategory,
                 $"Per-file fallback lookup failed for: {filePath}. {ex.GetType().Name}: {ex.Message}",
                 _logger);
             return null;
@@ -608,7 +611,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "MediaStatistics",
+                LogCategory,
                 $"Could not read media streams for: {filePath}. {ex.GetType().Name}: {ex.Message}",
                 _logger);
             return null;
@@ -663,7 +666,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         // Audio codec from the primary audio stream (with profile differentiation)
         var audioCodec = ClassifyAudioCodec(audioStream?.Codec, audioStream?.Profile);
-        if (!string.Equals(audioCodec, "Unknown", StringComparison.Ordinal))
+        if (!string.Equals(audioCodec, UnknownLabel, StringComparison.Ordinal))
         {
             FileSystemHelper.IncrementCount(stats.VideoAudioCodecs, audioCodec);
             FileSystemHelper.AccumulateValue(stats.VideoAudioCodecSizes, audioCodec, fileSize);
@@ -700,15 +703,15 @@ public class MediaStatisticsService : IMediaStatisticsService
             audioCodec = ClassifyAudioCodec(audioStream?.Codec, audioStream?.Profile);
 
             // When Jellyfin has the item but streams yield no useful codec, fall back to extension
-            if (string.Equals(audioCodec, "Unknown", StringComparison.Ordinal))
+            if (string.Equals(audioCodec, UnknownLabel, StringComparison.Ordinal))
             {
-                audioCodec = MediaExtensions.AudioExtensionToCodec.GetValueOrDefault(extension, "Unknown");
+                audioCodec = MediaExtensions.AudioExtensionToCodec.GetValueOrDefault(extension, UnknownLabel);
             }
         }
         else
         {
             // Fallback: use extension-based mapping when Jellyfin doesn't know the file
-            audioCodec = MediaExtensions.AudioExtensionToCodec.GetValueOrDefault(extension, "Unknown");
+            audioCodec = MediaExtensions.AudioExtensionToCodec.GetValueOrDefault(extension, UnknownLabel);
         }
 
         FileSystemHelper.IncrementCount(stats.MusicAudioCodecs, audioCodec);
@@ -737,7 +740,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         if (string.IsNullOrEmpty(codec))
         {
-            return "Unknown";
+            return UnknownLabel;
         }
 
         var upperCodec = codec.ToUpperInvariant();
@@ -768,7 +771,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         if (!width.HasValue || !height.HasValue || width.Value <= 0 || height.Value <= 0)
         {
-            return "Unknown";
+            return UnknownLabel;
         }
 
         var w = width.Value;
@@ -790,7 +793,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             >= 576 => "576p",
             >= 480 => "480p",
             > 0 => "SD",
-            _ => "Unknown"
+            _ => UnknownLabel
         };
     }
 
@@ -803,7 +806,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         if (videoStream is null)
         {
-            return "Unknown";
+            return UnknownLabel;
         }
 
         return ClassifyDynamicRange(videoStream.VideoRangeType, videoStream.VideoRange);
@@ -864,7 +867,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         if (string.IsNullOrEmpty(codec))
         {
-            return "Unknown";
+            return UnknownLabel;
         }
 
         var upperCodec = codec.ToUpperInvariant();
