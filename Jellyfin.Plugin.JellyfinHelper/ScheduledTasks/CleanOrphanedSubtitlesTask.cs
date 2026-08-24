@@ -200,12 +200,9 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         }
 
         // Get all video base names in this directory
-        foreach (var file in files)
+        foreach (var file in files.Where(f => MediaExtensions.VideoExtensions.Contains(Path.GetExtension(f.FullName))))
         {
-            if (MediaExtensions.VideoExtensions.Contains(Path.GetExtension(file.FullName)))
-            {
-                videoBaseNames.Add(Path.GetFileNameWithoutExtension(file.FullName));
-            }
+            videoBaseNames.Add(Path.GetFileNameWithoutExtension(file.FullName));
         }
 
         // If there are no videos in this directory at all, skip - subtitles here

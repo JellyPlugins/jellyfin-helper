@@ -19,6 +19,8 @@ public class TrashService : ITrashService
 {
     private const string TimestampFormat = "yyyyMMdd-HHmmss";
 
+    private const string LogCategory = "Trash";
+
     /// <summary>
     ///     Maximum length of a single path component (filename or directory name).
     ///     POSIX NAME_MAX is 255 bytes on virtually all Linux/macOS filesystems.
@@ -36,14 +38,26 @@ public class TrashService : ITrashService
     ///     On non-Windows platforms this is enforced in bytes (UTF-8);
     ///     on Windows it is enforced in characters (UTF-16 code units).
     /// </summary>
-    private static readonly int MaxPathLimit =
-        OperatingSystem.IsWindows() ? 259 :
-        OperatingSystem.IsMacOS() ? 1023 :
-        4095;
+    private static readonly int MaxPathLimit;
 
     private static readonly int SeparatorSize = MeasureString(Path.DirectorySeparatorChar.ToString());
 
     private readonly IPluginLogService _pluginLog;
+
+    /// <summary>
+    ///     Initializes static members of the <see cref="TrashService" /> class.
+    /// </summary>
+    static TrashService()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            MaxPathLimit = 259;
+        }
+        else
+        {
+            MaxPathLimit = OperatingSystem.IsMacOS() ? 1023 : 4095;
+        }
+    }
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TrashService" /> class.
@@ -71,7 +85,7 @@ public class TrashService : ITrashService
         {
             if (!Directory.Exists(sourcePath))
             {
-                _pluginLog.LogWarning("Trash", $"Source path does not exist for trash: {sourcePath}", logger: logger);
+                _pluginLog.LogWarning(LogCategory, $"Source path does not exist for trash: {sourcePath}", logger: logger);
                 return 0;
             }
 
@@ -89,7 +103,7 @@ public class TrashService : ITrashService
                 || normalizedSource.StartsWith(normalizedTrashPrefix, PathComparison))
             {
                 _pluginLog.LogWarning(
-                    "Trash",
+                    LogCategory,
                     $"Source is already inside trash folder, skipping: {sourcePath}",
                     logger: logger);
                 return 0;
@@ -132,12 +146,12 @@ public class TrashService : ITrashService
                 }
             }
 
-            _pluginLog.LogInfo("Trash", $"Moved to trash: {sourcePath} → {trashItemPath} ({size} bytes)", logger);
+            _pluginLog.LogInfo(LogCategory, $"Moved to trash: {sourcePath} → {trashItemPath} ({size} bytes)", logger);
             return size;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogError("Trash", $"Failed to move directory to trash: {sourcePath}", ex, logger);
+            _pluginLog.LogError(LogCategory, $"Failed to move directory to trash: {sourcePath}", ex, logger);
             return 0;
         }
     }
@@ -150,7 +164,7 @@ public class TrashService : ITrashService
             if (!File.Exists(sourceFilePath))
             {
                 _pluginLog.LogWarning(
-                    "Trash",
+                    LogCategory,
                     $"Source file does not exist for trash: {sourceFilePath}",
                     logger: logger);
                 return 0;
@@ -168,7 +182,7 @@ public class TrashService : ITrashService
                 || normalizedFile.StartsWith(normalizedTrashPrefix, PathComparison))
             {
                 _pluginLog.LogWarning(
-                    "Trash",
+                    LogCategory,
                     $"Source file is already inside trash folder, skipping: {sourceFilePath}",
                     logger: logger);
                 return 0;
@@ -190,14 +204,14 @@ public class TrashService : ITrashService
             File.Move(sourceFilePath, trashItemPath);
 
             _pluginLog.LogInfo(
-                "Trash",
+                LogCategory,
                 $"Moved file to trash: {sourceFilePath} → {trashItemPath} ({size} bytes)",
                 logger);
             return size;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogError("Trash", $"Failed to move file to trash: {sourceFilePath}", ex, logger);
+            _pluginLog.LogError(LogCategory, $"Failed to move file to trash: {sourceFilePath}", ex, logger);
             return 0;
         }
     }
@@ -236,7 +250,7 @@ public class TrashService : ITrashService
             if (IsReparsePoint(trashBasePath))
             {
                 _pluginLog.LogError(
-                    "Trash",
+                    LogCategory,
                     $"Trash folder is a reparse point (symlink/junction) — skipping purge to prevent symlink traversal: {trashBasePath}",
                     logger: logger);
                 return (0, 0);
@@ -265,7 +279,7 @@ public class TrashService : ITrashService
                         {
                             // Concurrent replacement detected, so fail closed: leave entry unchanged.
                             _pluginLog.LogWarning(
-                                "Trash",
+                                LogCategory,
                                 $"Reparse-point node changed type before purge, skipping: {dir}",
                                 logger: logger);
                             continue;
@@ -273,7 +287,7 @@ public class TrashService : ITrashService
 
                         itemsPurged++;
                         _pluginLog.LogInfo(
-                            "Trash",
+                            LogCategory,
                             $"Purged expired trash directory: {dir} (reparse point, created {timestamp})",
                             logger);
                     }
@@ -284,14 +298,14 @@ public class TrashService : ITrashService
                         totalBytesFreed += size;
                         itemsPurged++;
                         _pluginLog.LogInfo(
-                            "Trash",
+                            LogCategory,
                             $"Purged expired trash directory: {dir} ({size} bytes, created {timestamp})",
                             logger);
                     }
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    _pluginLog.LogError("Trash", $"Failed to purge trash directory: {dir}", ex, logger);
+                    _pluginLog.LogError(LogCategory, $"Failed to purge trash directory: {dir}", ex, logger);
                 }
             }
 
@@ -311,19 +325,19 @@ public class TrashService : ITrashService
                     totalBytesFreed += size;
                     itemsPurged++;
                     _pluginLog.LogInfo(
-                        "Trash",
+                        LogCategory,
                         $"Purged expired trash file: {file} ({size} bytes, created {timestamp})",
                         logger);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    _pluginLog.LogError("Trash", $"Failed to purge trash file: {file}", ex, logger);
+                    _pluginLog.LogError(LogCategory, $"Failed to purge trash file: {file}", ex, logger);
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogError("Trash", $"Failed to enumerate trash folder: {trashBasePath}", ex, logger);
+            _pluginLog.LogError(LogCategory, $"Failed to enumerate trash folder: {trashBasePath}", ex, logger);
         }
 
         return (totalBytesFreed, itemsPurged);
@@ -358,7 +372,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogWarning("Trash", $"Partial trash summary - could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
+            _pluginLog.LogWarning(LogCategory, $"Partial trash summary - could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
         }
 
         return (totalSize, itemCount);
@@ -432,7 +446,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogWarning("Trash", $"Partial trash contents - could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
+            _pluginLog.LogWarning(LogCategory, $"Partial trash contents - could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
         }
 
         // Sort by trashed date descending (newest first)
@@ -449,7 +463,7 @@ public class TrashService : ITrashService
 
         if (!Directory.Exists(oldTrashPath))
         {
-            _pluginLog.LogInfo("Trash", $"Old trash path does not exist, nothing to relocate: {oldTrashPath}", logger);
+            _pluginLog.LogInfo(LogCategory, $"Old trash path does not exist, nothing to relocate: {oldTrashPath}", logger);
             return (0, 0);
         }
 
@@ -465,13 +479,13 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _pluginLog.LogError("Trash", $"Failed to normalize trash relocation paths: {oldTrashPath} → {newTrashPath}", ex, logger);
+            _pluginLog.LogError(LogCategory, $"Failed to normalize trash relocation paths: {oldTrashPath} → {newTrashPath}", ex, logger);
             return (0, 0);
         }
 
         if (string.Equals(normalizedOld, normalizedNew, PathComparison))
         {
-            _pluginLog.LogWarning("Trash", "Old and new trash paths are identical, skipping relocation.", logger: logger);
+            _pluginLog.LogWarning(LogCategory, "Old and new trash paths are identical, skipping relocation.", logger: logger);
             return (0, 0);
         }
 
@@ -479,7 +493,7 @@ public class TrashService : ITrashService
         var oldPrefix = normalizedOld + Path.DirectorySeparatorChar;
         if (normalizedNew.StartsWith(oldPrefix, PathComparison))
         {
-            _pluginLog.LogError("Trash", $"New trash path is inside old trash path, aborting relocation: {newTrashPath}", null, logger);
+            _pluginLog.LogError(LogCategory, $"New trash path is inside old trash path, aborting relocation: {newTrashPath}", null, logger);
             return (0, 0);
         }
 
@@ -487,7 +501,7 @@ public class TrashService : ITrashService
         var newPrefix = normalizedNew + Path.DirectorySeparatorChar;
         if (normalizedOld.StartsWith(newPrefix, PathComparison))
         {
-            _pluginLog.LogError("Trash", $"Old trash path is inside new trash path, aborting relocation: {oldTrashPath}", null, logger);
+            _pluginLog.LogError(LogCategory, $"Old trash path is inside new trash path, aborting relocation: {oldTrashPath}", null, logger);
             return (0, 0);
         }
 
@@ -498,7 +512,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogError("Trash", $"Failed to create destination trash directory: {newTrashPath}", ex, logger);
+            _pluginLog.LogError(LogCategory, $"Failed to create destination trash directory: {newTrashPath}", ex, logger);
             return (0, 0);
         }
 
@@ -515,18 +529,18 @@ public class TrashService : ITrashService
                     destPath = ResolveCollision(destPath);
                     Directory.Move(dir, destPath);
                     moved++;
-                    _pluginLog.LogInfo("Trash", $"Relocated directory: {dir} → {destPath}", logger);
+                    _pluginLog.LogInfo(LogCategory, $"Relocated directory: {dir} → {destPath}", logger);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     failed++;
-                    _pluginLog.LogError("Trash", $"Failed to relocate directory: {dir}", ex, logger);
+                    _pluginLog.LogError(LogCategory, $"Failed to relocate directory: {dir}", ex, logger);
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogError("Trash", $"Failed to enumerate directories in old trash: {oldTrashPath}", ex, logger);
+            _pluginLog.LogError(LogCategory, $"Failed to enumerate directories in old trash: {oldTrashPath}", ex, logger);
         }
 
         // Move files
@@ -542,23 +556,23 @@ public class TrashService : ITrashService
                     destPath = ResolveCollision(destPath);
                     File.Move(file, destPath);
                     moved++;
-                    _pluginLog.LogInfo("Trash", $"Relocated file: {file} → {destPath}", logger);
+                    _pluginLog.LogInfo(LogCategory, $"Relocated file: {file} → {destPath}", logger);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     failed++;
-                    _pluginLog.LogError("Trash", $"Failed to relocate file: {file}", ex, logger);
+                    _pluginLog.LogError(LogCategory, $"Failed to relocate file: {file}", ex, logger);
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogError("Trash", $"Failed to enumerate files in old trash: {oldTrashPath}", ex, logger);
+            _pluginLog.LogError(LogCategory, $"Failed to enumerate files in old trash: {oldTrashPath}", ex, logger);
         }
 
         TryRemoveEmptyDirectory(oldTrashPath, logger);
 
-        _pluginLog.LogInfo("Trash", $"Relocation complete: {moved} moved, {failed} failed ({oldTrashPath} → {newTrashPath})", logger);
+        _pluginLog.LogInfo(LogCategory, $"Relocation complete: {moved} moved, {failed} failed ({oldTrashPath} → {newTrashPath})", logger);
         return (moved, failed);
     }
 
@@ -580,13 +594,13 @@ public class TrashService : ITrashService
             if (Directory.GetFileSystemEntries(directoryPath).Length == 0)
             {
                 Directory.Delete(directoryPath, false);
-                _pluginLog.LogInfo("Trash", $"Removed empty old trash folder: {directoryPath}", logger);
+                _pluginLog.LogInfo(LogCategory, $"Removed empty old trash folder: {directoryPath}", logger);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Old folder stays if it can't be removed
-            _pluginLog.LogWarning("Trash", $"Could not remove old trash folder: {directoryPath}", ex, logger);
+            _pluginLog.LogWarning(LogCategory, $"Could not remove old trash folder: {directoryPath}", ex, logger);
         }
     }
 
@@ -951,7 +965,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _pluginLog.LogWarning("Trash", $"Path access check failed - invalid path: {path} ({ex.Message})", ex, logger);
+            _pluginLog.LogWarning(LogCategory, $"Path access check failed - invalid path: {path} ({ex.Message})", ex, logger);
             return new TrashPathAccessResult
             {
                 Exists = false,
@@ -969,9 +983,18 @@ public class TrashService : ITrashService
 
             if (!canRead || !canWrite)
             {
-                var issue = !canRead && !canWrite ? "read or write" : !canRead ? "read" : "write";
+                string issue;
+                if (!canRead && !canWrite)
+                {
+                    issue = "read or write";
+                }
+                else
+                {
+                    issue = !canRead ? "read" : "write";
+                }
+
                 var msg = $"Insufficient permissions: cannot {issue} path '{fullPath}'.";
-                _pluginLog.LogWarning("Trash", msg, logger: logger);
+                _pluginLog.LogWarning(LogCategory, msg, logger: logger);
                 return new TrashPathAccessResult
                 {
                     Exists = true,
@@ -981,7 +1004,7 @@ public class TrashService : ITrashService
                 };
             }
 
-            _pluginLog.LogDebug("Trash", $"Path access check OK (exists, read+write): {fullPath}");
+            _pluginLog.LogDebug(LogCategory, $"Path access check OK (exists, read+write): {fullPath}");
             return new TrashPathAccessResult { Exists = true, CanRead = true, CanWrite = true };
         }
 
@@ -1001,7 +1024,7 @@ public class TrashService : ITrashService
                 if (!canWrite)
                 {
                     var msg = $"Cannot create trash folder at '{fullPath}': no write permission on parent '{parent}'.";
-                    _pluginLog.LogWarning("Trash", msg, logger: logger);
+                    _pluginLog.LogWarning(LogCategory, msg, logger: logger);
                     return new TrashPathAccessResult
                     {
                         Exists = false,
@@ -1011,14 +1034,14 @@ public class TrashService : ITrashService
                     };
                 }
 
-                _pluginLog.LogDebug("Trash", $"Path access check OK (not yet created, parent writable): {fullPath}");
+                _pluginLog.LogDebug(LogCategory, $"Path access check OK (not yet created, parent writable): {fullPath}");
                 return new TrashPathAccessResult { Exists = false, CanRead = true, CanWrite = true };
             }
         }
 
         // No existing ancestor found (should not happen on valid filesystems)
         var fallbackMsg = $"Cannot verify access for '{fullPath}': no existing parent directory found.";
-        _pluginLog.LogWarning("Trash", fallbackMsg, logger: logger);
+        _pluginLog.LogWarning(LogCategory, fallbackMsg, logger: logger);
         return new TrashPathAccessResult
         {
             Exists = false,
