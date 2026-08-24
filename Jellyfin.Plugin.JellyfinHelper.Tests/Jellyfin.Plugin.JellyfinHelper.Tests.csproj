@@ -8,6 +8,10 @@
          applicable to test code. StyleCop/Serilog/Multithreading analyzers are still active. -->
     <AnalysisMode>Default</AnalysisMode>
     <CodeAnalysisRuleSet>../jellyfin.tests.ruleset</CodeAnalysisRuleSet>
+    <!-- Tell SonarScanner for .NET to treat this as a test project, so SonarCloud applies its
+         test rule set instead of production rules (CA2000/CA5394/CA1861 etc.) that only make
+         sense for shipping code. Backs up the sonar.tests path in the CI scanner-begin step. -->
+    <SonarQubeTestProject>true</SonarQubeTestProject>
   </PropertyGroup>
 
   <ItemGroup>

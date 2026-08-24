@@ -243,11 +243,17 @@ jobs:
         # The generated configPage.html and the docs/ demo copy are dropped from analysis entirely,
         # since configPage.html is a build artifact rebuilt from the css/js sources and docs/ is a
         # duplicate of those sources.
+        #
+        # sonar.tests marks the xUnit project and the E2E harness as TEST sources rather than
+        # production code, so SonarCloud applies its (much lighter) test rule set to them instead
+        # of production rules like CA2000/CA5394/CA1861 — analysing test code with production rules
+        # is noise. Real test-quality issues (missing asserts, Thread.Sleep) still surface.
         dotnet sonarscanner begin \
           /k:"$SONAR_PROJECT_KEY" \
           /o:"$SONAR_ORG" \
           /d:sonar.host.url="https://sonarcloud.io" \
           /d:sonar.token="$SONAR_TOKEN" \
+          /d:sonar.tests="Jellyfin.Plugin.JellyfinHelper.Tests,test/e2e" \
           /d:sonar.exclusions="**/PluginPages/configPage.html,docs/**,**/bin/**,**/obj/**,**/node_modules/**" \
           /d:sonar.coverage.exclusions="test/e2e/**,**/PluginPages/js/**,**/PluginPages/css/**,**/PluginPages/configPage.html,Jellyfin.Plugin.JellyfinHelper/js/**,docs/**" \
           /d:sonar.cs.cobertura.reportsPaths="**/coverage.cobertura.xml"
