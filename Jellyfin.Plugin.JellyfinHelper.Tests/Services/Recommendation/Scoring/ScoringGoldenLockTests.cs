@@ -22,7 +22,7 @@ public class ScoringGoldenLockTests
     // Deterministic digest of Heuristic+Learned+Neural scores over 500 seeded feature vectors.
     // If a behavior-preserving refactor changes this, the refactor changed behavior. Regenerate
     // ONLY when an intentional scoring-math change is made (and review the diff carefully).
-    private const string ExpectedDigest = "119409E262B97799940A15D0C0165FDA23EEFAF64DFF110BBE9480225AB52BED";
+    private const string ExpectedDigest = "C92AFA7751C77E7FE07513C01094B4A0CB4650B67B2515C93C6C0B53E2FEF940";
 
     [Fact]
     public void ScoringStrategies_ProduceStableDigest_AcrossSeededFeatureBatch()
@@ -50,6 +50,11 @@ public class ScoringGoldenLockTests
             typeof(CandidateFeatures).GetProperties(BindingFlags.Public | BindingFlags.Instance),
             static p => p.CanWrite);
 
+        // Reflection does NOT guarantee a stable GetProperties() order across runtimes/platforms,
+        // so sort by name to make the seed-to-feature assignment (and thus the digest) identical
+        // on Windows and the Linux CI runner. Without this the digest is platform-dependent.
+        Array.Sort(settableDoubles, static (a, b) => string.CompareOrdinal(a.Name, b.Name));
+
         var sb = new StringBuilder();
         for (var seed = 1; seed <= 500; seed++)
         {
@@ -57,9 +62,15 @@ public class ScoringGoldenLockTests
             var h = heuristic.Score(features);
             var l = learned.Score(features);
             var n = neural.Score(features);
-            sb.Append(h.ToString("R", CultureInfo.InvariantCulture)).Append('|')
-              .Append(l.ToString("R", CultureInfo.InvariantCulture)).Append('|')
-              .Append(n.ToString("R", CultureInfo.InvariantCulture)).Append(';');
+
+            // Round to 9 decimals before hashing. This test locks the SCORING LOGIC against
+            // accidental changes from structural refactors — it is not meant to detect sub-ULP
+            // floating-point differences between x64 Windows (dev) and Linux (CI), which can arise
+            // from JIT vectorization. Any real logic change moves a score by far more than 1e-9,
+            // so rounding keeps the guard strict while making the digest platform-stable.
+            sb.Append(h.ToString("F9", CultureInfo.InvariantCulture)).Append('|')
+              .Append(l.ToString("F9", CultureInfo.InvariantCulture)).Append('|')
+              .Append(n.ToString("F9", CultureInfo.InvariantCulture)).Append(';');
         }
 
         var bytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
