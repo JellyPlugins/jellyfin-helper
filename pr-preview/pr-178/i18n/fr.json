@@ -383,5 +383,7 @@
   "trashPathDeleteSuccess": "Ancien contenu de la corbeille supprimé.",
   "trashPathCheckingAccess": "Vérification des permissions…",
   "trashPathAccessDenied": "Permission refusée sur le nouveau chemin de la corbeille.",
-  "trashPathMoveNothingMoved": "Aucun élément n'a été déplacé. La source est peut-être vide ou inaccessible en raison des permissions."
+  "trashPathMoveNothingMoved": "Aucun élément n'a été déplacé. La source est peut-être vide ou inaccessible en raison des permissions.",
+  "bookFormats": "Formats de livre",
+  "books": "Livres"
 }

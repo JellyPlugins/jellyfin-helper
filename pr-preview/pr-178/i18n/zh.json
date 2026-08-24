@@ -383,5 +383,7 @@
   "trashPathDeleteSuccess": "旧回收站内容已删除。",
   "trashPathCheckingAccess": "正在检查权限…",
   "trashPathAccessDenied": "新回收站路径权限被拒绝。",
-  "trashPathMoveNothingMoved": "没有移动任何项目。源可能为空或由于权限问题而无法访问。"
+  "trashPathMoveNothingMoved": "没有移动任何项目。源可能为空或由于权限问题而无法访问。",
+  "bookFormats": "图书格式",
+  "books": "图书"
 }
