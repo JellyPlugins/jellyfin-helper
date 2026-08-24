@@ -1173,7 +1173,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     buffers.H3Mask,
                     buffers.H4Mask,
                     dropoutRng,
-                    config.DropoutKeepProbability,
+                    config.KeepProbability,
                     config.DropoutInvKeep);
 
                 var outErr = (pred - examples[idx].Label) * pred * (1.0 - pred) * sw;
@@ -2356,13 +2356,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <param name="MaxEpochs">Maximum number of epochs to run.</param>
     /// <param name="InputSize">Number of input features (row stride for the input weights).</param>
     /// <param name="UseEarlyStopping">Whether early stopping is active for this run.</param>
-    /// <param name="DropoutKeepProbability">Bernoulli keep probability (1.0 when dropout is inactive).</param>
+    /// <param name="KeepProbability">Bernoulli keep probability (1.0 when dropout is inactive).</param>
     /// <param name="DropoutInvKeep">Inverted-dropout scale (1 / keep, or 1.0 when dropout is inactive).</param>
     private readonly record struct EpochLoopConfig(
         int MaxEpochs,
         int InputSize,
         bool UseEarlyStopping,
-        double DropoutKeepProbability,
+        double KeepProbability,
         double DropoutInvKeep);
 
     /// <summary>

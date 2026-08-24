@@ -30,6 +30,8 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// </summary>
     internal const string PlaylistNamePrefix = "🎬 Recommended";
 
+    private const string LogCategory = "PlaylistSync";
+
     private readonly IPlaylistManager _playlistManager;
     private readonly IUserManager _userManager;
     private readonly ILibraryManager _libraryManager;
@@ -68,7 +70,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var syncResult = new PlaylistSyncResult();
 
         _pluginLog.LogInfo(
-            "PlaylistSync",
+            LogCategory,
             $"Starting playlist sync for {results.Count} users.",
             _logger);
 
@@ -86,7 +88,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     syncResult.OldPlaylistsRemoved += removedEmpty;
 
                     _pluginLog.LogDebug(
-                        "PlaylistSync",
+                        LogCategory,
                         $"No recommendations for user '{result.UserName}' - skipping playlist creation.",
                         _logger);
                     continue;
@@ -107,7 +109,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     syncResult.OldPlaylistsRemoved += removedStale;
 
                     _pluginLog.LogDebug(
-                        "PlaylistSync",
+                        LogCategory,
                         $"No playable items resolved for user '{result.UserName}' - skipping playlist creation.",
                         _logger);
                     continue;
@@ -141,7 +143,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     syncResult.TotalItemsAdded += itemIds.Length;
 
                     _pluginLog.LogDebug(
-                        "PlaylistSync",
+                        LogCategory,
                         $"Created playlist '{playlistName}' for user '{result.UserName}' with {itemIds.Length} items.",
                         _logger);
                 }
@@ -149,7 +151,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 {
                     syncResult.PlaylistsFailed++;
                     _pluginLog.LogWarning(
-                        "PlaylistSync",
+                        LogCategory,
                         $"Playlist creation returned empty ID for user '{result.UserName}'.",
                         logger: _logger);
                 }
@@ -162,7 +164,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             {
                 syncResult.PlaylistsFailed++;
                 _pluginLog.LogWarning(
-                    "PlaylistSync",
+                    LogCategory,
                     $"Failed to sync playlist for user '{result.UserName}'.",
                     ex,
                     _logger);
@@ -170,7 +172,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         }
 
         _pluginLog.LogInfo(
-            "PlaylistSync",
+            LogCategory,
             $"Playlist sync complete: {syncResult.PlaylistsCreated} created, {syncResult.OldPlaylistsRemoved} old removed, {syncResult.PlaylistsFailed} failed, {syncResult.TotalItemsAdded} total items.",
             _logger);
 
@@ -184,7 +186,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var users = _userManager.GetUsers().ToList();
 
         _pluginLog.LogInfo(
-            "PlaylistSync",
+            LogCategory,
             $"Removing all recommendation playlists for {users.Count} users...",
             _logger);
 
@@ -204,7 +206,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
-                    "PlaylistSync",
+                    LogCategory,
                     $"Failed to remove playlists for user '{user.Username}'.",
                     ex,
                     _logger);
@@ -212,7 +214,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         }
 
         _pluginLog.LogInfo(
-            "PlaylistSync",
+            LogCategory,
             $"Removed {totalRemoved} recommendation playlists.",
             _logger);
 
@@ -277,7 +279,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 {
                     resolvedIds.Add(firstEpisode.Value);
                     _pluginLog.LogDebug(
-                        "PlaylistSync",
+                        LogCategory,
                         $"Resolved series '{rec.Name}' to first episode (ID: {firstEpisode.Value}).",
                         _logger);
                 }
@@ -286,7 +288,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     // Skip unresolvable series and let the loop pick the next candidate.
                     skippedCount++;
                     _pluginLog.LogDebug(
-                        "PlaylistSync",
+                        LogCategory,
                         $"Could not resolve first episode for series '{rec.Name}' (ID: {rec.ItemId}) - skipping, will backfill.",
                         _logger);
                 }
@@ -301,7 +303,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         if (skippedCount > 0)
         {
             _pluginLog.LogInfo(
-                "PlaylistSync",
+                LogCategory,
                 $"Skipped {skippedCount} unresolvable items during playlist resolution. Resolved {resolvedIds.Count}/{maxItems} items.",
                 _logger);
         }
@@ -431,7 +433,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = true });
                 removed++;
                 _pluginLog.LogDebug(
-                    "PlaylistSync",
+                    LogCategory,
                     $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
                     _logger);
             }
@@ -471,7 +473,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     else if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
                     {
                         _pluginLog.LogWarning(
-                            "PlaylistSync",
+                            LogCategory,
                             $"Skipped recursive delete of playlist folder '{path}' (ID: {playlist.Id}): "
                             + "path is outside the playlists root or is a sensitive location.",
                             logger: _logger);
@@ -480,7 +482,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 catch (Exception inner) when (!inner.IsFatal())
                 {
                     _pluginLog.LogWarning(
-                        "PlaylistSync",
+                        LogCategory,
                         $"Fallback delete for playlist '{playlist.Name}' (ID: {playlist.Id}) partially failed.",
                         inner,
                         _logger);
@@ -490,14 +492,14 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 {
                     removed++;
                     _pluginLog.LogInfo(
-                        "PlaylistSync",
+                        LogCategory,
                         $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) via DB-item fallback (file location was not deletable).",
                         _logger);
                 }
                 else
                 {
                     _pluginLog.LogWarning(
-                        "PlaylistSync",
+                        LogCategory,
                         $"Failed to remove playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
                         ex,
                         _logger);

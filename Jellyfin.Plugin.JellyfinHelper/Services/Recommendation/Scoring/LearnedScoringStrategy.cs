@@ -764,20 +764,17 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 ApplySgdUpdate(examples, precomputedVectors, effectiveWeights, idx, lr);
             }
 
-            if (useEarlyStopping && valIndices.Length > 0)
+            if (useEarlyStopping && valIndices.Length > 0 && CheckEarlyStopping(
+                    examples,
+                    precomputedVectors,
+                    effectiveWeights,
+                    valIndices,
+                    bestWeights,
+                    ref bestLoss,
+                    ref bestBias,
+                    ref patienceCounter))
             {
-                if (CheckEarlyStopping(
-                        examples,
-                        precomputedVectors,
-                        effectiveWeights,
-                        valIndices,
-                        bestWeights,
-                        ref bestLoss,
-                        ref bestBias,
-                        ref patienceCounter))
-                {
-                    break;
-                }
+                break;
             }
         }
 
