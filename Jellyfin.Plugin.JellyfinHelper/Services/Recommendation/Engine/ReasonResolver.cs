@@ -49,7 +49,29 @@ internal static class ReasonResolver
 
         // === Combination reasons (two strong signals) ===
         // These provide more specific "why" than single-signal reasons.
+        var combinationReason = ResolveCombinationReason(explanation, topGenre, matchedPerson);
+        if (combinationReason is not null)
+        {
+            return combinationReason.Value;
+        }
 
+        // === Single dominant signal reasons ===
+        return ResolveSingleSignalReason(explanation, dominant, topGenre, matchedPerson, matchedStudio);
+    }
+
+    /// <summary>
+    ///     Resolves a combination reason when two strong signals are present.
+    ///     Extracted verbatim from <see cref="DetermineReason"/> to reduce cognitive complexity.
+    /// </summary>
+    /// <param name="explanation">The score explanation from the strategy.</param>
+    /// <param name="topGenre">The resolved top matching genre, or null.</param>
+    /// <param name="matchedPerson">The resolved matching person name, or null.</param>
+    /// <returns>A reason tuple when a combination reason applies; otherwise null.</returns>
+    private static (string Reason, string ReasonKey, string? RelatedItem)? ResolveCombinationReason(
+        ScoreExplanation explanation,
+        string? topGenre,
+        string? matchedPerson)
+    {
         // Genre + People: "Featuring actors you like in Action"
         if (topGenre is not null
             && explanation is
@@ -88,8 +110,26 @@ internal static class ReasonResolver
             return ("Trending - new and highly rated", "reasonTrending", null);
         }
 
-        // === Single dominant signal reasons ===
+        return null;
+    }
 
+    /// <summary>
+    ///     Resolves a reason from the single dominant signal, falling back to the default reason.
+    ///     Extracted verbatim from <see cref="DetermineReason"/> to reduce cognitive complexity.
+    /// </summary>
+    /// <param name="explanation">The score explanation from the strategy.</param>
+    /// <param name="dominant">The dominant signal name from the explanation.</param>
+    /// <param name="topGenre">The resolved top matching genre, or null.</param>
+    /// <param name="matchedPerson">The resolved matching person name, or null.</param>
+    /// <param name="matchedStudio">The resolved matching studio name, or null.</param>
+    /// <returns>A tuple of reason text, i18n key, and optional related item name.</returns>
+    private static (string Reason, string ReasonKey, string? RelatedItem) ResolveSingleSignalReason(
+        ScoreExplanation explanation,
+        string dominant,
+        string? topGenre,
+        string? matchedPerson,
+        string? matchedStudio)
+    {
         if (string.Equals(dominant, "Collaborative", StringComparison.OrdinalIgnoreCase)
             && explanation.CollaborativeContribution > EngineConstants.ReasonScoreThreshold)
         {
@@ -204,23 +244,7 @@ internal static class ReasonResolver
         // person that actually dominated PeopleSimilarity, not an arbitrary weight-1 cameo.
         if (preferredPeopleWeights is { Count: > 0 })
         {
-            string? bestName = null;
-            var bestWeight = double.NegativeInfinity;
-            foreach (var name in candidatePeople)
-            {
-                if (!preferredPeople.Contains(name))
-                {
-                    continue;
-                }
-
-                var weight = preferredPeopleWeights.TryGetValue(name, out var w) ? w : 0.0;
-                if (weight > bestWeight)
-                {
-                    bestWeight = weight;
-                    bestName = name;
-                }
-            }
-
+            var bestName = ResolveHeaviestWeightedPerson(candidatePeople, preferredPeople, preferredPeopleWeights);
             if (bestName is not null)
             {
                 return bestName;
@@ -228,6 +252,39 @@ internal static class ReasonResolver
         }
 
         return candidatePeople.FirstOrDefault(preferredPeople.Contains);
+    }
+
+    /// <summary>
+    ///     Picks the highest-weighted person from the candidate's people that is also a preferred person.
+    ///     Extracted verbatim from <see cref="ResolveMatchedPerson"/> to reduce cognitive complexity.
+    /// </summary>
+    /// <param name="candidatePeople">The set of person names on the candidate.</param>
+    /// <param name="preferredPeople">The set of preferred person names.</param>
+    /// <param name="preferredPeopleWeights">Per-name weights for preferred people.</param>
+    /// <returns>The highest-weighted matching person name, or null when there is no match.</returns>
+    private static string? ResolveHeaviestWeightedPerson(
+        HashSet<string> candidatePeople,
+        HashSet<string> preferredPeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights)
+    {
+        string? bestName = null;
+        var bestWeight = double.NegativeInfinity;
+        foreach (var name in candidatePeople)
+        {
+            if (!preferredPeople.Contains(name))
+            {
+                continue;
+            }
+
+            var weight = preferredPeopleWeights.TryGetValue(name, out var w) ? w : 0.0;
+            if (weight > bestWeight)
+            {
+                bestWeight = weight;
+                bestName = name;
+            }
+        }
+
+        return bestName;
     }
 
     /// <summary>

@@ -130,26 +130,7 @@ internal sealed class TrainingService : IDisposable
 
         // Load discovery feedback if available (Phase 4 data source).
         // Best-effort: if the store is unavailable or throws, training continues without it.
-        IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback = null;
-        if (_discoveryFeedbackStore != null)
-        {
-            try
-            {
-                discoveryFeedback = _discoveryFeedbackStore.LoadAll();
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                _pluginLog.LogWarning(
-                    LogSource,
-                    $"Could not load discovery feedback for training: {ex.Message}",
-                    ex,
-                    _logger);
-            }
-        }
+        var discoveryFeedback = LoadDiscoveryFeedback();
 
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
@@ -169,54 +150,7 @@ internal sealed class TrainingService : IDisposable
         List<TrainingExample> trainingExamples = examples;
         if (incremental && examples.Count >= EngineConstants.IncrementalMinExamplesThreshold)
         {
-            var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt) ?? DateTime.UtcNow;
-            var cutoff = latestGeneratedAt.AddDays(-1);
-
-            var newExamples = new List<TrainingExample>();
-            var oldExamples = new List<TrainingExample>();
-
-            foreach (var ex in examples)
-            {
-                if (ex.GeneratedAtUtc >= cutoff)
-                {
-                    newExamples.Add(ex);
-                }
-                else
-                {
-                    oldExamples.Add(ex);
-                }
-            }
-
-            if (oldExamples.Count > 0)
-            {
-                var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, examples.Count));
-                var sampleCount = Math.Clamp(
-                    (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
-                    1,
-                    oldExamples.Count);
-
-                for (var i = 0; i < sampleCount; i++)
-                {
-                    var j = rng.Next(i, oldExamples.Count);
-                    (oldExamples[i], oldExamples[j]) = (oldExamples[j], oldExamples[i]);
-                }
-
-                var sampledOld = oldExamples.GetRange(0, sampleCount);
-                var combined = new List<TrainingExample>(newExamples.Count + sampleCount);
-                combined.AddRange(newExamples);
-                combined.AddRange(sampledOld);
-                trainingExamples = combined;
-
-                _pluginLog.LogInfo(
-                    LogSource,
-                    $"Incremental training: {newExamples.Count} new + {sampleCount} sampled old " +
-                    $"(from {oldExamples.Count} total old) = {trainingExamples.Count} examples.",
-                    _logger);
-            }
-            else
-            {
-                trainingExamples = newExamples;
-            }
+            trainingExamples = BuildIncrementalTrainingExamples(previousResults, examples);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -251,6 +185,120 @@ internal sealed class TrainingService : IDisposable
         var trained = strategy is ITrainableStrategy trainable
             && trainable.Train(trainSplit, heldOutSplit.Count >= 2 ? heldOutSplit : null);
 
+        LogTrainingOutcome(strategy, trained, trainSplit, heldOutSplit);
+
+        return trained;
+    }
+
+    /// <summary>
+    ///     Loads discovery feedback for training on a best-effort basis.
+    ///     Extracted verbatim from <see cref="TrainCore"/> to reduce cognitive complexity.
+    /// </summary>
+    /// <returns>The loaded discovery feedback, or null when unavailable.</returns>
+    private IReadOnlyList<DiscoveryFeedbackResult>? LoadDiscoveryFeedback()
+    {
+        IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback = null;
+        if (_discoveryFeedbackStore != null)
+        {
+            try
+            {
+                discoveryFeedback = _discoveryFeedbackStore.LoadAll();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogWarning(
+                    LogSource,
+                    $"Could not load discovery feedback for training: {ex.Message}",
+                    ex,
+                    _logger);
+            }
+        }
+
+        return discoveryFeedback;
+    }
+
+    /// <summary>
+    ///     Builds the incremental training set by keeping recent examples and subsampling older ones.
+    ///     Extracted verbatim from <see cref="TrainCore"/> to reduce cognitive complexity.
+    /// </summary>
+    /// <param name="previousResults">The recommendation results from the previous run.</param>
+    /// <param name="examples">The full set of built training examples.</param>
+    /// <returns>The incremental training example set.</returns>
+    private List<TrainingExample> BuildIncrementalTrainingExamples(
+        IReadOnlyList<RecommendationResult> previousResults,
+        List<TrainingExample> examples)
+    {
+        List<TrainingExample> trainingExamples;
+        var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt) ?? DateTime.UtcNow;
+        var cutoff = latestGeneratedAt.AddDays(-1);
+
+        var newExamples = new List<TrainingExample>();
+        var oldExamples = new List<TrainingExample>();
+
+        foreach (var ex in examples)
+        {
+            if (ex.GeneratedAtUtc >= cutoff)
+            {
+                newExamples.Add(ex);
+            }
+            else
+            {
+                oldExamples.Add(ex);
+            }
+        }
+
+        if (oldExamples.Count > 0)
+        {
+            var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, examples.Count));
+            var sampleCount = Math.Clamp(
+                (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
+                1,
+                oldExamples.Count);
+
+            for (var i = 0; i < sampleCount; i++)
+            {
+                var j = rng.Next(i, oldExamples.Count);
+                (oldExamples[i], oldExamples[j]) = (oldExamples[j], oldExamples[i]);
+            }
+
+            var sampledOld = oldExamples.GetRange(0, sampleCount);
+            var combined = new List<TrainingExample>(newExamples.Count + sampleCount);
+            combined.AddRange(newExamples);
+            combined.AddRange(sampledOld);
+            trainingExamples = combined;
+
+            _pluginLog.LogInfo(
+                LogSource,
+                $"Incremental training: {newExamples.Count} new + {sampleCount} sampled old " +
+                $"(from {oldExamples.Count} total old) = {trainingExamples.Count} examples.",
+                _logger);
+        }
+        else
+        {
+            trainingExamples = newExamples;
+        }
+
+        return trainingExamples;
+    }
+
+    /// <summary>
+    ///     Logs the ranking-metric outcome of a training run.
+    ///     Extracted verbatim from <see cref="TrainCore"/> to reduce cognitive complexity.
+    /// </summary>
+    /// <param name="strategy">The scoring strategy that was trained.</param>
+    /// <param name="trained">Whether training was performed.</param>
+    /// <param name="trainSplit">The examples used for training.</param>
+    /// <param name="heldOutSplit">The held-out validation examples.</param>
+    private void LogTrainingOutcome(
+        IScoringStrategy strategy,
+        bool trained,
+        List<TrainingExample> trainSplit,
+        List<TrainingExample> heldOutSplit)
+    {
         if (trained)
         {
             // Compute ranking metrics on the held-out set for honest generalization assessment.
@@ -278,7 +326,5 @@ internal sealed class TrainingService : IDisposable
                 $"Strategy '{strategy.Name}' training skipped (insufficient training data).",
                 _logger);
         }
-
-        return trained;
     }
 }

@@ -57,81 +57,110 @@ internal static class DiscoveryFeedbackExampleBuilder
             // contributes training signal even without user-specific preference data.
             profileById.TryGetValue(userFeedback.UserId, out var userProfile);
 
-            // Build user-specific preferences for feature computation.
-            // Users without a watch profile get empty preferences - their explicit discovery
-            // interactions (request/dismiss) are still valuable training signals even when
-            // genre features default to zero/neutral.
-            var genrePreferences = userProfile != null
-                ? PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts)
-                : new Dictionary<string, double>();
-
-            var avgYear = userProfile != null
-                ? ContentScoring.ComputeAverageYear(userProfile)
-                : 0.0;
-
-            // Build preferred people set from watch profile
-            var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (userProfile?.TopPeople is { } topPeople)
-            {
-                foreach (var person in topPeople)
-                {
-                    preferredPeople.Add(person);
-                }
-            }
-
-            // Genre exposure analysis for advanced features.
-            // BuildGenreExposureAnalysis handles empty genrePreferences gracefully
-            // by returning an analysis with IsValid=false, which causes all exposure
-            // features to default to 0.0 (neutral).
-            var genreExposure = userProfile != null
-                ? PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile)
-                : new PreferenceBuilder.GenreExposureAnalysis
-                {
-                    UnderexposedGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                    DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                    AveragePreferenceWeight = 0,
-                    GenrePreferences = genrePreferences,
-                    IsValid = false
-                };
+            var context = BuildUserFeatureContext(userProfile, seriesEpisodeCounts);
 
             foreach (var entry in userFeedback.Entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
-                var status = entry.GetStatus();
-                var label = GetLabelForStatus(status);
-
-                // Build feature vector from discovery metadata.
-                // hasLegacyPopularity signals that the original TMDb popularity was not persisted
-                // on this entry. The feature itself is now routed through the SAME
-                // NormalizePopularity helper as inference (which returns 0.0 for missing/non-
-                // positive popularity), so no train/serve skew remains on the feature value.
-                // The halved sample weight is preserved as an orthogonal provenance signal:
-                // rows without a recorded popularity still train the model, but contribute a
-                // smaller gradient because we know less about them.
-                var features = BuildFeaturesFromEntry(
-                    entry,
-                    genrePreferences,
-                    preferredPeople,
-                    avgYear,
-                    genreExposure,
-                    out var hasLegacyPopularity);
-
-                var sampleWeight = hasLegacyPopularity
-                    ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5
-                    : EngineConstants.DiscoveryFeedbackSampleWeight;
-
-                examples.Add(new TrainingExample
-                {
-                    Features = features,
-                    Label = label,
-                    GeneratedAtUtc = GetLatestInteractionUtc(entry),
-                    SampleWeight = sampleWeight
-                });
+                examples.Add(BuildExampleFromEntry(entry, context));
             }
         }
 
         return (examples, examples.Count);
+    }
+
+    /// <summary>
+    ///     Builds the per-user feature-computation context (genre preferences, average year, preferred
+    ///     people, and genre exposure) from the user's watch profile.
+    ///     Extracted verbatim from <see cref="BuildDiscoveryExamples"/> to reduce cognitive complexity.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile, or null when unavailable.</param>
+    /// <param name="seriesEpisodeCounts">Per-series total-episode-count map used for progression weighting.</param>
+    /// <returns>The assembled per-user feature context.</returns>
+    private static UserFeatureContext BuildUserFeatureContext(
+        UserWatchProfile? userProfile,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts)
+    {
+        // Build user-specific preferences for feature computation.
+        // Users without a watch profile get empty preferences - their explicit discovery
+        // interactions (request/dismiss) are still valuable training signals even when
+        // genre features default to zero/neutral.
+        var genrePreferences = userProfile != null
+            ? PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts)
+            : new Dictionary<string, double>();
+
+        var avgYear = userProfile != null
+            ? ContentScoring.ComputeAverageYear(userProfile)
+            : 0.0;
+
+        // Build preferred people set from watch profile
+        var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (userProfile?.TopPeople is { } topPeople)
+        {
+            foreach (var person in topPeople)
+            {
+                preferredPeople.Add(person);
+            }
+        }
+
+        // Genre exposure analysis for advanced features.
+        // BuildGenreExposureAnalysis handles empty genrePreferences gracefully
+        // by returning an analysis with IsValid=false, which causes all exposure
+        // features to default to 0.0 (neutral).
+        var genreExposure = userProfile != null
+            ? PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile)
+            : new PreferenceBuilder.GenreExposureAnalysis
+            {
+                UnderexposedGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                AveragePreferenceWeight = 0,
+                GenrePreferences = genrePreferences,
+                IsValid = false
+            };
+
+        return new UserFeatureContext(genrePreferences, avgYear, preferredPeople, genreExposure);
+    }
+
+    /// <summary>
+    ///     Builds a single <see cref="TrainingExample"/> from a discovery feedback entry using the
+    ///     per-user feature context.
+    ///     Extracted verbatim from <see cref="BuildDiscoveryExamples"/> to reduce cognitive complexity.
+    /// </summary>
+    /// <param name="entry">The discovery feedback entry.</param>
+    /// <param name="context">The per-user feature-computation context.</param>
+    /// <returns>The assembled training example.</returns>
+    private static TrainingExample BuildExampleFromEntry(DiscoveryFeedbackEntry entry, UserFeatureContext context)
+    {
+        var status = entry.GetStatus();
+        var label = GetLabelForStatus(status);
+
+        // Build feature vector from discovery metadata.
+        // hasLegacyPopularity signals that the original TMDb popularity was not persisted
+        // on this entry. The feature itself is now routed through the SAME
+        // NormalizePopularity helper as inference (which returns 0.0 for missing/non-
+        // positive popularity), so no train/serve skew remains on the feature value.
+        // The halved sample weight is preserved as an orthogonal provenance signal:
+        // rows without a recorded popularity still train the model, but contribute a
+        // smaller gradient because we know less about them.
+        var features = BuildFeaturesFromEntry(
+            entry,
+            context.GenrePreferences,
+            context.PreferredPeople,
+            context.AvgYear,
+            context.GenreExposure,
+            out var hasLegacyPopularity);
+
+        var sampleWeight = hasLegacyPopularity
+            ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5
+            : EngineConstants.DiscoveryFeedbackSampleWeight;
+
+        return new TrainingExample
+        {
+            Features = features,
+            Label = label,
+            GeneratedAtUtc = GetLatestInteractionUtc(entry),
+            SampleWeight = sampleWeight
+        };
     }
 
     /// <summary>
@@ -282,4 +311,18 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         return features;
     }
+
+    /// <summary>
+    ///     Per-user feature-computation context assembled once per feedback user and reused for
+    ///     every entry belonging to that user.
+    /// </summary>
+    /// <param name="GenrePreferences">The user's genre preference vector.</param>
+    /// <param name="AvgYear">The user's average production year.</param>
+    /// <param name="PreferredPeople">The set of preferred person names.</param>
+    /// <param name="GenreExposure">The genre exposure analysis for advanced features.</param>
+    private readonly record struct UserFeatureContext(
+        Dictionary<string, double> GenrePreferences,
+        double AvgYear,
+        HashSet<string> PreferredPeople,
+        PreferenceBuilder.GenreExposureAnalysis GenreExposure);
 }

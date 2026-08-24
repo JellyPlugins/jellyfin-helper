@@ -90,6 +90,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>TMDb genre ID for Kids TV.</summary>
     private const int TmdbGenreTvKids = 10762;
 
+    /// <summary>Plugin-log category used for all discovery log entries.</summary>
+    private const string LogCategory = "SeerrDiscovery";
+
+    /// <summary>Log message emitted when the plugin singleton is unavailable and generation is skipped.</summary>
+    private const string PluginUnavailableMessage = "Plugin instance is not available; skipping.";
+
+    /// <summary>TMDb media-type discriminator for movies.</summary>
+    private const string MovieMediaType = "movie";
+
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
     /// <summary>
@@ -169,26 +178,26 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var config = Plugin.Instance?.Configuration;
         if (config == null)
         {
-            _pluginLog.LogWarning("SeerrDiscovery", "Plugin instance is not available; skipping.", null, _logger);
+            _pluginLog.LogWarning(LogCategory, PluginUnavailableMessage, null, _logger);
             return;
         }
 
         if (string.IsNullOrWhiteSpace(config.SeerrUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {
-            _pluginLog.LogInfo("SeerrDiscovery", "Seerr not configured. Skipping discovery.", _logger);
+            _pluginLog.LogInfo(LogCategory, "Seerr not configured. Skipping discovery.", _logger);
             return;
         }
 
         if (config.RecommendationsTaskMode == TaskMode.Deactivate)
         {
-            _pluginLog.LogInfo("SeerrDiscovery", "Discovery task is deactivated. Skipping.", _logger);
+            _pluginLog.LogInfo(LogCategory, "Discovery task is deactivated. Skipping.", _logger);
             return;
         }
 
         var dryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
 
         _pluginLog.LogInfo(
-            "SeerrDiscovery",
+            LogCategory,
             dryRun
                 ? "Starting discovery generation (Dry Run - will not persist)."
                 : $"Starting discovery generation (pool={MaxPoolPerUser}, visible={MaxVisiblePerUser} per user).",
@@ -205,14 +214,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         if (activeProfiles.Count == 0)
         {
-            _pluginLog.LogInfo("SeerrDiscovery", "No users with watch history or sufficient favorites found. Skipping.", _logger);
+            _pluginLog.LogInfo(LogCategory, "No users with watch history or sufficient favorites found. Skipping.", _logger);
             return;
         }
 
         // Step 1b: Build exclusion set from Arr libraries
         var excludedTmdbIds = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
-            "SeerrDiscovery",
+            LogCategory,
             $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library only - per-user dismissed/requested merged later).",
             _logger);
 
@@ -248,7 +257,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Failed to generate discovery for user {profile.UserName}: {ex.Message}",
                     ex,
                     _logger);
@@ -259,7 +268,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (dryRun)
         {
             _pluginLog.LogInfo(
-                "SeerrDiscovery",
+                LogCategory,
                 $"[Dry Run] Would persist {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
                 _logger);
         }
@@ -269,7 +278,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (persisted)
             {
                 _pluginLog.LogInfo(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
                     _logger);
 
@@ -286,7 +295,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     catch (Exception ex) when (!ex.IsFatal())
                     {
                         _pluginLog.LogDebug(
-                            "SeerrDiscovery",
+                            LogCategory,
                             $"Failed to record feedback for user {result.UserName}: {ex.Message}",
                             _logger);
                     }
@@ -295,7 +304,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             else
             {
                 _pluginLog.LogWarning(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Failed to persist {allResults.Count} user results. Skipping feedback recording to avoid stale training data.",
                     null,
                     _logger);
@@ -319,7 +328,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (mediaType is not ("movie" or "tv"))
+        if (mediaType is not (MovieMediaType or "tv"))
         {
             return (false, "mediaType must be 'movie' or 'tv'.");
         }
@@ -327,7 +336,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var config = Plugin.Instance?.Configuration;
         if (config == null)
         {
-            _pluginLog.LogWarning("SeerrDiscovery", "Plugin instance is not available; skipping.", null, _logger);
+            _pluginLog.LogWarning(LogCategory, PluginUnavailableMessage, null, _logger);
             return (false, "Seerr is not configured.");
         }
 
@@ -370,7 +379,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Invalid Seerr configuration: {ex.Message}",
                 ex,
                 _logger);
@@ -429,7 +438,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 var userInfo = seerrUserId is > 0 ? $" (as user #{seerrUserId})" : string.Empty;
                 _pluginLog.LogInfo(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Request submitted: {mediaType} TMDb#{tmdbId}{userInfo}",
                     _logger);
                 return (true, "Request submitted successfully.");
@@ -437,7 +446,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Request failed for TMDb#{tmdbId}: HTTP {(int)response.StatusCode} - {body}",
                 null,
                 _logger);
@@ -454,7 +463,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Request timed out for TMDb#{tmdbId}",
                 ex,
                 _logger);
@@ -463,7 +472,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or JsonException)
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Request failed for TMDb#{tmdbId}: {ex.Message}",
                 ex,
                 _logger);
@@ -489,7 +498,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var config = Plugin.Instance?.Configuration;
         if (config == null)
         {
-            _pluginLog.LogWarning("SeerrDiscovery", "Plugin instance is not available; skipping.", null, _logger);
+            _pluginLog.LogWarning(LogCategory, PluginUnavailableMessage, null, _logger);
             return ([], false);
         }
 
@@ -508,7 +517,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Invalid Seerr configuration for user fetch: {ex.Message}",
                 ex,
                 _logger);
@@ -539,7 +548,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 if (!response.IsSuccessStatusCode)
                 {
                     _pluginLog.LogWarning(
-                        "SeerrDiscovery",
+                        LogCategory,
                         $"User list pagination failed at skip={skip}: HTTP {(int)response.StatusCode}. Returning partial result ({allUsers.Count} users fetched so far).",
                         null,
                         _logger);
@@ -570,7 +579,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 if (page == maxPages - 1)
                 {
                     _pluginLog.LogWarning(
-                        "SeerrDiscovery",
+                        LogCategory,
                         $"User list pagination hit the {maxPages}-page safety cap ({allUsers.Count} users fetched). Returning partial result.",
                         null,
                         _logger);
@@ -587,7 +596,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Failed to fetch Seerr users: {ex.Message}",
                 ex,
                 _logger);
@@ -628,7 +637,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var config = Plugin.Instance?.Configuration;
         if (config == null)
         {
-            _pluginLog.LogWarning("SeerrDiscovery", "Plugin instance is not available; skipping.", null, _logger);
+            _pluginLog.LogWarning(LogCategory, PluginUnavailableMessage, null, _logger);
             return ([], true);
         }
 
@@ -648,7 +657,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Invalid Seerr configuration for service info ({serviceType}): {ex.Message}",
                 ex,
                 _logger);
@@ -664,7 +673,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (!listResponse.IsSuccessStatusCode)
             {
                 _pluginLog.LogWarning(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Failed to fetch Seerr {serviceType} services: HTTP {(int)listResponse.StatusCode}.",
                     null,
                     _logger);
@@ -704,7 +713,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     else
                     {
                         _pluginLog.LogDebug(
-                            "SeerrDiscovery",
+                            LogCategory,
                             $"Failed to fetch profiles for {serviceType} server #{server.Id}: HTTP {(int)detailResponse.StatusCode}.",
                             _logger);
                     }
@@ -716,7 +725,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
                 {
                     _pluginLog.LogDebug(
-                        "SeerrDiscovery",
+                        LogCategory,
                         $"Failed to fetch profiles for {serviceType} server #{server.Id}: {ex.Message}",
                         _logger);
                 }
@@ -733,7 +742,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Failed to fetch Seerr {serviceType} service info: {ex.Message}",
                 ex,
                 _logger);
@@ -766,14 +775,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (match != null)
             {
                 _pluginLog.LogDebug(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Resolved Jellyfin user {jellyfinUserId} to Seerr user #{match.Id} ({match.DisplayName}).",
                     _logger);
                 return match.Id;
             }
 
             _pluginLog.LogDebug(
-                "SeerrDiscovery",
+                LogCategory,
                 $"No Seerr user found for Jellyfin user {jellyfinUserId}. Request will use API key owner.",
                 _logger);
             return null;
@@ -785,7 +794,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Failed to resolve Seerr user for Jellyfin user {jellyfinUserId}: {ex.Message}",
                 ex,
                 _logger);
@@ -805,7 +814,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
         serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
 
-        if (mediaType is not ("movie" or "tv"))
+        if (mediaType is not (MovieMediaType or "tv"))
         {
             return new UserRequestPermissionResult
             {
@@ -836,7 +845,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 : "Your Jellyfin account is not linked to a Seerr account.";
 
             _pluginLog.LogDebug(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Permission check: Jellyfin user {jellyfinUserId} - {deniedReason}",
                 _logger);
 
@@ -852,7 +861,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (!seerrUser.CanRequest(mediaType))
         {
             _pluginLog.LogDebug(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Permission check: Seerr user #{seerrUser.Id} ({seerrUser.DisplayName}) lacks request permission for {mediaType}.",
                 _logger);
 
@@ -878,7 +887,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 // Transient failure: allow request with Seerr defaults (no profile selection).
                 // Log for admin diagnostics but don't block the user.
                 _pluginLog.LogDebug(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Permission check: Service info lookup failed for {serviceType}. Allowing request with server defaults.",
                     _logger);
             }
@@ -1149,7 +1158,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Invalid Seerr configuration for user {profile.UserName}: {ex.Message}",
                 ex,
                 _logger);
@@ -1268,7 +1277,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "SeerrDiscovery",
+                LogCategory,
                 $"Could not load dismissed/requested items for user {profile.UserName}: {ex.Message}",
                 _logger);
         }
@@ -1280,14 +1289,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (uniqueCandidates.Count == 0)
         {
             _pluginLog.LogDebug(
-                "SeerrDiscovery",
+                LogCategory,
                 $"No viable candidates for user {profile.UserName} after filtering (parental={profile.MaxParentalRating}).",
                 _logger);
             return null;
         }
 
         _pluginLog.LogDebug(
-            "SeerrDiscovery",
+            LogCategory,
             $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
             _logger);
 
@@ -1319,7 +1328,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             var enrichedCount = enrichmentCandidates.Count(c => c.KnownPeople != null);
             _pluginLog.LogDebug(
-                "SeerrDiscovery",
+                LogCategory,
                 $"User {profile.UserName}: Enriched {enrichedCount}/{enrichmentCandidates.Count} candidates with credits data.",
                 _logger);
         }
@@ -1350,7 +1359,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 TmdbId = item.Id,
                 MediaType = string.Equals(item.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
                     ? "tv"
-                    : "movie",
+                    : MovieMediaType,
                 Title = item.DisplayTitle,
                 Year = item.EffectiveReleaseDate?.Year,
                 Score = score,
@@ -1398,7 +1407,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (!response.IsSuccessStatusCode)
             {
                 _pluginLog.LogDebug(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Query returned HTTP {(int)response.StatusCode}: {queryPath}",
                     _logger);
                 return [];
@@ -1415,12 +1424,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            _pluginLog.LogWarning("SeerrDiscovery", $"Query timed out: {queryPath}", ex, _logger);
+            _pluginLog.LogWarning(LogCategory, $"Query timed out: {queryPath}", ex, _logger);
             return [];
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or JsonException)
         {
-            _pluginLog.LogWarning("SeerrDiscovery", $"Query failed: {queryPath} - {ex.Message}", ex, _logger);
+            _pluginLog.LogWarning(LogCategory, $"Query failed: {queryPath} - {ex.Message}", ex, _logger);
             return [];
         }
         finally
@@ -1456,7 +1465,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 {
                     foreach (var movie in movies.Where(m => m.TmdbId > 0))
                     {
-                        excluded.Add((movie.TmdbId, "movie"));
+                        excluded.Add((movie.TmdbId, MovieMediaType));
                     }
                 }
             }
@@ -1467,7 +1476,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException)
             {
                 _pluginLog.LogWarning(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Failed to fetch Radarr exclusion data from {instance.Url}: {ex.Message}. Continuing with remaining instances.",
                     ex,
                     _logger);
@@ -1497,7 +1506,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException)
             {
                 _pluginLog.LogWarning(
-                    "SeerrDiscovery",
+                    LogCategory,
                     $"Failed to fetch Sonarr exclusion data from {instance.Url}: {ex.Message}. Continuing with remaining instances.",
                     ex,
                     _logger);
@@ -1547,7 +1556,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 continue;
             }
 
-            var mediaTypeKey = (candidate.MediaType ?? "movie").ToLowerInvariant();
+            var mediaTypeKey = (candidate.MediaType ?? MovieMediaType).ToLowerInvariant();
             if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
             {
                 continue;
@@ -1743,7 +1752,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
                     {
                         _pluginLog.LogDebug(
-                            "SeerrDiscovery",
+                            LogCategory,
                             $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
                             _logger);
                     }
@@ -1832,7 +1841,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     <see cref="IHttpClientFactory"/>.
     /// </summary>
     private HttpClient GetSeerrClient() =>
-        _httpClientFactory.CreateClient("SeerrDiscovery");
+        _httpClientFactory.CreateClient(LogCategory);
 
     /// <summary>
     ///     Builds an <see cref="HttpRequestMessage"/> with per-request authentication headers.
