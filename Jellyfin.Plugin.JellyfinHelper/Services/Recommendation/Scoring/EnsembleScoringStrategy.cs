@@ -678,122 +678,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 var effectiveMidpoint = DefaultSigmoidMidpoint + _sigmoidMidpointOffset;
                 var sigmoidAlpha = ComputeSigmoidAlpha(_trainingExampleCount, effectiveMidpoint, _alphaMin, _alphaMax);
 
-                if (qualityGatePassed)
-                {
-                    // Good generalization - let alpha progress at full sigmoid rate
-                    _alpha = sigmoidAlpha;
-                    _qualityGateFrozen = false;
-                }
-                else
-                {
-                    // Soft damping: alpha still advances but is proportionally dampened
-                    // based on how far the validation loss exceeds the threshold.
-                    // qualityFactor = 1.0 at threshold, 0.0 at 2× threshold (ceiling).
-                    var qualityFactor = double.IsNaN(validationLoss)
-                        ? 0.5 // NaN (no validation split) -> use half progression
-                        : Math.Clamp(
-                            1.0 - ((validationLoss - ValidationLossThreshold)
-                                   / (ValidationLossCeiling - ValidationLossThreshold)),
-                            0.0,
-                            1.0);
+                UpdateAlphaFromQualityGate(qualityGatePassed, validationLoss, sigmoidAlpha);
 
-                    _alpha = _alphaMin + ((sigmoidAlpha - _alphaMin) * qualityFactor);
-                    _qualityGateFrozen = qualityFactor < 0.01;
-                }
+                UpdateNeuralBeta(neuralTrained);
 
-                // Update neural beta: blend neural in after NeuralActivationThreshold
-                // using a sigmoid ramp from 0 to NeuralMaxBetaFraction.
-                // Only activate if the neural strategy was successfully trained.
-                if (_neural is not null && neuralTrained && _trainingExampleCount >= NeuralActivationThreshold)
-                {
-                    var neuralValidationLoss = _neural.LastValidationLoss;
-                    var neuralQualityOk = !double.IsNaN(neuralValidationLoss)
-                                          && neuralValidationLoss <= ValidationLossThreshold;
-
-                    if (neuralQualityOk)
-                    {
-                        // Linear ramp from 0 to NeuralMaxBetaFraction over 75..175 examples.
-                        // Math.Max prevents beta from dropping below the ramp floor when trend
-                        // damping and the ramp both apply within the same Train() call, but once
-                        // the ramp has reached its ceiling (progress=1.0) trend-driven decay will
-                        // be re-absorbed by the ramp on the next run - which is intentional: if
-                        // neural quality remains good, the ramp is the dominant signal.
-                        var progress = Math.Clamp(
-                            (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
-                            0.0,
-                            1.0);
-                        var rampTarget = NeuralMaxBetaFraction * progress;
-                        _neuralBeta = Math.Max(_neuralBeta, rampTarget);
-                    }
-                    else
-                    {
-                        // Neural not generalizing well - reduce its influence.
-                        // Apply floor to avoid infinitesimal ghost values.
-                        _neuralBeta *= 0.5;
-                        if (_neuralBeta < NeuralBetaMinFloor)
-                        {
-                            _neuralBeta = 0.0;
-                        }
-                    }
-                }
-                else if (_neural is not null && !neuralTrained && _neuralBeta > 0)
-                {
-                    // Neural strategy failed to train this round while learned succeeded -
-                    // decay β to avoid stale influence, analogous to the learned-failure branch.
-                    _neuralBeta *= 0.5;
-                    if (_neuralBeta < NeuralBetaMinFloor)
-                    {
-                        _neuralBeta = 0.0;
-                    }
-                }
-
-                // Record metrics snapshot and analyze trend BEFORE saving state,
-                // so trend-driven alpha/beta adjustments are persisted in the same write.
-                _metricsHistory.Add(
-                    new MetricsSnapshot
-                    {
-                        Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                        ValidationLoss = validationLoss,
-                        PrecisionAtK = _learned.LastPrecisionAtK,
-                        RecallAtK = _learned.LastRecallAtK,
-                        NdcgAtK = _learned.LastNdcgAtK,
-                        ExampleCount = examples.Count
-                    });
-                const int maxHistory = 10;
-                if (_metricsHistory.Count > maxHistory)
-                {
-                    _metricsHistory.RemoveRange(0, _metricsHistory.Count - maxHistory);
-                }
+                RecordMetricsSnapshot(validationLoss, examples.Count);
 
                 // Analyze trend from the updated history
                 trend = AnalyzeTrend(_metricsHistory);
 
-                // Apply trend-driven alpha/beta adjustments
-                if (trend == MetricsTrend.Degrading)
-                {
-                    // Roll alpha back toward heuristic
-                    _alpha = _alphaMin + ((_alpha - _alphaMin) * TrendDegradationDamping);
-
-                    // Also reduce neural influence when trend is degrading
-                    if (_neuralBeta > 0)
-                    {
-                        _neuralBeta *= TrendDegradationDamping;
-                        if (_neuralBeta < NeuralBetaMinFloor)
-                        {
-                            _neuralBeta = 0.0;
-                        }
-                    }
-                }
-                else if (trend == MetricsTrend.Improving)
-                {
-                    // Allow faster alpha progression toward sigmoid target (using adaptive midpoint)
-                    var sigmoidTarget = ComputeSigmoidAlpha(
-                        _trainingExampleCount,
-                        DefaultSigmoidMidpoint + _sigmoidMidpointOffset,
-                        _alphaMin,
-                        _alphaMax);
-                    _alpha = Math.Min(sigmoidTarget, _alpha + ((_alphaMax - _alpha) * (1.0 - TrendDegradationDamping)));
-                }
+                ApplyTrendAdjustments(trend);
             }
 
             if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
@@ -832,35 +726,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             var stateChanged = false;
             lock (_syncRoot)
             {
-                _metricsHistory.Add(
-                    new MetricsSnapshot
-                    {
-                        Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                        ValidationLoss = double.NaN,
-                        PrecisionAtK = 0.0,
-                        RecallAtK = 0.0,
-                        NdcgAtK = 0.0,
-                        ExampleCount = examples.Count
-                    });
-                const int maxHistory = 10;
-                if (_metricsHistory.Count > maxHistory)
-                {
-                    _metricsHistory.RemoveRange(0, _metricsHistory.Count - maxHistory);
-                }
+                RecordColdStartPlaceholder(examples.Count);
 
                 stateChanged = true;
 
-                if (_neuralBeta > 0)
-                {
-                    // Decay neuralBeta to prevent a stale high value from persisting when
-                    // the neural strategy may have outdated weights. This ensures cold-start
-                    // scenarios don't over-weight a potentially unreliable neural model.
-                    _neuralBeta *= 0.5;
-                    if (_neuralBeta < NeuralBetaMinFloor)
-                    {
-                        _neuralBeta = 0.0;
-                    }
-                }
+                DecayNeuralBetaOnFailure();
             }
 
             if (stateChanged)
@@ -870,6 +740,190 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Updates <c>_alpha</c> and the quality-gate freeze flag from the sigmoid target.
+    ///     Caller must hold <c>_syncRoot</c>. Extracted verbatim from <see cref="Train(IReadOnlyList{TrainingExample}, IReadOnlyList{TrainingExample})"/>.
+    /// </summary>
+    private void UpdateAlphaFromQualityGate(bool qualityGatePassed, double validationLoss, double sigmoidAlpha)
+    {
+        if (qualityGatePassed)
+        {
+            // Good generalization - let alpha progress at full sigmoid rate
+            _alpha = sigmoidAlpha;
+            _qualityGateFrozen = false;
+        }
+        else
+        {
+            // Soft damping: alpha still advances but is proportionally dampened
+            // based on how far the validation loss exceeds the threshold.
+            // qualityFactor = 1.0 at threshold, 0.0 at 2× threshold (ceiling).
+            var qualityFactor = double.IsNaN(validationLoss)
+                ? 0.5 // NaN (no validation split) -> use half progression
+                : Math.Clamp(
+                    1.0 - ((validationLoss - ValidationLossThreshold)
+                           / (ValidationLossCeiling - ValidationLossThreshold)),
+                    0.0,
+                    1.0);
+
+            _alpha = _alphaMin + ((sigmoidAlpha - _alphaMin) * qualityFactor);
+            _qualityGateFrozen = qualityFactor < 0.01;
+        }
+    }
+
+    /// <summary>
+    ///     Updates the neural blending factor β via the activation ramp / decay logic.
+    ///     Caller must hold <c>_syncRoot</c>. Extracted verbatim from <see cref="Train(IReadOnlyList{TrainingExample}, IReadOnlyList{TrainingExample})"/>.
+    /// </summary>
+    private void UpdateNeuralBeta(bool neuralTrained)
+    {
+        // Update neural beta: blend neural in after NeuralActivationThreshold
+        // using a sigmoid ramp from 0 to NeuralMaxBetaFraction.
+        // Only activate if the neural strategy was successfully trained.
+        if (_neural is not null && neuralTrained && _trainingExampleCount >= NeuralActivationThreshold)
+        {
+            var neuralValidationLoss = _neural.LastValidationLoss;
+            var neuralQualityOk = !double.IsNaN(neuralValidationLoss)
+                                  && neuralValidationLoss <= ValidationLossThreshold;
+
+            if (neuralQualityOk)
+            {
+                // Linear ramp from 0 to NeuralMaxBetaFraction over 75..175 examples.
+                // Math.Max prevents beta from dropping below the ramp floor when trend
+                // damping and the ramp both apply within the same Train() call, but once
+                // the ramp has reached its ceiling (progress=1.0) trend-driven decay will
+                // be re-absorbed by the ramp on the next run - which is intentional: if
+                // neural quality remains good, the ramp is the dominant signal.
+                var progress = Math.Clamp(
+                    (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
+                    0.0,
+                    1.0);
+                var rampTarget = NeuralMaxBetaFraction * progress;
+                _neuralBeta = Math.Max(_neuralBeta, rampTarget);
+            }
+            else
+            {
+                // Neural not generalizing well - reduce its influence.
+                // Apply floor to avoid infinitesimal ghost values.
+                _neuralBeta *= 0.5;
+                if (_neuralBeta < NeuralBetaMinFloor)
+                {
+                    _neuralBeta = 0.0;
+                }
+            }
+        }
+        else if (_neural is not null && !neuralTrained && _neuralBeta > 0)
+        {
+            // Neural strategy failed to train this round while learned succeeded -
+            // decay β to avoid stale influence, analogous to the learned-failure branch.
+            _neuralBeta *= 0.5;
+            if (_neuralBeta < NeuralBetaMinFloor)
+            {
+                _neuralBeta = 0.0;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Appends a real (successful-training) metrics snapshot and trims history.
+    ///     Caller must hold <c>_syncRoot</c>. Extracted verbatim from <see cref="Train(IReadOnlyList{TrainingExample}, IReadOnlyList{TrainingExample})"/>.
+    /// </summary>
+    private void RecordMetricsSnapshot(double validationLoss, int exampleCount)
+    {
+        // Record metrics snapshot and analyze trend BEFORE saving state,
+        // so trend-driven alpha/beta adjustments are persisted in the same write.
+        _metricsHistory.Add(
+            new MetricsSnapshot
+            {
+                Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                ValidationLoss = validationLoss,
+                PrecisionAtK = _learned.LastPrecisionAtK,
+                RecallAtK = _learned.LastRecallAtK,
+                NdcgAtK = _learned.LastNdcgAtK,
+                ExampleCount = exampleCount
+            });
+        const int maxHistory = 10;
+        if (_metricsHistory.Count > maxHistory)
+        {
+            _metricsHistory.RemoveRange(0, _metricsHistory.Count - maxHistory);
+        }
+    }
+
+    /// <summary>
+    ///     Applies trend-driven alpha/beta adjustments after the trend is analyzed.
+    ///     Caller must hold <c>_syncRoot</c>. Extracted verbatim from <see cref="Train(IReadOnlyList{TrainingExample}, IReadOnlyList{TrainingExample})"/>.
+    /// </summary>
+    private void ApplyTrendAdjustments(MetricsTrend trend)
+    {
+        // Apply trend-driven alpha/beta adjustments
+        if (trend == MetricsTrend.Degrading)
+        {
+            // Roll alpha back toward heuristic
+            _alpha = _alphaMin + ((_alpha - _alphaMin) * TrendDegradationDamping);
+
+            // Also reduce neural influence when trend is degrading
+            if (_neuralBeta > 0)
+            {
+                _neuralBeta *= TrendDegradationDamping;
+                if (_neuralBeta < NeuralBetaMinFloor)
+                {
+                    _neuralBeta = 0.0;
+                }
+            }
+        }
+        else if (trend == MetricsTrend.Improving)
+        {
+            // Allow faster alpha progression toward sigmoid target (using adaptive midpoint)
+            var sigmoidTarget = ComputeSigmoidAlpha(
+                _trainingExampleCount,
+                DefaultSigmoidMidpoint + _sigmoidMidpointOffset,
+                _alphaMin,
+                _alphaMax);
+            _alpha = Math.Min(sigmoidTarget, _alpha + ((_alphaMax - _alpha) * (1.0 - TrendDegradationDamping)));
+        }
+    }
+
+    /// <summary>
+    ///     Appends a cold-start placeholder metrics snapshot (NaN loss) and trims history.
+    ///     Caller must hold <c>_syncRoot</c>. Extracted verbatim from <see cref="Train(IReadOnlyList{TrainingExample}, IReadOnlyList{TrainingExample})"/>.
+    /// </summary>
+    private void RecordColdStartPlaceholder(int exampleCount)
+    {
+        _metricsHistory.Add(
+            new MetricsSnapshot
+            {
+                Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                ValidationLoss = double.NaN,
+                PrecisionAtK = 0.0,
+                RecallAtK = 0.0,
+                NdcgAtK = 0.0,
+                ExampleCount = exampleCount
+            });
+        const int maxHistory = 10;
+        if (_metricsHistory.Count > maxHistory)
+        {
+            _metricsHistory.RemoveRange(0, _metricsHistory.Count - maxHistory);
+        }
+    }
+
+    /// <summary>
+    ///     Decays the neural blending factor β when learned training fails this round.
+    ///     Caller must hold <c>_syncRoot</c>. Extracted verbatim from <see cref="Train(IReadOnlyList{TrainingExample}, IReadOnlyList{TrainingExample})"/>.
+    /// </summary>
+    private void DecayNeuralBetaOnFailure()
+    {
+        if (_neuralBeta > 0)
+        {
+            // Decay neuralBeta to prevent a stale high value from persisting when
+            // the neural strategy may have outdated weights. This ensures cold-start
+            // scenarios don't over-weight a potentially unreliable neural model.
+            _neuralBeta *= 0.5;
+            if (_neuralBeta < NeuralBetaMinFloor)
+            {
+                _neuralBeta = 0.0;
+            }
+        }
     }
 
     /// <summary>

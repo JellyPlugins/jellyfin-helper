@@ -143,41 +143,17 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
             var requestUrl = $"api/v1/request?take={PageSize}&skip={skip}&sort=added&filter=all";
 
-            SeerrRequestPage? page;
-            try
+            var (page, fetchFailed) = await FetchRequestPageAsync(
+                client,
+                baseUri,
+                key,
+                requestUrl,
+                skip,
+                result,
+                cancellationToken).ConfigureAwait(false);
+            if (fetchFailed)
             {
-                using var pageReq = BuildRequest(HttpMethod.Get, baseUri, requestUrl, key);
-                using var response = await client.SendAsync(pageReq, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-
-                response.EnsureSuccessStatusCode();
-
-                var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
-                page = JsonSerializer.Deserialize<SeerrRequestPage>(json, JsonOptions);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                result.Failed++;
                 phaseOneFailed = true;
-                _pluginLog.LogWarning(
-                    "SeerrCleanup",
-                    $"Timed out fetching requests page (skip={skip}): {ex.Message}",
-                    ex,
-                    _logger);
-                break;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException or ResponseTooLargeException)
-            {
-                result.Failed++;
-                phaseOneFailed = true;
-                _pluginLog.LogWarning(
-                    "SeerrCleanup",
-                    $"Failed to fetch requests page (skip={skip}): {ex.Message}",
-                    ex,
-                    _logger);
                 break;
             }
 
@@ -212,28 +188,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             {
                 result.TotalChecked++;
 
-                // Fail CLOSED on unknown creation date: only delete when we have a genuinely parsed,
-                // non-default timestamp strictly older than the cutoff. A missing/null createdAt
-                // (fork / reshaped API / reverse proxy) deserializes to null and MUST be preserved -
-                // otherwise brand-new requests get deleted and the maxAgeDays safety is bypassed.
-                // A future-dated timestamp is likewise not "expired".
-                var createdAt = request.CreatedAt;
-                if (createdAt is null
-                    || createdAt.Value == default
-                    || createdAt.Value >= cutoffDate
-                    || createdAt.Value > DateTimeOffset.UtcNow)
-                {
-                    continue;
-                }
-
-                // Allowlist, not denylist: only PENDING (1) and DECLINED (3) requests are ever safe
-                // to delete. A denylist ("skip 2/4/5") fails OPEN - a missing status field
-                // (deserializes to 0) or a future/unknown Seerr status code would fall through and be
-                // deleted. Approved/available/failed/completed and any unrecognized status must be
-                // preserved, since Seerr uses them to track downloads and deleting them can trigger
-                // duplicate re-requests. (Current Jellyseerr: 1=pending, 2=approved, 3=declined,
-                // 4=failed, 5=completed.)
-                if (request.Status is not (1 or 3))
+                if (!IsExpiredAndDeletable(request, cutoffDate))
                 {
                     continue;
                 }
@@ -263,94 +218,236 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Guard against invalid IDs from deserialization failures.
-            // request.Id == 0 (default int) when JSON deserialization returns no value,
-            // and api/v1/request/0 is a valid but entirely unintended Seerr endpoint.
-            if (request.Id <= 0)
+            var breakRequested = await ProcessExpiredRequestAsync(
+                client,
+                baseUri,
+                key,
+                request,
+                dryRun,
+                titleCache,
+                result,
+                cancellationToken).ConfigureAwait(false);
+            if (breakRequested)
             {
-                _pluginLog.LogWarning(
-                    "SeerrCleanup",
-                    $"Skipping expired request with invalid Id={request.Id} — likely a deserialization issue.",
-                    logger: _logger);
-                result.Failed++;
-                continue;
-            }
-
-            // Guaranteed non-null: every item in expiredRequests passed the fail-closed age guard above.
-            var createdAt = request.CreatedAt!.Value;
-
-            var mediaTitle = await ResolveMediaTitleCachedAsync(client, baseUri, key, request.Media, titleCache, cancellationToken).ConfigureAwait(false);
-            var mediaInfo = request.Media != null
-                ? $"\"{mediaTitle}\" ({request.Media.MediaType}, TMDB: {request.Media.TmdbId})"
-                : $"request #{request.Id}";
-
-            var ageDays = (DateTimeOffset.UtcNow - createdAt).Days;
-
-            if (dryRun)
-            {
-                _pluginLog.LogInfo(
-                    "SeerrCleanup",
-                    $"[Dry Run] Would delete expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
-                    _logger);
-            }
-            else
-            {
-                try
-                {
-                    using var deleteReq = BuildRequest(HttpMethod.Delete, baseUri, $"api/v1/request/{request.Id}", key);
-                    using var deleteResponse = await client.SendAsync(deleteReq, cancellationToken).ConfigureAwait(false);
-
-                    if (deleteResponse.IsSuccessStatusCode)
-                    {
-                        result.Deleted++;
-                        _pluginLog.LogInfo(
-                            "SeerrCleanup",
-                            $"Deleted expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
-                            _logger);
-                    }
-                    else
-                    {
-                        result.Failed++;
-                        _pluginLog.LogWarning(
-                            "SeerrCleanup",
-                            $"Failed to delete request #{request.Id}: HTTP {(int)deleteResponse.StatusCode}",
-                            logger: _logger);
-                    }
-                }
-                catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-                {
-                    result.Failed++;
-                    _pluginLog.LogWarning(
-                        "SeerrCleanup",
-                        $"Failed to delete request #{request.Id}: timeout",
-                        ex,
-                        _logger);
-                }
-                catch (Exception ex) when (ex is HttpRequestException or TimeoutException)
-                {
-                    result.Failed++;
-                    _pluginLog.LogWarning(
-                        "SeerrCleanup",
-                        $"Failed to delete request #{request.Id}: {ex.Message}",
-                        ex,
-                        _logger);
-                }
-
-                // Small delay between DELETE calls to avoid overwhelming the Seerr API.
-                // Break on cancellation so the caller receives partial results with an accurate
-                // count rather than silently skipping remaining items without indication.
-                try
-                {
-                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
+                break;
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Processes a single expired request in Phase 2: validates its Id, resolves the media
+    ///     title, and either logs (dry run) or deletes it. Returns <see langword="true" /> when the
+    ///     caller's loop should break (cancellation during the inter-call delay).
+    /// </summary>
+    private async Task<bool> ProcessExpiredRequestAsync(
+        HttpClient client,
+        Uri baseUri,
+        string key,
+        SeerrRequest request,
+        bool dryRun,
+        Dictionary<string, string> titleCache,
+        SeerrCleanupResult result,
+        CancellationToken cancellationToken)
+    {
+        // Guard against invalid IDs from deserialization failures.
+        // request.Id == 0 (default int) when JSON deserialization returns no value,
+        // and api/v1/request/0 is a valid but entirely unintended Seerr endpoint.
+        if (request.Id <= 0)
+        {
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                $"Skipping expired request with invalid Id={request.Id} — likely a deserialization issue.",
+                logger: _logger);
+            result.Failed++;
+            return false;
+        }
+
+        // Guaranteed non-null: every item in expiredRequests passed the fail-closed age guard above.
+        var createdAt = request.CreatedAt!.Value;
+
+        var mediaTitle = await ResolveMediaTitleCachedAsync(client, baseUri, key, request.Media, titleCache, cancellationToken).ConfigureAwait(false);
+        var mediaInfo = request.Media != null
+            ? $"\"{mediaTitle}\" ({request.Media.MediaType}, TMDB: {request.Media.TmdbId})"
+            : $"request #{request.Id}";
+
+        var ageDays = (DateTimeOffset.UtcNow - createdAt).Days;
+
+        if (dryRun)
+        {
+            _pluginLog.LogInfo(
+                "SeerrCleanup",
+                $"[Dry Run] Would delete expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
+                _logger);
+            return false;
+        }
+
+        return await DeleteExpiredRequestAsync(
+            client,
+            baseUri,
+            key,
+            request,
+            mediaInfo,
+            createdAt,
+            ageDays,
+            result,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Issues the DELETE call for a single expired request and applies the inter-call delay.
+    ///     Returns <see langword="true" /> when the caller's loop should break (cancellation during the delay).
+    /// </summary>
+    private async Task<bool> DeleteExpiredRequestAsync(
+        HttpClient client,
+        Uri baseUri,
+        string key,
+        SeerrRequest request,
+        string mediaInfo,
+        DateTimeOffset createdAt,
+        int ageDays,
+        SeerrCleanupResult result,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var deleteReq = BuildRequest(HttpMethod.Delete, baseUri, $"api/v1/request/{request.Id}", key);
+            using var deleteResponse = await client.SendAsync(deleteReq, cancellationToken).ConfigureAwait(false);
+
+            if (deleteResponse.IsSuccessStatusCode)
+            {
+                result.Deleted++;
+                _pluginLog.LogInfo(
+                    "SeerrCleanup",
+                    $"Deleted expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
+                    _logger);
+            }
+            else
+            {
+                result.Failed++;
+                _pluginLog.LogWarning(
+                    "SeerrCleanup",
+                    $"Failed to delete request #{request.Id}: HTTP {(int)deleteResponse.StatusCode}",
+                    logger: _logger);
+            }
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            result.Failed++;
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                $"Failed to delete request #{request.Id}: timeout",
+                ex,
+                _logger);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TimeoutException)
+        {
+            result.Failed++;
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                $"Failed to delete request #{request.Id}: {ex.Message}",
+                ex,
+                _logger);
+        }
+
+        // Small delay between DELETE calls to avoid overwhelming the Seerr API.
+        // Break on cancellation so the caller receives partial results with an accurate
+        // count rather than silently skipping remaining items without indication.
+        try
+        {
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///     Determines whether a request is both genuinely expired (fail-closed age guard) and of a
+    ///     status that is safe to delete (allowlist of PENDING/DECLINED). Behaviourally identical to
+    ///     the inline guards it replaces.
+    /// </summary>
+    private static bool IsExpiredAndDeletable(SeerrRequest request, DateTimeOffset cutoffDate)
+    {
+        // Fail CLOSED on unknown creation date: only delete when we have a genuinely parsed,
+        // non-default timestamp strictly older than the cutoff. A missing/null createdAt
+        // (fork / reshaped API / reverse proxy) deserializes to null and MUST be preserved -
+        // otherwise brand-new requests get deleted and the maxAgeDays safety is bypassed.
+        // A future-dated timestamp is likewise not "expired".
+        var createdAt = request.CreatedAt;
+        if (createdAt is null
+            || createdAt.Value == default
+            || createdAt.Value >= cutoffDate
+            || createdAt.Value > DateTimeOffset.UtcNow)
+        {
+            return false;
+        }
+
+        // Allowlist, not denylist: only PENDING (1) and DECLINED (3) requests are ever safe
+        // to delete. A denylist ("skip 2/4/5") fails OPEN - a missing status field
+        // (deserializes to 0) or a future/unknown Seerr status code would fall through and be
+        // deleted. Approved/available/failed/completed and any unrecognized status must be
+        // preserved, since Seerr uses them to track downloads and deleting them can trigger
+        // duplicate re-requests. (Current Jellyseerr: 1=pending, 2=approved, 3=declined,
+        // 4=failed, 5=completed.)
+        return request.Status is (1 or 3);
+    }
+
+    /// <summary>
+    ///     Fetches and deserializes a single page of Seerr requests, applying the same failure
+    ///     logging and <see cref="SeerrCleanupResult.Failed" /> accounting as before. Returns the
+    ///     deserialized page and a flag indicating the pagination loop should stop due to failure.
+    /// </summary>
+    private async Task<(SeerrRequestPage? Page, bool FetchFailed)> FetchRequestPageAsync(
+        HttpClient client,
+        Uri baseUri,
+        string key,
+        string requestUrl,
+        int skip,
+        SeerrCleanupResult result,
+        CancellationToken cancellationToken)
+    {
+        SeerrRequestPage? page;
+        try
+        {
+            using var pageReq = BuildRequest(HttpMethod.Get, baseUri, requestUrl, key);
+            using var response = await client.SendAsync(pageReq, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+            response.EnsureSuccessStatusCode();
+
+            var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+            page = JsonSerializer.Deserialize<SeerrRequestPage>(json, JsonOptions);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            result.Failed++;
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                $"Timed out fetching requests page (skip={skip}): {ex.Message}",
+                ex,
+                _logger);
+            return (null, true);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or ResponseTooLargeException)
+        {
+            result.Failed++;
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                $"Failed to fetch requests page (skip={skip}): {ex.Message}",
+                ex,
+                _logger);
+            return (null, true);
+        }
+
+        return (page, false);
     }
 
     /// <summary>

@@ -131,9 +131,7 @@ internal static class TrainingDataBuilder
         BuildPerUserCache(
             allProfiles,
             precomputedUserSets,
-            cachedPeopleLookup,
-            itemStudiosLookup,
-            itemTagsLookup,
+            lookups,
             seriesEpisodeCounts,
             out var perUserCache,
             out var profileById);
@@ -310,9 +308,7 @@ internal static class TrainingDataBuilder
     private static void BuildPerUserCache(
         Collection<UserWatchProfile> allProfiles,
         Dictionary<Guid, HashSet<Guid>> precomputedUserSets,
-        Dictionary<Guid, HashSet<string>> cachedPeopleLookup,
-        Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup,
-        Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup,
+        TrainingLookups lookups,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         out Dictionary<Guid, PerUserArtifacts> perUserCache,
         out Dictionary<Guid, UserWatchProfile> profileById)
@@ -340,9 +336,9 @@ internal static class TrainingDataBuilder
 
             var ay = ContentScoring.ComputeAverageYear(profile);
             var ge = PreferenceBuilder.BuildGenreExposureAnalysis(gp, profile);
-            var pw = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, cachedPeopleLookup, seriesEpisodeCounts);
-            var ps = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, itemStudiosLookup);
-            var pt = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, itemTagsLookup);
+            var pw = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookups.CachedPeopleLookup, seriesEpisodeCounts);
+            var ps = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookups.ItemStudiosLookup);
+            var pt = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookups.ItemTagsLookup);
             // The new content-affinity preference maps read directly off WatchedItemInfo's cached
             // fields, so the SAME PreferenceBuilder functions used at live scoring time apply here -
             // identical inputs -> identical maps -> train/serve parity by construction.
@@ -356,7 +352,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Phase 1: emits recommendation-feedback training examples into <paramref name="examples"/>.
+    ///     Phase 1: emits recommendation-feedback training examples into <c>ctx.Examples</c>.
     /// </summary>
     private static void EmitRecommendationFeedbackExamples(TrainingContext ctx)
     {
@@ -805,7 +801,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Phase 2: emits organic (watched-but-never-recommended) examples into <paramref name="examples"/>.
+    ///     Phase 2: emits organic (watched-but-never-recommended) examples into <c>ctx.Examples</c>.
     /// </summary>
     /// <returns>The number of organic examples emitted.</returns>
     private static int EmitOrganicExamples(TrainingContext ctx)
@@ -912,17 +908,17 @@ internal static class TrainingDataBuilder
     /// </summary>
     private static int ProcessOrganicWatchedItem(
         WatchedItemInfo w,
-        UserWatchProfile userProfile,
-        HashSet<Guid> recommendedItemIds,
-        Dictionary<Guid, List<WatchedItemInfo>> seriesEpisodeLookupOrganic,
-        HashSet<Guid> seriesWithOrgEpisodes,
-        HashSet<Guid> aggregatedSeriesIds,
-        Dictionary<Guid, int> watchedBoxSetCountsOrganic,
-        PerUserArtifacts artifacts,
-        TrainingLookups lookups,
-        DateTime organicFallbackTimestamp,
-        List<TrainingExample> examples)
+        Phase2UserContext userCtx,
+        TrainingContext ctx)
     {
+        var userProfile = userCtx.UserProfile;
+        var recommendedItemIds = userCtx.RecommendedItemIds;
+        var seriesEpisodeLookupOrganic = userCtx.SeriesEpisodeLookupOrganic;
+        var seriesWithOrgEpisodes = userCtx.SeriesWithOrgEpisodes;
+        var aggregatedSeriesIds = userCtx.AggregatedSeriesIds;
+        var artifacts = userCtx.Artifacts;
+        var lookups = ctx.Lookups;
+
         var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureOrganic,
              preferredPeopleWeightsOrganic, preferredStudiosOrganic, preferredTagsOrganic,
              preferredFranchisesOrganic, preferredCountriesOrganic, preferredInheritedTagsOrganic, preferredWriterWeightsOrganic) =
@@ -953,7 +949,7 @@ internal static class TrainingDataBuilder
             if (seriesEpisodeLookupOrganic.TryGetValue(w.SeriesId.Value, out var seriesEpisodes))
             {
                 TrainingFeatureComputer.AddAggregatedSeriesExample(
-                    examples,
+                    ctx.Examples,
                     seriesEpisodes,
                     w.SeriesId.Value,
                     userProfile,
@@ -973,7 +969,7 @@ internal static class TrainingDataBuilder
                     preferredInheritedTagsOrganic,
                     preferredWriterWeightsOrganic,
                     lookups.GenreStudioIdf,
-                    organicFallbackTimestamp);
+                    ctx.OrganicFallbackTimestamp);
                 return 1;
             }
 
@@ -1020,18 +1016,15 @@ internal static class TrainingDataBuilder
 
         // Compute PeopleSimilarity from cached data using the weighted overload
         // Matches Engine.ScoreCandidate() live logic for train/serve parity.
-        examples.Add(
+        ctx.Examples.Add(
             BuildOrganicStandaloneExample(
                 w,
-                userProfile,
+                userCtx,
+                ctx,
                 collabScore,
                 combinedCriticScore,
                 completionRatio,
-                isSeries,
-                artifacts,
-                watchedBoxSetCountsOrganic,
-                lookups,
-                organicFallbackTimestamp));
+                isSeries));
         return 1;
     }
 
@@ -1040,20 +1033,22 @@ internal static class TrainingDataBuilder
     /// </summary>
     private static TrainingExample BuildOrganicStandaloneExample(
         WatchedItemInfo w,
-        UserWatchProfile userProfile,
+        Phase2UserContext userCtx,
+        TrainingContext ctx,
         double collabScore,
         double combinedCriticScore,
         double completionRatio,
-        bool isSeries,
-        PerUserArtifacts artifacts,
-        Dictionary<Guid, int> watchedBoxSetCountsOrganic,
-        TrainingLookups lookups,
-        DateTime organicFallbackTimestamp)
+        bool isSeries)
     {
+        var userProfile = userCtx.UserProfile;
+        var watchedBoxSetCountsOrganic = userCtx.WatchedBoxSetCountsOrganic;
+        var lookups = ctx.Lookups;
+        var organicFallbackTimestamp = ctx.OrganicFallbackTimestamp;
+
         var (genrePreferences, _, _, avgYear, genreExposureOrganic,
              preferredPeopleWeightsOrganic, preferredStudiosOrganic, preferredTagsOrganic,
              preferredFranchisesOrganic, preferredCountriesOrganic, preferredInheritedTagsOrganic, preferredWriterWeightsOrganic) =
-            artifacts;
+            userCtx.Artifacts;
 
         // Compute PeopleSimilarity from cached data using the weighted overload
         // Matches Engine.ScoreCandidate() live logic for train/serve parity.
@@ -1187,20 +1182,10 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Phase 3: emits cross-user random-negative examples into <paramref name="examples"/>.
+    ///     Phase 3: emits cross-user random-negative examples into <c>ctx.Examples</c>.
     /// </summary>
     /// <returns>The number of random-negative examples emitted.</returns>
-    private static int EmitRandomNegativeExamples(
-        IReadOnlyList<RecommendationResult> previousResults,
-        Collection<UserWatchProfile> allProfiles,
-        Dictionary<Guid, HashSet<Guid>> profileLookup,
-        Dictionary<Guid, HashSet<Guid>> seriesLookup,
-        Dictionary<Guid, HashSet<Guid>> recommendedItemIdsByUser,
-        Dictionary<Guid, PerUserArtifacts> perUserCache,
-        TrainingLookups lookups,
-        DateTime organicFallbackTimestamp,
-        List<TrainingExample> examples,
-        CancellationToken cancellationToken)
+    private static int EmitRandomNegativeExamples(TrainingContext ctx)
     {
         // === Phase 3: Random negative sampling (cross-user items the user never interacted with) ===
         // Phase 1 negatives are only items the system recommended to THIS user (exposure bias); Phase 2
@@ -1214,7 +1199,7 @@ internal static class TrainingDataBuilder
         // as negatives purely because they were widely recommended elsewhere.
         var seenNegItemIds = new HashSet<Guid>();
         var allRecommendedItems = new List<RecommendedItem>();
-        foreach (var prevResult in previousResults)
+        foreach (var prevResult in ctx.PreviousResults)
         {
             foreach (var rec in prevResult.Recommendations)
             {
@@ -1227,21 +1212,11 @@ internal static class TrainingDataBuilder
 
         if (allRecommendedItems.Count > 0)
         {
-            foreach (var userProfile in allProfiles)
+            foreach (var userProfile in ctx.AllProfiles)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                ctx.CancellationToken.ThrowIfCancellationRequested();
 
-                randomNegativeCount += ProcessUserRandomNegatives(
-                    userProfile,
-                    previousResults,
-                    allRecommendedItems,
-                    profileLookup,
-                    seriesLookup,
-                    recommendedItemIdsByUser,
-                    perUserCache,
-                    lookups,
-                    organicFallbackTimestamp,
-                    examples);
+                randomNegativeCount += ProcessUserRandomNegatives(userProfile, allRecommendedItems, ctx);
             }
         }
 
@@ -1254,33 +1229,28 @@ internal static class TrainingDataBuilder
     /// </summary>
     private static int ProcessUserRandomNegatives(
         UserWatchProfile userProfile,
-        IReadOnlyList<RecommendationResult> previousResults,
         List<RecommendedItem> allRecommendedItems,
-        Dictionary<Guid, HashSet<Guid>> profileLookup,
-        Dictionary<Guid, HashSet<Guid>> seriesLookup,
-        Dictionary<Guid, HashSet<Guid>> recommendedItemIdsByUser,
-        Dictionary<Guid, PerUserArtifacts> perUserCache,
-        TrainingLookups lookups,
-        DateTime organicFallbackTimestamp,
-        List<TrainingExample> examples)
+        TrainingContext ctx)
     {
+        var lookups = ctx.Lookups;
+
         // Per-user deterministic RNG: same cache + same user => same negatives.
         // Keeps training reproducible without coupling across users.
-        var rngNeg = new Random(Engine.ComputeStableSeed(userProfile.UserId, previousResults.Count));
+        var rngNeg = new Random(Engine.ComputeStableSeed(userProfile.UserId, ctx.PreviousResults.Count));
 
-        if (!profileLookup.TryGetValue(userProfile.UserId, out var userWatchedIds))
+        if (!ctx.ProfileLookup.TryGetValue(userProfile.UserId, out var userWatchedIds))
         {
             return 0;
         }
 
-        seriesLookup.TryGetValue(userProfile.UserId, out var userWatchedSeriesIds);
+        ctx.SeriesLookup.TryGetValue(userProfile.UserId, out var userWatchedSeriesIds);
 
-        if (!recommendedItemIdsByUser.TryGetValue(userProfile.UserId, out var userRecommendedIds))
+        if (!ctx.RecommendedItemIdsByUser.TryGetValue(userProfile.UserId, out var userRecommendedIds))
         {
             userRecommendedIds = new HashSet<Guid>();
         }
 
-        var artifacts = perUserCache[userProfile.UserId];
+        var artifacts = ctx.PerUserCache[userProfile.UserId];
 
         // Build watched genre/people/studio sets for ContentNearestNeighborScore (mirrors Phase 1).
         // Use HasMeaningfulInteraction() for train/serve parity - see Phase 1 comment above.
@@ -1328,14 +1298,14 @@ internal static class TrainingDataBuilder
                 (candidateNegatives[swapIdx], candidateNegatives[s]);
 
             var neg = candidateNegatives[s];
-            examples.Add(
+            ctx.Examples.Add(
                 BuildRandomNegativeExample(
                     neg,
                     userProfile,
                     artifacts,
                     contentSets,
                     lookups,
-                    organicFallbackTimestamp));
+                    ctx.OrganicFallbackTimestamp));
             randomNegativeCount++;
         }
 
@@ -1545,4 +1515,98 @@ internal static class TrainingDataBuilder
         List<HashSet<string>> WatchedPeopleSets,
         List<HashSet<string>> WatchedStudioSets,
         Dictionary<Guid, int> WatchedBoxSetCounts);
+
+    /// <summary>
+    ///     Immutable, phase-spanning context threaded through the Phase 1/2/3 entry points so each takes
+    ///     a single argument instead of a long loose parameter list. Behaviour-neutral parameter aggregate.
+    /// </summary>
+    private readonly record struct TrainingContext
+    {
+        /// <summary>Gets the recommendation results from previous runs.</summary>
+        public IReadOnlyList<RecommendationResult> PreviousResults { get; init; }
+
+        /// <summary>Gets all user watch profiles.</summary>
+        public Collection<UserWatchProfile> AllProfiles { get; init; }
+
+        /// <summary>Gets the per-user set of meaningfully-interacted item IDs.</summary>
+        public Dictionary<Guid, HashSet<Guid>> ProfileLookup { get; init; }
+
+        /// <summary>Gets the per-user set of meaningfully-interacted (and favorited) series IDs.</summary>
+        public Dictionary<Guid, HashSet<Guid>> SeriesLookup { get; init; }
+
+        /// <summary>Gets the O(1) profile-by-user-id lookup.</summary>
+        public Dictionary<Guid, UserWatchProfile> ProfileById { get; init; }
+
+        /// <summary>Gets the per-user set of item IDs recommended to that user.</summary>
+        public Dictionary<Guid, HashSet<Guid>> RecommendedItemIdsByUser { get; init; }
+
+        /// <summary>Gets the per-user pre-computed artifacts cache.</summary>
+        public Dictionary<Guid, PerUserArtifacts> PerUserCache { get; init; }
+
+        /// <summary>Gets the shared item-metadata lookups and genre/studio IDF table.</summary>
+        public TrainingLookups Lookups { get; init; }
+
+        /// <summary>Gets the deterministic timestamp anchor for organic items without a play date.</summary>
+        public DateTime OrganicFallbackTimestamp { get; init; }
+
+        /// <summary>Gets the mutable output list that all phases append training examples to.</summary>
+        public List<TrainingExample> Examples { get; init; }
+
+        /// <summary>Gets the cancellation token for the build operation.</summary>
+        public CancellationToken CancellationToken { get; init; }
+    }
+
+    /// <summary>
+    ///     Per-user context for Phase 1 example building. Behaviour-neutral parameter aggregate.
+    /// </summary>
+    private readonly record struct Phase1UserContext
+    {
+        /// <summary>Gets the user's watch profile.</summary>
+        public UserWatchProfile UserProfile { get; init; }
+
+        /// <summary>Gets the user's meaningfully-interacted item IDs.</summary>
+        public HashSet<Guid> WatchedIds { get; init; }
+
+        /// <summary>Gets the user's meaningfully-interacted series IDs, if any.</summary>
+        public HashSet<Guid>? WatchedSeriesIds { get; init; }
+
+        /// <summary>Gets the per-item watched-item lookup for this user.</summary>
+        public Dictionary<Guid, WatchedItemInfo> WatchedItemLookup { get; init; }
+
+        /// <summary>Gets the per-series episode lookup for this user.</summary>
+        public Dictionary<Guid, List<WatchedItemInfo>> SeriesEpisodeLookup { get; init; }
+
+        /// <summary>Gets the user's pre-computed preference artifacts.</summary>
+        public PerUserArtifacts Artifacts { get; init; }
+
+        /// <summary>Gets the user's parallel watched-content sets and BoxSet counts.</summary>
+        public WatchedContentSets ContentSets { get; init; }
+    }
+
+    /// <summary>
+    ///     Per-user context for Phase 2 (organic) example building. Behaviour-neutral parameter aggregate.
+    /// </summary>
+    private readonly record struct Phase2UserContext
+    {
+        /// <summary>Gets the user's watch profile.</summary>
+        public UserWatchProfile UserProfile { get; init; }
+
+        /// <summary>Gets the set of item IDs already recommended to this user.</summary>
+        public HashSet<Guid> RecommendedItemIds { get; init; }
+
+        /// <summary>Gets the per-series organic episode lookup for this user.</summary>
+        public Dictionary<Guid, List<WatchedItemInfo>> SeriesEpisodeLookupOrganic { get; init; }
+
+        /// <summary>Gets the set of series with organic (never-recommended) episodes.</summary>
+        public HashSet<Guid> SeriesWithOrgEpisodes { get; init; }
+
+        /// <summary>Gets the mutable set tracking series already emitted as aggregated examples.</summary>
+        public HashSet<Guid> AggregatedSeriesIds { get; init; }
+
+        /// <summary>Gets the user's watched-BoxSet count map for organic items.</summary>
+        public Dictionary<Guid, int> WatchedBoxSetCountsOrganic { get; init; }
+
+        /// <summary>Gets the user's pre-computed preference artifacts.</summary>
+        public PerUserArtifacts Artifacts { get; init; }
+    }
 }

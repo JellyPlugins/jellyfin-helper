@@ -991,201 +991,37 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // === Compute ALL error signals BEFORE updating any weights ===
                     // Correct backprop uses the forward-pass weights for error computation; updating
                     // weights first would skew gradients.
-                    //
-                    // A2 dropout: a neuron with mask == 0 produced no output, so its error signal is
-                    // zero (no gradient flow) and the downstream weight-update from it is zero too
-                    // (activation was zero). The mask check duplicates the pre>0 check for clarity.
-
-                    // Hidden4 error (backprop through ReLU + inverted-dropout scale). With inverted
-                    // dropout a = mask · relu(pre) · invKeep, so ∂a/∂pre = invKeep for a kept neuron and
-                    // δ_pre = δ_a · invKeep. Folding invKeep in HERE, once per layer, gives every consumer
-                    // of hNErr (inter-layer propagation AND the weight/bias gradients that pair hNErr with
-                    // the upstream activation) the correct δ_pre. The output-layer update's downstream
-                    // activation (h4Act) carries its own invKeep independently (no double count). When
-                    // dropout is inactive invKeep == 1.0, an exact no-op.
-                    for (var k = 0; k < Hidden4Size; k++)
-                    {
-                        h4Err[k] = (h4Pre[k] > 0 && h4Mask[k] > 0)
-                            ? outErr * _weightsH4O[k] * dropoutInvKeep
-                            : 0.0;
-                    }
-
-                    // Hidden3 error (backprop through ReLU + inverted-dropout scale from hidden4).
-                    // h4Err holds δ_pre for hidden4, so summing against the weights yields δ_a for
-                    // hidden3; multiplying by invKeep converts that to δ_pre.
-                    for (var k = 0; k < Hidden3Size; k++)
-                    {
-                        if (h3Pre[k] <= 0 || h3Mask[k] == 0.0)
-                        {
-                            h3Err[k] = 0.0;
-                            continue;
-                        }
-
-                        var sum = 0.0;
-                        for (var m = 0; m < Hidden4Size; m++)
-                        {
-                            sum += h4Err[m] * _weightsH3H4[(m * Hidden3Size) + k];
-                        }
-
-                        h3Err[k] = sum * dropoutInvKeep;
-                    }
-
-                    // Hidden2 layer error (backprop through ReLU + inverted-dropout scale from hidden3)
-                    for (var k = 0; k < Hidden2Size; k++)
-                    {
-                        if (h2Pre[k] <= 0 || h2Mask[k] <= 0.0)
-                        {
-                            h2Err[k] = 0.0;
-                            continue;
-                        }
-
-                        var sum = 0.0;
-                        for (var l = 0; l < Hidden3Size; l++)
-                        {
-                            sum += h3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
-                        }
-
-                        h2Err[k] = sum * dropoutInvKeep;
-                    }
-
-                    // Hidden1 layer error (backprop through ReLU + inverted-dropout scale from hidden2)
-                    for (var j = 0; j < Hidden1Size; j++)
-                    {
-                        if (h1Pre[j] <= 0 || h1Mask[j] <= 0.0)
-                        {
-                            h1Err[j] = 0.0;
-                            continue;
-                        }
-
-                        var sum = 0.0;
-                        for (var k = 0; k < Hidden2Size; k++)
-                        {
-                            sum += h2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
-                        }
-
-                        h1Err[j] = sum * dropoutInvKeep;
-                    }
+                    ComputeErrorSignals(
+                        outErr,
+                        dropoutInvKeep,
+                        h1Pre,
+                        h2Pre,
+                        h3Pre,
+                        h4Pre,
+                        h1Mask,
+                        h2Mask,
+                        h3Mask,
+                        h4Mask,
+                        h1Err,
+                        h2Err,
+                        h3Err,
+                        h4Err);
 
                     // === Now update all weights using the pre-computed error signals ===
-
-                    // Output layer Adam update (hidden4 -> output)
-                    for (var k = 0; k < Hidden4Size; k++)
-                    {
-                        var g = (outErr * h4Act[k]) + (L2Lambda * _weightsH4O[k]);
-                        _mWH4O![k] = (AdamBeta1 * _mWH4O[k]) + ((1 - AdamBeta1) * g);
-                        _vWH4O![k] = (AdamBeta2 * _vWH4O[k]) + ((1 - AdamBeta2) * g * g);
-                        _weightsH4O[k] -= DefaultLearningRate * (_mWH4O[k] / bc1) /
-                                          (Math.Sqrt(_vWH4O[k] / bc2) + AdamEpsilon);
-                        _weightsH4O[k] = Math.Clamp(_weightsH4O[k], -WeightClamp, WeightClamp);
-                    }
-
-                    {
-                        var g = outErr;
-                        _mBO = (AdamBeta1 * _mBO) + ((1 - AdamBeta1) * g);
-                        _vBO = (AdamBeta2 * _vBO) + ((1 - AdamBeta2) * g * g);
-                        _biasOutput -= DefaultLearningRate * (_mBO / bc1) / (Math.Sqrt(_vBO / bc2) + AdamEpsilon);
-                        _biasOutput = Math.Clamp(_biasOutput, -WeightClamp, WeightClamp);
-                    }
-
-                    // Hidden3->Hidden4 layer Adam update
-                    for (var k = 0; k < Hidden4Size; k++)
-                    {
-                        var bIdx = k * Hidden3Size;
-                        for (var j = 0; j < Hidden3Size; j++)
-                        {
-                            var p = bIdx + j;
-                            var g = (h4Err[k] * h3Act[j]) + (L2Lambda * _weightsH3H4[p]);
-                            _mWH3H4![p] = (AdamBeta1 * _mWH3H4[p]) + ((1 - AdamBeta1) * g);
-                            _vWH3H4![p] = (AdamBeta2 * _vWH3H4[p]) + ((1 - AdamBeta2) * g * g);
-                            _weightsH3H4[p] -= DefaultLearningRate * (_mWH3H4[p] / bc1) /
-                                               (Math.Sqrt(_vWH3H4[p] / bc2) + AdamEpsilon);
-                            _weightsH3H4[p] = Math.Clamp(_weightsH3H4[p], -WeightClamp, WeightClamp);
-                        }
-
-                        {
-                            var g = h4Err[k];
-                            _mBH4![k] = (AdamBeta1 * _mBH4[k]) + ((1 - AdamBeta1) * g);
-                            _vBH4![k] = (AdamBeta2 * _vBH4[k]) + ((1 - AdamBeta2) * g * g);
-                            _biasH4[k] -= DefaultLearningRate * (_mBH4[k] / bc1) /
-                                          (Math.Sqrt(_vBH4[k] / bc2) + AdamEpsilon);
-                            _biasH4[k] = Math.Clamp(_biasH4[k], -WeightClamp, WeightClamp);
-                        }
-                    }
-
-                    // Hidden2->Hidden3 layer Adam update
-                    for (var k = 0; k < Hidden3Size; k++)
-                    {
-                        var bIdx = k * Hidden2Size;
-                        for (var j = 0; j < Hidden2Size; j++)
-                        {
-                            var p = bIdx + j;
-                            var g = (h3Err[k] * h2Act[j]) + (L2Lambda * _weightsH2H3[p]);
-                            _mWH2H3![p] = (AdamBeta1 * _mWH2H3[p]) + ((1 - AdamBeta1) * g);
-                            _vWH2H3![p] = (AdamBeta2 * _vWH2H3[p]) + ((1 - AdamBeta2) * g * g);
-                            _weightsH2H3[p] -= DefaultLearningRate * (_mWH2H3[p] / bc1) /
-                                               (Math.Sqrt(_vWH2H3[p] / bc2) + AdamEpsilon);
-                            _weightsH2H3[p] = Math.Clamp(_weightsH2H3[p], -WeightClamp, WeightClamp);
-                        }
-
-                        {
-                            var g = h3Err[k];
-                            _mBH3![k] = (AdamBeta1 * _mBH3[k]) + ((1 - AdamBeta1) * g);
-                            _vBH3![k] = (AdamBeta2 * _vBH3[k]) + ((1 - AdamBeta2) * g * g);
-                            _biasH3[k] -= DefaultLearningRate * (_mBH3[k] / bc1) /
-                                          (Math.Sqrt(_vBH3[k] / bc2) + AdamEpsilon);
-                            _biasH3[k] = Math.Clamp(_biasH3[k], -WeightClamp, WeightClamp);
-                        }
-                    }
-
-                    // Hidden1->Hidden2 layer Adam update
-                    for (var k = 0; k < Hidden2Size; k++)
-                    {
-                        var bIdx = k * Hidden1Size;
-                        for (var j = 0; j < Hidden1Size; j++)
-                        {
-                            var p = bIdx + j;
-                            var g = (h2Err[k] * h1Act[j]) + (L2Lambda * _weightsH1H2[p]);
-                            _mWH1H2![p] = (AdamBeta1 * _mWH1H2[p]) + ((1 - AdamBeta1) * g);
-                            _vWH1H2![p] = (AdamBeta2 * _vWH1H2[p]) + ((1 - AdamBeta2) * g * g);
-                            _weightsH1H2[p] -= DefaultLearningRate * (_mWH1H2[p] / bc1) /
-                                               (Math.Sqrt(_vWH1H2[p] / bc2) + AdamEpsilon);
-                            _weightsH1H2[p] = Math.Clamp(_weightsH1H2[p], -WeightClamp, WeightClamp);
-                        }
-
-                        {
-                            var g = h2Err[k];
-                            _mBH2![k] = (AdamBeta1 * _mBH2[k]) + ((1 - AdamBeta1) * g);
-                            _vBH2![k] = (AdamBeta2 * _vBH2[k]) + ((1 - AdamBeta2) * g * g);
-                            _biasH2[k] -= DefaultLearningRate * (_mBH2[k] / bc1) /
-                                          (Math.Sqrt(_vBH2[k] / bc2) + AdamEpsilon);
-                            _biasH2[k] = Math.Clamp(_biasH2[k], -WeightClamp, WeightClamp);
-                        }
-                    }
-
-                    // Input->Hidden1 layer Adam update
-                    for (var j = 0; j < Hidden1Size; j++)
-                    {
-                        var bIdx = j * inputSize;
-                        for (var i = 0; i < inputSize; i++)
-                        {
-                            var p = bIdx + i;
-                            var g = (h1Err[j] * vec[i]) + (L2Lambda * _weightsIH[p]);
-                            _mWIH![p] = (AdamBeta1 * _mWIH[p]) + ((1 - AdamBeta1) * g);
-                            _vWIH![p] = (AdamBeta2 * _vWIH[p]) + ((1 - AdamBeta2) * g * g);
-                            _weightsIH[p] -= DefaultLearningRate * (_mWIH[p] / bc1) /
-                                             (Math.Sqrt(_vWIH[p] / bc2) + AdamEpsilon);
-                            _weightsIH[p] = Math.Clamp(_weightsIH[p], -WeightClamp, WeightClamp);
-                        }
-
-                        {
-                            var g = h1Err[j];
-                            _mBH1![j] = (AdamBeta1 * _mBH1[j]) + ((1 - AdamBeta1) * g);
-                            _vBH1![j] = (AdamBeta2 * _vBH1[j]) + ((1 - AdamBeta2) * g * g);
-                            _biasH1[j] -= DefaultLearningRate * (_mBH1[j] / bc1) /
-                                          (Math.Sqrt(_vBH1[j] / bc2) + AdamEpsilon);
-                            _biasH1[j] = Math.Clamp(_biasH1[j], -WeightClamp, WeightClamp);
-                        }
-                    }
+                    ApplyAdamUpdates(
+                        outErr,
+                        bc1,
+                        bc2,
+                        inputSize,
+                        vec,
+                        h1Act,
+                        h2Act,
+                        h3Act,
+                        h4Act,
+                        h1Err,
+                        h2Err,
+                        h3Err,
+                        h4Err);
                 }
 
                 if (useEarlyStopping && valIdx.Length > 0)
@@ -1195,15 +1031,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     {
                         bestLoss = valLoss;
                         patience = 0;
-                        Array.Copy(_weightsIH, bestWIH, _weightsIH.Length);
-                        Array.Copy(_biasH1, bestBH1, _biasH1.Length);
-                        Array.Copy(_weightsH1H2, bestWH1H2, _weightsH1H2.Length);
-                        Array.Copy(_biasH2, bestBH2, _biasH2.Length);
-                        Array.Copy(_weightsH2H3, bestWH2H3, _weightsH2H3.Length);
-                        Array.Copy(_biasH3, bestBH3, _biasH3.Length);
-                        Array.Copy(_weightsH3H4, bestWH3H4, _weightsH3H4.Length);
-                        Array.Copy(_biasH4, bestBH4, _biasH4.Length);
-                        Array.Copy(_weightsH4O, bestWH4O, _weightsH4O.Length);
+                        SnapshotBestWeights(
+                            bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O);
                         bestBO = _biasOutput;
                     }
                     else
@@ -1211,15 +1040,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         patience++;
                         if (patience >= EarlyStoppingPatience)
                         {
-                            Array.Copy(bestWIH, _weightsIH, _weightsIH.Length);
-                            Array.Copy(bestBH1, _biasH1, _biasH1.Length);
-                            Array.Copy(bestWH1H2, _weightsH1H2, _weightsH1H2.Length);
-                            Array.Copy(bestBH2, _biasH2, _biasH2.Length);
-                            Array.Copy(bestWH2H3, _weightsH2H3, _weightsH2H3.Length);
-                            Array.Copy(bestBH3, _biasH3, _biasH3.Length);
-                            Array.Copy(bestWH3H4, _weightsH3H4, _weightsH3H4.Length);
-                            Array.Copy(bestBH4, _biasH4, _biasH4.Length);
-                            Array.Copy(bestWH4O, _weightsH4O, _weightsH4O.Length);
+                            RestoreBestWeights(
+                                bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O);
                             _biasOutput = bestBO;
                             break;
                         }
@@ -1233,15 +1055,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // last-epoch weights differing from the best-observed.
             if (useEarlyStopping && bestLoss < double.MaxValue)
             {
-                Array.Copy(bestWIH, _weightsIH, _weightsIH.Length);
-                Array.Copy(bestBH1, _biasH1, _biasH1.Length);
-                Array.Copy(bestWH1H2, _weightsH1H2, _weightsH1H2.Length);
-                Array.Copy(bestBH2, _biasH2, _biasH2.Length);
-                Array.Copy(bestWH2H3, _weightsH2H3, _weightsH2H3.Length);
-                Array.Copy(bestBH3, _biasH3, _biasH3.Length);
-                Array.Copy(bestWH3H4, _weightsH3H4, _weightsH3H4.Length);
-                Array.Copy(bestBH4, _biasH4, _biasH4.Length);
-                Array.Copy(bestWH4O, _weightsH4O, _weightsH4O.Length);
+                RestoreBestWeights(
+                    bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O);
                 _biasOutput = bestBO;
             }
 
@@ -1314,6 +1129,304 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         return true;
+    }
+
+    /// <summary>
+    ///     Copies the current live weights/biases into the supplied best-so-far buffers.
+    ///     Extracted verbatim from the early-stopping "improved" branch of
+    ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>;
+    ///     the copied arrays and order are unchanged (the output bias scalar is handled by the caller).
+    /// </summary>
+    private void SnapshotBestWeights(
+        double[] bestWIH,
+        double[] bestBH1,
+        double[] bestWH1H2,
+        double[] bestBH2,
+        double[] bestWH2H3,
+        double[] bestBH3,
+        double[] bestWH3H4,
+        double[] bestBH4,
+        double[] bestWH4O)
+    {
+        Array.Copy(_weightsIH, bestWIH, _weightsIH.Length);
+        Array.Copy(_biasH1, bestBH1, _biasH1.Length);
+        Array.Copy(_weightsH1H2, bestWH1H2, _weightsH1H2.Length);
+        Array.Copy(_biasH2, bestBH2, _biasH2.Length);
+        Array.Copy(_weightsH2H3, bestWH2H3, _weightsH2H3.Length);
+        Array.Copy(_biasH3, bestBH3, _biasH3.Length);
+        Array.Copy(_weightsH3H4, bestWH3H4, _weightsH3H4.Length);
+        Array.Copy(_biasH4, bestBH4, _biasH4.Length);
+        Array.Copy(_weightsH4O, bestWH4O, _weightsH4O.Length);
+    }
+
+    /// <summary>
+    ///     Restores the best-so-far weights/biases back into the live weight arrays.
+    ///     Extracted verbatim from the two identical restore blocks in
+    ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>;
+    ///     the copied arrays and order are unchanged (the output bias scalar is handled by the caller).
+    /// </summary>
+    private void RestoreBestWeights(
+        double[] bestWIH,
+        double[] bestBH1,
+        double[] bestWH1H2,
+        double[] bestBH2,
+        double[] bestWH2H3,
+        double[] bestBH3,
+        double[] bestWH3H4,
+        double[] bestBH4,
+        double[] bestWH4O)
+    {
+        Array.Copy(bestWIH, _weightsIH, _weightsIH.Length);
+        Array.Copy(bestBH1, _biasH1, _biasH1.Length);
+        Array.Copy(bestWH1H2, _weightsH1H2, _weightsH1H2.Length);
+        Array.Copy(bestBH2, _biasH2, _biasH2.Length);
+        Array.Copy(bestWH2H3, _weightsH2H3, _weightsH2H3.Length);
+        Array.Copy(bestBH3, _biasH3, _biasH3.Length);
+        Array.Copy(bestWH3H4, _weightsH3H4, _weightsH3H4.Length);
+        Array.Copy(bestBH4, _biasH4, _biasH4.Length);
+        Array.Copy(bestWH4O, _weightsH4O, _weightsH4O.Length);
+    }
+
+    /// <summary>
+    ///     Backpropagates the output error through all four hidden layers, filling the per-layer
+    ///     pre-activation error buffers (δ_pre). Extracted verbatim from the per-example loop of
+    ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>; the ReLU
+    ///     + dropout gating, weight indexing, accumulation order, and inverted-dropout scaling are
+    ///     unchanged. Reads the forward-pass weights (never mutates them). Many array parameters by
+    ///     design: pre-allocated training buffers passed in to keep the backprop path allocation-free.
+    /// </summary>
+    private void ComputeErrorSignals(
+        double outErr,
+        double dropoutInvKeep,
+        double[] h1Pre,
+        double[] h2Pre,
+        double[] h3Pre,
+        double[] h4Pre,
+        double[] h1Mask,
+        double[] h2Mask,
+        double[] h3Mask,
+        double[] h4Mask,
+        double[] h1Err,
+        double[] h2Err,
+        double[] h3Err,
+        double[] h4Err)
+    {
+        // A2 dropout: a neuron with mask == 0 produced no output, so its error signal is
+        // zero (no gradient flow) and the downstream weight-update from it is zero too
+        // (activation was zero). The mask check duplicates the pre>0 check for clarity.
+
+        // Hidden4 error (backprop through ReLU + inverted-dropout scale). With inverted
+        // dropout a = mask · relu(pre) · invKeep, so ∂a/∂pre = invKeep for a kept neuron and
+        // δ_pre = δ_a · invKeep. Folding invKeep in HERE, once per layer, gives every consumer
+        // of hNErr (inter-layer propagation AND the weight/bias gradients that pair hNErr with
+        // the upstream activation) the correct δ_pre. The output-layer update's downstream
+        // activation (h4Act) carries its own invKeep independently (no double count). When
+        // dropout is inactive invKeep == 1.0, an exact no-op.
+        for (var k = 0; k < Hidden4Size; k++)
+        {
+            h4Err[k] = (h4Pre[k] > 0 && h4Mask[k] > 0)
+                ? outErr * _weightsH4O[k] * dropoutInvKeep
+                : 0.0;
+        }
+
+        // Hidden3 error (backprop through ReLU + inverted-dropout scale from hidden4).
+        // h4Err holds δ_pre for hidden4, so summing against the weights yields δ_a for
+        // hidden3; multiplying by invKeep converts that to δ_pre.
+        for (var k = 0; k < Hidden3Size; k++)
+        {
+            if (h3Pre[k] <= 0 || h3Mask[k] == 0.0)
+            {
+                h3Err[k] = 0.0;
+                continue;
+            }
+
+            var sum = 0.0;
+            for (var m = 0; m < Hidden4Size; m++)
+            {
+                sum += h4Err[m] * _weightsH3H4[(m * Hidden3Size) + k];
+            }
+
+            h3Err[k] = sum * dropoutInvKeep;
+        }
+
+        // Hidden2 layer error (backprop through ReLU + inverted-dropout scale from hidden3)
+        for (var k = 0; k < Hidden2Size; k++)
+        {
+            if (h2Pre[k] <= 0 || h2Mask[k] <= 0.0)
+            {
+                h2Err[k] = 0.0;
+                continue;
+            }
+
+            var sum = 0.0;
+            for (var l = 0; l < Hidden3Size; l++)
+            {
+                sum += h3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
+            }
+
+            h2Err[k] = sum * dropoutInvKeep;
+        }
+
+        // Hidden1 layer error (backprop through ReLU + inverted-dropout scale from hidden2)
+        for (var j = 0; j < Hidden1Size; j++)
+        {
+            if (h1Pre[j] <= 0 || h1Mask[j] <= 0.0)
+            {
+                h1Err[j] = 0.0;
+                continue;
+            }
+
+            var sum = 0.0;
+            for (var k = 0; k < Hidden2Size; k++)
+            {
+                sum += h2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
+            }
+
+            h1Err[j] = sum * dropoutInvKeep;
+        }
+    }
+
+    /// <summary>
+    ///     Applies the Adam weight/bias updates for all five layers using the pre-computed error
+    ///     signals. Extracted verbatim from the per-example loop of
+    ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>; the Adam
+    ///     moment updates, L2 term, learning-rate step, clamp, and per-layer order are unchanged. Many
+    ///     array parameters by design: pre-allocated training buffers passed in to keep the update path
+    ///     allocation-free.
+    /// </summary>
+    private void ApplyAdamUpdates(
+        double outErr,
+        double bc1,
+        double bc2,
+        int inputSize,
+        double[] vec,
+        double[] h1Act,
+        double[] h2Act,
+        double[] h3Act,
+        double[] h4Act,
+        double[] h1Err,
+        double[] h2Err,
+        double[] h3Err,
+        double[] h4Err)
+    {
+        // Output layer Adam update (hidden4 -> output)
+        for (var k = 0; k < Hidden4Size; k++)
+        {
+            var g = (outErr * h4Act[k]) + (L2Lambda * _weightsH4O[k]);
+            _mWH4O![k] = (AdamBeta1 * _mWH4O[k]) + ((1 - AdamBeta1) * g);
+            _vWH4O![k] = (AdamBeta2 * _vWH4O[k]) + ((1 - AdamBeta2) * g * g);
+            _weightsH4O[k] -= DefaultLearningRate * (_mWH4O[k] / bc1) /
+                              (Math.Sqrt(_vWH4O[k] / bc2) + AdamEpsilon);
+            _weightsH4O[k] = Math.Clamp(_weightsH4O[k], -WeightClamp, WeightClamp);
+        }
+
+        {
+            var g = outErr;
+            _mBO = (AdamBeta1 * _mBO) + ((1 - AdamBeta1) * g);
+            _vBO = (AdamBeta2 * _vBO) + ((1 - AdamBeta2) * g * g);
+            _biasOutput -= DefaultLearningRate * (_mBO / bc1) / (Math.Sqrt(_vBO / bc2) + AdamEpsilon);
+            _biasOutput = Math.Clamp(_biasOutput, -WeightClamp, WeightClamp);
+        }
+
+        // Hidden3->Hidden4 layer Adam update
+        for (var k = 0; k < Hidden4Size; k++)
+        {
+            var bIdx = k * Hidden3Size;
+            for (var j = 0; j < Hidden3Size; j++)
+            {
+                var p = bIdx + j;
+                var g = (h4Err[k] * h3Act[j]) + (L2Lambda * _weightsH3H4[p]);
+                _mWH3H4![p] = (AdamBeta1 * _mWH3H4[p]) + ((1 - AdamBeta1) * g);
+                _vWH3H4![p] = (AdamBeta2 * _vWH3H4[p]) + ((1 - AdamBeta2) * g * g);
+                _weightsH3H4[p] -= DefaultLearningRate * (_mWH3H4[p] / bc1) /
+                                   (Math.Sqrt(_vWH3H4[p] / bc2) + AdamEpsilon);
+                _weightsH3H4[p] = Math.Clamp(_weightsH3H4[p], -WeightClamp, WeightClamp);
+            }
+
+            {
+                var g = h4Err[k];
+                _mBH4![k] = (AdamBeta1 * _mBH4[k]) + ((1 - AdamBeta1) * g);
+                _vBH4![k] = (AdamBeta2 * _vBH4[k]) + ((1 - AdamBeta2) * g * g);
+                _biasH4[k] -= DefaultLearningRate * (_mBH4[k] / bc1) /
+                              (Math.Sqrt(_vBH4[k] / bc2) + AdamEpsilon);
+                _biasH4[k] = Math.Clamp(_biasH4[k], -WeightClamp, WeightClamp);
+            }
+        }
+
+        // Hidden2->Hidden3 layer Adam update
+        for (var k = 0; k < Hidden3Size; k++)
+        {
+            var bIdx = k * Hidden2Size;
+            for (var j = 0; j < Hidden2Size; j++)
+            {
+                var p = bIdx + j;
+                var g = (h3Err[k] * h2Act[j]) + (L2Lambda * _weightsH2H3[p]);
+                _mWH2H3![p] = (AdamBeta1 * _mWH2H3[p]) + ((1 - AdamBeta1) * g);
+                _vWH2H3![p] = (AdamBeta2 * _vWH2H3[p]) + ((1 - AdamBeta2) * g * g);
+                _weightsH2H3[p] -= DefaultLearningRate * (_mWH2H3[p] / bc1) /
+                                   (Math.Sqrt(_vWH2H3[p] / bc2) + AdamEpsilon);
+                _weightsH2H3[p] = Math.Clamp(_weightsH2H3[p], -WeightClamp, WeightClamp);
+            }
+
+            {
+                var g = h3Err[k];
+                _mBH3![k] = (AdamBeta1 * _mBH3[k]) + ((1 - AdamBeta1) * g);
+                _vBH3![k] = (AdamBeta2 * _vBH3[k]) + ((1 - AdamBeta2) * g * g);
+                _biasH3[k] -= DefaultLearningRate * (_mBH3[k] / bc1) /
+                              (Math.Sqrt(_vBH3[k] / bc2) + AdamEpsilon);
+                _biasH3[k] = Math.Clamp(_biasH3[k], -WeightClamp, WeightClamp);
+            }
+        }
+
+        // Hidden1->Hidden2 layer Adam update
+        for (var k = 0; k < Hidden2Size; k++)
+        {
+            var bIdx = k * Hidden1Size;
+            for (var j = 0; j < Hidden1Size; j++)
+            {
+                var p = bIdx + j;
+                var g = (h2Err[k] * h1Act[j]) + (L2Lambda * _weightsH1H2[p]);
+                _mWH1H2![p] = (AdamBeta1 * _mWH1H2[p]) + ((1 - AdamBeta1) * g);
+                _vWH1H2![p] = (AdamBeta2 * _vWH1H2[p]) + ((1 - AdamBeta2) * g * g);
+                _weightsH1H2[p] -= DefaultLearningRate * (_mWH1H2[p] / bc1) /
+                                   (Math.Sqrt(_vWH1H2[p] / bc2) + AdamEpsilon);
+                _weightsH1H2[p] = Math.Clamp(_weightsH1H2[p], -WeightClamp, WeightClamp);
+            }
+
+            {
+                var g = h2Err[k];
+                _mBH2![k] = (AdamBeta1 * _mBH2[k]) + ((1 - AdamBeta1) * g);
+                _vBH2![k] = (AdamBeta2 * _vBH2[k]) + ((1 - AdamBeta2) * g * g);
+                _biasH2[k] -= DefaultLearningRate * (_mBH2[k] / bc1) /
+                              (Math.Sqrt(_vBH2[k] / bc2) + AdamEpsilon);
+                _biasH2[k] = Math.Clamp(_biasH2[k], -WeightClamp, WeightClamp);
+            }
+        }
+
+        // Input->Hidden1 layer Adam update
+        for (var j = 0; j < Hidden1Size; j++)
+        {
+            var bIdx = j * inputSize;
+            for (var i = 0; i < inputSize; i++)
+            {
+                var p = bIdx + i;
+                var g = (h1Err[j] * vec[i]) + (L2Lambda * _weightsIH[p]);
+                _mWIH![p] = (AdamBeta1 * _mWIH[p]) + ((1 - AdamBeta1) * g);
+                _vWIH![p] = (AdamBeta2 * _vWIH[p]) + ((1 - AdamBeta2) * g * g);
+                _weightsIH[p] -= DefaultLearningRate * (_mWIH[p] / bc1) /
+                                 (Math.Sqrt(_vWIH[p] / bc2) + AdamEpsilon);
+                _weightsIH[p] = Math.Clamp(_weightsIH[p], -WeightClamp, WeightClamp);
+            }
+
+            {
+                var g = h1Err[j];
+                _mBH1![j] = (AdamBeta1 * _mBH1[j]) + ((1 - AdamBeta1) * g);
+                _vBH1![j] = (AdamBeta2 * _vBH1[j]) + ((1 - AdamBeta2) * g * g);
+                _biasH1[j] -= DefaultLearningRate * (_mBH1[j] / bc1) /
+                              (Math.Sqrt(_vBH1[j] / bc2) + AdamEpsilon);
+                _biasH1[j] = Math.Clamp(_biasH1[j], -WeightClamp, WeightClamp);
+            }
+        }
     }
 
     /// <summary>
