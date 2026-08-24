@@ -235,11 +235,21 @@ jobs:
       if: ${{ env.SONAR_TOKEN != '' }}
       run: |
         set -euo pipefail
+        # Coverage is imported from the C# unit-test run only. The E2E harness, the browser-side
+        # PluginPages JS, the injected discovery-sidebar script, and the GitHub Pages demo have no
+        # coverage instrumentation, so without these exclusions SonarCloud would score them as 0%
+        # and drag the overall coverage number down to something meaningless. They stay in the
+        # normal analysis (code smells etc.) — they are only removed from the coverage denominator.
+        # The generated configPage.html and the docs/ demo copy are dropped from analysis entirely,
+        # since configPage.html is a build artifact rebuilt from the css/js sources and docs/ is a
+        # duplicate of those sources.
         dotnet sonarscanner begin \
           /k:"$SONAR_PROJECT_KEY" \
           /o:"$SONAR_ORG" \
           /d:sonar.host.url="https://sonarcloud.io" \
           /d:sonar.token="$SONAR_TOKEN" \
+          /d:sonar.exclusions="**/PluginPages/configPage.html,docs/**,**/bin/**,**/obj/**,**/node_modules/**" \
+          /d:sonar.coverage.exclusions="test/e2e/**,**/PluginPages/js/**,**/PluginPages/css/**,**/PluginPages/configPage.html,Jellyfin.Plugin.JellyfinHelper/js/**,docs/**" \
           /d:sonar.cs.cobertura.reportsPaths="**/coverage.cobertura.xml"
         dotnet build --configuration Release --no-incremental
         dotnet test --configuration Release --no-build --verbosity normal \
