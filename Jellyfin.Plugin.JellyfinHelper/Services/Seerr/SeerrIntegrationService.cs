@@ -50,6 +50,8 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         string apiKey,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(apiKey);
+
         // Validate inputs before entering the catch-all try block so programming-error
         // exceptions (invalid key format) propagate instead of being swallowed as
         // connection failures.

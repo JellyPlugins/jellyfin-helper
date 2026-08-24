@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -121,7 +122,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             PluginLog.LogError(TaskName, $"Error scanning directory: {libraryPath}", ex, Logger);
         }

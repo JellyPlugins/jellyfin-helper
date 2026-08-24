@@ -53,6 +53,8 @@ public class RepairLinksTask
     /// <returns>A completed task.</returns>
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(progress);
+
         var dryRun = _configHelper.IsDryRunLinkRepair();
 
         _pluginLog.LogInfo(

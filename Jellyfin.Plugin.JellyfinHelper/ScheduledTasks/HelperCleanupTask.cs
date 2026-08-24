@@ -132,6 +132,8 @@ public class HelperCleanupTask : IScheduledTask
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(progress);
+
         var config = _configHelper.GetConfig();
 
         // RunOnDeactivate: most sub-tasks are true no-ops when Deactivated and are skipped.

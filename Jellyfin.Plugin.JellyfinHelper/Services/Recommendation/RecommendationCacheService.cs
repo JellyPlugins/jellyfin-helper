@@ -37,6 +37,8 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
         IPluginLogService pluginLog,
         ILogger<RecommendationCacheService> logger)
     {
+        ArgumentNullException.ThrowIfNull(applicationPaths);
+
         _pluginLog = pluginLog;
         _logger = logger;
         _cacheFilePath = Path.Join(applicationPaths.DataPath, CacheFileName);

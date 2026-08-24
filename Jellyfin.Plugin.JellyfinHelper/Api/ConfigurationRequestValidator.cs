@@ -32,6 +32,8 @@ public static class ConfigurationRequestValidator
     /// <returns>An error message string, or <c>null</c> when the request is valid.</returns>
     public static string? Validate(ConfigurationUpdateRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         // Numeric range checks
         if (request.OrphanMinAgeDays is < 0 or > MaxDays)
         {

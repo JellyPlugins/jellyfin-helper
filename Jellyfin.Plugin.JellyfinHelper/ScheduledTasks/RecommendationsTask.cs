@@ -80,6 +80,9 @@ public class RecommendationsTask
     /// <returns>A completed task.</returns>
     public async Task ExecuteAsync(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(progress);
+
         // Deactivate mode: true no-op - skip all expensive work.
         // However, clean up any previously created recommendation playlists
         // so users who switch from Activate to Deactivate don't keep stale playlists.

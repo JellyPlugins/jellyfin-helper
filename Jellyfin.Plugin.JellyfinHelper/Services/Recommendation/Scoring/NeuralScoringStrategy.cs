@@ -410,6 +410,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
+        ArgumentNullException.ThrowIfNull(features);
+
         if (_disposed)
         {
             return 0.5;
@@ -576,6 +578,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// </remarks>
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
+        ArgumentNullException.ThrowIfNull(features);
+
         if (_disposed)
         {
             return new ScoreExplanation { FinalScore = 0.5, StrategyName = Name };
@@ -841,6 +845,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <inheritdoc />
     public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
+        ArgumentNullException.ThrowIfNull(examples);
+
         if (examples.Count < MinTrainingExamples)
         {
             return false;

@@ -134,7 +134,7 @@ public class ConfigurationController : ControllerBase
                 Name = f.Name ?? string.Empty,
                 CollectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
                     ? "unknown"
-                    : f.CollectionType!.ToString()!,
+                    : f.CollectionType!.ToString() ?? "unknown",
             })
             .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();

@@ -451,6 +451,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
+        ArgumentNullException.ThrowIfNull(features);
+
         // Snapshot blending factors atomically - sub-strategies handle their own thread safety.
         double alpha;
         double beta;
@@ -589,6 +591,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
+        ArgumentNullException.ThrowIfNull(features);
+
         // Snapshot blending factors atomically - sub-strategies handle their own thread safety.
         double alpha;
         double beta;
@@ -649,6 +653,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <inheritdoc />
     public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
+        ArgumentNullException.ThrowIfNull(examples);
+
         var result = ((ITrainableStrategy)_learned).Train(examples, heldOutForMetrics);
 
         // Also train neural strategy if available (independent of learned success)

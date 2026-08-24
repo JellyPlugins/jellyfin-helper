@@ -56,6 +56,8 @@ public sealed class BackupService : IBackupService
         IPluginLogService pluginLog,
         ILogger<BackupService> logger)
     {
+        ArgumentNullException.ThrowIfNull(applicationPaths);
+
         _dataPath = applicationPaths.DataPath;
         _configService = configService;
         _pluginLog = pluginLog;

@@ -160,7 +160,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                         mostRecent = lastPlayedUtc;
                     }
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogWarning(
                         LogSource,

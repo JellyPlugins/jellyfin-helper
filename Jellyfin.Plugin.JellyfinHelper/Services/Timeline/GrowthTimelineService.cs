@@ -66,6 +66,8 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         ILogger<GrowthTimelineService> logger,
         ICleanupConfigHelper configHelper)
     {
+        ArgumentNullException.ThrowIfNull(applicationPaths);
+
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
         _pluginLog = pluginLog;

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -190,7 +191,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(
                 "MediaStatistics",
@@ -582,7 +583,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             return _libraryManager.FindByPath(filePath, false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
                 "MediaStatistics",
@@ -604,7 +605,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             return item.GetMediaStreams();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
                 "MediaStatistics",

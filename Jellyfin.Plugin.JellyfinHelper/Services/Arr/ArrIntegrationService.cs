@@ -233,6 +233,9 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         IReadOnlyList<ArrMovie> radarrMovies,
         HashSet<string> jellyfinFolderNames)
     {
+        ArgumentNullException.ThrowIfNull(radarrMovies);
+        ArgumentNullException.ThrowIfNull(jellyfinFolderNames);
+
         var result = new ArrComparisonResult();
         var jellyfinNames = EnsureOrdinalIgnoreCase(jellyfinFolderNames);
 
@@ -281,6 +284,9 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         IReadOnlyList<ArrSeries> sonarrSeries,
         HashSet<string> jellyfinFolderNames)
     {
+        ArgumentNullException.ThrowIfNull(sonarrSeries);
+        ArgumentNullException.ThrowIfNull(jellyfinFolderNames);
+
         var result = new ArrComparisonResult();
         var jellyfinNames = EnsureOrdinalIgnoreCase(jellyfinFolderNames);
 

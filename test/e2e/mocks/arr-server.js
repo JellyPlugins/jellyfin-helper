@@ -54,8 +54,11 @@ function send(res, status, body) {
 }
 
 function log(method, path, status) {
+  // Sanitize attacker-controlled request fields before logging: strip CR/LF
+  // (log-injection / forged log lines) and cap length. Mirrors the plugin's SanitizeForLog.
+  const clean = (v) => String(v).replace(/[\r\n]/g, ' ').slice(0, 512);
   // eslint-disable-next-line no-console
-  console.log(`[mock-arr] ${method} ${path} -> ${status}`);
+  console.log(`[mock-arr] ${clean(method)} ${clean(path)} -> ${status}`);
 }
 
 // --- server ----------------------------------------------------------------

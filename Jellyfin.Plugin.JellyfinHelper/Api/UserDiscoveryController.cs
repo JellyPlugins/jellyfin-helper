@@ -299,7 +299,7 @@ public sealed class UserDiscoveryController : ControllerBase
             return NotFound();
         }
 
-        Response.Headers["Cache-Control"] = "no-cache";
+        Response.Headers.CacheControl = "no-cache";
         return new FileStreamResult(stream, "text/javascript");
     }
 
@@ -324,6 +324,8 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
+
+        ArgumentNullException.ThrowIfNull(dto);
 
         var jellyfinUserId = GetCurrentUserId();
         if (!jellyfinUserId.HasValue)
@@ -374,7 +376,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         if (rateLimitExceeded)
         {
-            Response.Headers["Retry-After"] = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
             return StatusCode(StatusCodes.Status429TooManyRequests, new RequestResult
             {
                 Success = false,
@@ -520,6 +522,8 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
+
+        ArgumentNullException.ThrowIfNull(dto);
 
         var userId = GetCurrentUserId();
         if (userId == null)
