@@ -581,6 +581,43 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         _fileSystemMock.Verify(f => f.GetDirectories(mediaPath), Times.Once);
     }
 
+    [Theory]
+    [InlineData("photo.heic")]
+    [InlineData("photo.tiff")]
+    [InlineData("raw.cr2")]
+    [InlineData("raw.nef")]
+    [InlineData("raw.dng")]
+    public async Task ExecuteInternalAsync_PhotoFolderWithRawOrHeicOnly_IsNotDeleted(string photoFile)
+    {
+        // Photo libraries are exposed by Jellyfin as homevideos/mixed (there is no dedicated photos
+        // type), so they ARE scanned. Modern photos (HEIC, RAW) have no web-format copy, so before
+        // adding them to ImageExtensions such a folder had no video/audio/image → looked orphaned →
+        // was deleted. They must now be recognised as image content and kept, even in Activate mode.
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+
+        const string libraryPath = "/media/photos";
+        const string photoDir = "/media/photos/2024 Vacation";
+
+        var photoLibrary = new VirtualFolderInfo
+        {
+            Name = "Photos",
+            Locations = [libraryPath],
+            CollectionType = CollectionTypeOptions.homevideos
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([photoLibrary]);
+        SetupTopLevelDirs(libraryPath, ("2024 Vacation", photoDir));
+        SetupFiles(photoDir, photoFile);
+        SetupTopLevelDirs(photoDir);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+        MockTrashService.Verify(
+            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task ExecuteInternalAsync_MusicAndMoviesLibrary_OnlyMoviesAreScanned()
     {

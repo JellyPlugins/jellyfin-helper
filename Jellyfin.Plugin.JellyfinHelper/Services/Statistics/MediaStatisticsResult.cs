@@ -33,6 +33,12 @@ public class MediaStatisticsResult
     public Collection<LibraryStatistics> Music { get; } = new();
 
     /// <summary>
+    /// Gets the list of book (eBook) library statistics. Populated only when a Book library exists,
+    /// so the UI can render a Books section conditionally (mirroring the Music behaviour).
+    /// </summary>
+    public Collection<LibraryStatistics> Books { get; } = new();
+
+    /// <summary>
     /// Gets the list of other library statistics.
     /// </summary>
     public Collection<LibraryStatistics> Other { get; } = new();

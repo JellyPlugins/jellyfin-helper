@@ -86,6 +86,9 @@ public static class MediaExtensions
 
     /// <summary>
     ///     Gets the set of known image file extensions (with leading dot, case-insensitive).
+    ///     Includes web/display formats plus modern camera and RAW photo formats so that a photo
+    ///     library (which Jellyfin exposes as homevideos/mixed) is recognised as image content and
+    ///     never treated as an orphaned media folder and deleted by the empty-folder cleanup.
     /// </summary>
     internal static IReadOnlySet<string> ImageExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -97,7 +100,27 @@ public static class MediaExtensions
         ".svg",
         ".webp",
         ".ico",
-        ".tbn"
+        ".tbn",
+
+        // Modern phone/camera formats and common RAW formats. Photo libraries frequently contain
+        // only these (e.g. iPhone .heic, camera RAW) with no web-format copy; without them a photo
+        // folder would look like an orphaned media folder and be deleted.
+        ".heic",
+        ".heif",
+        ".avif",
+        ".tiff",
+        ".tif",
+        ".raw",
+        ".dng",
+        ".cr2",
+        ".cr3",
+        ".nef",
+        ".arw",
+        ".orf",
+        ".rw2",
+        ".raf",
+        ".pef",
+        ".sr2"
     };
 
     /// <summary>
@@ -107,6 +130,34 @@ public static class MediaExtensions
     {
         ".nfo",
         ".xml"
+    };
+
+    /// <summary>
+    ///     Gets the set of known eBook file extensions (with leading dot, case-insensitive). Used
+    ///     purely for statistics/tracking so eBook libraries are reported as a first-class "Books"
+    ///     category instead of falling into the generic "Other" bucket. This list has NO bearing on
+    ///     cleanup or deletion — Book libraries are protected by collection type
+    ///     (<see cref="Services.Cleanup.CleanupConfigHelper.IsCleanupEligibleCollectionType"/>),
+    ///     which is format-independent.
+    /// </summary>
+    internal static IReadOnlySet<string> BookExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ".epub",
+        ".pdf",
+        ".mobi",
+        ".azw",
+        ".azw3",
+        ".kfx",
+        ".cbz",
+        ".cbr",
+        ".cb7",
+        ".cbt",
+        ".fb2",
+        ".djvu",
+        ".lit",
+        ".pdb",
+        ".ibooks",
+        ".opf"
     };
 
     /// <summary>

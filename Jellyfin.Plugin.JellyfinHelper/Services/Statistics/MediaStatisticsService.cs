@@ -91,6 +91,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 or CollectionTypeOptions.musicvideos;
             var isTvShows = collectionType is CollectionTypeOptions.tvshows;
             var isMusic = collectionType is CollectionTypeOptions.music;
+            var isBooks = collectionType is CollectionTypeOptions.books;
 
             var libraryStats = new LibraryStatistics
             {
@@ -100,7 +101,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             // Health checks only apply to video libraries (Movies, TV Shows).
             // Music and boxset/collection libraries are excluded.
-            var skipHealth = isBoxsets || isMusic;
+            var skipHealth = isBoxsets || isMusic || isBooks;
 
             foreach (var location in vf.Locations)
             {
@@ -145,6 +146,10 @@ public class MediaStatisticsService : IMediaStatisticsService
             {
                 result.Music.Add(libraryStats);
             }
+            else if (isBooks)
+            {
+                result.Books.Add(libraryStats);
+            }
             else if (isMovies)
             {
                 result.Movies.Add(libraryStats);
@@ -158,7 +163,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         // Log summary
         var totalFiles = result.Libraries.Sum(l =>
             l.VideoFileCount + l.AudioFileCount + l.SubtitleFileCount + l.ImageFileCount + l.NfoFileCount +
-            l.OtherFileCount);
+            l.BookFileCount + l.OtherFileCount);
         var totalSize = result.Libraries.Sum(l => l.TotalSize);
         _pluginLog.LogInfo(
             LogCategory,
@@ -407,6 +412,17 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             // Extract music audio codec from Jellyfin metadata with extension fallback
             ExtractMusicAudioMetadata(file.FullName, ext, size, stats, itemLookup);
+        }
+        else if (MediaExtensions.BookExtensions.Contains(ext))
+        {
+            // eBooks are tracked as a first-class "Books" category (rather than "Other") with a
+            // per-format breakdown, so the UI can surface a Books section only when books exist.
+            // This is tracking only; Book libraries are never deleted (see CleanupConfigHelper).
+            stats.BookSize += size;
+            stats.BookFileCount++;
+            var format = ext.TrimStart('.').ToUpperInvariant();
+            stats.BookFormats[format] = stats.BookFormats.GetValueOrDefault(format) + 1;
+            stats.BookFormatSizes[format] = stats.BookFormatSizes.GetValueOrDefault(format) + size;
         }
         else
         {
