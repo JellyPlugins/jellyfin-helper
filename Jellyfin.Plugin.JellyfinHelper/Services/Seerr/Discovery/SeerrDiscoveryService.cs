@@ -1173,109 +1173,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             if (isChildAccount)
             {
-                // For child accounts: query Family genre for movies, Kids for TV
-                var familyItems = await ExecuteDiscoverQueryAsync(
-                    client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
-                allCandidates.AddRange(familyItems);
-
-                var familyItems2 = await ExecuteDiscoverQueryAsync(
-                    client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=2", cancellationToken).ConfigureAwait(false);
-                allCandidates.AddRange(familyItems2);
-
-                // Animation + Family for movies (children's animation)
-                var animItems = await ExecuteDiscoverQueryAsync(
-                    client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreAnimation}?page=1", cancellationToken).ConfigureAwait(false);
-                allCandidates.AddRange(animItems);
-
-                // Kids TV genre
-                var kidsItems = await ExecuteDiscoverQueryAsync(
-                    client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=1", cancellationToken).ConfigureAwait(false);
-                StampMediaType(kidsItems, "tv");
-                allCandidates.AddRange(kidsItems);
-
-                var kidsItems2 = await ExecuteDiscoverQueryAsync(
-                    client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=2", cancellationToken).ConfigureAwait(false);
-                StampMediaType(kidsItems2, "tv");
-                allCandidates.AddRange(kidsItems2);
-
-                // Family TV genre
-                var familyTvItems = await ExecuteDiscoverQueryAsync(
-                    client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
-                StampMediaType(familyTvItems, "tv");
-                allCandidates.AddRange(familyTvItems);
+                await GatherChildCandidatesAsync(
+                    client, baseUri, apiKey, allCandidates, cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                // Normal users: query their top-3 preferred genres
-                var movieGenreIds = BuildGenreIdList(topGenres, TmdbGenreMap.ToMovieTmdbId);
-                foreach (var genreId in movieGenreIds)
-                {
-                    var items = await ExecuteDiscoverQueryAsync(
-                        client, baseUri, apiKey, $"api/v1/discover/movies/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
-                    allCandidates.AddRange(items);
-                }
-
-                var tvGenreIds = BuildGenreIdList(topGenres, TmdbGenreMap.ToTvTmdbId);
-                foreach (var genreId in tvGenreIds)
-                {
-                    var items = await ExecuteDiscoverQueryAsync(
-                        client, baseUri, apiKey, $"api/v1/discover/tv/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
-                    StampMediaType(items, "tv");
-                    allCandidates.AddRange(items);
-                }
-
-                // Query B: Page 2 of top genre for more variety
-                if (movieGenreIds.Count > 0)
-                {
-                    var items = await ExecuteDiscoverQueryAsync(
-                        client, baseUri, apiKey, $"api/v1/discover/movies/genre/{movieGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
-                    allCandidates.AddRange(items);
-                }
-
-                if (tvGenreIds.Count > 0)
-                {
-                    var items = await ExecuteDiscoverQueryAsync(
-                        client, baseUri, apiKey, $"api/v1/discover/tv/genre/{tvGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
-                    StampMediaType(items, "tv");
-                    allCandidates.AddRange(items);
-                }
-
-                // Query C: Language-based discovery if user has clear preference.
-                // primaryLanguage is already validated as ISO 639-1 by GetPrimaryLanguageForDiscovery.
-                if (!string.IsNullOrEmpty(primaryLanguage))
-                {
-                    var langMovies = await ExecuteDiscoverQueryAsync(
-                        client, baseUri, apiKey, $"api/v1/discover/movies/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
-                    allCandidates.AddRange(langMovies);
-
-                    var langTv = await ExecuteDiscoverQueryAsync(
-                        client, baseUri, apiKey, $"api/v1/discover/tv/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
-                    StampMediaType(langTv, "tv");
-                    allCandidates.AddRange(langTv);
-                }
+                await GatherNormalCandidatesAsync(
+                    client, baseUri, apiKey, topGenres, primaryLanguage, allCandidates, cancellationToken).ConfigureAwait(false);
             }
         }
 
         // Add user-specific dismissed and previously requested items to the exclusion set.
         // Best-effort: failures don't break generation.
-        var userExcluded = new HashSet<(int TmdbId, string MediaType)>(excludedTmdbIds);
-        try
-        {
-            var dismissed = _feedbackStore.GetDismissedItems(profile.UserId);
-            var requested = _feedbackStore.GetRequestedItems(profile.UserId);
-            if (dismissed.Count > 0 || requested.Count > 0)
-            {
-                userExcluded.UnionWith(dismissed);
-                userExcluded.UnionWith(requested);
-            }
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            _pluginLog.LogDebug(
-                LogCategory,
-                $"Could not load dismissed/requested items for user {profile.UserName}: {ex.Message}",
-                _logger);
-        }
+        var userExcluded = BuildUserExclusionSet(profile, excludedTmdbIds);
 
         // Deduplicate and filter (includes parental rating + year + quality post-filtering)
         var minVote = isChildAccount ? MinVoteAverageChild : MinVoteAverage;
@@ -1346,33 +1256,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var recommendations = new List<DiscoveryRecommendation>(topN.Count);
         foreach (var (item, features, score) in topN)
         {
-            var genres = TmdbGenreMap.ToJellyfinGenres(item.GenreIds);
-            var (reasonKey, relatedInfo) = DetermineReason(features, item, topGenres, preferredPeople);
-
-            recommendations.Add(new DiscoveryRecommendation
-            {
-                TmdbId = item.Id,
-                MediaType = string.Equals(item.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
-                    ? "tv"
-                    : MediaTypeMovie,
-                Title = item.DisplayTitle,
-                Year = item.EffectiveReleaseDate?.Year,
-                Score = score,
-                ReasonKey = reasonKey,
-                Reason = relatedInfo != null ? $"{reasonKey}: {relatedInfo}" : reasonKey,
-                RelatedInfo = relatedInfo,
-                Genres = genres,
-                TmdbRating = item.VoteAverage,
-                // Raw TMDb popularity carried through so RecordShown can persist it for
-                // training. This lets DiscoveryFeedbackExampleBuilder reconstruct the exact
-                // PopularityScore used at inference (NormalizePopularity) instead of the
-                // previous entry.Score proxy, which was a train/serve skew + target leak.
-                Popularity = item.Popularity,
-                PosterPath = item.PosterPath,
-                Overview = item.Overview,
-                AlreadyRequested = false,
-                KnownPeople = item.KnownPeople
-            });
+            recommendations.Add(BuildRecommendation(item, features, score, topGenres, preferredPeople));
         }
 
         return new DiscoveryResult
@@ -1382,6 +1266,181 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Recommendations = recommendations,
             GeneratedAt = DateTime.UtcNow
         };
+    }
+
+    /// <summary>
+    ///     Projects a scored, enriched candidate into a <see cref="DiscoveryRecommendation"/>.
+    /// </summary>
+    private static DiscoveryRecommendation BuildRecommendation(
+        TmdbDiscoverItem item,
+        CandidateFeatures features,
+        double score,
+        List<string> topGenres,
+        HashSet<string> preferredPeople)
+    {
+        var genres = TmdbGenreMap.ToJellyfinGenres(item.GenreIds);
+        var (reasonKey, relatedInfo) = DetermineReason(features, item, topGenres, preferredPeople);
+
+        return new DiscoveryRecommendation
+        {
+            TmdbId = item.Id,
+            MediaType = string.Equals(item.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
+                ? "tv"
+                : MediaTypeMovie,
+            Title = item.DisplayTitle,
+            Year = item.EffectiveReleaseDate?.Year,
+            Score = score,
+            ReasonKey = reasonKey,
+            Reason = relatedInfo != null ? $"{reasonKey}: {relatedInfo}" : reasonKey,
+            RelatedInfo = relatedInfo,
+            Genres = genres,
+            TmdbRating = item.VoteAverage,
+            // Raw TMDb popularity carried through so RecordShown can persist it for
+            // training. This lets DiscoveryFeedbackExampleBuilder reconstruct the exact
+            // PopularityScore used at inference (NormalizePopularity) instead of the
+            // previous entry.Score proxy, which was a train/serve skew + target leak.
+            Popularity = item.Popularity,
+            PosterPath = item.PosterPath,
+            Overview = item.Overview,
+            AlreadyRequested = false,
+            KnownPeople = item.KnownPeople
+        };
+    }
+
+    /// <summary>
+    ///     Runs the child-account discovery queries (Family/Animation/Kids genres for
+    ///     movies and TV) and appends the results to <paramref name="allCandidates"/>.
+    /// </summary>
+    private async Task GatherChildCandidatesAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        List<TmdbDiscoverItem> allCandidates,
+        CancellationToken cancellationToken)
+    {
+        // For child accounts: query Family genre for movies, Kids for TV
+        var familyItems = await ExecuteDiscoverQueryAsync(
+            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
+        allCandidates.AddRange(familyItems);
+
+        var familyItems2 = await ExecuteDiscoverQueryAsync(
+            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=2", cancellationToken).ConfigureAwait(false);
+        allCandidates.AddRange(familyItems2);
+
+        // Animation + Family for movies (children's animation)
+        var animItems = await ExecuteDiscoverQueryAsync(
+            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreAnimation}?page=1", cancellationToken).ConfigureAwait(false);
+        allCandidates.AddRange(animItems);
+
+        // Kids TV genre
+        var kidsItems = await ExecuteDiscoverQueryAsync(
+            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=1", cancellationToken).ConfigureAwait(false);
+        StampMediaType(kidsItems, "tv");
+        allCandidates.AddRange(kidsItems);
+
+        var kidsItems2 = await ExecuteDiscoverQueryAsync(
+            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=2", cancellationToken).ConfigureAwait(false);
+        StampMediaType(kidsItems2, "tv");
+        allCandidates.AddRange(kidsItems2);
+
+        // Family TV genre
+        var familyTvItems = await ExecuteDiscoverQueryAsync(
+            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
+        StampMediaType(familyTvItems, "tv");
+        allCandidates.AddRange(familyTvItems);
+    }
+
+    /// <summary>
+    ///     Runs the standard discovery queries (top-3 preferred genres, page-2 variety,
+    ///     and optional language-based discovery) and appends the results to
+    ///     <paramref name="allCandidates"/>.
+    /// </summary>
+    private async Task GatherNormalCandidatesAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        List<string> topGenres,
+        string? primaryLanguage,
+        List<TmdbDiscoverItem> allCandidates,
+        CancellationToken cancellationToken)
+    {
+        // Normal users: query their top-3 preferred genres
+        var movieGenreIds = BuildGenreIdList(topGenres, TmdbGenreMap.ToMovieTmdbId);
+        foreach (var genreId in movieGenreIds)
+        {
+            var items = await ExecuteDiscoverQueryAsync(
+                client, baseUri, apiKey, $"api/v1/discover/movies/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
+            allCandidates.AddRange(items);
+        }
+
+        var tvGenreIds = BuildGenreIdList(topGenres, TmdbGenreMap.ToTvTmdbId);
+        foreach (var genreId in tvGenreIds)
+        {
+            var items = await ExecuteDiscoverQueryAsync(
+                client, baseUri, apiKey, $"api/v1/discover/tv/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
+            StampMediaType(items, "tv");
+            allCandidates.AddRange(items);
+        }
+
+        // Query B: Page 2 of top genre for more variety
+        if (movieGenreIds.Count > 0)
+        {
+            var items = await ExecuteDiscoverQueryAsync(
+                client, baseUri, apiKey, $"api/v1/discover/movies/genre/{movieGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
+            allCandidates.AddRange(items);
+        }
+
+        if (tvGenreIds.Count > 0)
+        {
+            var items = await ExecuteDiscoverQueryAsync(
+                client, baseUri, apiKey, $"api/v1/discover/tv/genre/{tvGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
+            StampMediaType(items, "tv");
+            allCandidates.AddRange(items);
+        }
+
+        // Query C: Language-based discovery if user has clear preference.
+        // primaryLanguage is already validated as ISO 639-1 by GetPrimaryLanguageForDiscovery.
+        if (!string.IsNullOrEmpty(primaryLanguage))
+        {
+            var langMovies = await ExecuteDiscoverQueryAsync(
+                client, baseUri, apiKey, $"api/v1/discover/movies/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+            allCandidates.AddRange(langMovies);
+
+            var langTv = await ExecuteDiscoverQueryAsync(
+                client, baseUri, apiKey, $"api/v1/discover/tv/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+            StampMediaType(langTv, "tv");
+            allCandidates.AddRange(langTv);
+        }
+    }
+
+    /// <summary>
+    ///     Builds the per-user exclusion set by merging the shared library exclusions with the
+    ///     user's dismissed and previously requested items (best-effort; failures are logged).
+    /// </summary>
+    private HashSet<(int TmdbId, string MediaType)> BuildUserExclusionSet(
+        UserWatchProfile profile,
+        HashSet<(int TmdbId, string MediaType)> excludedTmdbIds)
+    {
+        var userExcluded = new HashSet<(int TmdbId, string MediaType)>(excludedTmdbIds);
+        try
+        {
+            var dismissed = _feedbackStore.GetDismissedItems(profile.UserId);
+            var requested = _feedbackStore.GetRequestedItems(profile.UserId);
+            if (dismissed.Count > 0 || requested.Count > 0)
+            {
+                userExcluded.UnionWith(dismissed);
+                userExcluded.UnionWith(requested);
+            }
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Could not load dismissed/requested items for user {profile.UserName}: {ex.Message}",
+                _logger);
+        }
+
+        return userExcluded;
     }
 
     private async Task<List<TmdbDiscoverItem>> ExecuteDiscoverQueryAsync(
@@ -1431,15 +1490,24 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             if (delayAfter && !cancellationToken.IsCancellationRequested)
             {
-                try
-                {
-                    await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    // intentionally empty: cancellation of the inter-query delay is expected and benign.
-                }
+                await ApplyInterQueryDelayAsync(cancellationToken).ConfigureAwait(false);
             }
+        }
+    }
+
+    /// <summary>
+    ///     Applies the inter-query rate-limit delay, swallowing the benign cancellation
+    ///     of the delay itself.
+    /// </summary>
+    private static async Task ApplyInterQueryDelayAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // intentionally empty: cancellation of the inter-query delay is expected and benign.
         }
     }
 
@@ -1530,6 +1598,57 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var result = new List<TmdbDiscoverItem>();
 
         // For year-based post-filtering: compute acceptable year range
+        var minYear = ComputeMinYear(avgYear, isChildAccount);
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Id <= 0)
+            {
+                continue;
+            }
+
+            var mediaTypeKey = (candidate.MediaType ?? MediaTypeMovie).ToLowerInvariant();
+            if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
+            {
+                continue;
+            }
+
+            if (candidate.VoteAverage < minVoteAverage)
+            {
+                continue;
+            }
+
+            if (!seen.Add((candidate.Id, mediaTypeKey)))
+            {
+                continue;
+            }
+
+            // Parental rating filter: exclude adult content and restricted genres
+            if (ParentalRatingHelper.ShouldExclude(candidate, maxParentalRating))
+            {
+                continue;
+            }
+
+            // Year-based post-filtering (soft: only if year is available and min is set)
+            if (minYear > 0
+                && candidate.EffectiveReleaseDate.HasValue
+                && candidate.EffectiveReleaseDate.Value.Year < minYear)
+            {
+                continue;
+            }
+
+            result.Add(candidate);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Computes the minimum acceptable release year for year-based post-filtering,
+    ///     or 0 when no year filtering applies (child accounts or no average year signal).
+    /// </summary>
+    private static int ComputeMinYear(double avgYear, bool isChildAccount)
+    {
         var currentYear = DateTime.UtcNow.Year;
         var minYear = 0;
         if (!isChildAccount && avgYear > 0)
@@ -1545,8 +1664,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        foreach (var candidate in candidates)
-        {
+        return minYear;
+    }
             if (candidate.Id <= 0)
             {
                 continue;
@@ -1680,78 +1799,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    cts.CancelAfter(TimeSpan.FromMilliseconds(CreditsEnrichmentTimeoutMs));
-
-                    var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
-                        ? $"api/v1/tv/{candidate.Id}"
-                        : $"api/v1/movie/{candidate.Id}";
-
-                    try
-                    {
-                        using var req = BuildRequest(HttpMethod.Get, baseUri, mediaPath, apiKey);
-                        using var response = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
-
-                        if (!response.IsSuccessStatusCode)
-                        {
-                            return;
-                        }
-
-                        var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-                        var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
-
-                        if (detail?.Credits == null)
-                        {
-                            return;
-                        }
-
-                        var people = new List<string>(MaxCastPerCandidate);
-
-                        if (detail.Credits.Crew is { Count: > 0 })
-                        {
-                            foreach (var crew in detail.Credits.Crew.Where(
-                                c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
-                                     && !string.IsNullOrWhiteSpace(c.Name)))
-                            {
-                                if (people.Count >= MaxCastPerCandidate)
-                                {
-                                    break;
-                                }
-
-                                people.Add(crew.Name);
-                            }
-                        }
-
-                        if (detail.Credits.Cast is { Count: > 0 })
-                        {
-                            var actorsToTake = MaxCastPerCandidate - people.Count;
-                            if (actorsToTake > 0)
-                            {
-                                var topActors = detail.Credits.Cast
-                                    .Where(c => !string.IsNullOrWhiteSpace(c.Name))
-                                    .OrderBy(c => c.Order)
-                                    .Take(actorsToTake)
-                                    .Select(c => c.Name);
-                                people.AddRange(topActors);
-                            }
-                        }
-
-                        if (people.Count > 0)
-                        {
-                            candidate.KnownPeople = people;
-                        }
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
-                    {
-                        _pluginLog.LogDebug(
-                            LogCategory,
-                            $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
-                            _logger);
-                    }
+                    await EnrichCandidateWithCreditsAsync(
+                        client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -1765,6 +1814,102 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             semaphore.Dispose();
         }
+    }
+
+    /// <summary>
+    ///     Fetches credits for a single candidate and populates its
+    ///     <see cref="TmdbDiscoverItem.KnownPeople"/> list, bounded by
+    ///     <see cref="CreditsEnrichmentTimeoutMs"/>.
+    /// </summary>
+    private async Task EnrichCandidateWithCreditsAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        TmdbDiscoverItem candidate,
+        CancellationToken cancellationToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromMilliseconds(CreditsEnrichmentTimeoutMs));
+
+        var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
+            ? $"api/v1/tv/{candidate.Id}"
+            : $"api/v1/movie/{candidate.Id}";
+
+        try
+        {
+            using var req = BuildRequest(HttpMethod.Get, baseUri, mediaPath, apiKey);
+            using var response = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
+
+            if (detail?.Credits == null)
+            {
+                return;
+            }
+
+            var people = ExtractTopPeople(detail.Credits);
+            if (people.Count > 0)
+            {
+                candidate.KnownPeople = people;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
+                _logger);
+        }
+    }
+
+    /// <summary>
+    ///     Extracts up to <see cref="MaxCastPerCandidate"/> top-billed people (directors first,
+    ///     then top-ordered cast) from the given credits payload.
+    /// </summary>
+    private static List<string> ExtractTopPeople(SeerrCredits credits)
+    {
+        var people = new List<string>(MaxCastPerCandidate);
+
+        if (credits.Crew is { Count: > 0 })
+        {
+            foreach (var crew in credits.Crew.Where(
+                c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
+                     && !string.IsNullOrWhiteSpace(c.Name)))
+            {
+                if (people.Count >= MaxCastPerCandidate)
+                {
+                    break;
+                }
+
+                people.Add(crew.Name);
+            }
+        }
+
+        if (credits.Cast is { Count: > 0 })
+        {
+            var actorsToTake = MaxCastPerCandidate - people.Count;
+            if (actorsToTake > 0)
+            {
+                var topActors = credits.Cast
+                    .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                    .OrderBy(c => c.Order)
+                    .Take(actorsToTake)
+                    .Select(c => c.Name);
+                people.AddRange(topActors);
+            }
+        }
+
+        return people;
     }
 
     /// <summary>

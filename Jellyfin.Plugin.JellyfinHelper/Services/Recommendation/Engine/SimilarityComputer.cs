@@ -164,23 +164,7 @@ internal sealed class SimilarityComputer
                     continue;
                 }
 
-                HashSet<string>? names = null;
-                foreach (var person in people)
-                {
-                    if (string.IsNullOrWhiteSpace(person.Name))
-                    {
-                        continue;
-                    }
-
-                    // Only include actors and directors - other types add noise without predictive value
-                    if (!EngineConstants.RelevantPersonKinds.Contains(person.Type))
-                    {
-                        continue;
-                    }
-
-                    names ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    names.Add(person.Name);
-                }
+                HashSet<string>? names = ExtractRelevantPersonNames(people);
 
                 if (names is { Count: > 0 })
                 {
@@ -205,6 +189,36 @@ internal sealed class SimilarityComputer
         }
 
         return lookup;
+    }
+
+    /// <summary>
+    ///     Extracts the case-insensitive set of relevant (actor/director) person names from a people
+    ///     collection, skipping blanks and irrelevant kinds. Extracted verbatim from
+    ///     <see cref="BuildPeopleLookupPerItem"/>.
+    /// </summary>
+    /// <param name="people">The item's people collection.</param>
+    /// <returns>The relevant name set, or <c>null</c> when none apply.</returns>
+    private static HashSet<string>? ExtractRelevantPersonNames(IReadOnlyList<PersonInfo> people)
+    {
+        HashSet<string>? names = null;
+        foreach (var person in people)
+        {
+            if (string.IsNullOrWhiteSpace(person.Name))
+            {
+                continue;
+            }
+
+            // Only include actors and directors - other types add noise without predictive value
+            if (!EngineConstants.RelevantPersonKinds.Contains(person.Type))
+            {
+                continue;
+            }
+
+            names ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            names.Add(person.Name);
+        }
+
+        return names;
     }
 
     /// <summary>
@@ -259,26 +273,7 @@ internal sealed class SimilarityComputer
         // Cosine similarity: dot(candidate, user) / (|candidate| * |user|)
         // Candidate vector: 1.0 for each genre present, 0.0 otherwise
         // User vector: preference weight for each genre
-        var dotProduct = 0.0;
-        var unknownGenreCount = 0;
-        foreach (var genre in uniqueCandidateGenres)
-        {
-            if (genrePreferences.TryGetValue(genre, out var weight))
-            {
-                if (weight > 0)
-                {
-                    dotProduct += weight; // candidate component is 1.0
-                }
-
-                // weight == 0: genre is known (user watched it) but normalized to zero -
-                // not counted as "unknown" since the user has been exposed to it.
-            }
-            else
-            {
-                // Genre is truly absent from the user's preference vector - never watched.
-                unknownGenreCount++;
-            }
-        }
+        var dotProduct = ComputeGenreDotProduct(uniqueCandidateGenres, genrePreferences, out var unknownGenreCount);
 
         if (dotProduct <= 0)
         {
@@ -323,6 +318,43 @@ internal sealed class SimilarityComputer
         cosineSimilarity *= 1.0 - (unknownFraction * unknownGenreDampingFactor);
 
         return cosineSimilarity;
+    }
+
+    /// <summary>
+    ///     Accumulates the candidate-vs-user genre dot product and counts genres the user has never
+    ///     watched. Extracted verbatim from <see cref="ComputeGenreSimilarity(IReadOnlyList{string}, Dictionary{string, double}, double)"/>.
+    /// </summary>
+    /// <param name="uniqueCandidateGenres">The candidate's de-duplicated genre set.</param>
+    /// <param name="genrePreferences">The user's genre preference vector.</param>
+    /// <param name="unknownGenreCount">Receives the count of genres absent from the user's vector.</param>
+    /// <returns>The dot product between the candidate (1.0 components) and the user weights.</returns>
+    private static double ComputeGenreDotProduct(
+        HashSet<string> uniqueCandidateGenres,
+        Dictionary<string, double> genrePreferences,
+        out int unknownGenreCount)
+    {
+        var dotProduct = 0.0;
+        unknownGenreCount = 0;
+        foreach (var genre in uniqueCandidateGenres)
+        {
+            if (genrePreferences.TryGetValue(genre, out var weight))
+            {
+                if (weight > 0)
+                {
+                    dotProduct += weight; // candidate component is 1.0
+                }
+
+                // weight == 0: genre is known (user watched it) but normalized to zero -
+                // not counted as "unknown" since the user has been exposed to it.
+            }
+            else
+            {
+                // Genre is truly absent from the user's preference vector - never watched.
+                unknownGenreCount++;
+            }
+        }
+
+        return dotProduct;
     }
 
     /// <summary>

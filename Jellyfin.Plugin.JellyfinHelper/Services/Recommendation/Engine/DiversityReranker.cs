@@ -139,45 +139,195 @@ internal static class DiversityReranker
         // Note: we intentionally do NOT diversify by people/cast because a single actor commonly
         // appears in wildly different genres (Christopher Nolan does thrillers AND sci-fi), and
         // penalising same-actor picks would exclude legitimately diverse recommendations.
-        var genreSetCache = new Dictionary<Guid, HashSet<string>>();
-        var studioSetCache = new Dictionary<Guid, HashSet<string>>();
-        var yearCache = new Dictionary<Guid, int?>();
+        var similarity = new SimilarityCache();
 
-        HashSet<string> GetOrCreateGenreSet(BaseItem item)
+        // Fill most slots via MMR, reserving the last few slots for random exploration
+        // picks. This guarantees the model receives diverse feedback while keeping the
+        // list relevance-dominated.
+        //
+        // Slot-allocation strategy scales exploration with list size so admins who
+        // shrink MaxRecommendationsPerUser to 3-5 items don't end up with 50-66% random
+        // exploration. Previously the flat ExplorationSlotCount ceiling meant:
+        //   count=2 -> 1 exploration + 1 MMR   (50% random)
+        //   count=3 -> 2 exploration + 1 MMR   (66% random)
+        //   count>=10 -> 2 exploration + rest MMR
+        // Now we cap exploration at max(1, count / ExplorationSlotDivisor) so exploration
+        // stays roughly ~10% of the list, matching what count=20 configurations always saw.
+        // For tiny lists (count < divisor) exploration is 1 slot; the ceiling is still
+        // ExplorationSlotCount so large lists behave identically to before.
+        var proportionalCap = Math.Max(1, count / EngineConstants.ExplorationSlotDivisor);
+        var explorationSlots = Math.Min(
+            EngineConstants.ExplorationSlotCount,
+            Math.Min(proportionalCap, Math.Max(0, count - 1)));
+        var mmrSlotCount = count - explorationSlots;
+
+        RunMmrSelection(remaining, selected, similarity, mmrSlotCount);
+
+        // Build the disjoint exploration pool:
+        //   * Start with the widened band ranks[mmrPoolSize .. explorationPoolSize].
+        //   * Add the MMR-pool leftovers (not selected by MMR) so we do not lose valid picks
+        //     when the widened band is smaller than the exploration slot count.
+        //   * Skip anything MMR already committed to, to avoid duplicate selections.
+        if (selected.Count < count)
         {
-            if (!genreSetCache.TryGetValue(item.Id, out var set))
-            {
-                set = item.Genres is { Length: > 0 }
-                    ? new HashSet<string>(item.Genres, StringComparer.OrdinalIgnoreCase)
-                    : [];
-                genreSetCache[item.Id] = set;
-            }
-
-            return set;
+            FillExplorationSlots(ranked, remaining, selected, count, mmrPoolSize, explorationPoolSize, seed);
         }
 
-        HashSet<string> GetOrCreateStudioSet(BaseItem item)
+        return selected;
+    }
+
+    /// <summary>
+    ///     Greedily selects <paramref name="mmrSlotCount"/> items from <paramref name="remaining"/>
+    ///     into <paramref name="selected"/> using Maximal Marginal Relevance: each pick maximises
+    ///     relevance minus similarity to already-selected items. Selected items are swap-removed
+    ///     from <paramref name="remaining"/>.
+    /// </summary>
+    private static void RunMmrSelection(
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> remaining,
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> selected,
+        SimilarityCache similarity,
+        int mmrSlotCount)
+    {
+        while (selected.Count < mmrSlotCount && remaining.Count > 0)
         {
-            if (!studioSetCache.TryGetValue(item.Id, out var set))
+            var bestIdx = -1;
+            var bestMmrScore = double.MinValue;
+
+            for (var i = 0; i < remaining.Count; i++)
             {
-                set = item.Studios is { Length: > 0 }
-                    ? new HashSet<string>(item.Studios, StringComparer.OrdinalIgnoreCase)
-                    : [];
-                studioSetCache[item.Id] = set;
+                var relevance = remaining[i].Score;
+                var maxSimilarity = 0.0;
+                foreach (var selectedItem in selected.Select(selectedEntry => selectedEntry.Item))
+                {
+                    var sim = similarity.Compute(remaining[i].Item, selectedItem);
+                    if (sim > maxSimilarity)
+                    {
+                        maxSimilarity = sim;
+                    }
+                }
+
+                var mmrScore = (EngineConstants.MmrLambda * relevance) - ((1.0 - EngineConstants.MmrLambda) * maxSimilarity);
+
+                if (mmrScore > bestMmrScore)
+                {
+                    bestMmrScore = mmrScore;
+                    bestIdx = i;
+                }
             }
 
-            return set;
+            if (bestIdx >= 0)
+            {
+                selected.Add(remaining[bestIdx]);
+
+                var lastIdx = remaining.Count - 1;
+                if (bestIdx < lastIdx)
+                {
+                    remaining[bestIdx] = remaining[lastIdx];
+                }
+
+                remaining.RemoveAt(lastIdx);
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Fills the reserved exploration slots (up to <paramref name="count"/>) from a widened
+    ///     candidate band plus the MMR-pool leftovers, sampling randomly with a caller-supplied
+    ///     deterministic seed (or <see cref="Random.Shared"/> when none is provided).
+    /// </summary>
+    private static void FillExplorationSlots(
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> ranked,
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> remaining,
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> selected,
+        int count,
+        int mmrPoolSize,
+        int explorationPoolSize,
+        int? seed)
+    {
+        var mmrSelectedIds = new HashSet<Guid>(selected.Count);
+        foreach (var s in selected)
+        {
+            mmrSelectedIds.Add(s.Item.Id);
         }
 
-        int? GetOrCreateYear(BaseItem item)
+        var explorationPool = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+        for (var i = mmrPoolSize; i < explorationPoolSize; i++)
         {
-            if (!yearCache.TryGetValue(item.Id, out var y))
+            explorationPool.Add(ranked[i]);
+        }
+
+        // Fall back to the MMR-pool leftovers when the widened band is exhausted so that
+        // small libraries still get exploration signal (this preserves the previous behaviour
+        // as a floor rather than as the only source).
+        explorationPool.AddRange(remaining.Where(entry => !mmrSelectedIds.Contains(entry.Item.Id)));
+
+        if (explorationPool.Count <= 0)
+        {
+            return;
+        }
+
+        // Callers pass Engine.ComputeStableSeed(userId, batchGenerationCounter)
+        // for offline batches or Engine.ComputeStableSeed(userId, DayNumber) for live requests, so
+        // exploration picks are reproducible per user/context and unit tests can pin behaviour.
+        // ComputeStableSeed is used instead of System.HashCode.Combine because HashCode.Combine is
+        // randomised per-process - the same (userId, day) tuple would hash to a different seed
+        // after each Jellyfin restart, which would reshuffle exploration within a day and break
+        // the "stable within one day" contract.
+        //
+        // The Random.Shared fallback is a deliberate opt-in to non-deterministic exploration
+        // - callers that omit the seed argument (currently only exists for callers outside
+        // the recommendation engine's own two paths, which both pass a seed) are announcing
+        // they want fresh randomness on every invocation. If you introduce a new caller and
+        // want reproducibility, thread a seed through instead of relying on this fallback.
+        var rng = seed.HasValue ? new Random(seed.Value) : Random.Shared;
+        var explorationCount = Math.Min(count - selected.Count, explorationPool.Count);
+        for (var e = 0; e < explorationCount; e++)
+        {
+            var randIdx = rng.Next(explorationPool.Count);
+            selected.Add(explorationPool[randIdx]);
+
+            var lastIdx = explorationPool.Count - 1;
+            if (randIdx < lastIdx)
             {
-                y = item.ProductionYear;
-                yearCache[item.Id] = y;
+                explorationPool[randIdx] = explorationPool[lastIdx];
             }
 
-            return y;
+            explorationPool.RemoveAt(lastIdx);
+        }
+    }
+
+    /// <summary>
+    ///     Caches per-item genre/studio/year metadata and computes multi-dimensional similarity
+    ///     between two items. Extracted verbatim from the MMR reranker so the similarity math and
+    ///     its caching stay a single source of truth.
+    /// </summary>
+    private sealed class SimilarityCache
+    {
+        private readonly Dictionary<Guid, HashSet<string>> _genreSetCache = new();
+        private readonly Dictionary<Guid, HashSet<string>> _studioSetCache = new();
+        private readonly Dictionary<Guid, int?> _yearCache = new();
+
+        /// <summary>
+        ///     Multi-dimensional similarity between two items.
+        ///     Dimensions: genre (50%), studio (30%), era (20%, Gaussian with σ=10yr).
+        ///     Returns 0-1 where higher = more similar (should be diversified against).
+        /// </summary>
+        /// <param name="a">The first item.</param>
+        /// <param name="b">The second item.</param>
+        /// <returns>The similarity score in the range 0-1.</returns>
+        public double Compute(BaseItem a, BaseItem b)
+        {
+            return ComputeItemSimilarity(
+                GetOrCreateGenreSet(a),
+                GetOrCreateGenreSet(b),
+                GetOrCreateStudioSet(a),
+                GetOrCreateStudioSet(b),
+                GetOrCreateYear(a),
+                GetOrCreateYear(b));
         }
 
         // Multi-dimensional similarity between two items.
@@ -197,7 +347,7 @@ internal static class DiversityReranker
         //     raw 0.2·yearSim contribution keeps era-only pairs firmly in the "probably
         //     not related" range while still contributing a small signal.
         // Returns 0-1 where higher = more similar (should be diversified against).
-        static double ComputeItemSimilarity(
+        private static double ComputeItemSimilarity(
             HashSet<string> genreA,
             HashSet<string> genreB,
             HashSet<string> studioA,
@@ -249,141 +399,41 @@ internal static class DiversityReranker
             return weightedSimilarity / availableWeight;
         }
 
-        // Fill most slots via MMR, reserving the last few slots for random exploration
-        // picks. This guarantees the model receives diverse feedback while keeping the
-        // list relevance-dominated.
-        //
-        // Slot-allocation strategy scales exploration with list size so admins who
-        // shrink MaxRecommendationsPerUser to 3-5 items don't end up with 50-66% random
-        // exploration. Previously the flat ExplorationSlotCount ceiling meant:
-        //   count=2 -> 1 exploration + 1 MMR   (50% random)
-        //   count=3 -> 2 exploration + 1 MMR   (66% random)
-        //   count>=10 -> 2 exploration + rest MMR
-        // Now we cap exploration at max(1, count / ExplorationSlotDivisor) so exploration
-        // stays roughly ~10% of the list, matching what count=20 configurations always saw.
-        // For tiny lists (count < divisor) exploration is 1 slot; the ceiling is still
-        // ExplorationSlotCount so large lists behave identically to before.
-        var proportionalCap = Math.Max(1, count / EngineConstants.ExplorationSlotDivisor);
-        var explorationSlots = Math.Min(
-            EngineConstants.ExplorationSlotCount,
-            Math.Min(proportionalCap, Math.Max(0, count - 1)));
-        var mmrSlotCount = count - explorationSlots;
-
-        while (selected.Count < mmrSlotCount && remaining.Count > 0)
+        private HashSet<string> GetOrCreateGenreSet(BaseItem item)
         {
-            var bestIdx = -1;
-            var bestMmrScore = double.MinValue;
-
-            for (var i = 0; i < remaining.Count; i++)
+            if (!_genreSetCache.TryGetValue(item.Id, out var set))
             {
-                var relevance = remaining[i].Score;
-                var candidateGenres = GetOrCreateGenreSet(remaining[i].Item);
-                var candidateStudios = GetOrCreateStudioSet(remaining[i].Item);
-                var candidateYear = GetOrCreateYear(remaining[i].Item);
-
-                var maxSimilarity = 0.0;
-                foreach (var selectedItem in selected.Select(selectedEntry => selectedEntry.Item))
-                {
-                    var selectedGenres = GetOrCreateGenreSet(selectedItem);
-                    var selectedStudios = GetOrCreateStudioSet(selectedItem);
-                    var selectedYear = GetOrCreateYear(selectedItem);
-                    var sim = ComputeItemSimilarity(
-                        candidateGenres,
-                        selectedGenres,
-                        candidateStudios,
-                        selectedStudios,
-                        candidateYear,
-                        selectedYear);
-                    if (sim > maxSimilarity)
-                    {
-                        maxSimilarity = sim;
-                    }
-                }
-
-                var mmrScore = (EngineConstants.MmrLambda * relevance) - ((1.0 - EngineConstants.MmrLambda) * maxSimilarity);
-
-                if (mmrScore > bestMmrScore)
-                {
-                    bestMmrScore = mmrScore;
-                    bestIdx = i;
-                }
+                set = item.Genres is { Length: > 0 }
+                    ? new HashSet<string>(item.Genres, StringComparer.OrdinalIgnoreCase)
+                    : [];
+                _genreSetCache[item.Id] = set;
             }
 
-            if (bestIdx >= 0)
-            {
-                selected.Add(remaining[bestIdx]);
-
-                var lastIdx = remaining.Count - 1;
-                if (bestIdx < lastIdx)
-                {
-                    remaining[bestIdx] = remaining[lastIdx];
-                }
-
-                remaining.RemoveAt(lastIdx);
-            }
-            else
-            {
-                break;
-            }
+            return set;
         }
 
-        // Build the disjoint exploration pool:
-        //   * Start with the widened band ranks[mmrPoolSize .. explorationPoolSize].
-        //   * Add the MMR-pool leftovers (not selected by MMR) so we do not lose valid picks
-        //     when the widened band is smaller than the exploration slot count.
-        //   * Skip anything MMR already committed to, to avoid duplicate selections.
-        if (selected.Count < count)
+        private HashSet<string> GetOrCreateStudioSet(BaseItem item)
         {
-            var mmrSelectedIds = new HashSet<Guid>(selected.Count);
-            foreach (var s in selected)
+            if (!_studioSetCache.TryGetValue(item.Id, out var set))
             {
-                mmrSelectedIds.Add(s.Item.Id);
+                set = item.Studios is { Length: > 0 }
+                    ? new HashSet<string>(item.Studios, StringComparer.OrdinalIgnoreCase)
+                    : [];
+                _studioSetCache[item.Id] = set;
             }
 
-            var explorationPool = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
-            for (var i = mmrPoolSize; i < explorationPoolSize; i++)
-            {
-                explorationPool.Add(ranked[i]);
-            }
-
-            // Fall back to the MMR-pool leftovers when the widened band is exhausted so that
-            // small libraries still get exploration signal (this preserves the previous behaviour
-            // as a floor rather than as the only source).
-            explorationPool.AddRange(remaining.Where(entry => !mmrSelectedIds.Contains(entry.Item.Id)));
-
-            if (explorationPool.Count > 0)
-            {
-                // Callers pass Engine.ComputeStableSeed(userId, batchGenerationCounter)
-                // for offline batches or Engine.ComputeStableSeed(userId, DayNumber) for live requests, so
-                // exploration picks are reproducible per user/context and unit tests can pin behaviour.
-                // ComputeStableSeed is used instead of System.HashCode.Combine because HashCode.Combine is
-                // randomised per-process - the same (userId, day) tuple would hash to a different seed
-                // after each Jellyfin restart, which would reshuffle exploration within a day and break
-                // the "stable within one day" contract.
-                //
-                // The Random.Shared fallback is a deliberate opt-in to non-deterministic exploration
-                // - callers that omit the seed argument (currently only exists for callers outside
-                // the recommendation engine's own two paths, which both pass a seed) are announcing
-                // they want fresh randomness on every invocation. If you introduce a new caller and
-                // want reproducibility, thread a seed through instead of relying on this fallback.
-                var rng = seed.HasValue ? new Random(seed.Value) : Random.Shared;
-                var explorationCount = Math.Min(count - selected.Count, explorationPool.Count);
-                for (var e = 0; e < explorationCount; e++)
-                {
-                    var randIdx = rng.Next(explorationPool.Count);
-                    selected.Add(explorationPool[randIdx]);
-
-                    var lastIdx = explorationPool.Count - 1;
-                    if (randIdx < lastIdx)
-                    {
-                        explorationPool[randIdx] = explorationPool[lastIdx];
-                    }
-
-                    explorationPool.RemoveAt(lastIdx);
-                }
-            }
+            return set;
         }
 
-        return selected;
+        private int? GetOrCreateYear(BaseItem item)
+        {
+            if (!_yearCache.TryGetValue(item.Id, out var y))
+            {
+                y = item.ProductionYear;
+                _yearCache[item.Id] = y;
+            }
+
+            return y;
+        }
     }
 }
