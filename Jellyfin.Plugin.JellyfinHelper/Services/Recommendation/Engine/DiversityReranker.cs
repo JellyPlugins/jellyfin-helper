@@ -282,11 +282,11 @@ internal static class DiversityReranker
                 var candidateYear = GetOrCreateYear(remaining[i].Item);
 
                 var maxSimilarity = 0.0;
-                foreach (var selectedEntry in selected)
+                foreach (var selectedItem in selected.Select(selectedEntry => selectedEntry.Item))
                 {
-                    var selectedGenres = GetOrCreateGenreSet(selectedEntry.Item);
-                    var selectedStudios = GetOrCreateStudioSet(selectedEntry.Item);
-                    var selectedYear = GetOrCreateYear(selectedEntry.Item);
+                    var selectedGenres = GetOrCreateGenreSet(selectedItem);
+                    var selectedStudios = GetOrCreateStudioSet(selectedItem);
+                    var selectedYear = GetOrCreateYear(selectedItem);
                     var sim = ComputeItemSimilarity(
                         candidateGenres,
                         selectedGenres,

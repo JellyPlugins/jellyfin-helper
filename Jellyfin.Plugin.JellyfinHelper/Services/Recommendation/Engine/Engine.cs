@@ -32,6 +32,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     // File name for the persisted batch-generation counter. Sits in the plugin data folder.
     private const string BatchGenerationFileName = "jellyfin-helper-batch-generation.txt";
 
+    private const string LogCategory = "Recommendations";
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Engine> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -343,7 +345,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             contentAffinityLookup));
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogCategory,
             $"Starting recommendation generation for {allProfiles.Count} users using strategy '{_strategy.Name}'...",
             _logger);
 
@@ -403,7 +405,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogWarning(
-                        "Recommendations",
+                        LogCategory,
                         $"Failed to generate recommendations for user '{profile.UserName}'",
                         ex,
                         _logger);
@@ -413,7 +415,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var results = new Collection<RecommendationResult>(concurrentResults.ToList());
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogCategory,
             $"Finished: {results.Count} users, {results.Sum(r => r.Recommendations.Count)} total recommendations.",
             _logger);
         return results;
@@ -569,7 +571,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             .ToList();
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogCategory,
             $"Generated {topItems.Count} cold-start recommendations for user '{userId}' (no watch history)",
             _logger);
 
@@ -671,7 +673,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         if (skippedMovies > 0 || skippedSeries > 0)
         {
             _pluginLog.LogInfo(
-                "Recommendations",
+                LogCategory,
                 $"Filtered {skippedMovies} empty movies and {skippedSeries} empty series from candidate pool.",
                 _logger);
         }
@@ -679,7 +681,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         if (candidates.Count > EngineConstants.CandidateCountWarningThreshold)
         {
             _pluginLog.LogWarning(
-                "Recommendations",
+                LogCategory,
                 $"Large candidate set: {candidates.Count} items. Consider using the scheduled task.",
                 logger: _logger);
         }
@@ -854,9 +856,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // non-finite, which would poison all ComputeCollaborativeScore calls; skipping non-finite
         // values prevents a degenerate Jaccard edge case from collapsing the collaborative signal.
         var collaborativeMax = 0.0;
-        foreach (var v in coOccurrence.Values)
+        foreach (var v in coOccurrence.Values.Where(double.IsFinite))
         {
-            if (double.IsFinite(v) && v > collaborativeMax)
+            if (v > collaborativeMax)
             {
                 collaborativeMax = v;
             }
@@ -992,7 +994,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     collaborativeMax,
                     averageYear,
                     watchedItemLookup,
-                    seriesEpisodeLookup,
                     preferredStudios,
                     preferredPeople,
                     preferredPeopleWeights,
@@ -1067,7 +1068,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             .ToList();
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogCategory,
             $"Generated {topItems.Count} recommendations for user '{userProfile.UserName}' using strategy '{strategy.Name}'",
             _logger);
 
@@ -1100,7 +1101,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         double collaborativeMax,
         double averageYear,
         Dictionary<Guid, WatchedItemInfo> watchedItemLookup,
-        Dictionary<Guid, List<WatchedItemInfo>> seriesEpisodeLookup,
         HashSet<string> preferredStudios,
         HashSet<string> preferredPeople,
         IReadOnlyDictionary<string, double> preferredPeopleWeights,
@@ -1268,7 +1268,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
-            _pluginLog.LogDebug("Recommendations", $"Score for '{candidate.Name}': {explanation}", _logger);
+            _pluginLog.LogDebug(LogCategory, $"Score for '{candidate.Name}': {explanation}", _logger);
         }
 
         var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(
@@ -1398,7 +1398,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     streams = firstEpisode.GetMediaStreams();
                     if ((streams is null || streams.Count == 0) && _logger.IsEnabled(LogLevel.Debug))
                     {
-                        _pluginLog.LogDebug("Recommendations", $"Series '{series.Name}' (Id={series.Id}): fallback episode has no media streams.", _logger);
+                        _pluginLog.LogDebug(LogCategory, $"Series '{series.Name}' (Id={series.Id}): fallback episode has no media streams.", _logger);
                     }
                 }
             }
@@ -1751,7 +1751,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(
-                "Recommendations",
+                LogCategory,
                 $"Failed to build genre/studio IDF table; GenreStudioIdfPrior will be neutral. {ex.Message}",
                 logger: _logger);
             return new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -1982,11 +1982,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     <para>All writes serialise through <see cref="_snapshotRefreshLock"/>.</para>
     /// </summary>
     /// <param name="candidate">The snapshot the caller would like to publish.</param>
-    /// <returns>
-    ///     True when published; false when a strictly-newer snapshot was already cached (a rejected
-    ///     publish is silently correct). Callers ignore the value; the bool keeps the contract testable.
-    /// </returns>
-    private bool TryPublishSnapshot(CandidateSnapshot candidate)
+    private void TryPublishSnapshot(CandidateSnapshot candidate)
     {
         lock (_snapshotRefreshLock)
         {
@@ -1998,14 +1994,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var current = _cachedSnapshot;
             if (current is not null && current.PublicationSequence > candidate.ObservedSequence)
             {
-                return false;
+                return;
             }
 
             // Assign the sequence and write atomically under the lock so the batch path (which builds
             // outside the lock) cannot race a concurrent live-refresh into an out-of-order sequence.
             var seq = Interlocked.Increment(ref _publicationSequence);
             _cachedSnapshot = candidate with { PublicationSequence = seq };
-            return true;
         }
     }
 
@@ -2184,14 +2179,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             }
 
             // For each user in the feedback store, resolve which (TmdbId, MediaType) they've watched
-            foreach (var userFeedback in allFeedback.Where(f => f.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched)))
+            foreach (var userId in allFeedback
+                         .Where(f => f.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched))
+                         .Select(userFeedback => userFeedback.UserId))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 try
                 {
                     // Find the user's watch profile via O(1) dictionary lookup
-                    if (!profileById.TryGetValue(userFeedback.UserId, out var userProfile))
+                    if (!profileById.TryGetValue(userId, out var userProfile))
                     {
                         continue;
                     }
@@ -2225,7 +2222,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
                     if (watchedItems.Count > 0)
                     {
-                        _discoveryFeedbackStore.MarkWatched(userFeedback.UserId, watchedItems);
+                        _discoveryFeedbackStore.MarkWatched(userId, watchedItems);
                     }
                 }
                 catch (OperationCanceledException)
@@ -2235,8 +2232,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogDebug(
-                        "Recommendations",
-                        $"Could not update discovery watched status for user '{userFeedback.UserId}': {ex.Message}",
+                        LogCategory,
+                        $"Could not update discovery watched status for user '{userId}': {ex.Message}",
                         _logger);
                 }
             }
@@ -2248,7 +2245,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "Recommendations",
+                LogCategory,
                 $"Discovery watched-status update failed (non-critical): {ex.Message}",
                 _logger);
         }
@@ -2384,7 +2381,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "Recommendations",
+                LogCategory,
                 $"Could not load persisted batch generation, starting at 0: {ex.Message}",
                 _logger);
             return 0;
@@ -2411,7 +2408,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "Recommendations",
+                LogCategory,
                 $"Could not persist batch generation {value}: {ex.Message}",
                 _logger);
         }

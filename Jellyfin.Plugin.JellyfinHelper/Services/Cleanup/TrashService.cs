@@ -38,26 +38,11 @@ public class TrashService : ITrashService
     ///     On non-Windows platforms this is enforced in bytes (UTF-8);
     ///     on Windows it is enforced in characters (UTF-16 code units).
     /// </summary>
-    private static readonly int MaxPathLimit;
+    private static readonly int MaxPathLimit = GetMaxPathLimit();
 
     private static readonly int SeparatorSize = MeasureString(Path.DirectorySeparatorChar.ToString());
 
     private readonly IPluginLogService _pluginLog;
-
-    /// <summary>
-    ///     Initializes static members of the <see cref="TrashService" /> class.
-    /// </summary>
-    static TrashService()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            MaxPathLimit = 259;
-        }
-        else
-        {
-            MaxPathLimit = OperatingSystem.IsMacOS() ? 1023 : 4095;
-        }
-    }
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TrashService" /> class.
@@ -818,6 +803,21 @@ public class TrashService : ITrashService
         return Math.Min(
             MaxPathLimit - directorySize - SeparatorSize,
             MaxPathComponentLimit);
+    }
+
+    /// <summary>
+    ///     Computes the maximum allowed total path length for the current platform.
+    ///     Windows caps at 259, macOS at 1023, and Linux at 4095.
+    /// </summary>
+    /// <returns>The maximum allowed path length for the current platform.</returns>
+    private static int GetMaxPathLimit()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return 259;
+        }
+
+        return OperatingSystem.IsMacOS() ? 1023 : 4095;
     }
 
     /// <summary>

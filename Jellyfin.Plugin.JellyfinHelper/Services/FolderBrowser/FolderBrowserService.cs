@@ -14,6 +14,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 /// </summary>
 public class FolderBrowserService : IFolderBrowserService
 {
+    private const string ErrorDirectoryDoesNotExist = "Directory does not exist.";
+    private const string ErrorCannotAccessDirectory = "Cannot access this directory.";
+
     private static readonly string[] SafeHiddenPrefixes =
     [
         ".jellyfin-trash",
@@ -166,27 +169,27 @@ public class FolderBrowserService : IFolderBrowserService
                 {
                     _ = dirInfo.Attributes;
                     // If we get here without exception, the directory truly does not exist.
-                    return new FolderBrowseResult { Error = "Directory does not exist." };
+                    return new FolderBrowseResult { Error = ErrorDirectoryDoesNotExist };
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    return new FolderBrowseResult { Error = "Cannot access this directory." };
+                    return new FolderBrowseResult { Error = ErrorCannotAccessDirectory };
                 }
                 catch (SecurityException)
                 {
-                    return new FolderBrowseResult { Error = "Cannot access this directory." };
+                    return new FolderBrowseResult { Error = ErrorCannotAccessDirectory };
                 }
                 catch (DirectoryNotFoundException)
                 {
-                    return new FolderBrowseResult { Error = "Directory does not exist." };
+                    return new FolderBrowseResult { Error = ErrorDirectoryDoesNotExist };
                 }
                 catch (IOException)
                 {
-                    return new FolderBrowseResult { Error = "Cannot access this directory." };
+                    return new FolderBrowseResult { Error = ErrorCannotAccessDirectory };
                 }
                 catch (ArgumentException)
                 {
-                    return new FolderBrowseResult { Error = "Directory does not exist." };
+                    return new FolderBrowseResult { Error = ErrorDirectoryDoesNotExist };
                 }
             }
 
@@ -242,7 +245,7 @@ public class FolderBrowserService : IFolderBrowserService
                     ParentPath = errorParentPath,
                     CanGoUp = errorParentPath != null,
                     Directories = [],
-                    Error = "Cannot access this directory."
+                    Error = ErrorCannotAccessDirectory
                 };
             }
 
@@ -262,7 +265,7 @@ public class FolderBrowserService : IFolderBrowserService
                                        or ArgumentException or NotSupportedException or PathTooLongException)
         {
             _logger.LogWarning(ex, "Error browsing directory {Path}", SanitizeForLog(path));
-            return new FolderBrowseResult { Error = "Cannot access this directory." };
+            return new FolderBrowseResult { Error = ErrorCannotAccessDirectory };
         }
     }
 
@@ -370,7 +373,7 @@ public class FolderBrowserService : IFolderBrowserService
                     var attrs = new DirectoryInfo(normalized).Attributes;
                     if (attrs == (FileAttributes)(-1))
                     {
-                        return "Directory does not exist.";
+                        return ErrorDirectoryDoesNotExist;
                     }
 
                     // Attributes returned a real value but Directory.Exists said no - treat as
@@ -380,23 +383,23 @@ public class FolderBrowserService : IFolderBrowserService
             }
             catch (UnauthorizedAccessException)
             {
-                return "Cannot access this directory.";
+                return ErrorCannotAccessDirectory;
             }
             catch (SecurityException)
             {
-                return "Cannot access this directory.";
+                return ErrorCannotAccessDirectory;
             }
             catch (DirectoryNotFoundException)
             {
-                return "Directory does not exist.";
+                return ErrorDirectoryDoesNotExist;
             }
             catch (FileNotFoundException)
             {
-                return "Directory does not exist.";
+                return ErrorDirectoryDoesNotExist;
             }
             catch (IOException)
             {
-                return "Cannot access this directory.";
+                return ErrorCannotAccessDirectory;
             }
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException
@@ -521,12 +524,9 @@ public class FolderBrowserService : IFolderBrowserService
         // This prevents sensitive dirs like .ssh, .gnupg, .aws from being shown in the UI.
         if (dirInfo.Name.StartsWith('.'))
         {
-            foreach (var prefix in SafeHiddenPrefixes)
+            if (SafeHiddenPrefixes.Any(prefix => dirInfo.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
             {
-                if (dirInfo.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
+                return false;
             }
 
             return true;
