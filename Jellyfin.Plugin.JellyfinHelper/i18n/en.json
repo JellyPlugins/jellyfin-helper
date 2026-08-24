@@ -383,5 +383,7 @@
   "trashPathDeleteSuccess": "Old trash content deleted.",
   "trashPathCheckingAccess": "Checking permissions…",
   "trashPathAccessDenied": "Permission denied on new trash path.",
-  "trashPathMoveNothingMoved": "No items were moved. The source may be empty or inaccessible due to permissions."
+  "trashPathMoveNothingMoved": "No items were moved. The source may be empty or inaccessible due to permissions.",
+  "bookFormats": "Book Formats",
+  "books": "Books"
 }

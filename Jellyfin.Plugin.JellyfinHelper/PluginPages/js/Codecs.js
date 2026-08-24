@@ -286,12 +286,14 @@ function collectCodecPaths(data, pathsProp, codecName, categories) {
     var includeMovies = !categories || categories.movies;
     var includeTvShows = !categories || categories.tvShows;
     var includeMusic = !categories || categories.music;
+    var includeBooks = !categories || categories.books;
     var includeOther = !categories || categories.other;
 
     return {
         movies: includeMovies ? collectDictPaths(data.Movies || [], pathsProp, codecName) : [],
         tvShows: includeTvShows ? collectDictPaths(data.TvShows || [], pathsProp, codecName) : [],
         music: includeMusic ? collectDictPaths(data.Music || [], pathsProp, codecName) : [],
+        books: includeBooks ? collectDictPaths(data.Books || [], pathsProp, codecName) : [],
         other: includeOther ? collectDictPaths(data.Other || [], pathsProp, codecName) : [],
         rootPaths: {
             movies: data.MovieRootPaths || [],
@@ -307,6 +309,7 @@ var CODEC_PATH_MAP = {
     'videoCodecs': 'VideoCodecPaths',
     'videoAudioCodecs': 'VideoAudioCodecPaths',
     'musicAudioCodecs': 'MusicAudioCodecPaths',
+    'bookFormats': 'BookFormatPaths',
     'containers': 'ContainerFormatPaths',
     'resolutions': 'ResolutionPaths',
     'dynamicRanges': 'DynamicRangePaths'
@@ -315,11 +318,13 @@ var CODEC_PATH_MAP = {
 // Map chart IDs to which media categories should be included
 // Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges -> only Movies + TV Shows + Other
 // Music Audio Codecs -> only Music
+// Book Formats -> only Books
 // Container Formats -> all libraries (Movies + TV Shows + Music + Other)
 var CODEC_CATEGORY_MAP = {
     'videoCodecs': {movies: true, tvShows: true, music: false, other: true},
     'videoAudioCodecs': {movies: true, tvShows: true, music: false, other: true},
     'musicAudioCodecs': {movies: false, tvShows: false, music: true, other: false},
+    'bookFormats': {movies: false, tvShows: false, music: false, other: false, books: true},
     'containers': {movies: true, tvShows: true, music: true, other: true},
     'resolutions': {movies: true, tvShows: true, music: false, other: true},
     'dynamicRanges': {movies: true, tvShows: true, music: false, other: true}
@@ -452,10 +457,13 @@ function fillCodecsData(data) {
     var videoLibraries = (data.Movies || []).concat(data.TvShows || []).concat(data.Other || []);
     // Music-only libraries - used for music-specific charts
     var musicLibraries = data.Music || [];
+    // Book-only libraries - used for the book format chart
+    var bookLibraries = data.Books || [];
 
     var videoCodecs = aggregateDict(videoLibraries, 'VideoCodecs');
     var videoAudioCodecs = aggregateDict(videoLibraries, 'VideoAudioCodecs');
     var musicAudioCodecs = aggregateDict(musicLibraries, 'MusicAudioCodecs');
+    var bookFormats = aggregateDict(bookLibraries, 'BookFormats');
     var containers = aggregateDict(data.Libraries, 'ContainerFormats');
     var resolutions = aggregateDict(videoLibraries, 'Resolutions');
     var dynamicRanges = aggregateDict(videoLibraries, 'DynamicRanges');
@@ -463,6 +471,7 @@ function fillCodecsData(data) {
     var videoCodecSizes = aggregateDict(videoLibraries, 'VideoCodecSizes');
     var videoAudioCodecSizes = aggregateDict(videoLibraries, 'VideoAudioCodecSizes');
     var musicAudioCodecSizes = aggregateDict(musicLibraries, 'MusicAudioCodecSizes');
+    var bookFormatSizes = aggregateDict(bookLibraries, 'BookFormatSizes');
     var containerSizes = aggregateDict(data.Libraries, 'ContainerSizes');
     var resolutionSizes = aggregateDict(videoLibraries, 'ResolutionSizes');
     var dynamicRangeSizes = aggregateDict(videoLibraries, 'DynamicRangeSizes');
@@ -473,8 +482,9 @@ function fillCodecsData(data) {
     var hasVideoCodecs = Object.keys(videoCodecs).length > 0;
     var hasVideoAudio = Object.keys(videoAudioCodecs).length > 0;
     var hasMusicAudio = Object.keys(musicAudioCodecs).length > 0;
+    var hasBookFormats = Object.keys(bookFormats).length > 0;
     var hasAnyCharts = hasContainers || hasResolutions || hasDynamicRanges
-        || hasVideoCodecs || hasVideoAudio || hasMusicAudio;
+        || hasVideoCodecs || hasVideoAudio || hasMusicAudio || hasBookFormats;
 
     var codecsHtml = '<div class="charts-row">';
     if (hasContainers) {
@@ -507,6 +517,12 @@ function fillCodecsData(data) {
         codecsHtml += '<div class="chart-box"><h4>' + mi('music_note') + T('musicAudioCodecs', 'Music Audio Codecs') + '</h4>';
         codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries,
             'MusicAudioCodecs');
+        codecsHtml += '</div>';
+    }
+    if (hasBookFormats) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('library_books') + T('bookFormats', 'Book Formats') + '</h4>';
+        codecsHtml += renderDonutChart(bookFormats, bookFormatSizes, 'bookFormats', bookLibraries,
+            'BookFormats');
         codecsHtml += '</div>';
     }
     if (!hasAnyCharts) {
