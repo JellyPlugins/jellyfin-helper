@@ -518,7 +518,7 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Learned_InitialWeights_GenreDominant()
     {
         var strategy = new LearnedScoringStrategy();
-        var weights = strategy.CurrentWeights;
+        var weights = strategy.GetCurrentWeights();
 
         Assert.Equal(CandidateFeatures.FeatureCount, weights.Length);
         // Verify weights match DefaultWeights constants (the Learned strategy uses DefaultWeights as initial values)
@@ -582,7 +582,7 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Learned_Train_UpdatesWeights()
     {
         var strategy = new LearnedScoringStrategy();
-        var initialWeights = (double[])strategy.CurrentWeights.Clone();
+        var initialWeights = (double[])strategy.GetCurrentWeights().Clone();
         var initialBias = strategy.CurrentBias;
 
         // Create training data: positive examples with high genre similarity
@@ -623,7 +623,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         Assert.True(trained);
 
-        var updatedWeights = strategy.CurrentWeights;
+        var updatedWeights = strategy.GetCurrentWeights();
         var updatedBias = strategy.CurrentBias;
 
         // Weights should have changed
@@ -702,7 +702,7 @@ public sealed class ScoringStrategyTests : IDisposable
         }
 
         strategy.Train(examples);
-        var weights = strategy.CurrentWeights;
+        var weights = strategy.GetCurrentWeights();
         var bias = strategy.CurrentBias;
 
         // All weights should be within clamped range
@@ -773,12 +773,12 @@ public sealed class ScoringStrategyTests : IDisposable
         }
 
         Assert.True(strategy1.Train(examples), "Training should succeed with sufficient examples");
-        var savedWeights = strategy1.CurrentWeights;
+        var savedWeights = strategy1.GetCurrentWeights();
         var savedBias = strategy1.CurrentBias;
 
         // Load into new instance
         var strategy2 = new LearnedScoringStrategy(weightsPath);
-        var loadedWeights = strategy2.CurrentWeights;
+        var loadedWeights = strategy2.GetCurrentWeights();
         var loadedBias = strategy2.CurrentBias;
 
         for (var i = 0; i < savedWeights.Length; i++)
@@ -797,7 +797,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         // Should not throw, should use default weights
         var strategy = new LearnedScoringStrategy(weightsPath);
-        var weights = strategy.CurrentWeights;
+        var weights = strategy.GetCurrentWeights();
 
         Assert.Equal(CandidateFeatures.FeatureCount, weights.Length);
         Assert.Equal(DefaultWeights.GenreSimilarity, weights[0]); // default genre weight
@@ -1026,7 +1026,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var strategy = new EnsembleScoringStrategy();
 
         // Capture weights before training to verify they actually change
-        var weightsBefore = (double[])strategy.LearnedStrategy.CurrentWeights.Clone();
+        var weightsBefore = (double[])strategy.LearnedStrategy.GetCurrentWeights().Clone();
         var biasBefore = strategy.LearnedStrategy.CurrentBias;
 
         var examples = GenerateTrainingExamples(30);
@@ -1036,7 +1036,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.NotNull(strategy.LearnedStrategy);
 
         // Verify the learned strategy's weights were actually updated by training
-        var weightsAfter = strategy.LearnedStrategy.CurrentWeights;
+        var weightsAfter = strategy.LearnedStrategy.GetCurrentWeights();
         var weightsChanged = false;
         for (var i = 0; i < weightsBefore.Length; i++)
         {
@@ -2331,12 +2331,12 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.True(
             strategy.Train(fewExamples),
             "Pre-condition: non-standardized training must succeed for the transition test to be meaningful.");
-        var weightsAfterFirstTrain = strategy.CurrentWeights;
+        var weightsAfterFirstTrain = strategy.GetCurrentWeights();
 
         // Now train WITH standardization (>= 10 examples) - should trigger weight reset
         var manyExamples = GenerateTrainingExamples(20);
         strategy.Train(manyExamples);
-        var weightsAfterSecondTrain = strategy.CurrentWeights;
+        var weightsAfterSecondTrain = strategy.GetCurrentWeights();
 
         // Weights should have changed (reset + retrained)
         var anyDifferent = false;

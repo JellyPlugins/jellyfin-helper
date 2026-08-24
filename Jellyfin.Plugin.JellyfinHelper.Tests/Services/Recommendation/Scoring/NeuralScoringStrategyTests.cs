@@ -265,8 +265,8 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void XavierInit_WeightsAreNotAllZero()
     {
         var strategy = new NeuralScoringStrategy();
-        var wH = strategy.CurrentWeightsHidden;
-        var wO = strategy.CurrentWeightsOutput;
+        var wH = strategy.GetCurrentWeightsHidden();
+        var wO = strategy.GetCurrentWeightsOutput();
 
         Assert.True(wH.Any(w => Math.Abs(w) > 1e-10), "Hidden weights should not all be zero after Xavier init");
         Assert.True(wO.Any(w => Math.Abs(w) > 1e-10), "Output weights should not all be zero after Xavier init");
@@ -278,8 +278,8 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var s1 = new NeuralScoringStrategy();
         var s2 = new NeuralScoringStrategy();
 
-        var wH1 = s1.CurrentWeightsHidden;
-        var wH2 = s2.CurrentWeightsHidden;
+        var wH1 = s1.GetCurrentWeightsHidden();
+        var wH2 = s2.GetCurrentWeightsHidden();
 
         for (var i = 0; i < wH1.Length; i++)
         {
@@ -424,14 +424,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void Train_UpdatesWeights()
     {
         var strategy = new NeuralScoringStrategy();
-        var initialWH = strategy.CurrentWeightsHidden;
-        var initialWO = strategy.CurrentWeightsOutput;
+        var initialWH = strategy.GetCurrentWeightsHidden();
+        var initialWO = strategy.GetCurrentWeightsOutput();
 
         var examples = GenerateExamples(20);
         strategy.Train(examples);
 
-        var updatedWH = strategy.CurrentWeightsHidden;
-        var updatedWO = strategy.CurrentWeightsOutput;
+        var updatedWH = strategy.GetCurrentWeightsHidden();
+        var updatedWO = strategy.GetCurrentWeightsOutput();
 
         var anyHiddenChanged = false;
         for (var i = 0; i < initialWH.Length; i++)
@@ -511,8 +511,8 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         strategy.Train(examples);
 
-        var wH = strategy.CurrentWeightsHidden;
-        var wO = strategy.CurrentWeightsOutput;
+        var wH = strategy.GetCurrentWeightsHidden();
+        var wO = strategy.GetCurrentWeightsOutput();
 
         foreach (var w in wH)
         {
@@ -582,19 +582,19 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var examples = GenerateExamples(20);
         strategy1.Train(examples);
 
-        var savedWH = strategy1.CurrentWeightsHidden;
-        var savedWH1H2 = strategy1.CurrentWeightsH1H2;
-        var savedWH2H3 = strategy1.CurrentWeightsH2H3;
-        var savedWH3H4 = strategy1.CurrentWeightsH3H4;
-        var savedWO = strategy1.CurrentWeightsOutput;
+        var savedWH = strategy1.GetCurrentWeightsHidden();
+        var savedWH1H2 = strategy1.GetCurrentWeightsH1H2();
+        var savedWH2H3 = strategy1.GetCurrentWeightsH2H3();
+        var savedWH3H4 = strategy1.GetCurrentWeightsH3H4();
+        var savedWO = strategy1.GetCurrentWeightsOutput();
         var savedGen = strategy1.TrainingGeneration;
 
         var strategy2 = new NeuralScoringStrategy(weightsPath);
-        var loadedWH = strategy2.CurrentWeightsHidden;
-        var loadedWH1H2 = strategy2.CurrentWeightsH1H2;
-        var loadedWH2H3 = strategy2.CurrentWeightsH2H3;
-        var loadedWH3H4 = strategy2.CurrentWeightsH3H4;
-        var loadedWO = strategy2.CurrentWeightsOutput;
+        var loadedWH = strategy2.GetCurrentWeightsHidden();
+        var loadedWH1H2 = strategy2.GetCurrentWeightsH1H2();
+        var loadedWH2H3 = strategy2.GetCurrentWeightsH2H3();
+        var loadedWH3H4 = strategy2.GetCurrentWeightsH3H4();
+        var loadedWO = strategy2.GetCurrentWeightsOutput();
 
         for (var i = 0; i < savedWH.Length; i++)
         {
@@ -744,7 +744,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void XavierInit_InputHiddenWeights_CorrectLength()
     {
         var strategy = new NeuralScoringStrategy();
-        var wIH = strategy.CurrentWeightsHidden;
+        var wIH = strategy.GetCurrentWeightsHidden();
 
         Assert.Equal(NeuralScoringStrategy.Hidden1Size * CandidateFeatures.FeatureCount, wIH.Length);
     }
@@ -753,7 +753,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void XavierInit_H1H2Weights_CorrectLength()
     {
         var strategy = new NeuralScoringStrategy();
-        var wH1H2 = strategy.CurrentWeightsH1H2;
+        var wH1H2 = strategy.GetCurrentWeightsH1H2();
 
         Assert.Equal(NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size, wH1H2.Length);
     }
@@ -762,7 +762,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void XavierInit_H2H3Weights_CorrectLength()
     {
         var strategy = new NeuralScoringStrategy();
-        var wH2H3 = strategy.CurrentWeightsH2H3;
+        var wH2H3 = strategy.GetCurrentWeightsH2H3();
 
         Assert.Equal(NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size, wH2H3.Length);
     }
@@ -771,7 +771,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void XavierInit_OutputWeights_CorrectLength()
     {
         var strategy = new NeuralScoringStrategy();
-        var wO = strategy.CurrentWeightsOutput;
+        var wO = strategy.GetCurrentWeightsOutput();
 
         Assert.Equal(NeuralScoringStrategy.Hidden4Size, wO.Length);
     }
@@ -780,7 +780,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void HeInit_InputHiddenWeights_WithinExpectedBounds()
     {
         var strategy = new NeuralScoringStrategy();
-        var wIH = strategy.CurrentWeightsHidden;
+        var wIH = strategy.GetCurrentWeightsHidden();
 
         // He/Kaiming uniform for ReLU: limit = sqrt(6 / fan_in)
         var limit = Math.Sqrt(6.0 / CandidateFeatures.FeatureCount);
@@ -795,7 +795,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void XavierInit_OutputWeights_WithinExpectedBounds()
     {
         var strategy = new NeuralScoringStrategy();
-        var wO = strategy.CurrentWeightsOutput;
+        var wO = strategy.GetCurrentWeightsOutput();
 
         var limit = Math.Sqrt(6.0 / (NeuralScoringStrategy.Hidden4Size + 1));
 
@@ -863,7 +863,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void H1H2Weights_AreNotAllZero()
     {
         var strategy = new NeuralScoringStrategy();
-        var wH1H2 = strategy.CurrentWeightsH1H2;
+        var wH1H2 = strategy.GetCurrentWeightsH1H2();
 
         Assert.True(wH1H2.Any(w => Math.Abs(w) > 1e-10), "H1→H2 weights should not all be zero after Xavier init");
     }
@@ -872,7 +872,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void H2H3Weights_AreNotAllZero()
     {
         var strategy = new NeuralScoringStrategy();
-        var wH2H3 = strategy.CurrentWeightsH2H3;
+        var wH2H3 = strategy.GetCurrentWeightsH2H3();
 
         Assert.True(wH2H3.Any(w => Math.Abs(w) > 1e-10), "H2→H3 weights should not all be zero after Xavier init");
     }
@@ -1359,8 +1359,8 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // by dropoutInvKeep - the bug that was fixed) does not produce NaN/Infinity and
         // that weights do actually change from their initial Xavier values.
         var strategy = new NeuralScoringStrategy();
-        var initialWH = strategy.CurrentWeightsHidden.ToArray();
-        var initialWO = strategy.CurrentWeightsOutput.ToArray();
+        var initialWH = strategy.GetCurrentWeightsHidden().ToArray();
+        var initialWO = strategy.GetCurrentWeightsOutput().ToArray();
 
         // >= MinExamplesForDropout examples to guarantee dropout is active during training.
         var examples = GenerateExamples(NeuralScoringStrategy.MinExamplesForDropout);
@@ -1368,8 +1368,8 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         Assert.True(trained, "Train should return true with enough examples");
 
-        var updatedWH = strategy.CurrentWeightsHidden;
-        var updatedWO = strategy.CurrentWeightsOutput;
+        var updatedWH = strategy.GetCurrentWeightsHidden();
+        var updatedWO = strategy.GetCurrentWeightsOutput();
 
         // No weight must be NaN or Infinity.
         Assert.All(updatedWH, w => Assert.True(
@@ -1954,9 +1954,9 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         var examplesOn = BuildExamples(rngOn, NeuralScoringStrategy.MinExamplesForDropout + 5);
 
         var strategyOff = new NeuralScoringStrategy();
-        var wBefore = (double[])strategyOff.CurrentWeightsHidden.Clone();
+        var wBefore = (double[])strategyOff.GetCurrentWeightsHidden().Clone();
         strategyOff.Train(examplesOff);
-        var wAfterOff = strategyOff.CurrentWeightsHidden;
+        var wAfterOff = strategyOff.GetCurrentWeightsHidden();
 
         var deltaOff = 0.0;
         for (var i = 0; i < wBefore.Length; i++)
@@ -1965,9 +1965,9 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         }
 
         var strategyOn = new NeuralScoringStrategy();
-        var wBeforeOn = (double[])strategyOn.CurrentWeightsHidden.Clone();
+        var wBeforeOn = (double[])strategyOn.GetCurrentWeightsHidden().Clone();
         strategyOn.Train(examplesOn);
-        var wAfterOn = strategyOn.CurrentWeightsHidden;
+        var wAfterOn = strategyOn.GetCurrentWeightsHidden();
 
         var deltaOn = 0.0;
         for (var i = 0; i < wBeforeOn.Length; i++)

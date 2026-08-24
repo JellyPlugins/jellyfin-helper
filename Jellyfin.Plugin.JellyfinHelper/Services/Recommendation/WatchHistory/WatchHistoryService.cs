@@ -20,6 +20,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 /// </summary>
 public sealed class WatchHistoryService : IWatchHistoryService
 {
+    /// <summary>The plugin-log category used for all watch-history log entries.</summary>
+    private const string LogCategory = "WatchHistory";
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<WatchHistoryService> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -66,7 +69,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var users = _userManager.GetUsers().ToList();
 
         _pluginLog.LogInfo(
-            "WatchHistory",
+            LogCategory,
             $"Starting watch profile collection for {users.Count} users...",
             _logger);
 
@@ -84,7 +87,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
-                    "WatchHistory",
+                    LogCategory,
                     $"Failed to build profile for user '{user.Username}'",
                     ex,
                     _logger);
@@ -92,7 +95,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
 
         _pluginLog.LogInfo(
-            "WatchHistory",
+            LogCategory,
             $"Finished watch profile collection: {profiles.Count} profiles built.",
             _logger);
 
@@ -243,7 +246,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         profile.AverageCommunityRating = ratingCount > 0 ? Math.Round(ratingSum / ratingCount, 1) : 0;
 
         _pluginLog.LogDebug(
-            "WatchHistory",
+            LogCategory,
             $"Profile for '{user.Username}': {profile.WatchedMovieCount} movies, " +
             $"{profile.WatchedEpisodeCount} episodes, {profile.WatchedSeriesCount} series, " +
             $"{profile.FavoriteCount} favorites",
@@ -716,21 +719,65 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // over-counting actors who appear in every episode. Track processed series.
         var processedSeriesIds = new HashSet<Guid>();
 
-        // Build a series lookup for efficient access
-        Dictionary<Guid, BaseItem>? seriesLookup = null;
-        if (allSeries is { Count: > 0 })
+        var seriesLookup = BuildSeriesLookup(allSeries);
+        var itemLookup = BuildItemLookup(allItems, allSeries);
+
+        // Maximum number of actors to consider per item (top-billed only)
+        const int maxActorsPerItem = 5;
+
+        foreach (var watchedItem in profile.WatchedItems)
         {
-            seriesLookup = new Dictionary<Guid, BaseItem>(allSeries.Count);
-            foreach (var s in allSeries)
+            if (!HasMeaningfulInteraction(watchedItem))
             {
-                seriesLookup.TryAdd(s.Id, s);
+                continue;
             }
+
+            ProcessWatchedItemPeople(
+                profile,
+                watchedItem,
+                seriesLookup,
+                itemLookup,
+                processedSeriesIds,
+                processedItemIds,
+                maxActorsPerItem);
+        }
+    }
+
+    /// <summary>
+    ///     Builds a series-ID lookup for efficient series-level people aggregation. Extracted
+    ///     verbatim from <see cref="BuildPeopleProfile"/>.
+    /// </summary>
+    /// <param name="allSeries">Pre-loaded series items, or <c>null</c>.</param>
+    /// <returns>A series lookup, or <c>null</c> when no series were supplied.</returns>
+    private static Dictionary<Guid, BaseItem>? BuildSeriesLookup(IReadOnlyList<BaseItem>? allSeries)
+    {
+        if (allSeries is not { Count: > 0 })
+        {
+            return null;
         }
 
-        // Build an item lookup from allItems for O(1) access instead of N+1 DB queries.
-        // This eliminates the per-item GetItemList call that was causing performance issues.
-        // Also include series items so that synthetic favorite-series entries in WatchedItems
-        // can resolve to their BaseItem for people aggregation.
+        var seriesLookup = new Dictionary<Guid, BaseItem>(allSeries.Count);
+        foreach (var s in allSeries)
+        {
+            seriesLookup.TryAdd(s.Id, s);
+        }
+
+        return seriesLookup;
+    }
+
+    /// <summary>
+    ///     Builds an item-ID lookup from the video items plus series items for O(1) access
+    ///     (avoids N+1 DB queries). Also includes series items so that synthetic favorite-series
+    ///     entries in <c>WatchedItems</c> can resolve to their <see cref="BaseItem"/>. Extracted
+    ///     verbatim from <see cref="BuildPeopleProfile"/>.
+    /// </summary>
+    /// <param name="allItems">Pre-loaded video items from the library.</param>
+    /// <param name="allSeries">Pre-loaded series items from the library, or <c>null</c>.</param>
+    /// <returns>A combined item lookup keyed by item ID.</returns>
+    private static Dictionary<Guid, BaseItem> BuildItemLookup(
+        IReadOnlyList<BaseItem> allItems,
+        IReadOnlyList<BaseItem>? allSeries)
+    {
         var itemLookup = new Dictionary<Guid, BaseItem>(allItems.Count + (allSeries?.Count ?? 0));
         foreach (var item in allItems)
         {
@@ -745,63 +792,86 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
         }
 
-        // Maximum number of actors to consider per item (top-billed only)
-        const int maxActorsPerItem = 5;
+        return itemLookup;
+    }
 
-        foreach (var watchedItem in profile.WatchedItems)
+    /// <summary>
+    ///     Determines whether a watched item represents a meaningful interaction: played, favorited,
+    ///     or partially-watched with at least 15% progress. Extracted verbatim from the interaction
+    ///     filter in <see cref="BuildPeopleProfile"/>.
+    /// </summary>
+    /// <param name="watchedItem">The watched item to test.</param>
+    /// <returns><c>true</c> when the item should contribute to the people profile.</returns>
+    private static bool HasMeaningfulInteraction(WatchedItemInfo watchedItem)
+    {
+        if (watchedItem.Played || watchedItem.IsFavorite)
         {
-            // Only include items with meaningful interaction.
-            // Includes: Played items, Favorites, and partially-watched items with >=15% progress.
-            // Excludes: items started and immediately abandoned (< 15% progress).
-            if (!watchedItem.Played && !watchedItem.IsFavorite)
+            return true;
+        }
+
+        return watchedItem.PlaybackPositionTicks > 0
+            && watchedItem.RuntimeTicks > 0
+            && (double)watchedItem.PlaybackPositionTicks / watchedItem.RuntimeTicks >= 0.15;
+    }
+
+    /// <summary>
+    ///     Aggregates people for a single watched item, dispatching episodes to their parent series
+    ///     (series-level metadata only) and movies/other items directly, while de-duplicating via the
+    ///     processed-ID sets. Extracted verbatim from the per-item body of <see cref="BuildPeopleProfile"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="watchedItem">The watched item to process.</param>
+    /// <param name="seriesLookup">The series lookup, or <c>null</c>.</param>
+    /// <param name="itemLookup">The combined item lookup.</param>
+    /// <param name="processedSeriesIds">Accumulator of already-processed series IDs.</param>
+    /// <param name="processedItemIds">Accumulator of already-processed item IDs.</param>
+    /// <param name="maxActorsPerItem">Maximum number of actors to consider per item.</param>
+    private void ProcessWatchedItemPeople(
+        UserWatchProfile profile,
+        WatchedItemInfo watchedItem,
+        Dictionary<Guid, BaseItem>? seriesLookup,
+        Dictionary<Guid, BaseItem> itemLookup,
+        HashSet<Guid> processedSeriesIds,
+        HashSet<Guid> processedItemIds,
+        int maxActorsPerItem)
+    {
+        // For episodes: aggregate at series level to avoid per-episode noise
+        if (watchedItem.SeriesId.HasValue && watchedItem.SeriesId.Value != Guid.Empty)
+        {
+            var seriesId = watchedItem.SeriesId.Value;
+            if (!processedSeriesIds.Add(seriesId))
             {
-                var hasSignificantProgress = watchedItem.PlaybackPositionTicks > 0
-                    && watchedItem.RuntimeTicks > 0
-                    && (double)watchedItem.PlaybackPositionTicks / watchedItem.RuntimeTicks >= 0.15;
-                if (!hasSignificantProgress)
-                {
-                    continue;
-                }
+                return; // Already counted people for this series
             }
 
-            // For episodes: aggregate at series level to avoid per-episode noise
-            if (watchedItem.SeriesId.HasValue && watchedItem.SeriesId.Value != Guid.Empty)
+            // Also mark in processedItemIds so that synthetic favorite-series entries
+            // (which have ItemId = seriesId, SeriesId = null) don't double-count.
+            processedItemIds.Add(seriesId);
+
+            // Use series-level metadata only. If the series is not in the lookup, skip entirely
+            // rather than falling back to episode-level data. Falling back would count only the
+            // limited guest cast of a single episode instead of the full main cast, and would
+            // also cause a double-count if a synthetic favourite-series row (ItemId == seriesId,
+            // SeriesId == null) is processed later and the processedItemIds guard
+            // already blocked it from reaching the people aggregation path.
+            if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
             {
-                var seriesId = watchedItem.SeriesId.Value;
-                if (!processedSeriesIds.Add(seriesId))
-                {
-                    continue; // Already counted people for this series
-                }
-
-                // Also mark in processedItemIds so that synthetic favorite-series entries
-                // (which have ItemId = seriesId, SeriesId = null) don't double-count.
-                processedItemIds.Add(seriesId);
-
-                // Use series-level metadata only. If the series is not in the lookup, skip entirely
-                // rather than falling back to episode-level data. Falling back would count only the
-                // limited guest cast of a single episode instead of the full main cast, and would
-                // also cause a double-count if a synthetic favourite-series row (ItemId == seriesId,
-                // SeriesId == null) is processed later and the processedItemIds guard at line 559
-                // already blocked it from reaching the people aggregation path.
-                if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
-                {
-                    AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
-                }
-
-                continue;
+                AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
             }
 
-            // For movies and other items: aggregate directly
-            if (!processedItemIds.Add(watchedItem.ItemId))
-            {
-                continue; // Already processed
-            }
+            return;
+        }
 
-            // Look up the actual BaseItem from the pre-built dictionary (O(1) instead of DB call)
-            if (itemLookup.TryGetValue(watchedItem.ItemId, out var baseItem))
-            {
-                AggregatePeopleFromItem(profile, baseItem, maxActorsPerItem);
-            }
+        // For movies and other items: aggregate directly
+        if (!processedItemIds.Add(watchedItem.ItemId))
+        {
+            return; // Already processed
+        }
+
+        // Look up the actual BaseItem from the pre-built dictionary (O(1) instead of DB call)
+        if (itemLookup.TryGetValue(watchedItem.ItemId, out var baseItem))
+        {
+            AggregatePeopleFromItem(profile, baseItem, maxActorsPerItem);
         }
     }
 
@@ -842,12 +912,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var seenPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var person in people)
         {
-            if (string.IsNullOrWhiteSpace(person.Name))
-            {
-                continue;
-            }
-
-            if (seenPeople.Contains(person.Name))
+            if (string.IsNullOrWhiteSpace(person.Name) || seenPeople.Contains(person.Name))
             {
                 continue;
             }
@@ -855,29 +920,41 @@ public sealed class WatchHistoryService : IWatchHistoryService
             // Only include Actors and Directors (with caps to prevent metadata bloat)
             if (person.Type == PersonKind.Director)
             {
-                if (directorCount >= maxDirectorsPerItem)
-                {
-                    continue;
-                }
-
-                directorCount++;
-                seenPeople.Add(person.Name);
-                profile.PeopleProfile.TryGetValue(person.Name, out var dirCount);
-                profile.PeopleProfile[person.Name] = dirCount + 1;
+                TryAddPerson(profile, person.Name, seenPeople, ref directorCount, maxDirectorsPerItem);
             }
             else if (person.Type == PersonKind.Actor)
             {
-                if (actorCount >= maxActors)
-                {
-                    continue; // Only top-billed actors
-                }
-
-                actorCount++;
-                seenPeople.Add(person.Name);
-                profile.PeopleProfile.TryGetValue(person.Name, out var actCount);
-                profile.PeopleProfile[person.Name] = actCount + 1;
+                TryAddPerson(profile, person.Name, seenPeople, ref actorCount, maxActors);
             }
         }
+    }
+
+    /// <summary>
+    ///     Adds a person (actor or director) to the profile's people distribution if the per-kind cap
+    ///     has not been reached, incrementing the running kind count and marking the name as seen.
+    ///     Extracted verbatim from the two identical per-kind blocks of <see cref="AggregatePeopleFromItem"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="personName">The non-empty, not-yet-seen person name.</param>
+    /// <param name="seenPeople">Accumulator of already-counted names for this item.</param>
+    /// <param name="kindCount">Running count for this person kind (updated in place).</param>
+    /// <param name="maxForKind">Maximum number of persons to include for this kind.</param>
+    private static void TryAddPerson(
+        UserWatchProfile profile,
+        string personName,
+        HashSet<string> seenPeople,
+        ref int kindCount,
+        int maxForKind)
+    {
+        if (kindCount >= maxForKind)
+        {
+            return;
+        }
+
+        kindCount++;
+        seenPeople.Add(personName);
+        profile.PeopleProfile.TryGetValue(personName, out var count);
+        profile.PeopleProfile[personName] = count + 1;
     }
 
     /// <summary>
@@ -980,7 +1057,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             },
             fallbackValue: null,
             onFailure: ex => _pluginLog.LogWarning(
-                "WatchHistory",
+                LogCategory,
                 $"Batch user-data load failed for user '{user.Username}'; falling back to per-item lookup.",
                 ex,
                 _logger));

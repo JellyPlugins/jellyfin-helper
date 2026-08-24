@@ -58,7 +58,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath, logger.Object);
 
-        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.CurrentWeights);
+        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.GetCurrentWeights());
         VerifyWarning(logger, "Skipping load");
     }
 
@@ -84,7 +84,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath, logger.Object);
 
-        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.CurrentWeights);
+        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.GetCurrentWeights());
         var score = strategy.Score(new CandidateFeatures { GenreSimilarity = 0.7 });
         Assert.True(double.IsFinite(score));
         Assert.InRange(score, 0.0, 1.0);
@@ -112,7 +112,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath, logger.Object);
 
-        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.CurrentWeights);
+        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.GetCurrentWeights());
         VerifyWarning(logger, "mismatched standardization stats");
     }
 
@@ -134,7 +134,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath, logger.Object);
 
-        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.CurrentWeights);
+        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.GetCurrentWeights());
         VerifyWarning(logger, "Discarding persisted weights");
     }
 
@@ -151,7 +151,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         {
             var strategy = new LearnedScoringStrategy(weightsPath, logger.Object);
 
-            Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.CurrentWeights);
+            Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.GetCurrentWeights());
             var score = strategy.Score(new CandidateFeatures { GenreSimilarity = 0.5 });
             Assert.InRange(score, 0.0, 1.0);
         }
@@ -201,7 +201,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath, logger.Object);
 
-        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.CurrentWeights);
+        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.GetCurrentWeights());
         var score = strategy.Score(new CandidateFeatures { GenreSimilarity = 0.7 });
         Assert.True(double.IsFinite(score));
         Assert.InRange(score, 0.0, 1.0);

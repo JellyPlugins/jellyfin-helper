@@ -28,7 +28,7 @@ public sealed class LearnedScoringStrategyLoggingTests
 
         // The reset branch must have run (not merely logged): weights stay a full FeatureCount
         // vector, having been re-seeded from DefaultWeights before SGD refined them.
-        Assert.Equal(CandidateFeatures.FeatureCount, strategy.CurrentWeights.Length);
+        Assert.Equal(CandidateFeatures.FeatureCount, strategy.GetCurrentWeights().Length);
     }
 
     [Fact]

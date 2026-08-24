@@ -295,106 +295,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
     }
 
-    /// <summary>Gets a copy of the input->hidden1 layer weights (for testing).</summary>
-    internal double[] CurrentWeightsHidden
-    {
-        get
-        {
-            _rwLock.EnterReadLock();
-            try
-            {
-                return (double[])_weightsIH.Clone();
-            }
-            finally
-            {
-                if (_rwLock.IsReadLockHeld)
-                {
-                    _rwLock.ExitReadLock();
-                }
-            }
-        }
-    }
-
-    /// <summary>Gets a copy of the hidden4->output layer weights (for testing).</summary>
-    internal double[] CurrentWeightsOutput
-    {
-        get
-        {
-            _rwLock.EnterReadLock();
-            try
-            {
-                return (double[])_weightsH4O.Clone();
-            }
-            finally
-            {
-                if (_rwLock.IsReadLockHeld)
-                {
-                    _rwLock.ExitReadLock();
-                }
-            }
-        }
-    }
-
-    /// <summary>Gets a copy of the hidden1->hidden2 layer weights (for testing).</summary>
-    internal double[] CurrentWeightsH1H2
-    {
-        get
-        {
-            _rwLock.EnterReadLock();
-            try
-            {
-                return (double[])_weightsH1H2.Clone();
-            }
-            finally
-            {
-                if (_rwLock.IsReadLockHeld)
-                {
-                    _rwLock.ExitReadLock();
-                }
-            }
-        }
-    }
-
-    /// <summary>Gets a copy of the hidden2->hidden3 layer weights (for testing).</summary>
-    internal double[] CurrentWeightsH2H3
-    {
-        get
-        {
-            _rwLock.EnterReadLock();
-            try
-            {
-                return (double[])_weightsH2H3.Clone();
-            }
-            finally
-            {
-                if (_rwLock.IsReadLockHeld)
-                {
-                    _rwLock.ExitReadLock();
-                }
-            }
-        }
-    }
-
-    /// <summary>Gets a copy of the hidden3->hidden4 layer weights (for testing).</summary>
-    internal double[] CurrentWeightsH3H4
-    {
-        get
-        {
-            _rwLock.EnterReadLock();
-            try
-            {
-                return (double[])_weightsH3H4.Clone();
-            }
-            finally
-            {
-                if (_rwLock.IsReadLockHeld)
-                {
-                    _rwLock.ExitReadLock();
-                }
-            }
-        }
-    }
-
     /// <summary>Gets the current training generation (for testing).</summary>
     internal int TrainingGeneration
     {
@@ -403,6 +303,96 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             lock (_syncRoot)
             {
                 return _trainingGeneration;
+            }
+        }
+    }
+
+    /// <summary>Gets a copy of the input->hidden1 layer weights (for testing).</summary>
+    /// <returns>A defensive copy of the input->hidden1 layer weights.</returns>
+    internal double[] GetCurrentWeightsHidden()
+    {
+        try
+        {
+            _rwLock.EnterReadLock();
+            return (double[])_weightsIH.Clone();
+        }
+        finally
+        {
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
+            }
+        }
+    }
+
+    /// <summary>Gets a copy of the hidden4->output layer weights (for testing).</summary>
+    /// <returns>A defensive copy of the hidden4->output layer weights.</returns>
+    internal double[] GetCurrentWeightsOutput()
+    {
+        try
+        {
+            _rwLock.EnterReadLock();
+            return (double[])_weightsH4O.Clone();
+        }
+        finally
+        {
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
+            }
+        }
+    }
+
+    /// <summary>Gets a copy of the hidden1->hidden2 layer weights (for testing).</summary>
+    /// <returns>A defensive copy of the hidden1->hidden2 layer weights.</returns>
+    internal double[] GetCurrentWeightsH1H2()
+    {
+        try
+        {
+            _rwLock.EnterReadLock();
+            return (double[])_weightsH1H2.Clone();
+        }
+        finally
+        {
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
+            }
+        }
+    }
+
+    /// <summary>Gets a copy of the hidden2->hidden3 layer weights (for testing).</summary>
+    /// <returns>A defensive copy of the hidden2->hidden3 layer weights.</returns>
+    internal double[] GetCurrentWeightsH2H3()
+    {
+        try
+        {
+            _rwLock.EnterReadLock();
+            return (double[])_weightsH2H3.Clone();
+        }
+        finally
+        {
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
+            }
+        }
+    }
+
+    /// <summary>Gets a copy of the hidden3->hidden4 layer weights (for testing).</summary>
+    /// <returns>A defensive copy of the hidden3->hidden4 layer weights.</returns>
+    internal double[] GetCurrentWeightsH3H4()
+    {
+        try
+        {
+            _rwLock.EnterReadLock();
+            return (double[])_weightsH3H4.Clone();
+        }
+        finally
+        {
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
             }
         }
     }
@@ -932,9 +922,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 LearnedScoringStrategy.StandardizeVectors(vectors, featureMeans, featureStdDevs);
             }
 
-            var bestLoss = double.MaxValue;
-            var patience = 0;
-
             var bestWIH = (double[])_weightsIH.Clone();
             var bestBH1 = (double[])_biasH1.Clone();
             var bestWH1H2 = (double[])_weightsH1H2.Clone();
@@ -1003,94 +990,25 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 ? MaxTrainingEpochs
                 : Math.Min(MaxTrainingEpochs, MaxEpochsWithoutEarlyStopping);
 
-            for (var epoch = 0; epoch < maxEpochs; epoch++)
-            {
-                for (var j = trainIdx.Length - 1; j > 0; j--)
-                {
-                    var k = rng.Next(j + 1);
-                    (trainIdx[j], trainIdx[k]) = (trainIdx[k], trainIdx[j]);
-                }
+            var epochConfig = new EpochLoopConfig(
+                maxEpochs,
+                inputSize,
+                useEarlyStopping,
+                dropoutActive ? DropoutKeepProbability : 1.0,
+                dropoutInvKeep);
 
-                foreach (var idx in trainIdx)
-                {
-                    var sw = weights[idx];
-                    if (sw < MinSampleWeight)
-                    {
-                        continue;
-                    }
-
-                    var vec = vectors[idx];
-
-                    // Dropout is applied by RE-RUNNING each hidden layer's activation through a
-                    // Bernoulli mask, WITHOUT going through the (deterministic, dropout-free) ForwardPass.
-                    // This keeps ForwardPass the single source of truth for inference and avoids a second
-                    // code path that could drift. Masked+rescaled activations feed the next layer as if
-                    // the neuron were absent for this step.
-                    var pred = ForwardPassTraining(
-                        vec,
-                        _weightsIH,
-                        _biasH1,
-                        _weightsH1H2,
-                        _biasH2,
-                        _weightsH2H3,
-                        _biasH3,
-                        _weightsH3H4,
-                        _biasH4,
-                        _weightsH4O,
-                        _biasOutput,
-                        h1Pre,
-                        h1Act,
-                        h2Pre,
-                        h2Act,
-                        h3Pre,
-                        h3Act,
-                        h4Pre,
-                        h4Act,
-                        h1Mask,
-                        h2Mask,
-                        h3Mask,
-                        h4Mask,
-                        dropoutRng,
-                        dropoutActive ? DropoutKeepProbability : 1.0,
-                        dropoutInvKeep);
-
-                    var outErr = (pred - examples[idx].Label) * pred * (1.0 - pred) * sw;
-
-                    _adamTimestep++;
-                    var bc1 = 1.0 - Math.Pow(AdamBeta1, _adamTimestep);
-                    var bc2 = 1.0 - Math.Pow(AdamBeta2, _adamTimestep);
-
-                    // === Compute ALL error signals BEFORE updating any weights ===
-                    // Correct backprop uses the forward-pass weights for error computation; updating
-                    // weights first would skew gradients.
-                    ComputeErrorSignals(outErr, dropoutInvKeep, buffers);
-
-                    // === Now update all weights using the pre-computed error signals ===
-                    ApplyAdamUpdates(outErr, bc1, bc2, inputSize, vec, buffers);
-                }
-
-                if (useEarlyStopping && valIdx.Length > 0)
-                {
-                    var valLoss = ComputeMseLoss(examples, vectors, weights, valIdx);
-                    if (valLoss < bestLoss - EarlyStoppingMinDelta)
-                    {
-                        bestLoss = valLoss;
-                        patience = 0;
-                        SnapshotBestWeights(bestWeights);
-                        bestBO = _biasOutput;
-                    }
-                    else
-                    {
-                        patience++;
-                        if (patience >= EarlyStoppingPatience)
-                        {
-                            RestoreBestWeights(bestWeights);
-                            _biasOutput = bestBO;
-                            break;
-                        }
-                    }
-                }
-            }
+            var bestLoss = RunTrainingEpochs(
+                epochConfig,
+                trainIdx,
+                valIdx,
+                examples,
+                vectors,
+                weights,
+                buffers,
+                bestWeights,
+                rng,
+                dropoutRng,
+                ref bestBO);
 
             // Restore the best weights whenever early stopping observed an improvement, otherwise the
             // reported _lastValidationLoss won't match the persisted model. The restore in the
@@ -1171,6 +1089,132 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         return true;
+    }
+
+    /// <summary>
+    ///     Runs the full training epoch loop (per-epoch shuffle, per-example forward/backward/Adam step,
+    ///     and early-stopping bookkeeping). Extracted verbatim from the epoch loop of
+    ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>; the shuffle,
+    ///     dropout forward pass, error/Adam updates, and early-stopping order are unchanged.
+    /// </summary>
+    /// <param name="config">Scalar epoch-loop configuration.</param>
+    /// <param name="trainIdx">Training-split indices (shuffled in place each epoch).</param>
+    /// <param name="valIdx">Validation-split indices (empty when early stopping is off).</param>
+    /// <param name="examples">The training examples.</param>
+    /// <param name="vectors">The standardized feature vectors aligned to <paramref name="examples"/>.</param>
+    /// <param name="weights">The per-example effective weights.</param>
+    /// <param name="buffers">Pre-allocated per-layer scratch buffers.</param>
+    /// <param name="bestWeights">Best-so-far weight snapshot buffers.</param>
+    /// <param name="rng">The shuffle RNG.</param>
+    /// <param name="dropoutRng">The dropout draw RNG.</param>
+    /// <param name="bestBO">Best-so-far output bias (updated in place).</param>
+    /// <returns>The best validation loss observed (<see cref="double.MaxValue"/> if none improved).</returns>
+    private double RunTrainingEpochs(
+        EpochLoopConfig config,
+        int[] trainIdx,
+        int[] valIdx,
+        IReadOnlyList<TrainingExample> examples,
+        double[][] vectors,
+        double[] weights,
+        TrainingBuffers buffers,
+        WeightSnapshot bestWeights,
+        Random rng,
+        Random dropoutRng,
+        ref double bestBO)
+    {
+        var bestLoss = double.MaxValue;
+        var patience = 0;
+
+        for (var epoch = 0; epoch < config.MaxEpochs; epoch++)
+        {
+            for (var j = trainIdx.Length - 1; j > 0; j--)
+            {
+                var k = rng.Next(j + 1);
+                (trainIdx[j], trainIdx[k]) = (trainIdx[k], trainIdx[j]);
+            }
+
+            foreach (var idx in trainIdx)
+            {
+                var sw = weights[idx];
+                if (sw < MinSampleWeight)
+                {
+                    continue;
+                }
+
+                var vec = vectors[idx];
+
+                // Dropout is applied by RE-RUNNING each hidden layer's activation through a
+                // Bernoulli mask, WITHOUT going through the (deterministic, dropout-free) ForwardPass.
+                // This keeps ForwardPass the single source of truth for inference and avoids a second
+                // code path that could drift. Masked+rescaled activations feed the next layer as if
+                // the neuron were absent for this step.
+                var pred = ForwardPassTraining(
+                    vec,
+                    _weightsIH,
+                    _biasH1,
+                    _weightsH1H2,
+                    _biasH2,
+                    _weightsH2H3,
+                    _biasH3,
+                    _weightsH3H4,
+                    _biasH4,
+                    _weightsH4O,
+                    _biasOutput,
+                    buffers.H1Pre,
+                    buffers.H1Act,
+                    buffers.H2Pre,
+                    buffers.H2Act,
+                    buffers.H3Pre,
+                    buffers.H3Act,
+                    buffers.H4Pre,
+                    buffers.H4Act,
+                    buffers.H1Mask,
+                    buffers.H2Mask,
+                    buffers.H3Mask,
+                    buffers.H4Mask,
+                    dropoutRng,
+                    config.DropoutKeepProbability,
+                    config.DropoutInvKeep);
+
+                var outErr = (pred - examples[idx].Label) * pred * (1.0 - pred) * sw;
+
+                _adamTimestep++;
+                var bc1 = 1.0 - Math.Pow(AdamBeta1, _adamTimestep);
+                var bc2 = 1.0 - Math.Pow(AdamBeta2, _adamTimestep);
+
+                // === Compute ALL error signals BEFORE updating any weights ===
+                // Correct backprop uses the forward-pass weights for error computation; updating
+                // weights first would skew gradients.
+                ComputeErrorSignals(outErr, config.DropoutInvKeep, buffers);
+
+                // === Now update all weights using the pre-computed error signals ===
+                ApplyAdamUpdates(outErr, bc1, bc2, config.InputSize, vec, buffers);
+            }
+
+            if (config.UseEarlyStopping && valIdx.Length > 0)
+            {
+                var valLoss = ComputeMseLoss(examples, vectors, weights, valIdx);
+                if (valLoss < bestLoss - EarlyStoppingMinDelta)
+                {
+                    bestLoss = valLoss;
+                    patience = 0;
+                    SnapshotBestWeights(bestWeights);
+                    bestBO = _biasOutput;
+                }
+                else
+                {
+                    patience++;
+                    if (patience >= EarlyStoppingPatience)
+                    {
+                        RestoreBestWeights(bestWeights);
+                        _biasOutput = bestBO;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return bestLoss;
     }
 
     /// <summary>
@@ -1377,13 +1421,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _weightsH4O[k] = Math.Clamp(_weightsH4O[k], -WeightClamp, WeightClamp);
         }
 
-        {
-            var g = outErr;
-            _mBO = (AdamBeta1 * _mBO) + ((1 - AdamBeta1) * g);
-            _vBO = (AdamBeta2 * _vBO) + ((1 - AdamBeta2) * g * g);
-            _biasOutput -= DefaultLearningRate * (_mBO / bc1) / (Math.Sqrt(_vBO / bc2) + AdamEpsilon);
-            _biasOutput = Math.Clamp(_biasOutput, -WeightClamp, WeightClamp);
-        }
+        ApplyAdamBiasStep(ref _mBO, ref _vBO, ref _biasOutput, outErr, bc1, bc2);
 
         // Hidden3->Hidden4 layer Adam update
         for (var k = 0; k < Hidden4Size; k++)
@@ -1400,14 +1438,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _weightsH3H4[p] = Math.Clamp(_weightsH3H4[p], -WeightClamp, WeightClamp);
             }
 
-            {
-                var g = h4Err[k];
-                _mBH4![k] = (AdamBeta1 * _mBH4[k]) + ((1 - AdamBeta1) * g);
-                _vBH4![k] = (AdamBeta2 * _vBH4[k]) + ((1 - AdamBeta2) * g * g);
-                _biasH4[k] -= DefaultLearningRate * (_mBH4[k] / bc1) /
-                              (Math.Sqrt(_vBH4[k] / bc2) + AdamEpsilon);
-                _biasH4[k] = Math.Clamp(_biasH4[k], -WeightClamp, WeightClamp);
-            }
+            ApplyAdamBiasStep(ref _mBH4![k], ref _vBH4![k], ref _biasH4[k], h4Err[k], bc1, bc2);
         }
 
         // Hidden2->Hidden3 layer Adam update
@@ -1425,14 +1456,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _weightsH2H3[p] = Math.Clamp(_weightsH2H3[p], -WeightClamp, WeightClamp);
             }
 
-            {
-                var g = h3Err[k];
-                _mBH3![k] = (AdamBeta1 * _mBH3[k]) + ((1 - AdamBeta1) * g);
-                _vBH3![k] = (AdamBeta2 * _vBH3[k]) + ((1 - AdamBeta2) * g * g);
-                _biasH3[k] -= DefaultLearningRate * (_mBH3[k] / bc1) /
-                              (Math.Sqrt(_vBH3[k] / bc2) + AdamEpsilon);
-                _biasH3[k] = Math.Clamp(_biasH3[k], -WeightClamp, WeightClamp);
-            }
+            ApplyAdamBiasStep(ref _mBH3![k], ref _vBH3![k], ref _biasH3[k], h3Err[k], bc1, bc2);
         }
 
         // Hidden1->Hidden2 layer Adam update
@@ -1450,14 +1474,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _weightsH1H2[p] = Math.Clamp(_weightsH1H2[p], -WeightClamp, WeightClamp);
             }
 
-            {
-                var g = h2Err[k];
-                _mBH2![k] = (AdamBeta1 * _mBH2[k]) + ((1 - AdamBeta1) * g);
-                _vBH2![k] = (AdamBeta2 * _vBH2[k]) + ((1 - AdamBeta2) * g * g);
-                _biasH2[k] -= DefaultLearningRate * (_mBH2[k] / bc1) /
-                              (Math.Sqrt(_vBH2[k] / bc2) + AdamEpsilon);
-                _biasH2[k] = Math.Clamp(_biasH2[k], -WeightClamp, WeightClamp);
-            }
+            ApplyAdamBiasStep(ref _mBH2![k], ref _vBH2![k], ref _biasH2[k], h2Err[k], bc1, bc2);
         }
 
         // Input->Hidden1 layer Adam update
@@ -1475,15 +1492,33 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _weightsIH[p] = Math.Clamp(_weightsIH[p], -WeightClamp, WeightClamp);
             }
 
-            {
-                var g = h1Err[j];
-                _mBH1![j] = (AdamBeta1 * _mBH1[j]) + ((1 - AdamBeta1) * g);
-                _vBH1![j] = (AdamBeta2 * _vBH1[j]) + ((1 - AdamBeta2) * g * g);
-                _biasH1[j] -= DefaultLearningRate * (_mBH1[j] / bc1) /
-                              (Math.Sqrt(_vBH1[j] / bc2) + AdamEpsilon);
-                _biasH1[j] = Math.Clamp(_biasH1[j], -WeightClamp, WeightClamp);
-            }
+            ApplyAdamBiasStep(ref _mBH1![j], ref _vBH1![j], ref _biasH1[j], h1Err[j], bc1, bc2);
         }
+    }
+
+    /// <summary>
+    ///     Applies a single Adam bias update step (moment updates, bias-corrected step, clamp).
+    ///     Extracted verbatim from the five identical bias-update blocks of
+    ///     <see cref="ApplyAdamUpdates"/> so the arithmetic and per-layer order stay bit-identical.
+    /// </summary>
+    /// <param name="m">First-moment accumulator for the bias (updated in place).</param>
+    /// <param name="v">Second-moment accumulator for the bias (updated in place).</param>
+    /// <param name="bias">The bias value being updated (updated in place).</param>
+    /// <param name="grad">The gradient (error signal) for the bias.</param>
+    /// <param name="bc1">Adam first-moment bias-correction denominator (1 - β1^t).</param>
+    /// <param name="bc2">Adam second-moment bias-correction denominator (1 - β2^t).</param>
+    private static void ApplyAdamBiasStep(
+        ref double m,
+        ref double v,
+        ref double bias,
+        double grad,
+        double bc1,
+        double bc2)
+    {
+        m = (AdamBeta1 * m) + ((1 - AdamBeta1) * grad);
+        v = (AdamBeta2 * v) + ((1 - AdamBeta2) * grad * grad);
+        bias -= DefaultLearningRate * (m / bc1) / (Math.Sqrt(v / bc2) + AdamEpsilon);
+        bias = Math.Clamp(bias, -WeightClamp, WeightClamp);
     }
 
     /// <summary>
@@ -1534,60 +1569,16 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var inputSize = input.Length;
 
         // Hidden layer 1: input -> hidden1 (ReLU)
-        for (var j = 0; j < Hidden1Size; j++)
-        {
-            var sum = bH1[j];
-            var baseIdx = j * inputSize;
-            for (var i = 0; i < inputSize; i++)
-            {
-                sum += wIH[baseIdx + i] * input[i];
-            }
-
-            h1Pre[j] = sum;
-            h1Act[j] = sum > 0 ? sum : 0.0;
-        }
+        ComputeReluLayer(input, wIH, bH1, Hidden1Size, inputSize, h1Pre, h1Act);
 
         // Hidden layer 2: hidden1 -> hidden2 (ReLU)
-        for (var k = 0; k < Hidden2Size; k++)
-        {
-            var sum = bH2[k];
-            var baseIdx = k * Hidden1Size;
-            for (var j = 0; j < Hidden1Size; j++)
-            {
-                sum += wH1H2[baseIdx + j] * h1Act[j];
-            }
-
-            h2Pre[k] = sum;
-            h2Act[k] = sum > 0 ? sum : 0.0;
-        }
+        ComputeReluLayer(h1Act, wH1H2, bH2, Hidden2Size, Hidden1Size, h2Pre, h2Act);
 
         // Hidden layer 3: hidden2 -> hidden3 (ReLU)
-        for (var l = 0; l < Hidden3Size; l++)
-        {
-            var sum = bH3[l];
-            var baseIdx = l * Hidden2Size;
-            for (var k = 0; k < Hidden2Size; k++)
-            {
-                sum += wH2H3[baseIdx + k] * h2Act[k];
-            }
-
-            h3Pre[l] = sum;
-            h3Act[l] = sum > 0 ? sum : 0.0;
-        }
+        ComputeReluLayer(h2Act, wH2H3, bH3, Hidden3Size, Hidden2Size, h3Pre, h3Act);
 
         // Hidden layer 4: hidden3 -> hidden4 (ReLU)
-        for (var m = 0; m < Hidden4Size; m++)
-        {
-            var sum = bH4[m];
-            var baseIdx = m * Hidden3Size;
-            for (var l = 0; l < Hidden3Size; l++)
-            {
-                sum += wH3H4[baseIdx + l] * h3Act[l];
-            }
-
-            h4Pre[m] = sum;
-            h4Act[m] = sum > 0 ? sum : 0.0;
-        }
+        ComputeReluLayer(h3Act, wH3H4, bH4, Hidden4Size, Hidden3Size, h4Pre, h4Act);
 
         // Output layer: hidden4 -> output (Sigmoid)
         var outputZ = bO;
@@ -1597,6 +1588,41 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         return Sigmoid(outputZ);
+    }
+
+    /// <summary>
+    ///     Computes a single fully-connected ReLU layer: <c>pre = W·prevAct + bias</c>, <c>act = relu(pre)</c>.
+    ///     Extracted verbatim from the four identical hidden-layer blocks of <see cref="ForwardPass"/>; the
+    ///     row-major weight indexing, accumulation order, and ReLU gating are unchanged.
+    /// </summary>
+    /// <param name="prevAct">The previous layer's activations (or the input vector for layer 1).</param>
+    /// <param name="weights">The layer weights [<paramref name="layerSize"/> × <paramref name="prevSize"/>] row-major.</param>
+    /// <param name="bias">The layer biases [<paramref name="layerSize"/>].</param>
+    /// <param name="layerSize">The number of neurons in this layer.</param>
+    /// <param name="prevSize">The number of neurons in the previous layer (row stride).</param>
+    /// <param name="pre">Output buffer for pre-activation values [<paramref name="layerSize"/>].</param>
+    /// <param name="act">Output buffer for post-activation (ReLU) values [<paramref name="layerSize"/>].</param>
+    private static void ComputeReluLayer(
+        double[] prevAct,
+        double[] weights,
+        double[] bias,
+        int layerSize,
+        int prevSize,
+        double[] pre,
+        double[] act)
+    {
+        for (var j = 0; j < layerSize; j++)
+        {
+            var sum = bias[j];
+            var baseIdx = j * prevSize;
+            for (var i = 0; i < prevSize; i++)
+            {
+                sum += weights[baseIdx + i] * prevAct[i];
+            }
+
+            pre[j] = sum;
+            act[j] = sum > 0 ? sum : 0.0;
+        }
     }
 
     /// <summary>
@@ -1932,55 +1958,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             var json = File.ReadAllText(_weightsPath);
             var data = JsonSerializer.Deserialize<NeuralWeightsData>(json);
-            // Validate standardization arrays: both null, or both FeatureCount length. Stale mismatched
-            // lengths would crash StandardizeSingleVector at scoring time.
-            var hasValidStandardization = data is null
-                                          || (data.FeatureMeans is null && data.FeatureStdDevs is null)
-                                          || data is
-                                          {
-                                              FeatureMeans: { Length: CandidateFeatures.FeatureCount },
-                                              FeatureStdDevs.Length: CandidateFeatures.FeatureCount
-                                          };
 
-            if (data is not null
-                && hasValidStandardization
-                && data is
-                {
-                    Version: CurrentWeightsVersion, WeightsIH.Length: Hidden1Size * CandidateFeatures.FeatureCount,
-                    BiasH1.Length: Hidden1Size, WeightsH1H2.Length: Hidden2Size * Hidden1Size,
-                    BiasH2.Length: Hidden2Size, WeightsH2H3.Length: Hidden3Size * Hidden2Size,
-                    BiasH3.Length: Hidden3Size, WeightsH3H4.Length: Hidden4Size * Hidden3Size,
-                    BiasH4.Length: Hidden4Size, WeightsH4O.Length: Hidden4Size
-                })
+            if (data is not null && IsValidWeightsData(data))
             {
                 // Reject persisted weights containing NaN/Infinity values that would poison scoring.
-                if (!AllFinite(data.WeightsIH) || !AllFinite(data.BiasH1)
-                    || !AllFinite(data.WeightsH1H2) || !AllFinite(data.BiasH2)
-                    || !AllFinite(data.WeightsH2H3) || !AllFinite(data.BiasH3)
-                    || !AllFinite(data.WeightsH3H4) || !AllFinite(data.BiasH4)
-                    || !AllFinite(data.WeightsH4O) || !double.IsFinite(data.BiasOutput)
-                    || (data.FeatureMeans is not null && !AllFinite(data.FeatureMeans))
-                    || (data.FeatureStdDevs is not null && !AllFinite(data.FeatureStdDevs)))
+                if (HasNonFiniteWeights(data))
                 {
                     _logger?.LogWarning(
                         "NeuralScoringStrategy: Discarding persisted weights containing NaN/Infinity values");
                 }
                 else
                 {
-                    _weightsIH = data.WeightsIH;
-                    _biasH1 = data.BiasH1;
-                    _weightsH1H2 = data.WeightsH1H2;
-                    _biasH2 = data.BiasH2;
-                    _weightsH2H3 = data.WeightsH2H3;
-                    _biasH3 = data.BiasH3;
-                    _weightsH3H4 = data.WeightsH3H4;
-                    _biasH4 = data.BiasH4;
-                    _weightsH4O = data.WeightsH4O;
-                    _biasOutput = data.BiasOutput;
-                    _featureMeans = data.FeatureMeans;
-                    _featureStdDevs = data.FeatureStdDevs;
-                    _trainingGeneration = data.TrainingGeneration;
-                    _adamTimestep = 0;
+                    ApplyLoadedWeights(data);
                 }
             }
             else if (data is not null)
@@ -2003,6 +1992,76 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             _logger?.LogWarning(ex, "NeuralScoringStrategy: Failed to parse weights");
         }
+    }
+
+    /// <summary>
+    ///     Validates a deserialized weights payload: the version matches, every weight/bias array has the
+    ///     expected length, and the standardization arrays are either both absent or both
+    ///     <see cref="CandidateFeatures.FeatureCount"/> long (stale mismatched lengths would crash
+    ///     StandardizeSingleVector at scoring time). Extracted verbatim from the validation guards of
+    ///     <see cref="TryLoadWeights"/>.
+    /// </summary>
+    /// <param name="data">The deserialized weights payload.</param>
+    /// <returns><c>true</c> when the payload is structurally valid and safe to apply.</returns>
+    private static bool IsValidWeightsData(NeuralWeightsData data)
+    {
+        // Validate standardization arrays: both null, or both FeatureCount length.
+        var hasValidStandardization = (data.FeatureMeans is null && data.FeatureStdDevs is null)
+                                      || data is
+                                      {
+                                          FeatureMeans: { Length: CandidateFeatures.FeatureCount },
+                                          FeatureStdDevs.Length: CandidateFeatures.FeatureCount
+                                      };
+
+        return hasValidStandardization
+            && data is
+            {
+                Version: CurrentWeightsVersion, WeightsIH.Length: Hidden1Size * CandidateFeatures.FeatureCount,
+                BiasH1.Length: Hidden1Size, WeightsH1H2.Length: Hidden2Size * Hidden1Size,
+                BiasH2.Length: Hidden2Size, WeightsH2H3.Length: Hidden3Size * Hidden2Size,
+                BiasH3.Length: Hidden3Size, WeightsH3H4.Length: Hidden4Size * Hidden3Size,
+                BiasH4.Length: Hidden4Size, WeightsH4O.Length: Hidden4Size
+            };
+    }
+
+    /// <summary>
+    ///     Returns whether any weight/bias/standardization value in the payload is NaN or Infinity.
+    ///     Extracted verbatim from the finiteness guard of <see cref="TryLoadWeights"/>.
+    /// </summary>
+    /// <param name="data">The (already structurally validated) weights payload.</param>
+    /// <returns><c>true</c> when at least one value is non-finite and the payload must be discarded.</returns>
+    private static bool HasNonFiniteWeights(NeuralWeightsData data)
+    {
+        return !AllFinite(data.WeightsIH) || !AllFinite(data.BiasH1)
+            || !AllFinite(data.WeightsH1H2) || !AllFinite(data.BiasH2)
+            || !AllFinite(data.WeightsH2H3) || !AllFinite(data.BiasH3)
+            || !AllFinite(data.WeightsH3H4) || !AllFinite(data.BiasH4)
+            || !AllFinite(data.WeightsH4O) || !double.IsFinite(data.BiasOutput)
+            || (data.FeatureMeans is not null && !AllFinite(data.FeatureMeans))
+            || (data.FeatureStdDevs is not null && !AllFinite(data.FeatureStdDevs));
+    }
+
+    /// <summary>
+    ///     Copies a validated, finite weights payload into the live weight/bias fields and resets the Adam
+    ///     timestep. Extracted verbatim from the apply block of <see cref="TryLoadWeights"/>.
+    /// </summary>
+    /// <param name="data">The validated weights payload to apply.</param>
+    private void ApplyLoadedWeights(NeuralWeightsData data)
+    {
+        _weightsIH = data.WeightsIH;
+        _biasH1 = data.BiasH1;
+        _weightsH1H2 = data.WeightsH1H2;
+        _biasH2 = data.BiasH2;
+        _weightsH2H3 = data.WeightsH2H3;
+        _biasH3 = data.BiasH3;
+        _weightsH3H4 = data.WeightsH3H4;
+        _biasH4 = data.BiasH4;
+        _weightsH4O = data.WeightsH4O;
+        _biasOutput = data.BiasOutput;
+        _featureMeans = data.FeatureMeans;
+        _featureStdDevs = data.FeatureStdDevs;
+        _trainingGeneration = data.TrainingGeneration;
+        _adamTimestep = 0;
     }
 
     /// <summary>
@@ -2289,6 +2348,22 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         double[] BestWH3H4,
         double[] BestBH4,
         double[] BestWH4O);
+
+    /// <summary>
+    ///     Scalar configuration for the training epoch loop, grouped so
+    ///     <see cref="RunTrainingEpochs"/> keeps a small parameter list.
+    /// </summary>
+    /// <param name="MaxEpochs">Maximum number of epochs to run.</param>
+    /// <param name="InputSize">Number of input features (row stride for the input weights).</param>
+    /// <param name="UseEarlyStopping">Whether early stopping is active for this run.</param>
+    /// <param name="DropoutKeepProbability">Bernoulli keep probability (1.0 when dropout is inactive).</param>
+    /// <param name="DropoutInvKeep">Inverted-dropout scale (1 / keep, or 1.0 when dropout is inactive).</param>
+    private readonly record struct EpochLoopConfig(
+        int MaxEpochs,
+        int InputSize,
+        bool UseEarlyStopping,
+        double DropoutKeepProbability,
+        double DropoutInvKeep);
 
     /// <summary>
     ///     Groups the compute inputs for a single training forward-pass hidden layer:
