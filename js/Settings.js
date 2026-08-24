@@ -227,10 +227,10 @@ function renderSaveBand(kind) {
  * Drives the floating save band from the current dirty state.
  *
  * Rules:
- *   • Untouched form / clean & never changed → hidden (transparent).
- *   • Unsaved change → "Unsaved changes" + Save button, revealed after a short
+ *   • Untouched form / clean & never changed -> hidden (transparent).
+ *   • Unsaved change -> "Unsaved changes" + Save button, revealed after a short
  *     debounce so quick auto-saves flip straight to "saved" without flashing.
- *   • Just saved (after an interaction) → "All changes saved", auto-fades.
+ *   • Just saved (after an interaction) -> "All changes saved", auto-fades.
  * A manual save in flight (_saveBandSaving) is left untouched; a transient error
  * stays until the next change or save.
  */
@@ -250,7 +250,7 @@ function refreshSaveBand() {
 
     if (dirty) {
         _settingsInteracted = true;
-        // Already showing the prompt, or a reveal is already pending → nothing to do.
+        // Already showing the prompt, or a reveal is already pending -> nothing to do.
         if (band.classList.contains('is-unsaved') || _saveBandRevealTimer) return;
         _saveBandRevealTimer = setTimeout(function () {
             _saveBandRevealTimer = null;
@@ -336,7 +336,7 @@ function attachDirtyTracking() {
         form.addEventListener('input', handler, opts);
         form.addEventListener('change', handler, opts);
     } else {
-        // Legacy fallback: no AbortController → track the handler + form so the
+        // Legacy fallback: no AbortController -> track the handler + form so the
         // next attachDirtyTracking() call can removeEventListener() it, keeping
         // the "one active listener pair per form" invariant intact.
         form.addEventListener('input', handler);
@@ -888,7 +888,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
         // When the HTTP layer looks like something between the browser and Jellyfin
         // dropped the request (network error, HTML body, 5xx), fire a lightweight
         // Ping. If Ping succeeds, we KNOW the backend is reachable and the payload
-        // was rejected on purpose - useful signal for the console.  If Ping ALSO
+        // was rejected on purpose - useful signal for the console. If Ping ALSO
         // fails, we log a clear "backend unreachable" line so infrastructure issues
         // are unmistakable in the report.
         if (diag.kind === 'network' || diag.kind === 'proxy' || diag.kind === 'server') {
@@ -1296,7 +1296,7 @@ function attachSeerrHandlers() {
  * Attach the toggle + copy-to-clipboard handlers for the Discovery setup hint.
  */
 function attachDiscoveryCopyHandler() {
-    // Toggle handler: ℹ️ icon opens/closes the hint panel
+    // Toggle handler: info icon opens/closes the hint panel
     var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
     var panel = document.getElementById('discoveryHintPanel');
     if (toggleBtn && panel) {
@@ -1654,7 +1654,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
 
     wrapper.innerHTML = h;
 
-    // Attach click handler via addEventListener (more robust than inline onclick in Jellyfin plugin context)
+    // Attach click handler via addEventListener (more reliable than inline onclick in Jellyfin plugin context)
     var toggleBtn = wrapper.querySelector('.library-multiselect-toggle');
     if (toggleBtn) {
         toggleBtn.addEventListener('click', function () {
@@ -1772,7 +1772,7 @@ function attachOrphanAgeInputHandler() {
 /**
  * Attaches an input event listener to the trash path field that clears
  * the validation error state as soon as the user starts editing.
- * This creates the UX flow: error on save → user edits → error clears → save again.
+ * This creates the UX flow: error on save -> user edits -> error clears -> save again.
  */
 function attachTrashPathInputHandler() {
     var input = document.getElementById('cfgTrashPath');

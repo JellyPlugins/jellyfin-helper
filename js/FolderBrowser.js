@@ -141,9 +141,9 @@ function openFolderBrowserDialog() {
             }
 
             // Trigger save. doSaveSettings() handles all cases:
-            // - Path change with old content → shows relocation dialog (Move/Delete/Cancel)
-            // - Path change without old content → saves directly
-            // - Initial path set (trash was disabled) → saves directly
+            // - Path change with old content -> shows relocation dialog (Move/Delete/Cancel)
+            // - Path change without old content -> saves directly
+            // - Initial path set (trash was disabled) -> saves directly
             // The re-entrancy guard in Settings.js prevents infinite loops.
             var payload = buildSettingsPayload();
             payload.TrashFolderPath = selectedPath;

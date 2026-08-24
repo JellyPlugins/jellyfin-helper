@@ -313,9 +313,9 @@ var CODEC_PATH_MAP = {
 };
 
 // Map chart IDs to which media categories should be included
-// Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges → only Movies + TV Shows + Other
-// Music Audio Codecs → only Music
-// Container Formats → all libraries (Movies + TV Shows + Music + Other)
+// Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges -> only Movies + TV Shows + Other
+// Music Audio Codecs -> only Music
+// Container Formats -> all libraries (Movies + TV Shows + Music + Other)
 var CODEC_CATEGORY_MAP = {
     'videoCodecs': {movies: true, tvShows: true, music: false, other: true},
     'videoAudioCodecs': {movies: true, tvShows: true, music: false, other: true},

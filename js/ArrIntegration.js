@@ -212,7 +212,7 @@ function removeArrInstance(type, index) {
     }
     updateArrCollapsibleCount(type);
 
-    // Auto-save settings after removal and show feedback on collapsible header (Finding 17: removed unnecessary typeof checks)
+    // Auto-save settings after removal and show feedback on collapsible header
     var arrCollapsibleHeader = document.getElementById('arrCollapsibleHeader' + type);
     doSaveSettings(buildSettingsPayload(), {
         quiet: true,
@@ -261,7 +261,7 @@ function testArrConnection(type, index) {
             if (data.Success) {
                 _testTimers[timerKey] = showButtonFeedback(btn, true,
                     data.Message, originalHtml);
-                // Auto-save settings after successful connection test (Finding 17: removed unnecessary typeof checks)
+                // Auto-save settings after successful connection test
                 doSaveSettings(buildSettingsPayload(), {
                     quiet: true,
                     element: document.getElementById('arrCollapsibleHeader' + type)
