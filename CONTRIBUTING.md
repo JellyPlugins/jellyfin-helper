@@ -313,7 +313,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
 │       │   ├── ScoreExplanationTests.cs
 │       │   ├── TrainingExampleTests.cs
-│       │   └── RankingMetricsTests.cs
+│       │   ├── RankingMetricsTests.cs
+│       │   └── ScoringGoldenLockTests.cs            # Behavior-lock test: pins deterministic digest of Heuristic+Learned+Neural scoring output
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
 │       │   ├── WatchHistoryServiceLanguageProfileTests.cs # Language-profile aggregation from watch history; NormalizeLanguage rows

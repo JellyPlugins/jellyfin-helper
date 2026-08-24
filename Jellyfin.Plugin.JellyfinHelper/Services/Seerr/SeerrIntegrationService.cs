@@ -137,6 +137,68 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
 
         // Phase 1: Paginate through all requests and collect expired ones
+        var (expiredRequests, phaseOneFailed) = await CollectExpiredRequestsAsync(
+            client,
+            baseUri,
+            key,
+            cutoffDate,
+            result,
+            cancellationToken).ConfigureAwait(false);
+
+        // Phase 2: skip deletion if Phase 1 did not complete cleanly
+        if (phaseOneFailed)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                "Phase 1 pagination did not complete successfully; skipping deletion to avoid acting on an incomplete snapshot.",
+                logger: _logger);
+            return result;
+        }
+
+        var titleCache = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        var context = new SeerrExpiredRequestContext(client, baseUri, key, result);
+
+        foreach (var request in expiredRequests)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var breakRequested = await ProcessExpiredRequestAsync(
+                context,
+                request,
+                dryRun,
+                titleCache,
+                cancellationToken).ConfigureAwait(false);
+            if (breakRequested)
+            {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Phase 1 of expired-request cleanup: paginates through all Seerr requests and collects the
+    ///     ones that are expired and deletable. Returns the collected expired requests together with a
+    ///     flag indicating whether pagination completed cleanly; when the flag is <see langword="true"/>
+    ///     the caller must skip deletion to avoid acting on an incomplete snapshot.
+    /// </summary>
+    /// <param name="client">The HTTP client to use.</param>
+    /// <param name="baseUri">The validated Seerr base URI.</param>
+    /// <param name="key">The validated API key.</param>
+    /// <param name="cutoffDate">Requests created on or before this date are considered expired.</param>
+    /// <param name="result">The running cleanup result to update with counters and failures.</param>
+    /// <param name="cancellationToken">A token to observe for cancellation.</param>
+    /// <returns>The collected expired requests and whether Phase 1 failed.</returns>
+    private async Task<(List<SeerrRequest> ExpiredRequests, bool PhaseOneFailed)> CollectExpiredRequestsAsync(
+        HttpClient client,
+        Uri baseUri,
+        string key,
+        DateTimeOffset cutoffDate,
+        SeerrCleanupResult result,
+        CancellationToken cancellationToken)
+    {
         var expiredRequests = new List<SeerrRequest>();
         var skip = 0;
         bool hasMore;
@@ -208,37 +270,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
         while (hasMore);
 
-        // Phase 2: skip deletion if Phase 1 did not complete cleanly
-        if (phaseOneFailed)
-        {
-            _pluginLog.LogWarning(
-                LogCategory,
-                "Phase 1 pagination did not complete successfully; skipping deletion to avoid acting on an incomplete snapshot.",
-                logger: _logger);
-            return result;
-        }
-
-        var titleCache = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        var context = new SeerrExpiredRequestContext(client, baseUri, key, result);
-
-        foreach (var request in expiredRequests)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var breakRequested = await ProcessExpiredRequestAsync(
-                context,
-                request,
-                dryRun,
-                titleCache,
-                cancellationToken).ConfigureAwait(false);
-            if (breakRequested)
-            {
-                break;
-            }
-        }
-
-        return result;
+        return (expiredRequests, phaseOneFailed);
     }
 
     /// <summary>
