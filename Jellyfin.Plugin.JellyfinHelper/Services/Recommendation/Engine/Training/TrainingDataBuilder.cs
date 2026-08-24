@@ -325,14 +325,7 @@ internal static class TrainingDataBuilder
         {
             var gp = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
             var co = CollaborativeFilter.BuildCollaborativeMap(profile, allProfiles, precomputedUserSets);
-            var cm = 0.0;
-            foreach (var v in co.Values)
-            {
-                if (double.IsFinite(v) && v > cm)
-                {
-                    cm = v;
-                }
-            }
+            var cm = co.Values.Where(v => double.IsFinite(v) && v > 0.0).DefaultIfEmpty(0.0).Max();
 
             var ay = ContentScoring.ComputeAverageYear(profile);
             var ge = PreferenceBuilder.BuildGenreExposureAnalysis(gp, profile);
@@ -592,19 +585,29 @@ internal static class TrainingDataBuilder
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Build the COMPLETE feature vector matching Engine.ScoreCandidate() logic
+        // Matches Engine.ScoreCandidate: PremiereDate ?? DateCreated ?? neutral 0.5.
+        // The third fallback covers legacy cache entries from before 2.0.0.3 where
+        // DateCreated was not yet persisted on RecommendedItem.
+        double recencyScore;
+        if (rec.PremiereDate.HasValue)
+        {
+            recencyScore = ContentScoring.ComputeRecencyScore(rec.PremiereDate.Value);
+        }
+        else if (rec.DateCreated.HasValue)
+        {
+            recencyScore = ContentScoring.ComputeRecencyScore(rec.DateCreated.Value);
+        }
+        else
+        {
+            recencyScore = 0.5;
+        }
+
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(rec.Genres, genrePreferences),
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
-            // Matches Engine.ScoreCandidate: PremiereDate ?? DateCreated ?? neutral 0.5.
-            // The third fallback covers legacy cache entries from before 2.0.0.3 where
-            // DateCreated was not yet persisted on RecommendedItem.
-            RecencyScore = rec.PremiereDate.HasValue
-                ? ContentScoring.ComputeRecencyScore(rec.PremiereDate.Value)
-                : rec.DateCreated.HasValue
-                    ? ContentScoring.ComputeRecencyScore(rec.DateCreated.Value)
-                    : 0.5,
+            RecencyScore = recencyScore,
             YearProximityScore = ContentScoring.ComputeYearProximity(rec.Year, avgYear),
             GenreCount = rec.Genres.Count,
             IsSeries = isSeries,
@@ -1101,7 +1104,7 @@ internal static class TrainingDataBuilder
             // Phase 1 uses rec.PremiereDate; organic items lack premiere metadata so
             // approximate via ProductionYear, falling back to neutral 0.5.
             RecencyScore = w.Year is { } recY and >= 1 and <= 9999
-                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1))
+                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc))
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
             GenreCount = wGenres.Count,
@@ -1201,13 +1204,7 @@ internal static class TrainingDataBuilder
         var allRecommendedItems = new List<RecommendedItem>();
         foreach (var prevResult in ctx.PreviousResults)
         {
-            foreach (var rec in prevResult.Recommendations)
-            {
-                if (seenNegItemIds.Add(rec.ItemId))
-                {
-                    allRecommendedItems.Add(rec);
-                }
-            }
+            allRecommendedItems.AddRange(prevResult.Recommendations.Where(rec => seenNegItemIds.Add(rec.ItemId)));
         }
 
         if (allRecommendedItems.Count > 0)
@@ -1352,16 +1349,26 @@ internal static class TrainingDataBuilder
                              && negStudios.Any(preferredStudiosNeg.Contains);
         var negTagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(negTags, preferredTagsNeg);
 
+        double negRecencyScore;
+        if (neg.PremiereDate.HasValue)
+        {
+            negRecencyScore = ContentScoring.ComputeRecencyScore(neg.PremiereDate.Value);
+        }
+        else if (neg.DateCreated.HasValue)
+        {
+            negRecencyScore = ContentScoring.ComputeRecencyScore(neg.DateCreated.Value);
+        }
+        else
+        {
+            negRecencyScore = 0.5;
+        }
+
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(negGenres, genrePreferences),
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
-            RecencyScore = neg.PremiereDate.HasValue
-                ? ContentScoring.ComputeRecencyScore(neg.PremiereDate.Value)
-                : neg.DateCreated.HasValue
-                    ? ContentScoring.ComputeRecencyScore(neg.DateCreated.Value)
-                    : 0.5,
+            RecencyScore = negRecencyScore,
             YearProximityScore = ContentScoring.ComputeYearProximity(neg.Year, avgYear),
             GenreCount = negGenres.Count,
             IsSeries = isSeries,

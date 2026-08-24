@@ -32,6 +32,11 @@ public sealed class DiscoveryCacheService : IDisposable
     /// </summary>
     private const long MaxFileSizeBytes = 50 * 1024 * 1024;
 
+    /// <summary>
+    ///     Log category used for all discovery-cache log entries.
+    /// </summary>
+    private const string LogCategory = "DiscoveryCache";
+
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _filePath;
 
@@ -125,7 +130,7 @@ public sealed class DiscoveryCacheService : IDisposable
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
                 _pluginLog.LogWarning(
-                    "DiscoveryCache",
+                    LogCategory,
                     $"Could not load discovery results from {_filePath}: {ex.Message}",
                     ex,
                     _logger);
@@ -306,7 +311,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 ReinsertAtOriginalIndices(recommendations, itemsToRemove);
 
                 _pluginLog.LogWarning(
-                    "DiscoveryCache",
+                    LogCategory,
                     $"Could not persist removal of TMDb#{tmdbId} from cache: {ex.Message}",
                     ex,
                     _logger);
@@ -322,7 +327,7 @@ public sealed class DiscoveryCacheService : IDisposable
             // the filter would let those escape unlogged with _memoryCache in an unknown state.
             // OperationCanceledException is excluded so cancellation propagates to the caller.
             _pluginLog.LogWarning(
-                "DiscoveryCache",
+                LogCategory,
                 $"Could not remove TMDb#{tmdbId} from cache: {ex.Message}",
                 ex,
                 _logger);
@@ -509,7 +514,7 @@ public sealed class DiscoveryCacheService : IDisposable
             }
 
             _pluginLog.LogWarning(
-                "DiscoveryCache",
+                LogCategory,
                 $"Could not persist mark-as-requested for TMDb#{tmdbId} in cache: {ex.Message}",
                 ex,
                 _logger);
@@ -584,7 +589,7 @@ public sealed class DiscoveryCacheService : IDisposable
         if (fileInfo.Length > MaxFileSizeBytes)
         {
             _pluginLog.LogWarning(
-                "DiscoveryCache",
+                LogCategory,
                 $"Discovery cache file exceeds {MaxFileSizeBytes / (1024 * 1024)}MB ({fileInfo.Length} bytes). Deleting and returning empty.",
                 null,
                 _logger);
@@ -641,7 +646,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 _memoryCache = snapshot;
 
                 _pluginLog.LogDebug(
-                    "DiscoveryCache",
+                    LogCategory,
                     $"Saved {results.Count} discovery results to {_filePath}",
                     _logger);
 
@@ -661,7 +666,7 @@ public sealed class DiscoveryCacheService : IDisposable
                                         or ArgumentException)
             {
                 _pluginLog.LogWarning(
-                    "DiscoveryCache",
+                    LogCategory,
                     $"Could not save discovery results to {_filePath}: {ex.Message}",
                     ex,
                     _logger);

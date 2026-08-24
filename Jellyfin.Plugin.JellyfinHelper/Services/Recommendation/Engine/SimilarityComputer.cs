@@ -423,56 +423,6 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Precomputes the top-K average preferred weight used as the denominator anchor in
-    ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double})"/>.
-    ///     Callers scoring many candidates against the SAME <paramref name="preferredPeopleWeights"/>
-    ///     (batched inference, training-data build) should call this once per user and pass the result to
-    ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double}, double)"/>
-    ///     to skip the O(P log P) sort in the per-candidate hot path.
-    ///     <para>
-    ///         Returns <c>0.0</c> when no positive-weight entries exist; the consuming overload treats a
-    ///         zero average as "no meaningful preference structure", matching the eager path's result.
-    ///     </para>
-    /// </summary>
-    /// <param name="preferredPeopleWeights">The user's weighted preferences.</param>
-    /// <returns>The mean of the top-<see cref="EngineConstants.WeightedPeopleSimilarityTopK"/> positive weights, or <c>0.0</c> if none.</returns>
-    internal static double ComputeAveragePreferredWeight(
-        IReadOnlyDictionary<string, double> preferredPeopleWeights)
-    {
-        if (preferredPeopleWeights.Count == 0)
-        {
-            return 0.0;
-        }
-
-        var positiveEntries = new List<double>(preferredPeopleWeights.Count);
-        foreach (var kvp in preferredPeopleWeights)
-        {
-            if (kvp.Value > 0.0)
-            {
-                positiveEntries.Add(kvp.Value);
-            }
-        }
-
-        if (positiveEntries.Count == 0)
-        {
-            return 0.0;
-        }
-
-        // Sparse profiles (positiveEntries.Count < K) fall back to the full set, so the previous
-        // behaviour for low-cardinality preferences is unchanged and the floor still guards
-        // pathological sparse-profile scores.
-        var sampleSize = Math.Min(positiveEntries.Count, EngineConstants.WeightedPeopleSimilarityTopK);
-        positiveEntries.Sort((a, b) => b.CompareTo(a));
-        var topKSum = 0.0;
-        for (var i = 0; i < sampleSize; i++)
-        {
-            topKSum += positiveEntries[i];
-        }
-
-        return topKSum / sampleSize;
-    }
-
-    /// <summary>
     ///     Batched variant of <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double})"/>
     ///     that takes a precomputed <paramref name="averagePreferredWeight"/> so the O(P log P) top-K
     ///     sort does not run per candidate. Callers scoring N candidates for one user can pay the
@@ -521,6 +471,52 @@ internal sealed class SimilarityComputer
         var denominator = Math.Max(candidateBudget, EngineConstants.WeightedPeopleSimilarityMinDenominator);
 
         return Math.Clamp(matchedWeight / denominator, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Precomputes the top-K average preferred weight used as the denominator anchor in
+    ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double})"/>.
+    ///     Callers scoring many candidates against the SAME <paramref name="preferredPeopleWeights"/>
+    ///     (batched inference, training-data build) should call this once per user and pass the result to
+    ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double}, double)"/>
+    ///     to skip the O(P log P) sort in the per-candidate hot path.
+    ///     <para>
+    ///         Returns <c>0.0</c> when no positive-weight entries exist; the consuming overload treats a
+    ///         zero average as "no meaningful preference structure", matching the eager path's result.
+    ///     </para>
+    /// </summary>
+    /// <param name="preferredPeopleWeights">The user's weighted preferences.</param>
+    /// <returns>The mean of the top-<see cref="EngineConstants.WeightedPeopleSimilarityTopK"/> positive weights, or <c>0.0</c> if none.</returns>
+    internal static double ComputeAveragePreferredWeight(
+        IReadOnlyDictionary<string, double> preferredPeopleWeights)
+    {
+        if (preferredPeopleWeights.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var positiveEntries = new List<double>(preferredPeopleWeights.Count);
+        positiveEntries.AddRange(preferredPeopleWeights
+            .Where(kvp => kvp.Value > 0.0)
+            .Select(kvp => kvp.Value));
+
+        if (positiveEntries.Count == 0)
+        {
+            return 0.0;
+        }
+
+        // Sparse profiles (positiveEntries.Count < K) fall back to the full set, so the previous
+        // behaviour for low-cardinality preferences is unchanged and the floor still guards
+        // pathological sparse-profile scores.
+        var sampleSize = Math.Min(positiveEntries.Count, EngineConstants.WeightedPeopleSimilarityTopK);
+        positiveEntries.Sort((a, b) => b.CompareTo(a));
+        var topKSum = 0.0;
+        for (var i = 0; i < sampleSize; i++)
+        {
+            topKSum += positiveEntries[i];
+        }
+
+        return topKSum / sampleSize;
     }
 
     /// <summary>

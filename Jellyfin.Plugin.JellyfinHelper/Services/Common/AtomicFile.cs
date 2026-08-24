@@ -57,17 +57,7 @@ internal static class AtomicFile
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentNullException.ThrowIfNull(contents);
 
-        if (maxAttempts < 1)
-        {
-            maxAttempts = 1;
-        }
-
-        // Ensure the target directory exists before writing the temp file (CreateDirectory is idempotent).
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
+        maxAttempts = PrepareWrite(path, maxAttempts);
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
@@ -76,14 +66,7 @@ internal static class AtomicFile
             try
             {
                 File.WriteAllText(tempPath, contents, Utf8NoBom);
-                if (File.Exists(path))
-                {
-                    File.Replace(tempPath, path, destinationBackupFileName: null);
-                }
-                else
-                {
-                    File.Move(tempPath, path);
-                }
+                ReplaceOrMove(tempPath, path);
 
                 return;
             }
@@ -133,17 +116,7 @@ internal static class AtomicFile
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentNullException.ThrowIfNull(contents);
 
-        if (maxAttempts < 1)
-        {
-            maxAttempts = 1;
-        }
-
-        // Ensure the target directory exists before writing the temp file.
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
+        maxAttempts = PrepareWrite(path, maxAttempts);
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
@@ -156,16 +129,7 @@ internal static class AtomicFile
                 // The async write honours the cancellation token natively.
                 await File.WriteAllTextAsync(tempPath, contents, Utf8NoBom, cancellationToken).ConfigureAwait(false);
 
-                // File.Replace/Move has no async overload; it's a fast same-directory metadata rename,
-                // so blocking here for its sub-millisecond duration matches the sync overload's contract.
-                if (File.Exists(path))
-                {
-                    File.Replace(tempPath, path, destinationBackupFileName: null);
-                }
-                else
-                {
-                    File.Move(tempPath, path);
-                }
+                ReplaceOrMove(tempPath, path);
 
                 return;
             }
@@ -181,15 +145,9 @@ internal static class AtomicFile
                 // Transient lock (AV/indexer): clean up this attempt's temp file and back off before retrying.
                 TryDeleteQuietly(tempPath);
 
-                try
-                {
-                    await Task.Delay(BaseBackoffMilliseconds * attempt, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Cancellation between attempts: stop retrying, propagate.
-                    throw;
-                }
+                // A signalled token surfaces OperationCanceledException here and propagates out of the
+                // loop unretried (cancellation between attempts must stop retrying).
+                await Task.Delay(BaseBackoffMilliseconds * attempt, cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -197,6 +155,48 @@ internal static class AtomicFile
                 TryDeleteQuietly(tempPath);
                 throw;
             }
+        }
+    }
+
+    /// <summary>
+    ///     Clamps <paramref name="maxAttempts"/> to at least 1 and ensures the destination directory
+    ///     exists before the temp file is written (<c>CreateDirectory</c> is idempotent).
+    /// </summary>
+    /// <param name="path">The destination file path.</param>
+    /// <param name="maxAttempts">The requested maximum attempts.</param>
+    /// <returns>The clamped maximum attempts.</returns>
+    private static int PrepareWrite(string path, int maxAttempts)
+    {
+        if (maxAttempts < 1)
+        {
+            maxAttempts = 1;
+        }
+
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        return maxAttempts;
+    }
+
+    /// <summary>
+    ///     Moves the freshly written temp file into place: <c>File.Replace</c> (atomic) when the
+    ///     destination already exists, otherwise <c>File.Move</c>. The replace/move has no async overload
+    ///     but is a fast same-directory metadata rename, so both overloads share this synchronous step.
+    /// </summary>
+    /// <param name="tempPath">The temp file that was just written.</param>
+    /// <param name="path">The final destination path.</param>
+    private static void ReplaceOrMove(string tempPath, string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Replace(tempPath, path, destinationBackupFileName: null);
+        }
+        else
+        {
+            File.Move(tempPath, path);
         }
     }
 

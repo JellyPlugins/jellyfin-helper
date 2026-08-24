@@ -216,7 +216,7 @@ export async function assertPluginActive(ctx: APIRequestContext): Promise<void> 
   const res = await ctx.get('/Plugins');
   if (!res.ok()) throw new Error(`GET /Plugins failed: ${res.status()}`);
   const plugins = (await res.json()) as Array<{ Id: string; Name: string; Status: string }>;
-  const plugin = plugins.find((pl) => pl.Id.replace(/-/g, '') === PLUGIN_GUID.replace(/-/g, ''));
+  const plugin = plugins.find((pl) => pl.Id.replaceAll('-', '') === PLUGIN_GUID.replaceAll('-', ''));
   if (!plugin) throw new Error('Jellyfin Helper plugin not found in /Plugins');
   if (plugin.Status && plugin.Status !== 'Active') {
     throw new Error(`Plugin status is "${plugin.Status}", expected Active`);

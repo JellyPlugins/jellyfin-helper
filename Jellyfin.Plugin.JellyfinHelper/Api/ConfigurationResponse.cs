@@ -115,6 +115,8 @@ public sealed class ConfigurationResponse
     /// <returns>The masked response DTO.</returns>
     public static ConfigurationResponse FromConfig(PluginConfiguration config)
     {
+        ArgumentNullException.ThrowIfNull(config);
+
         return new ConfigurationResponse
         {
             ExcludedLibraries = config.ExcludedLibraries,

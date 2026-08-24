@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
@@ -71,13 +72,10 @@ public sealed class DiscoveryRequestDto : IValidatableObject
             yield break;
         }
 
-        foreach (var c in path)
+        if (path.Where(char.IsControl).Any())
         {
-            if (char.IsControl(c))
-            {
-                yield return new ValidationResult("Root folder path contains invalid characters.", [nameof(RootFolder)]);
-                yield break;
-            }
+            yield return new ValidationResult("Root folder path contains invalid characters.", [nameof(RootFolder)]);
+            yield break;
         }
     }
 }

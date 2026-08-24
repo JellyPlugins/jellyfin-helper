@@ -189,35 +189,7 @@ internal static class CollaborativeFilter
         }
 
         var itemPopularity = context.ItemPopularity;
-
-        // Trust-gate is per-target-user (excludes the target from the scan). We intentionally
-        // do NOT precompute this in CollaborativeContext because the target's own watch count
-        // would flip its own gate on - the sparse-neighbour attenuation and cold-start release
-        // behaviours both hinge on the "NEIGHBOURS ONLY" restriction. The scan is O(profiles),
-        // dwarfed by the co-occurrence loop below, so keeping it per-user costs almost nothing.
-        var trustGateActive = false;
-        foreach (var profile in allProfiles)
-        {
-            if (profile.UserId == userProfile.UserId)
-            {
-                continue;
-            }
-
-            // Fall back to BuildCombinedWatchSet when a profile is missing from userSets so
-            // this scan cannot silently treat an "unindexed" neighbour as size-zero (which
-            // would make the trust-gate under-count and the later co-occurrence loop
-            // over-count for the same profile). In practice userSets and allProfiles are
-            // built off the same list, so this fallback is defensive; the O(M) build cost
-            // fires at most once per stale profile.
-            var otherCount = userSets.TryGetValue(profile.UserId, out var otherSet)
-                ? otherSet.Count
-                : BuildCombinedWatchSet(profile).Count;
-            if (otherCount >= EngineConstants.CollaborativeTrustWatchCeiling)
-            {
-                trustGateActive = true;
-                break;
-            }
-        }
+        var trustGateActive = ComputeTrustGateActive(userProfile, allProfiles, userSets);
 
         // Iterate over all other users and compute Jaccard-weighted co-occurrence
         foreach (var otherProfile in allProfiles)
@@ -238,20 +210,11 @@ internal static class CollaborativeFilter
                 continue;
             }
 
-            // Compute overlap count by enumerating the smaller set for efficiency
-            var (smaller, larger) = userCombinedIds.Count <= otherCombinedIds.Count
-                ? (userCombinedIds, otherCombinedIds)
-                : (otherCombinedIds, userCombinedIds);
-            int overlap = smaller.Count(id => larger.Contains(id));
-
-            if (overlap < EngineConstants.MinCollaborativeOverlap)
+            var jaccardWeight = ComputeJaccardWeight(userCombinedIds, otherCombinedIds);
+            if (jaccardWeight <= 0.0)
             {
                 continue;
             }
-
-            // Jaccard similarity: |A ∩ B| / |A ∪ B|
-            var union = userCombinedIds.Count + otherCombinedIds.Count - overlap;
-            var jaccardWeight = union > 0 ? (double)overlap / union : 0.0;
 
             // Trust weight: down-weight neighbours whose overall history is very small so sparse users
             // cannot dominate via a trivially high Jaccard on a handful of items. Saturating exponential:
@@ -270,43 +233,129 @@ internal static class CollaborativeFilter
                 continue;
             }
 
-            // Accumulate Jaccard-weighted co-occurrence for items the other user watched but we haven't
-            // (episode AND series IDs, so series candidates get collaborative scores). The geometric mean
-            // lives in <c>[min(a,b), max(a,b)]</c>, so it cannot fall below the smaller factor - a cleaner
-            // "combined damping" that preserves both factors' ordering:
-            //   • trust=1.0, idf=1.0 -> modifier=1.0                 (rich neighbour, niche item)
-            //   • trust=0.86, idf=0.18 -> modifier=0.394 (was 0.155) (~2.5× stronger signal)
-            //   • trust=0.39, idf=1.0 -> modifier=0.628 (was 0.39)   (sparse neighbour keeps unique-item boost)
-            //
-            // Ordering-preserving (verified by the IDF and cold-start-gate tests):
-            //   niche > mainstream            <- IDF direction: √(t·1) > √(t·<1)
-            //   coldStartScore > controlScore <- trust direction: √(1·i) > √(<1·i)
-            foreach (var itemId in otherCombinedIds)
-            {
-                if (userCombinedIds.Contains(itemId))
-                {
-                    continue;
-                }
-
-                var idfFactor = 1.0;
-
-                // IDF boost: 1 / log2(1 + userCount)
-                // log2(1+1)=1.0 (unique), log2(1+5)=2.58, log2(1+50)=5.67
-                if (itemPopularity.TryGetValue(itemId, out var userCount) && userCount > 1)
-                {
-                    idfFactor = 1.0 / Math.Log2(1.0 + userCount);
-                }
-
-                // Geometric mean of trust and IDF - one combined damping instead of stacking two.
-                var combinedModifier = Math.Sqrt(neighbourTrust * idfFactor);
-                var weight = jaccardWeight * combinedModifier;
-
-                coOccurrence.TryGetValue(itemId, out var current);
-                coOccurrence[itemId] = current + weight;
-            }
+            AccumulateCoOccurrence(coOccurrence, userCombinedIds, otherCombinedIds, itemPopularity, jaccardWeight, neighbourTrust);
         }
 
         return coOccurrence;
+    }
+
+    /// <summary>
+    ///     Computes the per-target-user trust gate. The gate activates when at least one NEIGHBOUR
+    ///     (any profile other than the target) has a watch count at or above the trust ceiling.
+    ///     The target itself is excluded from the scan because its own watch count would otherwise
+    ///     flip its gate on and break sparse-neighbour attenuation / cold-start release.
+    /// </summary>
+    /// <param name="userProfile">The target user's watch profile (excluded from the scan).</param>
+    /// <param name="allProfiles">All user watch profiles.</param>
+    /// <param name="userSets">Per-user combined watch sets, with a defensive on-the-fly fallback.</param>
+    /// <returns><c>true</c> when a rich-enough neighbour exists; otherwise <c>false</c>.</returns>
+    private static bool ComputeTrustGateActive(
+        UserWatchProfile userProfile,
+        Collection<UserWatchProfile> allProfiles,
+        Dictionary<Guid, HashSet<Guid>> userSets)
+    {
+        foreach (var profile in allProfiles)
+        {
+            if (profile.UserId == userProfile.UserId)
+            {
+                continue;
+            }
+
+            // Fall back to BuildCombinedWatchSet when a profile is missing from userSets so
+            // this scan cannot silently treat an "unindexed" neighbour as size-zero (which
+            // would make the trust-gate under-count and the later co-occurrence loop
+            // over-count for the same profile). In practice userSets and allProfiles are
+            // built off the same list, so this fallback is defensive; the O(M) build cost
+            // fires at most once per stale profile.
+            var otherCount = userSets.TryGetValue(profile.UserId, out var otherSet)
+                ? otherSet.Count
+                : BuildCombinedWatchSet(profile).Count;
+            if (otherCount >= EngineConstants.CollaborativeTrustWatchCeiling)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///     Computes the Jaccard similarity (<c>|A ∩ B| / |A ∪ B|</c>) between the target user's
+    ///     watch set and a neighbour's watch set. Enumerates the smaller set for the overlap count.
+    ///     Returns <c>0.0</c> when the overlap is below the minimum threshold so the caller can skip.
+    /// </summary>
+    /// <param name="userCombinedIds">The target user's combined watch set.</param>
+    /// <param name="otherCombinedIds">The neighbour's combined watch set.</param>
+    /// <returns>The Jaccard weight in [0, 1], or <c>0.0</c> when overlap is below the minimum.</returns>
+    private static double ComputeJaccardWeight(HashSet<Guid> userCombinedIds, HashSet<Guid> otherCombinedIds)
+    {
+        // Compute overlap count by enumerating the smaller set for efficiency
+        var (smaller, larger) = userCombinedIds.Count <= otherCombinedIds.Count
+            ? (userCombinedIds, otherCombinedIds)
+            : (otherCombinedIds, userCombinedIds);
+        int overlap = smaller.Count(id => larger.Contains(id));
+
+        if (overlap < EngineConstants.MinCollaborativeOverlap)
+        {
+            return 0.0;
+        }
+
+        // Jaccard similarity: |A ∩ B| / |A ∪ B|
+        var union = userCombinedIds.Count + otherCombinedIds.Count - overlap;
+        return union > 0 ? (double)overlap / union : 0.0;
+    }
+
+    /// <summary>
+    ///     Accumulates Jaccard-weighted co-occurrence for items the neighbour watched but the target
+    ///     user has not (episode AND series IDs, so series candidates get collaborative scores). The
+    ///     geometric mean of trust and IDF lives in <c>[min(a,b), max(a,b)]</c>, so it cannot fall
+    ///     below the smaller factor - a cleaner "combined damping" that preserves both factors' ordering:
+    ///     <list type="bullet">
+    ///         <item><description>trust=1.0, idf=1.0 -> modifier=1.0 (rich neighbour, niche item)</description></item>
+    ///         <item><description>trust=0.86, idf=0.18 -> modifier=0.394 (~2.5× stronger signal)</description></item>
+    ///         <item><description>trust=0.39, idf=1.0 -> modifier=0.628 (sparse neighbour keeps unique-item boost)</description></item>
+    ///     </list>
+    ///     Ordering-preserving (verified by the IDF and cold-start-gate tests):
+    ///     niche &gt; mainstream (IDF direction: √(t·1) &gt; √(t·&lt;1)) and
+    ///     coldStartScore &gt; controlScore (trust direction: √(1·i) &gt; √(&lt;1·i)).
+    /// </summary>
+    /// <param name="coOccurrence">The co-occurrence map to accumulate into.</param>
+    /// <param name="userCombinedIds">The target user's combined watch set (items to skip).</param>
+    /// <param name="otherCombinedIds">The neighbour's combined watch set (items to contribute).</param>
+    /// <param name="itemPopularity">Item ID to number of users who have watched it (IDF prior).</param>
+    /// <param name="jaccardWeight">The Jaccard weight for this neighbour.</param>
+    /// <param name="neighbourTrust">The trust factor for this neighbour.</param>
+    private static void AccumulateCoOccurrence(
+        Dictionary<Guid, double> coOccurrence,
+        HashSet<Guid> userCombinedIds,
+        HashSet<Guid> otherCombinedIds,
+        Dictionary<Guid, int> itemPopularity,
+        double jaccardWeight,
+        double neighbourTrust)
+    {
+        foreach (var itemId in otherCombinedIds)
+        {
+            if (userCombinedIds.Contains(itemId))
+            {
+                continue;
+            }
+
+            var idfFactor = 1.0;
+
+            // IDF boost: 1 / log2(1 + userCount)
+            // log2(1+1)=1.0 (unique), log2(1+5)=2.58, log2(1+50)=5.67
+            if (itemPopularity.TryGetValue(itemId, out var userCount) && userCount > 1)
+            {
+                idfFactor = 1.0 / Math.Log2(1.0 + userCount);
+            }
+
+            // Geometric mean of trust and IDF - one combined damping instead of stacking two.
+            var combinedModifier = Math.Sqrt(neighbourTrust * idfFactor);
+            var weight = jaccardWeight * combinedModifier;
+
+            coOccurrence.TryGetValue(itemId, out var current);
+            coOccurrence[itemId] = current + weight;
+        }
     }
 
     /// <summary>

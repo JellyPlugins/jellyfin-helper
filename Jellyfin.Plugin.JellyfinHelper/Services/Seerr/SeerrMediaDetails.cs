@@ -25,7 +25,16 @@ internal sealed class SeerrMediaDetails
     ///     Returns <c>null</c> if neither title nor name is available, so the caller can choose a localized fallback.
     /// </summary>
     [JsonIgnore]
-    public string? DisplayTitle => !string.IsNullOrWhiteSpace(Title) ? Title
-        : !string.IsNullOrWhiteSpace(Name) ? Name
-        : null;
+    public string? DisplayTitle
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Title))
+            {
+                return Title;
+            }
+
+            return !string.IsNullOrWhiteSpace(Name) ? Name : null;
+        }
+    }
 }

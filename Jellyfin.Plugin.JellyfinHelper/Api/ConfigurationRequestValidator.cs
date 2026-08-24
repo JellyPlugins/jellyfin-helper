@@ -56,6 +56,36 @@ public static class ConfigurationRequestValidator
             return $"Maximum {MaxArrInstances} Sonarr instances allowed.";
         }
 
+        // Seerr settings validation
+        var seerrError = ValidateSeerrSettings(request);
+        if (seerrError != null)
+        {
+            return seerrError;
+        }
+
+        // Trash folder path validation (block obviously invalid paths from being persisted)
+        var trashPathError = ValidateTrashPathStrict(request.TrashFolderPath, request.UseTrash);
+        if (trashPathError != null)
+        {
+            return trashPathError;
+        }
+
+        // Arr instance format validation (multi-instance lists)
+        var error = ValidateArrInstances(request.RadarrInstances, "Radarr");
+
+        error ??= ValidateArrInstances(request.SonarrInstances, "Sonarr");
+
+        return error;
+    }
+
+    /// <summary>
+    ///     Validates the Seerr-related fields (cleanup age, URL length/format, and the API-key requirement),
+    ///     enforcing the range checks only when a Seerr URL is actually configured.
+    /// </summary>
+    /// <param name="request">The configuration update request to validate.</param>
+    /// <returns>An error message string, or <c>null</c> when the Seerr settings are valid.</returns>
+    private static string? ValidateSeerrSettings(ConfigurationUpdateRequest request)
+    {
         // Seerr settings validation - only enforce range when Seerr is actually configured
         if (!string.IsNullOrWhiteSpace(request.SeerrUrl) &&
             request.SeerrCleanupAgeDays is (< 1 or > MaxDays))
@@ -82,19 +112,7 @@ public static class ConfigurationRequestValidator
             return "Seerr API key is required when a Seerr URL is configured.";
         }
 
-        // Trash folder path validation (block obviously invalid paths from being persisted)
-        var trashPathError = ValidateTrashPathStrict(request.TrashFolderPath, request.UseTrash);
-        if (trashPathError != null)
-        {
-            return trashPathError;
-        }
-
-        // Arr instance format validation (multi-instance lists)
-        var error = ValidateArrInstances(request.RadarrInstances, "Radarr");
-
-        error ??= ValidateArrInstances(request.SonarrInstances, "Sonarr");
-
-        return error;
+        return null;
     }
 
     /// <summary>
@@ -262,51 +280,66 @@ public static class ConfigurationRequestValidator
         var count = Math.Min(instances.Count, MaxArrInstances);
         for (var i = 0; i < count; i++)
         {
-            var instance = instances[i];
-
-            // Skip completely empty instances (user may have added a blank row)
-            if (string.IsNullOrWhiteSpace(instance.Url) && string.IsNullOrWhiteSpace(instance.ApiKey))
+            var error = ValidateSingleArrInstance(instances[i], typeName, i);
+            if (error != null)
             {
-                continue;
+                return error;
             }
-
-            // Validate instance Name length and content
-            if (instance.Name?.Length > 100)
-            {
-                return $"{typeName} instance #{i + 1} name must be 100 characters or fewer.";
-            }
-
-            if (instance.Name != null && instance.Name.Any(c => char.IsControl(c)))
-            {
-                return $"{typeName} instance #{i + 1} name contains invalid characters.";
-            }
-
-            // If URL is provided, validate max length then format
-            if (!string.IsNullOrWhiteSpace(instance.Url) && instance.Url.Length > 2048)
-            {
-                var instanceName = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{i + 1}";
-                return $"{typeName} instance '{instanceName}' URL must be 2048 characters or fewer.";
-            }
-
-            if (!string.IsNullOrWhiteSpace(instance.Url) &&
-                (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
-                 (uri.Scheme != "http" && uri.Scheme != "https")))
-            {
-                var instanceName = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{i + 1}";
-                return
-                    $"{typeName} instance '{instanceName}' has an invalid URL. Only http:// and https:// URLs are allowed.";
-            }
-
-            // If URL is set, API key must also be set
-            if (string.IsNullOrWhiteSpace(instance.Url) || !string.IsNullOrWhiteSpace(instance.ApiKey))
-            {
-                continue;
-            }
-
-            var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{i + 1}";
-            return $"{typeName} instance '{label}' has a URL but no API key.";
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     Validates a single Arr instance for name length/content, URL length/format, and the
+    ///     API-key requirement when a URL is present.
+    /// </summary>
+    /// <param name="instance">The instance to validate.</param>
+    /// <param name="typeName">The type name (Radarr/Sonarr) for error messages.</param>
+    /// <param name="index">The zero-based index of the instance within its list.</param>
+    /// <returns>An error message string, or <c>null</c> when the instance is valid.</returns>
+    private static string? ValidateSingleArrInstance(ArrInstanceConfig instance, string typeName, int index)
+    {
+        // Skip completely empty instances (user may have added a blank row)
+        if (string.IsNullOrWhiteSpace(instance.Url) && string.IsNullOrWhiteSpace(instance.ApiKey))
+        {
+            return null;
+        }
+
+        // Validate instance Name length and content
+        if (instance.Name?.Length > 100)
+        {
+            return $"{typeName} instance #{index + 1} name must be 100 characters or fewer.";
+        }
+
+        if (instance.Name != null && instance.Name.Any(c => char.IsControl(c)))
+        {
+            return $"{typeName} instance #{index + 1} name contains invalid characters.";
+        }
+
+        // If URL is provided, validate max length then format
+        if (!string.IsNullOrWhiteSpace(instance.Url) && instance.Url.Length > 2048)
+        {
+            var instanceName = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{index + 1}";
+            return $"{typeName} instance '{instanceName}' URL must be 2048 characters or fewer.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(instance.Url) &&
+            (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
+             (uri.Scheme != "http" && uri.Scheme != "https")))
+        {
+            var instanceName = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{index + 1}";
+            return
+                $"{typeName} instance '{instanceName}' has an invalid URL. Only http:// and https:// URLs are allowed.";
+        }
+
+        // If URL is set, API key must also be set
+        if (string.IsNullOrWhiteSpace(instance.Url) || !string.IsNullOrWhiteSpace(instance.ApiKey))
+        {
+            return null;
+        }
+
+        var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{index + 1}";
+        return $"{typeName} instance '{label}' has a URL but no API key.";
     }
 }

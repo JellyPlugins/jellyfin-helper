@@ -112,7 +112,14 @@ function discoverPage() {
 // --- helpers ---------------------------------------------------------------
 
 function send(res, status, body) {
-  const payload = body === undefined ? '' : typeof body === 'string' ? body : JSON.stringify(body);
+  let payload;
+  if (body === undefined) {
+    payload = '';
+  } else if (typeof body === 'string') {
+    payload = body;
+  } else {
+    payload = JSON.stringify(body);
+  }
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(payload);
 }
@@ -172,12 +179,12 @@ const server = http.createServer(async (req, res) => {
   }
   if (path === '/seed-user' && method === 'POST') {
     const body = JSON.parse((await readBody(req)) || '{}');
-    if (body.jellyfinUserId) users[0].jellyfinUserId = String(body.jellyfinUserId).replace(/-/g, '');
+    if (body.jellyfinUserId) users[0].jellyfinUserId = String(body.jellyfinUserId).replaceAll('-', '');
     send(res, 200, { ok: true }); return done(200);
   }
   if (path === '/seed-user2' && method === 'POST') {
     const body = JSON.parse((await readBody(req)) || '{}');
-    if (body.jellyfinUserId) users[1].jellyfinUserId = String(body.jellyfinUserId).replace(/-/g, '');
+    if (body.jellyfinUserId) users[1].jellyfinUserId = String(body.jellyfinUserId).replaceAll('-', '');
     if (body.permissions !== undefined) users[1].permissions = Number(body.permissions);
     send(res, 200, { ok: true }); return done(200);
   }
@@ -259,7 +266,7 @@ const server = http.createServer(async (req, res) => {
     return done(201);
   }
   // Se2. delete request
-  const delMatch = path.match(/^\/api\/v1\/request\/(\d+)$/);
+  const delMatch = /^\/api\/v1\/request\/(\d+)$/.exec(path);
   if (delMatch && method === 'DELETE') {
     const id = Number(delMatch[1]);
     requests = requests.filter((r) => r.id !== id);
@@ -268,13 +275,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Title / credits resolution: GET /api/v1/movie|tv/{id}
-  const movieMatch = path.match(/^\/api\/v1\/movie\/(\d+)$/);
+  const movieMatch = /^\/api\/v1\/movie\/(\d+)$/.exec(path);
   if (movieMatch && method === 'GET') {
     const id = Number(movieMatch[1]);
     send(res, 200, { id, title: movieTitles[id] ?? 'Unknown Movie', credits: { cast: [{ id: 1, name: 'Actor One', character: 'Lead', order: 0 }], crew: [{ id: 2, name: 'Dir One', job: 'Director', department: 'Directing' }] } });
     return done(200);
   }
-  const tvMatch = path.match(/^\/api\/v1\/tv\/(\d+)$/);
+  const tvMatch = /^\/api\/v1\/tv\/(\d+)$/.exec(path);
   if (tvMatch && method === 'GET') {
     const id = Number(tvMatch[1]);
     send(res, 200, { id, name: tvNames[id] ?? 'Unknown Show', credits: { cast: [], crew: [] } });
@@ -288,9 +295,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Se5. service list + detail
-  const svcList = path.match(/^\/api\/v1\/service\/(radarr|sonarr)$/);
+  const svcList = /^\/api\/v1\/service\/(radarr|sonarr)$/.exec(path);
   if (svcList) { send(res, 200, serviceList(svcList[1])); return done(200); }
-  const svcDetail = path.match(/^\/api\/v1\/service\/(radarr|sonarr)\/\d+$/);
+  const svcDetail = /^\/api\/v1\/service\/(radarr|sonarr)\/\d+$/.exec(path);
   if (svcDetail) { send(res, 200, serviceDetail(svcDetail[1])); return done(200); }
 
   // Se3. discover (path-based genre/language, ?page=N)

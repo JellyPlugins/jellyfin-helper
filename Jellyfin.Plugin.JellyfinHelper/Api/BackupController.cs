@@ -147,89 +147,16 @@ public class BackupController : ControllerBase
 
         try
         {
-            // Early rejection based on Content-Length header (before reading entire body).
-            // Only act when Content-Length is explicitly provided; absent headers (chunked
-            // transfer encoding) fall through to the streaming size-enforcement below.
-            if (Request.ContentLength is long cl)
+            var contentLengthReject = RejectByContentLength();
+            if (contentLengthReject is not null)
             {
-                if (cl > BackupService.MaxBackupSizeBytes)
-                {
-                    _pluginLog.LogWarning(
-                        "API",
-                        $"Backup import rejected: Content-Length too large ({FormatBackupSize(cl)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
-                        logger: _logger);
-                    return BadRequest(
-                        new
-                        {
-                            message =
-                                $"Backup too large ({FormatBackupSize(cl)}). Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB."
-                        });
-                }
-
-                if (cl >= BackupService.LargeBackupWarningThresholdBytes)
-                {
-                    _pluginLog.LogWarning(
-                        "API",
-                        $"Large backup import detected: {FormatBackupSize(cl)} of {FormatBackupSize(BackupService.MaxBackupSizeBytes)} limit.",
-                        logger: _logger);
-                }
+                return contentLengthReject;
             }
 
-            string json;
-            try
+            var (json, bodyReject) = await ReadBodyWithSizeLimitAsync().ConfigureAwait(false);
+            if (bodyReject is not null)
             {
-                // Stream with inline size enforcement to prevent memory exhaustion from chunked uploads
-                var buffer = new MemoryStream();
-                try
-                {
-                    var chunk = new byte[16 * 1024];
-                    long totalBytes = 0;
-                    int read;
-
-                    while ((read = await Request.Body.ReadAsync(chunk, HttpContext.RequestAborted)
-                               .ConfigureAwait(false)) > 0)
-                    {
-                        totalBytes += read;
-                        if (totalBytes > BackupService.MaxBackupSizeBytes)
-                        {
-                            _pluginLog.LogWarning(
-                                "API",
-                                $"Backup import rejected: actual body too large (>{FormatBackupSize(totalBytes)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
-                                logger: _logger);
-                            return BadRequest(
-                                new
-                                {
-                                    message =
-                                        $"Backup too large. Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB."
-                                });
-                        }
-
-                        await buffer.WriteAsync(chunk.AsMemory(0, read), HttpContext.RequestAborted)
-                            .ConfigureAwait(false);
-                    }
-
-                    buffer.Position = 0;
-                    using var reader = new StreamReader(
-                        buffer,
-                        Encoding.UTF8,
-                        true,
-                        leaveOpen: true);
-                    json = await reader.ReadToEndAsync(HttpContext.RequestAborted).ConfigureAwait(false);
-                }
-                finally
-                {
-                    await buffer.DisposeAsync().ConfigureAwait(false);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Client disconnected or request was aborted - do not return a 400.
-                throw;
-            }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException or DecoderFallbackException)
-            {
-                _pluginLog.LogError("API", "Failed to read backup request body", ex, _logger);
-                return BadRequest(new { message = "Failed to read the request body." });
+                return bodyReject;
             }
 
             if (string.IsNullOrWhiteSpace(json))
@@ -272,29 +199,10 @@ public class BackupController : ControllerBase
 
             var validation = BackupValidator.Validate(backup);
 
-            foreach (var error in validation.Errors)
+            var validationReject = LogAndRejectInvalidBackup(validation);
+            if (validationReject is not null)
             {
-                _pluginLog.LogError("Backup", $"Validation error: {error}", logger: _logger);
-            }
-
-            foreach (var warning in validation.Warnings)
-            {
-                _pluginLog.LogWarning("Backup", $"Validation warning: {warning}", logger: _logger);
-            }
-
-            if (!validation.IsValid)
-            {
-                _pluginLog.LogWarning(
-                    "API",
-                    $"Backup import rejected: {validation.Errors.Count} validation error(s).",
-                    logger: _logger);
-                return BadRequest(
-                    new
-                    {
-                        message = $"Backup validation failed with {validation.Errors.Count} error(s). Check plugin logs for details.",
-                        errors = validation.Errors,
-                        warnings = validation.Warnings
-                    });
+                return validationReject;
             }
 
             // Restore
@@ -334,5 +242,146 @@ public class BackupController : ControllerBase
     private static string FormatBackupSize(long bytes)
     {
         return string.Create(CultureInfo.InvariantCulture, $"{bytes / (1024d * 1024d):0.00} MB");
+    }
+
+    /// <summary>
+    ///     Rejects the request early based on the Content-Length header before the body is read.
+    ///     Only acts when Content-Length is explicitly provided; absent headers (chunked transfer
+    ///     encoding) fall through to the streaming size-enforcement in <see cref="ReadBodyWithSizeLimitAsync" />.
+    /// </summary>
+    /// <returns>A <c>BadRequest</c> result when the header is too large; otherwise <c>null</c>.</returns>
+    private BadRequestObjectResult? RejectByContentLength()
+    {
+        if (Request.ContentLength is not long cl)
+        {
+            return null;
+        }
+
+        if (cl > BackupService.MaxBackupSizeBytes)
+        {
+            _pluginLog.LogWarning(
+                "API",
+                $"Backup import rejected: Content-Length too large ({FormatBackupSize(cl)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
+                logger: _logger);
+            return BadRequest(
+                new
+                {
+                    message =
+                        $"Backup too large ({FormatBackupSize(cl)}). Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB."
+                });
+        }
+
+        if (cl >= BackupService.LargeBackupWarningThresholdBytes)
+        {
+            _pluginLog.LogWarning(
+                "API",
+                $"Large backup import detected: {FormatBackupSize(cl)} of {FormatBackupSize(BackupService.MaxBackupSizeBytes)} limit.",
+                logger: _logger);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Reads the request body into a string with inline size enforcement to prevent memory
+    ///     exhaustion from chunked uploads.
+    /// </summary>
+    /// <returns>
+    ///     A tuple carrying the decoded JSON (when successful) and a rejection <see cref="ActionResult" />
+    ///     when the body is too large or unreadable. Exactly one of the two is non-null.
+    /// </returns>
+    private async Task<(string? Json, ActionResult? Reject)> ReadBodyWithSizeLimitAsync()
+    {
+        try
+        {
+            // Stream with inline size enforcement to prevent memory exhaustion from chunked uploads
+            var buffer = new MemoryStream();
+            try
+            {
+                var chunk = new byte[16 * 1024];
+                long totalBytes = 0;
+                int read;
+
+                while ((read = await Request.Body.ReadAsync(chunk, HttpContext.RequestAborted)
+                           .ConfigureAwait(false)) > 0)
+                {
+                    totalBytes += read;
+                    if (totalBytes > BackupService.MaxBackupSizeBytes)
+                    {
+                        _pluginLog.LogWarning(
+                            "API",
+                            $"Backup import rejected: actual body too large (>{FormatBackupSize(totalBytes)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
+                            logger: _logger);
+                        return (null, BadRequest(
+                            new
+                            {
+                                message =
+                                    $"Backup too large. Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB."
+                            }));
+                    }
+
+                    await buffer.WriteAsync(chunk.AsMemory(0, read), HttpContext.RequestAborted)
+                        .ConfigureAwait(false);
+                }
+
+                buffer.Position = 0;
+                using var reader = new StreamReader(
+                    buffer,
+                    Encoding.UTF8,
+                    true,
+                    leaveOpen: true);
+                var json = await reader.ReadToEndAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+                return (json, null);
+            }
+            finally
+            {
+                await buffer.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected or request was aborted - do not return a 400.
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or DecoderFallbackException)
+        {
+            _pluginLog.LogError("API", "Failed to read backup request body", ex, _logger);
+            return (null, BadRequest(new { message = "Failed to read the request body." }));
+        }
+    }
+
+    /// <summary>
+    ///     Logs all validation errors/warnings and returns a rejection result when the backup is invalid.
+    /// </summary>
+    /// <param name="validation">The validation result produced by <see cref="BackupValidator" />.</param>
+    /// <returns>A <c>BadRequest</c> result when invalid; otherwise <c>null</c>.</returns>
+    private BadRequestObjectResult? LogAndRejectInvalidBackup(BackupValidationResult validation)
+    {
+        foreach (var error in validation.Errors)
+        {
+            _pluginLog.LogError("Backup", $"Validation error: {error}", logger: _logger);
+        }
+
+        foreach (var warning in validation.Warnings)
+        {
+            _pluginLog.LogWarning("Backup", $"Validation warning: {warning}", logger: _logger);
+        }
+
+        if (!validation.IsValid)
+        {
+            _pluginLog.LogWarning(
+                "API",
+                $"Backup import rejected: {validation.Errors.Count} validation error(s).",
+                logger: _logger);
+            return BadRequest(
+                new
+                {
+                    message = $"Backup validation failed with {validation.Errors.Count} error(s). Check plugin logs for details.",
+                    errors = validation.Errors,
+                    warnings = validation.Warnings
+                });
+        }
+
+        return null;
     }
 }

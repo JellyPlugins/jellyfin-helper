@@ -66,7 +66,8 @@ export function hasDocker(): boolean {
 
 /** POSIX-quote a path for safe interpolation into a container `sh -lc` command. */
 export function q(path: string): string {
-  return `'${path.replace(/'/g, `'\\''`)}'`;
+  const escaped = path.replaceAll("'", String.raw`'\''`);
+  return `'${escaped}'`;
 }
 
 /** True if a path exists in the container (file, dir, or symlink). */

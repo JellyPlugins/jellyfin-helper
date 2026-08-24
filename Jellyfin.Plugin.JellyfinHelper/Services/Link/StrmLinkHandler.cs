@@ -34,6 +34,8 @@ public class StrmLinkHandler : ILinkHandler
     /// <inheritdoc />
     public bool CanHandle(string filePath)
     {
+        ArgumentNullException.ThrowIfNull(filePath);
+
         return filePath.EndsWith(MediaExtensions.StrmExtension, StringComparison.OrdinalIgnoreCase);
     }
 

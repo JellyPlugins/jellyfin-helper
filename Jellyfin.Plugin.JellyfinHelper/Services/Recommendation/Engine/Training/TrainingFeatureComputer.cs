@@ -274,13 +274,7 @@ internal static class TrainingFeatureComputer
         int? representativeYear = null;
         foreach (var ep in episodes)
         {
-            foreach (var g in ep.Genres ?? Array.Empty<string>())
-            {
-                if (!string.IsNullOrWhiteSpace(g))
-                {
-                    allGenres.Add(g);
-                }
-            }
+            allGenres.UnionWith((ep.Genres ?? Array.Empty<string>()).Where(g => !string.IsNullOrWhiteSpace(g)));
 
             // Use the first available production year as representative
             representativeYear ??= ep.Year;
@@ -326,7 +320,7 @@ internal static class TrainingFeatureComputer
             CombinedCriticScore = combinedCriticScore,
             // Use production year for recency (not watch date) to match Phase 1 semantics
             RecencyScore = representativeYear is { } recY and >= 1 and <= 9999
-                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1))
+                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc))
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,

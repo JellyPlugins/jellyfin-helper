@@ -163,57 +163,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // --- 5b. create a non-admin user for the Discovery/My (user-facing) tests -
   // These endpoints require a NON-elevated authenticated user + the
   // DiscoveryUserAccessEnabled toggle. We provision one and capture its token.
-  let normalUser: { token: string; userId: string; userName: string } | null = null;
-  try {
-    const created = await admin.post('/Users/New', {
-      headers: { 'Content-Type': 'application/json' },
-      data: { Name: NORMAL_USER, Password: NORMAL_PASS },
-    });
-    // On a warm/reused container the user already exists and Users/New returns a
-    // 4xx (e.g. 400 "user already exists"). That is NOT a provisioning failure -
-    // we can still authenticate as the existing user. So authenticate whenever the
-    // create succeeded OR the user plausibly already exists; only a 5xx (or a
-    // network throw) is a hard failure. This keeps provisioning idempotent across
-    // re-runs against a persistent volume.
-    const createdOk = created.ok();
-    const alreadyExists = !createdOk && created.status() >= 400 && created.status() < 500;
-    if (!createdOk && !alreadyExists) {
-      // eslint-disable-next-line no-console
-      console.log(`[global-setup] Users/New -> ${created.status()} (unexpected; non-admin tests will skip)`);
-    } else {
-      // eslint-disable-next-line no-console
-      console.log(`[global-setup] Users/New -> ${created.status()} (${createdOk ? 'created' : 'already exists - authenticating existing user'})`);
-      const nAuth = await ctx.post('/Users/AuthenticateByName', {
-        headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
-        data: { Username: NORMAL_USER, Pw: NORMAL_PASS },
-      });
-      if (nAuth.ok()) {
-        const nj = (await nAuth.json()) as { AccessToken: string; User: { Id: string } };
-        normalUser = { token: nj.AccessToken, userId: nj.User.Id, userName: NORMAL_USER };
-        // eslint-disable-next-line no-console
-        console.log(`[global-setup] non-admin user ${NORMAL_USER} ready (${nj.User.Id})`);
-
-        // Link this non-admin user to the mock's SECOND Seerr user (Bob) and grant
-        // the Request permission (bit 32) so the user-facing Discovery/My/Request
-        // authorization branches are actually reachable. Seeded here - before any
-        // spec runs and before the plugin populates its 5-min Seerr-user cache -
-        // so the linkage is deterministic and not defeated by cache staleness.
-        await seedSeerr('/seed-user2', { jellyfinUserId: nj.User.Id, permissions: 32 });
-      } else {
-        // Could not authenticate - do NOT report success silently. Log the
-        // rejection so a broken provisioning path is visible; dependent tests skip
-        // (normalUser stays null) rather than run against a half-provisioned user.
-        // eslint-disable-next-line no-console
-        console.log(
-          `[global-setup] non-admin auth failed (Users/New was ${created.status()}): ` +
-            `${nAuth.status()} ${(await nAuth.text()).slice(0, 200)} (Discovery/My tests will skip)`,
-        );
-      }
-    }
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.log(`[global-setup] non-admin user provisioning failed: ${(e as Error).message}`);
-  }
+  const normalUser = await provisionNormalUser(admin, ctx);
 
   // In CI we require the non-admin fixture so the authorization / user-facing
   // tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1). Fail the whole run
@@ -255,6 +205,70 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 
   await ctx.dispose();
   await admin.dispose();
+}
+
+type ProvisionCtx = Awaited<ReturnType<typeof pwRequest.newContext>>;
+
+/**
+ * Create (or reuse) the non-admin test user and authenticate as it. Returns the
+ * captured token/userId, or null if provisioning failed (dependent Discovery/My
+ * tests then skip). Extracted from globalSetup to keep the top-level flow flat.
+ */
+async function provisionNormalUser(
+  admin: ProvisionCtx,
+  ctx: ProvisionCtx,
+): Promise<{ token: string; userId: string; userName: string } | null> {
+  try {
+    const created = await admin.post('/Users/New', {
+      headers: { 'Content-Type': 'application/json' },
+      data: { Name: NORMAL_USER, Password: NORMAL_PASS },
+    });
+    // On a warm/reused container the user already exists and Users/New returns a
+    // 4xx (e.g. 400 "user already exists"). That is NOT a provisioning failure -
+    // we can still authenticate as the existing user. So authenticate whenever the
+    // create succeeded OR the user plausibly already exists; only a 5xx (or a
+    // network throw) is a hard failure. This keeps provisioning idempotent across
+    // re-runs against a persistent volume.
+    const createdOk = created.ok();
+    const alreadyExists = !createdOk && created.status() >= 400 && created.status() < 500;
+    if (!createdOk && !alreadyExists) {
+      // eslint-disable-next-line no-console
+      console.log(`[global-setup] Users/New -> ${created.status()} (unexpected; non-admin tests will skip)`);
+      return null;
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[global-setup] Users/New -> ${created.status()} (${createdOk ? 'created' : 'already exists - authenticating existing user'})`);
+    const nAuth = await ctx.post('/Users/AuthenticateByName', {
+      headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+      data: { Username: NORMAL_USER, Pw: NORMAL_PASS },
+    });
+    if (!nAuth.ok()) {
+      // Could not authenticate - do NOT report success silently. Log the
+      // rejection so a broken provisioning path is visible; dependent tests skip
+      // (return null) rather than run against a half-provisioned user.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[global-setup] non-admin auth failed (Users/New was ${created.status()}): ` +
+          `${nAuth.status()} ${(await nAuth.text()).slice(0, 200)} (Discovery/My tests will skip)`,
+      );
+      return null;
+    }
+    const nj = (await nAuth.json()) as { AccessToken: string; User: { Id: string } };
+    // eslint-disable-next-line no-console
+    console.log(`[global-setup] non-admin user ${NORMAL_USER} ready (${nj.User.Id})`);
+
+    // Link this non-admin user to the mock's SECOND Seerr user (Bob) and grant
+    // the Request permission (bit 32) so the user-facing Discovery/My/Request
+    // authorization branches are actually reachable. Seeded here - before any
+    // spec runs and before the plugin populates its 5-min Seerr-user cache -
+    // so the linkage is deterministic and not defeated by cache staleness.
+    await seedSeerr('/seed-user2', { jellyfinUserId: nj.User.Id, permissions: 32 });
+    return { token: nj.AccessToken, userId: nj.User.Id, userName: NORMAL_USER };
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log(`[global-setup] non-admin user provisioning failed: ${(e as Error).message}`);
+    return null;
+  }
 }
 
 /** From the host, the mock is reachable on localhost; inside compose it's mock-seerr. */

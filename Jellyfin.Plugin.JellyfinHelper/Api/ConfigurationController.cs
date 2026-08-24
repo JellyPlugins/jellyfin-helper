@@ -134,7 +134,7 @@ public class ConfigurationController : ControllerBase
                 Name = f.Name ?? string.Empty,
                 CollectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
                     ? "unknown"
-                    : f.CollectionType!.ToString() ?? "unknown",
+                    : f.CollectionType?.ToString() ?? "unknown",
             })
             .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -430,43 +430,69 @@ public class ConfigurationController : ControllerBase
                 continue;
             }
 
-            try
-            {
-                var (success, message) = await _arrService.TestConnectionAsync(
-                    instance.Url,
-                    instance.ApiKey,
-                    cancellationToken).ConfigureAwait(false);
-
-                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{i + 1}";
-
-                if (success)
-                {
-                    _pluginLog.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
-                }
-                else
-                {
-                    // Generic client-facing warning; the upstream `message` (which can reveal
-                    // reachability details) is logged server-side only. The credential-safe label
-                    // strips any user-info password embedded in instance.Url.
-                    var urlLabel = Services.Common.SsrfGuard.SafeEndpointLabel(instance.Url);
-                    warnings.Add($"{typeName} instance '{label}' ({urlLabel}) is not reachable. Verify the URL and API Key.");
-                    _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) is not reachable: {message}", logger: _logger);
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            var cancelled = await TestSingleArrInstanceAsync(instance, typeName, i, warnings, cancellationToken)
+                .ConfigureAwait(false);
+            if (cancelled)
             {
                 return; // User cancelled - stop testing remaining instances
             }
-            catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
+        }
+    }
+
+    /// <summary>
+    ///     Tests a single Arr instance and appends a warning when it is unreachable or the test fails.
+    /// </summary>
+    /// <param name="instance">The instance to test.</param>
+    /// <param name="typeName">The type label (e.g. "Radarr" or "Sonarr").</param>
+    /// <param name="index">The zero-based index of the instance within its group.</param>
+    /// <param name="warnings">The warnings list to append to.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> when the caller should stop testing remaining instances (cancelled); otherwise <c>false</c>.</returns>
+    private async Task<bool> TestSingleArrInstanceAsync(
+        ArrInstanceConfig instance,
+        string typeName,
+        int index,
+        List<string> warnings,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (success, message) = await _arrService.TestConnectionAsync(
+                instance.Url,
+                instance.ApiKey,
+                cancellationToken).ConfigureAwait(false);
+
+            var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{index + 1}";
+
+            if (success)
             {
-                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{i + 1}";
-                // Generic client-facing warning; the raw ex.Message is logged server-side only.
-                // The credential-safe label strips any user-info password embedded in instance.Url.
+                _pluginLog.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
+            }
+            else
+            {
+                // Generic client-facing warning; the upstream `message` (which can reveal
+                // reachability details) is logged server-side only. The credential-safe label
+                // strips any user-info password embedded in instance.Url.
                 var urlLabel = Services.Common.SsrfGuard.SafeEndpointLabel(instance.Url);
-                warnings.Add($"{typeName} instance '{label}' ({urlLabel}) connection test failed. Verify the URL and API Key.");
-                _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) connection test failed: {ex.Message}", ex, _logger);
+                warnings.Add($"{typeName} instance '{label}' ({urlLabel}) is not reachable. Verify the URL and API Key.");
+                _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) is not reachable: {message}", logger: _logger);
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return true; // User cancelled - stop testing remaining instances
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
+        {
+            var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{index + 1}";
+            // Generic client-facing warning; the raw ex.Message is logged server-side only.
+            // The credential-safe label strips any user-info password embedded in instance.Url.
+            var urlLabel = Services.Common.SsrfGuard.SafeEndpointLabel(instance.Url);
+            warnings.Add($"{typeName} instance '{label}' ({urlLabel}) connection test failed. Verify the URL and API Key.");
+            _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) connection test failed: {ex.Message}", ex, _logger);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -490,6 +516,73 @@ public class ConfigurationController : ControllerBase
             config.RecommendationsTaskMode = request.RecommendationsTaskMode.Value;
         }
 
+        ApplyEnsembleSettings(request, config);
+
+        if (request.SyncRecommendationsToPlaylist.HasValue)
+        {
+            config.SyncRecommendationsToPlaylist = request.SyncRecommendationsToPlaylist.Value;
+        }
+
+        if (request.DiscoveryUserAccessEnabled.HasValue)
+        {
+            config.DiscoveryUserAccessEnabled = request.DiscoveryUserAccessEnabled.Value;
+        }
+
+        config.SeerrCleanupTaskMode = request.SeerrCleanupTaskMode;
+
+        config.UseTrash = request.UseTrash;
+        config.TrashFolderPath = string.IsNullOrWhiteSpace(request.TrashFolderPath)
+            ? ".jellyfin-trash"
+            : request.TrashFolderPath;
+        config.TrashRetentionDays = request.TrashRetentionDays;
+
+        string language;
+        if (string.IsNullOrWhiteSpace(request.Language))
+        {
+            language = "en";
+        }
+        else
+        {
+            language = ConfigurationRequestValidator.IsLanguageSupported(request.Language) ? request.Language : "en";
+        }
+
+        config.Language = language;
+
+        // Seerr settings
+        config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
+        // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value.
+        // Trim before comparing so a client that pads the sentinel (e.g. " <mask> ") is still recognised
+        // correctly and never overwrites the real stored key with a literal copy of the mask.
+        if (!ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
+        {
+            config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
+        }
+
+        config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)
+            ? 0
+            : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
+
+        NormalizePluginLogLevel(config);
+
+        // Update Radarr instances (clear + re-add from request).
+        // Snapshot existing instances BEFORE clearing so the sentinel guard can look up
+        // the stored key by Name+Url rather than positional index. Index-based restoration
+        // would silently assign the wrong key when the admin removes or reorders instances.
+        config.RadarrInstances = RebuildArrInstances(request.RadarrInstances, config.RadarrInstances);
+
+        // Update Sonarr instances (clear + re-add from request).
+        // Same sentinel-preservation pattern as Radarr above.
+        config.SonarrInstances = RebuildArrInstances(request.SonarrInstances, config.SonarrInstances);
+    }
+
+    /// <summary>
+    ///     Applies the ML ensemble tuning fields (alpha bounds and genre-penalty floor) from the request,
+    ///     clamping each to the valid [0,1] range and enforcing the <c>min &lt;= max</c> invariant.
+    /// </summary>
+    /// <param name="request">The incoming configuration update request.</param>
+    /// <param name="config">The existing plugin configuration to update.</param>
+    private static void ApplyEnsembleSettings(ConfigurationUpdateRequest request, PluginConfiguration config)
+    {
         if (request.EnsembleAlphaMin.HasValue)
         {
             config.EnsembleAlphaMin = Math.Clamp(request.EnsembleAlphaMin.Value, 0.0, 1.0);
@@ -510,42 +603,15 @@ public class ConfigurationController : ControllerBase
         {
             config.EnsembleAlphaMax = config.EnsembleAlphaMin;
         }
+    }
 
-        if (request.SyncRecommendationsToPlaylist.HasValue)
-        {
-            config.SyncRecommendationsToPlaylist = request.SyncRecommendationsToPlaylist.Value;
-        }
-
-        if (request.DiscoveryUserAccessEnabled.HasValue)
-        {
-            config.DiscoveryUserAccessEnabled = request.DiscoveryUserAccessEnabled.Value;
-        }
-
-        config.SeerrCleanupTaskMode = request.SeerrCleanupTaskMode;
-
-        config.UseTrash = request.UseTrash;
-        config.TrashFolderPath = string.IsNullOrWhiteSpace(request.TrashFolderPath)
-            ? ".jellyfin-trash"
-            : request.TrashFolderPath;
-        config.TrashRetentionDays = request.TrashRetentionDays;
-
-        config.Language = string.IsNullOrWhiteSpace(request.Language) ? "en" :
-                          ConfigurationRequestValidator.IsLanguageSupported(request.Language) ? request.Language : "en";
-
-        // Seerr settings
-        config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value.
-        // Trim before comparing so a client that pads the sentinel (e.g. " <mask> ") is still recognised
-        // correctly and never overwrites the real stored key with a literal copy of the mask.
-        if (!ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
-        {
-            config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
-        }
-
-        config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)
-            ? 0
-            : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
-
+    /// <summary>
+    ///     Normalizes the persisted plugin log level to a canonical UPPER-cased value, self-healing
+    ///     legacy or invalid values to "INFO".
+    /// </summary>
+    /// <param name="config">The plugin configuration whose log level is normalized in place.</param>
+    private static void NormalizePluginLogLevel(PluginConfiguration config)
+    {
         // PluginLogLevel is owned by the Logs tab and mutated exclusively via PUT /Configuration/LogLevel.
         // The Settings POST payload is intentionally IGNORED for this field to close a TOCTOU race
         // where the Settings page had captured a stale value at page load, then overwrote a
@@ -564,38 +630,33 @@ public class ConfigurationController : ControllerBase
             // Persist the canonical UPPER form even if the on-disk value has drifted casing.
             config.PluginLogLevel = config.PluginLogLevel.Trim().ToUpperInvariant();
         }
+    }
 
-        // Update Radarr instances (clear + re-add from request).
-        // Snapshot existing instances BEFORE clearing so the sentinel guard can look up
-        // the stored key by Name+Url rather than positional index. Index-based restoration
-        // would silently assign the wrong key when the admin removes or reorders instances.
-        var previousRadarrInstances = (config.RadarrInstances ?? []).ToList();
-        config.RadarrInstances ??= [];
-        config.RadarrInstances.Clear();
-        foreach (var instance in request.RadarrInstances ?? [])
+    /// <summary>
+    ///     Rebuilds an Arr instance list from the request, preserving stored API keys when the client
+    ///     echoes back the mask sentinel. The previous instances are snapshotted before clearing so the
+    ///     sentinel guard can look up the stored key by Name+URL rather than positional index.
+    /// </summary>
+    /// <param name="requestInstances">The instances from the incoming request (may be null).</param>
+    /// <param name="existingInstances">The currently stored instances (may be null).</param>
+    /// <returns>A new list of resolved <see cref="ArrInstanceConfig" /> entries.</returns>
+    private static List<ArrInstanceConfig> RebuildArrInstances(
+        IEnumerable<ArrInstanceConfig>? requestInstances,
+        List<ArrInstanceConfig>? existingInstances)
+    {
+        var previousInstances = (existingInstances ?? []).ToList();
+        var result = new List<ArrInstanceConfig>();
+        foreach (var instance in requestInstances ?? [])
         {
-            config.RadarrInstances.Add(new ArrInstanceConfig
+            result.Add(new ArrInstanceConfig
             {
                 Name = instance.Name,
                 Url = instance.Url,
-                ApiKey = ResolveApiKey(instance, previousRadarrInstances)
+                ApiKey = ResolveApiKey(instance, previousInstances)
             });
         }
 
-        // Update Sonarr instances (clear + re-add from request).
-        // Same sentinel-preservation pattern as Radarr above.
-        var previousSonarrInstances = (config.SonarrInstances ?? []).ToList();
-        config.SonarrInstances ??= [];
-        config.SonarrInstances.Clear();
-        foreach (var instance in request.SonarrInstances ?? [])
-        {
-            config.SonarrInstances.Add(new ArrInstanceConfig
-            {
-                Name = instance.Name,
-                Url = instance.Url,
-                ApiKey = ResolveApiKey(instance, previousSonarrInstances)
-            });
-        }
+        return result;
     }
 
     /// <summary>

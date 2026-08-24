@@ -193,7 +193,7 @@ echo "Media generated (${media_count} video files)."
 # --- 6. install Playwright deps (first run only) ---------------------------
 log "Installing test dependencies"
 cd "$E2E_DIR"
-[[ -d node_modules ]] || npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+[[ -d node_modules ]] || npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund
 # Try the full "--with-deps" install first (needs sudo/apt for OS libs). If that
 # fails - common on hosts without root/apt - log why and fall back to a
 # browser-only install so a real network/permission error isn't hidden behind

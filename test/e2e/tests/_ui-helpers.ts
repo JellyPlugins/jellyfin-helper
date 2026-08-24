@@ -7,7 +7,7 @@
  * data-attributes / classes, NEVER on localized text.
  */
 import { type Page, expect } from '@playwright/test';
-import { loadAuth, PLUGIN_GUID } from '../setup/api-client.ts';
+import { loadAuth } from '../setup/api-client.ts';
 
 /**
  * Log into the Jellyfin web UI by injecting credentials the way the web client
@@ -110,4 +110,4 @@ export function trackConsoleErrors(page: Page): string[] {
   return errors;
 }
 
-export { PLUGIN_GUID };
+export { PLUGIN_GUID } from '../setup/api-client.ts';

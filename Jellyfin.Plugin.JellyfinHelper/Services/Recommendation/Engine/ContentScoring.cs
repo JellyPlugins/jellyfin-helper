@@ -305,9 +305,43 @@ internal static class ContentScoring
         // Fail-safe: iterate the full genre list (primary signal, 50% weight) and treat missing
         // people/studio entries as unavailable rather than dropping the watched item, so a stray refactor
         // cannot down the task or silently discard half the signal.
-        // Visibility: Debug.Assert catches this in Debug/tests but compiles away in Release, so also bump
-        // a static counter (ParallelArrayMismatchCount) and emit ONE Trace.TraceWarning on the FIRST
-        // mismatch; later calls stay cheap.
+        ReportParallelArrayMismatch(watchedGenreSets, watchedPeopleSets, watchedStudioSets);
+
+        var maxComposite = 0.0;
+
+        for (var i = 0; i < watchedGenreSets.Count; i++)
+        {
+            var composite = ComputeCompositeSimilarity(
+                candidateGenres,
+                candidatePeople,
+                candidateStudios,
+                watchedGenreSets[i],
+                i < watchedPeopleSets.Count ? watchedPeopleSets[i] : null,
+                i < watchedStudioSets.Count ? watchedStudioSets[i] : null);
+            if (composite > maxComposite)
+            {
+                maxComposite = composite;
+            }
+        }
+
+        return Math.Clamp(maxComposite, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Detects and reports a parallel-array length mismatch across the watched-item set lists.
+    ///     Visibility: Debug.Assert catches this in Debug/tests but compiles away in Release, so this also
+    ///     bumps a static counter (ParallelArrayMismatchCount) and emits ONE Trace.TraceWarning on the
+    ///     FIRST mismatch; later calls stay cheap. A mismatch is always a bug; the caller degrades
+    ///     gracefully by treating missing entries as absent rather than aborting.
+    /// </summary>
+    /// <param name="watchedGenreSets">Pre-computed genre sets for each watched item.</param>
+    /// <param name="watchedPeopleSets">Pre-computed people sets for each watched item (parallel to genre sets).</param>
+    /// <param name="watchedStudioSets">Pre-computed studio sets for each watched item (parallel to genre sets).</param>
+    private static void ReportParallelArrayMismatch(
+        IReadOnlyList<HashSet<string>> watchedGenreSets,
+        IReadOnlyList<HashSet<string>> watchedPeopleSets,
+        IReadOnlyList<HashSet<string>> watchedStudioSets)
+    {
         var mismatch = watchedGenreSets.Count != watchedPeopleSets.Count
             || watchedGenreSets.Count != watchedStudioSets.Count;
         Debug.Assert(
@@ -329,37 +363,46 @@ internal static class ContentScoring
                     watchedStudioSets.Count);
             }
         }
+    }
 
-        var maxComposite = 0.0;
+    /// <summary>
+    ///     Computes the weighted composite similarity between the candidate and a single watched item:
+    ///     genre Jaccard (50%), people Jaccard (30%), and binary studio overlap (20%). Missing parallel
+    ///     entries (null people/studio set) contribute zero to their dimension without dropping the item.
+    /// </summary>
+    /// <param name="candidateGenres">The candidate's genre set (case-insensitive).</param>
+    /// <param name="candidatePeople">The candidate's people/cast set (case-insensitive), or null if unavailable.</param>
+    /// <param name="candidateStudios">The candidate's studios array, or null/empty if unavailable.</param>
+    /// <param name="watchedGenreSet">The watched item's genre set.</param>
+    /// <param name="watchedPeopleSet">The watched item's people set, or null if the parallel entry is missing.</param>
+    /// <param name="watchedStudioSet">The watched item's studio set, or null if the parallel entry is missing.</param>
+    /// <returns>The composite similarity for this watched item.</returns>
+    private static double ComputeCompositeSimilarity(
+        HashSet<string> candidateGenres,
+        HashSet<string>? candidatePeople,
+        HashSet<string>? candidateStudios,
+        HashSet<string> watchedGenreSet,
+        HashSet<string>? watchedPeopleSet,
+        HashSet<string>? watchedStudioSet)
+    {
+        // Genre Jaccard (50% of composite)
+        var genreJaccard = SimilarityComputer.ComputeJaccardFromSets(candidateGenres, watchedGenreSet);
 
-        for (var i = 0; i < watchedGenreSets.Count; i++)
+        // People Jaccard (30% of composite). Missing parallel entry -> 0 contribution
+        // but the genre dimension keeps working.
+        var peopleJaccard = candidatePeople is { Count: > 0 } && watchedPeopleSet is not null
+            ? SimilarityComputer.ComputeJaccardFromSets(candidatePeople, watchedPeopleSet)
+            : 0.0;
+
+        // Studio overlap (20% of composite) - binary: any shared studio = 1.0
+        var studioOverlap = 0.0;
+        if (candidateStudios is { Count: > 0 }
+            && watchedStudioSet is { Count: > 0 })
         {
-            // Genre Jaccard (50% of composite)
-            var genreJaccard = SimilarityComputer.ComputeJaccardFromSets(candidateGenres, watchedGenreSets[i]);
-
-            // People Jaccard (30% of composite). Missing parallel entry -> 0 contribution
-            // but the genre dimension keeps working.
-            var peopleJaccard = candidatePeople is { Count: > 0 } && i < watchedPeopleSets.Count
-                ? SimilarityComputer.ComputeJaccardFromSets(candidatePeople, watchedPeopleSets[i])
-                : 0.0;
-
-            // Studio overlap (20% of composite) - binary: any shared studio = 1.0
-            var studioOverlap = 0.0;
-            if (candidateStudios is { Count: > 0 }
-                && i < watchedStudioSets.Count
-                && watchedStudioSets[i].Count > 0)
-            {
-                studioOverlap = candidateStudios.Overlaps(watchedStudioSets[i]) ? 1.0 : 0.0;
-            }
-
-            var composite = (0.50 * genreJaccard) + (0.30 * peopleJaccard) + (0.20 * studioOverlap);
-            if (composite > maxComposite)
-            {
-                maxComposite = composite;
-            }
+            studioOverlap = candidateStudios.Overlaps(watchedStudioSet) ? 1.0 : 0.0;
         }
 
-        return Math.Clamp(maxComposite, 0.0, 1.0);
+        return (0.50 * genreJaccard) + (0.30 * peopleJaccard) + (0.20 * studioOverlap);
     }
 
     /// <summary>

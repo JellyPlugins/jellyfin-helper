@@ -47,11 +47,11 @@ export default defineConfig({
   projects: [
     {
       name: 'api',
-      testMatch: /.*\.api\.spec\.ts/,
+      testMatch: /\.api\.spec\.ts/,
     },
     {
       name: 'ui',
-      testMatch: /.*\.ui\.spec\.ts/,
+      testMatch: /\.ui\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
       // UI tests assume config/library exist; run after api mutations settle.
       dependencies: ['api'],

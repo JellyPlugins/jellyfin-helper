@@ -1,6 +1,6 @@
 ﻿// Mock data for demo. ~9.2TB total.
 var MOCK_TRANSLATIONS = null;
-function _lib(n,t,o){var s=(o.VideoSize||0)+(o.AudioSize||0)+(o.SubtitleSize||0)+(o.ImageSize||0)+(o.NfoSize||0)+(o.TrickplaySize||0)+(o.OtherSize||0);return Object.assign({LibraryName:n,CollectionType:t,RootPaths:o.RootPaths||[],VideoSize:0,AudioSize:0,SubtitleSize:0,ImageSize:0,NfoSize:0,TrickplaySize:0,OtherSize:0,VideoFileCount:0,AudioFileCount:0,SubtitleFileCount:0,ImageFileCount:0,NfoFileCount:0,TrickplayFileCount:0,TrickplayFolderCount:o.TrickplayFolderCount||0,OtherFileCount:0,TotalSize:s,VideoCodecs:{},VideoAudioCodecs:{},MusicAudioCodecs:{},ContainerFormats:{},Resolutions:{},VideoCodecPaths:{},VideoAudioCodecPaths:{},MusicAudioCodecPaths:{},ContainerFormatPaths:{},ResolutionPaths:{},VideoCodecSizes:{},VideoAudioCodecSizes:{},MusicAudioCodecSizes:{},ContainerSizes:{},ResolutionSizes:{},VideosWithoutSubtitles:0,VideosWithoutImages:0,VideosWithoutNfo:0,OrphanedMetadataDirectories:0,VideosWithoutSubtitlesPaths:[],VideosWithoutImagesPaths:[],VideosWithoutNfoPaths:[],OrphanedMetadataDirectoriesPaths:[]},o);}
+function _lib(n,t,o){var s=(o.VideoSize||0)+(o.AudioSize||0)+(o.SubtitleSize||0)+(o.ImageSize||0)+(o.NfoSize||0)+(o.TrickplaySize||0)+(o.OtherSize||0);return {LibraryName:n,CollectionType:t,RootPaths:o.RootPaths||[],VideoSize:0,AudioSize:0,SubtitleSize:0,ImageSize:0,NfoSize:0,TrickplaySize:0,OtherSize:0,VideoFileCount:0,AudioFileCount:0,SubtitleFileCount:0,ImageFileCount:0,NfoFileCount:0,TrickplayFileCount:0,TrickplayFolderCount:o.TrickplayFolderCount||0,OtherFileCount:0,TotalSize:s,VideoCodecs:{},VideoAudioCodecs:{},MusicAudioCodecs:{},ContainerFormats:{},Resolutions:{},VideoCodecPaths:{},VideoAudioCodecPaths:{},MusicAudioCodecPaths:{},ContainerFormatPaths:{},ResolutionPaths:{},VideoCodecSizes:{},VideoAudioCodecSizes:{},MusicAudioCodecSizes:{},ContainerSizes:{},ResolutionSizes:{},VideosWithoutSubtitles:0,VideosWithoutImages:0,VideosWithoutNfo:0,OrphanedMetadataDirectories:0,VideosWithoutSubtitlesPaths:[],VideosWithoutImagesPaths:[],VideosWithoutNfoPaths:[],OrphanedMetadataDirectoriesPaths:[],...o};}
 
 var _moviesLib=_lib("Movies","movies",{
 RootPaths:["/data/movies"],
@@ -191,7 +191,7 @@ var MOCK_BROWSE_FOLDERS=(function(){
         "/mnt/nas-share":[],
         "/mnt/usb-drive":[]
     };
-function getParent(p){if(!p||p==="/")return null;var parts=p.replace(/\/$/,"").split("/");parts.pop();return parts.length<=1?"/":parts.join("/");}
+function getParent(p){if(!p||p==="/"){return null;}var parts=p.replace(/\/$/,"").split("/");parts.pop();return parts.length<=1?"/":parts.join("/");}
 return function(path){
 if(!path){return{CurrentPath:null,ParentPath:null,CanGoUp:false,Directories:[{Name:"/",Path:"/",HasChildren:true}]};}
 var parentPath=getParent(path);
@@ -276,46 +276,46 @@ accessToken:function(){return"mock-demo-token";},
 getUrl:function(p){return"mock://"+p;},
 ajax:function(opts){var url=opts.url||"",method=(opts.type||"GET").toUpperCase();
 return new Promise(function(resolve){setTimeout(function(){
-if(url.indexOf("Translations")!==-1){var _lang=MOCK_CONFIG.Language||'en';fetch('i18n/'+_lang+'.json').then(function(r){return r.json();}).then(function(t){MOCK_TRANSLATIONS=t;resolve(t);}).catch(function(){MOCK_TRANSLATIONS={};resolve(MOCK_TRANSLATIONS);});return;}
-else if(url.indexOf("Statistics/Latest")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
-else if(url.indexOf("GrowthTimeline")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
-else if(url.indexOf("Statistics/History")!==-1)resolve(MOCK_HISTORY);
-else if(url.indexOf("Statistics")!==-1&&url.indexOf("forceRefresh")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
-else if(url.indexOf("CleanupStatistics")!==-1)resolve(MOCK_CLEANUP_STATS);
-else if(url.indexOf("Configuration/LogLevel")!==-1&&method==="PUT"){try{var b=JSON.parse(opts.data);if(b.PluginLogLevel)MOCK_CONFIG.PluginLogLevel=b.PluginLogLevel;}catch(e){}resolve({message:"Log level updated.",pluginLogLevel:MOCK_CONFIG.PluginLogLevel});}
-else if(url.indexOf("Configuration/Libraries")!==-1&&url.indexOf("LibraryPaths")===-1)resolve({libraries:JSON.parse(JSON.stringify(MOCK_LIBRARIES))});
-else if(url.indexOf("Configuration/LibraryPaths")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_LIBRARY_PATHS)));
-else if(url.indexOf("Configuration/BrowseFolders")!==-1||url.indexOf("BrowseFolders")!==-1){var bp=null;var bm=url.match(/[?&]path=([^&]*)/);if(bm)bp=decodeURIComponent(bm[1]);resolve(JSON.parse(JSON.stringify(MOCK_BROWSE_FOLDERS(bp))));}
-else if(url.indexOf("Configuration")!==-1&&method==="POST"){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
-else if(url.indexOf("Configuration")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_CONFIG)));
-else if(url.indexOf("Trash/Contents")!==-1)resolve(MOCK_TRASH_CONTENTS);
-    else if(url.indexOf("Trash/CheckAccess")!==-1&&method==="POST"){resolve({AllAccessible:true,Results:[{Path:"/data/movies/.jellyfin-trash",Exists:false,CanRead:true,CanWrite:true,HasFullAccess:true,ErrorMessage:null}]});}
-    else if(url.indexOf("Trash/Relocate")!==-1&&method==="POST"){resolve({Moved:3,Failed:0});}
-    else if(url.indexOf("Trash/FoldersForPath")!==-1&&method==="POST"){try{var fpBody=JSON.parse(opts.data);resolve(JSON.parse(JSON.stringify(MOCK_TRASH_FOLDERS_FOR_PATH(fpBody.TrashFolderPath))));}catch(e){resolve({Paths:[],IsAbsolute:false});}}
-    else if(url.indexOf("Trash/Folders")!==-1&&method==="DELETE")resolve({deleted:2,failed:0});
-    else if(url.indexOf("Trash/Folders")!==-1)resolve(MOCK_TRASH_FOLDERS);
-else if(url.indexOf("Trash/Summary")!==-1)resolve({TotalSize:17179869184,TotalItems:3});
-else if(url.indexOf("Discovery/Services/radarr")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_SEERR_SERVICES_RADARR)));
-else if(url.indexOf("Discovery/Services/sonarr")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_SEERR_SERVICES_SONARR)));
-else if(url.indexOf("Discovery/Request")!==-1&&method==="POST")resolve({Success:true,Message:"Request submitted to Jellyseerr."});
-else if(url.indexOf("Discovery")!==-1&&url.indexOf("Services")===-1&&url.indexOf("Request")===-1)resolve(JSON.parse(JSON.stringify(MOCK_DISCOVERY)));
-else if(url.indexOf("Seerr/Test")!==-1)resolve({success:true,message:"Connected to Jellyseerr (demo)"});
-else if(url.indexOf("ArrIntegration/TestConnection")!==-1)resolve({Success:true,Message:"Connection successful (demo)"});
-else if(url.indexOf("ArrIntegration/Compare/")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_ARR_COMPARE)));
-else if(url.indexOf("Logs/Download")!==-1){var lt=MOCK_LOGS.Entries.map(function(e){return e.Timestamp+" ["+e.Level+"] "+e.Source+": "+e.Message;}).join("\n");resolve(lt);}
-else if(url.indexOf("Logs")!==-1&&method==="DELETE"){MOCK_LOGS.Entries=[];MOCK_LOGS.TotalCount=0;resolve({});}
-else if(url.indexOf("Logs")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_LOGS)));
-else if(url.indexOf("Recommendations/WatchProfile/")!==-1){var wp=url.split("WatchProfile/");var wid=wp.length>1?wp[1].split("?")[0]:"";resolve(JSON.parse(JSON.stringify(MOCK_WATCH_PROFILES[wid]||{})));}
-else if(url.indexOf("Recommendations/WatchProfiles")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_WATCH_PROFILES)));
-else if(url.indexOf("Recommendations/")!==-1&&url.indexOf("WatchProfile")===-1){var rp=url.split("Recommendations/");var rid=rp.length>1?rp[1].split("?")[0]:"";var ur=MOCK_RECOMMENDATIONS.filter(function(r){return r.UserId===rid;});resolve(JSON.parse(JSON.stringify(ur.length>0?ur[0]:{})));}
-else if(url.indexOf("Recommendations")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_RECOMMENDATIONS)));
-else if(url.indexOf("UserActivity/User/")!==-1){var ua=url.split("UserActivity/User/");var uid=ua.length>1?ua[1].split("?")[0]:"";resolve(JSON.parse(JSON.stringify(MOCK_USER_ACTIVITY[uid]||[])));}
-else if(url.indexOf("UserActivity/Latest")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_USER_ACTIVITY)));
-else if(url.indexOf("LibraryInsights")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_LIBRARY_INSIGHTS)));
-else if(url.indexOf("Libraries")!==-1)resolve(MOCK_LIBRARIES);
+if(url.includes("Translations")){var _lang=MOCK_CONFIG.Language||'en';fetch('i18n/'+_lang+'.json').then(function(r){return r.json();}).then(function(t){MOCK_TRANSLATIONS=t;resolve(t);}).catch(function(){MOCK_TRANSLATIONS={};resolve(MOCK_TRANSLATIONS);});}
+else if(url.includes("Statistics/Latest"))resolve(structuredClone(MOCK_STATISTICS));
+else if(url.includes("GrowthTimeline"))resolve(structuredClone(MOCK_GROWTH_TIMELINE));
+else if(url.includes("Statistics/History"))resolve(MOCK_HISTORY);
+else if(url.includes("Statistics")&&url.includes("forceRefresh"))resolve(structuredClone(MOCK_STATISTICS));
+else if(url.includes("CleanupStatistics"))resolve(MOCK_CLEANUP_STATS);
+else if(url.includes("Configuration/LogLevel")&&method==="PUT"){try{var b=JSON.parse(opts.data);if(b.PluginLogLevel)MOCK_CONFIG.PluginLogLevel=b.PluginLogLevel;}catch(e){}resolve({message:"Log level updated.",pluginLogLevel:MOCK_CONFIG.PluginLogLevel});}
+else if(url.includes("Configuration/Libraries")&&!url.includes("LibraryPaths"))resolve({libraries:structuredClone(MOCK_LIBRARIES)});
+else if(url.includes("Configuration/LibraryPaths"))resolve(structuredClone(MOCK_LIBRARY_PATHS));
+else if(url.includes("Configuration/BrowseFolders")||url.includes("BrowseFolders")){var bp=null;var bm=url.match(/[?&]path=([^&]*)/);if(bm){bp=decodeURIComponent(bm[1]);}resolve(structuredClone(MOCK_BROWSE_FOLDERS(bp)));}
+else if(url.includes("Configuration")&&method==="POST"){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
+else if(url.includes("Configuration"))resolve(structuredClone(MOCK_CONFIG));
+else if(url.includes("Trash/Contents"))resolve(MOCK_TRASH_CONTENTS);
+    else if(url.includes("Trash/CheckAccess")&&method==="POST"){resolve({AllAccessible:true,Results:[{Path:"/data/movies/.jellyfin-trash",Exists:false,CanRead:true,CanWrite:true,HasFullAccess:true,ErrorMessage:null}]});}
+    else if(url.includes("Trash/Relocate")&&method==="POST"){resolve({Moved:3,Failed:0});}
+    else if(url.includes("Trash/FoldersForPath")&&method==="POST"){try{var fpBody=JSON.parse(opts.data);resolve(structuredClone(MOCK_TRASH_FOLDERS_FOR_PATH(fpBody.TrashFolderPath)));}catch(e){resolve({Paths:[],IsAbsolute:false});}}
+    else if(url.includes("Trash/Folders")&&method==="DELETE")resolve({deleted:2,failed:0});
+    else if(url.includes("Trash/Folders"))resolve(MOCK_TRASH_FOLDERS);
+else if(url.includes("Trash/Summary"))resolve({TotalSize:17179869184,TotalItems:3});
+else if(url.includes("Discovery/Services/radarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_RADARR));
+else if(url.includes("Discovery/Services/sonarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_SONARR));
+else if(url.includes("Discovery/Request")&&method==="POST")resolve({Success:true,Message:"Request submitted to Jellyseerr."});
+else if(url.includes("Discovery")&&!url.includes("Services")&&!url.includes("Request"))resolve(structuredClone(MOCK_DISCOVERY));
+else if(url.includes("Seerr/Test"))resolve({success:true,message:"Connected to Jellyseerr (demo)"});
+else if(url.includes("ArrIntegration/TestConnection"))resolve({Success:true,Message:"Connection successful (demo)"});
+else if(url.includes("ArrIntegration/Compare/"))resolve(structuredClone(MOCK_ARR_COMPARE));
+else if(url.includes("Logs/Download")){var lt=MOCK_LOGS.Entries.map(function(e){return e.Timestamp+" ["+e.Level+"] "+e.Source+": "+e.Message;}).join("\n");resolve(lt);}
+else if(url.includes("Logs")&&method==="DELETE"){MOCK_LOGS.Entries=[];MOCK_LOGS.TotalCount=0;resolve({});}
+else if(url.includes("Logs"))resolve(structuredClone(MOCK_LOGS));
+else if(url.includes("Recommendations/WatchProfile/")){var wp=url.split("WatchProfile/");var wid=wp.length>1?wp[1].split("?")[0]:"";resolve(structuredClone(MOCK_WATCH_PROFILES[wid]||{}));}
+else if(url.includes("Recommendations/WatchProfiles"))resolve(structuredClone(MOCK_WATCH_PROFILES));
+else if(url.includes("Recommendations/")&&!url.includes("WatchProfile")){var rp=url.split("Recommendations/");var rid=rp.length>1?rp[1].split("?")[0]:"";var ur=MOCK_RECOMMENDATIONS.filter(function(r){return r.UserId===rid;});resolve(structuredClone(ur.length>0?ur[0]:{}));}
+else if(url.includes("Recommendations"))resolve(structuredClone(MOCK_RECOMMENDATIONS));
+else if(url.includes("UserActivity/User/")){var ua=url.split("UserActivity/User/");var uid=ua.length>1?ua[1].split("?")[0]:"";resolve(structuredClone(MOCK_USER_ACTIVITY[uid]||[]));}
+else if(url.includes("UserActivity/Latest"))resolve(structuredClone(MOCK_USER_ACTIVITY));
+else if(url.includes("LibraryInsights"))resolve(structuredClone(MOCK_LIBRARY_INSIGHTS));
+else if(url.includes("Libraries"))resolve(MOCK_LIBRARIES);
 else{console.warn("Mock: unhandled",url);resolve({});}
 },150+Math.random()*200);});}
 };
 
 var _of=window.fetch.bind(window);
-window.fetch=function(url,opts){if(typeof url==="string"&&url.indexOf("mock://")===0){return ApiClient.ajax({url:url,type:(opts&&opts.method)||"GET",data:opts&&opts.body,dataType:"json"}).then(function(d){var b=typeof d==="string"?d:JSON.stringify(d);var ct=url.indexOf("Logs/Download")!==-1?"text/plain; charset=utf-8":"application/json";return new Response(b,{status:200,headers:{"Content-Type":ct}});});}return _of(url,opts);};
+window.fetch=function(url,opts){if(typeof url==="string"&&url.startsWith("mock://")){return ApiClient.ajax({url:url,type:(opts?.method)||"GET",data:opts?.body,dataType:"json"}).then(function(d){var b=typeof d==="string"?d:JSON.stringify(d);var ct=url.includes("Logs/Download")?"text/plain; charset=utf-8":"application/json";return new Response(b,{status:200,headers:{"Content-Type":ct}});});}return _of(url,opts);};

@@ -46,13 +46,7 @@ internal static class DiversityReranker
 
         foreach (var entry in scored)
         {
-            Guid? seriesId = entry.Item switch
-            {
-                Episode ep => ep.SeriesId != Guid.Empty ? ep.SeriesId : null,
-                Season season => season.SeriesId != Guid.Empty ? season.SeriesId : null,
-                Series s => s.Id != Guid.Empty ? s.Id : null,
-                _ => null
-            };
+            Guid? seriesId = ResolveSeriesId(entry.Item);
 
             if (seriesId is null)
             {
@@ -76,6 +70,24 @@ internal static class DiversityReranker
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Resolves the series identifier used for deduplication from a candidate item.
+    ///     Episodes and seasons resolve to their parent series id; a series resolves to its own id.
+    ///     Non-series items (and any item with an empty series id) return <c>null</c>.
+    /// </summary>
+    /// <param name="item">The candidate item.</param>
+    /// <returns>The series id to dedupe on, or <c>null</c> for non-series items.</returns>
+    private static Guid? ResolveSeriesId(BaseItem item)
+    {
+        return item switch
+        {
+            Episode ep => ep.SeriesId != Guid.Empty ? ep.SeriesId : null,
+            Season season => season.SeriesId != Guid.Empty ? season.SeriesId : null,
+            Series s => s.Id != Guid.Empty ? s.Id : null,
+            _ => null
+        };
     }
 
     /// <summary>

@@ -46,6 +46,8 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
+        ArgumentNullException.ThrowIfNull(features);
+
         // Rent from ArrayPool to avoid per-call allocation (same pattern as LearnedScoringStrategy).
         // The heuristic is called for every candidate in the Ensemble hot path.
         var vector = ArrayPool<double>.Shared.Rent(CandidateFeatures.FeatureCount);
@@ -70,6 +72,8 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
+        ArgumentNullException.ThrowIfNull(features);
+
         // Rent from ArrayPool to avoid per-call allocation (same pattern as LearnedScoringStrategy).
         var vector = ArrayPool<double>.Shared.Rent(CandidateFeatures.FeatureCount);
         try

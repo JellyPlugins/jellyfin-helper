@@ -365,81 +365,10 @@ public sealed class BackupService : IBackupService
             config.SeerrCleanupTaskMode = ParseTaskMode(backup.SeerrCleanupTaskMode, TaskMode.Deactivate);
 
             // Seerr settings
-            // An empty backup URL means "leave the existing URL in place", mirroring the API key
-            // guard below - a backup created without Seerr must not silently wipe a working URL.
-            // Also validate the URL scheme so a crafted backup cannot persist a non-http(s)
-            // URL (e.g. "file:///etc/passwd") into the live configuration.
-            if (!string.IsNullOrEmpty(backup.SeerrUrl))
-            {
-                var truncatedUrl = BackupSanitizer.TruncateString(backup.SeerrUrl, BackupValidator.MaxUrlLength);
-                if (Uri.TryCreate(truncatedUrl, UriKind.Absolute, out var parsedUrl)
-                    && (parsedUrl.Scheme == Uri.UriSchemeHttp || parsedUrl.Scheme == Uri.UriSchemeHttps))
-                {
-                    config.SeerrUrl = truncatedUrl;
-                }
-                else
-                {
-                    _pluginLog.LogWarning(
-                        LogSource,
-                        $"Backup SeerrUrl '{truncatedUrl}' is not a valid http/https URL - skipping to avoid persisting an unsafe scheme.",
-                        logger: _logger);
-                }
-            }
-
-            // API keys: an empty backup value means "leave the existing key in place"; a
-            // non-empty value is applied after the same length-truncation as other fields.
-            // When the incoming value actually differs from the current stored value, emit an
-            // audit warning and set the CredentialsChanged flag so callers can surface a
-            // notification to the operator.
-            if (!string.IsNullOrEmpty(backup.SeerrApiKey))
-            {
-                var truncatedSeerrKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
-                var truncatedStoredKey = BackupSanitizer.TruncateString(config.SeerrApiKey, BackupValidator.MaxApiKeyLength);
-                if (truncatedSeerrKey != truncatedStoredKey)
-                {
-                    _pluginLog.LogWarning(
-                        LogSource,
-                        "Backup restore is replacing credentials: Seerr API key changed.",
-                        logger: _logger);
-                    summary.CredentialsChanged = true;
-                }
-
-                config.SeerrApiKey = truncatedSeerrKey;
-            }
-
-            // Null means "absent in backup" (older plugin version or
-            // field omitted), so leave the live value unchanged. A non-null value - including
-            // 0 ("immediate cleanup") - is always applied after clamping.
-            if (backup.SeerrCleanupAgeDays.HasValue)
-            {
-                config.SeerrCleanupAgeDays = Math.Clamp(
-                    backup.SeerrCleanupAgeDays.Value,
-                    0,
-                    BackupValidator.MaxRetentionDays);
-            }
+            RestoreSeerrSettings(config, backup, summary);
 
             // Trash settings
-            config.UseTrash = backup.UseTrash;
-            // Defang an unsafe trash path from a crafted backup to the default, rather than hard-failing
-            // the whole restore (a restore must always succeed; validation only hard-errors when the
-            // operator actively enables trash via the live save API). Two dangers are neutralised:
-            //   * traversal ("..", ".") that could escape the library root, and
-            //   * a sensitive absolute system path (/etc, C:\Windows, the Jellyfin /config, ...) that
-            //     must never land in live config even with UseTrash=false.
-            // Split on the LITERAL ['/', '\\'] (not Path.DirectorySeparatorChar/AltDirectorySeparatorChar,
-            // which both collapse to '/' on Unix and would let a Windows-style "foo\..\bar" slip through
-            // on a Linux host). IsSensitiveSystemPath is lexical, so feed it the raw path (a legitimate
-            // RELATIVE custom path like ".custom-trash" is neither traversal nor sensitive and survives).
-            var rawTrashPath = backup.TrashFolderPath;
-            var hasTraversal = !string.IsNullOrWhiteSpace(rawTrashPath) &&
-                rawTrashPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
-                            .Any(s => s is "." or "..");
-            var isSensitive = !string.IsNullOrWhiteSpace(rawTrashPath) &&
-                PathValidator.IsSensitiveSystemPath(rawTrashPath);
-            config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal || isSensitive
-                ? ".jellyfin-trash"
-                : rawTrashPath;
-            config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
+            RestoreTrashSettings(config, backup);
 
             // Smart Recommendations (only task mode - count and strategy use sensible defaults).
             // Default to DryRun so importing an older backup enables the Discover UI in read-only mode.
@@ -462,6 +391,102 @@ public sealed class BackupService : IBackupService
         });
 
         _pluginLog.LogInfo(LogSource, "Configuration restored from backup.", _logger);
+    }
+
+    /// <summary>
+    ///     Restores the Seerr URL and API key from the backup into the live config. An empty backup URL
+    ///     or key means "leave the existing value in place"; a non-empty URL is only applied when it is a
+    ///     valid http/https absolute URL, and a differing API key sets
+    ///     <see cref="BackupRestoreSummary.CredentialsChanged"/> after an audit warning.
+    /// </summary>
+    /// <param name="config">The live configuration being mutated.</param>
+    /// <param name="backup">The backup data being restored.</param>
+    /// <param name="summary">The restore summary to flag credential changes on.</param>
+    private void RestoreSeerrSettings(PluginConfiguration config, BackupData backup, BackupRestoreSummary summary)
+    {
+        // An empty backup URL means "leave the existing URL in place", mirroring the API key
+        // guard below - a backup created without Seerr must not silently wipe a working URL.
+        // Also validate the URL scheme so a crafted backup cannot persist a non-http(s)
+        // URL (e.g. "file:///etc/passwd") into the live configuration.
+        if (!string.IsNullOrEmpty(backup.SeerrUrl))
+        {
+            var truncatedUrl = BackupSanitizer.TruncateString(backup.SeerrUrl, BackupValidator.MaxUrlLength);
+            if (Uri.TryCreate(truncatedUrl, UriKind.Absolute, out var parsedUrl)
+                && (parsedUrl.Scheme == Uri.UriSchemeHttp || parsedUrl.Scheme == Uri.UriSchemeHttps))
+            {
+                config.SeerrUrl = truncatedUrl;
+            }
+            else
+            {
+                _pluginLog.LogWarning(
+                    LogSource,
+                    $"Backup SeerrUrl '{truncatedUrl}' is not a valid http/https URL - skipping to avoid persisting an unsafe scheme.",
+                    logger: _logger);
+            }
+        }
+
+        // API keys: an empty backup value means "leave the existing key in place"; a
+        // non-empty value is applied after the same length-truncation as other fields.
+        // When the incoming value actually differs from the current stored value, emit an
+        // audit warning and set the CredentialsChanged flag so callers can surface a
+        // notification to the operator.
+        if (!string.IsNullOrEmpty(backup.SeerrApiKey))
+        {
+            var truncatedSeerrKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
+            var truncatedStoredKey = BackupSanitizer.TruncateString(config.SeerrApiKey, BackupValidator.MaxApiKeyLength);
+            if (truncatedSeerrKey != truncatedStoredKey)
+            {
+                _pluginLog.LogWarning(
+                    LogSource,
+                    "Backup restore is replacing credentials: Seerr API key changed.",
+                    logger: _logger);
+                summary.CredentialsChanged = true;
+            }
+
+            config.SeerrApiKey = truncatedSeerrKey;
+        }
+
+        // Null means "absent in backup" (older plugin version or
+        // field omitted), so leave the live value unchanged. A non-null value - including
+        // 0 ("immediate cleanup") - is always applied after clamping.
+        if (backup.SeerrCleanupAgeDays.HasValue)
+        {
+            config.SeerrCleanupAgeDays = Math.Clamp(
+                backup.SeerrCleanupAgeDays.Value,
+                0,
+                BackupValidator.MaxRetentionDays);
+        }
+    }
+
+    /// <summary>
+    ///     Restores the trash toggle, folder path, and retention days from the backup into the live
+    ///     config, defanging an unsafe trash path (traversal or sensitive system path) to the default.
+    /// </summary>
+    /// <param name="config">The live configuration being mutated.</param>
+    /// <param name="backup">The backup data being restored.</param>
+    private static void RestoreTrashSettings(PluginConfiguration config, BackupData backup)
+    {
+        config.UseTrash = backup.UseTrash;
+        // Defang an unsafe trash path from a crafted backup to the default, rather than hard-failing
+        // the whole restore (a restore must always succeed; validation only hard-errors when the
+        // operator actively enables trash via the live save API). Two dangers are neutralised:
+        //   * traversal ("..", ".") that could escape the library root, and
+        //   * a sensitive absolute system path (/etc, C:\Windows, the Jellyfin /config, ...) that
+        //     must never land in live config even with UseTrash=false.
+        // Split on the LITERAL ['/', '\\'] (not Path.DirectorySeparatorChar/AltDirectorySeparatorChar,
+        // which both collapse to '/' on Unix and would let a Windows-style "foo\..\bar" slip through
+        // on a Linux host). IsSensitiveSystemPath is lexical, so feed it the raw path (a legitimate
+        // RELATIVE custom path like ".custom-trash" is neither traversal nor sensitive and survives).
+        var rawTrashPath = backup.TrashFolderPath;
+        var hasTraversal = !string.IsNullOrWhiteSpace(rawTrashPath) &&
+            rawTrashPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
+                        .Any(s => s is "." or "..");
+        var isSensitive = !string.IsNullOrWhiteSpace(rawTrashPath) &&
+            PathValidator.IsSensitiveSystemPath(rawTrashPath);
+        config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal || isSensitive
+            ? ".jellyfin-trash"
+            : rawTrashPath;
+        config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
     }
 
     /// <summary>

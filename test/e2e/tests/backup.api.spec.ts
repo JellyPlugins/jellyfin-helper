@@ -327,7 +327,7 @@ test('timeline round-trips: exported data points come back via GET GrowthTimelin
   expect(after.ok()).toBeTruthy();
   const body = (await after.json()) as { DataPoints?: unknown[]; dataPoints?: unknown[] };
   const restored = body.DataPoints ?? body.dataPoints ?? [];
-  expect(restored.length).toBe(points.length);
+  expect(restored).toHaveLength(points.length);
   await assertPluginActive(ctx);
 });
 

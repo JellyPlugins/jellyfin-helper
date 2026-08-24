@@ -74,6 +74,8 @@ public class ArrIntegrationController : ControllerBase
         [FromBody] ArrTestConnectionRequest request,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         var url = request.Url ?? string.Empty;
 
         // Scheme guard only: reject non-HTTP(S) schemes (file://, ftp://, ...). We deliberately do

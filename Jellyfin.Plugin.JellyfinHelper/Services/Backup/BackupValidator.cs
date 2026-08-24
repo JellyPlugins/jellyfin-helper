@@ -125,6 +125,33 @@ public static class BackupValidator
             result.Errors.Add($"Unsupported backup version: {backup.BackupVersion}. Expected 1–{MaxBackupVersion}.");
         }
 
+        ValidateTimestamp(result, backup);
+        ValidateStringFields(result, backup);
+        ValidateEnums(result, backup);
+        ValidateNumericRanges(result, backup);
+        ValidateTrashPath(result, backup);
+
+        // Arr instances validation
+        ValidateArrInstances(result, backup.RadarrInstances, "RadarrInstances");
+        ValidateArrInstances(result, backup.SonarrInstances, "SonarrInstances");
+
+        // Historical data validation
+        ValidateGrowthTimeline(result, backup.GrowthTimeline);
+        ValidateGrowthBaseline(result, backup.GrowthBaseline);
+
+        return result;
+    }
+
+    // === Validation helpers ===
+
+    /// <summary>
+    ///     Validates the backup timestamp, normalising an unspecified <see cref="DateTimeKind"/> to UTC
+    ///     before the suspiciously-old / in-the-future sanity comparisons.
+    /// </summary>
+    /// <param name="result">The validation result to append warnings to.</param>
+    /// <param name="backup">The backup being validated.</param>
+    private static void ValidateTimestamp(BackupValidationResult result, BackupData backup)
+    {
         // Timestamp sanity
         // Normalise Kind before comparing - JSON without a 'Z' suffix deserialises as Unspecified,
         // which .NET does NOT automatically treat as UTC in comparisons, causing incorrect results.
@@ -146,7 +173,16 @@ public static class BackupValidator
         {
             result.Warnings.Add($"Backup timestamp is in the future: {backup.CreatedAt:O}");
         }
+    }
 
+    /// <summary>
+    ///     Runs the XSS / injection length checks over every string field of the backup, including the
+    ///     Seerr URL scheme check.
+    /// </summary>
+    /// <param name="result">The validation result to append findings to.</param>
+    /// <param name="backup">The backup being validated.</param>
+    private static void ValidateStringFields(BackupValidationResult result, BackupData backup)
+    {
         // String field validation (XSS / injection prevention)
         ValidateStringField(result, backup.Language, "Language", MaxStringLength);
         ValidateStringField(result, backup.ExcludedLibraries, "ExcludedLibraries", MaxStringLength);
@@ -168,7 +204,15 @@ public static class BackupValidator
         {
             result.Errors.Add($"SeerrUrl is not a valid HTTP/HTTPS URL: '{backup.SeerrUrl}'.");
         }
+    }
 
+    /// <summary>
+    ///     Validates the enum-like fields (language, task modes, log level) against their allowed sets.
+    /// </summary>
+    /// <param name="result">The validation result to append warnings to.</param>
+    /// <param name="backup">The backup being validated.</param>
+    private static void ValidateEnums(BackupValidationResult result, BackupData backup)
+    {
         // Enum validation
         if (!string.IsNullOrEmpty(backup.Language) && !ValidLanguages.Contains(backup.Language))
         {
@@ -188,7 +232,15 @@ public static class BackupValidator
         {
             result.Warnings.Add($"Unknown log level '{backup.PluginLogLevel}'. Will default to 'INFO'.");
         }
+    }
 
+    /// <summary>
+    ///     Validates the numeric retention / age fields against their allowed ranges.
+    /// </summary>
+    /// <param name="result">The validation result to append errors to.</param>
+    /// <param name="backup">The backup being validated.</param>
+    private static void ValidateNumericRanges(BackupValidationResult result, BackupData backup)
+    {
         // Numeric range validation
         if (backup.OrphanMinAgeDays is < 0 or > MaxRetentionDays)
         {
@@ -208,7 +260,16 @@ public static class BackupValidator
             result.Errors.Add(
                 $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 0–{MaxRetentionDays}.");
         }
+    }
 
+    /// <summary>
+    ///     Validates the trash folder path with defence in depth, gated on <c>UseTrash</c>: injection-pattern
+    ///     safety plus the same structural rules the settings save API applies.
+    /// </summary>
+    /// <param name="result">The validation result to append errors to.</param>
+    /// <param name="backup">The backup being validated.</param>
+    private static void ValidateTrashPath(BackupValidationResult result, BackupData backup)
+    {
         // Path validation for trash folder - defence in depth:
         //   1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...}).
         //   2. ValidateTrashPathStrict applies the same structural rules as the settings save API.
@@ -218,33 +279,23 @@ public static class BackupValidator
         // The defang in BackupService.RestoreConfiguration is what keeps a traversal/sensitive/
         // absolute path from ever reaching live config when UseTrash=false. See the e2e contract
         // "import defangs a traversal trash path (UseTrash off) to the default".
-        if (backup.UseTrash)
+        if (!backup.UseTrash)
         {
-            if (!string.IsNullOrEmpty(backup.TrashFolderPath))
-            {
-                ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
-            }
-
-            var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
-                backup.TrashFolderPath, backup.UseTrash);
-            if (trashPathError != null)
-            {
-                result.Errors.Add($"TrashFolderPath: {trashPathError}");
-            }
+            return;
         }
 
-        // Arr instances validation
-        ValidateArrInstances(result, backup.RadarrInstances, "RadarrInstances");
-        ValidateArrInstances(result, backup.SonarrInstances, "SonarrInstances");
+        if (!string.IsNullOrEmpty(backup.TrashFolderPath))
+        {
+            ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
+        }
 
-        // Historical data validation
-        ValidateGrowthTimeline(result, backup.GrowthTimeline);
-        ValidateGrowthBaseline(result, backup.GrowthBaseline);
-
-        return result;
+        var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
+            backup.TrashFolderPath, backup.UseTrash);
+        if (trashPathError != null)
+        {
+            result.Errors.Add($"TrashFolderPath: {trashPathError}");
+        }
     }
-
-    // === Validation helpers ===
 
     private static void ValidateStringField(
         BackupValidationResult result,

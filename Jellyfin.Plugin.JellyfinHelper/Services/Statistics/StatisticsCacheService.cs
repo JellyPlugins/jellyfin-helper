@@ -34,6 +34,8 @@ public class StatisticsCacheService : IStatisticsCacheService
         IPluginLogService pluginLog,
         ILogger<StatisticsCacheService> logger)
     {
+        ArgumentNullException.ThrowIfNull(applicationPaths);
+
         _pluginLog = pluginLog;
         _logger = logger;
         _latestResultFilePath = Path.Join(applicationPaths.DataPath, LatestResultFileName);

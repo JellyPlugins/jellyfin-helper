@@ -62,6 +62,17 @@ public static class BackupSanitizer
         SanitizeArrInstances(backup.RadarrInstances);
         SanitizeArrInstances(backup.SonarrInstances);
 
+        SanitizeGrowthTimeline(backup);
+        SanitizeGrowthBaseline(backup);
+    }
+
+    /// <summary>
+    ///     Trims the growth timeline to the newest <see cref="BackupValidator.MaxTimelineDataPoints"/>
+    ///     entries and clamps each data point's cumulative size / file count to a non-negative value.
+    /// </summary>
+    /// <param name="backup">The backup whose growth timeline is sanitized in place.</param>
+    private static void SanitizeGrowthTimeline(BackupData backup)
+    {
         // Timeline data points limit - keep only the newest MaxTimelineDataPoints entries
         if (backup.GrowthTimeline is { DataPoints.Count: > BackupValidator.MaxTimelineDataPoints })
         {
@@ -93,7 +104,15 @@ public static class BackupSanitizer
                 point.CumulativeFileCount = Math.Max(0, point.CumulativeFileCount);
             }
         }
+    }
 
+    /// <summary>
+    ///     Clamps the growth baseline's per-directory size / count to non-negative values and trims the
+    ///     oldest entries by <c>CreatedUtc</c> when over <see cref="BackupValidator.MaxBaselineDirectories"/>.
+    /// </summary>
+    /// <param name="backup">The backup whose growth baseline is sanitized in place.</param>
+    private static void SanitizeGrowthBaseline(BackupData backup)
+    {
         // Same non-negativity guarantee for the growth baseline's per-directory size/count,
         // which is likewise warn-only in the validator and written verbatim on restore.
         if (backup.GrowthBaseline != null)

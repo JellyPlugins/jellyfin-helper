@@ -71,7 +71,7 @@ public class GrowthTimelineController : ControllerBase
                 var retryAfter = (int)Math.Ceiling((MinRefreshInterval - (now - _lastRefreshTime)).TotalSeconds);
                 if (Response != null)
                 {
-                    Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    Response.Headers.RetryAfter = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 }
 
                 return StatusCode(
@@ -80,7 +80,7 @@ public class GrowthTimelineController : ControllerBase
             }
 
             var previousRefreshTime = _lastRefreshTime;
-            _lastRefreshTime = now;
+            SetLastRefreshTime(now);
             try
             {
                 var result = await _growthTimelineService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);
@@ -88,7 +88,7 @@ public class GrowthTimelineController : ControllerBase
             }
             catch
             {
-                _lastRefreshTime = previousRefreshTime;
+                SetLastRefreshTime(previousRefreshTime);
                 throw;
             }
         }
@@ -96,5 +96,10 @@ public class GrowthTimelineController : ControllerBase
         {
             RateLimitSemaphore.Release();
         }
+    }
+
+    private static void SetLastRefreshTime(DateTime value)
+    {
+        _lastRefreshTime = value;
     }
 }

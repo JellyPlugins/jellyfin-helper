@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -57,6 +58,9 @@ public sealed class ModelBindingLogFilter : IAsyncActionFilter, IOrderedFilter
     /// <inheritdoc />
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(next);
+
         if (!context.ModelState.IsValid)
         {
             var bindingErrors = string.Join(
