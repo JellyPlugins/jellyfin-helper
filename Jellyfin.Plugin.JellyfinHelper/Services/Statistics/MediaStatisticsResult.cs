@@ -96,6 +96,22 @@ public class MediaStatisticsResult
     public int TotalAudioFileCount => Libraries.Sum(l => l.AudioFileCount);
 
     /// <summary>
+    /// Gets the total size of eBook files across all libraries in bytes.
+    /// </summary>
+    public long TotalBookSize => Libraries.Sum(l => l.BookSize);
+
+    /// <summary>
+    /// Gets the total eBook file count across all libraries.
+    /// </summary>
+    public int TotalBookFileCount => Libraries.Sum(l => l.BookFileCount);
+
+    /// <summary>
+    /// Gets the eBook format breakdown (format label -> count) aggregated across all libraries.
+    /// Empty when no eBooks exist, so the UI can render the Books section only when present.
+    /// </summary>
+    public Dictionary<string, int> TotalBookFormats => AggregateDictionaries(Libraries.Select(l => l.BookFormats));
+
+    /// <summary>
     /// Gets all video libraries (Movies + TV Shows + Other, excluding Music).
     /// Used for aggregations that only apply to video content.
     /// Computed fresh on each access to avoid stale results if the underlying collections change.
