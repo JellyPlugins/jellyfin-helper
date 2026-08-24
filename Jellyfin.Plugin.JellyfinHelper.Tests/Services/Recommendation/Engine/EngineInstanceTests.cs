@@ -348,7 +348,10 @@ public sealed class EngineInstanceTests
         // The default HeuristicScoringStrategy does not implement IDisposable, so Dispose must
         // skip the strategy branch and still dispose the internal training service without throwing.
         var harness = EngineTestFactory.Create();
-        harness.Engine.Dispose();
+
+        var ex = Record.Exception(() => harness.Engine.Dispose());
+
+        Assert.Null(ex);
     }
 
     [Fact]

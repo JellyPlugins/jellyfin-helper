@@ -40,8 +40,11 @@ public sealed class FolderBrowserServiceTests : IDisposable
         var disabled = TestMockFactory.CreateDisabledLogger<FolderBrowserService>().Object;
 
         // Constructor must not throw for either logger variant.
-        _ = new FolderBrowserService(enabled);
-        _ = new FolderBrowserService(disabled);
+        var withEnabled = Record.Exception(() => new FolderBrowserService(enabled));
+        var withDisabled = Record.Exception(() => new FolderBrowserService(disabled));
+
+        Assert.Null(withEnabled);
+        Assert.Null(withDisabled);
     }
 
     // ===== GetRoots =====

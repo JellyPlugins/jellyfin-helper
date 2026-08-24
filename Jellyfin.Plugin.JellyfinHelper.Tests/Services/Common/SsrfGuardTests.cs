@@ -51,7 +51,12 @@ public sealed class SsrfGuardTests
 
     [Fact]
     public void ThrowIfCloudMetadataHost_AllowedHost_DoesNotThrow()
-        => SsrfGuard.ThrowIfCloudMetadataHost("192.168.1.10", "baseUrl");
+    {
+        var ex = Record.Exception(
+            () => SsrfGuard.ThrowIfCloudMetadataHost("192.168.1.10", "baseUrl"));
+
+        Assert.Null(ex);
+    }
 
     // --- SafeEndpointLabel: never leak user-info credentials embedded in a URL ---
 
