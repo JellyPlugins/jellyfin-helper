@@ -299,7 +299,10 @@ public class SharedHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_AutoSaveIndicator_UsesGuardCounterForRaceConditions()
     {
-        Assert.Contains("data-save-guard", HtmlContent);
+        // The race-condition guard is a monotonically-incremented counter stored on the
+        // element's dataset (dataset.saveGuard); accessed via the `.dataset` DOM property
+        // rather than get/setAttribute('data-save-guard').
+        Assert.Contains("dataset.saveGuard", HtmlContent);
     }
 
     [Fact]
