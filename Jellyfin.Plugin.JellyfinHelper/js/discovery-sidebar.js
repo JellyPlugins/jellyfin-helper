@@ -427,7 +427,7 @@
             flipLinks[fl].addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
-                var url = this.getAttribute('data-href');
+                var url = this.dataset.href;
                 // Re-validate the scheme at the sink: even though data-href is HTML-escaped and
                 // the source is filtered, never hand a non-http(s) URL to window.open().
                 var safeUrl = safeHttpUrl(url);
@@ -443,8 +443,8 @@
     function handleRequest(e) {
         var btn = e.currentTarget;
         if (btn.disabled) return;
-        var tmdbId = parseInt(btn.getAttribute('data-tmdb'), 10);
-        var mediaType = btn.getAttribute('data-type');
+        var tmdbId = parseInt(btn.dataset.tmdb, 10);
+        var mediaType = btn.dataset.type;
         if (!tmdbId || !mediaType) return;
         fetchPermissionsAndRequest(tmdbId, mediaType, btn);
     }
@@ -703,9 +703,9 @@
     function handleDismissClick(e) {
         var btn = e.currentTarget;
         if (btn.disabled) return;
-        var tmdbId = parseInt(btn.getAttribute('data-tmdb'), 10);
-        var mediaType = btn.getAttribute('data-type');
-        var title = btn.getAttribute('data-title') || '';
+        var tmdbId = parseInt(btn.dataset.tmdb, 10);
+        var mediaType = btn.dataset.type;
+        var title = btn.dataset.title || '';
         if (!tmdbId || !mediaType) return;
         showDismissConfirmation(tmdbId, mediaType, title, btn);
     }
@@ -904,7 +904,7 @@
             if (container) {
                 var tabContent = container.closest('[data-index]');
                 if (tabContent) {
-                    var index = parseInt(tabContent.getAttribute('data-index'), 10);
+                    var index = parseInt(tabContent.dataset.index, 10);
                     if (!isNaN(index) && tabs[index]) {
                         tabs[index].click();
                         return;
@@ -913,8 +913,8 @@
             }
             // Strategy 2: data-attribute match (future Custom Tabs versions may set these)
             for (var i = 0; i < tabs.length; i++) {
-                if (tabs[i].getAttribute('data-tab') === 'jellyfinhelper-discovery' ||
-                    tabs[i].getAttribute('data-tabid') === 'jellyfinhelper-discovery') {
+                if (tabs[i].dataset.tab === 'jellyfinhelper-discovery' ||
+                    tabs[i].dataset.tabid === 'jellyfinhelper-discovery') {
                     tabs[i].click();
                     return;
                 }
@@ -928,7 +928,7 @@
                     if (retryContainer) {
                         var retryTabContent = retryContainer.closest('[data-index]');
                         if (retryTabContent) {
-                            var retryIndex = parseInt(retryTabContent.getAttribute('data-index'), 10);
+                            var retryIndex = parseInt(retryTabContent.dataset.index, 10);
                             var retryTabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
                             if (!isNaN(retryIndex) && retryTabs[retryIndex]) {
                                 retryTabs[retryIndex].click();

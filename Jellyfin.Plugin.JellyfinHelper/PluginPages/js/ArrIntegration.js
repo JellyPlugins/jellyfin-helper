@@ -172,7 +172,7 @@ function removeArrInstance(type, index) {
     var remaining = document.querySelectorAll(
         '.arr-instance-row[data-type="' + type + '"]');
     for (var i = 0; i < remaining.length; i++) {
-        remaining[i].setAttribute('data-index', i);
+        remaining[i].dataset.index = i;
         var prefix = type + '_' + i;
         var inputs = remaining[i].querySelectorAll('input');
         var labels = remaining[i].querySelectorAll('label');
@@ -197,11 +197,11 @@ function removeArrInstance(type, index) {
         }
         var removeBtn = remaining[i].querySelector('.btnRemoveArr');
         if (removeBtn) {
-            removeBtn.setAttribute('data-index', i);
+            removeBtn.dataset.index = i;
         }
         var testBtn = remaining[i].querySelector('.btnTestArr');
         if (testBtn) {
-            testBtn.setAttribute('data-index', i);
+            testBtn.dataset.index = i;
             testBtn.id = prefix + '_btnTest';
         }
     }

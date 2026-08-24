@@ -306,7 +306,7 @@ function bindFileTreeHandlers(container) {
     for (var j = 0; j < actionBtns.length; j++) {
         (function (btn) {
             btn.addEventListener('click', function () {
-                var action = btn.getAttribute('data-tree-action');
+                var action = btn.dataset.treeAction;
                 var panel = btn.closest('.file-tree-panel');
                 var nodes = panel ? panel.querySelectorAll('.tree-node') : [];
                 for (var k = 0; k < nodes.length; k++) {
@@ -358,12 +358,12 @@ function showAutoSaveIndicatorOverlay(element, success) {
     // Library multi-select toggle: replace chevron span content
     var chevronSpan = element.querySelector && element.querySelector('.library-multiselect-chevron');
     if (chevronSpan) {
-        var chevronGuard = (Number.parseInt(chevronSpan.getAttribute('data-save-guard') || '0', 10)) + 1;
-        chevronSpan.setAttribute('data-save-guard', String(chevronGuard));
+        var chevronGuard = (Number.parseInt(chevronSpan.dataset.saveGuard || '0', 10)) + 1;
+        chevronSpan.dataset.saveGuard = String(chevronGuard);
         chevronSpan.innerHTML = '<span style="color:' + color + ';font-size:1em;">' + iconHtml + '</span>';
         (function (guardVal) {
             setTimeout(function () {
-                if (chevronSpan.getAttribute('data-save-guard') !== String(guardVal)) return;
+                if (chevronSpan.dataset.saveGuard !== String(guardVal)) return;
                 chevronSpan.innerHTML = mi('expand_more');
             }, fadeDelay);
         })(chevronGuard);
@@ -375,18 +375,18 @@ function showAutoSaveIndicatorOverlay(element, success) {
         && !/^(checkbox|radio|file|range|color|submit|button|reset)$/i.test(element.type || 'text');
     if (element.tagName === 'SELECT' || isTextLikeInput) {
         // Increment a guard counter to prevent race conditions on rapid changes
-        var selectGuard = (Number.parseInt(element.getAttribute('data-save-guard') || '0', 10)) + 1;
-        element.setAttribute('data-save-guard', String(selectGuard));
+        var selectGuard = (Number.parseInt(element.dataset.saveGuard || '0', 10)) + 1;
+        element.dataset.saveGuard = String(selectGuard);
 
         // Store true originals only on first invocation to prevent snapshot poisoning
         // when a second auto-save fires while the first icon is still displayed.
-        if (!element.hasAttribute('data-orig-bg')) {
-            element.setAttribute('data-orig-bg', element.style.backgroundImage || '');
-            element.setAttribute('data-orig-bg-repeat', element.style.backgroundRepeat || '');
-            element.setAttribute('data-orig-bg-position', element.style.backgroundPosition || '');
-            element.setAttribute('data-orig-bg-size', element.style.backgroundSize || '');
-            element.setAttribute('data-orig-appearance', element.style.appearance || '');
-            element.setAttribute('data-orig-webkit-appearance', element.style.webkitAppearance || '');
+        if (!('origBg' in element.dataset)) {
+            element.dataset.origBg = element.style.backgroundImage || '';
+            element.dataset.origBgRepeat = element.style.backgroundRepeat || '';
+            element.dataset.origBgPosition = element.style.backgroundPosition || '';
+            element.dataset.origBgSize = element.style.backgroundSize || '';
+            element.dataset.origAppearance = element.style.appearance || '';
+            element.dataset.origWebkitAppearance = element.style.webkitAppearance || '';
         }
 
         // Hide native browser arrow (for selects outside .settings-form that still have native appearance)
@@ -407,20 +407,20 @@ function showAutoSaveIndicatorOverlay(element, success) {
         // Restore original styles after delay (only if no newer indicator was triggered)
         (function (guardVal, el) {
             setTimeout(function () {
-                if (el.getAttribute('data-save-guard') !== String(guardVal)) return;
-                el.style.backgroundImage = el.getAttribute('data-orig-bg') || '';
-                el.style.backgroundRepeat = el.getAttribute('data-orig-bg-repeat') || '';
-                el.style.backgroundPosition = el.getAttribute('data-orig-bg-position') || '';
-                el.style.backgroundSize = el.getAttribute('data-orig-bg-size') || '';
-                el.style.appearance = el.getAttribute('data-orig-appearance') || '';
-                el.style.webkitAppearance = el.getAttribute('data-orig-webkit-appearance') || '';
+                if (el.dataset.saveGuard !== String(guardVal)) return;
+                el.style.backgroundImage = el.dataset.origBg || '';
+                el.style.backgroundRepeat = el.dataset.origBgRepeat || '';
+                el.style.backgroundPosition = el.dataset.origBgPosition || '';
+                el.style.backgroundSize = el.dataset.origBgSize || '';
+                el.style.appearance = el.dataset.origAppearance || '';
+                el.style.webkitAppearance = el.dataset.origWebkitAppearance || '';
                 // Clear stored originals so next invocation re-captures fresh state
-                el.removeAttribute('data-orig-bg');
-                el.removeAttribute('data-orig-bg-repeat');
-                el.removeAttribute('data-orig-bg-position');
-                el.removeAttribute('data-orig-bg-size');
-                el.removeAttribute('data-orig-appearance');
-                el.removeAttribute('data-orig-webkit-appearance');
+                delete el.dataset.origBg;
+                delete el.dataset.origBgRepeat;
+                delete el.dataset.origBgPosition;
+                delete el.dataset.origBgSize;
+                delete el.dataset.origAppearance;
+                delete el.dataset.origWebkitAppearance;
             }, fadeDelay);
         })(selectGuard, element);
         return;

@@ -489,8 +489,8 @@ function handleDiscoveryRequest(e) {
     var btn = e.currentTarget;
     if (btn.disabled) return;
 
-    var tmdbId = Number.parseInt(btn.getAttribute('data-tmdb-id'), 10);
-    var mediaType = btn.getAttribute('data-media-type');
+    var tmdbId = Number.parseInt(btn.dataset.tmdbId, 10);
+    var mediaType = btn.dataset.mediaType;
     if (!tmdbId || !mediaType) return;
 
     // Show profile selection popup before submitting

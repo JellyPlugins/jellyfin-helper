@@ -1566,7 +1566,7 @@ function showLibraryMultiSelectIndicator(wrapperId, success) {
 function initLibraryMultiSelects(cfg) {
     var wrapper = document.getElementById('cfgExcludedWrapper');
     if (wrapper) {
-        wrapper.setAttribute('data-initial-value', cfg.ExcludedLibraries || '');
+        wrapper.dataset.initialValue = cfg.ExcludedLibraries || '';
     }
 
     apiGet('JellyfinHelper/Configuration/Libraries', function (data) {
@@ -1618,7 +1618,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
             missingSelected.push(selectedSet[key]);
         }
     }
-    wrapper.setAttribute('data-missing-values', missingSelected.join(', '));
+    wrapper.dataset.missingValues = missingSelected.join(', ');
 
     var selectedCount = Object.keys(selectedSet).length;
     var noneSelectedLabel = T('libraryNoneExcluded', 'None excluded (default)');
@@ -1725,7 +1725,7 @@ function getLibraryMultiSelectValue(wrapperId) {
     var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
     if (checkboxes.length === 0) {
         // Widget not yet rendered (async API call pending) - return initial value to avoid data loss
-        return wrapper.getAttribute('data-initial-value') || '';
+        return wrapper.dataset.initialValue || '';
     }
     var selected = [];
     for (var i = 0; i < checkboxes.length; i++) {
@@ -1734,7 +1734,7 @@ function getLibraryMultiSelectValue(wrapperId) {
     // Preserve previously-excluded library names that are no longer returned by the API
     // (e.g. renamed or deleted libraries). Without this, those exclusions would be silently
     // dropped on the next save, potentially causing unexpected cleanup of those libraries.
-    var missingValues = wrapper.getAttribute('data-missing-values');
+    var missingValues = wrapper.dataset.missingValues;
     if (missingValues) {
         var parts = missingValues.split(',');
         for (var m = 0; m < parts.length; m++) {

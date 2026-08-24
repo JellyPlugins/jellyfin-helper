@@ -26,7 +26,7 @@ function showDonutTooltip(container, evt, segment) {
         return;
     }
 
-    var segId = segment.getAttribute('data-segment-id');
+    var segId = segment.dataset.segmentId;
     var info = _donutTooltipData[segId];
     if (!info) {
         return;
@@ -97,13 +97,13 @@ function triggerCodecRowForSegment(segment) {
     if (!chartBox) {
         return;
     }
-    var codecName = segment.getAttribute('data-codec');
+    var codecName = segment.dataset.codec;
     if (!codecName) {
         return;
     }
     var rows = chartBox.querySelectorAll('.codec-clickable');
     for (var i = 0; i < rows.length; i++) {
-        if (rows[i].getAttribute('data-codec') === codecName) {
+        if (rows[i].dataset.codec === codecName) {
             // Force scroll when triggered from donut (user clicked far above the panel)
             _forceScrollOnPanelOpen = true;
             rows[i].click();
@@ -338,14 +338,14 @@ function attachCodecClickHandlers() {
         groupAttr: 'data-chart',
         typeAttr: 'data-codec',
         getPanelId: function (item) {
-            return 'codecDetail_' + item.getAttribute('data-chart');
+            return 'codecDetail_' + item.dataset.chart;
         },
         renderContent: function (item) {
             if (!_lastCodecData) {
                 return '';
             }
-            var chartId = item.getAttribute('data-chart');
-            var codecName = item.getAttribute('data-codec');
+            var chartId = item.dataset.chart;
+            var codecName = item.dataset.codec;
             var pathsProp = CODEC_PATH_MAP[chartId];
             var categories = CODEC_CATEGORY_MAP[chartId];
             var result = collectCodecPaths(_lastCodecData, pathsProp, codecName,
@@ -370,7 +370,7 @@ function attachDonutHoverTooltips() {
                     var seg = this.closest('.donut-segment');
                     seg.classList.add('donut-segment-hover');
                     showDonutTooltip(container, evt, seg);
-                    _activeTooltipSegmentId = seg.getAttribute('data-segment-id');
+                    _activeTooltipSegmentId = seg.dataset.segmentId;
                 });
 
                 paths[i].addEventListener('mousemove', function (evt) {
@@ -399,7 +399,7 @@ function attachDonutHoverTooltips() {
                     evt.preventDefault();
                     _lastTouchEndTime = Date.now();
                     var seg = this.closest('.donut-segment');
-                    var segId = seg.getAttribute('data-segment-id');
+                    var segId = seg.dataset.segmentId;
 
                     if (_activeTooltipSegmentId === segId) {
                         // Second tap on same segment - trigger the click action

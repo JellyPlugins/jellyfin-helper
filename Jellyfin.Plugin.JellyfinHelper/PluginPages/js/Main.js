@@ -6,11 +6,11 @@ function initTabs() {
     for (var i = 0; i < tabBtns.length; i++) {
         tabBtns[i].addEventListener('click', function () {
             var clickedBtn = this;
-            var tabId = clickedBtn.getAttribute('data-tab');
+            var tabId = clickedBtn.dataset.tab;
 
             // Check if we're leaving the settings tab with unsaved changes
             var currentActive = document.querySelector('.tab-btn.active');
-            var currentTab = currentActive ? currentActive.getAttribute('data-tab')
+            var currentTab = currentActive ? currentActive.dataset.tab
                 : '';
             if (currentTab === 'settings' && tabId !== 'settings'
                 && typeof checkUnsavedAndProceed === 'function') {

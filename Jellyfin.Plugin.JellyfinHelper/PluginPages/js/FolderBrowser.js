@@ -209,7 +209,7 @@ function loadLibraryPathsForBrowser(quickJumpEl, state, listing, breadcrumb) {
         var btns = quickJumpEl.querySelectorAll('.folder-browser-quick-btn');
         for (var j = 0; j < btns.length; j++) {
             btns[j].addEventListener('click', function () {
-                var p = this.getAttribute('data-path');
+                var p = this.dataset.path;
                 if (p) browseTo(p, listing, breadcrumb, state);
             });
         }
@@ -295,7 +295,7 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
             items[j].setAttribute('tabindex', '0');
             items[j].setAttribute('role', 'button');
             items[j].addEventListener('click', function () {
-                var targetPath = this.getAttribute('data-path');
+                var targetPath = this.dataset.path;
                 if (targetPath === '') {
                     // Go to roots
                     browseTo(null, listingEl, breadcrumbEl, state);
