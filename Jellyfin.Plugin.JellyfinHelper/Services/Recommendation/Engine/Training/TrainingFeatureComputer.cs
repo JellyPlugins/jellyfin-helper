@@ -291,7 +291,7 @@ internal static class TrainingFeatureComputer
         // Aggregate the new content fields across episodes (union of countries / inherited tags /
         // writers; first non-empty franchise name). Series lifecycle comes from the representative
         // episode row. Billing is neutralized (no per-item people/billing cached on WatchedItemInfo),
-        // mirroring the organic branch. All reads are null-safe (setters coalesce null → []).
+        // mirroring the organic branch. All reads are null-safe (setters coalesce null -> []).
         string? seriesFranchise = null;
         var seriesCountries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seriesInheritedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -388,9 +388,9 @@ internal static class TrainingFeatureComputer
         // Label based on aggregated completion:
         // - No episodes played (all favorite-only): 0.65 (explicit interest)
         // - Low completion (started but abandoned most episodes): AbandonedLabel (0.0)
-        // - Normal completion: engagement-proportional (0.5–0.85)
+        // - Normal completion: engagement-proportional (0.5-0.85)
         // When playedEps == 0 and no episode has playback progress or favorites,
-        // completionRatio is 0.0 → ComputeEngagementLabel yields WatchedLabelFloor (0.5).
+        // completionRatio is 0.0 -> ComputeEngagementLabel yields WatchedLabelFloor (0.5).
         // This case implies PlayCount > 0 only items from HasMeaningfulInteraction() filtering.
         var label = playedEps switch
         {
@@ -431,17 +431,17 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Rebuilds a candidate name → billing-weight map from the positionally-aligned
+    ///     Rebuilds a candidate name -> billing-weight map from the positionally-aligned
     ///     <see cref="RecommendedItem.PeopleNames"/> / <see cref="RecommendedItem.PeopleWeights"/>
     ///     cached lists, for the BillingWeightedPeople feature. This is the training-side mirror of the
     ///     live <c>Engine.ResolveBillingWeightMap</c>, keeping train/serve parity.
-    ///     <para>Returns an empty map (→ neutral 0.0 downstream) when the lists are empty OR their
+    ///     <para>Returns an empty map (-> neutral 0.0 downstream) when the lists are empty OR their
     ///     lengths do not match - the latter is the legacy signal for cache entries written before
     ///     billing weights were persisted, so old data self-neutralizes instead of misaligning.</para>
     /// </summary>
     /// <param name="peopleNames">Cached people names.</param>
     /// <param name="peopleWeights">Cached billing weights, aligned positionally to <paramref name="peopleNames"/>.</param>
-    /// <returns>A case-insensitive name → billing-weight map (empty when unavailable/mismatched).</returns>
+    /// <returns>A case-insensitive name -> billing-weight map (empty when unavailable/mismatched).</returns>
     internal static Dictionary<string, double> BuildBillingMapFromCache(
         IReadOnlyList<string> peopleNames,
         IReadOnlyList<double> peopleWeights)
@@ -561,7 +561,7 @@ internal static class TrainingFeatureComputer
     /// <param name="primaryLang">The user's primary (most-watched) language.</param>
     /// <param name="preferredLangs">Languages the user actively chooses.</param>
     /// <param name="toleratedLangs">Languages the user watches only when forced.</param>
-    /// <param name="languageProfile">The full language profile (language → watch data).</param>
+    /// <param name="languageProfile">The full language profile (language -> watch data).</param>
     /// <returns>A language affinity score between 0.1 and 1.0.</returns>
     internal static double ComputeBestLanguageAffinity(
         IEnumerable<string> candidateLanguages,

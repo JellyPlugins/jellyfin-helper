@@ -83,15 +83,15 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.8 * 0.5, vector[8], 10); // genre × collab interaction
         Assert.Equal(0.6, vector[9]); // userRating
         Assert.Equal(0.75, vector[10]); // completionRatio
-        Assert.Equal(0.0, vector[11]); // isAbandoned (no HasUserInteraction → 0)
-        Assert.Equal(0.0, vector[12]); // hasInteraction (default false → 0)
+        Assert.Equal(0.0, vector[11]); // isAbandoned (no HasUserInteraction -> 0)
+        Assert.Equal(0.0, vector[12]); // hasInteraction (default false -> 0)
         Assert.Equal(0.0, vector[13]); // peopleSimilarity (default 0)
-        Assert.Equal(0.0, vector[14]); // studioMatch (default false → 0)
+        Assert.Equal(0.0, vector[14]); // studioMatch (default false -> 0)
         Assert.Equal(0.4, vector[15]); // seriesProgressionBoost
         Assert.Equal(0.6, vector[16]); // popularityScore
         Assert.Equal(0.3, vector[17]); // dayOfWeekAffinity
         Assert.Equal(0.5, vector[18]); // hourOfDayAffinity
-        Assert.Equal(1.0, vector[19]); // isWeekend (true → 1.0)
+        Assert.Equal(1.0, vector[19]); // isWeekend (true -> 1.0)
         Assert.Equal(0.0, vector[20]); // tagSimilarity (default 0)
         Assert.Equal(0.0, vector[21]); // peopleGenreInteraction (0 × 0.8 = 0)
         Assert.Equal(0.3 * 0.7, vector[22], 10); // recencyRatingInteraction (0.3 × 0.7)
@@ -220,12 +220,12 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
         // With all features at 0 except neutral-0.5 channels: CompletionRatio, LanguageAffinity,
-        // SubtitleLanguageAffinity, and SeriesCompletability (N/A for a non-series → neutral 0.5).
+        // SubtitleLanguageAffinity, and SeriesCompletability (N/A for a non-series -> neutral 0.5).
         var expectedRaw = (0.5 * DefaultWeights.CompletionRatio)
             + (0.5 * DefaultWeights.LanguageAffinity)
             + (0.5 * DefaultWeights.SubtitleLanguageAffinity)
             + (0.5 * DefaultWeights.SeriesCompletability);
-        // genre penalty floor = 0.10 → 0.10 * raw
+        // genre penalty floor = 0.10 -> 0.10 * raw
         var expected = expectedRaw * 0.10;
         Assert.Equal(expected, score, 4);
     }
@@ -240,7 +240,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var score = strategy.Score(features);
 
         // Default CompletionRatio=0.5, LanguageAffinity=0.5, SubtitleLanguageAffinity=0.5,
-        // SeriesCompletability=0.5 (non-series → neutral), HasUserInteraction=false → IsAbandoned=0
+        // SeriesCompletability=0.5 (non-series -> neutral), HasUserInteraction=false -> IsAbandoned=0
         var expected = (0.5 * DefaultWeights.GenreSimilarity)
             + (0.5 * DefaultWeights.CompletionRatio)
             + (0.5 * DefaultWeights.LanguageAffinity)
@@ -288,7 +288,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var strategy = new HeuristicScoringStrategy(); // default genrePenaltyFloor=0.10
         var features = new CandidateFeatures
         {
-            GenreSimilarity = 0.0, // no genre match → penalty floor = 0.10
+            GenreSimilarity = 0.0, // no genre match -> penalty floor = 0.10
             CollaborativeScore = 0.5,
             CombinedCriticScore = 0.8,
             RecencyScore = 0.7,
@@ -450,7 +450,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // With bias and updated weights, all features = 0 → small positive score
+        // With bias and updated weights, all features = 0 -> small positive score
         // Genre penalty is now in Ensemble, not Learned, so no penalty applied here
         Assert.InRange(score, 0.0, 0.20);
     }
@@ -1481,7 +1481,7 @@ public sealed class ScoringStrategyTests : IDisposable
             StrategyName = "B"
         };
 
-        // alpha=0.3 → result = 0.7*a + 0.3*b
+        // alpha=0.3 -> result = 0.7*a + 0.3*b
         var blended = a.Blend(b, 0.3);
 
         Assert.Equal(0.7, blended.FinalScore, 10);
@@ -2358,10 +2358,10 @@ public sealed class ScoringStrategyTests : IDisposable
         // Sigmoid(0) = 0.5
         Assert.Equal(0.5, NeuralScoringStrategy.Sigmoid(0), 10);
 
-        // Large positive → ~1.0
+        // Large positive -> ~1.0
         Assert.True(NeuralScoringStrategy.Sigmoid(100) > 0.999);
 
-        // Large negative → ~0.0
+        // Large negative -> ~0.0
         Assert.True(NeuralScoringStrategy.Sigmoid(-100) < 0.001);
 
         // Monotonically increasing

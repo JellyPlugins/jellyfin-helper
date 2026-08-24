@@ -43,7 +43,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void Read_MissingProperty_ReturnsNull()
     {
-        // Property absent → default(DateTime?) = null.
+        // Property absent -> default(DateTime?) = null.
         var json = "{}";
         var result = JsonSerializer.Deserialize<Container>(json, CreateOptions());
         Assert.NotNull(result);
@@ -331,12 +331,12 @@ public class NullableDateTimeConverterTests
         // (dd/MM/yyyy) or fail entirely, silently corrupting dates parsed from
         // Seerr responses.
         //
-        // The previous version of this test used an ISO-8601 payload ("2024-06-15T…Z")
+        // The previous version of this test used an ISO-8601 payload ("2024-06-15T...Z")
         // which parses identically in every culture - so it could not detect a
         // regression that removed the InvariantCulture argument. We now use the
         // US-format "6/15/2024" which is:
         //   * unambiguous under InvariantCulture (June 15, 2024)
-        //   * INVALID under de-DE (day 15 of month 15 → FormatException)
+        //   * INVALID under de-DE (day 15 of month 15 -> FormatException)
         // If the InvariantCulture argument were dropped from DateTime.TryParse, the
         // Read() method would return null under de-DE and this test would fail.
         var original = CultureInfo.CurrentCulture;

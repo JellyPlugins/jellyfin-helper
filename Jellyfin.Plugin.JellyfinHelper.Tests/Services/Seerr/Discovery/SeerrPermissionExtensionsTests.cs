@@ -167,8 +167,8 @@ public class SeerrPermissionExtensionsTests
         var user = Make((long)SeerrPermissions.Request);
         Assert.True(user.CanRequest("Movie"));
         Assert.True(user.CanRequest("TV"));
-        Assert.False(user.CanRequest("MoViE_"));   // typo → unknown → denied
-        Assert.False(user.CanRequest(" movie"));   // leading space → not equal → denied
+        Assert.False(user.CanRequest("MoViE_"));   // typo -> unknown -> denied
+        Assert.False(user.CanRequest(" movie"));   // leading space -> not equal -> denied
     }
 
     [Fact]

@@ -359,12 +359,12 @@ public class CollaborativeFilterTests
     // A neighbour with very small watch history reaches high Jaccard trivially,
     // but the signal is statistically fragile. BuildCollaborativeMap applies a
     // trust weight (min(1, otherWatchCount / 20)) so sparse neighbours contribute
-    // proportionally less. A neighbour with ≥ 20 watches is unaffected.
+    // proportionally less. A neighbour with >= 20 watches is unaffected.
 
     [Fact]
     public void BuildCollaborativeMap_TrustWeight_HighHistoryNeighbourStillContributes()
     {
-        // Neighbour with 20+ watches → trust = 1.0 → weight identical to pre-fix behaviour.
+        // Neighbour with 20+ watches -> trust = 1.0 -> weight identical to pre-fix behaviour.
         var shared = new[]
         {
             Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
@@ -437,7 +437,7 @@ public class CollaborativeFilterTests
         // toggle the trust gate on/off by swapping the gatekeeper profile. When the gate is
         // OFF (all-sparse deployment) trust=1.0. When the gate is ON (at least one rich profile
         // exists) trust=1-exp(-4/CollaborativeTrustScale) - a large attenuation for a 4-watch
-        // neighbour. Anything else (score identical, or gated ≥ ungated) means the trust factor
+        // neighbour. Anything else (score identical, or gated >= ungated) means the trust factor
         // is broken.
         var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
         var recommendedItem = Guid.NewGuid();
@@ -457,7 +457,7 @@ public class CollaborativeFilterTests
         var anchorUserId = Guid.NewGuid();
         var sparseNeighbourUserId = Guid.NewGuid();
 
-        // Scenario A: cold-start gate RELEASED (no power users → gate is off → trust bypassed = 1.0).
+        // Scenario A: cold-start gate RELEASED (no power users -> gate is off -> trust bypassed = 1.0).
         // All profiles are sparse: no one has crossed CollaborativeTrustWatchCeiling, so the
         // gate stays open and every sparse neighbour gets full trust.
         var userA = new UserWatchProfile { UserId = anchorUserId, WatchedItems = userWatchedItems };
@@ -470,7 +470,7 @@ public class CollaborativeFilterTests
         var mapA = CollaborativeFilter.BuildCollaborativeMap(
             userA, profilesA, CollaborativeFilter.PrecomputeUserWatchSets(profilesA));
 
-        // Scenario B: cold-start gate ENGAGED (a power user exists → gate is on → trust applies).
+        // Scenario B: cold-start gate ENGAGED (a power user exists -> gate is on -> trust applies).
         // Adding a rich gatekeeper who has crossed CollaborativeTrustWatchCeiling flips the gate
         // on; the sparse neighbour's trust is now attenuated, reducing their recommendation score.
         var userB = new UserWatchProfile { UserId = anchorUserId, WatchedItems = userWatchedItems };
@@ -505,7 +505,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_GeometricMean_MainstreamItemGetsMoreSignalThanProductStacking()
     {
-        // The test locks the qualitative property (score ~2.4× larger under the geometric
+        // The test locks the qualitative property (score ~2.4x larger under the geometric
         // mean) rather than a rigid absolute value, so future re-tuning of the trust curve
         // won't cause a flake. The lower bound of 0.20 is well above the old product's
         // 0.1271 while giving headroom below the theoretical geometric-mean value.

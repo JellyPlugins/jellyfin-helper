@@ -794,10 +794,10 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.NotNull(seenByStore2);
         Assert.Equal("Persisted", seenByStore2!.Entries[0].Title);
 
-        // Mutate through the second instance…
+        // Mutate through the second instance...
         store2.RecordRequested(userId, 42, "movie");
 
-        // …and prove the change is visible through a *third* freshly-constructed store.
+        // ...and prove the change is visible through a *third* freshly-constructed store.
         var store3 = CreateStore();
         var seenByStore3 = store3.LoadForUser(userId);
         Assert.NotNull(seenByStore3);
@@ -993,11 +993,11 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var result = store.LoadForUser(userId);
         Assert.NotNull(result);
 
-        // TmdbId=1 is the 400-day-old entry → must be gone.
+        // TmdbId=1 is the 400-day-old entry -> must be gone.
         Assert.DoesNotContain(result!.Entries, e => e.TmdbId == 1);
-        // TmdbId=2 is 30 days old → must survive.
+        // TmdbId=2 is 30 days old -> must survive.
         Assert.Contains(result.Entries, e => e.TmdbId == 2);
-        // TmdbId=3 is fresh → must be present.
+        // TmdbId=3 is fresh -> must be present.
         Assert.Contains(result.Entries, e => e.TmdbId == 3);
     }
 
@@ -1036,7 +1036,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             new() { TmdbId = 3, MediaType = "movie" }
         });
 
-        // Dead user's entries were all ancient → their record must be removed entirely.
+        // Dead user's entries were all ancient -> their record must be removed entirely.
         Assert.Null(store.LoadForUser(deadUser));
         // Live user survives with the recent + fresh entries.
         var liveResult = store.LoadForUser(liveUser);

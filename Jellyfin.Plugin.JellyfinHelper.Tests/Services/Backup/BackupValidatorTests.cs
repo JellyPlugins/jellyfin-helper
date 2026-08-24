@@ -22,7 +22,7 @@ public class BackupValidatorTests
         TrashRetentionDays = 30
     };
 
-    // ── SeerrCleanupAgeDays ─────────────────────────────────────────────────
+    // SeerrCleanupAgeDays
 
     [Fact]
     public void Validate_SeerrCleanupAgeDays_Null_NoError()
@@ -80,7 +80,7 @@ public class BackupValidatorTests
         Assert.Contains(result.Errors, e => e.Contains("SeerrCleanupAgeDays"));
     }
 
-    // ── CreatedAt timezone warning ──────────────────────────────────────────
+    // CreatedAt timezone warning
 
     [Fact]
     public void Validate_CreatedAt_UtcKind_NoTimezoneWarning()
@@ -131,7 +131,7 @@ public class BackupValidatorTests
         Assert.Contains(result.Warnings, w => w.Contains("in the future"));
     }
 
-    // ── SeerrUrl scheme ─────────────────────────────────────────────────────
+    // SeerrUrl scheme
 
     [Theory]
     [InlineData("ftp://server/x")]
@@ -147,7 +147,7 @@ public class BackupValidatorTests
         Assert.Contains(result.Errors, e => e.Contains("SeerrUrl is not a valid HTTP/HTTPS URL"));
     }
 
-    // ── PluginLogLevel ──────────────────────────────────────────────────────
+    // PluginLogLevel
 
     [Fact]
     public void Validate_PluginLogLevel_Unknown_AddsWarning()
@@ -161,7 +161,7 @@ public class BackupValidatorTests
         Assert.DoesNotContain(result.Errors, e => e.Contains("PluginLogLevel"));
     }
 
-    // ── Null-tolerant string fields ─────────────────────────────────────────
+    // Null-tolerant string fields
 
     [Fact]
     public void Validate_NullStringField_IsSkippedWithoutError()
@@ -175,7 +175,7 @@ public class BackupValidatorTests
         Assert.DoesNotContain(result.Errors, e => e.Contains("ExcludedLibraries"));
     }
 
-    // ── Arr instances ───────────────────────────────────────────────────────
+    // Arr instances
 
     [Fact]
     public void Validate_NullArrInstanceList_IsSkippedWithoutError()
@@ -222,7 +222,7 @@ public class BackupValidatorTests
         Assert.DoesNotContain(result.Errors, e => e.Contains("SonarrInstances[1]"));
     }
 
-    // ── Growth timeline ─────────────────────────────────────────────────────
+    // Growth timeline
 
     [Fact]
     public void Validate_GrowthTimeline_UnknownGranularity_AddsWarning()
@@ -242,7 +242,7 @@ public class BackupValidatorTests
         Assert.Contains(result.Warnings, w => w.Contains("Unknown timeline granularity 'hourly'"));
     }
 
-    // ── Growth baseline ─────────────────────────────────────────────────────
+    // Growth baseline
 
     [Fact]
     public void Validate_GrowthBaseline_TooManyDirectories_AddsTrimWarning()

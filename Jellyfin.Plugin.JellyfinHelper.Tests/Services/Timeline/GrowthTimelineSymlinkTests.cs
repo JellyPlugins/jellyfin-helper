@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 /// <summary>
 ///     Tests that <see cref="GrowthTimelineService.GetDirectorySize" /> skips child-directory
 ///     symlinks and junction points during recursion, preventing StackOverflowException
-///     from circular directory structures (A → B → A). The caller-supplied root is followed.
+///     from circular directory structures (A -> B -> A). The caller-supplied root is followed.
 /// </summary>
 public class GrowthTimelineSymlinkTests : IDisposable
 {
@@ -77,7 +77,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(1024, size);
     }
 
-    // ── Circular symlink (A → B → A) does not cause StackOverflow ────────────
+    // ── Circular symlink (A -> B -> A) does not cause StackOverflow ────────────
 
     [Fact]
     [Trait("Category", "Symlink")]

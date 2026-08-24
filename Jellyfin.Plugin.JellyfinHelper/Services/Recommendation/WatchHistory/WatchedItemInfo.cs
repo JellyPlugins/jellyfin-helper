@@ -167,7 +167,7 @@ public sealed class WatchedItemInfo
     /// <summary>
     ///     Gets or sets the billing weights (derived from PersonInfo.SortOrder) aligned positionally to
     ///     <see cref="PeopleNames"/>. Legacy cache entries lacking this field deserialize to empty, in
-    ///     which case BillingWeightedPeople self-neutralizes (length mismatch → empty map → 0.0).
+    ///     which case BillingWeightedPeople self-neutralizes (length mismatch -> empty map -> 0.0).
     ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
     /// </summary>
     public IReadOnlyList<double> PeopleWeights

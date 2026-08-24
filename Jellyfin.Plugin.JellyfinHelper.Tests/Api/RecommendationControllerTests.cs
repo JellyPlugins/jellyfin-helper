@@ -512,8 +512,8 @@ public class RecommendationControllerTests
     [Fact]
     public async Task GetAllRecommendations_ConcurrentCacheMiss_EngineCalledOnce()
     {
-        // First call: cache empty → generates. Second concurrent call: waits for lock,
-        // then finds the cache already filled → skips generation.
+        // First call: cache empty, generates. Second concurrent call: waits for lock,
+        // then finds the cache already filled, skips generation.
         // We simulate this by making LoadResults return null on first call and a result on
         // the second (i.e. after the first caller has saved it).
         var callCount = 0;

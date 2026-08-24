@@ -286,7 +286,7 @@ public class TrashServiceTests : IDisposable
     {
         var trashPath = Path.Join(_testRoot, "trash");
 
-        // Item with timestamp exactly at Now → timestamp is NOT < cutoff (Now) → NOT purged.
+        // Item with timestamp exactly at Now -> timestamp is NOT < cutoff (Now) -> NOT purged.
         var exactTimestamp = Now.ToString(TimestampFormat, CultureInfo.InvariantCulture);
         var exactDir = Path.Join(trashPath, $"{exactTimestamp}_ExactMovie");
         Directory.CreateDirectory(exactDir);

@@ -171,7 +171,7 @@ public class DiscoveryControllerTests : IDisposable
         var result = await controller.SubmitRequest(dto, CancellationToken.None);
 
         // The controller normalizes "Movie" to "movie" so validation passes,
-        // then delegates to the mocked Seerr service which returns success → 200 OK.
+        // then delegates to the mocked Seerr service which returns success -> 200 OK.
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var body = Assert.IsType<RequestResult>(okResult.Value);
         Assert.True(body.Success);

@@ -104,7 +104,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         // Filter persisted pool: exclude dismissed + requested, serve only next N visible.
         // Normalize MediaType using the same canonicalization as DiscoveryFeedbackStore:
-        // null/whitespace → "movie", otherwise trimmed lowercase. This ensures dismissed/requested
+        // null/whitespace to "movie", otherwise trimmed lowercase. This ensures dismissed/requested
         // items are correctly matched regardless of casing differences in cached data.
         var excluded = BuildExcludedItemKeys(currentUserId);
         var visible = userResult.Recommendations
@@ -466,7 +466,7 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
-        // ⚠️ CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store
+        // CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store
         // updates below. Once Seerr has accepted the request above, the local bookkeeping
         // MUST run regardless of whether the HTTP client has disconnected - otherwise:
         //   1. The requested item silently reappears on the next discovery-page refresh

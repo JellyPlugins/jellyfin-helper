@@ -17,7 +17,7 @@ internal static class PreferenceBuilder
     ///     pathological metadata (e.g. stuck counters) inflating a genre's raw weight before normalization.
     ///     <para>
     ///         Typed as <see cref="int"/> to match <c>WatchedItemInfo.PlayCount</c>, avoiding a
-    ///         double→int→double round-trip when clamping.
+    ///         double->int->double round-trip when clamping.
     ///     </para>
     /// </summary>
     private const int PlayCountMaxForLog1p = 100;
@@ -76,10 +76,10 @@ internal static class PreferenceBuilder
     ///     patterns are visible to the downstream ML feature without dominating explicit
     ///     favorite signals. Approximate contributions with this scale:
     ///     <list type="bullet">
-    ///         <item><description>PlayCount 1 → 0.30 (baseline single-watch weight)</description></item>
-    ///         <item><description>PlayCount 5 → 0.78 (comparable to a fresh 1-day-old temporalWeight)</description></item>
-    ///         <item><description>PlayCount 30 → 1.49 (dedicated re-watcher signal, ≈50% of favorite additive)</description></item>
-    ///         <item><description>PlayCount 100 → 2.00 (theoretical ceiling; clamp beyond)</description></item>
+    ///         <item><description>PlayCount 1 -> 0.30 (baseline single-watch weight)</description></item>
+    ///         <item><description>PlayCount 5 -> 0.78 (comparable to a fresh 1-day-old temporalWeight)</description></item>
+    ///         <item><description>PlayCount 30 -> 1.49 (dedicated re-watcher signal, ≈50% of favorite additive)</description></item>
+    ///         <item><description>PlayCount 100 -> 2.00 (theoretical ceiling; clamp beyond)</description></item>
     ///     </list>
     /// </summary>
     private static readonly double PlayCountLog1pScale = PlayCountLog1pCeiling / Math.Log(1.0 + PlayCountMaxForLog1p);
@@ -92,7 +92,7 @@ internal static class PreferenceBuilder
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <param name="seriesEpisodeCounts">
-    ///     Optional map <c>seriesId → totalEpisodeCount</c> supplied by the caller (typically
+    ///     Optional map <c>seriesId -> totalEpisodeCount</c> supplied by the caller (typically
     ///     built once in <c>Engine.LoadCandidateItems</c>). When provided, episode rows are
     ///     weighted by <c>ProgressionMultiplier(playedInSeries / totalEpisodes)</c> so a
     ///     series watched to completion drives genre preferences more strongly than a series
@@ -162,10 +162,10 @@ internal static class PreferenceBuilder
             // pre-v3 linear min(PlayCount,5)×0.2 cap) so a 30×-rewatched item does not linearly
             // dominate; ceiling raised to 2.0 so the signal survives the +3.0 favorite additive.
             // Approximate contributions (see PlayCountLog1pCeiling for rationale):
-            //   PlayCount  1 → 0.30
-            //   PlayCount  5 → 0.78
-            //   PlayCount 30 → 1.49
-            //   PlayCount 100 → 2.00 (theoretical ceiling; clamp beyond)
+            //   PlayCount  1 -> 0.30
+            //   PlayCount  5 -> 0.78
+            //   PlayCount 30 -> 1.49
+            //   PlayCount 100 -> 2.00 (theoretical ceiling; clamp beyond)
             // Clamp at 100 prevents pathological metadata from producing unbounded weights.
             var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
             var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
@@ -429,7 +429,7 @@ internal static class PreferenceBuilder
                 }
             }
 
-            // Also try series match (episodes → parent series)
+            // Also try series match (episodes -> parent series)
             if (!w.SeriesId.HasValue || !candidateLookup.TryGetValue(w.SeriesId.Value, out var seriesItem)
                                      || seriesItem.Studios is not { Length: > 0 })
             {
@@ -477,7 +477,7 @@ internal static class PreferenceBuilder
                 }
             }
 
-            // Series match (episodes → parent series)
+            // Series match (episodes -> parent series)
             if (!w.SeriesId.HasValue || !candidateLookup.TryGetValue(w.SeriesId.Value, out var seriesItem)
                                      || seriesItem.Tags is not { Length: > 0 })
             {
@@ -499,7 +499,7 @@ internal static class PreferenceBuilder
     ///     Includes people from both directly watched/favorited items and series the user has watched episodes of.
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
-    /// <param name="peopleLookup">Pre-built candidate people lookup (item ID → person names).</param>
+    /// <param name="peopleLookup">Pre-built candidate people lookup (item ID -> person names).</param>
     /// <returns>A HashSet of preferred person names (case-insensitive).</returns>
     internal static HashSet<string> BuildPeoplePreferenceSet(
         UserWatchProfile userProfile,
@@ -523,7 +523,7 @@ internal static class PreferenceBuilder
                 people.UnionWith(itemPeople.Where(static p => !string.IsNullOrWhiteSpace(p)));
             }
 
-            // Series match (episodes → parent series)
+            // Series match (episodes -> parent series)
             if (w.SeriesId.HasValue && peopleLookup.TryGetValue(w.SeriesId.Value, out var seriesPeople))
             {
                 people.UnionWith(seriesPeople.Where(static p => !string.IsNullOrWhiteSpace(p)));
@@ -553,9 +553,9 @@ internal static class PreferenceBuilder
     ///     </para>
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
-    /// <param name="peopleLookup">Pre-built candidate people lookup (item ID → person names).</param>
+    /// <param name="peopleLookup">Pre-built candidate people lookup (item ID -> person names).</param>
     /// <param name="seriesEpisodeCounts">
-    ///     Optional map <c>seriesId → totalEpisodeCount</c>. When provided, episode rows
+    ///     Optional map <c>seriesId -> totalEpisodeCount</c>. When provided, episode rows
     ///     contribute <c>ProgressionMultiplier(playedInSeries / totalEpisodes)</c> instead of a
     ///     flat 1.0, so people from completed series get higher weight than from abandoned ones.
     ///     Kept in perfect symmetry with the same parameter on
@@ -592,7 +592,7 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            // Merge people from the item itself AND its parent series (episodes → series).
+            // Merge people from the item itself AND its parent series (episodes -> series).
             // De-duplicate per watched row so the same person on the same item is not
             // double-counted just because both item-level and series-level lookups return them.
             HashSet<string>? perRowPeople = null;
@@ -639,7 +639,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a max-normalized franchise preference map (TMDb collection name → weight in [0,1])
+    ///     Builds a max-normalized franchise preference map (TMDb collection name -> weight in [0,1])
     ///     from the user's watched/favorited movies. Mirrors <see cref="BuildGenrePreferenceVector"/>'s
     ///     temporal-decay + play-count + favorite-boost composition so franchise affinity is comparable
     ///     in magnitude to genre affinity. Source is <see cref="WatchedItemInfo.TmdbCollectionName"/>
@@ -648,7 +648,7 @@ internal static class PreferenceBuilder
     ///     with no franchise, or a franchise the user never engaged with, scores 0.0 (no crash, no bias).</para>
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
-    /// <returns>A case-insensitive franchise → normalized-weight map (empty when no signal).</returns>
+    /// <returns>A case-insensitive franchise -> normalized-weight map (empty when no signal).</returns>
     internal static Dictionary<string, double> BuildFranchisePreferenceVector(UserWatchProfile profile)
     {
         var vector = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -675,14 +675,14 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a max-normalized production-country preference map (country → weight in [0,1]) from the
+    ///     Builds a max-normalized production-country preference map (country -> weight in [0,1]) from the
     ///     user's watched/favorited items, using the same weighting as
     ///     <see cref="BuildFranchisePreferenceVector"/>. Source is
     ///     <see cref="WatchedItemInfo.ProductionCountries"/> directly.
-    ///     <para>Empty history or items without countries yield an empty map → candidate scores 0.0.</para>
+    ///     <para>Empty history or items without countries yield an empty map -> candidate scores 0.0.</para>
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
-    /// <returns>A case-insensitive country → normalized-weight map (empty when no signal).</returns>
+    /// <returns>A case-insensitive country -> normalized-weight map (empty when no signal).</returns>
     internal static Dictionary<string, double> BuildProductionCountryPreferenceVector(UserWatchProfile profile)
     {
         var vector = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -715,7 +715,7 @@ internal static class PreferenceBuilder
     ///     Builds a set of preferred inherited tags from the user's watched/favorited items, reading
     ///     <see cref="WatchedItemInfo.InheritedTags"/> directly. Mirrors <see cref="BuildTagPreferenceSet"/>
     ///     but over the inherited (own + parent/collection/library-folder) tag set.
-    ///     <para>Empty history or items without inherited tags yield an empty set → candidate scores 0.0.</para>
+    ///     <para>Empty history or items without inherited tags yield an empty set -> candidate scores 0.0.</para>
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive set of preferred inherited tags (empty when no signal).</returns>
@@ -741,16 +741,16 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a weighted writer preference map (writer name → weight) from the user's watched/favorited
+    ///     Builds a weighted writer preference map (writer name -> weight) from the user's watched/favorited
     ///     items, reading <see cref="WatchedItemInfo.WriterNames"/> directly. Kept separate from the
     ///     actor/director people profile so writer affinity does not dilute
     ///     <see cref="SimilarityComputer.ComputePeopleSimilarity(System.Collections.Generic.HashSet{string},System.Collections.Generic.IReadOnlyDictionary{string,double})"/>.
     ///     Each writer is counted once per row (progression-weighted), mirroring
     ///     <see cref="BuildPeoplePreferenceWeights"/>.
-    ///     <para>Empty history or items without writers yield an empty map → candidate scores 0.0.</para>
+    ///     <para>Empty history or items without writers yield an empty map -> candidate scores 0.0.</para>
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
-    /// <returns>A case-insensitive writer → weight map (empty when no signal).</returns>
+    /// <returns>A case-insensitive writer -> weight map (empty when no signal).</returns>
     internal static Dictionary<string, double> BuildWriterPreferenceWeights(UserWatchProfile profile)
     {
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -854,7 +854,7 @@ internal static class PreferenceBuilder
         Dictionary<string, double> genrePreferences,
         UserWatchProfile profile)
     {
-        // Insufficient history → all features default to 0 (neutral)
+        // Insufficient history -> all features default to 0 (neutral)
         if (profile.WatchedItems.Count < EngineConstants.MinWatchCountForGenreExposure
             || genrePreferences.Count == 0)
         {
@@ -920,7 +920,7 @@ internal static class PreferenceBuilder
         IReadOnlyList<string> candidateGenres,
         GenreExposureAnalysis analysis)
     {
-        // Insufficient data or no candidate genres → all neutral
+        // Insufficient data or no candidate genres -> all neutral
         if (!analysis.IsValid || candidateGenres.Count == 0)
         {
             return (0.0, 0.0, 0.0);
@@ -1063,7 +1063,7 @@ internal static class PreferenceBuilder
     /// <param name="profile">The user watch profile whose rows we aggregate.</param>
     /// <param name="seriesEpisodeCounts">Optional caller-supplied totals; <c>null</c> disables aggregation.</param>
     /// <returns>
-    ///     A dictionary <c>seriesId → completedEpisodes</c>, or <c>null</c> when
+    ///     A dictionary <c>seriesId -> completedEpisodes</c>, or <c>null</c> when
     ///     <paramref name="seriesEpisodeCounts"/> was <c>null</c> or empty.
     /// </returns>
     private static Dictionary<Guid, int>? BuildWatchedEpisodesPerSeries(
@@ -1138,7 +1138,7 @@ internal static class PreferenceBuilder
             return 1.0;
         }
 
-        // No series context or caller opted out (null map) → neutral, preserves pre-existing weight.
+        // No series context or caller opted out (null map) -> neutral, preserves pre-existing weight.
         if (item.SeriesId is not { } sid
             || seriesEpisodeCounts is null
             || watchedEpisodesPerSeries is null)
@@ -1160,7 +1160,7 @@ internal static class PreferenceBuilder
         var rawRatio = Math.Min(1.0, (double)playedEps / totalEps);
 
         // Map ratio in [0,1] to multiplier in [ProgressionFloor, ProgressionCeiling].
-        // rawRatio=0 → ProgressionFloor (0.3), rawRatio=0.5 → 0.9, rawRatio=1 → 1.5.
+        // rawRatio=0 -> ProgressionFloor (0.3), rawRatio=0.5 -> 0.9, rawRatio=1 -> 1.5.
         return Math.Clamp(
             ProgressionFloor + (rawRatio * ProgressionSpan),
             ProgressionFloor,

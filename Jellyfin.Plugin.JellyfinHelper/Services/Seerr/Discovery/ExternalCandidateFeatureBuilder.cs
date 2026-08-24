@@ -109,7 +109,7 @@ internal static class ExternalCandidateFeatureBuilder
 
             // New content-affinity signals are library-only and cannot be derived from the TMDb
             // discover payload (no collection id, countries, writers, billing, or series status),
-            // so they are neutralized: overlap-style signals → 0.0, SeriesCompletability → 0.5 (N/A).
+            // so they are neutralized: overlap-style signals -> 0.0, SeriesCompletability -> 0.5 (N/A).
             // These MUST stay lock-step with DiscoveryFeedbackExampleBuilder to avoid train/serve skew.
             FranchiseAffinity = 0.0,
             ProductionLocationAffinity = 0.0,
@@ -145,7 +145,7 @@ internal static class ExternalCandidateFeatureBuilder
     ///         reintroduce a train/serve skew for the popularity feature.
     ///     </para>
     /// </summary>
-    /// <param name="rawPopularity">The raw TMDb popularity value (typically 0–200+).</param>
+    /// <param name="rawPopularity">The raw TMDb popularity value (typically 0-200+).</param>
     /// <returns>A normalized popularity score in [0, 1].</returns>
     internal static double NormalizePopularity(double rawPopularity)
     {

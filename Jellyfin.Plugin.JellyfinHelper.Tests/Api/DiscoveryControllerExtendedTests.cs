@@ -47,7 +47,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     //
     // The ConfigOverride collection serialises this class with every other suite that
     // mutates Plugin.Instance.Configuration; combined with ResetPluginConfiguration()
-    // in Dispose, this keeps our cache file firmly under our control from ctor→Dispose.
+    // in Dispose, this keeps our cache file firmly under our control from ctor to Dispose.
     private const string CacheFileName = "jellyfin-helper-discovery-results.json";
     private readonly string _cacheFilePath;
     private readonly byte[]? _originalCacheContents;

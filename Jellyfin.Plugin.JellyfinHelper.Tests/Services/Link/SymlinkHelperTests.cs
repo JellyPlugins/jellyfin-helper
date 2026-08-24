@@ -340,7 +340,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void CreateSymlink_LinkPathIsExistingRealFile_ThrowsIOException()
     {
-        // A real file at the link path must never be silently clobbered — no symlink support needed.
+        // A real file at the link path must never be silently clobbered - no symlink support needed.
         var link = Path.Join(_tempDir, "already-a-file.txt");
         File.WriteAllText(link, "real content");
 
@@ -374,7 +374,7 @@ public sealed class SymlinkHelperTests : IDisposable
 
         var link = Path.Join(_tempDir, "dangling.link");
         var missingTarget = Path.Join(_tempDir, "never-created.txt");
-        _sut.CreateSymlink(link, missingTarget); // target never created → dangling link node
+        _sut.CreateSymlink(link, missingTarget); // target never created -> dangling link node
         Assert.True(_sut.IsSymlink(link), "precondition: linkPath is occupied by a (dangling) symlink node");
 
         var ex = Assert.Throws<IOException>(() => _sut.CreateSymlink(link, Path.Join(_tempDir, "other.txt")));
@@ -428,7 +428,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void DeleteSymlink_NonExistentPath_ThrowsInvalidOperationException()
     {
-        // A missing path is treated as "not a symlink" (IsSymlink → false), which is safer
+        // A missing path is treated as "not a symlink" (IsSymlink -> false), which is safer
         // than swallowing silently: the caller learns that their target was not what they
         // thought it was.
         var path = Path.Join(_tempDir, "ghost.txt");
@@ -501,7 +501,7 @@ public sealed class SymlinkHelperTests : IDisposable
 
         var oldTarget = Path.Join(_tempDir, "old-name.mkv");
         var dest = Path.Join(_tempDir, "special.mkv");
-        _sut.CreateSymlink(dest, oldTarget); // oldTarget never created → broken symlink
+        _sut.CreateSymlink(dest, oldTarget); // oldTarget never created -> broken symlink
         Assert.True(_sut.IsSymlink(dest), "precondition: dest is a (broken) symlink");
 
         var newTarget = Path.Join(_tempDir, "new-name.mkv");
@@ -519,7 +519,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void ReplaceSymlink_DestDoesNotExist_MovesSuccessfully()
     {
-        // Nothing at destPath → nothing to lose → the move proceeds and creates the link.
+        // Nothing at destPath -> nothing to lose -> the move proceeds and creates the link.
         if (!SymlinksSupported())
         {
             return;
@@ -566,7 +566,7 @@ public sealed class SymlinkHelperTests : IDisposable
         // catch/early-move branch the symlink-gated DestDoesNotExist test skips on Windows.
         var source = Path.Join(_tempDir, "repair-source.txt");
         File.WriteAllText(source, "moved payload");
-        var dest = Path.Join(_tempDir, "gone.txt"); // never created → vanished
+        var dest = Path.Join(_tempDir, "gone.txt"); // never created -> vanished
 
         _sut.ReplaceSymlink(source, dest);
 
@@ -701,7 +701,7 @@ public sealed class SymlinkHelperTests : IDisposable
         // now reports a NON-symlink (a real file raced into place). The helper must refuse with a
         // data-loss error and never attempt the overwriting move.
         var helper = new ScriptedSymlinkHelper();
-        helper.QueueAttributes(SymlinkAttrs, FileAttributes.Normal); // symlink → real file
+        helper.QueueAttributes(SymlinkAttrs, FileAttributes.Normal); // symlink -> real file
         helper.MakeFirstMoveFailAsExists();
 
         var ex = Assert.Throws<InvalidOperationException>(
@@ -732,7 +732,7 @@ public sealed class SymlinkHelperTests : IDisposable
     public void DeleteSymlink_GetAttributesThrowsAccessError_ThrowsInspectionFailure()
     {
         // When the attribute read itself fails (permission denied / IO error), the helper must NOT
-        // claim "not a symbolic link" — that would send an operator investigating the wrong cause.
+        // claim "not a symbolic link" - that would send an operator investigating the wrong cause.
         // It reports an inspection failure and refuses to delete the unverified entry.
         var helper = new ScriptedSymlinkHelper { GetAttributesThrowsUnauthorized = true };
 

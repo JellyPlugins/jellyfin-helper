@@ -361,7 +361,7 @@ public static class TimelineAggregator
 
     /// <summary>
     ///     Consolidates data points from a finer granularity into a coarser one.
-    ///     When the time span grows and the granularity upgrades (e.g. daily→weekly),
+    ///     When the time span grows and the granularity upgrades (e.g. daily->weekly),
     ///     multiple finer-grained points that fall into the same coarser bucket are merged
     ///     by keeping the last (most recent) point per bucket.
     /// </summary>

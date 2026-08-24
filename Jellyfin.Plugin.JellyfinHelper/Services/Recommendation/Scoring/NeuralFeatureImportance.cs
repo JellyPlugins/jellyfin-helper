@@ -30,7 +30,7 @@ internal static class NeuralFeatureImportance
     /// <param name="strategy">The trained neural scoring strategy to evaluate.</param>
     /// <param name="examples">Training examples providing realistic feature distributions.</param>
     /// <param name="sampleSize">Maximum samples to use (capped at examples.Count).</param>
-    /// <returns>Dictionary mapping feature name → importance drop (positive = important).</returns>
+    /// <returns>Dictionary mapping feature name to importance drop (positive = important).</returns>
     internal static Dictionary<string, double> ComputePermutationImportance(
         NeuralScoringStrategy strategy,
         IReadOnlyList<TrainingExample> examples,

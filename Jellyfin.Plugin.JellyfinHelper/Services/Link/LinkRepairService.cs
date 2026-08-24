@@ -290,7 +290,7 @@ public class LinkRepairService : ILinkRepairService
 
         // Reject null bytes before normalization - .NET no longer throws ArgumentException
         // from Path.GetFullPath for embedded NULs on modern runtimes, so we must check
-        // explicitly. A NUL byte is a structural path-grammar violation → InvalidContent.
+        // explicitly. A NUL byte is a structural path-grammar violation -> InvalidContent.
         if (targetPath.Contains('\0', StringComparison.Ordinal))
         {
             _pluginLog.LogWarning("LinkRepair", $"Target path contains null byte in link file {linkFilePath}", logger: _logger);
@@ -378,7 +378,6 @@ public class LinkRepairService : ILinkRepairService
         }
 
         // Keep OriginalTargetPath as-is (set above); use normalizedTargetPath for validation
-        // Check if the target path is still valid
         if (_fileSystem.File.Exists(normalizedTargetPath))
         {
             _pluginLog.LogDebug("LinkRepair", $"Valid link file: {linkFilePath} -> {normalizedTargetPath}", _logger);

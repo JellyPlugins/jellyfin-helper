@@ -537,7 +537,7 @@ public class TrashController : ControllerBase
             }
         }
 
-        // ALLOW pass: strictly inside a library root → safe (a dedicated trash sub-folder).
+        // ALLOW pass: strictly inside a library root -> safe (a dedicated trash sub-folder).
         foreach (var libraryRoot in libraryRoots)
         {
             if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))

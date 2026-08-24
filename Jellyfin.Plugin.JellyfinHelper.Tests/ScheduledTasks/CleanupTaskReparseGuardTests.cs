@@ -39,7 +39,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task TopLevelReparsePoint_IsSkippedNeverDeleted()
         {
-            // Policy: a top-level symlink/junction is NEVER deleted — its target may hold live media
+            // Policy: a top-level symlink/junction is NEVER deleted, its target may hold live media
             // (Radarr/Sonarr place symlinked media folders under the library root) and the task has
             // no orphan evidence for an entry it did not analyze. It must be skipped with a warning,
             // never traversed, and never counted as a cleanup.
@@ -80,7 +80,7 @@ public sealed class CleanupTaskReparseGuardTests
         public async Task FolderWithReparsePointSubdir_IsNotDeleted_OrphanVerdictUnproven()
         {
             // Data-loss guard: a real folder whose only "orphan" signal is a stray non-video file,
-            // but which ALSO contains a symlinked subdirectory, must NOT be deleted — video files
+            // but which ALSO contains a symlinked subdirectory, must NOT be deleted, video files
             // could live behind that link, so the orphan verdict is unproven.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
@@ -136,7 +136,7 @@ public sealed class CleanupTaskReparseGuardTests
             // orphanDir is a real (non-reparse) directory that contains a subtitle and a reparse-point subdir.
             _fileSystemMock.Setup(f => f.GetFiles(orphanDir)).Returns([FileMeta(orphanDir + "/movie.srt")]);
             _fileSystemMock.Setup(f => f.GetDirectories(orphanDir)).Returns([DirMeta(reparseSubDir, "extras")]);
-            // reparseSubDir is a reparse point — its children should never be queried.
+            // reparseSubDir is a reparse point, its children should never be queried.
 
             // reparseSubDir is the reparse path; orphanDir is a normal directory.
             var task = new ReparseTask(
@@ -156,7 +156,7 @@ public sealed class CleanupTaskReparseGuardTests
         public async Task TopLevelStatFailure_IsSkippedNeverDeleted_FailClosed()
         {
             // Fail-closed guard: if the reparse-point stat on a top-level entry throws (I/O or an
-            // access denial), the verdict is unknown, so the entry must be skipped with a warning —
+            // access denial), the verdict is unknown, so the entry must be skipped with a warning,
             // never traversed, deleted, trashed, or counted.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
@@ -196,7 +196,7 @@ public sealed class CleanupTaskReparseGuardTests
         public async Task SubdirStatFailure_EnclosingFolderSurvives_OrphanVerdictUnproven()
         {
             // Fail-closed guard: a real folder that looks like an orphan (a stray non-video file) but
-            // whose subdirectory cannot be stat'd must NOT be deleted — a video could live in the
+            // whose subdirectory cannot be stat'd must NOT be deleted, a video could live in the
             // subtree we failed to inspect. The stat-failure branch must set the unresolved-link flag
             // so the enclosing folder is kept.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
@@ -243,7 +243,7 @@ public sealed class CleanupTaskReparseGuardTests
         {
             // Fail-closed guard (file-entry classification): a directory symlink can surface as a
             // FILE entry on some mounts. If reading that entry's attributes throws (I/O or access
-            // denial), the entry is unclassified and hides a subtree we never analyzed — so the
+            // denial), the entry is unclassified and hides a subtree we never analyzed, so the
             // enclosing folder must be flagged unresolved and kept, never deleted. Proves the new
             // try/catch around IsReparsePointAnyType in AnalyzeDirectoryRecursive.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
@@ -348,7 +348,7 @@ public sealed class CleanupTaskReparseGuardTests
         public async Task TrickplayIsReparsePoint_IsSkippedNeverDeletedOrTrashed()
         {
             // Policy (matching CleanEmptyMediaFoldersTask): a reparse-point .trickplay dir is never
-            // trashed and never recursively deleted — Directory.Delete/MoveToTrash could otherwise be
+            // trashed and never recursively deleted, Directory.Delete/MoveToTrash could otherwise be
             // redirected into the link's real target. It is skipped with a warning, counting nothing.
             Config.TrickplayTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
@@ -421,7 +421,7 @@ public sealed class CleanupTaskReparseGuardTests
             Config.TrickplayTaskMode = TaskMode.Activate;
 
             const string libraryPath = "/media";
-            const string reparseDir = "/media/SomeShow";  // reparse point — not a .trickplay dir
+            const string reparseDir = "/media/SomeShow";  // reparse point, not a .trickplay dir
 
             _libraryManagerMock.Setup(m => m.GetVirtualFolders())
                 .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
@@ -443,7 +443,7 @@ public sealed class CleanupTaskReparseGuardTests
         public async Task TrickplayStatFailure_IsSkippedNeverDeletedOrTrashed_FailClosed()
         {
             // Fail-closed guard: if the reparse-point stat on an orphaned .trickplay dir throws, the
-            // verdict is unknown, so the dir must be skipped with a warning — never trashed, deleted,
+            // verdict is unknown, so the dir must be skipped with a warning, never trashed, deleted,
             // or counted. The hoisted guard covers this before any mode branch runs.
             Config.TrickplayTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
@@ -533,7 +533,7 @@ public sealed class CleanupTaskReparseGuardTests
 
             _libraryManagerMock.Setup(m => m.GetVirtualFolders())
                 .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
-            // TryGetSubdirectories seeds from GetDirectories(libraryPath) → parentDir.
+            // TryGetSubdirectories seeds from GetDirectories(libraryPath) -> parentDir.
             _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(parentDir, "ShowDir")]);
             // parentDir is real; its child reparseSubDir is a reparse point.
             _fileSystemMock.Setup(f => f.GetDirectories(parentDir)).Returns([DirMeta(reparseSubDir, "Season1")]);
@@ -589,7 +589,7 @@ public sealed class CleanupTaskReparseGuardTests
         {
             // Fail-closed guard (ProcessLocation): if the reparse-point stat on a directory throws
             // (I/O or an access denial), the verdict is unknown, so the directory must be skipped
-            // with a warning before its files are ever listed — never deleted or trashed.
+            // with a warning before its files are ever listed, never deleted or trashed.
             Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -636,7 +636,7 @@ public sealed class CleanupTaskReparseGuardTests
 
             _libraryManagerMock.Setup(m => m.GetVirtualFolders())
                 .Returns([new VirtualFolderInfo { Locations = [libraryPath] }]);
-            // TryGetSubdirectories seeds from GetDirectories(libraryPath) → parentDir → unreadableSubDir.
+            // TryGetSubdirectories seeds from GetDirectories(libraryPath) -> parentDir -> unreadableSubDir.
             _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([DirMeta(parentDir, "ShowDir")]);
             _fileSystemMock.Setup(f => f.GetDirectories(parentDir)).Returns([DirMeta(unreadableSubDir, "Season1")]);
             _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
@@ -697,7 +697,7 @@ public sealed class CleanupTaskReparseGuardTests
             await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
             VerifyLogContains(_loggerMock, "Skipping symlinked library root (reparse point)", LogLevel.Warning);
-            // The root's children were never enumerated → no external orphan was ever inspected/deleted.
+            // The root's children were never enumerated -> no external orphan was ever inspected/deleted.
             _fileSystemMock.Verify(f => f.GetDirectories(childDir), Times.Never);
             _fileSystemMock.Verify(f => f.GetFiles(childDir), Times.Never);
             MockTrackingService.Verify(
@@ -709,7 +709,7 @@ public sealed class CleanupTaskReparseGuardTests
         public async Task SymlinkedLibraryRootStatFailure_ChildrenNeverEnumerated_FailClosed()
         {
             // Fail-closed guard: if the reparse-point stat on the library ROOT throws, the verdict is
-            // unknown, so the root must not be seeded/traversed — its children are never enumerated.
+            // unknown, so the root must not be seeded/traversed, its children are never enumerated.
             Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
 
             const string libraryPath = "/media/movies";
@@ -822,7 +822,7 @@ public sealed class CleanupTaskReparseGuardTests
         public async Task SubtitleStatFailure_IsSkippedNeverDeleted_FailClosed()
         {
             // Fail-closed guard: if the reparse-point stat on a subtitle FILE entry throws (I/O or an
-            // access denial), the verdict is unknown, so the subtitle must be skipped with a warning —
+            // access denial), the verdict is unknown, so the subtitle must be skipped with a warning,
             // never counted, trashed, or deleted. Proves the try/catch around the hoisted
             // IsReparsePointAnyType guard in the per-file loop.
             Config.OrphanedSubtitleTaskMode = TaskMode.Activate;

@@ -137,7 +137,7 @@ public sealed class EngineCommunityPopularityTests
     [Fact]
     public void BuildCommunityPopularityMap_UsersWithDisjointHistories_YieldsSingleCounts()
     {
-        // Users with entirely disjoint watch lists → every item has count 1.
+        // Users with entirely disjoint watch lists -> every item has count 1.
         // BUG GUARD: if the counting logic ever gets an off-by-one that doubles counts
         // across users, this test detects it via the strict equality assertion.
         var input = new Dictionary<Guid, HashSet<Guid>>

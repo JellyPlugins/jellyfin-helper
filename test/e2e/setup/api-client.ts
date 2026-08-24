@@ -67,7 +67,7 @@ export async function normalUserContext(auth: AuthInfo): Promise<APIRequestConte
  * (unset) it still skips so a dev without the fixture isn't blocked. Call at the
  * top of any test that dereferences the normal user:
  *
- *   test('…', async () => { requireNormalUser(user); … user!.get(…) … });
+ *   test('...', async () => { requireNormalUser(user); ... user!.get(...) ... });
  */
 export function requireNormalUser(user: APIRequestContext | null): void {
   if (user) return;

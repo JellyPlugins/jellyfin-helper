@@ -42,7 +42,7 @@ public interface IStrategySelector
 ///     3. Cohort assignment survives server restarts.
 ///
 ///     Exploration activates only when the ensemble has accumulated sufficient training data
-///     (≥ 50 examples AND ≥ 2 metrics history snapshots), ensuring the system is past the
+///     (>= 50 examples AND >= 2 metrics history snapshots), ensuring the system is past the
 ///     initial cold-start phase before diversifying alpha values.
 /// </remarks>
 internal sealed class StrategySelector : IStrategySelector
@@ -73,12 +73,12 @@ internal sealed class StrategySelector : IStrategySelector
     internal const int MinMetricsHistoryForExploration = 2;
 
     /// <summary>
-    ///     Bucket threshold for explore-high cohort (0–9 = 10%).
+    ///     Bucket threshold for explore-high cohort (0-9 = 10%).
     /// </summary>
     private const int ExploreHighThreshold = 10;
 
     /// <summary>
-    ///     Bucket threshold for explore-low cohort (10–19 = 10%).
+    ///     Bucket threshold for explore-low cohort (10-19 = 10%).
     /// </summary>
     private const int ExploreLowThreshold = 20;
 

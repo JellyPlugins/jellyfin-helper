@@ -99,7 +99,7 @@ public class TrashControllerTests : IDisposable
     [Fact]
     public void CheckAccess_NullOrEmptyErrorMessage_PassesThrough()
     {
-        // Success path: no error message → nothing to sanitize (early return branch).
+        // Success path: no error message, nothing to sanitize (early return branch).
         var libDir = Path.Join(_tempPath, "Movies");
         Directory.CreateDirectory(libDir);
         var trashDir = Path.Join(libDir, ".jellyfin-trash");
@@ -248,7 +248,7 @@ public class TrashControllerTests : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
         {
-            return; // Symlinks unsupported in this environment — skip.
+            return; // Symlinks unsupported in this environment - skip.
         }
 
         SetupConfig(new PluginConfiguration { TrashFolderPath = linkPath });
@@ -269,7 +269,7 @@ public class TrashControllerTests : IDisposable
     [Fact]
     public void HasReparsePointAncestor_AllAncestorsRealAndPlain_ReturnsFalse()
     {
-        // A path whose every ancestor exists as a plain directory must NOT be flagged —
+        // A path whose every ancestor exists as a plain directory must NOT be flagged -
         // otherwise the guard would block legitimate deletions.
         var child = Path.Join(_tempPath, "lib", "show", "season");
         Directory.CreateDirectory(child);

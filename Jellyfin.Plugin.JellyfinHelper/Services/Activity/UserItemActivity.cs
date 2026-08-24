@@ -42,7 +42,7 @@ public sealed class UserItemActivity
     public long PlaybackPositionTicks { get; set; }
 
     /// <summary>
-    ///     Gets or sets the completion percentage (0–100) based on playback position vs runtime.
+    ///     Gets or sets the completion percentage (0-100) based on playback position vs runtime.
     /// </summary>
     public double CompletionPercent { get; set; }
 

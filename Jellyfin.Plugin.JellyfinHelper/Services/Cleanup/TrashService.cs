@@ -100,13 +100,11 @@ public class TrashService : ITrashService
             var trashItemName = $"{timestamp}_{dirName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
 
-            // Ensure trash folder exists
             Directory.CreateDirectory(trashBasePath);
 
             // Avoid collision if an item with the same name was already trashed in the same second
             trashItemPath = ResolveCollision(trashItemPath);
 
-            // Calculate size before moving
             var size = CalculateDirectorySize(sourcePath);
 
             // TOCTOU mitigation: ResolveCollision found a free path, but between that check
@@ -187,10 +185,8 @@ public class TrashService : ITrashService
             // Avoid collision if an item with the same name was already trashed in the same second
             trashItemPath = ResolveCollision(trashItemPath);
 
-            // Get size before moving
             var size = new FileInfo(sourceFilePath).Length;
 
-            // Move to trash
             File.Move(sourceFilePath, trashItemPath);
 
             _pluginLog.LogInfo(
@@ -560,7 +556,6 @@ public class TrashService : ITrashService
             _pluginLog.LogError("Trash", $"Failed to enumerate files in old trash: {oldTrashPath}", ex, logger);
         }
 
-        // Remove the old trash folder if it is now empty
         TryRemoveEmptyDirectory(oldTrashPath, logger);
 
         _pluginLog.LogInfo("Trash", $"Relocation complete: {moved} moved, {failed} failed ({oldTrashPath} → {newTrashPath})", logger);
@@ -597,7 +592,7 @@ public class TrashService : ITrashService
 
     /// <summary>
     ///     Extracts the original name from a timestamped trash item name.
-    ///     Format: "yyyyMMdd-HHmmss_originalname" → "originalname".
+    ///     Format: "yyyyMMdd-HHmmss_originalname" -> "originalname".
     /// </summary>
     /// <param name="trashItemName">The full trash item name including timestamp prefix.</param>
     /// <returns>The original name, or the full name if no timestamp prefix was found.</returns>
@@ -649,7 +644,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Resolves naming collisions for trash items by appending a numeric suffix (_2, _3, …)
+    ///     Resolves naming collisions for trash items by appending a numeric suffix (_2, _3, ...)
     ///     if the target path already exists as a file or directory.
     ///     The returned path is guaranteed to fit within the OS path-length limit.
     /// </summary>

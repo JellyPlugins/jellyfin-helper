@@ -144,7 +144,7 @@ test('absolute /config trashFolderPath in a backup does not let cleanup escape',
 
 test('NaN / Infinity / overflow numerics → 400 (invalid JSON), never 500', async () => {
   // NaN and Infinity are not valid JSON tokens; 1e999 overflows a JSON number.
-  // System.Text.Json rejects all three at the parse layer → a hard 400.
+  // System.Text.Json rejects all three at the parse layer -> a hard 400.
   for (const raw of [
     '{"orphanMinAgeDays": NaN}',
     '{"trashRetentionDays": Infinity}',
@@ -161,14 +161,14 @@ test('deeply-nested JSON (depth bomb) → 400 within bounded time, no hang', asy
   const payload = '{"a":'.repeat(depth) + '1' + '}'.repeat(depth);
   const started = Date.now();
   const res = await importBackup(payload);
-  // Exceeds the serializer's max depth → rejected at parse time with a 400.
+  // Exceeds the serializer's max depth -> rejected at parse time with a 400.
   expect(res.status(), 'a depth bomb must be a clean 400').toBe(400);
   expect(Date.now() - started, 'must not hang on a depth bomb').toBeLessThan(20_000);
   await assertPluginActive(ctx);
 });
 
 test('JSON array instead of object, and truncated body → 400, no 500', async () => {
-  // An array or a truncated object cannot bind to the backup DTO → 400/415, never 500.
+  // An array or a truncated object cannot bind to the backup DTO -> 400/415, never 500.
   for (const raw of ['[]', '[1,2,3]', '{"backupVersion":1', '']) {
     const res = await importBackup(raw);
     expect([400, 415], `payload=${raw}`).toContain(res.status());

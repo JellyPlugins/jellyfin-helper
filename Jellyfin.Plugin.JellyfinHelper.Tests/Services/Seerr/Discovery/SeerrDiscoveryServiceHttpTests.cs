@@ -310,7 +310,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         // Page 1 must return exactly 50 results (== take) so the loop does not early-exit on the
         // "fewer than take results" guard before checking totalPages.
 
-        // Build 50 users for page 1 (ids 1–50)
+        // Build 50 users for page 1 (ids 1-50)
         var page1Results = string.Join(",\n", Enumerable.Range(1, 50).Select(i =>
             $"{{ \"id\": {i}, \"displayName\": \"user{i:D3}\", \"jellyfinUserId\": \"{i:D32}\" }}"));
         var page1Json = $$"""
@@ -342,7 +342,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     public async Task GetSeerrUsersAsync_UpstreamError_ReturnsEmptyList()
     {
         // BUG GUARD: A partial fetch must return empty rather than a truncated roster.
-        // Callers assume "not in the roster → not linked". Handing them a partial list would
+        // Callers assume "not in the roster -> not linked". Handing them a partial list would
         // cause valid users to be treated as unlinked.
         _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.InternalServerError, "boom");
 
@@ -538,7 +538,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetUserRequestPermissionsAsync_UserNotInSeerr_ReturnsNonTransient()
     {
-        // Roster fetched successfully but no matching user → permanent denial, not transient.
+        // Roster fetched successfully but no matching user -> permanent denial, not transient.
         var json = """
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -562,8 +562,8 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     //   - user found but LACKS Request permission (Step 2 denial)
     //   - user found + can request + no services configured (Step 3 short-return)
     //   - user found + can request + service lookup transient failure (Step 3 fallback)
-    //   - user found + admin → all profiles exposed (Step 4)
-    //   - user found + normal → only default profiles exposed (Step 5)
+    //   - user found + admin -> all profiles exposed (Step 4)
+    //   - user found + normal -> only default profiles exposed (Step 5)
     // Each test also transitively exercises GetServiceInfoWithStatusAsync and
     // BuildAllowedProfileList, so a single test file lift bumps coverage on
     // three separate methods at once.
@@ -650,7 +650,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         }
         """;
         _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, userJson);
-        // Service list returns 500 → GetServiceInfoWithStatusAsync returns ([], false).
+        // Service list returns 500 -> GetServiceInfoWithStatusAsync returns ([], false).
         _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr", HttpStatusCode.InternalServerError, "");
 
         var result = await _sut.GetUserRequestPermissionsAsync(
@@ -663,8 +663,8 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     // -----------------------------------------------------------------------
     // Step 4 - quality-profile exposure depends on user's permission level.
     //
-    // Admin / ManageRequests / RequestAdvanced  → filterToDefault=false → ALL profiles.
-    // Normal Request-only user                  → filterToDefault=true  → default profile only.
+    // Admin / ManageRequests / RequestAdvanced  -> filterToDefault=false -> ALL profiles.
+    // Normal Request-only user                  -> filterToDefault=true  -> default profile only.
     //
     // These tests cover the two branches of BuildAllowedProfileList that the earlier
     // happy-path tests leave dark (they return before reaching Step 4 because the
@@ -679,7 +679,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         // choice from every admin request form - they would see only the server's active profile
         // and have no way to override quality without knowing the workaround.
         //
-        // Permissions=2 → Admin. Service list: one Radarr server, two profiles (HD=100, 4K=200).
+        // Permissions=2 -> Admin. Service list: one Radarr server, two profiles (HD=100, 4K=200).
         var userJson = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -707,7 +707,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
 
         Assert.True(result.CanRequest);
-        // Admin → all profiles exposed: HD (default) + 4K (non-default) - both for the single root folder.
+        // Admin -> all profiles exposed: HD (default) + 4K (non-default) - both for the single root folder.
         Assert.Equal(2, result.Profiles.Count);
         Assert.Contains(result.Profiles, p => p.ProfileId == 100);
         Assert.Contains(result.Profiles, p => p.ProfileId == 200);
@@ -720,7 +720,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         // Over-exposing all profiles to normal users bypasses the Seerr quality-tier access model
         // and could allow unprivileged users to request 4K content they are not entitled to.
         //
-        // Permissions=32 → Request only (no RequestAdvanced/ManageRequests/Admin).
+        // Permissions=32 -> Request only (no RequestAdvanced/ManageRequests/Admin).
         var userJson = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -748,7 +748,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
 
         Assert.True(result.CanRequest);
-        // Normal user → only the default (active) profile.
+        // Normal user -> only the default (active) profile.
         var profile = Assert.Single(result.Profiles);
         Assert.Equal(100, profile.ProfileId);
         Assert.Equal("HD", profile.ProfileName);
@@ -1080,7 +1080,7 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
             }
         }
 
-        // No registered route → 404 so unregistered calls surface as failed assertions.
+        // No registered route -> 404 so unregistered calls surface as failed assertions.
         return new HttpResponseMessage(HttpStatusCode.NotFound)
         {
             Content = new StringContent($"No route registered for {request.Method} {url}")

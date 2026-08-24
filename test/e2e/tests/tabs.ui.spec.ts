@@ -27,7 +27,7 @@ test('all core tabs switch and activate without JS errors', async ({ page }) => 
   // message. The plugin injects a page-wide user-facing Discovery widget that probes
   // GET Discovery/My; while DiscoveryUserAccessEnabled is off (the default, and what
   // partial config PUTs from other specs leave it as) that probe correctly returns
-  // 403, logged as "Failed to load resource: … 403" with NO url. It is not a dashboard
+  // 403, logged as "Failed to load resource: ... 403" with NO url. It is not a dashboard
   // JS defect. We match on the 403 status specifically so any OTHER broken asset (a
   // 404'd script/CSS/icon) still fails this assertion. Real uncaught exceptions arrive
   // via 'pageerror' / genuine console.error messages, which don't match this pattern.

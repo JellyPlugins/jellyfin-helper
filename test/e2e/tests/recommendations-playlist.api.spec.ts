@@ -1,5 +1,5 @@
 /**
- * Recommendations → playlist lifecycle. The named "Deactivate purges playlists"
+ * Recommendations -> playlist lifecycle. The named "Deactivate purges playlists"
  * and "sync-off purges" branches are only status-checked today, so a no-op purge
  * passes. Here we prove creation, then purge, via the Jellyfin playlist API and
  * the on-disk recommendation cache.
@@ -85,7 +85,7 @@ test.describe.serial('recommendations playlist create → purge', () => {
     const created = await managedPlaylistCount();
     test.skip(created === 0, 'engine produced no recommendation playlists on this library - purge assertion would be vacuous');
 
-    // Deactivate → the purge branch must remove every managed playlist.
+    // Deactivate -> the purge branch must remove every managed playlist.
     await putConfig({ RecommendationsTaskMode: 'Deactivate' });
     result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
@@ -103,7 +103,7 @@ test.describe.serial('recommendations playlist create → purge', () => {
     test.skip(!hasDocker(), 'docker exec unavailable - cannot inspect the cache file');
     const cache = '/config/data/jellyfin-helper-recommendations-latest.json';
 
-    // Activate → cache present and non-empty.
+    // Activate -> cache present and non-empty.
     execInContainer(`rm -f ${cache}`);
     await putConfig({
       RecommendationsTaskMode: 'Activate',
@@ -117,7 +117,7 @@ test.describe.serial('recommendations playlist create → purge', () => {
     await sleep(1000);
     expect(execInContainer(`test -s ${cache}`).code, 'Activate should persist a non-empty cache').toBe(0);
 
-    // DryRun → cache must NOT be (re)written.
+    // DryRun -> cache must NOT be (re)written.
     execInContainer(`rm -f ${cache}`);
     await putConfig({ RecommendationsTaskMode: 'DryRun' });
     result = await runCleanupTask(ctx);

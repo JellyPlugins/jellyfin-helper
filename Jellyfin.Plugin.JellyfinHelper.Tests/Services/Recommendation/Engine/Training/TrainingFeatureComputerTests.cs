@@ -241,7 +241,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void ComputeTagSimilarityFromCache_PartialOverlap_ReturnsJaccard()
     {
-        // Intersection = 1 ("A"), Union = 3 (A, B, C) → 1/3.
+        // Intersection = 1 ("A"), Union = 3 (A, B, C) -> 1/3.
         var candidate = new[] { "A", "B" };
         var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "C" };
         var result = TrainingFeatureComputer.ComputeTagSimilarityFromCache(candidate, preferred);
@@ -347,7 +347,7 @@ public class TrainingFeatureComputerTests
             watchedStudios);
 
         // Full overlap on all three dimensions of the first watched item:
-        // genreJaccard=1.0, peopleJaccard=1.0, studioJaccard=1.0 → composite = 0.50+0.30+0.20 = 1.0
+        // genreJaccard=1.0, peopleJaccard=1.0, studioJaccard=1.0 -> composite = 0.50+0.30+0.20 = 1.0
         Assert.Equal(1.0, result, precision: 10);
     }
 
@@ -420,7 +420,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void ComputeBestLanguageAffinity_KnownButNotClassified_Returns03()
     {
-        // Language exists in profile but is neither primary, preferred nor tolerated → 0.3.
+        // Language exists in profile but is neither primary, preferred nor tolerated -> 0.3.
         var profile = new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
         {
             ["it"] = new LanguageProfileEntry()
@@ -587,8 +587,8 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void ComputeTrainingTemporalAffinity_LessThan3InBucket_ReturnsNeutral()
     {
-        // Only the target item itself is in the profile → filtered by the label-leakage guard.
-        // Two additional items on the same day → totalInBucket = 2 < 3 → neutral.
+        // Only the target item itself is in the profile -> filtered by the label-leakage guard.
+        // Two additional items on the same day -> totalInBucket = 2 < 3 -> neutral.
         var saturday = new DateTime(2026, 1, 3, 12, 0, 0, DateTimeKind.Utc);
         var profile = new UserWatchProfile();
         var targetId = Guid.NewGuid();
@@ -638,7 +638,7 @@ public class TrainingFeatureComputerTests
         };
         profile.WatchedItems.Add(target); // target present in profile
 
-        // 3 other Action items on same day → target itself is filtered out, we still get 3 hits.
+        // 3 other Action items on same day -> target itself is filtered out, we still get 3 hits.
         for (int i = 0; i < 3; i++)
         {
             profile.WatchedItems.Add(new WatchedItemInfo
@@ -697,7 +697,7 @@ public class TrainingFeatureComputerTests
         var result = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(
             target, new[] { "Action" }, profile, isDay: true);
 
-        // Only the 3 real playback items count. All match Action → 3/3 = 1.0.
+        // Only the 3 real playback items count. All match Action -> 3/3 = 1.0.
         Assert.Equal(1.0, result);
     }
 

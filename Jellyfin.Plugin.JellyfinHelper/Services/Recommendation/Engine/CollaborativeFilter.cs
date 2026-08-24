@@ -15,7 +15,7 @@ internal static class CollaborativeFilter
     /// <summary>
     ///     Pre-computes watched-item HashSets for all users at once.
     ///     Called once in batch recommendation generation and shared across all per-user calls
-    ///     to avoid rebuilding O(U) HashSets per user (O(U²) total → O(U) total).
+    ///     to avoid rebuilding O(U) HashSets per user (O(U²) total to O(U) total).
     ///     Each set includes both direct item IDs and parent series IDs from episode watches.
     ///     Items that are favorited (even if not yet played) are also included - they
     ///     represent explicit interest and improve user-similarity calculation.
@@ -132,7 +132,7 @@ internal static class CollaborativeFilter
     /// <summary>
     ///     Builds a collaborative co-occurrence map: for each unwatched item,
     ///     accumulates Jaccard-weighted similarity from OTHER users who share watch
-    ///     overlap with this user. Uses true Jaccard similarity (0–1) instead of
+    ///     overlap with this user. Uses true Jaccard similarity (0-1) instead of
     ///     discretized integer weights for better precision.
     ///     When <paramref name="precomputedUserSets" /> is provided (batch mode),
     ///     uses those sets directly instead of rebuilding them per call - reducing
@@ -269,8 +269,8 @@ internal static class CollaborativeFilter
             // Trust weight: down-weight neighbours whose overall history is very small so
             // sparse users cannot dominate through a trivially high Jaccard on a handful of
             // items. Uses a saturating exponential curve so the ramp is gentle at the low end
-            // (5 watches → ~0.39) and reaches near-full trust well before the ceiling
-            // (20 watches → ~0.86, 30 → ~0.95), avoiding the linear cliff of the previous
+            // (5 watches -> ~0.39) and reaches near-full trust well before the ceiling
+            // (20 watches -> ~0.86, 30 -> ~0.95), avoiding the linear cliff of the previous
             // formula that quartered a 5-watch neighbour to 25%.
             //
             // Cold-start gate: when the whole deployment is below the ceiling (early rollout
@@ -292,9 +292,9 @@ internal static class CollaborativeFilter
             // The geometric mean lives in <c>[min(a,b), max(a,b)]</c>, so it cannot fall below the
             // smaller of the two factors - a mathematically cleaner "combined damping" that
             // preserves the ordering guarantees of both factors:
-            //   • trust=1.0, idf=1.0 → modifier=1.0                       (rich neighbour, niche item)
-            //   • trust=0.86, idf=0.18 → modifier=0.394 (was 0.155)       (~2.5× stronger signal)
-            //   • trust=0.39, idf=1.0 → modifier=0.628 (was 0.39)         (sparse neighbour keeps its unique-item boost)
+            //   • trust=1.0, idf=1.0 -> modifier=1.0                       (rich neighbour, niche item)
+            //   • trust=0.86, idf=0.18 -> modifier=0.394 (was 0.155)       (~2.5× stronger signal)
+            //   • trust=0.39, idf=1.0 -> modifier=0.628 (was 0.39)         (sparse neighbour keeps its unique-item boost)
             //
             // Ordering-preserving properties verified via the existing IDF and cold-start-gate tests:
             //   niche > mainstream                     ← IDF direction preserved: √(t·1) > √(t·<1)
@@ -350,7 +350,7 @@ internal static class CollaborativeFilter
     ///     </para>
     /// </summary>
     /// <param name="UserSets">Per-user combined watched-item sets (item IDs + series IDs).</param>
-    /// <param name="ItemPopularity">Item ID → number of users who have watched it (IDF prior).</param>
+    /// <param name="ItemPopularity">Item ID to number of users who have watched it (IDF prior).</param>
     internal sealed record CollaborativeContext(
         Dictionary<Guid, HashSet<Guid>> UserSets,
         Dictionary<Guid, int> ItemPopularity);

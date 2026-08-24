@@ -497,7 +497,7 @@ public sealed class BackupService : IBackupService
                 ? (previousKeys[instance.Name].FirstOrDefault() ?? string.Empty)
                 : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
 
-            // "Preserve the live key" that matched nothing → the instance ends up with an empty key.
+            // "Preserve the live key" that matched nothing -> the instance ends up with an empty key.
             // Surface it instead of letting the wipe pass silently (the keysChanged audit below is
             // gated on a NON-empty key, so it never reports this case).
             if (backupKeyEmpty && string.IsNullOrEmpty(apiKey))

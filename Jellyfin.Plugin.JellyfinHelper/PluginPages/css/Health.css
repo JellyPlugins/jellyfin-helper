@@ -118,7 +118,7 @@
 }
 
 /* Per-library trash sub-block. Replaces the previous ad-hoc
-   <div style="margin-top:1em;">…<h4 style="margin:0 0 0.3em 0;opacity:0.8;">
+   <div style="margin-top:1em;">...<h4 style="margin:0 0 0.3em 0;opacity:0.8;">
    layout with a class-driven equivalent. */
 /* noinspection CssUnusedSymbol */
 .trash-library-block {

@@ -82,7 +82,7 @@ public sealed class HttpResponseReaderTests
     [Fact]
     public async Task ReadLimitedAsync_StreamedBodyOverLimit_ThrowsViaByteCounter()
     {
-        // No Content-Length → the streaming counter must catch the overflow (one byte past the limit).
+        // No Content-Length -> the streaming counter must catch the overflow (one byte past the limit).
         var payload = Encoding.ASCII.GetBytes(new string('b', 33));
         using var content = new UnknownLengthContent(payload);
 

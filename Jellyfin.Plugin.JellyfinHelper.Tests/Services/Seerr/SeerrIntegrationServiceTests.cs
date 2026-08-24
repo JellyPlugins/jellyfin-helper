@@ -201,7 +201,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     public async Task TestConnection_OversizedResponse_ReturnsFalseWithTooLargeMessage()
     {
         // A 200 OK whose declared Content-Length exceeds the 100 MiB cap must be rejected by the
-        // bounded reader (fast-reject via header) and surfaced as a failed connection — not thrown.
+        // bounded reader (fast-reject via header) and surfaced as a failed connection, not thrown.
         var response = new HttpResponseMessage
         {
             StatusCode = HttpStatusCode.OK,
@@ -341,7 +341,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         };
         var page = MakeRequestPage(requests, 3);
 
-        // GET page → resolve title #1 → resolve title #3 (no deletes in dry run)
+        // GET page -> resolve title #1 -> resolve title #3 (no deletes in dry run)
         var handler = CreateSequenceHandler(
             (HttpStatusCode.OK, page),
             (HttpStatusCode.OK, MakeMovieDetails("Expired Movie 1")),
@@ -382,7 +382,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         };
         var page = MakeRequestPage(requests, 2);
 
-        // GET requests → resolve title → DELETE
+        // GET requests -> resolve title -> DELETE
         var handler = CreateSequenceHandler(
             (HttpStatusCode.OK, page),
             (HttpStatusCode.OK, MakeMovieDetails("The Matrix")),
@@ -426,7 +426,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     [Fact]
     public async Task Cleanup_ExpiredRequestWithInvalidId_IsSkippedAndCountedFailedNoDelete()
     {
-        // Guard: a request whose Id deserialized to 0 (or negative) must be skipped — hitting
+        // Guard: a request whose Id deserialized to 0 (or negative) must be skipped, hitting
         // api/v1/request/0 is an unintended endpoint. It is counted as failed and NEVER deleted.
         var requests = new List<(int, DateTimeOffset)>
         {
@@ -434,7 +434,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         };
         var page = MakeRequestPage(requests, 1);
 
-        // Only the page GET is expected — no title resolve, no DELETE.
+        // Only the page GET is expected, no title resolve, no DELETE.
         var handler = CreateSequenceHandler((HttpStatusCode.OK, page));
 
         var service = CreateService(handler.Object, out _, out _);
@@ -524,7 +524,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     [Fact]
     public async Task Cleanup_MissingCreatedAt_PendingStatus_IsNotDeleted()
     {
-        // No createdAt key at all → previously deserialized to MinValue → wrongly deleted. Must be kept.
+        // No createdAt key at all -> previously deserialized to MinValue -> wrongly deleted. Must be kept.
         var page = MakeRawRequestPage("{\"id\":1,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}");
         var handler = CreateMockHandler(HttpStatusCode.OK, page);
         var service = CreateService(handler.Object, out _, out _);
@@ -770,7 +770,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         };
         var page = MakeRequestPage(requests, 1);
 
-        // GET requests → resolve title (movie detail)
+        // GET requests -> resolve title (movie detail)
         var handler = CreateSequenceHandler(
             (HttpStatusCode.OK, page),
             (HttpStatusCode.OK, MakeMovieDetails("Inception")));
@@ -888,7 +888,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         };
         var page = MakeRequestPage(requests, 1);
 
-        // GET requests → title resolution returns 404
+        // GET requests -> title resolution returns 404
         var handler = CreateSequenceHandler(
             (HttpStatusCode.OK, page),
             (HttpStatusCode.NotFound, ""));

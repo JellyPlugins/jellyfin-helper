@@ -15,7 +15,7 @@ public sealed class ScoreExplanation
     /// </summary>
     private const double DominantSignalTolerance = 1e-12;
 
-    /// <summary>Gets or sets the final blended score (0â€“1).</summary>
+    /// <summary>Gets or sets the final blended score (0-1).</summary>
     public double FinalScore { get; set; }
 
     /// <summary>Gets or sets the score contribution from genre similarity.</summary>
@@ -108,7 +108,7 @@ public sealed class ScoreExplanation
     ///     Applies a genre penalty multiplier to all contribution values and the final score.
     ///     Returns a new explanation with the penalty applied.
     /// </summary>
-    /// <param name="penaltyMultiplier">The penalty multiplier (0â€“1).</param>
+    /// <param name="penaltyMultiplier">The penalty multiplier (0-1).</param>
     /// <returns>A new explanation with all values scaled by the penalty.</returns>
     public ScoreExplanation WithPenalty(double penaltyMultiplier)
     {
@@ -127,7 +127,7 @@ public sealed class ScoreExplanation
             StudioContribution = StudioContribution * penaltyMultiplier,
             GenrePenaltyMultiplier = penaltyMultiplier,
             // Scaling all contributions by the same factor cannot change which one is largest.
-            // Only when the multiplier is zero do all contributions collapse to zero → "None".
+            // Only when the multiplier is zero do all contributions collapse to zero to "None".
             DominantSignal = penaltyMultiplier <= DominantSignalTolerance ? "None" : DominantSignal,
             StrategyName = StrategyName
         };

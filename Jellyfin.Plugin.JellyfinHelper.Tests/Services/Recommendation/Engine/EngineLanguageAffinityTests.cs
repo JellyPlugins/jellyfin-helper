@@ -196,7 +196,7 @@ public sealed class EngineLanguageAffinityTests
     public void ComputeLanguageAffinity_ProfileAndCandidateStreamsMatchPrimary_ReturnsHighAffinity()
     {
         // The user's dominant (primary) language is 'en'; the candidate carries an English
-        // audio stream ('eng' → 'en'). This exercises the branch beyond both neutral returns
+        // audio stream ('eng' -> 'en'). This exercises the branch beyond both neutral returns
         // where the real ComputeBestLanguageAffinity delegation actually runs and awards the
         // 1.0 primary-match tier - so the result must be strictly above the 0.5 neutral value.
         var profile = new UserWatchProfile

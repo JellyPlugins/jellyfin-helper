@@ -1,5 +1,5 @@
 /**
- * Backup export → tamper → import round-trip, plus the documented gotchas:
+ * Backup export -> tamper -> import round-trip, plus the documented gotchas:
  *   - Backup is JSON (distinct from the plugin's XML config file).
  *   - Export redacts API keys unless includeSecrets=true.
  *   - Some fields are intentionally NOT exported (MaxRecommendationsPerUser,

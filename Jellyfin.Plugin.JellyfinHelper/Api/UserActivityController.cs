@@ -80,7 +80,7 @@ public sealed class UserActivityController : ControllerBase
     ///     Only available when Recommendations TaskMode is not Deactivate.
     /// </summary>
     /// <param name="userId">The Jellyfin user ID to filter by.</param>
-    /// <param name="maxResults">Maximum number of results to return (1–200, default 15).</param>
+    /// <param name="maxResults">Maximum number of results to return (1-200, default 15).</param>
     /// <returns>Activity summaries containing only the specified user's data.</returns>
     [HttpGet("User/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -160,7 +160,6 @@ public sealed class UserActivityController : ControllerBase
             .Take(maxResults)
             .ToList();
 
-        // Return 200 OK with empty list when user has no activity.
         return Ok(userItems);
     }
 

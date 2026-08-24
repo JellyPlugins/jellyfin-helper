@@ -145,7 +145,7 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
             StringComparison.Ordinal);
     }
 
-    // ---------- Radarr: failed instance → 502 with instance name ----------
+    // Radarr: failed instance -> 502 with instance name
 
     [Fact]
     public async Task CompareRadarrAsync_UpstreamReturnsNull_Returns502WithInstanceName()
@@ -205,7 +205,7 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
         Assert.Contains("Real", data.InJellyfinOnly);
     }
 
-    // ---------- Radarr: GetDirectories throws → swallowed ----------
+    // Radarr: GetDirectories throws -> swallowed
 
     [Fact]
     public async Task CompareRadarrAsync_GetDirectoriesThrowsIOException_IsSwallowed()

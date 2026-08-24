@@ -103,7 +103,7 @@ internal static class EngineTestFactory
         feedbackStore.Setup(f => f.LoadAll())
                      .Returns(new List<DiscoveryFeedbackResult>());
 
-        // Empty genre/studio counts by default → BuildGenreStudioIdfTable yields an empty table
+        // Empty genre/studio counts by default -> BuildGenreStudioIdfTable yields an empty table
         // and the GenreStudioIdfPrior feature stays neutral (0.0), keeping the batch path in its
         // normal control flow for the no-library scenario.
         var itemRepository = new Mock<IItemRepository>();

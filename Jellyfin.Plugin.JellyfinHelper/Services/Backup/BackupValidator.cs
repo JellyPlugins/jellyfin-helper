@@ -37,7 +37,7 @@ public static class BackupValidator
     internal const int MaxArrInstances = 3;
 
     /// <summary>
-    ///     Maximum retention or minimum age in days (≈ 10 years).
+    ///     Maximum retention or minimum age in days (approx. 10 years).
     /// </summary>
     internal const int MaxRetentionDays = 3650;
 

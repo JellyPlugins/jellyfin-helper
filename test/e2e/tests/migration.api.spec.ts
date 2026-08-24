@@ -5,12 +5,12 @@
  *
  * Verified against source (cited inline):
  *   - The ONLY accepted backupVersion is {1} (BackupValidator MaxBackupVersion=1).
- *     2/999/-1/0 → 400 with an errors[] naming the unsupported version.
- *   - A MISSING backupVersion deserializes to the C# default (1) → accepted (200).
- *   - A non-numeric backupVersion fails JSON parse → a DISTINCT 400 body.
+ *     2/999/-1/0 -> 400 with an errors[] naming the unsupported version.
+ *   - A MISSING backupVersion deserializes to the C# default (1) -> accepted (200).
+ *   - A non-numeric backupVersion fails JSON parse -> a DISTINCT 400 body.
  *   - An older-shaped backup (newer fields absent) restores with safe defaults:
  *     DiscoveryUserAccessEnabled=false, SyncRecommendationsToPlaylist=false,
- *     RecommendationsTaskMode→"DryRun" (ParseTaskMode fallback), and a null
+ *     RecommendationsTaskMode->"DryRun" (ParseTaskMode fallback), and a null
  *     SeerrCleanupAgeDays leaves the live value unchanged.
  *   - Unknown/removed fields (in both import and PUT /Configuration) are silently
  *     ignored (System.Text.Json default; no JsonUnmappedMemberHandling.Disallow).
@@ -93,7 +93,7 @@ test('absurd / negative / zero backupVersion values are all rejected with 400', 
 
 test('a MISSING backupVersion is accepted (defaults to 1), not rejected', async () => {
   const backup = await exportBackup(true);
-  delete backup.backupVersion; // absent → deserializes to the C# default of 1 → valid
+  delete backup.backupVersion; // absent -> deserializes to the C# default of 1 -> valid
   const res = await importBackup(backup);
   expect(res.status(), 'a missing version must be treated as v1 and succeed').toBe(200);
   const body = (await res.json()) as { summary: { ConfigurationRestored: boolean } };
@@ -117,8 +117,8 @@ test('a non-numeric backupVersion fails to parse with a DISTINCT 400 body', asyn
 // --- older-shaped backup restores with safe defaults ------------------------
 
 test('an older-shaped backup (newer fields absent) restores with safe defaults', async () => {
-  // Seed a distinct prior state so we can prove "absent field → left unchanged"
-  // for the null-preserving field, and "absent field → hard default" for the rest.
+  // Seed a distinct prior state so we can prove "absent field -> left unchanged"
+  // for the null-preserving field, and "absent field -> hard default" for the rest.
   // NOTE: PUT /Configuration only applies SeerrCleanupAgeDays when SeerrUrl is set
   // (ConfigurationController: `string.IsNullOrEmpty(config.SeerrUrl) ? 0 : clamp(...)`),
   // so the seed MUST include a SeerrUrl or the 42 silently becomes 0.

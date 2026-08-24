@@ -1047,7 +1047,7 @@ public class LinkRepairServiceTests
         // system-target guard (IsSensitiveSystemTarget) correctly rejects as
         // InvalidContent regardless of normalizedLibraryPaths - so it would NOT reach
         // the Broken (existence) path on a Linux CI runner. A plain missing sibling
-        // exercises the guard-skipped → existence-check path identically on every OS.
+        // exercises the guard-skipped -> existence-check path identically on every OS.
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("MissingSibling.mkv"));
 
@@ -1090,7 +1090,7 @@ public class LinkRepairServiceTests
         {
             // On Windows "../../../etc/passwd" resolves to a non-sensitive drive-relative
             // path (e.g. C:\etc\passwd), so the sensitive-system-target guard does NOT
-            // fire. The target simply does not exist → the link is Broken (not
+            // fire. The target simply does not exist -> the link is Broken (not
             // InvalidContent). Assert that explicitly so the test is not vacuous on Windows.
             var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
             _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));

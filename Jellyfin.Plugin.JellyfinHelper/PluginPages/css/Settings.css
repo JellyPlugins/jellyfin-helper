@@ -484,7 +484,7 @@
 }
 
 
-/* ── Settings cards ── */
+/* -- Settings cards -- */
 /* noinspection CssUnusedSymbol */
 .settings-card {
     background: rgba(255, 255, 255, 0.03);
@@ -518,7 +518,7 @@
     }
 }
 
-/* ── Responsive 2-column grid for cleanup task selects ── */
+/* -- Responsive 2-column grid for cleanup task selects -- */
 /* noinspection CssUnusedSymbol */
 .task-mode-grid {
     display: grid;
@@ -541,7 +541,7 @@
     min-width: 0;
 }
 
-/* ── Subgroup title used inside cards for "Recycle Bin" etc. ── */
+/* -- Subgroup title used inside cards for "Recycle Bin" etc. -- */
 /* noinspection CssUnusedSymbol */
 .settings-subgroup-title {
     margin-top: 1.4em;

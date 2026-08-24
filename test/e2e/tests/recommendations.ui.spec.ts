@@ -31,7 +31,7 @@ test('Recommendations tab: user selector loads per-user data; sections toggle', 
   await expect(recsBtn).toBeVisible({ timeout: 15_000 });
 
   // Opening the tab auto-loads the initial user's data: initRecommendationsTab
-  // calls onUserChanged(initialIdx) → GET Recommendations/WatchProfile/{userId}
+  // calls onUserChanged(initialIdx) -> GET Recommendations/WatchProfile/{userId}
   // (Recommendations.js). Arm the wait BEFORE switching so we catch that request
   // - the <select> has no placeholder option, so re-selecting index 0 emits no
   // 'change' event and would fire nothing.

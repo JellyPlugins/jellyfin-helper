@@ -409,7 +409,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrCleanupAgeDays = 45;
         var backup = MakeMinimalValidBackup();
-        backup.SeerrCleanupAgeDays = null; // absent → leave live value unchanged
+        backup.SeerrCleanupAgeDays = null; // absent -> leave live value unchanged
 
         service.RestoreBackup(backup);
 
@@ -838,7 +838,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         // are applied even when the backup carries no timeline/baseline data.
         var (service, liveConfig, configMock) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
-        // No timeline/baseline → no file writes occur; config restore must still run.
+        // No timeline/baseline -> no file writes occur; config restore must still run.
         backup.GrowthTimeline = null;
         backup.GrowthBaseline = null;
         backup.Language = "de";

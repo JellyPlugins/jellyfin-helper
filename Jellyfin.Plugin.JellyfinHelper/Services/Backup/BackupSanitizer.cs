@@ -84,7 +84,7 @@ public static class BackupSanitizer
         // backup could plant a negative point that surfaces on GET GrowthTimeline and even
         // survives a recompute (the append-only path preserves historical points, and
         // TrimLeadingZeros keeps one leading point). Matches the Math.Clamp treatment every
-        // other backup numeric already gets and the aggregator's own Math.Max(0, …) output guard.
+        // other backup numeric already gets and the aggregator's own Math.Max(0, ...) output guard.
         if (backup.GrowthTimeline != null)
         {
             foreach (var point in backup.GrowthTimeline.DataPoints)

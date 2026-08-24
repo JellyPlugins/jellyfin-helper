@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 ///     a web update.
 ///     <para>
 ///         These tests use a real temp filesystem because injection goes through
-///         <see cref="Plugin.UpdateIndexHtml"/> → <c>AtomicFile</c>. Each test uses a unique temp
+///         <see cref="Plugin.UpdateIndexHtml"/> -> <c>AtomicFile</c>. Each test uses a unique temp
 ///         directory cleaned up in <see cref="IDisposable.Dispose"/>. The service reads
 ///         <see cref="Plugin.Instance"/>, so a fresh Plugin is constructed per test.
 ///     </para>

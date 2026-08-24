@@ -33,7 +33,7 @@ internal static class ContentScoring
     internal static long ParallelArrayMismatchCount => Interlocked.Read(ref _parallelArrayMismatchCount);
 
     /// <summary>
-    ///     Returns a normalized collaborative score (0–1) for a candidate item.
+    ///     Returns a normalized collaborative score (0-1) for a candidate item.
     /// </summary>
     /// <param name="itemId">The candidate item ID.</param>
     /// <param name="coOccurrence">The collaborative co-occurrence map.</param>
@@ -53,11 +53,11 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Normalizes a Rotten Tomatoes critic rating (0–100%) to a 0–1 score.
+    ///     Normalizes a Rotten Tomatoes critic rating (0-100%) to a 0-1 score.
     ///     Returns 0.5 (neutral) when the value is null, zero, negative, NaN, or Infinity.
     ///     Jellyfin stores CriticRating as a float? representing the "Tomatometer" percentage.
     /// </summary>
-    /// <param name="criticRating">The critic rating value (0–100).</param>
+    /// <param name="criticRating">The critic rating value (0-100).</param>
     /// <returns>A normalized score between 0 and 1, or 0.5 if unavailable.</returns>
     internal static double NormalizeCriticRating(float? criticRating)
     {
@@ -77,8 +77,8 @@ internal static class ContentScoring
     ///     When only one source is available, that source is used exclusively.
     ///     Returns 0.5 (neutral) when neither source has data.
     /// </summary>
-    /// <param name="communityRating">TMDb community rating (0–10), or null if unavailable.</param>
-    /// <param name="criticRating">Rotten Tomatoes Tomatometer (0–100%), or null if unavailable.</param>
+    /// <param name="communityRating">TMDb community rating (0-10), or null if unavailable.</param>
+    /// <param name="criticRating">Rotten Tomatoes Tomatometer (0-100%), or null if unavailable.</param>
     /// <returns>A combined score between 0 and 1, or 0.5 if no data is available.</returns>
     internal static double ComputeCombinedCriticScore(float? communityRating, float? criticRating)
     {
@@ -114,7 +114,7 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Normalizes a community rating (typically 0–10) to a 0–1 score.
+    ///     Normalizes a community rating (typically 0-10) to a 0-1 score.
     /// </summary>
     /// <param name="communityRating">The community rating value.</param>
     /// <returns>A normalized rating between 0 and 1.</returns>
@@ -172,7 +172,7 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Computes a normalized user rating score (0–1) for a candidate item.
+    ///     Computes a normalized user rating score (0-1) for a candidate item.
     ///     If the user has not rated this item, returns 0.5 (neutral).
     /// </summary>
     /// <param name="watchedItem">The watched item entry, or null if the user hasn't interacted with it.</param>
@@ -185,7 +185,7 @@ internal static class ContentScoring
             return 0.5; // neutral default - no user rating available or NaN/Infinity
         }
 
-        // User ratings are typically 0–10, normalize to 0–1
+        // User ratings are typically 0-10, normalize to 0-1
         return Math.Clamp(watchedItem.UserRating.Value / 10.0, 0.0, 1.0);
     }
 
@@ -196,7 +196,7 @@ internal static class ContentScoring
     ///     This gives the model richer gradient signal: fully-watched items get ~0.85,
     ///     while barely-started items still get a positive label (~0.5) since the user chose to watch.
     /// </summary>
-    /// <param name="completionRatio">The watch completion ratio (0–1).</param>
+    /// <param name="completionRatio">The watch completion ratio (0-1).</param>
     /// <returns>
     ///     An engagement label between <see cref="EngineConstants.WatchedLabelFloor" /> and
     ///     <see cref="EngineConstants.WatchedLabel" />.
@@ -340,7 +340,7 @@ internal static class ContentScoring
             // Genre Jaccard (50% of composite)
             var genreJaccard = SimilarityComputer.ComputeJaccardFromSets(candidateGenres, watchedGenreSets[i]);
 
-            // People Jaccard (30% of composite). Missing parallel entry → 0 contribution
+            // People Jaccard (30% of composite). Missing parallel entry -> 0 contribution
             // but the genre dimension keeps working.
             var peopleJaccard = candidatePeople is { Count: > 0 } && i < watchedPeopleSets.Count
                 ? SimilarityComputer.ComputeJaccardFromSets(candidatePeople, watchedPeopleSets[i])
@@ -372,8 +372,8 @@ internal static class ContentScoring
     ///     Centralized here to ensure consistent computation across Engine.ScoreCandidate()
     ///     and TrainingService (all training phases).
     /// </summary>
-    /// <param name="collaborativeScore">The normalized collaborative score (0–1).</param>
-    /// <param name="combinedCriticScore">The combined critic score (0–1).</param>
+    /// <param name="collaborativeScore">The normalized collaborative score (0-1).</param>
+    /// <param name="combinedCriticScore">The combined critic score (0-1).</param>
     /// <returns>A popularity score between 0 and 1.</returns>
     internal static double ComputePopularityScore(double collaborativeScore, double combinedCriticScore)
     {

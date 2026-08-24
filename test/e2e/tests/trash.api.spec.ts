@@ -96,7 +96,7 @@ test('Trash/Relocate error-body contract: traversal → bare string, missing fie
 });
 
 test('a literal null body → clean 400 (never 500/NRE) on all three body-taking trash endpoints', async () => {
-  // Existing tests post {} (a present-but-empty object) → the field-blank branch
+  // Existing tests post {} (a present-but-empty object) -> the field-blank branch
   // ("TrashFolderPath is required."). A genuinely null/absent body is DIFFERENT: on
   // an [ApiController], model-binding validation short-circuits with an RFC9110
   // ValidationProblemDetails envelope BEFORE the action's own request==null guard

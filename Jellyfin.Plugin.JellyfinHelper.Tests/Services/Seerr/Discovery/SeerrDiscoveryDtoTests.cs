@@ -236,7 +236,7 @@ public class SeerrDiscoveryDtoTests
     }
 
     // -----------------------------------------------------------------------
-    // TmdbDiscoverResponse - has a non-trivial Results setter that coalesces null → []
+    // TmdbDiscoverResponse - has a non-trivial Results setter that coalesces null -> []
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -500,7 +500,7 @@ public class SeerrDiscoveryDtoTests
     public void DiscoveryFeedbackEntry_GetStatus_WasWatchedButNotRequested_DoesNotBecomeRequestedAndWatched()
     {
         // Defensive invariant: WasWatched alone does not qualify as RequestedAndWatched.
-        // Only the combination Requested + WasWatched does. Otherwise the "shown → watched
+        // Only the combination Requested + WasWatched does. Otherwise the "shown -> watched
         // externally" edge case (user watched the movie somewhere else) would falsely count
         // as a conversion.
         var e = new DiscoveryFeedbackEntry

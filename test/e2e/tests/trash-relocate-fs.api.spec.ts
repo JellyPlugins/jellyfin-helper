@@ -3,7 +3,7 @@
  * absolute/relative quadrants - plus the POST /Trash/CheckAccess success path.
  *
  * The existing trash specs cover only Relocate's REFUSAL/error branches and a
- * loose rel→rel "or degrades cleanly" call that seeds nothing and asserts no FS
+ * loose rel->rel "or degrades cleanly" call that seeds nothing and asserts no FS
  * state. These tests seed REAL trash content and prove the move happened on disk:
  * Moved > 0 / Failed == 0, the source is emptied (its now-empty folder removed),
  * and the destination holds exactly the moved entry with byte-identical content

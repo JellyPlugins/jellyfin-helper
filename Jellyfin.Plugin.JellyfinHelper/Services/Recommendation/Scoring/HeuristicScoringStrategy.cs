@@ -21,7 +21,7 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     ///     Initializes a new instance of the <see cref="HeuristicScoringStrategy"/> class.
     /// </summary>
     /// <param name="genrePenaltyFloor">
-    ///     Minimum multiplier for genre-mismatch penalty (0–1). Items with zero genre overlap
+    ///     Minimum multiplier for genre-mismatch penalty (0-1). Items with zero genre overlap
     ///     receive this multiplier. Default 0.10 (90% penalty). Set to 1.0 to disable penalty
     ///     (e.g. when used inside ensemble which applies its own penalty).
     /// </param>

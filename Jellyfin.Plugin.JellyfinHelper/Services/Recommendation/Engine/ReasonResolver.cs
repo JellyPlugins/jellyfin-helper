@@ -24,7 +24,7 @@ internal static class ReasonResolver
     /// <param name="genrePreferences">The user's genre preference vector.</param>
     /// <param name="preferredPeople">Optional set of preferred people names for concrete person reasons.</param>
     /// <param name="preferredStudios">Optional set of preferred studio names for concrete studio reasons.</param>
-    /// <param name="peopleLookup">Optional pre-built people lookup (item ID → person names) for resolving concrete person names on candidates.</param>
+    /// <param name="peopleLookup">Optional pre-built people lookup (item ID to person names) for resolving concrete person names on candidates.</param>
     /// <param name="preferredPeopleWeights">
     ///     Optional per-name weights (matches the map fed into <c>ComputePeopleSimilarity</c>).
     ///     When supplied, the reason text surfaces the highest-weighted matching person instead
@@ -178,7 +178,7 @@ internal static class ReasonResolver
 
     /// <summary>
     ///     Resolves a concrete person name from the candidate that matches the user's preferred people.
-    ///     Uses the pre-built <paramref name="peopleLookup"/> (item ID → person names) to avoid
+    ///     Uses the pre-built <paramref name="peopleLookup"/> (item ID to person names) to avoid
     ///     library-manager queries during scoring. Requires both <paramref name="preferredPeople"/>
     ///     and <paramref name="peopleLookup"/> to be non-null to return a match.
     ///     When <paramref name="preferredPeopleWeights"/> is supplied, the highest-weighted match

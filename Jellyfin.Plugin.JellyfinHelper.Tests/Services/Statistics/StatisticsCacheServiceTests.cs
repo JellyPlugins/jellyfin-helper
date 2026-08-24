@@ -162,7 +162,7 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void SaveLatestResult_AfterCorruptFile_OverwritesCorruption()
     {
-        // BUG GUARD: SaveLatestResult uses AtomicFile.WriteAllText → temp-file +
+        // BUG GUARD: SaveLatestResult uses AtomicFile.WriteAllText -> temp-file +
         // File.Move(overwrite: true). A prior corrupted file must be replaced,
         // NOT concatenated with. A regression that used File.AppendAllText or
         // opened in append mode would produce a still-corrupt merged file.

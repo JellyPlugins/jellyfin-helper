@@ -241,7 +241,7 @@ public class TrashControllerRelocateTests : IDisposable
     [Fact]
     public void RelocateTrash_AbsoluteOldRelativeNew_CallsRelocateToFirstLibrary()
     {
-        // Arrange: old is absolute, new is relative → move to first library's resolved path
+        // Arrange: old is absolute, new is relative -> move to first library's resolved path
         var libraryRoot = Path.Combine(_testRoot, "movies");
         Directory.CreateDirectory(libraryRoot);
         var oldAbsolutePath = Path.Combine(_testRoot, "old-absolute-trash");
@@ -316,7 +316,7 @@ public class TrashControllerRelocateTests : IDisposable
     [Fact]
     public void RelocateTrash_RelativeOldAbsoluteNew_MergesIntoAbsoluteTarget()
     {
-        // Arrange: old is relative, new is absolute → merge all library trash into one absolute target
+        // Arrange: old is relative, new is absolute -> merge all library trash into one absolute target
         var libraryRoot = Path.Combine(_testRoot, "movies");
         var oldRelativeTrash = Path.Combine(libraryRoot, ".old-trash");
         Directory.CreateDirectory(oldRelativeTrash);

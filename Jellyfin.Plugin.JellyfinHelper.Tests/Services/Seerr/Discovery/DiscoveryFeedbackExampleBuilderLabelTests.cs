@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
 ///     Tests for <see cref="DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples"/> covering the
-///     interaction-status → label mapping, the most-recent-interaction timestamp selection used for
+///     interaction-status -> label mapping, the most-recent-interaction timestamp selection used for
 ///     temporal holdout placement, and the people-similarity feature. The sibling
 ///     <see cref="ExternalCandidateFeatureBuilderTests"/> already pins the popularity/exposure
 ///     train-serve parity paths.

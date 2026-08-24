@@ -253,8 +253,8 @@ public class BackupSanitizerTests
     [Fact]
     public void TruncateString_SplitPointInsideSurrogatePair_DropsTheLoneHighSurrogate()
     {
-        // "A" + 😀 (U+1F600 = high+low surrogate). Truncating to length 2 would keep "A" plus the
-        // lone HIGH surrogate — ill-formed UTF-16. The guard must drop it, yielding just "A".
+        // "A" + U+1F600 (high+low surrogate). Truncating to length 2 would keep "A" plus the
+        // lone HIGH surrogate - ill-formed UTF-16. The guard must drop it, yielding just "A".
         var value = "A😀"; // length 3 in UTF-16 code units
         var result = BackupSanitizer.TruncateString(value, 2);
 

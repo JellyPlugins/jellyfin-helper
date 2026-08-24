@@ -287,7 +287,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
         // Consolidate data points into the current granularity.
         // When the time span grows (e.g. from <90 days to >90 days), the granularity
-        // upgrades (daily→weekly). Previously stored finer-grained points are merged
+        // upgrades (daily->weekly). Previously stored finer-grained points are merged
         // into the coarser buckets so the persisted file stays compact.
         var finalGranularity = dataPoints.Count > 0
             ? TimelineAggregator.DetermineGranularity(dataPoints[0].Date, now)
@@ -627,7 +627,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         continue;
                     }
 
-                    // Never follow symlinks or junction points - they can form cycles (A → B → A).
+                    // Never follow symlinks or junction points - they can form cycles (A -> B -> A).
                     FileAttributes attributes;
                     try
                     {

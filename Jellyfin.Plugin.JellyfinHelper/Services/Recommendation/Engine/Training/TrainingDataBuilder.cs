@@ -61,7 +61,7 @@ internal static class TrainingDataBuilder
     /// <param name="allProfiles">All user watch profiles.</param>
     /// <param name="discoveryFeedback">Optional discovery feedback data for Phase 4.</param>
     /// <param name="seriesEpisodeCounts">
-    ///     Per-series total-episode-count map (SeriesId → playable episodes in the library). When
+    ///     Per-series total-episode-count map (SeriesId -> playable episodes in the library). When
     ///     supplied, the genre/people preference vectors built here apply the SAME progression
     ///     multiplier the inference path applies (see <see cref="PreferenceBuilder"/>), so the model
     ///     trains on the feature distribution it is actually served - eliminating train/serve skew.
@@ -70,7 +70,7 @@ internal static class TrainingDataBuilder
     /// </param>
     /// <param name="genreStudioIdf">
     ///     Library-wide genre/studio IDF rarity table - the SAME table the inference path uses - so the
-    ///     GenreStudioIdfPrior feature is identical between train and serve. Null → neutral 0.0 both sides.
+    ///     GenreStudioIdfPrior feature is identical between train and serve. Null -> neutral 0.0 both sides.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>
@@ -209,7 +209,7 @@ internal static class TrainingDataBuilder
             var pt = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, itemTagsLookup);
             // The new content-affinity preference maps read directly off WatchedItemInfo's cached
             // fields, so the SAME PreferenceBuilder functions used at live scoring time apply here -
-            // identical inputs → identical maps → train/serve parity by construction.
+            // identical inputs -> identical maps -> train/serve parity by construction.
             var pf = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
             var pc = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
             var pit = PreferenceBuilder.BuildInheritedTagPreferenceSet(profile);
@@ -484,9 +484,9 @@ internal static class TrainingDataBuilder
                 if (wasWatched)
                 {
                     // Determine base label based on interaction type:
-                    // 1. Favorite-only (no playback): explicit interest signal → 0.65
-                    // 2. Abandoned (started but stopped early): strong negative signal → 0.0
-                    // 3. Normal watch: engagement-proportional label (0.5–0.85)
+                    // 1. Favorite-only (no playback): explicit interest signal -> 0.65
+                    // 2. Abandoned (started but stopped early): strong negative signal -> 0.0
+                    // 3. Normal watch: engagement-proportional label (0.5-0.85)
                     double baseLabel;
                     switch (watchedItemForRec)
                     {
@@ -1056,7 +1056,7 @@ internal static class TrainingDataBuilder
                         // watchedBoxSetCountsNeg dictionary built above. This eliminates the previous
                         // train/serve divergence where Phase 3 emitted 0.0/0.3/0.5 while inference
                         // emitted 0.3/0.5/0.7/0.9. Falls back to the legacy flat heuristic only when
-                        // no watched BoxSet counts exist for the user (empty dictionary → 0.0 from
+                        // no watched BoxSet counts exist for the user (empty dictionary -> 0.0 from
                         // ComputeCollectionProgressionBoostWithCounts, which is the correct signal).
                         CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(neg.BoxSetIds, watchedBoxSetCountsNeg),
                         SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile),
@@ -1156,7 +1156,7 @@ internal static class TrainingDataBuilder
     ///     </para>
     /// </summary>
     /// <param name="boxSetIds">The cached BoxSet IDs for the candidate item.</param>
-    /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID → watched member count mapping.</param>
+    /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID -> watched member count mapping.</param>
     /// <returns>A collection progression boost between 0.0 and 1.0, matching the inference formula.</returns>
     internal static double ComputeCollectionProgressionBoostWithCounts(
         IReadOnlyList<Guid>? boxSetIds,

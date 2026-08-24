@@ -81,7 +81,7 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_OneWatchedSibling_ReturnsBaseBoost()
     {
-        // 1 watched sibling → 0.3 + (1-1) × 0.2 = 0.3
+        // 1 watched sibling -> 0.3 + (1-1) × 0.2 = 0.3
         var boxSetId = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { boxSetId, 1 } };
 
@@ -95,7 +95,7 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_TwoWatchedSiblings_ReturnsHalf()
     {
-        // 2 watched siblings → 0.3 + (2-1) × 0.2 = 0.5
+        // 2 watched siblings -> 0.3 + (2-1) × 0.2 = 0.5
         var boxSetId = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { boxSetId, 2 } };
 
@@ -109,7 +109,7 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_ThreeWatchedSiblings_ReturnsSevenTenths()
     {
-        // 3 watched siblings → 0.3 + (3-1) × 0.2 = 0.7
+        // 3 watched siblings -> 0.3 + (3-1) × 0.2 = 0.7
         var boxSetId = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { boxSetId, 3 } };
 
@@ -123,7 +123,7 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_FourWatchedSiblings_ReturnsNineTenths()
     {
-        // 4 watched siblings → 0.3 + (4-1) × 0.2 = 0.9
+        // 4 watched siblings -> 0.3 + (4-1) × 0.2 = 0.9
         var boxSetId = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { boxSetId, 4 } };
 
@@ -137,7 +137,7 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_FiveWatchedSiblings_ClampsToOne()
     {
-        // 5 watched siblings → 0.3 + (5-1) × 0.2 = 1.1, must clamp to 1.0.
+        // 5 watched siblings -> 0.3 + (5-1) × 0.2 = 1.1, must clamp to 1.0.
         var boxSetId = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { boxSetId, 5 } };
 
@@ -171,8 +171,8 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_MultipleBoxSets_UsesHighestProgression()
     {
-        var lowProgressionBoxSet = Guid.NewGuid();  // 1 watched sibling → 0.3
-        var highProgressionBoxSet = Guid.NewGuid(); // 4 watched siblings → 0.9
+        var lowProgressionBoxSet = Guid.NewGuid();  // 1 watched sibling -> 0.3
+        var highProgressionBoxSet = Guid.NewGuid(); // 4 watched siblings -> 0.9
         var counts = new Dictionary<Guid, int>
         {
             { lowProgressionBoxSet, 1 },

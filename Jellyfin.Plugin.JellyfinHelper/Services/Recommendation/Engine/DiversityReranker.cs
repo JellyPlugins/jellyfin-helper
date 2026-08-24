@@ -112,7 +112,7 @@ internal static class DiversityReranker
         // Rank the entire candidate list once and split into two disjoint pools:
         //   * mmrPool: top count·MmrPoolFactor for the diversity-aware relevance selection.
         //   * explorationPool: everything up to count·ExplorationPoolFactor excluding the mmrPool head,
-        //     so exploration can inject picks from ranks MmrPoolFactor·count … ExplorationPoolFactor·count
+        //     so exploration can inject picks from ranks MmrPoolFactor·count ... ExplorationPoolFactor·count
         //     that MMR would never see. The two factors live as internal constants above so any future
         //     retune touches a single line and the tests reference the same source of truth.
         var ranked = candidates.OrderByDescending(c => c.Score).ToList();
@@ -219,7 +219,7 @@ internal static class DiversityReranker
                 availableWeight += 0.2;
             }
 
-            // No shared dimensions → not enough data to judge similarity, treat as unrelated.
+            // No shared dimensions -> not enough data to judge similarity, treat as unrelated.
             if (availableWeight <= 0.0)
             {
                 return 0.0;
@@ -244,9 +244,9 @@ internal static class DiversityReranker
         // Slot-allocation strategy scales exploration with list size so admins who
         // shrink MaxRecommendationsPerUser to 3-5 items don't end up with 50-66% random
         // exploration. Previously the flat ExplorationSlotCount ceiling meant:
-        //   count=2 → 1 exploration + 1 MMR   (50% random)
-        //   count=3 → 2 exploration + 1 MMR   (66% random)
-        //   count>=10 → 2 exploration + rest MMR
+        //   count=2 -> 1 exploration + 1 MMR   (50% random)
+        //   count=3 -> 2 exploration + 1 MMR   (66% random)
+        //   count>=10 -> 2 exploration + rest MMR
         // Now we cap exploration at max(1, count / ExplorationSlotDivisor) so exploration
         // stays roughly ~10% of the list, matching what count=20 configurations always saw.
         // For tiny lists (count < divisor) exploration is 1 slot; the ceiling is still

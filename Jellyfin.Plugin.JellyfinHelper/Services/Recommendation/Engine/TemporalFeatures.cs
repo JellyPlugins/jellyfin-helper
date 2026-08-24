@@ -81,7 +81,7 @@ internal static class TemporalFeatures
     /// <summary>
     ///     Computes hour-of-day affinity: how well a candidate's genre matches
     ///     the user's viewing patterns for the current time-of-day bucket.
-    ///     Uses 4 buckets: night (0–5), morning (6–11), afternoon (12–17), evening (18–23).
+    ///     Uses 4 buckets: night (0-5), morning (6-11), afternoon (12-17), evening (18-23).
     ///     Returns 0.5 (neutral) if insufficient data.
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
@@ -141,11 +141,11 @@ internal static class TemporalFeatures
     }
 
     /// <summary>
-    ///     Maps an hour (0–23) to a time-of-day bucket for temporal affinity computation.
-    ///     Buckets: 0 = night (0–5), 1 = morning (6–11), 2 = afternoon (12–17), 3 = evening (18–23).
+    ///     Maps an hour (0-23) to a time-of-day bucket for temporal affinity computation.
+    ///     Buckets: 0 = night (0-5), 1 = morning (6-11), 2 = afternoon (12-17), 3 = evening (18-23).
     /// </summary>
-    /// <param name="hour">The hour of day (0–23).</param>
-    /// <returns>A bucket index (0–3).</returns>
+    /// <param name="hour">The hour of day (0-23).</param>
+    /// <returns>A bucket index (0-3).</returns>
     internal static int GetTimeBucket(int hour) => hour switch
     {
         < 6 => 0,

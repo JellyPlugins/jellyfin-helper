@@ -191,7 +191,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
         Assert.False(Directory.Exists(realDir));
         Assert.True(Directory.Exists(moveDest));
 
-        // DeleteReparsePointLinkNode: must reject a real (non-reparse-point) path — fail closed.
+        // DeleteReparsePointLinkNode: must reject a real (non-reparse-point) path, fail closed.
         // The method guards against the TOCTOU race where a symlink is replaced by a real directory
         // between the caller's IsReparsePoint check and the deletion. Passing a real directory
         // must throw InvalidOperationException and leave the entry unchanged.

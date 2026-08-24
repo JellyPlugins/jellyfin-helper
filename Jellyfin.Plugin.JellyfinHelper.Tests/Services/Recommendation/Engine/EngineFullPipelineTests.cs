@@ -222,8 +222,8 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetRecommendations_WarmUser_WithCandidates_ReturnsScoredRecommendations()
     {
-        // Drives the FULL warm path: GenerateForUser → preference vectors → ScoreCandidate
-        // → DiversityReranker → RecommendedItem projection. Largest previously-uncovered
+        // Drives the FULL warm path: GenerateForUser -> preference vectors -> ScoreCandidate
+        // -> DiversityReranker -> RecommendedItem projection. Largest previously-uncovered
         // block (~800 lines) gets executed here for the first time.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
@@ -253,7 +253,7 @@ public sealed class EngineFullPipelineTests
         // factory default). Its NameKey is stable across strategy-formula refactors.
         Assert.False(string.IsNullOrEmpty(result.ScoringStrategy));
         // At least one recommendation must be produced: if result.Recommendations is empty
-        // the warm scoring pipeline (GenerateForUser → ScoreCandidate → DiversityReranker)
+        // the warm scoring pipeline (GenerateForUser -> ScoreCandidate -> DiversityReranker)
         // was never actually exercised and the test provides no coverage of those ~800 lines.
         Assert.NotEmpty(result.Recommendations);
     }

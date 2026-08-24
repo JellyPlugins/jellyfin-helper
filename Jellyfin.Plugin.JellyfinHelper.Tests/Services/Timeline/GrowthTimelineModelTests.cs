@@ -240,7 +240,7 @@ public class GrowthTimelineModelTests
             CumulativeFileCount = 42,
         };
 
-        var json = JsonSerializer.Serialize(point); // no options → default PascalCase
+        var json = JsonSerializer.Serialize(point); // no options -> default PascalCase
         Assert.Contains("\"date\":", json);
         Assert.Contains("\"cumulativeSize\":12345", json);
         Assert.Contains("\"cumulativeFileCount\":42", json);
@@ -268,7 +268,7 @@ public class GrowthTimelineModelTests
             CumulativeFileCount = 10,
         });
 
-        var json = JsonSerializer.Serialize(result); // no options → default PascalCase
+        var json = JsonSerializer.Serialize(result); // no options -> default PascalCase
         Assert.Contains("\"granularity\":\"yearly\"", json);
         Assert.Contains("\"totalDirectoriesScanned\":42", json);
         Assert.Contains("\"earliestFileDate\":", json);

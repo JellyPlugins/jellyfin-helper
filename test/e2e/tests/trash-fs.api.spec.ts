@@ -119,7 +119,7 @@ test.describe.serial('trash move + retention purge', () => {
   test('retentionDays<=0 disables purge; enabling it (1) then purges the expired entry', async () => {
     const oldTs = containerTimestamp(30);
 
-    // Retention disabled → expired entry preserved.
+    // Retention disabled -> expired entry preserved.
     await putConfig({
       TrickplayTaskMode: 'Deactivate', EmptyMediaFolderTaskMode: 'Deactivate',
       OrphanedSubtitleTaskMode: 'Deactivate', LinkRepairTaskMode: 'Deactivate',
@@ -131,7 +131,7 @@ test.describe.serial('trash move + retention purge', () => {
     await runCleanupTask(ctx);
     expect(containerDirExists(`${TRASH}/${oldTs}_Persist`), 'retention=0 must not purge').toBe(true);
 
-    // Enable retention → now the expired entry is purged.
+    // Enable retention -> now the expired entry is purged.
     await putConfig({ UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 1 });
     await runCleanupTask(ctx);
     expect(containerDirExists(`${TRASH}/${oldTs}_Persist`), 'retention=1 must purge expired').toBe(false);
@@ -147,7 +147,7 @@ test.describe.serial('trash move + retention purge', () => {
     containerMkdir(`${TRASH}/not-a-timestamp-folder`);
     containerWriteFile(`${TRASH}/not-a-timestamp-folder/keep.txt`, 'keep');
     await runCleanupTask(ctx);
-    // Name doesn't parse as a trash timestamp → left alone.
+    // Name doesn't parse as a trash timestamp -> left alone.
     expect(containerDirExists(`${TRASH}/not-a-timestamp-folder`)).toBe(true);
   });
 
@@ -215,7 +215,7 @@ test.describe.serial('DELETE /Trash/Folders bulk removal (green path)', () => {
   });
 
   test('deletes seeded per-library trash folders on disk and reports Deleted>0', async () => {
-    // Default (relative/blank) trash path → the endpoint targets <library>/.jellyfin-trash,
+    // Default (relative/blank) trash path -> the endpoint targets <library>/.jellyfin-trash,
     // gated to stay under the library root. Seed a real trash folder with content.
     await putConfig({ UseTrash: true, TrashFolderPath: '.jellyfin-trash' });
 
@@ -250,7 +250,7 @@ test.describe.serial('DELETE /Trash/Folders bulk removal (green path)', () => {
     const res = await ctx.delete(p('Trash/Folders'));
     expect(res.ok(), `DELETE /Trash/Folders failed: ${res.status()}`).toBeTruthy();
     const body = (await res.json()) as { Deleted: number; Failed: number };
-    // Nothing on disk to remove → Deleted 0, Failed 0, no error, library intact.
+    // Nothing on disk to remove -> Deleted 0, Failed 0, no error, library intact.
     expect(body.Deleted).toBe(0);
     expect(body.Failed).toBe(0);
     expect(containerDirExists(M), 'library root must survive a no-op delete').toBe(true);

@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 ///     Focus areas:
 ///     <list type="bullet">
 ///         <item>Argument validation (ThrowIfNull / ThrowIfNegativeOrZero).</item>
-///         <item>Edge cases: too-few samples → empty result (no divide-by-zero).</item>
+///         <item>Edge cases: too-few samples -> empty result (no divide-by-zero).</item>
 ///         <item>Sample cap: sampleSize > examples.Count must be clamped.</item>
 ///         <item>Determinism: seeded RNG produces stable importance values across runs.</item>
 ///         <item>Result shape: keys are FeatureIndex enum names, size == FeatureCount.</item>

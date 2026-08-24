@@ -22,11 +22,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 /// </summary>
 public sealed class TrashServiceInternalHelpersTests
 {
-    // ============================================================================
     // MeasureString
-    //   • Windows: char length (UTF-16 code units)
-    //   • Non-Windows: UTF-8 byte length
-    // ============================================================================
+    //   Windows: char length (UTF-16 code units)
+    //   Non-Windows: UTF-8 byte length
 
     [Fact]
     public void MeasureString_Null_ReturnsZero()
@@ -62,7 +60,7 @@ public sealed class TrashServiceInternalHelpersTests
 
         if (OperatingSystem.IsWindows())
         {
-            // Windows enforcement is char-based. Surrogate-free string → char count.
+            // Windows enforcement is char-based. Surrogate-free string -> char count.
             Assert.Equal(value.Length, measured);
         }
         else
@@ -77,7 +75,7 @@ public sealed class TrashServiceInternalHelpersTests
         // One emoji: 4 bytes in UTF-8, 2 chars in UTF-16 (surrogate pair).
         // BUG GUARD: an early revision counted char length as UTF-8 length, which under-reported
         // sizes on Unix and let mojibake through the truncation logic.
-        const string emoji = "\U0001F3AC"; // 🎬
+        const string emoji = "\U0001F3AC";
         var measured = TrashService.MeasureString(emoji);
 
         if (OperatingSystem.IsWindows())
@@ -90,14 +88,12 @@ public sealed class TrashServiceInternalHelpersTests
         }
     }
 
-    // ============================================================================
     // TruncateToSize
     //   Contract:
-    //     • Empty / null / non-positive maxSize → empty string
-    //     • Value that already fits → returned as-is
-    //     • Overshoot → truncated on encoding boundary (no split surrogate,
+    //     Empty / null / non-positive maxSize -> empty string
+    //     Value that already fits -> returned as-is
+    //     Overshoot -> truncated on encoding boundary (no split surrogate,
     //       no split UTF-8 sequence)
-    // ============================================================================
 
     [Fact]
     public void TruncateToSize_Null_ReturnsEmpty()
@@ -163,7 +159,7 @@ public sealed class TrashServiceInternalHelpersTests
         }
 
         // Two emojis = 4 UTF-16 code units. Budget = 3 lands mid-surrogate; must drop back to 2.
-        const string value = "\U0001F3AC\U0001F3AC"; // 🎬🎬
+        const string value = "\U0001F3AC\U0001F3AC";
         var truncated = TrashService.TruncateToSize(value, 3);
 
         // Result must be exactly one emoji (2 code units), not a truncated surrogate half.
@@ -202,7 +198,7 @@ public sealed class TrashServiceInternalHelpersTests
             return;
         }
 
-        const string value = "\U0001F3AC"; // 🎬 = 4 bytes
+        const string value = "\U0001F3AC"; // 4 bytes
         var truncated = TrashService.TruncateToSize(value, 3);
         Assert.Equal(string.Empty, truncated);
     }
@@ -224,7 +220,7 @@ public sealed class TrashServiceInternalHelpersTests
     // ============================================================================
     // ExtractOriginalName
     //   Reconstruct the human-readable name from a trashed path prefix.
-    //   Format: "yyyyMMdd-HHmmss_<original>" → "<original>"
+    //   Format: "yyyyMMdd-HHmmss_<original>" -> "<original>"
     //   Bare / malformed input passes through untouched.
     // ============================================================================
 
@@ -302,7 +298,7 @@ public sealed class TrashServiceInternalHelpersTests
     public void ExtractOriginalName_TimestampPlusUnderscorePlusOneChar_ExtractsThatChar()
     {
         // 17 chars: valid timestamp + underscore + single char suffix. The guard
-        // "<= 16" does NOT fire → we get the "x" suffix back. This complements the
+        // "<= 16" does NOT fire -> we get the "x" suffix back. This complements the
         // boundary-guard test above so a regression that flips <= to < is caught
         // from BOTH sides of the boundary.
         var result = TrashService.ExtractOriginalName("20260601-120000_x");
@@ -358,7 +354,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void TryParseTrashTimestamp_MalformedDate_ReturnsFalse()
     {
-        // The prefix "20261301" is February-off month 13 → invalid.
+        // The prefix "20261301" is February-off month 13 -> invalid.
         var ok = TrashService.TryParseTrashTimestamp("20261301-000000_bad", out var ts);
         Assert.False(ok);
         Assert.Equal(DateTime.MinValue, ts);

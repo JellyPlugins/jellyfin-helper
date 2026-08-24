@@ -24,11 +24,11 @@ internal static class ScoringHelper
 
     /// <summary>
     ///     Computes a soft genre penalty multiplier that ramps linearly from <paramref name="floor"/>
-    ///     (at genreSimilarity = 0) to 1.0 (at genreSimilarity ≥ <paramref name="threshold"/>).
+    ///     (at genreSimilarity = 0) to 1.0 (at genreSimilarity >= <paramref name="threshold"/>).
     ///     Shared by <see cref="HeuristicScoringStrategy"/> and <see cref="EnsembleScoringStrategy"/>
     ///     to ensure consistent genre penalty behaviour across all strategies.
     /// </summary>
-    /// <param name="genreSimilarity">The genre similarity value (0–1).</param>
+    /// <param name="genreSimilarity">The genre similarity value (0-1).</param>
     /// <param name="floor">The minimum penalty multiplier when genre similarity is 0.</param>
     /// <param name="threshold">Genre similarity value at which penalty reaches 1.0 (no penalty).</param>
     /// <returns>A penalty multiplier between <paramref name="floor"/> and 1.0.</returns>

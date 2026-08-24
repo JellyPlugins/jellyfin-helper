@@ -77,7 +77,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_NoLibraries_ReturnsEmptyMonthlyResult()
     {
-        // No libraries configured → the service must short-circuit with an empty result
+        // No libraries configured -> the service must short-circuit with an empty result
         // and default monthly granularity. Must also not touch the persistence layer.
         var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
 
@@ -265,7 +265,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_EmptyAfterHavingData_ReturnsWithoutThrowing()
     {
-        // Sequence: first scan with data → second scan with no libraries.
+        // Sequence: first scan with data -> second scan with no libraries.
         // The second call must (a) return an empty transient result, AND (b) actually
         // PERSIST that empty state to disk so LoadTimelineAsync reflects reality.
         // A test that only inspects the transient return value could pass even if

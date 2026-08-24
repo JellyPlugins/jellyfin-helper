@@ -11,8 +11,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 ///     Tests for <see cref="NeuralScoringStrategy"/>: Forward-Pass, Backprop/Training,
 ///     Adam optimizer, Weight Persistence, Xavier initialization, Sigmoid, Dropout.
 ///     Architecture
-///     <see cref="CandidateFeatures.FeatureCount"/> inputs → 76 hidden₁ → 96 hidden₂ →
-///     48 hidden₃ → 24 hidden₄ → 1 output.
+///     <see cref="CandidateFeatures.FeatureCount"/> inputs -> 76 hidden₁ -> 96 hidden₂ ->
+///     48 hidden₃ -> 24 hidden₄ -> 1 output.
 /// </summary>
 public sealed class NeuralScoringStrategyTests : IDisposable
 {
@@ -151,7 +151,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
             input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, bO,
             h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act, h4Pre, h4Act);
 
-        // All zeros → hidden pre-activation = 0 → ReLU(0) = 0 → output = sigmoid(0) = 0.5
+        // All zeros -> hidden pre-activation = 0 -> ReLU(0) = 0 -> output = sigmoid(0) = 0.5
         Assert.Equal(0.5, result, 10);
     }
 
@@ -833,28 +833,28 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Hidden2Size_IsV3Value()
     {
-        // 24 → 96 (widest layer; feature-interaction composition capacity).
+        // 24 -> 96 (widest layer; feature-interaction composition capacity).
         Assert.Equal(96, NeuralScoringStrategy.Hidden2Size);
     }
 
     [Fact]
     public void Hidden3Size_IsV3Value()
     {
-        // 12 → 48 (half of Hidden2; compression stage).
+        // 12 -> 48 (half of Hidden2; compression stage).
         Assert.Equal(48, NeuralScoringStrategy.Hidden3Size);
     }
 
     [Fact]
     public void Hidden4Size_IsV3Value()
     {
-        // 6 → 24 (final layer feeding the sigmoid output).
+        // 6 -> 24 (final layer feeding the sigmoid output).
         Assert.Equal(24, NeuralScoringStrategy.Hidden4Size);
     }
 
     [Fact]
     public void CurrentWeightsVersion_IsV3()
     {
-        // Version bump 2 → 3 signals to persistence-loaders that the
+        // Version bump 2 -> 3 signals to persistence-loaders that the
         // stored array shapes no longer match; a v2 file will be discarded on load.
         Assert.Equal(3, NeuralScoringStrategy.CurrentWeightsVersion);
     }
@@ -1124,7 +1124,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         }
 
         var wIH = new double[NeuralScoringStrategy.Hidden1Size * inputSize];
-        // Positive weights so every ReLU pre-activation is positive → dropout is the only zero source.
+        // Positive weights so every ReLU pre-activation is positive -> dropout is the only zero source.
         for (var i = 0; i < wIH.Length; i++)
         {
             wIH[i] = 0.1;
@@ -1247,11 +1247,11 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // Contract (weakened, mathematically correct): inverted dropout preserves
         // E[pre-activation] at each linear layer. It does NOT preserve the final
         // sigmoid output, because ReLU (piecewise-linear) and sigmoid (non-linear)
-        // compositions mean E[sigmoid(f(X))] ≠ sigmoid(f(E[X])) in general. What we
+        // compositions mean E[sigmoid(f(X))] != sigmoid(f(E[X])) in general. What we
         // CAN assert is that a large-sample mean of dropout-ON outputs is close to
         // the deterministic reference within a broad band, provided the weights are
         // small enough to keep every neuron in the ~linear regime of the sigmoid
-        // (|z| < ~1 → local slope ≈ 0.20 - 0.25, low curvature). All weights below
+        // (|z| < ~1 -> local slope ≈ 0.20 - 0.25, low curvature). All weights below
         // are drawn from ±0.25 for exactly this reason.
         //
         // The tolerance is 0.10 (± 10 percentage points on the [0, 1] output): tight

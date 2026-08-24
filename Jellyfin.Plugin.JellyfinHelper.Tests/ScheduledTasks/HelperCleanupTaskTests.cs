@@ -187,7 +187,7 @@ public class HelperCleanupTaskTests
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping User Watch Activity (deactivated in settings)", LogLevel.Information);
         // Smart Recommendations is NOT skipped on Deactivate - it runs cleanup-only so it can
-        // purge previously-created recommendation playlists (switching Activate→Deactivate
+        // purge previously-created recommendation playlists (switching Activate->Deactivate
         // must not leave stale managed playlists behind). It must NOT be logged as skipped.
         VerifyLogNeverContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Discovery (deactivated in settings)", LogLevel.Information);

@@ -56,7 +56,7 @@ let submittedRequests = [];
 // then 500s that page-2 fetch - simulating "page 1 OK, page 2 fails mid-scan".
 // listCalls records the (skip, status) of every request-list call so a test can
 // prove BOTH page 1 (200) and page 2 (500) were actually observed.
-let failListSkip = null; // when a number, GET /request with this skip → 500
+let failListSkip = null; // when a number, GET /request with this skip -> 500
 let inflateResults = false; // when true, page 1's pageInfo.results forces a 2nd page
 let listCalls = [];
 
@@ -194,13 +194,13 @@ const server = http.createServer(async (req, res) => {
 
   // Adversarial sentinel keys (hardening tests only). Green-path keys skip these.
   if (apiKey === SLOW_KEY) {
-    // Send headers, then hold the socket ~40s without a body → slow-loris.
+    // Send headers, then hold the socket ~40s without a body -> slow-loris.
     res.writeHead(200, { 'Content-Type': 'application/json' });
     setTimeout(() => { try { res.end('{}'); } catch { /* client gone */ } }, 40_000);
     return done(200);
   }
   if (apiKey === GIANT_KEY) {
-    // Stream ~120MB in chunks with no Content-Length → over-large response.
+    // Stream ~120MB in chunks with no Content-Length -> over-large response.
     res.writeHead(200, { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' });
     res.write('{"applicationTitle":"');
     const chunk = 'x'.repeat(1024 * 1024);

@@ -67,8 +67,8 @@ public sealed class EngineIdfRarityTests
             .Setup(r => r.GetGenres(It.IsAny<InternalItemsQuery>()))
             .Returns(new QueryResult<(BaseItem, ItemCounts)>(new List<(BaseItem, ItemCounts)>
             {
-                Term("Action", 500),   // ubiquitous → low IDF
-                Term("Neo-Noir", 1)     // rare → high IDF
+                Term("Action", 500),   // ubiquitous -> low IDF
+                Term("Neo-Noir", 1)     // rare -> high IDF
             }));
 
         var userId = Guid.NewGuid();

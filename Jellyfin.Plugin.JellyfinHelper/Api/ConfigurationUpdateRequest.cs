@@ -109,19 +109,19 @@ public class ConfigurationUpdateRequest
     public string Language { get; init; } = "en";
 
     /// <summary>
-    ///     Gets the minimum alpha value for the ensemble scoring strategy (0–1).
+    ///     Gets the minimum alpha value for the ensemble scoring strategy (0-1).
     ///     Nullable so older clients do not silently reset it.
     /// </summary>
     public double? EnsembleAlphaMin { get; init; }
 
     /// <summary>
-    ///     Gets the maximum alpha value for the ensemble scoring strategy (0–1).
+    ///     Gets the maximum alpha value for the ensemble scoring strategy (0-1).
     ///     Nullable so older clients do not silently reset it.
     /// </summary>
     public double? EnsembleAlphaMax { get; init; }
 
     /// <summary>
-    ///     Gets the genre penalty floor for the ensemble scoring strategy (0–1).
+    ///     Gets the genre penalty floor for the ensemble scoring strategy (0-1).
     ///     Nullable so older clients do not silently reset it.
     /// </summary>
     public double? EnsembleGenrePenaltyFloor { get; init; }

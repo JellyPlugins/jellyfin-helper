@@ -728,7 +728,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     //
     // NOTE: `Load_OversizedFile_DeletesFileAndReturnsEmpty` above already
     // exercises the delete-and-return-empty branch; this test complements it
-    // by chaining Load → Save → Load through a single freshly-constructed
+    // by chaining Load -> Save -> Load through a single freshly-constructed
     // service so the post-recovery state is proven end-to-end.
     // -----------------------------------------------------------------------
 

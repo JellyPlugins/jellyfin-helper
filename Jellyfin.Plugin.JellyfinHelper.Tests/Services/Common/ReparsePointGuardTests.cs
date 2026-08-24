@@ -9,8 +9,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 ///     Tests for <see cref="ReparsePointGuard" />.
 ///     The happy-path that calls <c>delete</c> on a real reparse point cannot be exercised
 ///     in unit tests without symlink/junction creation privileges (unavailable in CI).
-///     All testable branches — non-existent path, real non-reparse directory, fail-closed
-///     throw, and delete-action never-called — are covered here.
+///     All testable branches, non-existent path, real non-reparse directory, fail-closed
+///     throw, and delete-action never-called, are covered here.
 /// </summary>
 public sealed class ReparsePointGuardTests : IDisposable
 {
@@ -82,8 +82,8 @@ public sealed class ReparsePointGuardTests : IDisposable
 
     // ── IsReparsePointAnyType ─────────────────────────────────────────────────
     // A real symlink cannot be created without elevated privileges in CI, so the
-    // link-node true-branch is covered by the E2E suite. The false branches — a
-    // plain file, a plain directory, and a missing path (both not-found shapes) —
+    // link-node true-branch is covered by the E2E suite. The false branches, a
+    // plain file, a plain directory, and a missing path (both not-found shapes),
     // are all reachable here and must never report a reparse point.
 
     [Fact]
@@ -157,7 +157,7 @@ public sealed class ReparsePointGuardTests : IDisposable
         }
         catch (InvalidOperationException)
         {
-            // Expected throw — the action must not have been called.
+            // Expected throw, the action must not have been called.
         }
 
         Assert.False(invoked);

@@ -300,7 +300,7 @@ public class BackupControllerTests
                 pluginLog: _log,
                 configuration: new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { SeerrApiKey = "super-secret-key" });
 
-            // includeSecrets defaults to false → keys are redacted → no audit warning.
+            // includeSecrets defaults to false -> keys are redacted -> no audit warning.
             var result = controller.ExportBackup();
 
             Assert.IsType<FileContentResult>(result);
@@ -426,7 +426,7 @@ public class BackupControllerTests
         var tempDir = CreateTempDir();
         try
         {
-            // Empty or missing API key in backup means "leave existing" → no credential change.
+            // Empty or missing API key in backup means "leave existing" -> no credential change.
             var backupJson = JsonSerializer.Serialize(new
             {
                 seerrApiKey = string.Empty,

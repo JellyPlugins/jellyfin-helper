@@ -149,7 +149,7 @@ public sealed class EngineInstanceTests
         // strategy is NOT the EnsembleScoringStrategy, there is nothing to train on
         // and no cohort-feedback pass to run. TrainStrategy must return false rather
         // than degenerating into a no-op that still touches the watch-history service
-        // for the training loop - because that touch would trigger the O(U×M)
+        // for the training loop - because that touch would trigger the O(UxM)
         // watched-lookup materialisation with no user-visible benefit.
         //
         // We use the default harness (HeuristicScoringStrategy, non-trainable) so
@@ -200,7 +200,7 @@ public sealed class EngineInstanceTests
     [Fact]
     public void TryPublishSnapshot_HigherSequence_Accepted()
     {
-        // Normal in-order publish: sequence 2 follows sequence 1 → must succeed.
+        // Normal in-order publish: sequence 2 follows sequence 1 -> must succeed.
         var harness = EngineTestFactory.Create();
         InvokeTryPublishSnapshot(harness.Engine, publicationSequence: 1);
         var result = InvokeTryPublishSnapshot(harness.Engine, publicationSequence: 2);
@@ -327,7 +327,7 @@ public sealed class EngineInstanceTests
         harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
 
         // Run 8 concurrent batch invocations. Each rebuilds the snapshot from scratch
-        // (empty library → no candidates → trivial batch). The community-popularity
+        // (empty library -> no candidates -> trivial batch). The community-popularity
         // computation runs inside each batch's cold-start path.
         var tasks = Enumerable.Range(0, 8).Select(_ =>
             Task.Run(() => harness.Engine.GetAllRecommendations(5, CancellationToken.None)));

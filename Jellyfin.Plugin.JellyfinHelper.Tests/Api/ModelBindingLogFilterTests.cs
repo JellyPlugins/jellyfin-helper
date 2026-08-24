@@ -188,9 +188,9 @@ public class ModelBindingLogFilterTests
     // Branch-coverage tests for the error-string composition helpers on the ModelState
     // path. The `bindingErrors` join produces different strings depending on which of
     // the three fallback branches inside the SelectMany-Select projection fires:
-    //   1. ErrorMessage present         → use ErrorMessage verbatim
-    //   2. ErrorMessage empty + Exception present → use Exception.Message
-    //   3. ErrorMessage empty + Exception null    → literal "invalid"
+    //   1. ErrorMessage present                   -> use ErrorMessage verbatim
+    //   2. ErrorMessage empty + Exception present  -> use Exception.Message
+    //   3. ErrorMessage empty + Exception null     -> literal "invalid"
     // The main Invalid_ModelState_* test above only exercises branch 1. The next two
     // tests pin branches 2 and 3 so an accidental refactor of the ternary is caught.
     // ==================================================================================
@@ -206,7 +206,7 @@ public class ModelBindingLogFilterTests
         // couple this test to a specific framework version, we construct the ModelError
         // ourselves and push it into the ModelStateEntry.Errors collection directly -
         // that's exactly the shape MVC's InputFormatterException path produces and lets
-        // us pin the "ErrorMessage empty → use Exception.Message" branch of the filter
+        // us pin the "ErrorMessage empty -> use Exception.Message" branch of the filter
         // without pulling in additional Microsoft.AspNetCore.Mvc.Core test internals.
         var context = CreateExecutingContext(seedModelState: ms =>
         {
@@ -358,7 +358,7 @@ public class ModelBindingLogFilterTests
         var context = CreateExecutingContext(actionArguments: new Dictionary<string, object?>
         {
             ["request"] = new object(),       // ok
-            ["token"] = null,                   // null → must trigger
+            ["token"] = null,                   // null -> must trigger
             ["cancellationToken"] = new object() // ok
         });
 

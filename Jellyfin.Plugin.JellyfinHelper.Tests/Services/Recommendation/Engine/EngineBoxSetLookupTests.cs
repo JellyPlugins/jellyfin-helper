@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 ///     <c>BuildCandidateBoxSetLookupFresh</c> and <c>ResolveBoxSetIds</c>.
 ///     <para>
 ///         Both helpers sit on the recommendation hot path - <c>ResolveBoxSetIds</c> is
-///         invoked once per candidate on every batch run (typically 5k–50k candidates in
+///         invoked once per candidate on every batch run (typically 5k-50k candidates in
 ///         a real deployment) and <c>BuildCandidateBoxSetLookupFresh</c> is the O(N)
 ///         driver that materialises the per-candidate lookup consumed by
 ///         <c>BuildWatchedBoxSetCounts</c>. A regression that either throws on a
@@ -53,7 +53,7 @@ public sealed class EngineBoxSetLookupTests
     {
         // BUG GUARD: the helper's contract is SPARSE - only candidates that resolve to
         // at least one BoxSet are stored. A raw Movie() without any parent hierarchy
-        // must produce a 0-item lookup, NOT a `{ movie.Id → [] }` entry.
+        // must produce a 0-item lookup, NOT a `{ movie.Id -> [] }` entry.
         //
         // Motivation for the sparsity: downstream code does a `TryGetValue(itemId, out var boxSets)`
         // and treats "key missing" as "no signal". Storing empty lists as values would

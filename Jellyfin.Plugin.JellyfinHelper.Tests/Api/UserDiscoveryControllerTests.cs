@@ -107,7 +107,7 @@ public class UserDiscoveryControllerTests
     public async Task SubmitMyRequest_InvalidTmdbId_Returns403WhenAccessDisabled()
     {
         // Note: Validation branches (400) cannot be reached in unit tests because
-        // Plugin.Instance is null → IsDiscoveryUserAccessEnabled() always returns false.
+        // Plugin.Instance is null -> IsDiscoveryUserAccessEnabled() always returns false.
         // The access gate correctly fires first, which is the expected security behavior.
         var controller = CreateController(Guid.NewGuid());
         var dto = new DiscoveryRequestDto { TmdbId = 0, MediaType = "movie" };

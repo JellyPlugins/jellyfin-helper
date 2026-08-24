@@ -599,7 +599,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal IndexHtmlUpdateResult UpdateIndexHtml(bool inject)
     {
         // Serialize the whole read-modify-write: the ctor and the startup hosted service can call
-        // this concurrently, and "read current content → strip old tag → insert current tag → write
+        // this concurrently, and "read current content -> strip old tag -> insert current tag -> write
         // only if changed" must be atomic so a second caller cannot inject a duplicate or clobber
         // the first write. When our tag is already present the content is unchanged and no write
         // happens (idempotent), so repeated calls are cheap and safe.

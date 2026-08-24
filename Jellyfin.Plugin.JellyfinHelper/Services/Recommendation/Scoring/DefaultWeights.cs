@@ -139,7 +139,7 @@ public static class DefaultWeights
     ///     Negative weight for genre underexposure signal.
     ///     Items whose genres the user rarely watches receive a soft penalty.
     ///     Moderate (-0.12) to effectively counterbalance collaborative signals from
-    ///     similar users who watch different genres. "Rarely watched" ≠ "disliked"
+    ///     similar users who watch different genres. "Rarely watched" != "disliked"
     ///     but should noticeably reduce ranking vs. familiar-genre items.
     /// </summary>
     public const double GenreUnderexposure = -0.12;

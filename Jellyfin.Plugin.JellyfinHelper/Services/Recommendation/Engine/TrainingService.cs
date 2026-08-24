@@ -63,7 +63,7 @@ internal sealed class TrainingService : IDisposable
     /// <param name="strategy">The scoring strategy to train.</param>
     /// <param name="previousResults">The recommendation results from the previous run.</param>
     /// <param name="seriesEpisodeCounts">
-    ///     Per-series total-episode-count map (SeriesId → playable episodes in the library), built
+    ///     Per-series total-episode-count map (SeriesId to playable episodes in the library), built
     ///     by the caller from the live library. Threaded into <see cref="TrainingDataBuilder"/> so
     ///     the training-time genre/people preference vectors apply the identical progression
     ///     multiplier used at inference, eliminating train/serve skew. May be null/empty, in which
@@ -72,7 +72,7 @@ internal sealed class TrainingService : IDisposable
     /// <param name="incremental">When true, subsample older examples for efficiency.</param>
     /// <param name="genreStudioIdf">
     ///     Library-wide genre/studio IDF rarity table (the SAME table used at inference), threaded in so
-    ///     the GenreStudioIdfPrior feature is identical between train and serve. Null → neutral 0.0 both sides.
+    ///     the GenreStudioIdfPrior feature is identical between train and serve. Null -> neutral 0.0 both sides.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the training operation.</param>
     /// <returns>True if training was performed, false if skipped.</returns>

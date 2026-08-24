@@ -253,9 +253,9 @@ public sealed class ScoreExplanationTests
         var a = CreateExplanation(0.5, 0.9, 0.1, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         var b = CreateExplanation(0.5, 0.1, 0.1, 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 
-        // alpha=0.5 → genre=0.5, rating=0.5 → tie, Genre wins (checked first)
+        // alpha=0.5 -> genre=0.5, rating=0.5 -> tie, Genre wins (checked first)
         var result = a.Blend(b, 0.5);
-        // Both are 0.5 → first one checked (Genre) wins
+        // Both are 0.5 -> first one checked (Genre) wins
         Assert.Equal("Genre", result.DominantSignal);
     }
 
@@ -324,7 +324,7 @@ public sealed class ScoreExplanationTests
     [Fact]
     public void WithPenalty_PenaltyAboveOne_IsClampedToOne()
     {
-        // FinalScore = 0.9, penalty = 1.5 → penalty clamped to 1.0 → 0.9 × 1.0 = 0.9
+        // FinalScore = 0.9, penalty = 1.5 -> penalty clamped to 1.0 -> 0.9 × 1.0 = 0.9
         var explanation = new ScoreExplanation { FinalScore = 0.9 };
 
         var result = explanation.WithPenalty(1.5);

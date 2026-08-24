@@ -192,13 +192,13 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                // If the folder contains video files anywhere in the tree → active media folder → skip.
+                // If the folder contains video files anywhere in the tree, it's an active media folder, so skip.
                 if (hasVideoFiles)
                 {
                     continue;
                 }
 
-                // If the folder contains audio files, it belongs to a music library → skip it.
+                // If the folder contains audio files, it belongs to a music library, so skip it.
                 // Music folders only have audio files (no video), so they must not be treated as orphaned.
                 if (hasAudioFiles)
                 {
@@ -207,7 +207,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
                 // If the folder contains ONLY metadata/artwork files (images + NFO) but no video,
                 // audio, or other files, it's likely a placeholder created by Sonarr/Radarr
-                // for upcoming media → skip it.
+                // for upcoming media, so skip it.
                 if (!hasNonMetadataFiles)
                 {
                     PluginLog.LogDebug(
@@ -218,7 +218,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 }
 
                 // The folder has non-metadata files (e.g. subtitles, text files) but no video files
-                // anywhere in the tree → it's an orphaned media folder whose video was deleted.
+                // anywhere in the tree, so it's an orphaned media folder whose video was deleted.
 
                 // Check orphan age
                 if (!ConfigHelper.IsOldEnoughForDeletion(topDir.FullName))

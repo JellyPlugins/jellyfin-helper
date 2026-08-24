@@ -156,7 +156,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public void WriteAllText_ClampsMaxAttemptsToOne_WhenBelowOne()
     {
-        // maxAttempts=0 → clamped to 1. Successful write should still complete.
+        // maxAttempts=0 -> clamped to 1. Successful write should still complete.
         var path = Path.Join(_tempDir, "clamp.txt");
 
         AtomicFile.WriteAllText(path, "clamped", maxAttempts: 0);
@@ -494,13 +494,13 @@ public sealed class AtomicFileTests : IDisposable
         // Exercises cancellation on the transient-retry path. Setup: the destination is an existing
         // *directory*, so every File.Move attempt throws IOException (cross-platform) and the code
         // enters the retry branch with maxAttempts > 1. The token is cancelled shortly after the
-        // call starts; the retry loop observes it — either at the loop-top ThrowIfCancellationRequested
+        // call starts; the retry loop observes it, either at the loop-top ThrowIfCancellationRequested
         // or in the inter-attempt Task.Delay(BaseBackoff * attempt, token). Both are valid
         // cancellation checkpoints on this path; the test asserts the observable contract regardless
         // of which one fires: an OperationCanceledException propagates (no silent success) and no
         // temp files are left behind.
         var path = Path.Join(_tempDir, "cancel-retry");
-        Directory.CreateDirectory(path); // destination is a directory → File.Move always throws IOException
+        Directory.CreateDirectory(path); // destination is a directory -> File.Move always throws IOException
 
         using var cts = new CancellationTokenSource();
 
@@ -511,7 +511,7 @@ public sealed class AtomicFileTests : IDisposable
 
         // Cancellation must not have clobbered the destination directory.
         Assert.True(Directory.Exists(path));
-        // Every attempt's temp file must be cleaned up — no orphans left behind.
+        // Every attempt's temp file must be cleaned up, no orphans left behind.
         var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
         Assert.Empty(orphans);
     }

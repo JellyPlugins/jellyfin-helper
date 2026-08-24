@@ -57,7 +57,7 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
   test('video-codec breakdown contains the generated codecs with positive counts', async () => {
     const stats = await getStats();
     const codecs = stats.TotalVideoCodecs;
-    // gen-media.sh generates libx264 + libx265 + mpeg4 clips → these keys must exist.
+    // gen-media.sh generates libx264 + libx265 + mpeg4 clips -> these keys must exist.
     expect(Object.keys(codecs), 'H.264 (libx264) fixtures exist').toContain('H.264');
     expect(Object.keys(codecs), 'HEVC (libx265) fixtures exist').toContain('HEVC');
     for (const [name, count] of Object.entries(codecs)) {

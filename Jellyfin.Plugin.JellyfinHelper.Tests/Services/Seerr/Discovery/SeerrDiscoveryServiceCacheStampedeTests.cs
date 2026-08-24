@@ -26,10 +26,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 ///     arrive when the cache is cold may each issue their own HTTP request to
 ///     <c>/api/v1/user</c>.  These tests therefore do NOT assert "exactly one HTTP call" -
 ///     they assert that:
-///       • all concurrent callers receive a valid, non-empty result,
-///       • all callers receive an identical user list,
-///       • the cache is populated after the stampede (a follow-up call is served from cache),
-///       • a failed fetch is not cached (the next call retries rather than serving empty).
+///       - all concurrent callers receive a valid, non-empty result,
+///       - all callers receive an identical user list,
+///       - the cache is populated after the stampede (a follow-up call is served from cache),
+///       - a failed fetch is not cached (the next call retries rather than serving empty).
 ///
 ///     The tests document and pin the current correctness contract without mandating a
 ///     particular concurrency optimisation.
@@ -240,11 +240,11 @@ internal sealed class CountingHttpHandler : HttpMessageHandler
     private readonly int _responseDelayMs;
     private readonly Lock _lock = new();
 
-    // per path-suffix → FIFO queue of scripted responses
+    // per path-suffix -> FIFO queue of scripted responses
     private readonly Dictionary<string, Queue<(HttpStatusCode Status, string Body)>> _queues =
         new(StringComparer.Ordinal);
 
-    // per path-suffix → total number of requests received
+    // per path-suffix -> total number of requests received
     private readonly Dictionary<string, int> _counts =
         new(StringComparer.Ordinal);
 

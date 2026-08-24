@@ -204,7 +204,7 @@ public class SeerrControllerTests
     [Fact]
     public async Task TestConnection_MaskWithUnknownUrl_ReturnsFailureAndNeverSendsMask()
     {
-        // Stored URL differs from the request URL → the mask cannot borrow the stored key.
+        // Stored URL differs from the request URL, the mask cannot borrow the stored key.
         var config = new PluginConfiguration { SeerrUrl = "http://other.local", SeerrApiKey = "real-key" };
         var controller = CreateController(config);
 
@@ -223,7 +223,7 @@ public class SeerrControllerTests
     [Fact]
     public async Task TestConnection_MaskWithNoStoredKey_ReturnsFailureAndNeverSendsMask()
     {
-        // URL matches but there is no stored key at all → cannot resolve, must not send the mask.
+        // URL matches but there is no stored key at all, cannot resolve, must not send the mask.
         var config = new PluginConfiguration { SeerrUrl = "http://seerr.local", SeerrApiKey = string.Empty };
         var controller = CreateController(config);
 

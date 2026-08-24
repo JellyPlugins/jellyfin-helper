@@ -638,7 +638,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         foreach (var watchedItem in profile.WatchedItems)
         {
             // Only include items with meaningful interaction.
-            // Includes: Played items, Favorites, and partially-watched items with ≥15% progress.
+            // Includes: Played items, Favorites, and partially-watched items with >=15% progress.
             // Excludes: items started and immediately abandoned (< 15% progress).
             if (!watchedItem.Played && !watchedItem.IsFavorite)
             {

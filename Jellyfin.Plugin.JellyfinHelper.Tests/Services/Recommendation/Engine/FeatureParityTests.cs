@@ -94,8 +94,8 @@ public sealed class FeatureParityTests
     [Fact]
     public void BillingMapFromCache_LengthMismatch_ReturnsEmpty_LegacyNeutralization()
     {
-        // Legacy cache entries persisted PeopleNames but not PeopleWeights → lengths differ →
-        // empty map → BillingWeightedPeople neutralizes to 0.0 instead of misaligning.
+        // Legacy cache entries persisted PeopleNames but not PeopleWeights -> lengths differ ->
+        // empty map -> BillingWeightedPeople neutralizes to 0.0 instead of misaligning.
         string[] names = ["A", "B", "C"];
         double[] weights = [1.0]; // mismatch
         Assert.Empty(TrainingFeatureComputer.BuildBillingMapFromCache(names, weights));
@@ -150,14 +150,14 @@ public sealed class FeatureParityTests
     // ===================== SeriesCompletability (canonical formula) =====================
 
     [Theory]
-    [InlineData(false, "Ended", true, EngineConstants.SeriesCompletabilityNeutral)]   // movie → neutral
-    [InlineData(false, null, false, EngineConstants.SeriesCompletabilityNeutral)]     // movie → neutral
-    [InlineData(true, "Ended", false, EngineConstants.SeriesCompletabilityEnded)]     // ended → 1.0
+    [InlineData(false, "Ended", true, EngineConstants.SeriesCompletabilityNeutral)]   // movie -> neutral
+    [InlineData(false, null, false, EngineConstants.SeriesCompletabilityNeutral)]     // movie -> neutral
+    [InlineData(true, "Ended", false, EngineConstants.SeriesCompletabilityEnded)]     // ended -> 1.0
     [InlineData(true, "ENDED", false, EngineConstants.SeriesCompletabilityEnded)]     // case-insensitive
     [InlineData(true, "Unreleased", false, EngineConstants.SeriesCompletabilityUnreleased)] // 0.0
     [InlineData(true, "Continuing", false, EngineConstants.SeriesCompletabilityContinuing)] // 0.5
-    [InlineData(true, null, false, EngineConstants.SeriesCompletabilityNeutral)]      // unknown status → neutral
-    [InlineData(true, "Bogus", false, EngineConstants.SeriesCompletabilityNeutral)]   // unrecognized → neutral
+    [InlineData(true, null, false, EngineConstants.SeriesCompletabilityNeutral)]      // unknown status -> neutral
+    [InlineData(true, "Bogus", false, EngineConstants.SeriesCompletabilityNeutral)]   // unrecognized -> neutral
     public void SeriesCompletability_MapsStatusToExpectedValue(bool isSeries, string? status, bool hasEndDate, double expected)
     {
         Assert.Equal(expected, EngineConstants.ComputeSeriesCompletability(isSeries, status, hasEndDate));
@@ -166,7 +166,7 @@ public sealed class FeatureParityTests
     [Fact]
     public void SeriesCompletability_ContinuingWithEndDate_IsBetweenContinuingAndEnded()
     {
-        // A "Continuing" series that already has an end date has effectively wrapped → nudged upward.
+        // A "Continuing" series that already has an end date has effectively wrapped -> nudged upward.
         var result = EngineConstants.ComputeSeriesCompletability(true, "Continuing", hasEndDate: true);
         Assert.True(result > EngineConstants.SeriesCompletabilityContinuing);
         Assert.True(result <= EngineConstants.SeriesCompletabilityEnded);

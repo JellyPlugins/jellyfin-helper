@@ -182,8 +182,8 @@ public class StrategySelectorTests
     [Fact]
     public void AllZeroGuid_BucketsToControl_WhenExplorationInactive()
     {
-        // Guid.Empty bytes are all 0 → XOR-fold produces bucket 0.
-        // But exploration inactive → offset must still be 0 and cohort "control".
+        // Guid.Empty bytes are all 0 -> XOR-fold produces bucket 0.
+        // But exploration inactive -> offset must still be 0 and cohort "control".
         var ensemble = new EnsembleScoringStrategy();
         var selector = new StrategySelector(ensemble);
 
@@ -197,7 +197,7 @@ public class StrategySelectorTests
     //
     // The exploration gate is `TrainingExampleCount >= 50 && MetricsHistoryCount >= 2`.
     // We drive that state by calling Train() with cold-start placeholder examples that fail
-    // (single example → LearnedScoringStrategy.Train returns false but still records a
+    // (single example -> LearnedScoringStrategy.Train returns false but still records a
     // placeholder metrics snapshot). Two failed runs get MetricsHistoryCount to 2, then
     // one successful training round pushes TrainingExampleCount to >= 50.
 
@@ -288,8 +288,8 @@ public class StrategySelectorTests
         }
 
         // Wide bounds - stochastic tolerance:
-        //   * expected high/low ≈ 10% each → allow 5..15%.
-        //   * expected control ≈ 80% → allow 70..90%.
+        //   * expected high/low ≈ 10% each -> allow 5..15%.
+        //   * expected control ≈ 80% -> allow 70..90%.
         // The point is not tight statistical validation but to catch a "all users get
         // the same cohort" bug or a "high band is 90%" bucketing regression.
         Assert.InRange(high, iterations * 5 / 100, iterations * 15 / 100);
@@ -307,10 +307,10 @@ public class StrategySelectorTests
     private static EnsembleScoringStrategy BuildActivatedEnsemble()
     {
         var ensemble = new EnsembleScoringStrategy();
-        // Two failed runs → 2 placeholder snapshots (opens metrics gate).
+        // Two failed runs -> 2 placeholder snapshots (opens metrics gate).
         ensemble.Train(BuildTrainingExamples(1));
         ensemble.Train(BuildTrainingExamples(1));
-        // One successful run with >= 50 examples → opens example gate.
+        // One successful run with >= 50 examples -> opens example gate.
         ensemble.Train(BuildTrainingExamples(50));
         return ensemble;
     }

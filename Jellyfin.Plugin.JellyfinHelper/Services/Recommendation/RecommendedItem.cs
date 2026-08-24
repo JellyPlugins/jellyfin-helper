@@ -36,7 +36,7 @@ public sealed class RecommendedItem
     public string ItemType { get; set; } = string.Empty;
 
     /// <summary>
-    ///     Gets or sets the combined recommendation score (0.0–1.0).
+    ///     Gets or sets the combined recommendation score (0.0-1.0).
     /// </summary>
     public double Score { get; set; }
 

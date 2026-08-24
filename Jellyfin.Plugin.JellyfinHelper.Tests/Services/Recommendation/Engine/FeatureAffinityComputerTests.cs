@@ -87,7 +87,7 @@ public sealed class FeatureAffinityComputerTests
     public void ProductionLocationAffinity_PartialMatch_AveragesOverCandidateCountries()
     {
         var prefs = new Dictionary<string, double>(Ci) { ["Japan"] = 1.0 };
-        // 1 of 2 candidate countries matches (weight 1.0) → 1.0 / 2 = 0.5.
+        // 1 of 2 candidate countries matches (weight 1.0) -> 1.0 / 2 = 0.5.
         Assert.Equal(0.5, SimilarityComputer.ComputeProductionLocationAffinity(["Japan", "USA"], prefs));
     }
 
@@ -106,7 +106,7 @@ public sealed class FeatureAffinityComputerTests
     public void InheritedTagSimilarity_Jaccard_CaseInsensitive()
     {
         var prefs = new HashSet<string>(Ci) { "Christmas", "Holiday" };
-        // candidate {christmas, action}; intersection {christmas}=1; union {christmas,holiday,action}=3 → 1/3.
+        // candidate {christmas, action}; intersection {christmas}=1; union {christmas,holiday,action}=3 -> 1/3.
         var result = SimilarityComputer.ComputeInheritedTagSimilarity(["christmas", "action"], prefs);
         Assert.Equal(1.0 / 3.0, result, 10);
     }
@@ -196,8 +196,8 @@ public sealed class FeatureAffinityComputerTests
     public void GenreStudioIdfPrior_AveragesKnownTerms_UnknownTermsCountAsZero()
     {
         var idf = new Dictionary<string, double>(Ci) { ["RareGenre"] = 1.0, ["A24"] = 0.6 };
-        // Candidate genres {RareGenre(1.0), CommonGenre(unknown→0)} + studios {A24(0.6)}:
-        // sum = 1.0 + 0.0 + 0.6 = 1.6 over 3 counted terms → 0.5333…
+        // Candidate genres {RareGenre(1.0), CommonGenre(unknown->0)} + studios {A24(0.6)}:
+        // sum = 1.0 + 0.0 + 0.6 = 1.6 over 3 counted terms -> 0.5333...
         var result = SimilarityComputer.ComputeGenreStudioIdfPrior(["RareGenre", "CommonGenre"], ["A24"], idf);
         Assert.Equal(1.6 / 3.0, result, 10);
     }

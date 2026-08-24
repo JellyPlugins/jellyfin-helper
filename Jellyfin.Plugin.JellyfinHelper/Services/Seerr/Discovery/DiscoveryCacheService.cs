@@ -159,7 +159,7 @@ public sealed class DiscoveryCacheService : IDisposable
     ///     Use <see cref="RemoveItemAsync"/> directly on all request-driven paths.
     ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
     ///     thread).</b>  The underlying <see cref="RemoveItemLocked"/> is async; bridging
-    ///     async→sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
+    ///     async-to-sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
     ///     Use <see cref="RemoveItemAsync"/> on all request-driven paths.
     /// </remarks>
     public void RemoveItem(int tmdbId, string mediaType, Guid userId)
@@ -342,7 +342,7 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <remarks>
     ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
     ///     thread).</b>  The underlying <see cref="MarkAsRequestedLocked"/> is async; bridging
-    ///     async→sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
+    ///     async-to-sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
     ///     Use <see cref="MarkAsRequestedAsync(int, string, CancellationToken)"/> on all request-driven paths.
     /// </remarks>
     public void MarkAsRequested(int tmdbId, string mediaType)

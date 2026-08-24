@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 [Collection("ConfigOverride")]
 public class I18NServiceTests : IDisposable
 {
-    // ===== configPage.html ↔ I18nService sync tests =====
+    // ===== configPage.html <-> I18nService sync tests =====
 
     private static readonly Regex CallRegex = new(@"T\(\s*'([^']+)'", RegexOptions.Compiled);
     private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();

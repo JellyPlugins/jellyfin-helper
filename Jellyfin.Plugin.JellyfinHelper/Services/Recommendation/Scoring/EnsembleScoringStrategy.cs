@@ -100,7 +100,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     ///     Validation loss (MSE) threshold for full alpha progression.
     ///     Below this threshold, alpha advances at full sigmoid rate.
     ///     Above it, alpha is soft-dampened proportionally (not hard-frozen).
-    ///     0.30 corresponds to an average prediction error of ~0.55 on a 0–1 scale,
+    ///     0.30 corresponds to an average prediction error of ~0.55 on a 0-1 scale,
     ///     which allows the ML model to contribute even with noisy small-sample training data.
     /// </summary>
     internal const double ValidationLossThreshold = 0.30;
@@ -689,7 +689,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     // based on how far the validation loss exceeds the threshold.
                     // qualityFactor = 1.0 at threshold, 0.0 at 2× threshold (ceiling).
                     var qualityFactor = double.IsNaN(validationLoss)
-                        ? 0.5 // NaN (no validation split) → use half progression
+                        ? 0.5 // NaN (no validation split) -> use half progression
                         : Math.Clamp(
                             1.0 - ((validationLoss - ValidationLossThreshold)
                                    / (ValidationLossCeiling - ValidationLossThreshold)),
@@ -821,8 +821,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // metrics snapshot so the exploration gate (StrategySelector.IsExplorationActive,
             // requires MetricsHistoryCount >= 2) can eventually flip to true even when the
             // very first training runs have too few examples to succeed. Without this the
-            // cold-start path was self-locking: no successful Train → no snapshot → no
-            // exploration → no cohort feedback → no midpoint adaptation.
+            // cold-start path was self-locking: no successful Train -> no snapshot -> no
+            // exploration -> no cohort feedback -> no midpoint adaptation.
             //
             // ValidationLoss is NaN to mark the row as a cold-start placeholder. AnalyzeTrend
             // needs TrendMinSnapshots (5) real rows before it does anything, and NaN comparisons
@@ -1052,11 +1052,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Computes a soft genre-mismatch penalty that ramps linearly from
     ///     <paramref name="penaltyFloor"/> (at GenreSimilarity = 0) to 1.0
-    ///     (at GenreSimilarity ≥ <see cref="GenrePenaltyThreshold"/>).
+    ///     (at GenreSimilarity >= <see cref="GenrePenaltyThreshold"/>).
     ///     Delegates to <see cref="ScoringHelper.ComputeSoftGenrePenalty"/> for consistency
     ///     with <see cref="HeuristicScoringStrategy"/>.
     /// </summary>
-    /// <param name="genreSimilarity">The candidate's genre similarity score (0–1).</param>
+    /// <param name="genreSimilarity">The candidate's genre similarity score (0-1).</param>
     /// <param name="penaltyFloor">
     ///     Minimum penalty multiplier (default: <see cref="DefaultGenrePenaltyFloor"/>).
     /// </param>

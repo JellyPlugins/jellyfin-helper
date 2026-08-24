@@ -2,9 +2,9 @@
  * Per-stage TaskMode BEHAVIOUR proof: does each mode value actually DO what it
  * promises, at STAGE granularity?
  *
- *   Deactivate → stage is skipped entirely (no work, no dry-run log); orphan survives.
- *   DryRun     → stage RUNS and logs what it WOULD do, but changes nothing on disk.
- *   Activate   → stage performs the real delete / trash move.
+ *   Deactivate -> stage is skipped entirely (no work, no dry-run log); orphan survives.
+ *   DryRun     -> stage RUNS and logs what it WOULD do, but changes nothing on disk.
+ *   Activate   -> stage performs the real delete / trash move.
  *
  * The existing cleanup-fs spec proves Activate's on-disk effect and that an
  * ALL-DryRun pass deletes nothing. It cannot distinguish Deactivate from DryRun
@@ -197,11 +197,11 @@ test.describe.serial('TaskMode drives the real on-disk outcome, per stage', () =
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
 
-    // Activated stage → its orphan is really gone.
+    // Activated stage -> its orphan is really gone.
     expect(containerExists(TRICKPLAY_ORPHAN), 'Activated trickplay orphan must be deleted').toBe(false);
-    // DryRun stage → its orphan survives (logged, not deleted).
+    // DryRun stage -> its orphan survives (logged, not deleted).
     expect(containerFileExists(SUBTITLE_ORPHAN), 'DryRun subtitle orphan must survive').toBe(true);
-    // Deactivated stage → its orphan survives (never processed).
+    // Deactivated stage -> its orphan survives (never processed).
     expect(containerDirExists(EMPTYFOLDER_ORPHAN), 'Deactivated empty-folder orphan must survive').toBe(true);
     await assertPluginActive(ctx);
   });

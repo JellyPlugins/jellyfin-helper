@@ -101,7 +101,7 @@ public sealed class ContentScoringTests
     [Fact]
     public void ComputePopularityScore_CollaborativeNegative_UsesFallback()
     {
-        // Negative collaborative score → falls through to critic fallback (since !(neg > 0))
+        // Negative collaborative score -> falls through to critic fallback (since !(neg > 0))
         var result = ContentScoring.ComputePopularityScore(-0.1, 0.5);
         Assert.Equal(0.15, result, 10); // 0.5 * 0.3 = 0.15
     }
@@ -170,9 +170,9 @@ public sealed class ContentScoringTests
                 watchedPeople,
                 watchedStudios);
 
-            // Genre-only path: candidate {Action, SciFi} vs first watched {Action} → Jaccard 1/2
+            // Genre-only path: candidate {Action, SciFi} vs first watched {Action} -> Jaccard 1/2
             // (Action shared, SciFi only in candidate). Second watched {SciFi, Drama} vs candidate
-            // gives 1/3 (SciFi shared). Max composite is 0.5 × 0.5 = 0.25 from the first row -
+            // gives 1/3 (SciFi shared). Max composite is 0.5 x 0.5 = 0.25 from the first row -
             // the people/studio contributions are 0 due to the mismatch guard degrading them.
             Assert.InRange(score, 0.0, 1.0);
             Assert.True(score > 0.0, $"Score must reflect the surviving genre signal, got {score}");

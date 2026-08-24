@@ -86,7 +86,7 @@ test.describe.serial('cleanup stages refuse reparse points but still delete genu
   });
 
   test('trickplay: a symlinked orphan .trickplay is skipped, while the real orphan is removed', async () => {
-    // A .trickplay directory that is itself a SYMLINK, with no matching video →
+    // A .trickplay directory that is itself a SYMLINK, with no matching video ->
     // looks exactly like an orphan the trickplay stage would delete, but the
     // reparse-point guard must skip it (deleting a symlinked dir could nuke a
     // linked tree). The genuine Ghost Movie orphan (a real dir) must still go.
@@ -161,7 +161,7 @@ test.describe.serial('cleanup stages refuse reparse points but still delete genu
     //
     // The link TARGET must live OUTSIDE the media library. If it sat under
     // /media/Movies it would itself be a top-level folder holding only a non-video
-    // file — i.e. a genuine orphan the very same Activate run correctly deletes —
+    // file -- i.e. a genuine orphan the very same Activate run correctly deletes --
     // and the "target data survives" assertion would fail for a reason unrelated to
     // the symlink guard. /config is the plugin's own data mount: outside /media,
     // writable by the non-root container UID in CI, and a distinct subdir from the

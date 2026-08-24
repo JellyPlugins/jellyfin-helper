@@ -275,7 +275,7 @@ public class ReasonResolverTests
     [Fact]
     public void DominantPeople_WithWeights_NoMatchingCandidatePeople_FallsBackNull()
     {
-        // Weights supplied but no candidate person is in the preferred set → best-weight branch
+        // Weights supplied but no candidate person is in the preferred set -> best-weight branch
         // must yield null, then final line returns null (no "any-match" hit either).
         var id = Guid.NewGuid();
         var candidate = CreateMovie(id);
@@ -294,7 +294,7 @@ public class ReasonResolverTests
             candidate, explanation, new Dictionary<string, double>(), preferredPeople,
             peopleLookup: peopleLookup, preferredPeopleWeights: weights);
 
-        // No match at all → falls back to generic reasonPeople branch (with related=null)
+        // No match at all -> falls back to generic reasonPeople branch (with related=null)
         Assert.Equal("reasonPeople", key);
         Assert.Null(related);
     }
@@ -408,7 +408,7 @@ public class ReasonResolverTests
     [Fact]
     public void DominantStudio_BelowThreshold_ReturnsDefault()
     {
-        // Studio dominant but contribution ≤ ReasonScoreThreshold → default path
+        // Studio dominant but contribution <= ReasonScoreThreshold -> default path
         var candidate = CreateMovie(studios: ["A24"]);
         var explanation = Explain(dominant: "Studio", studio: 0.01);
         var preferredStudios = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A24" };

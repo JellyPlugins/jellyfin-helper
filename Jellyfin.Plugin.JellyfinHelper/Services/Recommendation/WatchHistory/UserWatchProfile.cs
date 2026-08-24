@@ -63,7 +63,7 @@ public sealed class UserWatchProfile
     public DateTime? LastActivityDate { get; set; }
 
     /// <summary>
-    ///     Gets or sets the genre distribution (genre name → watch count).
+    ///     Gets or sets the genre distribution (genre name to watch count).
     ///     The setter preserves <see cref="StringComparer.OrdinalIgnoreCase"/> to ensure
     ///     genre aggregation is always case-insensitive, even when a new dictionary is assigned.
     /// </summary>

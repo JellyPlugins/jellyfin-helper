@@ -187,7 +187,7 @@ public sealed class DiscoveryController : ControllerBase
         // sleep - the sync path can block for up to ~200 ms on AV/indexer contention,
         // which would starve the request pool under a burst of user requests.
         //
-        // ⚠️ CancellationToken is DELIBERATELY NOT forwarded here. Once Seerr has accepted
+        // CancellationToken is DELIBERATELY NOT forwarded here. Once Seerr has accepted
         // the request (a few lines above), the local cache MUST be updated regardless of
         // whether the HTTP client has disconnected - otherwise the item silently reappears
         // on the next discovery-page refresh, and the user gets a phantom "please request

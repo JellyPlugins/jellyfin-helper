@@ -38,7 +38,7 @@ internal static class ParentalRatingHelper
     };
 
     /// <summary>
-    ///     TMDb genre IDs that are explicitly allowed for strict child accounts (MaxParentalRating ≤ 60 / FSK-6).
+    ///     TMDb genre IDs that are explicitly allowed for strict child accounts (MaxParentalRating 60 or lower, FSK-6).
     ///     Only items containing at least one of these genres will be shown to young children.
     ///     This whitelist approach is more restrictive than the blacklist and ensures that
     ///     only genuinely child-appropriate content is recommended.

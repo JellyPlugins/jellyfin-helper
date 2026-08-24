@@ -751,7 +751,7 @@ public class ConfigurationControllerTests
 
         var request = new ConfigurationUpdateRequest
         {
-            // Different casing must still match — no "does not exist" warning.
+            // Different casing must still match - no "does not exist" warning.
             ExcludedLibraries = "movies, TV SHOWS"
         };
 
@@ -1119,8 +1119,8 @@ public class ConfigurationControllerTests
     public async Task UpdateConfiguration_SentinelSeerrApiKey_PreservesStoredKey()
     {
         // Contract: when the client echoes the mask sentinel for SeerrApiKey the POST must leave
-        // the real stored key untouched. This is the round-trip case: GET → UI shows the mask
-        // → user saves without changing the key → POST receives the mask → key must not change.
+        // the real stored key untouched. This is the round-trip case: GET -> UI shows the mask
+        // -> user saves without changing the key -> POST receives the mask -> key must not change.
         _config.SeerrApiKey = "original-secret";
         _config.SeerrUrl = "https://seerr.example.com";
 

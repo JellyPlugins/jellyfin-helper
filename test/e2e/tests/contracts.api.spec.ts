@@ -35,7 +35,7 @@ async function setRecsMode(mode: 'Deactivate' | 'DryRun' | 'Activate'): Promise<
 }
 
 // --- Recommendations / UserActivity: 503 Deactivate guard -------------------
-// Both controllers return 503 "…disabled in plugin configuration." when
+// Both controllers return 503 "...disabled in plugin configuration." when
 // RecommendationsTaskMode == Deactivate. smoke tolerates [200,503] so this
 // specific guard is never actually asserted anywhere.
 test.describe('Deactivate guards return 503', () => {
@@ -64,7 +64,7 @@ test.describe('Deactivate guards return 503', () => {
   });
 });
 
-// --- empty-GUID → 400 (pinned, not tolerated) -------------------------------
+// --- empty-GUID -> 400 (pinned, not tolerated) ------------------------------
 test.describe('empty-GUID user routes return 400', () => {
   test.beforeAll(() => setRecsMode('DryRun'));
 
@@ -87,13 +87,13 @@ test.describe('empty-GUID user routes return 400', () => {
   });
 });
 
-// --- UserActivity: unknown-but-valid user → 404; maxResults clamp -----------
+// --- UserActivity: unknown-but-valid user -> 404; maxResults clamp ----------
 test.describe('UserActivity/User behavior', () => {
   test.beforeAll(() => setRecsMode('DryRun'));
 
   test('valid-format unknown user → 404', async () => {
     // A well-formed GUID that is not a real user resolves past the empty-GUID
-    // guard and fails _userManager.GetUserById → 404.
+    // guard and fails _userManager.GetUserById -> 404.
     const res = await ctx.get(p('UserActivity/User/11111111-2222-3333-4444-555555555555'));
     expect(res.status()).toBe(404);
   });
@@ -114,7 +114,7 @@ test.describe('UserActivity/User behavior', () => {
 // --- Discovery/Request: validation 400s -------------------------------------
 // The DTO's DataAnnotations ([Range]/[RegularExpression]) are enforced by
 // [ApiController]'s automatic model validation, which short-circuits with an
-// RFC9110 ValidationProblemDetails envelope ({title, status, errors:{Field:[…]}})
+// RFC9110 ValidationProblemDetails envelope ({title, status, errors:{Field:[...]}})
 // BEFORE the action body's hand-built {Success:false} path runs. We assert the
 // actual, observable contract - the DataAnnotation ErrorMessage still surfaces.
 test.describe('Discovery/Request validation', () => {
@@ -167,7 +167,7 @@ test('Ping returns the {Ok, Plugin, Version} liveness contract', async () => {
   expect(body.Version.length).toBeGreaterThan(0);
 });
 
-// --- Translations: no-lang fallback + malformed → 400 (pinned) --------------
+// --- Translations: no-lang fallback + malformed -> 400 (pinned) -------------
 test.describe('Translations contract', () => {
   test('no lang param → configured-language fallback returns a non-empty map', async () => {
     const res = await ctx.get(p('Translations'));

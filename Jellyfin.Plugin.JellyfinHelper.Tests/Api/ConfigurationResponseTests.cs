@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 /// </summary>
 public class ConfigurationResponseTests
 {
-    // ── ApiKeyMask constant ──────────────────────────────────────────────────
+    // ApiKeyMask constant
 
     [Fact]
     public void ApiKeyMask_IsFixedLengthAsteriskRun()
@@ -22,7 +22,7 @@ public class ConfigurationResponseTests
         Assert.All(ConfigurationResponse.ApiKeyMask, c => Assert.Equal('*', c));
     }
 
-    // ── SeerrApiKey masking ──────────────────────────────────────────────────
+    // SeerrApiKey masking
 
     [Fact]
     public void FromConfig_SeerrApiKey_NonEmpty_ReturnsMask()
@@ -51,7 +51,7 @@ public class ConfigurationResponseTests
         Assert.Equal(string.Empty, response.SeerrApiKey);
     }
 
-    // ── Radarr instance masking ──────────────────────────────────────────────
+    // Radarr instance masking
 
     [Fact]
     public void FromConfig_RadarrInstance_NonEmptyKey_ReturnsMask()
@@ -88,7 +88,7 @@ public class ConfigurationResponseTests
         Assert.Equal("http://radarr:7878", response.RadarrInstances[0].Url);
     }
 
-    // ── Sonarr instance masking ──────────────────────────────────────────────
+    // Sonarr instance masking
 
     [Fact]
     public void FromConfig_SonarrInstance_NonEmptyKey_ReturnsMask()
@@ -113,7 +113,7 @@ public class ConfigurationResponseTests
         Assert.Equal(string.Empty, response.SonarrInstances[0].ApiKey);
     }
 
-    // ── Multiple instances ───────────────────────────────────────────────────
+    // Multiple instances
 
     [Fact]
     public void FromConfig_MultipleInstances_EachMaskedIndependently()
@@ -130,7 +130,7 @@ public class ConfigurationResponseTests
         Assert.Equal(ConfigurationResponse.ApiKeyMask, response.RadarrInstances[2].ApiKey);
     }
 
-    // ── Non-key fields pass through unchanged ────────────────────────────────
+    // Non-key fields pass through unchanged
 
     [Fact]
     public void FromConfig_NonKeyFields_PassThroughUnchanged()
@@ -153,7 +153,7 @@ public class ConfigurationResponseTests
         Assert.True(response.UseTrash);
     }
 
-    // ── MaskedArrInstanceConfig defaults ────────────────────────────────────
+    // MaskedArrInstanceConfig defaults
 
     [Fact]
     public void MaskedArrInstanceConfig_Defaults_AreEmpty()
@@ -164,7 +164,7 @@ public class ConfigurationResponseTests
         Assert.Equal(string.Empty, masked.ApiKey);
     }
 
-    // ── Real key is never present in response ────────────────────────────────
+    // Real key is never present in response
 
     [Fact]
     public void FromConfig_RealKeyNeverAppearsInResponse()

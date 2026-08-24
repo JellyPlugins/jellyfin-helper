@@ -161,7 +161,7 @@
     }
 }
 
-/* Status badge (✓ / ✗ / ⏳) sits on the LEFT edge of the select so it
+/* Status badge (check / cross / hourglass) sits on the LEFT edge of the select so it
    doesn't clash with the native right-side chevron on any OS. */
 /* noinspection CssUnusedSymbol */
 .arr-instance-status {

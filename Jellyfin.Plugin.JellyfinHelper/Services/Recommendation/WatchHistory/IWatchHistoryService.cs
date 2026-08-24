@@ -24,7 +24,7 @@ public interface IWatchHistoryService
 
     /// <summary>
     ///     Builds the library-wide per-series playable-episode count map
-    ///     (<c>seriesId → totalEpisodeCount</c>). This is the same signal the recommendation
+    ///     (<c>seriesId -> totalEpisodeCount</c>). This is the same signal the recommendation
     ///     engine derives in its candidate load, exposed here so subsystems that build genre
     ///     preferences outside the engine (e.g. Seerr discovery) can feed the identical
     ///     progression-weighting into <c>PreferenceBuilder.BuildGenrePreferenceVector</c> and

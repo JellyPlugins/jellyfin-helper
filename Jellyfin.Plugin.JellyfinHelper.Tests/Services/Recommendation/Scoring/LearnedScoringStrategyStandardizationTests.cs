@@ -69,9 +69,9 @@ public sealed class LearnedScoringStrategyStandardizationTests
         var means = new double[CandidateFeatures.FeatureCount];
         var stdDevs = new double[CandidateFeatures.FeatureCount];
         means[genreIdx] = 0.5;
-        stdDevs[genreIdx] = 0.0;   // near-zero → passthrough
+        stdDevs[genreIdx] = 0.0;   // near-zero -> passthrough
         means[collabIdx] = 0.2;
-        stdDevs[collabIdx] = 0.5;  // real std-dev → transform
+        stdDevs[collabIdx] = 0.5;  // real std-dev -> transform
 
         var vector = new double[CandidateFeatures.FeatureCount];
         vector[genreIdx] = 0.9;

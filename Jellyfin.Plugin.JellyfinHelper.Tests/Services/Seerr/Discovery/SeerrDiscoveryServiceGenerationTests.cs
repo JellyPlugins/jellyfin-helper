@@ -23,8 +23,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 /// <summary>
 ///     Tests the full <c>GenerateDiscoveryRecommendationsAsync</c> pipeline of
 ///     <see cref="SeerrDiscoveryService"/>: the guard ladder (null config, not-configured,
-///     task-mode gates, no active profiles), the per-user generate→dedup→pre-score→enrich→score
-///     →persist path, the child-account genre routing, language queries, per-user exclusion
+///     task-mode gates, no active profiles), the per-user generate->dedup->pre-score->enrich->score
+///     ->persist path, the child-account genre routing, language queries, per-user exclusion
 ///     merging, credits enrichment, and the Radarr/Sonarr library exclusion set.
 ///     Belongs to <c>ConfigOverride</c> because it mutates <c>Plugin.Instance.Configuration</c>.
 ///     Reuses the <see cref="ScriptedHttpHandler"/> defined alongside
@@ -165,7 +165,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_NoActiveProfiles_Skips()
     {
-        // 0 watched + FavoriteCount < 3 → excluded from activeProfiles → no work.
+        // 0 watched + FavoriteCount < 3 -> excluded from activeProfiles -> no work.
         var idle = NewProfile();
         idle.WatchedMovieCount = 0;
         idle.WatchedEpisodeCount = 0;
@@ -181,7 +181,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     // ============================================================
-    // Full generate → persist path
+    // Full generate -> persist path
     // ============================================================
 
     [Fact]
@@ -225,7 +225,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_ChildAccount_QueriesOnlyFamilyKidsAnimationGenres()
     {
-        // MaxParentalRating <= 60 → child branch. Only the fixed Family/Animation/Kids routes are
+        // MaxParentalRating <= 60 -> child branch. Only the fixed Family/Animation/Kids routes are
         // registered; the user's own top-genre routes are intentionally left unregistered.
         var profile = NewProfile();
         profile.MaxParentalRating = 60;
@@ -257,7 +257,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     public async Task GenerateDiscoveryRecommendationsAsync_UserWithLanguagePreference_IssuesLanguageQueries()
     {
         var profile = NewProfile();
-        // ChosenCount >= 3 → GetPrimaryLanguageForDiscovery returns "de".
+        // ChosenCount >= 3 -> GetPrimaryLanguageForDiscovery returns "de".
         profile.LanguageProfile["de"] = new LanguageProfileEntry { ChosenCount = 5 };
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
 
@@ -280,7 +280,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     public async Task GenerateForUser_ProfileYieldsNoGenrePreferences_ProducesNoResultForThatUser()
     {
         // Passes the active-filter via favorites but has no derivable genre signal
-        // (empty GenreDistribution, no watched items) → BuildGenrePreferenceVector empty → null result.
+        // (empty GenreDistribution, no watched items) -> BuildGenrePreferenceVector empty -> null result.
         var profile = NewProfile();
         profile.GenreDistribution = new Dictionary<string, int>();
         profile.WatchedMovieCount = 0;
@@ -302,7 +302,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
         RegisterGenreMovieResults(28, [Candidate(601, 8.0), Candidate(602, 8.0)]);
 
-        // The user dismissed candidate 601 → it must be merged into the exclusion set for this user.
+        // The user dismissed candidate 601 -> it must be merged into the exclusion set for this user.
         _feedbackStore.Setup(f => f.GetDismissedItems(profile.UserId))
             .Returns(new HashSet<(int, string)> { (601, "movie") });
 
@@ -323,7 +323,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     {
         var profile = NewProfile();
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
-        // Below the 5.0 quality floor → DeduplicateAndFilter yields zero → null result for the user.
+        // Below the 5.0 quality floor -> DeduplicateAndFilter yields zero -> null result for the user.
         RegisterGenreMovieResults(28, [Candidate(701, 4.0)]);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
@@ -337,7 +337,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     public async Task GenerateDiscoveryRecommendationsAsync_UserWithPeoplePreferences_EnrichesTopCandidates()
     {
         var profile = NewProfile();
-        // People appearing in >= 2 items surface via TopPeople → BuildPreferredPeopleSet non-empty.
+        // People appearing in >= 2 items surface via TopPeople -> BuildPreferredPeopleSet non-empty.
         profile.PeopleProfile["Christopher Nolan"] = 5;
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
 
@@ -390,14 +390,14 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_DiscoverQueryReturnsHttpError_SkipsThoseCandidates()
     {
-        // Two top genres: the first (Action → 28) errors, the second (Comedy → 35) succeeds.
+        // Two top genres: the first (Action -> 28) errors, the second (Comedy -> 35) succeeds.
         // The non-success branch must return empty instead of aborting the whole run.
         var profile = NewProfile();
         profile.GenreDistribution = new Dictionary<string, int> { ["Action"] = 10, ["Comedy"] = 8 };
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
 
-        // First genre (Action → 28) fails with 500; its body would parse to candidate 1000 if the
-        // non-success branch wrongly fell through. Second genre (Comedy → 35) succeeds.
+        // First genre (Action -> 28) fails with 500; its body would parse to candidate 1000 if the
+        // non-success branch wrongly fell through. Second genre (Comedy -> 35) succeeds.
         _handler.RegisterResponse(
             HttpMethod.Get, "/genre/28?page=1", HttpStatusCode.InternalServerError,
             BuildDiscoverJson([28], (1000, 8.0)));
@@ -635,8 +635,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscovery_CreditsDetailHasNoCredits_LeavesKnownPeopleNull()
     {
-        // Detail returns valid JSON with no "credits" object → detail.Credits == null early return
-        // → KnownPeople stays unpopulated.
+        // Detail returns valid JSON with no "credits" object -> detail.Credits == null early return
+        // -> KnownPeople stays unpopulated.
         var profile = NewProfile();
         profile.PeopleProfile["Christopher Nolan"] = 5;
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
@@ -658,7 +658,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscovery_CreditsDetailMalformedJson_LeavesKnownPeopleNullAndContinues()
     {
-        // Detail returns HTTP 200 with invalid JSON → JsonException inside the per-candidate
+        // Detail returns HTTP 200 with invalid JSON -> JsonException inside the per-candidate
         // enrichment task, which is caught. Generation still persists the candidate with
         // KnownPeople unpopulated.
         var profile = NewProfile();

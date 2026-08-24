@@ -3,8 +3,8 @@
  * brought the stack up and generated the fake media.
  *
  * Steps (all via Jellyfin's HTTP API, verified against the 12.0-rc source):
- *   1. Complete the first-run startup wizard (Configuration → User → RemoteAccess → Complete).
- *   2. Authenticate as the new admin → capture AccessToken + userId.
+ *   1. Complete the first-run startup wizard (Configuration -> User -> RemoteAccess -> Complete).
+ *   2. Authenticate as the new admin -> capture AccessToken + userId.
  *   3. Create Movies + Shows libraries pointing at the mounted fake media.
  *   4. Trigger a library scan (RefreshLibrary task) and wait for it to finish.
  *   5. Seed the mock-seerr user with the real Jellyfin admin GUID (so Discovery links up).
@@ -56,8 +56,8 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // Source-verified JF12 flow: POST /Startup/User does NOT create a user - it
   // configures the pre-existing default admin (renames it + sets its password).
   // If that user already has a password it returns 403 and does nothing, so we
-  // must NOT swallow the response. Order: GET user (forces init) → Configuration
-  // → User (hard-checked) → RemoteAccess → Complete (finish user BEFORE Complete).
+  // must NOT swallow the response. Order: GET user (forces init) -> Configuration
+  // -> User (hard-checked) -> RemoteAccess -> Complete (finish user BEFORE Complete).
 
   // GET forces _userManager.InitializeAsync() so the default user exists, and
   // tells us its current name.
@@ -232,7 +232,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
     token,
     userId,
     userName: ADMIN_USER,
-    normalUser, // null if provisioning failed → Discovery/My tests skip
+    normalUser, // null if provisioning failed -> Discovery/My tests skip
   };
   writeFileSync(join(__dirname, 'auth.json'), JSON.stringify(out, null, 2));
   process.env.JELLYFIN_TOKEN = token;

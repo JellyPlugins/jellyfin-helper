@@ -223,10 +223,10 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         var fourth = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
 
         // Assert
-        Assert.Null(first);   // Upstream error → null (not linked)
-        Assert.Null(second);  // Still retried, still failed → null
-        Assert.Equal(1, third);  // Success → resolved
-        Assert.Equal(1, fourth); // Cache hit → resolved
+        Assert.Null(first);   // Upstream error -> null (not linked)
+        Assert.Null(second);  // Still retried, still failed -> null
+        Assert.Equal(1, third);  // Success -> resolved
+        Assert.Equal(1, fourth); // Cache hit -> resolved
         Assert.Equal(callsBeforeFourth, handler.CallCount); // Fourth call did not re-fetch
         // Exactly 3 HTTP calls must have been made (2 failures + 1 success).
         Assert.Equal(3, callsBeforeFourth);

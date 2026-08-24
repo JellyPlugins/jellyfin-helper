@@ -54,7 +54,7 @@ public class FolderBrowserController : ControllerBase
         }
 
         // All path validation (traversal prevention, allow-list enforcement, existence checks)
-        // is delegated to FolderBrowserService.GetChildren → ValidatePath. No pre-validation
+        // is delegated to FolderBrowserService.GetChildren -> ValidatePath. No pre-validation
         // is performed here intentionally; the service is the single source of truth for what
         // paths are permitted.
         return Ok(_folderBrowser.GetChildren(path));

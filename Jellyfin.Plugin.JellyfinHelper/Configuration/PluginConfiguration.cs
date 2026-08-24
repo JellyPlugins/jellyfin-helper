@@ -82,7 +82,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum age in days for Seerr requests before they are cleaned up.
-    ///     Default is 365 days (1 year). Valid range: 1–3650 when Seerr is enabled; 0 means disabled.
+    ///     Default is 365 days (1 year). Valid range: 1-3650 when Seerr is enabled; 0 means disabled.
     ///     Out-of-range values are clamped.
     /// </summary>
     public int SeerrCleanupAgeDays
@@ -128,7 +128,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the number of days to keep items in the trash before permanent deletion.
-    ///     Default is 30 days. Valid range: 0–3650. Out-of-range values are clamped.
+    ///     Default is 30 days. Valid range: 0-3650. Out-of-range values are clamped.
     /// </summary>
     public int TrashRetentionDays
     {
@@ -212,7 +212,7 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
     ///     Controls the lower bound of learned model blending (0-1). Default is 0.3.
     ///     Out-of-range values are clamped to [0, 1].
-    ///     The min ≤ max invariant is enforced automatically by the <see cref="EnsembleAlphaMax"/> setter.
+    ///     The min &lt;= max invariant is enforced automatically by the <see cref="EnsembleAlphaMax"/> setter.
     /// </summary>
     public double EnsembleAlphaMin
     {
@@ -228,7 +228,7 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
     ///     Controls the upper bound of learned model blending (0-1). Default is 0.75.
     ///     Out-of-range values are clamped to [0, 1].
-    ///     Setting this property automatically enforces the min ≤ max invariant via
+    ///     Setting this property automatically enforces the min &lt;= max invariant via
     ///     <see cref="NormalizeAlphaRange"/> so all code paths see a consistent range.
     /// </summary>
     public double EnsembleAlphaMax
@@ -276,7 +276,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
 
     /// <summary>
-    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> ≤ <see cref="EnsembleAlphaMax"/>
+    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> &lt;= <see cref="EnsembleAlphaMax"/>
     ///     regardless of property setter invocation order during XML deserialization.
     ///     <see cref="System.Xml.Serialization.XmlSerializer"/> does not guarantee property order,
     ///     so a persisted config with Min=0.8 and Max=0.6 could produce different final values

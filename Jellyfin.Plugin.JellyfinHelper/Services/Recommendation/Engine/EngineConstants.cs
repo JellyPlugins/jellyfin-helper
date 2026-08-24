@@ -36,14 +36,14 @@ internal static class EngineConstants
     /// <summary>
     ///     Minimum weighted contribution before a specific reason (genre, collaborative) is shown.
     ///     Must be low enough to work across strategies whose weights differ
-    ///     (e.g. collaborative weight 0.12–0.15 → max contribution 0.12–0.15).
+    ///     (e.g. collaborative weight 0.12-0.15 -> max contribution 0.12-0.15).
     /// </summary>
     internal const double ReasonScoreThreshold = 0.05;
 
     /// <summary>
     ///     Minimum weighted rating contribution before "Highly rated" reason is shown.
-    ///     Rating weights are typically 0.08–0.10, so a threshold of 0.04 requires
-    ///     the normalised community rating to be at least ~0.5 (i.e. ≥ 5.0/10).
+    ///     Rating weights are typically 0.08-0.10, so a threshold of 0.04 requires
+    ///     the normalised community rating to be at least ~0.5 (i.e. >= 5.0/10).
     /// </summary>
     internal const double HighRatingThreshold = 0.04;
 
@@ -113,7 +113,7 @@ internal static class EngineConstants
     ///     ranked an unknown-quality title ABOVE one the community explicitly rated poorly (a 3/10
     ///     maps to 0.30, and 0.5 &gt; 0.30 - a quality inversion). Set to 0.30 so an "unknown quality"
     ///     item scores exactly at the bottom of the mediocre band: it no longer outranks a 3/10 (they
-    ///     tie on the rating term and any real rating ≥ 3.0/10 wins), while genuinely bad titles
+    ///     tie on the rating term and any real rating >= 3.0/10 wins), while genuinely bad titles
     ///     (&lt; 3/10) still rank below the unknown - a defensible ordering - and recency/popularity
     ///     still surface brand-new, not-yet-rated additions rather than burying them.
     /// </summary>
@@ -269,7 +269,7 @@ internal static class EngineConstants
 
     /// <summary>
     ///     Per-additional-sibling increment for the diminishing-returns progression formula.
-    ///     n=1 → 0.3, n=2 → 0.5, n=3 → 0.7, n=4 → 0.9, n≥5 clamped to 1.0.
+    ///     n=1 -> 0.3, n=2 -> 0.5, n=3 -> 0.7, n=4 -> 0.9, n>=5 clamped to 1.0.
     /// </summary>
     internal const double CollectionProgressionIncrement = 0.2;
 
@@ -295,8 +295,8 @@ internal static class EngineConstants
     internal const double SeriesCompletabilityUnreleased = 0.0;
 
     /// <summary>
-    ///     Decay scale for <see cref="ComputeBillingWeight"/>. With scale 4, top-billed (order 0) → 1.0,
-    ///     4th-billed → 0.5, and the weight tails off smoothly for deep-cast/bit-part entries.
+    ///     Decay scale for <see cref="ComputeBillingWeight"/>. With scale 4, top-billed (order 0) -> 1.0,
+    ///     4th-billed -> 0.5, and the weight tails off smoothly for deep-cast/bit-part entries.
     /// </summary>
     internal const double BillingWeightDecayScale = 4.0;
 
@@ -394,8 +394,8 @@ internal static class EngineConstants
     ///     (<c>Engine.ScoreCandidate</c>) and the training path so the two call sites cannot drift.
     ///     <para>
     ///         Maps a series lifecycle status to a <c>[0,1]</c> "how completable is this arc" signal:
-    ///         Ended → <see cref="SeriesCompletabilityEnded"/>, Continuing → <see cref="SeriesCompletabilityContinuing"/>,
-    ///         Unreleased → <see cref="SeriesCompletabilityUnreleased"/>. A present
+    ///         Ended -> <see cref="SeriesCompletabilityEnded"/>, Continuing -> <see cref="SeriesCompletabilityContinuing"/>,
+    ///         Unreleased -> <see cref="SeriesCompletabilityUnreleased"/>. A present
     ///         <paramref name="hasEndDate"/> reinforces "Continuing" toward ended (a wrapped-but-not-yet-flagged
     ///         series). Non-series items and unknown/absent status return <see cref="SeriesCompletabilityNeutral"/>
     ///         so the feature is a no-op for movies.
@@ -431,7 +431,7 @@ internal static class EngineConstants
                 : SeriesCompletabilityContinuing;
         }
 
-        // Unknown / absent status → neutral (do not bias ranking).
+        // Unknown / absent status -> neutral (do not bias ranking).
         return SeriesCompletabilityNeutral;
     }
 

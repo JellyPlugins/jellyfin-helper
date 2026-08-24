@@ -172,8 +172,8 @@ public class FolderBrowserControllerTests
         var libraryManager = new Mock<ILibraryManager>();
         libraryManager.Setup(lm => lm.GetVirtualFolders()).Returns(new List<VirtualFolderInfo>
         {
-            new() { Name = "", Locations = ["/mnt/nameless"] },  // no name → skipped
-            new() { Name = "  ", Locations = ["/mnt/whitespace"] },  // whitespace → skipped
+            new() { Name = "", Locations = ["/mnt/nameless"] },  // no name, skipped
+            new() { Name = "  ", Locations = ["/mnt/whitespace"] },  // whitespace, skipped
             new() { Name = "Movies", Locations = ["/mnt/movies"] }
         });
 

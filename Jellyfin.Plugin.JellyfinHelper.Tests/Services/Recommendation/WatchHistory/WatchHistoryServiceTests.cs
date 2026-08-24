@@ -638,7 +638,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void BuildProfile_PartiallyWatchedItem_AboveThreshold_IncludedInPeople()
     {
-        // Items with ≥ 15% playback progress are treated as meaningful exposure and
+        // Items with >= 15% playback progress are treated as meaningful exposure and
         // DO contribute to PeopleProfile even though `Played` is false.
         var user = CreateTestUser("ivy");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
@@ -692,8 +692,8 @@ public sealed class WatchHistoryServiceTests
             RunTimeTicks = TimeSpan.FromMinutes(45).Ticks
         };
 
-        // First GetItemList call → video items (the episode)
-        // Second GetItemList call → series items (empty - series NOT in lookup)
+        // First GetItemList call -> video items (the episode)
+        // Second GetItemList call -> series items (empty - series NOT in lookup)
         _mockLibraryManager
             .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns(new List<BaseItem> { episode })

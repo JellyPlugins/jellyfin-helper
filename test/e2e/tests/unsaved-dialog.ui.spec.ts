@@ -1,7 +1,7 @@
 /**
  * Unsaved-changes dialog - the explicitly requested behaviour: change a setting
  * (e.g. the retention/days number), do NOT save, then try to leave the settings
- * tab → the "unsaved changes" dialog must appear. Counter-checks: after saving,
+ * tab -> the "unsaved changes" dialog must appear. Counter-checks: after saving,
  * no dialog; Cancel keeps you on the tab with the change intact; Discard leaves.
  *
  * Selectors (from the UI map):

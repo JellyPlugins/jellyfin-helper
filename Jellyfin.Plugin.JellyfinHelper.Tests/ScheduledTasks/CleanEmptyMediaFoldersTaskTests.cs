@@ -56,7 +56,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Old Movie (2020)", movieDir));
 
-        // Subtitles are non-metadata files → folder is orphaned and should be deleted
+        // Subtitles are non-metadata files -> folder is orphaned and should be deleted
         SetupFiles(movieDir, "movie.nfo", "poster.jpg", "movie.srt");
         SetupTopLevelDirs(movieDir);
 
@@ -74,7 +74,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Upcoming Movie (2026)", movieDir));
 
-        // Only metadata/artwork files → likely a wanted-list placeholder → skip
+        // Only metadata/artwork files -> likely a wanted-list placeholder -> skip
         SetupFiles(movieDir, "movie.nfo", "poster.jpg");
         SetupTopLevelDirs(movieDir);
 
@@ -106,7 +106,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     {
         // A .strm file is a Jellyfin stream-link pointing at remote/relocated video. It is classified
         // as a video file (MediaExtensions.VideoExtensions), so a folder whose only real content is a
-        // .strm must be treated as an active media folder and NEVER deleted — even though the .strm
+        // .strm must be treated as an active media folder and NEVER deleted - even though the .strm
         // itself is a tiny text file that looks like a non-media file to a naive extension check.
         Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
 
@@ -116,7 +116,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Streamed Movie (2022)", movieDir));
 
-        // Only a .strm link file plus metadata/artwork — no local video, no other files.
+        // Only a .strm link file plus metadata/artwork - no local video, no other files.
         SetupFiles(movieDir, "movie.strm", "movie.nfo", "poster.jpg");
         SetupTopLevelDirs(movieDir);
 
@@ -191,7 +191,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Wanted Movie (2026)", movieDir));
 
-        // Only NFO and poster → metadata-only placeholder → should NOT be reported for deletion
+        // Only NFO and poster -> metadata-only placeholder -> should NOT be reported for deletion
         SetupFiles(movieDir, "movie.nfo", "poster.jpg");
         SetupTopLevelDirs(movieDir);
 
@@ -241,7 +241,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
         SetupTopLevelDirs(showDir, ("Season 01", season1Dir));
 
-        // Season folder has a subtitle but no video → orphaned
+        // Season folder has a subtitle but no video -> orphaned
         SetupFiles(season1Dir, "season.nfo", "S01E01.srt");
         SetupTopLevelDirs(season1Dir);
 
@@ -260,7 +260,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Cancelled Show (2019)", showDir));
 
-        // Only metadata/artwork → placeholder → skip
+        // Only metadata/artwork -> placeholder -> skip
         SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
         SetupTopLevelDirs(showDir, ("Season 01", season1Dir));
 
@@ -307,7 +307,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             ("Old Movie 1 (2018)", "/media/movies/Old Movie 1 (2018)"),
             ("Old Movie 2 (2019)", "/media/movies/Old Movie 2 (2019)"));
 
-        // Both have subtitles (non-metadata) → orphaned
+        // Both have subtitles (non-metadata) -> orphaned
         SetupFiles("/media/movies/Old Movie 1 (2018)", "movie.nfo", "movie.srt");
         SetupTopLevelDirs("/media/movies/Old Movie 1 (2018)");
 
@@ -546,19 +546,19 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             ("Another Good (2020)", "/media/movies/Another Good (2020)"),
             ("Wanted Movie (2026)", "/media/movies/Wanted Movie (2026)"));
 
-        // Good movie with video → keep
+        // Good movie with video -> keep
         SetupFiles("/media/movies/Good Movie (2021)", "movie.mkv", "movie.nfo");
         SetupTopLevelDirs("/media/movies/Good Movie (2021)");
 
-        // Orphaned with subtitle → delete
+        // Orphaned with subtitle -> delete
         SetupFiles("/media/movies/Orphaned Movie (2019)", "movie.nfo", "poster.jpg", "movie.srt");
         SetupTopLevelDirs("/media/movies/Orphaned Movie (2019)");
 
-        // Another good movie with video → keep
+        // Another good movie with video -> keep
         SetupFiles("/media/movies/Another Good (2020)", "film.mp4");
         SetupTopLevelDirs("/media/movies/Another Good (2020)");
 
-        // Wanted movie with only metadata → skip (placeholder)
+        // Wanted movie with only metadata -> skip (placeholder)
         SetupFiles("/media/movies/Wanted Movie (2026)", "movie.nfo", "poster.jpg");
         SetupTopLevelDirs("/media/movies/Wanted Movie (2026)");
 
@@ -729,7 +729,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Deleted Movie (2020)", movieDir));
 
-        // NFO + subtitle → has non-metadata file → orphaned → delete
+        // NFO + subtitle -> has non-metadata file -> orphaned -> delete
         SetupFiles(movieDir, "movie.nfo", "movie.srt");
         SetupTopLevelDirs(movieDir);
 
@@ -747,7 +747,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Strange Movie (2020)", movieDir));
 
-        // NFO + unknown file → has non-metadata → orphaned → delete
+        // NFO + unknown file -> has non-metadata -> orphaned -> delete
         SetupFiles(movieDir, "movie.nfo", "poster.jpg", "readme.txt");
         SetupTopLevelDirs(movieDir);
 
@@ -766,7 +766,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Old Show (2019)", showDir));
 
-        // Show has NFO, but Season has a subtitle → non-metadata found deep in tree → orphaned
+        // Show has NFO, but Season has a subtitle -> non-metadata found deep in tree -> orphaned
         SetupFiles(showDir, "tvshow.nfo");
         SetupTopLevelDirs(showDir, ("Season 01", season1Dir));
 
@@ -824,11 +824,11 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             ("Active Movie (2021)", videoDir),
             ("Orphaned Movie (2019)", orphanDir));
 
-        // Video folder - has video file → must be skipped entirely
+        // Video folder - has video file -> must be skipped entirely
         SetupFiles(videoDir, "movie.mkv", "movie.nfo");
         SetupTopLevelDirs(videoDir);
 
-        // Orphan folder - subtitle only → must be trashed
+        // Orphan folder - subtitle only -> must be trashed
         SetupFiles(orphanDir, "movie.nfo", "movie.srt");
         SetupTopLevelDirs(orphanDir);
 
@@ -893,7 +893,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        // Orphan was trashed → RecordCleanup fires once
+        // Orphan was trashed -> RecordCleanup fires once
         MockTrackingService.Verify(
             t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
             Times.Once);
@@ -917,7 +917,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Fresh Orphan (2026)", movieDir));
 
-        // NFO + subtitle → would be an orphan, but the age gate blocks it.
+        // NFO + subtitle -> would be an orphan, but the age gate blocks it.
         SetupFiles(movieDir, "movie.nfo", "movie.srt");
         SetupTopLevelDirs(movieDir);
 
@@ -1004,7 +1004,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     }
 
     // Fail-closed: an unreadable subdirectory listing leaves the subtree unanalyzed, so the orphan
-    // verdict is unproven — a video could live behind the directory we failed to enumerate. Even
+    // verdict is unproven - a video could live behind the directory we failed to enumerate. Even
     // though a subtitle was already found at the top, the folder must NOT be flagged for deletion.
     [Fact]
     public async Task ExecuteInternalAsync_GetSubdirectoriesThrows_LogsWarningAndSkipsFolder()
@@ -1015,7 +1015,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Half Read (2019)", movieDir));
 
-        // Subtitle → non-metadata → looks like an orphan candidate on its own.
+        // Subtitle -> non-metadata -> looks like an orphan candidate on its own.
         SetupFiles(movieDir, "movie.srt");
         _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Throws(new UnauthorizedAccessException());
 

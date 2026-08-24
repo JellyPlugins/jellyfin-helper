@@ -4,12 +4,12 @@
  *
  * Each block asserts a LOAD-BEARING signal, deliberately avoiding the vacuous
  * traps the source review flagged:
- *   - Backup re-import: CredentialsChanged flips true→false on the 2nd import of
+ *   - Backup re-import: CredentialsChanged flips true->false on the 2nd import of
  *     the same secrets backup (run 1 sees a new key, run 2 the key already
  *     matches). Asserting ConfigurationRestored===true would be vacuous - it is
  *     true on every valid import regardless of change. We also prove the stored
  *     config values are identical after both imports.
- *   - Config PUT: two identical PUTs → identical GET state. Keys are sent MASKED
+ *   - Config PUT: two identical PUTs -> identical GET state. Keys are sent MASKED
  *     (the mask sentinel) so no live Arr/Seerr connection test runs (its Warnings[] are
  *     network-dependent and would be flaky - we assert stored state, not warnings).
  *   - Discovery (admin) Request: the plugin does NOT dedupe the Seerr submission.
@@ -80,7 +80,7 @@ interface ImportSummary {
 test.describe.serial('Backup/Import is idempotent (2nd import of the same file stabilizes)', () => {
   test('CredentialsChanged flips true→false and config values are identical on re-import', async () => {
     // Seed a KNOWN prior Seerr key so the backup's key is genuinely different on
-    // the first import (→ CredentialsChanged true), then identical on the second.
+    // the first import (-> CredentialsChanged true), then identical on the second.
     await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'old-key-before' });
 
     const backup = await exportBackup(true); // secrets export carries the real key

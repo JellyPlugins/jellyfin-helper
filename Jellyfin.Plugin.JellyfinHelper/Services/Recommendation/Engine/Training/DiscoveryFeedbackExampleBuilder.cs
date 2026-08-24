@@ -261,7 +261,7 @@ internal static class DiscoveryFeedbackExampleBuilder
             CollectionProgressionBoost = 0.0,
 
             // Lock-step with ExternalCandidateFeatureBuilder: the same 7 new library-only signals are
-            // neutralized identically (overlap → 0.0, SeriesCompletability → 0.5) because the discovery
+            // neutralized identically (overlap -> 0.0, SeriesCompletability -> 0.5) because the discovery
             // feedback entry carries no collection/country/writer/billing/status data. Any divergence
             // between these two files reintroduces train/serve skew.
             FranchiseAffinity = 0.0,

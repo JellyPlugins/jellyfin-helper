@@ -157,7 +157,7 @@ public sealed class TrainingExampleTests
     [Fact]
     public void ComputeTemporalWeight_FutureExample_ReturnsOne()
     {
-        // Example generated in the future relative to reference → ageDays <= 0 → 1.0
+        // Example generated in the future relative to reference -> ageDays <= 0 -> 1.0
         var reference = DateTime.UtcNow;
         var example = new TrainingExample
         {
@@ -223,7 +223,7 @@ public sealed class TrainingExampleTests
 
         // Should not throw and should return a reasonable value
         var weight = example.ComputeTemporalWeight();
-        Assert.InRange(weight, 0.99, 1.0); // 1 day old → very close to 1.0
+        Assert.InRange(weight, 0.99, 1.0); // 1 day old -> very close to 1.0
     }
 
     [Fact]

@@ -65,7 +65,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             $"Starting media statistics scan for {virtualFolders.Count} libraries",
             _logger);
 
-        // Pre-build a lookup of file paths → BaseItem for all known library items.
+        // Pre-build a lookup of file paths -> BaseItem for all known library items.
         // This avoids calling FindByPath() per file during the scan, significantly
         // improving performance for large libraries.
         var itemLookup = BuildItemLookup();
@@ -169,7 +169,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     ///     Builds a lookup dictionary mapping file paths to their Jellyfin library items.
     ///     This pre-loads all items once to avoid per-file FindByPath calls during scanning.
     /// </summary>
-    /// <returns>A case-insensitive dictionary of file path → BaseItem.</returns>
+    /// <returns>A case-insensitive dictionary of file path -> BaseItem.</returns>
     internal virtual Dictionary<string, BaseItem> BuildItemLookup()
     {
         var lookup = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
@@ -232,7 +232,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// </summary>
     /// <param name="directoryPath">The directory to analyze.</param>
     /// <param name="stats">The statistics accumulator.</param>
-    /// <param name="itemLookup">Pre-built lookup of file paths → BaseItem for metadata extraction.</param>
+    /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
     /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
     /// <param name="trashFolderName">Pre-resolved trash folder name; passed down to avoid re-reading config on every recursive call.</param>
@@ -459,7 +459,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     ///     (e.g. newly added files or a failed bulk load).
     /// </summary>
     /// <param name="filePath">Full path to the media file.</param>
-    /// <param name="itemLookup">Pre-built lookup of file paths → BaseItem.</param>
+    /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem.</param>
     /// <returns>The resolved <see cref="BaseItem"/>, or <c>null</c> when the file is unknown to Jellyfin.</returns>
     private BaseItem? ResolveLibraryItem(string filePath, Dictionary<string, BaseItem> itemLookup)
     {
@@ -515,7 +515,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="filePath">Full path to the video file.</param>
     /// <param name="fileSize">Size of the video file in bytes.</param>
     /// <param name="stats">The statistics accumulator.</param>
-    /// <param name="itemLookup">Pre-built lookup of file paths → BaseItem.</param>
+    /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem.</param>
     /// <returns>The media streams for the file, or <c>null</c> if unavailable (reused for subtitle checks).</returns>
     private IReadOnlyList<MediaStream>? ExtractVideoMetadata(
         string filePath,
@@ -566,14 +566,14 @@ public class MediaStatisticsService : IMediaStatisticsService
 
     /// <summary>
     ///     Extracts music audio codec metadata from Jellyfin MediaStream data and records it
-    ///     in the statistics. Uses a two-tier item lookup (batch dictionary → per-file FindByPath)
+    ///     in the statistics. Uses a two-tier item lookup (batch dictionary -> per-file FindByPath)
     ///     and falls back to extension-based mapping when neither lookup yields stream data.
     /// </summary>
     /// <param name="filePath">Full path to the audio file.</param>
     /// <param name="extension">The file extension (with leading dot).</param>
     /// <param name="fileSize">Size of the audio file in bytes.</param>
     /// <param name="stats">The statistics accumulator.</param>
-    /// <param name="itemLookup">Pre-built lookup of file paths → BaseItem.</param>
+    /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem.</param>
     private void ExtractMusicAudioMetadata(
         string filePath,
         string extension,

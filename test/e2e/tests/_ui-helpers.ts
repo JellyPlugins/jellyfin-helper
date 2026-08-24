@@ -3,7 +3,7 @@
  * open the Jellyfin Helper config dashboard, which is rendered entirely by JS.
  *
  * The dashboard injects its shell into #statsResult and switches tabs via
- * `.tab-btn[data-tab="..."]` → `#tab-{name}.active`. We assert on stable IDs /
+ * `.tab-btn[data-tab="..."]` -> `#tab-{name}.active`. We assert on stable IDs /
  * data-attributes / classes, NEVER on localized text.
  */
 import { type Page, expect } from '@playwright/test';

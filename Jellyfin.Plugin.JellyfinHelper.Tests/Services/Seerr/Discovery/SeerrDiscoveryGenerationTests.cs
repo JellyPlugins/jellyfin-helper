@@ -31,7 +31,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 ///         <list type="bullet">
 ///             <item>Deactivate short-circuits BEFORE touching the watch-history service.</item>
 ///             <item>Missing SeerrUrl/ApiKey short-circuits before profile fetch.</item>
-///             <item>No active users → no HTTP calls, no cache writes, no feedback recording.</item>
+///             <item>No active users -> no HTTP calls, no cache writes, no feedback recording.</item>
 ///             <item>Cancellation propagates out of the per-user loop.</item>
 ///             <item>DryRun mode never persists cache or feedback (preview semantics).</item>
 ///         </list>

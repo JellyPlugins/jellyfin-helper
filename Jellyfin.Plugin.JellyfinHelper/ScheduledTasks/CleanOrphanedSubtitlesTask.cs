@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// <remarks>
 ///     <para>
 ///         Subtitle files typically follow a naming convention where the base name matches the video file:
-///         <c>Movie Name (2021).mkv</c> → <c>Movie Name (2021).en.srt</c> or <c>Movie Name (2021).srt</c>.
+///         <c>Movie Name (2021).mkv</c> -> <c>Movie Name (2021).en.srt</c> or <c>Movie Name (2021).srt</c>.
 ///     </para>
 ///     <para>
 ///         This task scans all directories recursively and for each subtitle file, checks whether any video
@@ -83,7 +83,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             var allDirs = new[] { libraryPath }.Concat(
                 TryGetSubdirectories(libraryPath));
 
-            // Hoist trash path computation out of loop – libraryPath is constant per iteration
+            // Hoist trash path computation out of loop - libraryPath is constant per iteration
             var trashFullPath = ConfigHelper.GetTrashPath(libraryPath);
             var normalizedTrash = Path.GetFullPath(trashFullPath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -94,7 +94,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Skip .trickplay folders – handled by CleanTrickplayTask
+                // Skip .trickplay folders - handled by CleanTrickplayTask
                 if (Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -169,7 +169,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                     }
 
                     // Extract the base name of the subtitle, stripping language suffixes
-                    // e.g., "Movie.en.srt" → "Movie", "Movie.en.forced.srt" → "Movie"
+                    // e.g., "Movie.en.srt" -> "Movie", "Movie.en.forced.srt" -> "Movie"
                     var subtitleBaseName = GetSubtitleBaseName(file.FullName, videoBaseNames);
 
                     if (videoBaseNames.Contains(subtitleBaseName))
@@ -265,13 +265,13 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     /// <summary>
     ///     Extracts the base name of a subtitle file, stripping language and format suffixes.
     ///     For example:
-    ///     "Movie Name (2021).en.srt" → "Movie Name (2021)"
-    ///     "Movie Name (2021).en.forced.srt" → "Movie Name (2021)"
-    ///     "Movie Name (2021).srt" → "Movie Name (2021)"
-    ///     "Movie Name (2021).de.hi.ass" → "Movie Name (2021)"
-    ///     "Movie Name (2021).es-MX.srt" → "Movie Name (2021)"
-    ///     "Movie Name (2021).pt-BR.forced.srt" → "Movie Name (2021)"
-    ///     "Movie Name (2021).zh-Hans.srt" → "Movie Name (2021)".
+    ///     "Movie Name (2021).en.srt" -> "Movie Name (2021)"
+    ///     "Movie Name (2021).en.forced.srt" -> "Movie Name (2021)"
+    ///     "Movie Name (2021).srt" -> "Movie Name (2021)"
+    ///     "Movie Name (2021).de.hi.ass" -> "Movie Name (2021)"
+    ///     "Movie Name (2021).es-MX.srt" -> "Movie Name (2021)"
+    ///     "Movie Name (2021).pt-BR.forced.srt" -> "Movie Name (2021)"
+    ///     "Movie Name (2021).zh-Hans.srt" -> "Movie Name (2021)".
     ///     If the stripped result does not match any known video base name, falls back to
     ///     the original unsplit name (i.e., the filename without its subtitle extension)
     ///     to avoid false-orphan detection when the movie title itself contains language codes.

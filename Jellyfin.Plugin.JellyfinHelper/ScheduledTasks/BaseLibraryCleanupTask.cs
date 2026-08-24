@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
 ///     Abstract base class for library cleanup tasks that follow a common execution pattern:
-///     load config → log start → iterate library locations → process each location → log summary → record cleanup.
+///     load config -> log start -> iterate library locations -> process each location -> log summary -> record cleanup.
 ///     Concrete subclasses only need to implement the location-specific scanning and cleanup logic.
 /// </summary>
 public abstract class BaseLibraryCleanupTask
@@ -144,7 +144,6 @@ public abstract class BaseLibraryCleanupTask
         var dryRun = IsDryRun();
         var config = ConfigHelper.GetConfig();
 
-        // Log task start
         PluginLog.LogInfo(
             TaskName,
             dryRun ? $"Task started (Dry Run). No {ItemLabel} will be deleted." : "Task started.",
@@ -165,9 +164,7 @@ public abstract class BaseLibraryCleanupTask
                 Logger);
         }
 
-        // Get filtered library locations
         var libraryFolders = ConfigHelper.GetFilteredLibraryLocations(LibraryManager);
-
         if (libraryFolders.Count == 0)
         {
             PluginLog.LogInfo(TaskName, "No library folders configured. Nothing to do.", Logger);
@@ -178,7 +175,6 @@ public abstract class BaseLibraryCleanupTask
         var totalDeleted = 0;
         long totalBytesFreed = 0;
 
-        // Iterate over library locations
         for (var i = 0; i < libraryFolders.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -192,7 +188,6 @@ public abstract class BaseLibraryCleanupTask
             progress.Report((double)(i + 1) / libraryFolders.Count * 100);
         }
 
-        // Log summary
         PluginLog.LogInfo(
             TaskName,
             dryRun

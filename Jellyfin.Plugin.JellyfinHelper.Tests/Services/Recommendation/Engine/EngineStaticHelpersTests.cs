@@ -66,15 +66,15 @@ public sealed class EngineStaticHelpersTests
         var streams = new List<MediaStream>
         {
             new() { Type = MediaStreamType.Audio, Language = "eng" },
-            new() { Type = MediaStreamType.Audio, Language = "eng" },   // duplicate → deduped
-            new() { Type = MediaStreamType.Audio, Language = "  " },    // blank → skipped
+            new() { Type = MediaStreamType.Audio, Language = "eng" },   // duplicate -> deduped
+            new() { Type = MediaStreamType.Audio, Language = "  " },    // blank -> skipped
             new() { Type = MediaStreamType.Subtitle, Language = "ger" },
-            new() { Type = MediaStreamType.Subtitle, Language = null }, // null → skipped
+            new() { Type = MediaStreamType.Subtitle, Language = null }, // null -> skipped
         };
 
         var (audio, subtitles) = InvokeParseLanguagesFromStreams(streams);
 
-        // NormalizeLanguage maps ISO 639-2 codes to short forms: eng→en, ger→de.
+        // NormalizeLanguage maps ISO 639-2 codes to short forms: eng->en, ger->de.
         Assert.Single(audio);
         Assert.Contains("en", audio);
         Assert.Single(subtitles);

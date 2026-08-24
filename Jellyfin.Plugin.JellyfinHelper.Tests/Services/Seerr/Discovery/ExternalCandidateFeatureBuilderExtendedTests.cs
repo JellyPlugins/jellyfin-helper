@@ -125,7 +125,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
             exposure);
 
         // With the rebuild the case-insensitive match yields 1 overlap out of Min(5,1)=1
-        // → PeopleSimilarity = 1.0. Without it, the value would collapse to 0.0.
+        // -> PeopleSimilarity = 1.0. Without it, the value would collapse to 0.0.
         Assert.Equal(1.0, features.PeopleSimilarity, 6);
     }
 
@@ -148,7 +148,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
             GenreIds = [ActionTmdbGenreId],
             VoteAverage = 7.0,
             Popularity = 50.0
-            // ReleaseDate NOT set → EffectiveReleaseDate = null
+            // ReleaseDate NOT set -> EffectiveReleaseDate = null
         };
 
         var features = ExternalCandidateFeatureBuilder.Build(
@@ -160,7 +160,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
 
         // RecencyScore falls back to neutral 0.5 when the candidate has no release date.
         Assert.Equal(0.5, features.RecencyScore, 6);
-        // YearProximityScore is invoked with null → should NOT throw and must produce a
+        // YearProximityScore is invoked with null -> should NOT throw and must produce a
         // finite score (the underlying ContentScoring.ComputeYearProximity contract).
         Assert.True(double.IsFinite(features.YearProximityScore));
     }
@@ -349,7 +349,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
 
         var result = ExternalCandidateFeatureBuilder.ComputePeopleSimilarityFromNames(known, preferred);
 
-        // 2 distinct matches (Alice, Bob) out of Min(5, 5) = 5 → 2/5 = 0.4
+        // 2 distinct matches (Alice, Bob) out of Min(5, 5) = 5 -> 2/5 = 0.4
         Assert.Equal(0.4, result, 6);
     }
 

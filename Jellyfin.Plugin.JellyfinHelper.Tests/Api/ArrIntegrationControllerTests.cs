@@ -195,7 +195,7 @@ public class ArrIntegrationControllerTests : IDisposable
     [Fact]
     public async Task TestArrConnectionAsync_MaskWithNoStoredMatch_ReturnsFailureAndNeverSendsMask()
     {
-        // No stored instance matches this URL → cannot resolve. Must not forward the mask upstream.
+        // No stored instance matches this URL, cannot resolve. Must not forward the mask upstream.
         _configHelperMock.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
 
         var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);

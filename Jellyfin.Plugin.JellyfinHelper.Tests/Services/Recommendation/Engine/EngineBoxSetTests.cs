@@ -21,7 +21,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class EngineBoxSetTests
 {
     // ============================================================================
-    // BuildWatchedBoxSetCounts - inverts (item → boxSets) into (boxSet → watchedCount).
+    // BuildWatchedBoxSetCounts - inverts (item -> boxSets) into (boxSet -> watchedCount).
     // ============================================================================
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class EngineBoxSetTests
     [Fact]
     public void ComputeCollectionProgressionBoostLive_EmptyWatchedBoxSetCounts_ReturnsZero()
     {
-        // No watched history → no boost signal (this is different from "0 boost from the formula"
+        // No watched history -> no boost signal (this is different from "0 boost from the formula"
         // and lives in the wrapper's short-circuit).
         var boost = InvokeComputeCollectionProgressionBoostLive(
             [Guid.NewGuid()],
@@ -188,7 +188,7 @@ public sealed class EngineBoxSetTests
     public void ComputeCollectionProgressionBoostLive_MonotonicWithCount_UpToClamp()
     {
         // As watched-count grows, the boost must weakly increase - the underlying formula
-        // is `0.3 + (n-1) × 0.2, clamped [0,1]`, so growth stops at some finite n.
+        // is `0.3 + (n-1) x 0.2, clamped [0,1]`, so growth stops at some finite n.
         var boxSet = Guid.NewGuid();
         var boost1 = InvokeComputeCollectionProgressionBoostLive(
             [boxSet], new Dictionary<Guid, int> { [boxSet] = 1 });

@@ -185,7 +185,7 @@ test('admin Discovery/Request submission reaches the mock', async () => {
     headers: { 'Content-Type': 'application/json' },
     data: { TmdbId: 27205, MediaType: 'movie' },
   });
-  // The mock accepts the request (maps to 201 → plugin success). A well-formed
+  // The mock accepts the request (maps to 201 -> plugin success). A well-formed
   // submission against the configured mock must succeed, not merely avoid 500.
   expect(res.ok(), `Discovery/Request failed: ${res.status()}`).toBeTruthy();
   await assertPluginActive(admin);

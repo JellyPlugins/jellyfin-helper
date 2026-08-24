@@ -151,7 +151,7 @@ public sealed class PluginTests : IDisposable
         // ReportClampedConfigValues indirectly by pulling the private method.
         // Simpler path: reset Configuration BEFORE ReportClampedConfigValues runs.
         //
-        // The ctor calls ReportClampedConfigValues() → DrainClampReports() reads whatever
+        // The ctor calls ReportClampedConfigValues() -> DrainClampReports() reads whatever
         // is on Configuration at that moment. In production BasePlugin<T> materialises
         // Configuration via the XmlSerializer BEFORE the ctor body runs; in tests we don't
         // wire the serializer up, so Configuration is null when the ctor's report call runs.
@@ -338,7 +338,7 @@ public sealed class PluginTests : IDisposable
         // The plugin constructor ALWAYS invokes UpdateIndexHtml (via InjectScript's fallback
         // path) as part of its normal bootstrap. Under test the FileTransformation plugin is
         // never present, so the ctor's UpdateIndexHtml(true) writes a fresh script tag on our
-        // behalf. To exercise the "no matching script → skip write" fast path we must first
+        // behalf. To exercise the "no matching script -> skip write" fast path we must first
         // strip that tag with UpdateIndexHtml(false), THEN snapshot the mtime, THEN invoke
         // UpdateIndexHtml(false) once more - the second call is the real assertion target.
         var indexPath = Path.Combine(_webPath, "index.html");
@@ -416,7 +416,7 @@ public sealed class PluginTests : IDisposable
         var mtimeBefore = File.GetLastWriteTimeUtc(indexPath);
         System.Threading.Thread.Sleep(50);
 
-        var second = plugin.UpdateIndexHtml(true); // content already matches → no write
+        var second = plugin.UpdateIndexHtml(true); // content already matches -> no write
         Assert.Equal(Plugin.IndexHtmlUpdateResult.Success, second);
         Assert.Equal(mtimeBefore, File.GetLastWriteTimeUtc(indexPath));
     }

@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     No external ML dependencies required - pure C# implementation.
 /// </summary>
 /// <remarks>
-///     Architecture: 31 input features → 31 weights + 1 bias → clamp(0,1) → score (0–1).
+///     Architecture: 31 input features -> 31 weights + 1 bias -> clamp(0,1) -> score (0-1).
 ///     Features include genre similarity, collaborative score, combined critic score, recency,
 ///     year proximity, genre count, series flag, 2 interaction terms (genre×critic, genre×collab),
 ///     user rating, completion ratio, abandoned flag, has-interaction flag, people similarity,

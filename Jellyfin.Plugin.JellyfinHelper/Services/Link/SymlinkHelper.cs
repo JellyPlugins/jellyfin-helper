@@ -19,7 +19,7 @@ public class SymlinkHelper : ISymlinkHelper
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or ArgumentException or PathTooLongException)
         {
-            // Non-existent paths / permission denied / invalid path characters → treat as "not a symlink". The
+            // Non-existent paths / permission denied / invalid path characters -> treat as "not a symlink". The
             // LinkRepairService will decide separately whether the *absence* of the
             // path is itself an actionable state.
             return false;

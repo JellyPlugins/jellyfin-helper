@@ -311,9 +311,9 @@ internal sealed class SimilarityComputer
 
         // Unknown-genre damping: reduce similarity proportionally when a candidate has genres
         // the user has never watched, so items mixing familiar and unfamiliar genres don't score
-        // as high as fully-familiar ones. Factor 0.5 = moderate: "never watched" ≠ "dislikes".
+        // as high as fully-familiar ones. Factor 0.5 = moderate: "never watched" != "dislikes".
         // Example: Anime ["Animation","Action","Drama"] for an Action/Drama user:
-        //   unknownFraction = 1/3, damping = 1 - 0.33 * 0.5 = 0.835 → ~17% reduction.
+        //   unknownFraction = 1/3, damping = 1 - 0.33 * 0.5 = 0.835 -> ~17% reduction.
         if (unknownGenreCount == 0)
         {
             return cosineSimilarity;
@@ -388,7 +388,7 @@ internal sealed class SimilarityComputer
     ///     <para>
     ///         <b>Intuition</b>: <c>|candidate| × avg</c> is the expected matched weight if the cast were
     ///         all "average preferred" people. Delivering exactly that scores 1.0; less scores lower. The
-    ///         monotone ordering (more matched weight → strictly higher score, up to the clamp) is what the
+    ///         monotone ordering (more matched weight -> strictly higher score, up to the clamp) is what the
     ///         downstream neural ranking head needs.
     ///     </para>
     ///     <para>
@@ -516,7 +516,7 @@ internal sealed class SimilarityComputer
 
         if (matchedWeight <= 0.0)
         {
-            // No positive-weight overlap → cannot produce a meaningful score even with the floor.
+            // No positive-weight overlap -> cannot produce a meaningful score even with the floor.
             // Early return also avoids emitting a small positive score for zero-match candidates
             // just because the floor would otherwise appear in the denominator.
             return 0;
@@ -553,7 +553,7 @@ internal sealed class SimilarityComputer
     /// </summary>
     /// <param name="setA">First genre set.</param>
     /// <param name="setB">Second genre set.</param>
-    /// <returns>Jaccard similarity (0–1).</returns>
+    /// <returns>Jaccard similarity (0-1).</returns>
     internal static double ComputeJaccardFromSets(HashSet<string> setA, HashSet<string> setB)
     {
         if (setA.Count == 0 || setB.Count == 0)
@@ -577,7 +577,7 @@ internal sealed class SimilarityComputer
     ///     preference (empty map / unknown franchise) - never throws, never divides.</para>
     /// </summary>
     /// <param name="candidateFranchise">The candidate's TMDb collection name, or null/empty.</param>
-    /// <param name="preferredFranchises">The user's normalized franchise → weight map.</param>
+    /// <param name="preferredFranchises">The user's normalized franchise to weight map.</param>
     /// <returns>Franchise affinity in [0, 1].</returns>
     internal static double ComputeFranchiseAffinity(
         string? candidateFranchise,
@@ -602,7 +602,7 @@ internal sealed class SimilarityComputer
     ///     never throws, never divides (averages over the candidate's own country count only).</para>
     /// </summary>
     /// <param name="candidateCountries">The candidate's production countries.</param>
-    /// <param name="preferredCountries">The user's normalized country → weight map.</param>
+    /// <param name="preferredCountries">The user's normalized country to weight map.</param>
     /// <returns>Production-location affinity in [0, 1].</returns>
     internal static double ComputeProductionLocationAffinity(
         IReadOnlyList<string>? candidateCountries,
@@ -670,7 +670,7 @@ internal sealed class SimilarityComputer
     ///     once and call the three-argument overload instead.</para>
     /// </summary>
     /// <param name="candidateWriters">The candidate's writer names.</param>
-    /// <param name="preferredWriterWeights">The user's writer → weight map.</param>
+    /// <param name="preferredWriterWeights">The user's writer to weight map.</param>
     /// <returns>Writer affinity in [0, 1].</returns>
     internal static double ComputeWriterAffinity(
         IReadOnlyList<string>? candidateWriters,
@@ -687,7 +687,7 @@ internal sealed class SimilarityComputer
     ///     <para>Returns 0.0 when either side is empty.</para>
     /// </summary>
     /// <param name="candidateWriters">The candidate's writer names.</param>
-    /// <param name="preferredWriterWeights">The user's writer → weight map.</param>
+    /// <param name="preferredWriterWeights">The user's writer to weight map.</param>
     /// <param name="averageWriterWeight">Precomputed top-K average from <see cref="ComputeAveragePreferredWeight"/>.</param>
     /// <returns>Writer affinity in [0, 1].</returns>
     internal static double ComputeWriterAffinity(
@@ -718,8 +718,8 @@ internal sealed class SimilarityComputer
     ///     user's favoured billed-people map, weighting each match by the candidate's billing weight.
     ///     <para>Returns 0.0 when either side is empty - never divides by zero (denominator floored).</para>
     /// </summary>
-    /// <param name="candidateBilling">Candidate name → billing weight (top-billed → higher).</param>
-    /// <param name="preferredBilledPeople">The user's favoured billed-people name → weight map.</param>
+    /// <param name="candidateBilling">Candidate name to billing weight (top-billed -> higher).</param>
+    /// <param name="preferredBilledPeople">The user's favoured billed-people name to weight map.</param>
     /// <returns>Billing-weighted people affinity in [0, 1].</returns>
     internal static double ComputeBillingWeightedPeople(
         IReadOnlyDictionary<string, double> candidateBilling,
@@ -766,7 +766,7 @@ internal sealed class SimilarityComputer
     /// </summary>
     /// <param name="candidateGenres">The candidate's genres.</param>
     /// <param name="candidateStudios">The candidate's studios.</param>
-    /// <param name="genreStudioIdf">Library-wide genre/studio → normalized-IDF map (null/empty → 0.0).</param>
+    /// <param name="genreStudioIdf">Library-wide genre/studio to normalized-IDF map (null/empty -> 0.0).</param>
     /// <returns>Mean IDF rarity prior in [0, 1].</returns>
     internal static double ComputeGenreStudioIdfPrior(
         IReadOnlyList<string>? candidateGenres,

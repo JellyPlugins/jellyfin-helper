@@ -86,10 +86,10 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_ExplorationCanSelectFromWidenedBand()
     {
-        // Build 400 candidates; MMR pool = top 100 (count·5), exploration band = ranks 100..400.
+        // Build 400 candidates; MMR pool = top 100 (count*5), exploration band = ranks 100..400.
         // Run enough deterministic seeds to statistically hit the widened band.
         // The regression this locks down: previously exploration only ever picked from ranks 0..100,
-        // so a rank ≥ 100 pick was impossible.
+        // so a rank >= 100 pick was impossible.
         var candidates = BuildLinearlyDecreasingCandidates(400);
         const int count = 20;
         // Reference the shared constant so any future retune touches a single line.

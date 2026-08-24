@@ -431,8 +431,8 @@ public sealed class SimilarityComputerTests
     public void ComputePeopleSimilarityWeighted_HighMatchedShareOfBudget_HitsCeiling()
     {
         // Rich preferred profile that fully overlaps the candidate cast should hit the 1.0
-        // ceiling. avg = 6/3 = 2.0; budget = 2 × 2.0 = 4.0; floor(5) → denom=5.0
-        // matched = 3 + 2 = 5.0 → score = 5.0/5.0 = 1.0.
+        // ceiling. avg = 6/3 = 2.0; budget = 2 × 2.0 = 4.0; floor(5) -> denom=5.0
+        // matched = 3 + 2 = 5.0 -> score = 5.0/5.0 = 1.0.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Alice", 3.0 },
@@ -453,7 +453,7 @@ public sealed class SimilarityComputerTests
         // weight sum AND the positive-entry count that feeds avg(). Otherwise pathological
         // training data (from cache-serialisation bugs) could poison the denominator.
         // With only Alice as positive: positive=1, total=5.0, avg=5.0.
-        // |candidate|=3, budget=3×5.0=15.0 (>floor). matched=5.0 → score = 5/15 ≈ 0.333.
+        // |candidate|=3, budget=3×5.0=15.0 (>floor). matched=5.0 -> score = 5/15 ≈ 0.333.
         // The old min-based formula produced 1.0 here (bug); the new weighted-budget formula
         // correctly reflects that only 1 out of 3 candidate slots is a positive match.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
@@ -472,8 +472,8 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_CaseInsensitiveKeyLookup()
     {
-        // |candidate|=1, positive=1, total=4.0, avg=4.0. budget=1×4.0=4.0 < floor(5) → denom=5.
-        // matched=4 → 4/5 = 0.8.
+        // |candidate|=1, positive=1, total=4.0, avg=4.0. budget=1×4.0=4.0 < floor(5) -> denom=5.
+        // matched=4 -> 4/5 = 0.8.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Tom Hanks", 4.0 }
@@ -490,11 +490,11 @@ public sealed class SimilarityComputerTests
     {
         // v3 C2 hardening pass - Sparse-user overshoot fix.
         // Old min-based formula: preferred={Alice=2}, |candidate|=10, matched=2
-        //   → min(10, 2)=2 → 2/2 = 1.0 !  A brand-new profile with a single 2-weight entry could
+        //   -> min(10, 2)=2 -> 2/2 = 1.0 !  A brand-new profile with a single 2-weight entry could
         //   ride any single match to a perfect score, making every candidate that shared one
         //   cast member look like a top pick.
-        // New weighted-budget: avg=2/1=2.0, budget=10×2.0=20.0, floor(5) → denom=20. matched=2
-        //   → score = 2/20 = 0.10. Correctly damped.
+        // New weighted-budget: avg=2/1=2.0, budget=10×2.0=20.0, floor(5) -> denom=20. matched=2
+        //   -> score = 2/20 = 0.10. Correctly damped.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Alice", 2.0 }
@@ -516,7 +516,7 @@ public sealed class SimilarityComputerTests
         // The old min-based formula collapsed all candidates whose matched-weight exceeded
         // |candidate| onto the same 1.0 clamp, so a 2-match and a 5-match candidate scored
         // identically and became indistinguishable to the ML feature. The weighted-budget
-        // formula preserves a monotone ordering: more matched weight → strictly higher score
+        // formula preserves a monotone ordering: more matched weight -> strictly higher score
         // (until the actual candidate budget is saturated).
         //
         // Rich user: 200 filler people at weight 3.0 plus 5 named heavy hitters
@@ -748,7 +748,7 @@ public sealed class SimilarityComputerTests
     public void ExtractBilledPeople_DuplicateNameHigherWeightWins_KeepsMaxWeight()
     {
         // The same actor appears twice: first low-billed (high SortOrder), then top-billed
-        // (SortOrder 0 → weight 1.0). Duplicates must collapse to a single name carrying the
+        // (SortOrder 0 -> weight 1.0). Duplicates must collapse to a single name carrying the
         // MAX billing weight, not last-write-wins.
         var people = new List<PersonInfo>
         {

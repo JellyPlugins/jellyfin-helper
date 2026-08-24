@@ -202,7 +202,7 @@ public class StrmLinkHandlerTests
 
         file.Setup(f => f.WriteAllText(tempFile, It.IsAny<string>())); // temp write succeeds
         file.Setup(f => f.Move(tempFile, linkFile, true)).Throws(new IOException("disk full"));
-        file.Setup(f => f.Exists(tempFile)).Returns(true); // temp exists → must be cleaned up
+        file.Setup(f => f.Exists(tempFile)).Returns(true); // temp exists -> must be cleaned up
 
         var handler = new StrmLinkHandler(fs.Object);
 

@@ -79,10 +79,10 @@ public interface ISeerrDiscoveryService
     ///         The permission evaluation follows Overseerr/Jellyseerr's permission model:
     ///     </para>
     ///     <list type="bullet">
-    ///         <item>If the user has no Seerr account → <see cref="UserRequestPermissionResult.CanRequest"/> is <c>false</c>.</item>
-    ///         <item>If the user lacks REQUEST permission for the media type → <c>CanRequest</c> is <c>false</c>.</item>
-    ///         <item>If the user has REQUEST_ADVANCED, MANAGE_REQUESTS, or ADMIN → all profiles are returned.</item>
-    ///         <item>Otherwise (normal user) → only the server's default profile is returned.</item>
+    ///         <item>If the user has no Seerr account -> <see cref="UserRequestPermissionResult.CanRequest"/> is <c>false</c>.</item>
+    ///         <item>If the user lacks REQUEST permission for the media type -> <c>CanRequest</c> is <c>false</c>.</item>
+    ///         <item>If the user has REQUEST_ADVANCED, MANAGE_REQUESTS, or ADMIN -> all profiles are returned.</item>
+    ///         <item>Otherwise (normal user) -> only the server's default profile is returned.</item>
     ///     </list>
     /// </remarks>
     /// <param name="jellyfinUserId">The Jellyfin user GUID.</param>

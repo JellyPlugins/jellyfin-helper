@@ -303,7 +303,7 @@ public class FolderBrowserService : IFolderBrowserService
             var normalized = Path.GetFullPath(path);
 
             // Refuse sensitive system / application directories (Jellyfin's own /config, /data,
-            // OS roots like /etc, C:\Windows, …). The folder picker must never browse into or
+            // OS roots like /etc, C:\Windows, etc.). The folder picker must never browse into or
             // select these - mirrors the same guard used by link-repair and trash operations
             // (shared PathValidator.IsSensitiveSystemPath). Log a warning so a manual attempt to
             // reach a sensitive path leaves an audit trail (the explicit '..'/absolute rejects

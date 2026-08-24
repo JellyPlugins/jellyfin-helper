@@ -1419,7 +1419,7 @@ public class MediaStatisticsServiceTests
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([boxsetFolder, movieFolder]);
 
-        // Boxset folder contains a poster image but no video/subtitle � would normally trigger orphaned metadata
+        // Boxset folder contains a poster image but no video/subtitle - would normally trigger orphaned metadata
         var posterFile = new FileSystemMetadata
         {
             FullName = TestPath("config", "data", "collections", "poster.jpg"),
@@ -2607,7 +2607,7 @@ public class MetadataExtractionTests
         _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([videoFile]);
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
-        // No item in lookup → falls back to Unknown
+        // No item in lookup -> falls back to Unknown
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
 
@@ -2688,7 +2688,7 @@ public class MetadataExtractionTests
         _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([musicFile]);
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
-        // No item in lookup → falls back to extension mapping
+        // No item in lookup -> falls back to extension mapping
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
 
@@ -3100,7 +3100,7 @@ public class MetadataExtractionTests
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
 
-        // Falls back to extension-based mapping: .flac → FLAC
+        // Falls back to extension-based mapping: .flac -> FLAC
         Assert.Equal(1, stats.MusicAudioCodecs["FLAC"]);
         Assert.Equal(25_000_000, stats.MusicAudioCodecSizes["FLAC"]);
     }
@@ -3139,7 +3139,7 @@ public class MetadataExtractionTests
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
 
-        // ClassifyAudioCodec returns "Unknown" for null codec → extension fallback kicks in
+        // ClassifyAudioCodec returns "Unknown" for null codec -> extension fallback kicks in
         Assert.Equal(1, stats.MusicAudioCodecs["MP3"]);
         Assert.Equal(5_000_000, stats.MusicAudioCodecSizes["MP3"]);
     }

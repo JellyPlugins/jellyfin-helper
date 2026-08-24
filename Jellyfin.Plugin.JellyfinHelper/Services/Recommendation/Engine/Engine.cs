@@ -326,7 +326,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             }
         }
 
-        // Pre-compute all user watched-item sets ONCE for collaborative filtering (O(U²×M) → O(U×M)).
+        // Pre-compute all user watched-item sets ONCE for collaborative filtering (O(U²×M) -> O(U×M)).
         var precomputedUserSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
 
         // Wrap the user sets in a CollaborativeContext so the itemPopularity map (O(U×M)) and the
@@ -335,7 +335,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // re-imposing an O(U²×M) cost. Building the context once keeps batch cost at O(U×M).
         var collaborativeContext = CollaborativeFilter.PrecomputeCollaborativeContext(precomputedUserSets);
 
-        // Cold-start prior: community popularity map (itemId → watch count) from the precomputed user
+        // Cold-start prior: community popularity map (itemId -> watch count) from the precomputed user
         // sets, passed to cold-start scoring so new users benefit from "wisdom of the crowd" rather
         // than only static metadata. Built once per batch. Delegated to BuildCommunityPopularityMap so
         // the batch path and the live cold-start path (BuildCommunityPopularityForColdStart) share ONE
@@ -459,7 +459,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     WatchedItems but their profile still carries UserId, UserName, MaxParentalRating etc.
     /// </param>
     /// <param name="communityPopularity">
-    ///     Optional community popularity map (itemId → number of active users who have watched it),
+    ///     Optional community popularity map (itemId -> number of active users who have watched it),
     ///     built from all users' watch profiles in the batch path. When provided, the cold-start
     ///     formula becomes 40% rating + 30% recency + 30% community-popularity, letting new users
     ///     benefit from collective viewing signals. When null (on-demand single-user path or when
@@ -522,7 +522,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             // Cold-start rating term. ComputeCombinedCriticScore returns a NEUTRAL 0.5 for a fully
             // unrated item - correct for the shared ML feature vector, wrong for this standalone
             // cold-start scalar: 0.5 would rank an unknown-quality title ABOVE one the community rated
-            // poorly (3/10 → 0.30), a quality inversion for zero-history users. Cold-start does NOT
+            // poorly (3/10 -> 0.30), a quality inversion for zero-history users. Cold-start does NOT
             // flow through the ML vector, so substitute a conservative unrated prior locally: high
             // enough that a brand-new unrated addition is not buried (recency still carries it), but
             // below the score band of genuinely low-rated titles. ComputeCombinedCriticScore is
@@ -612,7 +612,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     triggers on precisely the same items the shared helper would treat as unrated.
     /// </summary>
     /// <param name="rating">The candidate's community or critic rating.</param>
-    /// <returns><c>true</c> if the rating is present, finite and ≥ 0.</returns>
+    /// <returns><c>true</c> if the rating is present, finite and >= 0.</returns>
     private static bool HasUsableRating(float? rating)
         => rating.HasValue && float.IsFinite(rating.Value) && rating.Value >= 0;
 
@@ -622,7 +622,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     empty-series filter (no extra DB round-trip).
     /// </summary>
     /// <returns>
-    ///     Candidates and a <c>seriesId → totalEpisodeCount</c> map. The map only contains
+    ///     Candidates and a <c>seriesId -> totalEpisodeCount</c> map. The map only contains
     ///     series with at least one playable episode; consumers must treat missing keys as
     ///     "no progression signal available".
     /// </returns>
@@ -663,7 +663,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // before episodes exist). A series without episodes cannot resolve to a playable item.
         //
         // Performance: load all episodes in a single query and collect distinct SeriesIds rather than
-        // querying per-series (N queries → 1). O(E) in memory, avoids N round-trips on slow NAS/Docker.
+        // querying per-series (N queries -> 1). O(E) in memory, avoids N round-trips on slow NAS/Docker.
         var allEpisodes = _libraryManager.GetItemList(
             new InternalItemsQuery
             {
@@ -708,7 +708,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Builds the per-series total-episode-count map (SeriesId → number of playable episodes
+    ///     Builds the per-series total-episode-count map (SeriesId -> number of playable episodes
     ///     in the library) used by <see cref="PreferenceBuilder"/>'s progression multiplier.
     ///     <para>
     ///         SAME computation performed inline in <see cref="LoadCandidateItems"/> for the inference
@@ -758,7 +758,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="userProfile">The target user's watch profile.</param>
     /// <param name="allProfiles">All user watch profiles for collaborative filtering.</param>
     /// <param name="allCandidates">Pre-loaded candidate items from the library.</param>
-    /// <param name="peopleLookup">Pre-built people lookup (item ID → person names).</param>
+    /// <param name="peopleLookup">Pre-built people lookup (item ID -> person names).</param>
     /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse: only items in BoxSets).</param>
     /// <param name="contentAffinityLookup">Per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
     /// <param name="seriesEpisodeCounts">
@@ -903,7 +903,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Per-user preference maps for the content-affinity signals. Built once per user from the
         // watch profile (empty when the user has no history / no items carrying the field), then
         // passed to every ScoreCandidate call. The user's weighted people map doubles as the
-        // "favoured billed people" reference for BillingWeightedPeople (same source rows → parity).
+        // "favoured billed people" reference for BillingWeightedPeople (same source rows -> parity).
         var preferredFranchises = PreferenceBuilder.BuildFranchisePreferenceVector(userProfile);
         var preferredCountries = PreferenceBuilder.BuildProductionCountryPreferenceVector(userProfile);
         var preferredInheritedTags = PreferenceBuilder.BuildInheritedTagPreferenceSet(userProfile);
@@ -925,7 +925,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost at
-        // inference. Maps BoxSet ID → count of watched items in that BoxSet, using the pre-resolved
+        // inference. Maps BoxSet ID -> count of watched items in that BoxSet, using the pre-resolved
         // candidateBoxSetLookup for O(1) lookups (no parent traversal). Includes series-level IDs
         // (watched episodes' SeriesId + FavoriteSeriesIds) so TV-collection BoxSets contribute too.
         var watchedForBoxSets = new HashSet<Guid>(watchedIds);
@@ -1314,7 +1314,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <returns>A language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
     internal static double ComputeLanguageAffinity(UserWatchProfile userProfile, BaseItem candidate)
     {
-        // No language profile → neutral (monolingual library or new user)
+        // No language profile -> neutral (monolingual library or new user)
         if (userProfile.LanguageProfile.Count == 0)
         {
             return 0.5;
@@ -1324,7 +1324,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var candidateLanguages = ResolveAudioLanguages(candidate);
         if (candidateLanguages.Count == 0)
         {
-            return 0.5; // No audio stream info → neutral
+            return 0.5; // No audio stream info -> neutral
         }
 
         return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
@@ -1528,12 +1528,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Extracts a name → billing-weight map from an already-fetched people list (no library call).
+    ///     Extracts a name -> billing-weight map from an already-fetched people list (no library call).
     ///     Shared by the live per-item resolver and the per-snapshot batch precompute so both paths
     ///     produce identical billing maps.
     /// </summary>
     /// <param name="people">The item's people, or null.</param>
-    /// <returns>A name → billing-weight map (empty when no billed cast/directors).</returns>
+    /// <returns>A name -> billing-weight map (empty when no billed cast/directors).</returns>
     private static Dictionary<string, double> ExtractBillingWeightMap(IReadOnlyList<PersonInfo>? people)
     {
         var map = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -1551,7 +1551,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 continue;
             }
 
-            // SortOrder is ascending (0 = top-billed). Missing → use encounter order as a proxy.
+            // SortOrder is ascending (0 = top-billed). Missing -> use encounter order as a proxy.
             var order = person.SortOrder ?? fallbackOrder;
             var weight = EngineConstants.ComputeBillingWeight(order);
             if (!map.TryGetValue(person.Name, out var existing) || weight > existing)
@@ -1584,7 +1584,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     scoring path short-circuit to a neutral value WITHOUT a live re-resolve, so a metadata-sparse
     ///     item (e.g. cast but no writer credits) does not silently reintroduce per-user library calls.
     ///     Only a candidate genuinely absent from the snapshot (added between build and scoring) falls
-    ///     back to a live resolve, which itself degrades to empty → neutral.
+    ///     back to a live resolve, which itself degrades to empty -> neutral.
     /// </summary>
     /// <param name="candidates">The candidate items in the snapshot.</param>
     /// <returns>Per-item content-affinity source data keyed by item id (dense over readable candidates).</returns>
@@ -1679,8 +1679,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Names absent from the billing map (e.g. writers, or people the library reports without
     ///     SortOrder) receive weight 0.0.
     /// </summary>
-    /// <param name="billing">The candidate's pre-resolved name → billing-weight map.</param>
-    /// <param name="alignedNames">The people names the weights must align to; null/empty → empty result.</param>
+    /// <param name="billing">The candidate's pre-resolved name -> billing-weight map.</param>
+    /// <param name="alignedNames">The people names the weights must align to; null/empty -> empty result.</param>
     /// <returns>Billing weights aligned to <paramref name="alignedNames"/> in enumeration order.</returns>
     private static List<double> AlignBillingToNames(Dictionary<string, double> billing, HashSet<string>? alignedNames)
     {
@@ -1702,10 +1702,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Builds a library-wide genre/studio IDF (inverse document frequency) rarity table, normalized
     ///     to [0, 1], where ubiquitous genres/studios score near 0 and rare ones near 1. Computed once per
     ///     candidate snapshot from <see cref="IItemRepository.GetGenres"/> / <see cref="IItemRepository.GetStudios"/>
-    ///     item counts. Fully guarded: an empty/failed query yields an empty table (→ neutral 0.0 downstream);
+    ///     item counts. Fully guarded: an empty/failed query yields an empty table (-> neutral 0.0 downstream);
     ///     add-one smoothing and a positive document count guarantee no division by zero and no log domain error.
     /// </summary>
-    /// <returns>A case-insensitive genre/studio → normalized-IDF map (empty when unavailable).</returns>
+    /// <returns>A case-insensitive genre/studio -> normalized-IDF map (empty when unavailable).</returns>
     private Dictionary<string, double> BuildGenreStudioIdfTable()
     {
         var table = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -1732,7 +1732,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                         continue;
                     }
 
-                    // add-one smoothing on the document frequency → never log(N/0); df>=0 always.
+                    // add-one smoothing on the document frequency -> never log(N/0); df>=0 always.
                     var df = Math.Max(0, counts.ItemCount);
                     var idf = Math.Log((double)(n + 1) / (df + 1));
                     if (!double.IsFinite(idf) || idf < 0.0)
@@ -1758,7 +1758,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             if (rawIdf.Count == 0 || maxIdf <= 0.0)
             {
-                return table; // empty → neutral 0.0 downstream (no division by zero)
+                return table; // empty -> neutral 0.0 downstream (no division by zero)
             }
 
             // Normalize to [0,1] so the prior is comparable to the other bounded features.
@@ -1789,7 +1789,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <returns>A subtitle language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
     internal static double ComputeSubtitleLanguageAffinity(UserWatchProfile userProfile, BaseItem candidate)
     {
-        // No subtitle language profile → neutral
+        // No subtitle language profile -> neutral
         if (userProfile.SubtitleLanguageProfile.Count == 0)
         {
             return 0.5;
@@ -1798,7 +1798,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var candidateLanguages = ResolveSubtitleLanguages(candidate);
         if (candidateLanguages.Count == 0)
         {
-            return 0.5; // No subtitle stream info → neutral
+            return 0.5; // No subtitle stream info -> neutral
         }
 
         return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
@@ -1829,7 +1829,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         mediaLanguages = ResolveMediaLanguages(candidate);
 
-        // No language profile → neutral (monolingual library or new user)
+        // No language profile -> neutral (monolingual library or new user)
         if (userProfile.LanguageProfile.Count == 0 || mediaLanguages.Audio.Count == 0)
         {
             return 0.5;
@@ -1876,7 +1876,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </summary>
     /// <param name="watchedIds">Set of item IDs the user has meaningfully interacted with.</param>
     /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse).</param>
-    /// <returns>A dictionary mapping BoxSet ID → number of watched items in that BoxSet.</returns>
+    /// <returns>A dictionary mapping BoxSet ID -> number of watched items in that BoxSet.</returns>
     private static Dictionary<Guid, int> BuildWatchedBoxSetCounts(
         HashSet<Guid> watchedIds,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup)
@@ -2120,7 +2120,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     </para>
     /// </summary>
     /// <param name="candidateBoxSetIds">Pre-resolved BoxSet IDs for the candidate (from ResolveBoxSetIds).</param>
-    /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID → watched member count mapping.</param>
+    /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID -> watched member count mapping.</param>
     /// <returns>A boost value between 0.0 and 1.0, or 0.0 if not in any collection.</returns>
     private static double ComputeCollectionProgressionBoostLive(
         List<Guid> candidateBoxSetIds,
@@ -2168,7 +2168,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 return;
             }
 
-            // Build a TMDb ID → watched set per user.
+            // Build a TMDb ID -> watched set per user.
             // Query library items once and resolve their TMDb provider IDs,
             // then cross-reference with each user's watched items.
             var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
@@ -2178,7 +2178,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 profileById.TryAdd(p.UserId, p);
             }
 
-            // Build Jellyfin ItemId → TMDb ID and ItemId → MediaType mappings from library items.
+            // Build Jellyfin ItemId -> TMDb ID and ItemId -> MediaType mappings from library items.
             // Only load movies + series (same as LoadCandidateItems) to avoid excessive queries.
             var tmdbIdByItemId = new Dictionary<Guid, int>();
             var mediaTypeByItemId = new Dictionary<Guid, string>();
@@ -2218,7 +2218,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     }
 
                     // Collect composite (TmdbId, MediaType) keys of items this user has watched.
-                    // MediaType resolved from library item type (Movie → "movie", Series → "tv").
+                    // MediaType resolved from library item type (Movie -> "movie", Series -> "tv").
                     var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
                     foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
                     {
@@ -2276,7 +2276,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Builds the community-popularity map (itemId → number of users who have watched it)
+    ///     Builds the community-popularity map (itemId -> number of users who have watched it)
     ///     used by <see cref="GenerateColdStartRecommendations"/> from the current watch profiles.
     ///     Matches the exact logic and two-user gate applied by
     ///     <see cref="GetAllRecommendations"/> so on-demand cold-start requests get the same
@@ -2284,7 +2284,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Returns null when fewer than two users have any watch history - callers then fall
     ///     back to the classic rating + recency formula unchanged.
     ///     <para>
-    ///         Only owns the "load profiles → precompute sets" step; the actual counting and
+    ///         Only owns the "load profiles -> precompute sets" step; the actual counting and
     ///         two-user gate is delegated to <see cref="BuildCommunityPopularityMap"/> so the
     ///         batch and live paths never drift on either the gate or the counting formula.
     ///     </para>
@@ -2489,7 +2489,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="SeriesStatus">The candidate's series lifecycle status, or null for non-series.</param>
     /// <param name="SeriesEndDate">The candidate's series end date, or null.</param>
     /// <param name="Writers">Distinct writer names (never null; possibly empty).</param>
-    /// <param name="Billing">Billed cast/director name → billing weight (never null; possibly empty).</param>
+    /// <param name="Billing">Billed cast/director name -> billing weight (never null; possibly empty).</param>
     /// <param name="GenreSet">
     ///     Case-insensitive set of the candidate's genres, pre-built once per candidate. Candidate-invariant
     ///     (independent of the user), so hoisting it here removes a per-(candidate × user) HashSet
@@ -2516,7 +2516,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     a consistent pair (candidates from the same batch as the people lookup).
     /// </summary>
     /// <param name="Candidates">All candidate items from the library.</param>
-    /// <param name="PeopleLookup">Item ID → person name set mapping.</param>
+    /// <param name="PeopleLookup">Item ID -> person name set mapping.</param>
     /// <param name="CandidateBoxSetLookup">
     ///     Pre-resolved BoxSet IDs per candidate. Built once during batch generation
     ///     to avoid redundant parent-hierarchy traversals across multiple users.
@@ -2528,7 +2528,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     watched-episode signals by the fraction of the series the user has actually seen.
     /// </param>
     /// <param name="CommunityPopularity">
-    ///     Optional community-popularity map (itemId → user watch count) computed once per batch and
+    ///     Optional community-popularity map (itemId -> user watch count) computed once per batch and
     ///     republished onto the snapshot so live cold-start requests reuse it instead of re-scanning
     ///     every user's history. Null in two cases the <see cref="CommunityPopularityComputed"/> flag
     ///     disambiguates: (1) the compute step has not run on this snapshot yet (e.g. the live path just
@@ -2568,7 +2568,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     and dropped. Capturing at build-start (rather than re-reading inside the lock, where it would
     ///     equal the cached value and make the guard unreachable) is what gives the guard teeth.
     /// </param>
-    /// <param name="ContentAffinityLookup">Item ID → per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
+    /// <param name="ContentAffinityLookup">Item ID -> per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
         Dictionary<Guid, HashSet<string>> PeopleLookup,

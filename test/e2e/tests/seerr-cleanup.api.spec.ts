@@ -103,7 +103,7 @@ test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
     expect(after.ids).toContain(104); // recent
     expect(after.ids).toContain(105); // partially available (5)
     expect(after.ids).toContain(106); // approved (2)
-    expect(after.ids).toContain(107); // 29d, inside the 30d cutoff → kept
+    expect(after.ids).toContain(107); // 29d, inside the 30d cutoff -> kept
   });
 
   test('DryRun deletes nothing on the mock', async () => {
@@ -126,7 +126,7 @@ test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
     const before = await count();
     await putConfig({
       SeerrUrl: 'http://mock-seerr:5055',
-      SeerrApiKey: 'force-fail', // mock 500s every authed call → incomplete snapshot
+      SeerrApiKey: 'force-fail', // mock 500s every authed call -> incomplete snapshot
       SeerrCleanupTaskMode: 'Activate',
       SeerrCleanupAgeDays: 30,
     });
@@ -175,7 +175,7 @@ test.describe.serial('Seerr cleanup stage skip-guards', () => {
   });
 
   test('enabled run with Seerr not configured skips with "not configured" and deletes nothing', async () => {
-    // Guard 1 in RunSeerrCleanup: blank SeerrUrl OR SeerrApiKey → log "Seerr not
+    // Guard 1 in RunSeerrCleanup: blank SeerrUrl OR SeerrApiKey -> log "Seerr not
     // configured. Skipping." + report(100) + return, before any upstream call. The
     // stage is Activate (enabled) so it actually runs and reaches the guard - a
     // Deactivate run would skip the whole stage and never exercise it.

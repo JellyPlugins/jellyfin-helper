@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 public sealed class SsrfGuardTests
 {
     [Theory]
-    [InlineData("169.254.169.254")]           // AWS / Azure IMDS (also GCP IPv4 — shared address)
+    [InlineData("169.254.169.254")]           // AWS / Azure IMDS (also GCP IPv4, shared address)
     [InlineData("metadata.google.internal")]  // GCP hostname (long form)
     [InlineData("metadata.google.internal.")] // GCP hostname (long form, FQDN trailing dot)
     [InlineData("metadata.goog")]             // GCP hostname (short alias)
@@ -78,7 +78,7 @@ public sealed class SsrfGuardTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("not a url")]
-    [InlineData("/relative/path")]        // Uri resolves this to file:// on Unix — must still be rejected
+    [InlineData("/relative/path")]        // Uri resolves this to file:// on Unix, must still be rejected
     [InlineData("file:///etc/passwd")]    // non-HTTP scheme
     [InlineData("ftp://host/file")]       // non-HTTP scheme
     public void SafeEndpointLabel_InvalidRelativeOrNonHttp_ReturnsPlaceholder(string? url)

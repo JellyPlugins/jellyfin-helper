@@ -46,7 +46,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         SetupLibrary(lib);
         SetupRecursiveDirs(lib, dir);
         SetupFilesInDir(lib);
-        // Subtitle "MovieB" does NOT match video "MovieA" → orphan.
+        // Subtitle "MovieB" does NOT match video "MovieA" -> orphan.
         SetupFilesInDir(dir, "MovieA.mkv", "MovieB.en.srt");
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
@@ -62,7 +62,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         SetupLibrary(lib);
         SetupRecursiveDirs(lib, dir);
         SetupFilesInDir(lib);
-        // "Movie.en.srt" strips "en" → base "Movie" matches "Movie.mkv".
+        // "Movie.en.srt" strips "en" -> base "Movie" matches "Movie.mkv".
         SetupFilesInDir(dir, "Movie.mkv", "Movie.en.srt");
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
@@ -74,7 +74,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     [Fact]
     public async Task Execute_DirWithOnlySubtitles_NoVideo_SkipsAll()
     {
-        // No video in the directory → skip subtitle deletion (e.g. anime-only layouts).
+        // No video in the directory -> skip subtitle deletion (e.g. anime-only layouts).
         const string lib = "/media/tv";
         const string dir = "/media/tv/Subs Only (2020)/Season 01";
         SetupLibrary(lib);
@@ -227,7 +227,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     [Fact]
     public async Task Execute_GetDirectoriesThrowsIOException_LogsWarningAndContinues()
     {
-        // Unreadable subdirectory tree → warn, keep processing the root.
+        // Unreadable subdirectory tree -> warn, keep processing the root.
         const string lib = "/media/movies";
         _fileSystemMock.Setup(f => f.GetDirectories(lib))
             .Throws(new IOException("Broken NAS mount"));
@@ -237,14 +237,14 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains(_loggerMock, "Could not enumerate subdirectories", LogLevel.Warning);
-        // The root directory should still be processed → orphan detected.
+        // The root directory should still be processed -> orphan detected.
         VerifyLogContains(_loggerMock, "Would delete orphaned subtitle", LogLevel.Information);
     }
 
     [Fact]
     public async Task Execute_GetFilesThrowsUnauthorized_LogsWarningAndSkipsDir()
     {
-        // Single unreadable subdir → warn + skip that dir, keep others.
+        // Single unreadable subdir -> warn + skip that dir, keep others.
         const string lib = "/media/movies";
         const string blockedDir = "/media/movies/Locked";
         const string okDir = "/media/movies/Open";
@@ -414,7 +414,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         SetupLibrary(lib);
         _fileSystemMock.Setup(f => f.GetDirectories(lib))
             .Throws(new IOException("Permission denied"));
-        SetupFilesInDir(lib); // no files → nothing to clean
+        SetupFilesInDir(lib); // no files -> nothing to clean
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -439,13 +439,13 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         const string okDir = "/media/movies/ShowB";
         SetupLibrary(lib);
         // Seed order matters: TryGetSubdirectories uses a LIFO stack, so the FIRST-returned dir is
-        // processed LAST. Return okDir first (→ bottom of stack) so the failing subDir is popped and
-        // throws BEFORE okDir is reached — proving the loop continues past the failure, not around it.
+        // processed LAST. Return okDir first (-> bottom of stack) so the failing subDir is popped and
+        // throws BEFORE okDir is reached, proving the loop continues past the failure, not around it.
         _fileSystemMock.Setup(f => f.GetDirectories(lib)).Returns([
             new FileSystemMetadata { FullName = okDir, Name = "ShowB", IsDirectory = true },
             new FileSystemMetadata { FullName = subDir, Name = "ShowA", IsDirectory = true }
         ]);
-        // Loop-phase: GetDirectories(subDir) throws → logged, loop continues to okDir.
+        // Loop-phase: GetDirectories(subDir) throws -> logged, loop continues to okDir.
         _fileSystemMock.Setup(f => f.GetDirectories(subDir))
             .Throws(new IOException("Access denied"));
         _fileSystemMock.Setup(f => f.GetDirectories(okDir)).Returns([]);

@@ -46,7 +46,7 @@ public sealed class LibraryInsightsResult
     public int RecentTotalCount { get; set; }
 
     /// <summary>
-    ///     Gets or sets per-library size totals (library name → total bytes).
+    ///     Gets or sets per-library size totals (library name -> total bytes).
     ///     Setter coalesces null to empty to prevent NRE from deserialized data.
     /// </summary>
     public IReadOnlyDictionary<string, long> LibrarySizes

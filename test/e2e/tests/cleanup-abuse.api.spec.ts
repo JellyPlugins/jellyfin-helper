@@ -129,7 +129,7 @@ test.describe.serial('cleanup never escapes the media library', () => {
   test('emoji / very-long orphan folder name goes through Activate+UseTrash without 500', async () => {
     const emoji = `${M}/😀 Orphan 🎬 ${'x'.repeat(180)}`;
     containerMkdir(emoji);
-    containerWriteFile(`${emoji}/note.txt`, 'x'); // non-video → looks orphaned
+    containerWriteFile(`${emoji}/note.txt`, 'x'); // non-video -> looks orphaned
     await isolateStage({
       EmptyMediaFolderTaskMode: 'Activate',
       UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30,

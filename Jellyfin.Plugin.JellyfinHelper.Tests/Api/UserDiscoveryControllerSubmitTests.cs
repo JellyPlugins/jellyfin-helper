@@ -255,7 +255,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_ProfileNotInAllowList_Returns403()
     {
-        // Security: user requested a profile not in their allow-list → reject.
+        // Security: user requested a profile not in their allow-list -> reject.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
@@ -640,7 +640,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_OverrideRequestedButUserHasNoAllowedProfiles_Returns403()
     {
-        // Client sent a profile override but the user has zero allowed profiles → must not override.
+        // Client sent a profile override but the user has zero allowed profiles -> must not override.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))

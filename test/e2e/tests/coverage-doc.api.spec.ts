@@ -10,7 +10,7 @@
  * sibling `tests/` directory and the repo `COVERAGE.md`.
  *
  * To satisfy it when you add a spec: reference the exact filename (e.g.
- * `my-feature.api.spec.ts`) somewhere in COVERAGE.md - typically a `→ file.spec.ts`
+ * `my-feature.api.spec.ts`) somewhere in COVERAGE.md - typically a `-> file.spec.ts`
  * section heading plus a bullet or two describing what it asserts.
  */
 import { test, expect } from '@playwright/test';

@@ -65,7 +65,7 @@ public class PreferenceBuilderTests
         var mRatio = mv["Action"] / mv["Anchor"];
         var eRatio = ev["Action"] / ev["Anchor"];
         // The extreme watcher gets a higher ratio, but log1p growth is sub-linear so the gain
-        // from 5→30 plays is less than 6× (log1p(30)/log1p(5) ≈ 1.83). The cap at
+        // from 5->30 plays is less than 6× (log1p(30)/log1p(5) ≈ 1.83). The cap at
         // PlayCountMaxForLog1p=100 is separately tested by BuildGenrePreferenceVector_PlayCountBeyond100_IsCapped.
         Assert.True(eRatio > mRatio);
         var log1pRatioBound = Math.Log(1 + 30) / Math.Log(1 + 5) + 0.5; // generous ceiling well above sub-linear growth
@@ -187,8 +187,8 @@ public class PreferenceBuilderTests
     [Fact]
     public void BuildGenrePreferenceVector_ProgressionMap_ReshapesVectorVsNeutralPath()
     {
-        // A user who COMPLETED a Drama series (10/10 episodes → multiplier ~1.5) and ABANDONED a
-        // SciFi series (1/24 episodes → multiplier ~0.35). With the map, Drama must dominate SciFi
+        // A user who COMPLETED a Drama series (10/10 episodes -> multiplier ~1.5) and ABANDONED a
+        // SciFi series (1/24 episodes -> multiplier ~0.35). With the map, Drama must dominate SciFi
         // by more than the raw 10:1 episode ratio would give unweighted.
         var dramaSeries = Guid.NewGuid();
         var scifiSeries = Guid.NewGuid();
@@ -416,10 +416,10 @@ public class PreferenceBuilderTests
         // with the expansion removed entirely.
         //
         // Full profile row counts:
-        //   • 12 items ["Action", "Adventure"]  → Action/Adventure co-occur strongly.
-        //   • 8  items ["Adventure", "SciFi"]   → Adventure/SciFi co-occur (min-count gate passes).
-        //   • 8  items ["Action", "SciFi"]      → Action/SciFi co-occur (min-count gate passes).
-        //   → Direct row counts: Action 20, Adventure 20, SciFi 16.
+        //   • 12 items ["Action", "Adventure"]  -> Action/Adventure co-occur strongly.
+        //   • 8  items ["Adventure", "SciFi"]   -> Adventure/SciFi co-occur (min-count gate passes).
+        //   • 8  items ["Action", "SciFi"]      -> Action/SciFi co-occur (min-count gate passes).
+        //   -> Direct row counts: Action 20, Adventure 20, SciFi 16.
         //
         // ExpandGenreProximity reinforces peer weights by adding a co-occurrence-derived
         // additive to existing entries (v3 hardening pass - the earlier ContainsKey-guarded
@@ -555,8 +555,8 @@ public class PreferenceBuilderTests
         // Both series contribute exactly ONE played episode row with identical temporal
         // weight, PlayCount boost, and +0 favorite additive. The only remaining difference is
         // series length:
-        //   * SciFi: 1 episode watched of 1 total → rawRatio = 1.0 → multiplier ≈ 1.5.
-        //   * Drama: 1 episode watched of 5 total → rawRatio = 0.2 → multiplier ≈ 0.54.
+        //   * SciFi: 1 episode watched of 1 total -> rawRatio = 1.0 -> multiplier ≈ 1.5.
+        //   * Drama: 1 episode watched of 5 total -> rawRatio = 0.2 -> multiplier ≈ 0.54.
         // If ComputeProgressionMultiplier ever regressed to a constant (e.g. always 1.0),
         // both rows would produce identical genre weights and this test would fail - that is
         // the regression it is designed to catch. A previous version of this test seeded
@@ -609,7 +609,7 @@ public class PreferenceBuilderTests
         // would otherwise be hidden by max-normalisation.
         //
         // Under the STRICT counter both profiles have the same 2 played episodes counted
-        // → mult ≈ 0.78 per row → total SciFi weight identical → SciFi/Anchor ratio identical.
+        // -> mult ≈ 0.78 per row -> total SciFi weight identical -> SciFi/Anchor ratio identical.
         // Under the REGRESSED HasPlaybackActivity counter profile A would see 5/5 (mult 1.5)
         // while B stays at 2/5 (mult 0.78), so A's ratio would be dramatically larger.
         var series = Guid.NewGuid();
@@ -639,7 +639,7 @@ public class PreferenceBuilderTests
         WatchedItemInfo Anchor() => new()
         {
             ItemId = Guid.NewGuid(),
-            // No SeriesId → non-episode row → progression multiplier stays at neutral 1.0
+            // No SeriesId -> non-episode row -> progression multiplier stays at neutral 1.0
             Played = true,
             LastPlayedDate = now,
             Genres = ["Anchor"]
@@ -682,7 +682,7 @@ public class PreferenceBuilderTests
         // Ordering-based construction: identical eligible Played rows (3) but different partial
         // -start noise. Under the strict counter both profiles compute the same 3/5 ratio, so
         // "Actor Z" ends up with the same weight. Under a regressed HasPlaybackActivity counter
-        // profile A would see 5/5 → mult 1.5 while profile B still sees 3/5 → mult 1.02, so
+        // profile A would see 5/5 -> mult 1.5 while profile B still sees 3/5 -> mult 1.02, so
         // A's Actor-Z weight would be strictly larger. Asserting equality (with a tiny epsilon
         // for floating-point noise) is robust to any tuning of the ProgressionFloor / span
         // constants because the two profiles walk through the same code path with the same
@@ -733,10 +733,10 @@ public class PreferenceBuilderTests
     {
         // Construction:
         //   * Two watched-item rows on the SAME series (5 total episodes):
-        //       - One PLAYED episode with people {"Actor A"}     → counts as completed
+        //       - One PLAYED episode with people {"Actor A"}     -> counts as completed
         //       - One UNPLAYED FAVORITE episode with people {"Actor A", "Actor B"}
-        //         → NOT a completed episode; earlier code would have applied multiplier 0.3.
-        //   * The played row contributes multiplier ~0.54 (1/5 completed → ProgressionFloor +
+        //         -> NOT a completed episode; earlier code would have applied multiplier 0.3.
+        //   * The played row contributes multiplier ~0.54 (1/5 completed -> ProgressionFloor +
         //     0.2 × ProgressionSpan = 0.3 + 0.24 = 0.54) to Actor A.
         //   * The unplayed favorite row must now contribute a FULL 1.0 to both Actor A and
         //     Actor B (favorite bypass). Actor A's total therefore lands around 1.54, Actor B
@@ -790,7 +790,7 @@ public class PreferenceBuilderTests
         Assert.Equal(1.0, actorBWeight, 6);
 
         // Sanity: Actor A appears on BOTH rows, so its weight is the sum of:
-        //   (a) played episode multiplier: rawRatio = 1/5 = 0.2 → ProgressionFloor + 0.2*Span
+        //   (a) played episode multiplier: rawRatio = 1/5 = 0.2 -> ProgressionFloor + 0.2*Span
         //       = 0.3 + 0.24 = 0.54
         //   (b) unplayed favorite bypass: 1.0
         // Total ≈ 1.54. Assert strictly greater than Actor B's 1.0, and greater than the
@@ -861,11 +861,11 @@ public class PreferenceBuilderTests
         // preference vector.
         //
         // Construction:
-        //   * Anchor series: 5/5 episodes played (rawRatio=1.0) → multiplier 1.5 per row.
+        //   * Anchor series: 5/5 episodes played (rawRatio=1.0) -> multiplier 1.5 per row.
         //     5 rows × 1.5 × temporal(~0.996) ≈ 7.47 raw weight, which is the vector max
-        //     after normalization → normalized Anchor = 1.0.
-        //   * Fringe series: 1/20 episodes played (rawRatio=0.05) → multiplier 0.36 per row
-        //     (0.3 floor + 0.05 × 1.2 span). One row → raw weight ≈ 0.36 × 0.996 ≈ 0.358.
+        //     after normalization -> normalized Anchor = 1.0.
+        //   * Fringe series: 1/20 episodes played (rawRatio=0.05) -> multiplier 0.36 per row
+        //     (0.3 floor + 0.05 × 1.2 span). One row -> raw weight ≈ 0.36 × 0.996 ≈ 0.358.
         //     Normalized Fringe = 0.358 / 7.47 ≈ 0.048.
         //
         // Without the floor: Fringe multiplier would be 0.05 × 1.5 = 0.075, weight ≈ 0.0747,
@@ -890,7 +890,7 @@ public class PreferenceBuilderTests
             });
         }
 
-        // Only 1 of 20 Fringe episodes played → rawRatio 0.05 → multiplier ≈ 0.36 (above floor).
+        // Only 1 of 20 Fringe episodes played -> rawRatio 0.05 -> multiplier ≈ 0.36 (above floor).
         profile.WatchedItems.Add(new WatchedItemInfo
         {
             ItemId = Guid.NewGuid(),
@@ -1215,16 +1215,16 @@ public class PreferenceBuilderTests
         // Two profiles; each has exactly ONE row contributing to "SciFi" and one "Anchor" movie.
         // The SciFi row differs only in IsFavorite - but in BOTH cases the row is Played=true.
         //
-        // Profile A: SciFi episode is Played=true, IsFavorite=false → goes through ratio path.
-        // Profile B: SciFi episode is Played=true, IsFavorite=true  → must ALSO go through ratio path.
+        // Profile A: SciFi episode is Played=true, IsFavorite=false -> goes through ratio path.
+        // Profile B: SciFi episode is Played=true, IsFavorite=true  -> must ALSO go through ratio path.
         //
         // If the bypass fired for profile B, the multiplier would be 1.0 (neutral, same as a
         // non-episode movie), whereas the ratio path for 1/5 episodes yields ~0.54 - strictly
         // less than 1.0. That distinction shows up in the SciFi/Anchor weight ratio once we
-        // add an Anchor movie row (no SeriesId → always multiplier 1.0).
+        // add an Anchor movie row (no SeriesId -> always multiplier 1.0).
         //
-        // If both profiles compute the same SciFi/Anchor ratio → the bypass is NOT firing for
-        // the completed-favorite (correct). If Profile B's ratio is higher → bypass fired
+        // If both profiles compute the same SciFi/Anchor ratio -> the bypass is NOT firing for
+        // the completed-favorite (correct). If Profile B's ratio is higher -> bypass fired
         // (regression, the test fails).
         var series = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { series, 5 } };
@@ -1359,7 +1359,7 @@ public class PreferenceBuilderTests
             ]
         };
         var vector = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
-        Assert.Equal(1.0, vector["Japan"], 10);   // appears twice → dominant → normalized to 1.0
+        Assert.Equal(1.0, vector["Japan"], 10);   // appears twice -> dominant -> normalized to 1.0
         Assert.True(vector["Japan"] > vector["USA"]);
     }
 
@@ -1558,7 +1558,7 @@ public class PreferenceBuilderTests
             });
         }
 
-        // One old, single-play rare-genre row → tiny normalized share, well under the 2% threshold.
+        // One old, single-play rare-genre row -> tiny normalized share, well under the 2% threshold.
         profile.WatchedItems.Add(new WatchedItemInfo
         {
             ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = now.AddDays(-3000), Genres = ["Polka"]
@@ -1598,7 +1598,7 @@ public class PreferenceBuilderTests
     // ===================== ComputeProgressionMultiplier: pathological zero-length series =====================
     // A series present in seriesEpisodeCounts but with totalEpisodes <= 0 must fall back to the neutral
     // 1.0 multiplier, NOT the ProgressionCeiling. Compared against a control where the same series maps
-    // to 1 episode (rawRatio 1.0 → ceiling ~1.5).
+    // to 1 episode (rawRatio 1.0 -> ceiling ~1.5).
 
     [Fact]
     public void BuildGenrePreferenceVector_SeriesEpisodeCountZero_UsesNeutralMultiplier()
@@ -1628,7 +1628,7 @@ public class PreferenceBuilderTests
         var zeroRatio = vectorZeroTotal["SciFi"] / vectorZeroTotal["Anchor"];
         var mappedRatio = vectorMappedOne["SciFi"] / vectorMappedOne["Anchor"];
 
-        // totalEps<=0 → neutral 1.0 (same as Anchor); the 1-episode control → ceiling ~1.5 boost.
+        // totalEps<=0 -> neutral 1.0 (same as Anchor); the 1-episode control -> ceiling ~1.5 boost.
         Assert.True(zeroRatio < mappedRatio,
             $"Zero-total series must use the neutral 1.0 multiplier, not the ceiling. Got zeroRatio={zeroRatio:F4}, mappedRatio={mappedRatio:F4}");
     }

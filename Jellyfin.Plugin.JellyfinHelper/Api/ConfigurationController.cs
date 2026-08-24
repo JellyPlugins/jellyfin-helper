@@ -155,7 +155,7 @@ public class ConfigurationController : ControllerBase
     {
         // A literal `null` JSON body binds `request` to null on this [ApiController]
         // (this endpoint has no ModelBindingLogFilter, unlike the main PUT), so guard
-        // explicitly to return a clean 400 instead of a NullReferenceException → 500.
+        // explicitly to return a clean 400 instead of a NullReferenceException -> 500.
         if (request is null)
         {
             return BadRequest(new LogLevelResponse { Message = "Request body is required." });
@@ -500,7 +500,7 @@ public class ConfigurationController : ControllerBase
             config.EnsembleGenrePenaltyFloor = Math.Clamp(request.EnsembleGenrePenaltyFloor.Value, 0.0, 1.0);
         }
 
-        // Enforce min ≤ max after both values may have been updated.
+        // Enforce min <= max after both values may have been updated.
         if (config.EnsembleAlphaMin > config.EnsembleAlphaMax)
         {
             config.EnsembleAlphaMax = config.EnsembleAlphaMin;

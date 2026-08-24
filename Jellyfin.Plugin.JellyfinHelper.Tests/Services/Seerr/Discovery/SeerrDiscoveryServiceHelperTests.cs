@@ -71,7 +71,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     }
 
     // ============================================================================
-    // BuildGenreIdList - genre-name → TMDb-int → invariant-culture string.
+    // BuildGenreIdList - genre-name -> TMDb-int -> invariant-culture string.
     // ============================================================================
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void GetPrimaryLanguageForDiscovery_ChosenCountBelowThreshold_ReturnsNull()
     {
-        // 2 < 3 → below threshold → treat as "forced by lack of options" → null.
+        // 2 < 3 -> below threshold -> treat as "forced by lack of options" -> null.
         // We seed a single-entry LanguageProfile so PrimaryLanguage resolves to "de";
         // the helper then reads its ChosenCount and rejects.
         var profile = new UserWatchProfile();
@@ -381,7 +381,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
             [],
             maxParentalRating: null,
             minVoteAverage: 5.0,
-            avgYear: currentYear - 3, // >= currentYear - 6 → 12-year window kicks in
+            avgYear: currentYear - 3, // >= currentYear - 6 -> 12-year window kicks in
             isChildAccount: false);
         Assert.Single(result);
         Assert.Equal(2, result[0].Id);

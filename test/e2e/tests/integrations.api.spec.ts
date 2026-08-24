@@ -50,9 +50,9 @@ test('Radarr Compare returns bucketed result', async () => {
   expect(Array.isArray(body.InBoth)).toBeTruthy();
   expect(Array.isArray(body.InArrOnly)).toBeTruthy();
   expect(Array.isArray(body.InArrOnlyMissing)).toBeTruthy();
-  // Inception has a file but no matching Jellyfin folder → InArrOnly.
+  // Inception has a file but no matching Jellyfin folder -> InArrOnly.
   expect(body.InArrOnly.join(' ')).toContain('Inception');
-  // Missing Film has no file and no match → InArrOnlyMissing.
+  // Missing Film has no file and no match -> InArrOnlyMissing.
   expect(body.InArrOnlyMissing.join(' ')).toContain('Missing Film');
 });
 
@@ -60,7 +60,7 @@ test('Sonarr Compare returns bucketed result', async () => {
   const res = await ctx.get(p('ArrIntegration/Compare/Sonarr?index=0'));
   expect(res.ok()).toBeTruthy();
   const body = (await res.json()) as { InArrOnly: string[]; InArrOnlyMissing: string[] };
-  // Ghost Series has 0 episode files → InArrOnlyMissing.
+  // Ghost Series has 0 episode files -> InArrOnlyMissing.
   expect(body.InArrOnlyMissing.join(' ')).toContain('Ghost Series');
 });
 
@@ -75,7 +75,7 @@ test('Seerr connection test succeeds against mock', async () => {
   expect(body.Message).toContain('Jellyseerr');
 });
 
-// === Masked-key Test Connection (regression for the reported "reload → Test → Failed" bug) ===
+// === Masked-key Test Connection (regression for the reported "reload -> Test -> Failed" bug) ===
 // After a reload the API-key input holds the fixed-length mask (the real key never leaves the
 // server). Clicking Test Connection then sends the mask; the server MUST resolve it back to the
 // real stored key and perform a real reachability probe, not 401 on the literal mask.
@@ -115,7 +115,7 @@ test('Seerr Test Connection with the masked key resolves the stored key → succ
 test('Masked key against an unrelated URL does NOT borrow a stored credential', async () => {
   // The only stored instance is at mock-arr:9000 (seeded in beforeAll). A mask sent for a
   // DIFFERENT url (:9001) has no stored instance to resolve against, so the server must fail
-  // the test rather than borrow another instance's key — and it fails WITHOUT probing upstream
+  // the test rather than borrow another instance's key -- and it fails WITHOUT probing upstream
   // (the mask is never forwarded). We assert a clean non-success + the plugin stays healthy.
   const res = await ctx.post(p('ArrIntegration/TestConnection'), {
     headers: { 'Content-Type': 'application/json' },
@@ -208,8 +208,8 @@ test('Arr Compare 502 aggregation names the failing instance', async () => {
 
 // --- Sonarr Compare error-branch parity with Radarr ------------------------
 // Compare/Sonarr is a duplicated code block from Compare/Radarr; the two can drift
-// independently. Radarr's three error branches are asserted (empty→400,
-// out-of-range→400, failing-instance→502-naming-instance); mirror them for Sonarr
+// independently. Radarr's three error branches are asserted (empty->400,
+// out-of-range->400, failing-instance->502-naming-instance); mirror them for Sonarr
 // so a copy-paste regression (wrong status, missing instance name) can't hide.
 
 test('Sonarr Compare with no instances → 400 naming the requirement', async () => {
@@ -231,7 +231,7 @@ test('Sonarr Compare with no instances → 400 naming the requirement', async ()
 });
 
 test('Sonarr Compare with out-of-range index → 400 with the range message', async () => {
-  // Exactly one instance configured (restored above) → valid range is 0-0.
+  // Exactly one instance configured (restored above) -> valid range is 0-0.
   const res = await ctx.get(p('ArrIntegration/Compare/Sonarr?index=99'));
   expect(res.status()).toBe(400);
   expect(await res.text()).toContain('Invalid instance index 99. Valid range: 0-0.');

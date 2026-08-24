@@ -81,9 +81,9 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
 
-    // Orphan (no matching video) → gone.
+    // Orphan (no matching video) -> gone.
     expect(containerExists(`${M}/Ghost Movie (2010)/Ghost Movie (2010).trickplay`)).toBe(false);
-    // Valid (matching video present) → survives, with its tile intact.
+    // Valid (matching video present) -> survives, with its tile intact.
     expect(containerDirExists(`${M}/Valid Trick (2020)/Valid Trick (2020).trickplay`)).toBe(true);
     expect(containerFileExists(`${M}/Valid Trick (2020)/Valid Trick (2020).mkv`)).toBe(true);
     await assertPluginActive(ctx);
@@ -92,7 +92,7 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
   test('trickplay: non-video same-basename companion does not save the folder', async () => {
     await isolateStage({ TrickplayTaskMode: 'Activate' });
     await runCleanupTask(ctx);
-    // "Sub Only" has a same-named .srt but NO video → the .trickplay is still orphaned.
+    // "Sub Only" has a same-named .srt but NO video -> the .trickplay is still orphaned.
     expect(containerExists(`${M}/Sub Only (2020)/Sub Only (2020).trickplay`)).toBe(false);
     // The subtitle itself is untouched (trickplay stage doesn't handle subtitles).
     expect(containerFileExists(`${M}/Sub Only (2020)/Sub Only (2020).en.srt`)).toBe(true);
@@ -103,7 +103,7 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
 
-    // Orphan .srt in a dir that DOES contain a video → deleted (the real delete path).
+    // Orphan .srt in a dir that DOES contain a video -> deleted (the real delete path).
     expect(containerFileExists(`${M}/Mixed Bag (2018)/Ghost Subtitle (2001).en.srt`)).toBe(false);
     // The dir's own video + its matching sub survive.
     expect(containerFileExists(`${M}/Mixed Bag (2018)/Mixed Bag (2018).mkv`)).toBe(true);
@@ -114,7 +114,7 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
 
   test('subtitle: video-less dir is skipped entirely (all its subs survive)', async () => {
     // Deactivate the empty-folder stage too, so survival is attributable to the
-    // subtitle stage's "no video in dir → skip" rule, not to nothing running.
+    // subtitle stage's "no video in dir -> skip" rule, not to nothing running.
     await isolateStage({ OrphanedSubtitleTaskMode: 'Activate' });
     await runCleanupTask(ctx);
     expect(containerFileExists(`${M}/Lonely Sub (2012)/Lonely Sub (2012).en.srt`)).toBe(true);
@@ -127,9 +127,9 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
     for (const suf of ['en.srt', 'es.forced.srt', 'de.sdh.srt', 'zh-Hans.srt', 'pt-BR.ass']) {
       expect(containerFileExists(`${base}.${suf}`), `${suf} should survive`).toBe(true);
     }
-    // ".DTS" is not a language/flag → treated as orphan and removed.
+    // ".DTS" is not a language/flag -> treated as orphan and removed.
     expect(containerFileExists(`${base}.DTS.srt`)).toBe(false);
-    // False-orphan title ending in a language token → kept by the fallback.
+    // False-orphan title ending in a language token -> kept by the fallback.
     expect(
       containerFileExists(`${M}/Interview with the en (2004)/Interview with the en (2004).srt`),
     ).toBe(true);
@@ -140,7 +140,7 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
 
-    // Lonely Sub: has a file (subtitle) but no video anywhere → orphaned → removed.
+    // Lonely Sub: has a file (subtitle) but no video anywhere -> orphaned -> removed.
     expect(containerExists(`${M}/Lonely Sub (2012)`)).toBe(false);
     // Mixed Keep: a nested video protects the whole top-level folder.
     expect(containerDirExists(`${M}/Mixed Keep (2016)`)).toBe(true);
@@ -150,9 +150,9 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
   test('empty-folder: metadata-only and audio-only folders survive', async () => {
     await isolateStage({ EmptyMediaFolderTaskMode: 'Activate' });
     await runCleanupTask(ctx);
-    // Wanted placeholder (poster + nfo, no media) → kept.
+    // Wanted placeholder (poster + nfo, no media) -> kept.
     expect(containerDirExists(`${M}/Wanted Placeholder (2027)`)).toBe(true);
-    // Audio-only folder in a video library → kept (music guard).
+    // Audio-only folder in a video library -> kept (music guard).
     expect(containerFileExists(`${M}/Soundtrack Only (2016)/track.mp3`)).toBe(true);
   });
 
@@ -201,7 +201,7 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
 
     expect(containerExists(`${M}/Ghost Movie (2010)/Ghost Movie (2010).trickplay`)).toBe(false);
     expect(containerExists(`${M}/Lonely Sub (2012)`)).toBe(false);
-    // UseTrash:false → nothing was routed to trash.
+    // UseTrash:false -> nothing was routed to trash.
     expect(containerExists(`${M}/.jellyfin-trash`)).toBe(false);
     // Valid media untouched.
     expect(containerFileExists(`${M}/Aurora Skies (2019)/Aurora Skies (2019).mkv`)).toBe(true);
@@ -209,12 +209,12 @@ test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', (
   });
 
   test('age gating keeps a too-new orphan, then removes it once the gate is 0', async () => {
-    // High min-age → fresh orphan is too new to delete → survives.
+    // High min-age -> fresh orphan is too new to delete -> survives.
     await isolateStage({ TrickplayTaskMode: 'Activate', OrphanMinAgeDays: 3650 });
     await runCleanupTask(ctx);
     expect(containerExists(`${M}/Ghost Movie (2010)/Ghost Movie (2010).trickplay`)).toBe(true);
 
-    // Drop the gate to 0 → now eligible → removed.
+    // Drop the gate to 0 -> now eligible -> removed.
     await isolateStage({ TrickplayTaskMode: 'Activate', OrphanMinAgeDays: 0 });
     await runCleanupTask(ctx);
     expect(containerExists(`${M}/Ghost Movie (2010)/Ghost Movie (2010).trickplay`)).toBe(false);

@@ -8,22 +8,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// </summary>
 public enum FeatureIndex
 {
-    /// <summary>Genre similarity (0–1).</summary>
+    /// <summary>Genre similarity (0-1).</summary>
     GenreSimilarity = 0,
 
-    /// <summary>Collaborative filtering score (0–1).</summary>
+    /// <summary>Collaborative filtering score (0-1).</summary>
     CollaborativeScore = 1,
 
-    /// <summary>Combined critic score (0–1). Blends TMDb community rating (55%) and Rotten Tomatoes Tomatometer (45%).</summary>
+    /// <summary>Combined critic score (0-1). Blends TMDb community rating (55%) and Rotten Tomatoes Tomatometer (45%).</summary>
     CombinedCriticScore = 2,
 
-    /// <summary>Recency score (0–1).</summary>
+    /// <summary>Recency score (0-1).</summary>
     RecencyScore = 3,
 
-    /// <summary>Year proximity score (0–1).</summary>
+    /// <summary>Year proximity score (0-1).</summary>
     YearProximityScore = 4,
 
-    /// <summary>Normalized genre count (0–1).</summary>
+    /// <summary>Normalized genre count (0-1).</summary>
     GenreCountNormalized = 5,
 
     /// <summary>Is series flag (0 or 1).</summary>
@@ -35,10 +35,10 @@ public enum FeatureIndex
     /// <summary>Genre × Collaborative interaction term.</summary>
     GenreCollabInteraction = 8,
 
-    /// <summary>User personal rating score (0–1).</summary>
+    /// <summary>User personal rating score (0-1).</summary>
     UserRatingScore = 9,
 
-    /// <summary>Watch completion ratio (0–1).</summary>
+    /// <summary>Watch completion ratio (0-1).</summary>
     CompletionRatio = 10,
 
     /// <summary>Abandoned flag (1 if user interacted AND started playback AND CompletionRatio &lt; 25%, else 0). Penalizes items the user started but stopped watching early. Favorite-only items (CompletionRatio=0, no playback) are NOT flagged.</summary>
@@ -47,28 +47,28 @@ public enum FeatureIndex
     /// <summary>Has user interaction flag (1 if user has watched/started the item, 0 for new candidates). Allows the model to distinguish unrated from disliked.</summary>
     HasInteraction = 12,
 
-    /// <summary>People similarity score (0–1). Measures overlap of cast/directors with user's preferred people.</summary>
+    /// <summary>People similarity score (0-1). Measures overlap of cast/directors with user's preferred people.</summary>
     PeopleSimilarity = 13,
 
     /// <summary>Studio similarity flag (0 or 1). Whether the item is from a studio the user has watched before.</summary>
     StudioMatch = 14,
 
-    /// <summary>Series progression boost (0–1). Higher when the user has watched previous seasons and this is a follow-up.</summary>
+    /// <summary>Series progression boost (0-1). Higher when the user has watched previous seasons and this is a follow-up.</summary>
     SeriesProgressionBoost = 15,
 
-    /// <summary>Popularity score (0–1). Based on how many users have watched this item globally. Helps cold-start users.</summary>
+    /// <summary>Popularity score (0-1). Based on how many users have watched this item globally. Helps cold-start users.</summary>
     PopularityScore = 16,
 
-    /// <summary>Day-of-week affinity (0–1). How well this content type matches the user's typical viewing pattern for the current day.</summary>
+    /// <summary>Day-of-week affinity (0-1). How well this content type matches the user's typical viewing pattern for the current day.</summary>
     DayOfWeekAffinity = 17,
 
-    /// <summary>Hour-of-day affinity (0–1). How well this content matches the user's viewing patterns for the current time of day.</summary>
+    /// <summary>Hour-of-day affinity (0-1). How well this content matches the user's viewing patterns for the current time of day.</summary>
     HourOfDayAffinity = 18,
 
     /// <summary>Weekend flag (0 or 1). Whether the current request is on a weekend day (Sat/Sun).</summary>
     IsWeekend = 19,
 
-    /// <summary>Tag-based content similarity (0–1). Jaccard overlap of candidate tags with user's preferred tags.</summary>
+    /// <summary>Tag-based content similarity (0-1). Jaccard overlap of candidate tags with user's preferred tags.</summary>
     TagSimilarity = 20,
 
     /// <summary>People × Genre interaction: actors/directors you like in genres you prefer.</summary>
@@ -78,7 +78,7 @@ public enum FeatureIndex
     RecencyCriticInteraction = 22,
 
     /// <summary>
-    ///     Genre underexposure ratio (0–1). Fraction of the candidate's genres that fall
+    ///     Genre underexposure ratio (0-1). Fraction of the candidate's genres that fall
     ///     in the bottom tier of the user's watch distribution (below 2% watch share).
     ///     0 = all candidate genres are regularly watched, 1 = all candidate genres are rarely watched.
     ///     Defaults to 0 (neutral) when watch history is too small (&lt; 30 items).
@@ -86,7 +86,7 @@ public enum FeatureIndex
     GenreUnderexposure = 23,
 
     /// <summary>
-    ///     Genre dominance ratio (0–1). Fraction of the candidate's genres that appear
+    ///     Genre dominance ratio (0-1). Fraction of the candidate's genres that appear
     ///     in the user's top-3 most-watched genres.
     ///     0 = no overlap with core genres, 1 = all candidate genres are in the user's top-3.
     ///     Defaults to 0 (neutral) when watch history is too small (&lt; 30 items).
@@ -94,7 +94,7 @@ public enum FeatureIndex
     GenreDominanceRatio = 24,
 
     /// <summary>
-    ///     Genre affinity gap (0–1). How far below the user's average genre preference
+    ///     Genre affinity gap (0-1). How far below the user's average genre preference
     ///     the candidate's genres are. Measures the "distance from comfort zone."
     ///     0 = candidate genres are at or above the user's average preference,
     ///     1 = candidate genres are far below the user's average.
@@ -110,7 +110,7 @@ public enum FeatureIndex
     LibraryAddedRecency = 26,
 
     /// <summary>
-    ///     Content-based nearest-neighbor score (0–1). Measures how similar this candidate
+    ///     Content-based nearest-neighbor score (0-1). Measures how similar this candidate
     ///     is to the user's most similar watched item using a composite of genre Jaccard (50%),
     ///     people/cast Jaccard (30%), and studio overlap (20%). Unlike GenreSimilarity which
     ///     compares against the aggregated user profile, this captures item-to-item affinity:
@@ -120,7 +120,7 @@ public enum FeatureIndex
     ContentNearestNeighborScore = 27,
 
     /// <summary>
-    ///     Audio language affinity (0–1). How well the candidate's available audio
+    ///     Audio language affinity (0-1). How well the candidate's available audio
     ///     languages match the user's language preferences.
     ///     1.0 = primary language available, 0.5 = neutral (no data), 0.1 = only unknown languages.
     ///     Based on chosen-vs-forced distinction: actively selected languages rank higher
@@ -129,7 +129,7 @@ public enum FeatureIndex
     LanguageAffinity = 28,
 
     /// <summary>
-    ///     Collection/BoxSet progression boost (0–1). Rewards items that belong to a
+    ///     Collection/BoxSet progression boost (0-1). Rewards items that belong to a
     ///     collection (BoxSet) where the user has already watched other entries.
     ///     Encourages "complete the collection" recommendations (e.g., watch all MCU films).
     ///     0 = item is not in any collection or user has not watched any collection members.
@@ -137,7 +137,7 @@ public enum FeatureIndex
     CollectionProgressionBoost = 29,
 
     /// <summary>
-    ///     Subtitle language affinity (0–1). How well the candidate's available subtitle
+    ///     Subtitle language affinity (0-1). How well the candidate's available subtitle
     ///     languages match the user's subtitle language preferences.
     ///     1.0 = primary subtitle language available, 0.5 = neutral (no data),
     ///     0.1 = only unknown subtitle languages.
@@ -146,21 +146,21 @@ public enum FeatureIndex
     SubtitleLanguageAffinity = 30,
 
     /// <summary>
-    ///     Franchise affinity (0–1). How strongly the candidate belongs to a TMDb collection
+    ///     Franchise affinity (0-1). How strongly the candidate belongs to a TMDb collection
     ///     (franchise) the user has already engaged with. Complements CollectionProgressionBoost
     ///     for the common case where no admin-curated BoxSet exists. 0 = no franchise match / not a movie.
     /// </summary>
     FranchiseAffinity = 31,
 
     /// <summary>
-    ///     Production-location affinity (0–1). Weighted overlap of the candidate's production
-    ///     countries with the user's watched-country distribution (K-drama, Bollywood, Euro arthouse …).
+    ///     Production-location affinity (0-1). Weighted overlap of the candidate's production
+    ///     countries with the user's watched-country distribution (K-drama, Bollywood, Euro arthouse ...).
     ///     0 = no overlap / no data.
     /// </summary>
     ProductionLocationAffinity = 32,
 
     /// <summary>
-    ///     Inherited-tag similarity (0–1). Jaccard overlap of the candidate's INHERITED tags
+    ///     Inherited-tag similarity (0-1). Jaccard overlap of the candidate's INHERITED tags
     ///     (own tags unioned with parent/collection/library-folder tags) with the user's preferred
     ///     inherited tags. Distinct from <see cref="TagSimilarity"/>, which uses leaf tags only.
     ///     0 = no overlap / no data.
@@ -168,28 +168,28 @@ public enum FeatureIndex
     InheritedTagSimilarity = 33,
 
     /// <summary>
-    ///     Series completability (0–1). Encodes a series' lifecycle: Ended → 1.0, Continuing → 0.5,
-    ///     Unreleased → 0.0. Movies and unknown status → 0.5 (neutral / not applicable), so the
+    ///     Series completability (0-1). Encodes a series' lifecycle: Ended to 1.0, Continuing to 0.5,
+    ///     Unreleased to 0.0. Movies and unknown status to 0.5 (neutral / not applicable), so the
     ///     feature is a no-op for non-series. The model learns whether users prefer finished arcs.
     /// </summary>
     SeriesCompletability = 34,
 
     /// <summary>
-    ///     Writer affinity (0–1). Name-overlap of the candidate's writers/creators with the user's
+    ///     Writer affinity (0-1). Name-overlap of the candidate's writers/creators with the user's
     ///     preferred writers (a lightweight profile kept separately from cast/director so it does not
     ///     dilute <see cref="PeopleSimilarity"/>). 0 = no overlap / no data.
     /// </summary>
     WriterAffinity = 35,
 
     /// <summary>
-    ///     Billing-weighted people affinity (0–1). Like <see cref="PeopleSimilarity"/> but weighted by
+    ///     Billing-weighted people affinity (0-1). Like <see cref="PeopleSimilarity"/> but weighted by
     ///     each person's billing position (PersonInfo.SortOrder): top-billed cast the user favours count
     ///     for more than deep-cast/bit-part entries. 0 = no billed-people overlap / no data.
     /// </summary>
     BillingWeightedPeople = 36,
 
     /// <summary>
-    ///     Genre/studio IDF (inverse-document-frequency) rarity prior (0–1). Library-wide rarity of the
+    ///     Genre/studio IDF (inverse-document-frequency) rarity prior (0-1). Library-wide rarity of the
     ///     candidate's genres and studios: ubiquitous genres are down-weighted, rare ones up-weighted.
     ///     A soft tiebreaker. 0.0 = no data (neutral for this overlap-style prior).
     /// </summary>
@@ -198,7 +198,7 @@ public enum FeatureIndex
 
 /// <summary>
 ///     Pre-computed feature signals for a recommendation candidate.
-///     All values are normalized to approximately 0–1 range.
+///     All values are normalized to approximately 0-1 range.
 /// </summary>
 public sealed class CandidateFeatures
 {
@@ -208,7 +208,7 @@ public sealed class CandidateFeatures
     public const int FeatureCount = 38;
 
     /// <summary>
-    ///     Normalization ceiling for genre count (items with ≥ this many genres map to 1.0).
+    ///     Normalization ceiling for genre count (items with >= this many genres map to 1.0).
     /// </summary>
     internal const double GenreCountNormalizationCeiling = 5.0;
 
@@ -248,35 +248,35 @@ public sealed class CandidateFeatures
     private double _billingWeightedPeople;
     private double _genreStudioIdfPrior;
 
-    /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
+    /// <summary>Gets or sets the genre similarity score (0-1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double GenreSimilarity
     {
         get => _genreSimilarity;
         set => _genreSimilarity = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the collaborative filtering score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
+    /// <summary>Gets or sets the collaborative filtering score (0-1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double CollaborativeScore
     {
         get => _collaborativeScore;
         set => _collaborativeScore = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the combined critic score (0–1). Blends TMDb community rating (55%) and Rotten Tomatoes Tomatometer (45%). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
+    /// <summary>Gets or sets the combined critic score (0-1). Blends TMDb community rating (55%) and Rotten Tomatoes Tomatometer (45%). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double CombinedCriticScore
     {
         get => _ratingScore;
         set => _ratingScore = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the recency score (0–1, newer = higher). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
+    /// <summary>Gets or sets the recency score (0-1, newer = higher). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double RecencyScore
     {
         get => _recencyScore;
         set => _recencyScore = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the year proximity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
+    /// <summary>Gets or sets the year proximity score (0-1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double YearProximityScore
     {
         get => _yearProximityScore;
@@ -289,7 +289,7 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets a value indicating whether the item is a series (vs movie).</summary>
     public bool IsSeries { get; set; }
 
-    /// <summary>Gets or sets the user's personal rating score (0–1), or 0.5 if unrated. Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the user's personal rating score (0-1), or 0.5 if unrated. Values are clamped to [0, 1].</summary>
     public double UserRatingScore
     {
         get => _userRatingScore;
@@ -299,14 +299,14 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets a value indicating whether the user has interacted with this item (watched, started, or rated).</summary>
     public bool HasUserInteraction { get; set; }
 
-    /// <summary>Gets or sets the watch completion ratio (0–1). 1.0 = fully watched, 0.5 = neutral (no interaction). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the watch completion ratio (0-1). 1.0 = fully watched, 0.5 = neutral (no interaction). Values are clamped to [0, 1].</summary>
     public double CompletionRatio
     {
         get => _completionRatio;
         set => _completionRatio = Clamp01(value, 0.5);
     }
 
-    /// <summary>Gets or sets the people (cast/director) similarity score (0–1). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the people (cast/director) similarity score (0-1). Values are clamped to [0, 1].</summary>
     public double PeopleSimilarity
     {
         get => _peopleSimilarity;
@@ -316,28 +316,28 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets a value indicating whether the item is from a studio the user has watched before.</summary>
     public bool StudioMatch { get; set; }
 
-    /// <summary>Gets or sets the series progression boost (0–1). Higher when this is a follow-up season the user hasn't watched yet. Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the series progression boost (0-1). Higher when this is a follow-up season the user hasn't watched yet. Values are clamped to [0, 1].</summary>
     public double SeriesProgressionBoost
     {
         get => _seriesProgressionBoost;
         set => _seriesProgressionBoost = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the popularity score (0–1). Based on global watch count, helps cold-start users. Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the popularity score (0-1). Based on global watch count, helps cold-start users. Values are clamped to [0, 1].</summary>
     public double PopularityScore
     {
         get => _popularityScore;
         set => _popularityScore = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the day-of-week affinity (0–1). How well this content matches the user's viewing patterns for the current day. Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the day-of-week affinity (0-1). How well this content matches the user's viewing patterns for the current day. Values are clamped to [0, 1].</summary>
     public double DayOfWeekAffinity
     {
         get => _dayOfWeekAffinity;
         set => _dayOfWeekAffinity = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the hour-of-day affinity (0–1). How well this content matches the user's viewing patterns for the current time of day (e.g. evening vs morning). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the hour-of-day affinity (0-1). How well this content matches the user's viewing patterns for the current time of day (e.g. evening vs morning). Values are clamped to [0, 1].</summary>
     public double HourOfDayAffinity
     {
         get => _hourOfDayAffinity;
@@ -347,7 +347,7 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets a value indicating whether the current request is on a weekend day (Saturday or Sunday).</summary>
     public bool IsWeekend { get; set; }
 
-    /// <summary>Gets or sets the tag-based content similarity (0–1). Jaccard overlap of candidate tags with user's preferred tags. Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the tag-based content similarity (0-1). Jaccard overlap of candidate tags with user's preferred tags. Values are clamped to [0, 1].</summary>
     public double TagSimilarity
     {
         get => _tagSimilarity;
@@ -355,7 +355,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the genre underexposure ratio (0–1).
+    ///     Gets or sets the genre underexposure ratio (0-1).
     ///     Fraction of the candidate's genres that fall in the bottom tier of the user's
     ///     watch distribution (below the underexposure threshold, typically 2% watch share).
     ///     0 = all candidate genres are regularly watched, 1 = all candidate genres are rarely watched.
@@ -368,7 +368,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the genre dominance ratio (0–1).
+    ///     Gets or sets the genre dominance ratio (0-1).
     ///     Fraction of the candidate's genres that appear in the user's top-3 most-watched genres.
     ///     0 = no overlap with core genres, 1 = all candidate genres are in the user's top-3.
     ///     Defaults to 0 (neutral) when watch history is too small.
@@ -380,7 +380,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the genre affinity gap (0–1).
+    ///     Gets or sets the genre affinity gap (0-1).
     ///     How far below the user's average genre preference the candidate's genres are.
     ///     0 = candidate genres are at or above the user's average preference,
     ///     1 = candidate genres are far below the user's average.
@@ -409,7 +409,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the content-based nearest-neighbor score (0–1).
+    ///     Gets or sets the content-based nearest-neighbor score (0-1).
     ///     Composite similarity between this candidate and the user's most similar watched item,
     ///     combining genre Jaccard (50%), people/cast Jaccard (30%), and studio overlap (20%).
     ///     Captures item-to-item affinity rather than profile-to-item similarity.
@@ -422,7 +422,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the audio language affinity (0–1).
+    ///     Gets or sets the audio language affinity (0-1).
     ///     How well the candidate's available audio languages match the user's preferences.
     ///     1.0 = primary language available, 0.5 = neutral (no language data),
     ///     0.1 = only languages the user has never encountered.
@@ -435,7 +435,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the collection/BoxSet progression boost (0–1).
+    ///     Gets or sets the collection/BoxSet progression boost (0-1).
     ///     Rewards items belonging to a collection where the user has watched other entries.
     ///     Encourages "complete the collection" recommendations.
     ///     0 = not in any collection or no watched collection members.
@@ -446,7 +446,7 @@ public sealed class CandidateFeatures
     ///     all watched items once per user, then performs an O(1) lookup per candidate via
     ///     the candidate's resolved BoxSet IDs. Training (TrainingDataBuilder) uses a
     ///     sibling-matching heuristic from cached BoxSetIds stored on RecommendedItem.
-    ///     Both paths produce real progression values (0.0–1.0) when the candidate belongs
+    ///     Both paths produce real progression values (0.0-1.0) when the candidate belongs
     ///     to a collection with watched siblings.
     /// </remarks>
     public double CollectionProgressionBoost
@@ -456,7 +456,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the subtitle language affinity (0–1).
+    ///     Gets or sets the subtitle language affinity (0-1).
     ///     How well the candidate's available subtitle languages match the user's preferences.
     ///     1.0 = primary subtitle language available, 0.5 = neutral (no data),
     ///     0.1 = only unknown subtitle languages.
@@ -469,7 +469,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the franchise affinity (0–1). How strongly the candidate belongs to a TMDb
+    ///     Gets or sets the franchise affinity (0-1). How strongly the candidate belongs to a TMDb
     ///     collection (franchise) the user has engaged with. Values are clamped to [0, 1]; NaN defaults to 0.
     /// </summary>
     public double FranchiseAffinity
@@ -479,7 +479,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the production-location affinity (0–1). Weighted overlap of the candidate's
+    ///     Gets or sets the production-location affinity (0-1). Weighted overlap of the candidate's
     ///     production countries with the user's watched-country distribution. Values are clamped to [0, 1]; NaN defaults to 0.
     /// </summary>
     public double ProductionLocationAffinity
@@ -489,7 +489,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the inherited-tag similarity (0–1). Jaccard overlap of the candidate's inherited
+    ///     Gets or sets the inherited-tag similarity (0-1). Jaccard overlap of the candidate's inherited
     ///     tags with the user's preferred inherited tags. Values are clamped to [0, 1]; NaN defaults to 0.
     /// </summary>
     public double InheritedTagSimilarity
@@ -499,8 +499,8 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the series completability (0–1). Ended → 1.0, Continuing → 0.5, Unreleased → 0.0.
-    ///     Movies and unknown status → 0.5 (neutral). Values are clamped to [0, 1]; NaN defaults to 0.5 (neutral).
+    ///     Gets or sets the series completability (0-1). Ended to 1.0, Continuing to 0.5, Unreleased to 0.0.
+    ///     Movies and unknown status to 0.5 (neutral). Values are clamped to [0, 1]; NaN defaults to 0.5 (neutral).
     /// </summary>
     public double SeriesCompletability
     {
@@ -509,7 +509,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the writer affinity (0–1). Name-overlap of the candidate's writers/creators with
+    ///     Gets or sets the writer affinity (0-1). Name-overlap of the candidate's writers/creators with
     ///     the user's preferred writers. Values are clamped to [0, 1]; NaN defaults to 0.
     /// </summary>
     public double WriterAffinity
@@ -519,7 +519,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the billing-weighted people affinity (0–1). Billing-position-weighted overlap of
+    ///     Gets or sets the billing-weighted people affinity (0-1). Billing-position-weighted overlap of
     ///     the candidate's cast/directors with the user's favoured billed people. Values are clamped to [0, 1]; NaN defaults to 0.
     /// </summary>
     public double BillingWeightedPeople
@@ -529,8 +529,8 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the genre/studio IDF rarity prior (0–1). Library-wide rarity of the candidate's
-    ///     genres and studios (rare → higher). Values are clamped to [0, 1]; NaN defaults to 0.
+    ///     Gets or sets the genre/studio IDF rarity prior (0-1). Library-wide rarity of the candidate's
+    ///     genres and studios (rare to higher). Values are clamped to [0, 1]; NaN defaults to 0.
     /// </summary>
     public double GenreStudioIdfPrior
     {

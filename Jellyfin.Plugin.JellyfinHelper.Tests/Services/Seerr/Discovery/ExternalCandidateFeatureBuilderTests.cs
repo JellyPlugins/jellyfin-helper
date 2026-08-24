@@ -31,11 +31,11 @@ public sealed class ExternalCandidateFeatureBuilderTests
     // === NormalizePopularity ===
 
     [Theory]
-    [InlineData(0.0, 0.0)]      // zero → neutral zero
-    [InlineData(-5.0, 0.0)]     // negative → coerced to zero
+    [InlineData(0.0, 0.0)]      // zero -> neutral zero
+    [InlineData(-5.0, 0.0)]     // negative -> coerced to zero
     [InlineData(100.0, 0.5)]    // 100 / 200 cap = 0.5
     [InlineData(200.0, 1.0)]    // exactly at cap
-    [InlineData(500.0, 1.0)]    // above cap → clamped
+    [InlineData(500.0, 1.0)]    // above cap -> clamped
     public void NormalizePopularity_MapsRawValueIntoUnitRange(double raw, double expected)
     {
         var result = ExternalCandidateFeatureBuilder.NormalizePopularity(raw);
@@ -237,11 +237,11 @@ public sealed class ExternalCandidateFeatureBuilderTests
         // and explicitly rules out regressions to either earlier failure mode:
         //
         //   * v1 (initial, broken): the fallback used entry.Score (the model's own past
-        //     prediction) when Popularity was missing → auto-regression target leak.
+        //     prediction) when Popularity was missing -> auto-regression target leak.
         //   * v2 (attempted fix): fallback returned 0.5 to break the target leak. But
         //     ExternalCandidateFeatureBuilder.NormalizePopularity(0) returns 0.0 at
         //     inference, so training was handing the model 0.5 for the exact same input
-        //     the live path would score as 0.0 → different bug, same root cause
+        //     the live path would score as 0.0 -> different bug, same root cause
         //     (train/serve divergence).
         //   * v3 (current): route through NormalizePopularity(entry.Popularity) directly.
         //     Legacy rows produce PopularityScore==0.0, bit-identical to inference. The
@@ -339,7 +339,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
 
     /// <summary>
     ///     Builds a watch profile with enough Action history to yield a valid genre-exposure
-    ///     analysis (≥ <see cref="EngineConstants.MinWatchCountForGenreExposure"/> items) where
+    ///     analysis (>= <see cref="EngineConstants.MinWatchCountForGenreExposure"/> items) where
     ///     Action is the dominant genre.
     /// </summary>
     private static UserWatchProfile BuildActionHeavyProfile(Guid? userId = null)

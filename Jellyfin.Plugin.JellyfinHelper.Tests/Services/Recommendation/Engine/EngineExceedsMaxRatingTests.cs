@@ -78,7 +78,7 @@ public sealed class EngineExceedsMaxRatingTests
         //     `candidate.InheritedParentalRatingValue > maxRating`
         // silently evaluates to `false` when the left side is null, letting unrated
         // adult content leak into child profiles. The correct semantic is
-        //     "no rating available → treat as unrestricted → REJECT for restricted users".
+        //     "no rating available -> treat as unrestricted -> REJECT for restricted users".
         var movie = new Movie();
         // Deliberately do NOT set the rating.
         Assert.True(InvokeExceedsMaxRating(movie, 10));
@@ -154,11 +154,11 @@ public sealed class EngineExceedsMaxRatingTests
     [Fact]
     public void ExceedsMaxRating_ZeroMax_RejectsUnratedItem()
     {
-        // Even under max=0 the fail-safe "unrated → reject" rule must apply. Otherwise the
+        // Even under max=0 the fail-safe "unrated -> reject" rule must apply. Otherwise the
         // strictest possible profile paradoxically becomes MORE permissive than a mid-tier
         // profile because unrated items always pass.
         var movie = new Movie();
-        // No rating set → InheritedParentalRatingValue is null.
+        // No rating set -> InheritedParentalRatingValue is null.
         Assert.True(InvokeExceedsMaxRating(movie, 0));
     }
 
