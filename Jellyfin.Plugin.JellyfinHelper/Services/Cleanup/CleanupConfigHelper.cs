@@ -105,10 +105,12 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         {
             var name = f.Name ?? string.Empty;
 
-            // Always exclude non-video library types:
-            // - Music libraries contain no video files, so every folder would be flagged as orphaned
-            // - Boxsets (Collections) are Jellyfin-internal and must never be touched
-            if (f.CollectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets)
+            // Fail-safe allow-list: only ever clean libraries whose collection type can contain
+            // video/audio media. Anything else — books (eBooks: PDF/CBZ/EPUB…), and any unknown or
+            // future/null type — is skipped so its files can never be treated as "orphaned" and
+            // deleted. This replaces the earlier music/boxsets-only deny-list, which let a Book
+            // library through and caused whole eBook collections to be deleted (GitHub issue).
+            if (!IsCleanupEligibleCollectionType(f.CollectionType))
             {
                 return false;
             }
@@ -453,8 +455,9 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             {
                 var name = f.Name ?? string.Empty;
 
-                // Always exclude non-video library types
-                if (f.CollectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets)
+                // Fail-safe allow-list (mirror of GetFilteredLibraryLocations): only manage trash
+                // for libraries that can hold video/audio media; skip books and any unknown/null type.
+                if (!IsCleanupEligibleCollectionType(f.CollectionType))
                 {
                     return false;
                 }
@@ -509,6 +512,30 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     public static bool IsDryRun(TaskMode mode)
     {
         return mode == TaskMode.DryRun;
+    }
+
+    /// <summary>
+    ///     Determines whether a library's collection type is eligible for destructive cleanup
+    ///     (empty-folder deletion, trash management, etc.). Non-audio/video collection types are
+    ///     excluded so their files can never be misclassified as orphaned media and deleted:
+    ///     <list type="bullet">
+    ///         <item><description><c>books</c> — eBooks (PDF/CBZ/EPUB…) contain no video/audio and
+    ///         would otherwise be treated as orphan folders and deleted (the reported data-loss bug).</description></item>
+    ///         <item><description><c>music</c> — audio-only libraries have no video, so every folder
+    ///         would look orphaned to the empty-folder task.</description></item>
+    ///         <item><description><c>boxsets</c> — Jellyfin-internal collections that must never be touched.</description></item>
+    ///     </list>
+    ///     A <see langword="null" />/unknown type stays eligible (mixed or manually-created libraries
+    ///     legitimately report no type); those are still guarded by the name-pattern fallback and the
+    ///     user's ExcludedLibraries list at the call sites.
+    /// </summary>
+    /// <param name="collectionType">The library's Jellyfin collection type (may be null/unknown).</param>
+    /// <returns><see langword="false" /> for books/music/boxsets; otherwise <see langword="true" />.</returns>
+    internal static bool IsCleanupEligibleCollectionType(CollectionTypeOptions? collectionType)
+    {
+        return collectionType is not (CollectionTypeOptions.books
+            or CollectionTypeOptions.music
+            or CollectionTypeOptions.boxsets);
     }
 
     /// <summary>

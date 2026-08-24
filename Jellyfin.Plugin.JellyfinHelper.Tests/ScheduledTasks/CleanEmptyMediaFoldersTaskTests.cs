@@ -500,6 +500,87 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath), Times.Never);
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Regression tests for the eBook data-loss bug (GitHub issue): a Book library (PDF/CBZ/EPUB)
+    // must NEVER be scanned or have its folders deleted by the empty-media-folder cleanup, because
+    // eBooks are not video/audio and would otherwise be classified as "orphaned media" and deleted.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ExecuteInternalAsync_BookLibrary_IsCompletelySkipped()
+    {
+        const string booksPath = "/media/books";
+
+        var bookFolder = new VirtualFolderInfo
+        {
+            Name = "Books",
+            Locations = [booksPath],
+            CollectionType = CollectionTypeOptions.books
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([bookFolder]);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        // A Book library must never even be scanned.
+        _fileSystemMock.Verify(f => f.GetDirectories(booksPath), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_BookLibraryWithEbooksInActivateMode_DeletesNothing()
+    {
+        // The reported scenario: cleanup is ACTIVE (not dry-run) and the Book library contains
+        // eBook folders whose files are pure non-A/V content. Without the collection-type guard
+        // these folders match the orphan verdict and the whole collection is deleted.
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+
+        const string booksPath = "/media/books";
+        const string bookDir = "/media/books/Some Author - Some Book";
+
+        var bookFolder = new VirtualFolderInfo
+        {
+            Name = "Books",
+            Locations = [booksPath],
+            CollectionType = CollectionTypeOptions.books
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([bookFolder]);
+        SetupTopLevelDirs(booksPath, ("Some Author - Some Book", bookDir));
+        SetupFiles(bookDir, "book.pdf", "comic.cbz", "novel.epub");
+        SetupTopLevelDirs(bookDir);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        // Nothing must be deleted or even considered for deletion, and the library is not scanned.
+        _fileSystemMock.Verify(f => f.GetDirectories(booksPath), Times.Never);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+        MockTrashService.Verify(
+            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_NullCollectionTypeLibrary_IsStillScanned()
+    {
+        // A mixed/manually-created library legitimately reports no collection type. The guard must
+        // NOT over-reach: such libraries stay eligible for cleanup (only books/music/boxsets are
+        // excluded by type), preserving the pre-fix behavior for untyped AV libraries.
+        const string mediaPath = "/media/misc";
+
+        var untyped = new VirtualFolderInfo
+        {
+            Name = "Misc",
+            Locations = [mediaPath],
+            CollectionType = null
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([untyped]);
+        SetupTopLevelDirs(mediaPath);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        // Untyped library is still scanned (no regression for mixed/manual libraries).
+        _fileSystemMock.Verify(f => f.GetDirectories(mediaPath), Times.Once);
+    }
+
     [Fact]
     public async Task ExecuteInternalAsync_MusicAndMoviesLibrary_OnlyMoviesAreScanned()
     {

@@ -661,7 +661,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/ScheduledTasks/`
 
-- `CleanEmptyMediaFoldersTaskTests.cs` - Tests CleanEmptyMediaFoldersTask orphan detection, placeholder/library-type skips, and byte accounting
+- `CleanEmptyMediaFoldersTaskTests.cs` - Tests CleanEmptyMediaFoldersTask orphan detection, placeholder/library-type skips (incl. Book/eBook libraries which must never be scanned or deleted), and byte accounting
 - `CleanupTaskReparseGuardTests.cs` - Tests cleanup tasks skip reparse-point/symlink directories to prevent traversal outside libraries
 - `CleanOrphanedSubtitlesTaskProcessLocationTests.cs`
 - `CleanOrphanedSubtitlesTaskTests.cs` - Tests CleanOrphanedSubtitlesTask base-name parsing and BCP-47 language/flag suffix stripping
@@ -700,7 +700,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Cleanup/`
 
-- `CleanupConfigHelperTests.cs` - Tests cleanup config helpers: task modes, trash-path resolution, library filtering, age guards
+- `CleanupConfigHelperTests.cs` - Tests cleanup config helpers: task modes, trash-path resolution, library filtering (incl. IsCleanupEligibleCollectionType excluding books/music/boxsets), age guards
 - `CleanupTrackingServiceTests.cs` - Tests cleanup statistics recording and accumulation when Plugin.Instance is null
 - `TrashControllerAccessTests.cs`
 - `TrashControllerRelocateTests.cs`

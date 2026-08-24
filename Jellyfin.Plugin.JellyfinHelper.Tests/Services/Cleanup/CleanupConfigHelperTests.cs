@@ -1126,4 +1126,28 @@ public class CleanupConfigHelperTests
             Directory.Delete(lib, recursive: true);
         }
     }
+
+    // Data-loss guard: books/music/boxsets must be reported ineligible for destructive cleanup so
+    // an eBook (or music/collection) library is never scanned and deleted. Untyped/other stays true.
+    [Theory]
+    [InlineData(CollectionTypeOptions.books, false)]
+    [InlineData(CollectionTypeOptions.music, false)]
+    [InlineData(CollectionTypeOptions.boxsets, false)]
+    [InlineData(CollectionTypeOptions.movies, true)]
+    [InlineData(CollectionTypeOptions.tvshows, true)]
+    [InlineData(CollectionTypeOptions.homevideos, true)]
+    [InlineData(CollectionTypeOptions.musicvideos, true)]
+    [InlineData(CollectionTypeOptions.mixed, true)]
+    public void IsCleanupEligibleCollectionType_ByType_ReturnsExpected(CollectionTypeOptions type, bool expected)
+    {
+        Assert.Equal(expected, CleanupConfigHelper.IsCleanupEligibleCollectionType(type));
+    }
+
+    [Fact]
+    public void IsCleanupEligibleCollectionType_NullOrUnknown_StaysEligible()
+    {
+        // A null/unknown type (mixed or manually-created libraries) is intentionally still eligible;
+        // over-excluding it would stop cleaning legitimate untyped AV libraries (no regression).
+        Assert.True(CleanupConfigHelper.IsCleanupEligibleCollectionType(null));
+    }
 }
