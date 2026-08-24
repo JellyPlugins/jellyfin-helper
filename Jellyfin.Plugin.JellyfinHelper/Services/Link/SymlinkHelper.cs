@@ -93,7 +93,7 @@ public class SymlinkHelper : ISymlinkHelper
         }
 
         // Path.Exists (via the PathExists seam) reports the link NODE without following it, so a
-        // dangling symlink already occupying linkPath is correctly seen as "occupied" — unlike
+        // dangling symlink already occupying linkPath is correctly seen as "occupied", unlike
         // File.Exists/Directory.Exists, which both follow the link and would report false, letting
         // File.CreateSymbolicLink throw its own less-specific IOException a line later.
         if (PathExists(linkPath))
@@ -128,7 +128,7 @@ public class SymlinkHelper : ISymlinkHelper
 
         try
         {
-            // Non-overwriting move: atomically fails if destPath still exists (it does — a symlink).
+            // Non-overwriting move: atomically fails if destPath still exists (it does, a symlink).
             MoveFile(sourcePath, destPath);
             return;
         }
@@ -154,7 +154,7 @@ public class SymlinkHelper : ISymlinkHelper
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
-                // destPath vanished between the failed move and the re-stat — retry cleanly.
+                // destPath vanished between the failed move and the re-stat; retry cleanly.
                 MoveFile(sourcePath, destPath);
                 return;
             }
@@ -166,8 +166,8 @@ public class SymlinkHelper : ISymlinkHelper
                     + "Aborting repair to avoid data loss. The downloaded media file is safe.");
             }
 
-            // Still a symlink — use an overwriting move which calls rename(2) on Linux /
-            // MoveFileExW(MOVEFILE_REPLACE_EXISTING) on Windows.  This replaces the destination
+            // Still a symlink, so use an overwriting move which calls rename(2) on Linux /
+            // MoveFileExW(MOVEFILE_REPLACE_EXISTING) on Windows. This replaces the destination
             // in a single kernel operation, removing the delete-then-move two-step gap.
             //
             // A narrow TOCTOU window remains: a concurrent process could swap the link node for a
@@ -256,8 +256,8 @@ public class SymlinkHelper : ISymlinkHelper
 
     /// <summary>
     ///     Determines whether anything occupies <paramref name="path" />, including a dangling
-    ///     symlink's link node. Uses <see cref="Path.Exists(string?)" />, which — unlike
-    ///     <see cref="File.Exists(string?)" /> / <see cref="Directory.Exists(string?)" /> — does not
+    ///     symlink's link node. Uses <see cref="Path.Exists(string?)" />, which (unlike
+    ///     <see cref="File.Exists(string?)" /> / <see cref="Directory.Exists(string?)" />) does not
     ///     follow the link, so a broken symlink still blocking the destination is reported as present.
     /// </summary>
     /// <param name="path">The path to test.</param>

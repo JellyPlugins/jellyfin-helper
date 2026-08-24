@@ -73,7 +73,7 @@ public class SeerrController : ControllerBase
         // private/link-local hosts: Seerr/Jellyseerr typically runs on the same host or LAN as
         // Jellyfin, so an internal-IP block would break the plugin's normal configuration. The
         // endpoint is admin-only, does not follow redirects, caps response size, and (below) returns
-        // a generic failure message rather than reflecting upstream status — keeping the residual
+        // a generic failure message rather than reflecting upstream status, keeping the residual
         // internal-reachability-oracle risk low and accepted for a LAN-integration tool.
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var parsedUrl) ||
             (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))

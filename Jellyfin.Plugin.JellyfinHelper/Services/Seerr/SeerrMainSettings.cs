@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 
 /// <summary>
-///     Represents the main settings response from the Seerr API (used for connection testing).
+///     The main settings response from the Seerr API (used for connection testing).
 /// </summary>
 internal sealed class SeerrMainSettings
 {

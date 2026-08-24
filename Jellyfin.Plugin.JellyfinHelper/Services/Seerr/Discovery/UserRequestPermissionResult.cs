@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 /// <summary>
-///     Represents the evaluated request permissions for a specific user and service type.
+///     The evaluated request permissions for a specific user and service type.
 ///     Returned by the permission-checking endpoint to inform the frontend whether a
 ///     quality profile popup is necessary and which profiles are available.
 /// </summary>

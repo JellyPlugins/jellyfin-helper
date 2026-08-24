@@ -1,7 +1,7 @@
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 /// <summary>
-///     Represents the interaction status of a user with a discovery recommendation.
+///     The interaction status of a user with a discovery recommendation.
 ///     Ordered by signal strength (weakest to strongest).
 /// </summary>
 public enum DiscoveryInteractionStatus

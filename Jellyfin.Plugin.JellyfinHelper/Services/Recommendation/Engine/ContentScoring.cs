@@ -15,15 +15,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 internal static class ContentScoring
 {
     /// <summary>
-    ///     Process-lifetime counter of parallel-array mismatches detected in
-    ///     <see cref="ComputeContentNearestNeighborScore"/>. Exposed so unit tests and any
-    ///     future diagnostics endpoint can observe silent degradations that Debug.Assert
-    ///     alone would only surface in Debug builds.
+    ///     Process-lifetime counter of parallel-array mismatches in
+    ///     <see cref="ComputeContentNearestNeighborScore"/>. Exposed so tests/diagnostics can observe
+    ///     silent degradations that Debug.Assert only surfaces in Debug builds.
     ///     <para>
-    ///         Incremented atomically. First non-zero value also emits a one-shot
-    ///         <see cref="Trace.TraceWarning(string)"/> so the mismatch appears in the .NET
-    ///         trace listener chain even in Release builds - a plain Debug.Assert would be
-    ///         a no-op there and the fail-safe degradation would go completely unnoticed.
+    ///         Incremented atomically; the first non-zero value emits a one-shot
+    ///         <see cref="Trace.TraceWarning(string)"/> so the mismatch reaches the .NET trace listener
+    ///         chain in Release too (Debug.Assert is a no-op there, hiding the degradation).
     ///     </para>
     /// </summary>
     private static long _parallelArrayMismatchCount;
@@ -301,24 +299,18 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        // Parallel-array invariant: all three lists MUST have the same length because they
-        // are populated in the same loop in Engine.GenerateForUser() and the training data
-        // builders. A mismatch is always a bug - but throwing here would abort an entire
-        // training run for a single misconfigured user, and the neural pipeline would then
-        // have no updated weights at all until a maintainer intervenes.
+        // Parallel-array invariant: all three lists MUST be the same length, since they are
+        // populated in the same loop in Engine.GenerateForUser() and the training-data builders.
+        // A mismatch is always a bug, but throwing would abort a whole training run for one
+        // misconfigured user, leaving the neural pipeline with no updated weights.
         //
-        // Fail-safe degradation: iterate the full genre list (the primary signal, 50% weight)
-        // and treat missing entries in the people / studio lists as unavailable rather than
-        // dropping the whole watched item. Release builds keep contributing the genre signal
-        // so a stray refactor cannot bring the whole scheduled task down or silently discard
-        // half the training signal.
+        // Fail-safe degradation: iterate the full genre list (primary signal, 50% weight) and
+        // treat missing people/studio entries as unavailable rather than dropping the watched
+        // item, so a stray refactor cannot bring down the task or silently discard half the signal.
         //
-        // Production visibility: Debug.Assert surfaces the bug in Debug builds / unit tests
-        // but compiles away in Release. To keep the failure observable there too, we also
-        // increment a static counter (queryable via ParallelArrayMismatchCount for tests and
-        // future diagnostics hooks) and emit a single Trace.TraceWarning on the FIRST
-        // mismatch - subsequent calls stay cheap while operators still get one observable
-        // log entry through the standard .NET trace listener chain.
+        // Production visibility: Debug.Assert catches this in Debug/tests but compiles away in
+        // Release, so also increment a static counter (queryable via ParallelArrayMismatchCount)
+        // and emit a single Trace.TraceWarning on the FIRST mismatch; later calls stay cheap.
         var mismatch = watchedGenreSets.Count != watchedPeopleSets.Count
             || watchedGenreSets.Count != watchedStudioSets.Count;
         Debug.Assert(

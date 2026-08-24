@@ -37,7 +37,7 @@ public sealed class UserDiscoveryController : ControllerBase
     private static readonly object RateLimitGate = new();
 
     // Generation counter folded into every rate-limit cache key. ClearRateLimitState() bumps it
-    // (under RateLimitGate) so all keys minted by a previous plugin load become unreachable — an
+    // (under RateLimitGate) so all keys minted by a previous plugin load become unreachable: an
     // instant logical reset even when the IMemoryCache instance survives a reload, without waiting
     // for the per-entry TTL to expire (which would otherwise leave a user seeing stale 429s).
     private static long _rateLimitGeneration;
@@ -542,7 +542,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Resets all per-user rate-limit state. Called from <see cref="Plugin"/>'s constructor on
     ///     every plugin load and from <see cref="Plugin.OnUninstalling"/> so stale entries from a
-    ///     previous plugin load do not leak into a subsequent reload (finding #313/#77/#117).
+    ///     previous plugin load do not leak into a subsequent reload.
     ///     <para>
     ///         Rate-limit entries live in an <see cref="IMemoryCache"/> that may outlive a plugin
     ///         reload. Rather than enumerate and evict keys, we bump a generation counter that is

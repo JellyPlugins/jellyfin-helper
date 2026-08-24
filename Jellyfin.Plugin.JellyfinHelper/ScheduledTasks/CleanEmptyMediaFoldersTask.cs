@@ -135,7 +135,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                // Symlink guard: NEVER traverse into — or delete — a top-level reparse point
+                // Symlink guard: NEVER traverse into, or delete, a top-level reparse point
                 // (symlink/junction). Its target may hold live media (Radarr/Sonarr commonly place
                 // symlinked media folders directly under a library root), and this task has no
                 // orphan evidence for an entry it did not analyze. Deleting the link node on age
@@ -175,7 +175,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
                 // If any subtree was hidden behind a symlink/junction (or an unreadable subdir),
                 // the orphan verdict is unproven: video files could live behind that link. Never
-                // delete such a folder — a false orphan here would destroy real media.
+                // delete such a folder. A false orphan here would destroy real media.
                 if (hasUnresolvedLink)
                 {
                     PluginLog.LogWarning(
@@ -311,7 +311,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // The files of this directory were not analyzed, so the orphan verdict for the
-                // enclosing tree is unproven — a video could live in the subtree we failed to read.
+                // enclosing tree is unproven (a video could live in the subtree we failed to read).
                 // Fail closed: flag the tree so ProcessLocation suppresses deletion.
                 hasUnresolvedLink = true;
                 PluginLog.LogWarning(TaskName, $"Could not list files in: {current}", ex, Logger);
@@ -322,7 +322,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             {
                 // A directory symlink can surface as a FILE entry on some mounts (e.g. Docker
                 // Desktop for Windows bind mounts) rather than as a subdirectory. Such an entry
-                // hides a subtree we did not analyze, so the orphan verdict is unproven — flag it
+                // hides a subtree we did not analyze, so the orphan verdict is unproven. Flag it
                 // and never let it contribute to the file/extension classification (following the
                 // link to read a size or an extension would defeat the guard). The directory-classified
                 // case is handled by the reparse-point check in the subdirectory loop below.
@@ -354,7 +354,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 {
                     // Return 0 bytes: the caller only uses treeBytes in the hard-delete branch,
                     // which never runs when hasVideoFiles==true. HasUnresolvedLink is irrelevant
-                    // here — a video file means the folder is kept regardless.
+                    // here. A video file means the folder is kept regardless.
                     return (true, true, hasAudioFiles, true, 0, false);
                 }
 
@@ -396,7 +396,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // Could not determine — treat as an unresolved link so the caller does not
+                    // Could not determine, so treat as an unresolved link so the caller does not
                     // delete a folder whose subtree we failed to inspect.
                     hasUnresolvedLink = true;
                     PluginLog.LogWarning(

@@ -360,7 +360,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             // Resolve BOTH paths to their canonical physical form before comparing. Assembly.Location
             // (and PluginsPath) can contain symlink/junction components, and Path.GetFullPath does NOT
-            // resolve reparse points — so a symlinked assembly whose physical file lives OUTSIDE the
+            // resolve reparse points, so a symlinked assembly whose physical file lives OUTSIDE the
             // plugins tree could otherwise pass the string prefix check. Resolving the real path closes
             // that escape. If resolution fails we fail closed (do not register).
             string normalizedLocation;
@@ -488,7 +488,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///     junctions on the final component as well as every ancestor directory.
     ///     <para>
     ///         <see cref="Path.GetFullPath(string)" /> only normalizes <c>.</c>/<c>..</c> and
-    ///         separators — it does NOT resolve reparse points. Relying on it alone would let an
+    ///         separators. It does NOT resolve reparse points. Relying on it alone would let an
     ///         assembly whose physical file lives outside the plugins tree, but is reached through a
     ///         symlink inside it (or vice versa), slip past a string prefix check. Resolving the
     ///         parent chain first and then the leaf collapses every link so the returned path
@@ -504,7 +504,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var parent = Path.GetDirectoryName(full);
         if (string.IsNullOrEmpty(parent))
         {
-            // Root component (e.g. "C:\" or "/") — nothing above it to resolve.
+            // Root component (e.g. "C:\" or "/"), nothing above it to resolve.
             return full;
         }
 

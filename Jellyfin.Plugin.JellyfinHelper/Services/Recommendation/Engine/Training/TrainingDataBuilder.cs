@@ -388,7 +388,7 @@ internal static class TrainingDataBuilder
                 // Engine.ScoreCandidate now writes a constant 0.0 for this channel because the
                 // watchedSeriesIds filter upstream removes any series with meaningful interaction
                 // from the candidate pool before scoring. Emitting a non-zero value here would
-                // reintroduce the train/serve skew Option A of Finding #3 was designed to close.
+                // reintroduce train/serve skew: training would see a boost the inference path never emits.
                 const double seriesProgressionBoost = 0.0;
 
                 // Compute PeopleSimilarity from cached data using the weighted overload

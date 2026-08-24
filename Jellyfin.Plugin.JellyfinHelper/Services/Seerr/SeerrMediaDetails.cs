@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 
 /// <summary>
-///     Represents the response from the Seerr movie or TV detail endpoint.
+///     The response from the Seerr movie or TV detail endpoint.
 ///     Movies use the "title" field, TV shows use the "name" field.
 /// </summary>
 internal sealed class SeerrMediaDetails

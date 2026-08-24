@@ -9,7 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 
 /// <summary>
-///     Provides comprehensive validation for backup data, checking for malicious content,
+///     Validates backup data, checking for malicious content,
 ///     out-of-range values, and structural integrity.
 /// </summary>
 public static class BackupValidator
@@ -95,7 +95,7 @@ public static class BackupValidator
 
     // Regex to detect script injection in string fields. Covers the common HTML/script
     // vectors plus the two dangerous URL schemes (data:text/html and vbscript:) that the
-    // earlier pattern missed. Homoglyph/obfuscation variants are out of scope for a denylist —
+    // earlier pattern missed. Homoglyph/obfuscation variants are out of scope for a denylist;
     // the real defense is that these config values are never rendered as raw HTML server-side
     // and are HTML-encoded on display; this pattern is defense-in-depth on stored input.
     private static readonly Regex ScriptPattern = new(
@@ -104,7 +104,7 @@ public static class BackupValidator
         TimeSpan.FromSeconds(1));
 
     /// <summary>
-    ///     Validates backup data comprehensively, checking for malicious content,
+    ///     Validates backup data, checking for malicious content,
     ///     out-of-range values, and structural integrity.
     /// </summary>
     /// <param name="backup">The backup data to validate.</param>

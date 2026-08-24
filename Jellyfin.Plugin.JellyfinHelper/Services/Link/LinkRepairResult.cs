@@ -4,7 +4,7 @@ using System.Linq;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
 /// <summary>
-/// Represents the overall result of a link repair run.
+/// Overall result of a link repair run.
 /// </summary>
 public class LinkRepairResult
 {

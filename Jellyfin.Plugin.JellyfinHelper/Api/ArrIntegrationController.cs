@@ -80,7 +80,7 @@ public class ArrIntegrationController : ControllerBase
         // NOT block loopback/private/link-local hosts here: Radarr/Sonarr almost always run on the
         // same host or LAN as Jellyfin (localhost:7878, 192.168.x.y), so an internal-IP block would
         // break the plugin's primary legitimate configuration. The endpoint is admin-only, does not
-        // follow redirects, caps the response size, and never reflects the response body — so the
+        // follow redirects, caps the response size, and never reflects the response body, so the
         // residual "internal reachability oracle" risk is low and accepted for a LAN-integration tool.
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl) ||
             (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))

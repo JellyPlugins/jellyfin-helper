@@ -1,7 +1,7 @@
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 
 /// <summary>
-///     Represents the result of a filesystem access check for a trash path.
+///     Result of a filesystem access check for a trash path.
 ///     Used to proactively verify read/write permissions before performing
 ///     trash operations (relocate, delete).
 /// </summary>

@@ -61,9 +61,8 @@ internal sealed class SimilarityComputer
     /// <returns>A dictionary mapping item IDs to their associated person name sets (case-insensitive).</returns>
     internal Dictionary<Guid, HashSet<string>> BuildCandidatePeopleLookup(List<BaseItem> candidates)
     {
-        // Fast path: attempt a single batch call to the library. On success, the
-        // returned dictionary already filters people-types server-side, so we only
-        // need to wrap each name list in a case-insensitive HashSet.
+        // Fast path: single batch call. Filters people-types server-side, so we only
+        // wrap each name list in a case-insensitive HashSet.
         var batchLookup = TryBuildPeopleLookupBatch(candidates);
         if (batchLookup is not null)
         {
@@ -74,9 +73,9 @@ internal sealed class SimilarityComputer
             return batchLookup;
         }
 
-        // Fallback path: per-item GetPeople with client-side type filtering.
-        // Kept identical to the pre-Jellyfin-12 behavior so that a single failing
-        // candidate cannot abort the entire lookup - only cancellation propagates.
+        // Fallback: per-item GetPeople with client-side type filtering. Kept identical to
+        // pre-Jellyfin-12 behavior so a single failing candidate cannot abort the lookup;
+        // only cancellation propagates.
         var lookup = BuildPeopleLookupPerItem(candidates);
         _pluginLog.LogDebug(
             "Recommendations",
@@ -135,10 +134,10 @@ internal sealed class SimilarityComputer
                 return lookup;
             },
             fallbackValue: null,
-            // Log at Warning via _pluginLog for parity with the sibling batch call sites
-            // (WatchHistoryService.TryLoadUserDataBatch and UserActivityInsightsService.BuildUserDataLookup).
-            // A raw _logger.LogDebug here would silently disappear at the default production
-            // log level, so an admin would never notice the batch API fell back to per-item.
+            // Log at Warning via _pluginLog for parity with sibling batch call sites
+            // (WatchHistoryService.TryLoadUserDataBatch, UserActivityInsightsService.BuildUserDataLookup).
+            // A raw _logger.LogDebug would vanish at the default production log level, so an
+            // admin would never notice the batch API fell back to per-item.
             onFailure: ex => _pluginLog.LogWarning(
                 "Recommendations",
                 "Batch people lookup via GetPeopleNamesByItems failed, falling back to per-item GetPeople.",
@@ -195,11 +194,10 @@ internal sealed class SimilarityComputer
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
-                // Graceful fallback: skip this candidate's people data rather than failing the entire lookup.
-                // Some item types or corrupted metadata may cause GetPeople to throw.
-                // OOM / stack overflow are excluded from the filter so they can propagate up as
-                // process-fatal errors instead of being silently absorbed here - matches the
-                // contract enforced centrally by BatchFallbackHelper for the batch path above.
+                // Fail-soft: skip this candidate's people rather than aborting the whole lookup
+                // (some item types / corrupted metadata make GetPeople throw). OOM / stack
+                // overflow are excluded from the filter so they propagate as process-fatal,
+                // matching BatchFallbackHelper's contract for the batch path above.
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     _logger.LogDebug(ex, "Failed to load people for candidate {ItemId}, skipping", candidate.Id);
@@ -311,12 +309,10 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Unknown-genre damping: when a candidate has genres the user has never watched,
-        // reduce the similarity proportionally. This prevents items that share some common
-        // genres (e.g. "Action") but also have unfamiliar genres (e.g. "Animation") from
-        // scoring as high as items where ALL genres are familiar.
-        // Factor 0.5 = moderate damping: "never watched" ≠ "dislikes", just less confident.
-        // Example: Anime ["Animation", "Action", "Drama"] for an Action/Drama user:
+        // Unknown-genre damping: reduce similarity proportionally when a candidate has genres
+        // the user has never watched, so items mixing familiar and unfamiliar genres don't score
+        // as high as fully-familiar ones. Factor 0.5 = moderate: "never watched" ≠ "dislikes".
+        // Example: Anime ["Animation","Action","Drama"] for an Action/Drama user:
         //   unknownFraction = 1/3, damping = 1 - 0.33 * 0.5 = 0.835 → ~17% reduction.
         if (unknownGenreCount == 0)
         {
@@ -370,10 +366,9 @@ internal sealed class SimilarityComputer
 
     /// <summary>
     ///     Weighted variant of <see cref="ComputePeopleSimilarity(HashSet{string}, HashSet{string})"/>
-    ///     that scores candidates based on how much of the user's <b>weight mass</b> they carry,
-    ///     rather than raw set membership. Used at inference by
-    ///     <c>Engine.ScoreCandidate</c> and consistently across all training phases in
-    ///     <c>TrainingDataBuilder</c> so the ML feature has identical semantics on both sides.
+    ///     that scores candidates by how much of the user's <b>weight mass</b> they carry rather than
+    ///     raw set membership. Used at inference by <c>Engine.ScoreCandidate</c> and across all training
+    ///     phases in <c>TrainingDataBuilder</c> so the ML feature is identical on both sides.
     ///     <para>
     ///         <b>Active formula</b> (top-K weighted-budget, clamped [0, 1]):
     ///         <code>
@@ -383,34 +378,29 @@ internal sealed class SimilarityComputer
     ///                          0, 1 )
     ///         </code>
     ///         where <c>avg(topK(preferredWeight))</c> is the mean of the <see
-    ///         cref="EngineConstants.WeightedPeopleSimilarityTopK"/> largest positive weights (the
-    ///         full positive set when the user has fewer positive entries than <c>K</c>). Averaging
-    ///         only the heavy hitters keeps the denominator anchored to the collaborators who
-    ///         actually drive the user's preference structure - averaging over the full positive
-    ///         set would let two heavy-hitter matches saturate the score at 1.0 on 100-person
-    ///         profiles dominated by one-off cameos. The floor guards two additional failure modes
-    ///         (sparse-user overshoot and empty-preferred short-circuit stability) - see the floor
-    ///         constant's XML doc for the full rationale.
+    ///         cref="EngineConstants.WeightedPeopleSimilarityTopK"/> largest positive weights (the full
+    ///         positive set if fewer than <c>K</c> exist). Averaging only the heavy hitters anchors the
+    ///         denominator to the collaborators driving the user's preferences; averaging the full set
+    ///         would let two heavy matches saturate to 1.0 on 100-person profiles full of one-off cameos.
+    ///         The floor guards sparse-user overshoot and empty-preferred stability (see the floor
+    ///         constant's XML doc).
     ///     </para>
     ///     <para>
-    ///         <b>Intuition</b>: the candidate-budget <c>|candidate| × avg</c> is the expected matched
-    ///         weight if the candidate's cast were composed entirely of "average preferred" people.
-    ///         A candidate that delivers exactly that budget scores 1.0; delivering less scores
-    ///         proportionally lower. The monotone ordering (more matched weight → strictly higher
-    ///         score, up to the clamp) is what the downstream neural ranking head needs to learn
-    ///         person-similarity as a meaningful signal.
+    ///         <b>Intuition</b>: <c>|candidate| × avg</c> is the expected matched weight if the cast were
+    ///         all "average preferred" people. Delivering exactly that scores 1.0; less scores lower. The
+    ///         monotone ordering (more matched weight → strictly higher score, up to the clamp) is what the
+    ///         downstream neural ranking head needs.
     ///     </para>
     ///     <para>
-    ///         <b>Design history</b>: an earlier iteration used the naive
-    ///         <c>matchedWeight / min(|candidate|, totalPreferredWeight)</c>. That formula
-    ///         (a) collapsed all rich-profile candidates to 1.0 as soon as matched-weight exceeded
-    ///         |candidate| (ceiling-compression) and (b) let a single heavy-weight match on a sparse
-    ///         profile lift the score all the way to 1.0 (sparse-user overshoot). The weighted-budget
-    ///         formula addresses both, with explicit regression tests in <c>SimilarityComputerTests</c>.
+    ///         <b>Design history</b>: an earlier <c>matchedWeight / min(|candidate|, totalPreferredWeight)</c>
+    ///         (a) collapsed rich-profile candidates to 1.0 once matched-weight exceeded |candidate|
+    ///         (ceiling-compression) and (b) let one heavy-weight match on a sparse profile hit 1.0
+    ///         (sparse-user overshoot). The weighted-budget formula fixes both; see regression tests in
+    ///         <c>SimilarityComputerTests</c>.
     ///     </para>
     ///     <para>
     ///         Empty-input contract mirrors <see cref="ComputePeopleSimilarity(HashSet{string},HashSet{string})"/>:
-    ///         zero on either empty candidate or empty weights, so train/serve parity is preserved.
+    ///         zero on empty candidate or empty weights, preserving train/serve parity.
     ///     </para>
     /// </summary>
     /// <param name="candidatePeople">The candidate item's person names.</param>
@@ -429,9 +419,9 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Delegates to the precomputed-context overload so the sorting cost is only paid once
-        // when a caller adopts the batched path. This overload keeps the eager compute for
-        // legacy call sites and unit tests that pass raw dictionaries.
+        // Delegates to the precomputed-context overload so the sort cost is paid once on the
+        // batched path. This overload keeps the eager compute for legacy call sites and unit
+        // tests that pass raw dictionaries.
         var averagePreferredWeight = ComputeAveragePreferredWeight(preferredPeopleWeights);
         return ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights, averagePreferredWeight);
     }
@@ -512,11 +502,9 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Iterate the (typically small) candidate cast rather than the full preference
-        // map: a movie has O(10) people while a user's preference map can hold hundreds
-        // of names. Both HashSet.Contains and Dictionary.TryGetValue are O(1), so
-        // iterating the smaller collection cuts this hot-path loop by an order of
-        // magnitude on realistic data.
+        // Iterate the (typically small) candidate cast rather than the full preference map:
+        // a movie has O(10) people, a user's map can hold hundreds. Both lookups are O(1),
+        // so iterating the smaller collection cuts this hot-path loop by an order of magnitude.
         var matchedWeight = 0.0;
         foreach (var name in candidatePeople)
         {

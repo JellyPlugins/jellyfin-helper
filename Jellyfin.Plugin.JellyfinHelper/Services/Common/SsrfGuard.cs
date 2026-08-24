@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 ///     commonly run on the same host or LAN as Jellyfin, so a private-range block would break the
 ///     plugin's primary legitimate configuration. This guard is enforced centrally so every code path
 ///     (controller endpoints AND the configuration-save path that calls the services directly) is
-///     covered — a per-controller check alone could be bypassed via the service layer.
+///     covered. A per-controller check alone could be bypassed via the service layer.
 ///     </para>
 /// </summary>
 internal static class SsrfGuard
@@ -95,9 +95,9 @@ internal static class SsrfGuard
     ///     (e.g. <c>https://user:password@host</c>); reflecting or logging the raw string would
     ///     leak the password. This returns only the scheme, host, and port
     ///     (<see cref="UriComponents.SchemeAndServer" />), dropping any user-info, path, query,
-    ///     and fragment. Only <c>http</c>/<c>https</c> endpoints are accepted; anything else —
-    ///     non-absolute input, a bare path (which <see cref="Uri" /> resolves to <c>file://</c> on
-    ///     Unix), or another scheme — falls back to a fixed placeholder so no raw credential-bearing
+    ///     and fragment. Only <c>http</c>/<c>https</c> endpoints are accepted; anything else
+    ///     (non-absolute input, a bare path which <see cref="Uri" /> resolves to <c>file://</c> on
+    ///     Unix, or another scheme) falls back to a fixed placeholder so no raw credential-bearing
     ///     text is ever surfaced.
     /// </summary>
     /// <param name="url">The configured endpoint URL (may contain user-info credentials).</param>

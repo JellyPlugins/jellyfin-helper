@@ -6,7 +6,7 @@ using System.IO;
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
-///     Provides reusable, robust filesystem operations with proper error handling.
+///     Reusable filesystem operations with error handling.
 ///     All methods gracefully handle <see cref="IOException" /> and <see cref="UnauthorizedAccessException" />
 ///     by skipping silently (best-effort), ensuring that inaccessible directories never crash the caller.
 /// </summary>

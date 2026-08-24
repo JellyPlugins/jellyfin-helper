@@ -177,7 +177,7 @@ public class TrashController : ControllerBase
                 // path (or one of its ancestors) could be swapped for a symlink/junction pointing
                 // at a real media library, redirecting the recursive delete into that tree. .NET's
                 // Directory.Delete removes a FINAL symlink node itself rather than following it, but
-                // a symlinked ANCESTOR still redirects traversal — so we re-stat this path AND every
+                // a symlinked ANCESTOR still redirects traversal, so we re-stat this path AND every
                 // ancestor immediately before deleting and refuse if any is a reparse point. This
                 // narrows, but cannot fully close, the race (a pathname-based check is not an atomic
                 // binding), and is the safest option available without handle-relative syscalls.
@@ -609,7 +609,7 @@ public class TrashController : ControllerBase
     /// <summary>
     ///     Returns <see langword="true" /> if any ANCESTOR directory of <paramref name="path" /> is a
     ///     reparse point (symlink/junction). A symlinked ancestor would let a subsequent
-    ///     <c>Directory.Delete(path, recursive)</c> traverse into the link's real target — so callers
+    ///     <c>Directory.Delete(path, recursive)</c> traverse into the link's real target, so callers
     ///     must refuse deletion when this returns true. Walks parents up to the filesystem root; a
     ///     missing/inaccessible ancestor (which cannot be proven not to be a reparse point) is treated
     ///     as "assume reparse point" (fail closed).
@@ -642,7 +642,7 @@ public class TrashController : ControllerBase
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Cannot verify this ancestor — fail closed rather than risk a redirected delete.
+                // Cannot verify this ancestor: fail closed rather than risk a redirected delete.
                 return true;
             }
 

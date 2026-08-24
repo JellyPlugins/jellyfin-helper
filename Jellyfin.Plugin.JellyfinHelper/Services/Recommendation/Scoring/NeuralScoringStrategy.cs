@@ -11,8 +11,8 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Neural network scoring strategy using a four-hidden-layer MLP (Multi-Layer Perceptron).
-///     Learns non-linear feature interactions from user watch history via backpropagation.
+///     Neural scoring strategy: a four-hidden-layer MLP that learns non-linear feature interactions
+///     from watch history via backpropagation.
 ///     <para>
 ///         Architecture:
 ///         <c>InputSize → 76 hidden₁ (ReLU) → 96 hidden₂ (ReLU) → 48 hidden₃ (ReLU) →
@@ -20,32 +20,26 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     </para>
 ///     <para>
 ///         Parameter count with 38 inputs:
-///         <c>(38·76 + 76) + (76·96 + 96) + (96·48 + 48) + (48·24 + 24) + (24·1 + 1) = 16 213</c>
-///         parameters. Hidden₁ = 76 keeps the first-layer expansion factor at ~2.0× (76/38), the
-///         best-practice ratio for tabular MLPs; the wider second layer (96 &gt; 76) preserves the
-///         trapezoid shape without an early bottleneck. Hidden₂/₃/₄ depend on the prior layer, not
-///         on InputSize, and are sized to avoid over-parameterising the net for the small
-///         watch-history datasets it typically trains on.
+///         <c>(38·76 + 76) + (76·96 + 96) + (96·48 + 48) + (48·24 + 24) + (24·1 + 1) = 16 213</c>.
+///         Hidden₁ = 76 keeps the first-layer expansion at ~2.0× (best-practice for tabular MLPs);
+///         the wider hidden₂ = 96 avoids an early bottleneck. Hidden₂/₃/₄ depend on the prior layer,
+///         not InputSize, and are sized to avoid over-parameterising for small watch-history datasets.
 ///     </para>
 ///     <para>
-///         Bernoulli dropout (keep-p = <see cref="DropoutKeepProbability"/>) is
-///         applied to hidden-layer activations DURING TRAINING only; inference is deterministic
-///         and dropout-free so recommendations are reproducible per weight set. Dropout scales
-///         the surviving activations by <c>1 / keep</c> (inverted dropout) so the layer's expected
-///         magnitude at train time matches the deterministic inference-time magnitude - this
-///         keeps L2 regularisation, weight clamping and the Xavier/He initialisation calibrated.
+///         Bernoulli dropout (keep-p = <see cref="DropoutKeepProbability"/>) applies to hidden
+///         activations DURING TRAINING only; inference is deterministic and dropout-free so
+///         recommendations are reproducible per weight set. Inverted dropout scales survivors by
+///         <c>1 / keep</c> so train-time expected magnitude matches inference, keeping L2, weight
+///         clamping and Xavier/He init calibrated.
 ///     </para>
-///     Optimized for NAS/Docker with limited hardware: zero-allocation scoring path,
-///     pre-allocated training buffers, ~14 k FP multiplications per score.
-///     No external ML dependencies - pure C# implementation.
+///     Optimized for NAS/Docker: zero-allocation scoring path, pre-allocated training buffers,
+///     ~14 k FP multiplications per score. No external ML dependencies.
 /// </summary>
 /// <remarks>
-///     Training uses Adam optimizer with L2 regularization, Z-score feature standardization,
-///     He/Xavier weight initialization, temporal sample weighting, dropout (v3 A2), and
-///     early stopping. Genre-mismatch penalties are NOT applied here - handled centrally
-///     by the ensemble layer. Weights are persisted to disk so they survive server restarts.
-///     A persisted weight set whose array lengths do not match the current architecture
-///     (38 inputs, Hidden1 = 76) is automatically discarded on load.
+///     Training uses Adam with L2 regularization, Z-score standardization, He/Xavier init, temporal
+///     sample weighting, dropout (v3 A2), and early stopping. Genre-mismatch penalties are applied
+///     centrally by the ensemble, not here. Weights persist to disk; a persisted set whose array
+///     lengths do not match the current architecture (38 inputs, Hidden1 = 76) is discarded on load.
 /// </remarks>
 public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
@@ -56,11 +50,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     internal const int Hidden1Size = 76;
 
     /// <summary>
-    ///     Number of neurons in the second hidden layer.
-    ///     96 - deliberately WIDER than Hidden1 so the model has capacity to compose
-    ///     high-order feature interactions (genre×critic, people×genre, etc.) rather than being
-    ///     forced through an early bottleneck. The trapezoid shape 76→96→48→24 mirrors classical
-    ///     tabular deep-learning topologies where the widest layer sits after the first projection.
+    ///     Neurons in the second hidden layer. 96, deliberately WIDER than Hidden1 so the model can
+    ///     compose high-order feature interactions (genre×critic, people×genre) instead of being forced
+    ///     through an early bottleneck. The 76→96→48→24 trapezoid mirrors classical tabular topologies.
     /// </summary>
     internal const int Hidden2Size = 96;
 
@@ -123,38 +115,30 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     internal const int MaxEpochsWithoutEarlyStopping = 20;
 
     /// <summary>
-    ///     Bernoulli dropout keep-probability applied to hidden-layer activations
-    ///     during training. A value of 0.8 corresponds to a 20 % drop rate, which is a well-known
-    ///     mid-range choice for small tabular MLPs; smaller networks like ours (a few thousand
-    ///     parameters) prefer light regularization to preserve capacity, while larger nets can
-    ///     go to 0.5. Applied ONLY during <see cref="Train(IReadOnlyList{TrainingExample})"/>; inference (<see cref="Score"/> /
-    ///     <see cref="ScoreVector"/> / <see cref="ScoreWithExplanation"/>) uses the deterministic
-    ///     no-dropout forward pass so recommendations are reproducible for a given weight set.
-    ///     Values ≥ 1.0 disable dropout entirely (useful for tests).
+    ///     Bernoulli dropout keep-probability for hidden activations during training. 0.8 (20% drop) is
+    ///     a mid-range choice for small tabular MLPs; small nets prefer light regularization to preserve
+    ///     capacity. Applied ONLY during <see cref="Train(IReadOnlyList{TrainingExample})"/>; inference
+    ///     (<see cref="Score"/> / <see cref="ScoreVector"/> / <see cref="ScoreWithExplanation"/>) is
+    ///     deterministic and dropout-free. Values ≥ 1.0 disable dropout (useful for tests).
     /// </summary>
     internal const double DropoutKeepProbability = 0.8;
 
     /// <summary>
-    ///     Minimum number of training examples below which dropout is disabled.
-    ///     With very small datasets, dropout can starve gradients on individual samples and
-    ///     make convergence unreliable; L2 + early-stopping already provide enough regularization
-    ///     in that regime. Only above this threshold does dropout meaningfully help generalization.
+    ///     Minimum training examples below which dropout is disabled. On tiny datasets dropout starves
+    ///     per-sample gradients and hurts convergence; L2 + early-stopping already regularize enough there.
     /// </summary>
     internal const int MinExamplesForDropout = 30;
 
     /// <summary>
-    ///     Schema version for persisted weights.
-    ///     A persisted weight set whose array lengths no longer match the current layer sizes
-    ///     (e.g. after a feature-count or hidden-size change) is silently discarded on load: the
-    ///     load path emits a warning and resets to defaults so the next training run rebuilds
-    ///     from scratch.
+    ///     Schema version for persisted weights. A set whose array lengths no longer match the current
+    ///     layer sizes (feature-count or hidden-size change) is discarded on load: the load path warns
+    ///     and resets to defaults so the next training run rebuilds from scratch.
     /// </summary>
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>
-    ///     JSON serializer options for weight persistence.
-    ///     Compact (non-indented) output cuts the file to roughly a third of the indented form
-    ///     with no loss of information. Weights are machine-read only, so indentation adds no value.
+    ///     JSON options for weight persistence. Compact (non-indented) output cuts the file to ~a third
+    ///     with no information loss; weights are machine-read only.
     /// </summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 
@@ -416,8 +400,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             return 0.5;
         }
 
-        // Reuse a thread-local input buffer to avoid a heap allocation per scored candidate.
-        // WriteToVector fully overwrites every element so no stale data can leak between calls.
+        // Reuse a thread-local input buffer to avoid a heap allocation per candidate. WriteToVector
+        // fully overwrites every element, so no stale data leaks between calls.
         _tlsInput ??= new double[CandidateFeatures.FeatureCount];
         var vector = _tlsInput;
         features.WriteToVector(vector);
@@ -431,8 +415,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _tlsH4Pre ??= new double[Hidden4Size];
         _tlsH4Act ??= new double[Hidden4Size];
 
-        // Clear scratch buffers before each use so stale data from a previous invocation on
-        // this thread cannot bleed into the current forward pass (finding #152).
+        // Clear scratch buffers so stale data from a previous invocation on this thread cannot bleed
+        // into the current forward pass.
         Array.Clear(_tlsH1Pre, 0, _tlsH1Pre.Length);
         Array.Clear(_tlsH1Act, 0, _tlsH1Act.Length);
         Array.Clear(_tlsH2Pre, 0, _tlsH2Pre.Length);
@@ -488,15 +472,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <summary>
-    ///     Scores a raw feature vector directly without CandidateFeatures allocation.
-    ///     Used internally by <see cref="NeuralFeatureImportance"/> for permutation importance
-    ///     computation where features are manipulated as raw arrays.
-    ///     Applies Z-score standardization and full forward pass identically to <see cref="Score"/>.
+    ///     Scores a raw feature vector directly without CandidateFeatures allocation. Used by
+    ///     <see cref="NeuralFeatureImportance"/> for permutation importance where features are raw
+    ///     arrays. Applies Z-score standardization and the full forward pass identically to <see cref="Score"/>.
     /// </summary>
     /// <param name="vector">
     ///     A pre-computed feature vector of length <see cref="CandidateFeatures.FeatureCount"/>.
-    ///     WARNING: This array is mutated in-place when standardization is active.
-    ///     Callers must pass a disposable copy if the original must be preserved.
+    ///     WARNING: mutated in-place when standardization is active; pass a copy to preserve the original.
     /// </param>
     /// <returns>A score between 0.0 and 1.0.</returns>
     internal double ScoreVector(double[] vector)
@@ -515,8 +497,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _tlsH4Pre ??= new double[Hidden4Size];
         _tlsH4Act ??= new double[Hidden4Size];
 
-        // Clear scratch buffers before each use so stale data from a previous invocation on
-        // this thread cannot bleed into the current forward pass (finding #152).
+        // Clear scratch buffers so stale data from a previous invocation on this thread cannot bleed
+        // into the current forward pass.
         Array.Clear(_tlsH1Pre, 0, _tlsH1Pre.Length);
         Array.Clear(_tlsH1Act, 0, _tlsH1Act.Length);
         Array.Clear(_tlsH2Pre, 0, _tlsH2Pre.Length);
@@ -573,10 +555,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <inheritdoc />
     /// <remarks>
-    ///     This method performs full input-gradient attribution through all four hidden layers,
-    ///     with O(H4·H3·H2·H1·InputSize) computational complexity. It is designed for single-item
-    ///     explanation only (e.g., inspecting why a specific recommendation was made) and should
-    ///     NOT be called in batch over all candidates. Use <see cref="Score"/> for batch scoring.
+    ///     Full input-gradient attribution through all four hidden layers,
+    ///     O(H4·H3·H2·H1·InputSize). For single-item explanation only (why a specific recommendation
+    ///     was made); do NOT call in batch. Use <see cref="Score"/> for batch scoring.
     /// </remarks>
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
@@ -766,9 +747,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var referenceTime = DateTime.UtcNow;
         var inputSize = CandidateFeatures.FeatureCount;
 
-        // Pre-compute all feature vectors as RAW (unstandardized) source of truth.
-        // Standardization is deferred until after the train/val split so that
-        // statistics are computed from the training split only (no data leakage).
+        // Pre-compute all feature vectors as RAW (unstandardized) source of truth. Standardization is
+        // deferred until after the train/val split so stats come from the training split only (no leakage).
         var rawVectors = new double[examples.Count][];
         var weights = new double[examples.Count];
 
@@ -871,31 +851,21 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h3Err = new double[Hidden3Size];
             var h4Err = new double[Hidden4Size];
 
-            // Bernoulli dropout masks (1 = keep, 0 = drop).
-            // Kept as double so surviving neurons can be rescaled by 1/keep in-place
-            // (inverted-dropout convention: train-time activations have the same expected
-            // magnitude as inference-time activations, so no train/serve scale mismatch).
-            //
-            // Dropout is disabled altogether when:
-            //   * examples.Count < MinExamplesForDropout  (too few samples - gradients would starve), OR
-            //   * DropoutKeepProbability >= 1.0            (explicit opt-out for tests / diagnostics).
-            //
-            // The mask arrays are allocated unconditionally so the backprop code can read them
-            // without null-guards; when dropout is inactive they are simply filled with 1.0
-            // per-sample and act as an identity multiplier.
+            // Bernoulli dropout masks (1 = keep, 0 = drop), kept as double so survivors rescale by
+            // 1/keep in-place (inverted-dropout: train-time activations match inference magnitude).
+            // Dropout is disabled when examples.Count < MinExamplesForDropout (gradients would starve)
+            // or DropoutKeepProbability >= 1.0 (test opt-out). Masks are always allocated so backprop
+            // reads them without null-guards; when inactive they are filled with 1.0 (identity).
             var h1Mask = new double[Hidden1Size];
             var h2Mask = new double[Hidden2Size];
             var h3Mask = new double[Hidden3Size];
             var h4Mask = new double[Hidden4Size];
-            // Gate on the actual training-split size, not on examples.Count. The validation
-            // slice is held out so its rows do not receive gradient updates; counting them
-            // toward MinExamplesForDropout would activate dropout on training splits below
-            // the documented starvation threshold.
+            // Gate on the training-split size, not examples.Count: the held-out validation slice gets
+            // no gradient updates, so counting it would activate dropout below the starvation threshold.
             var dropoutActive = trainIdx.Length >= MinExamplesForDropout;
-            // Dedicated RNG for the dropout draw so the shuffle-RNG's determinism (seeded by
-            // gen) is preserved for reviewers who need reproducible shuffle order
-            // when debugging. Both RNGs are seeded off the same generation counter so an entire
-            // training run is deterministic given the persisted _trainingGeneration.
+            // Dedicated RNG for the dropout draw so the shuffle-RNG's determinism (seeded by gen) is
+            // preserved. Both are seeded off the same generation counter so a run is deterministic
+            // given the persisted _trainingGeneration.
             var dropoutRng = new Random(1337 + gen);
             var dropoutInvKeep = dropoutActive ? 1.0 / DropoutKeepProbability : 1.0;
 
@@ -921,12 +891,11 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
                     var vec = vectors[idx];
 
-                    // Dropout is applied by RE-RUNNING each hidden layer's
-                    // activation through a Bernoulli mask, WITHOUT going back through the
-                    // (deterministic, dropout-free) ForwardPass. This keeps ForwardPass the
-                    // single source of truth for inference and avoids a second code path
-                    // that could drift over time. The masks + rescaled activations feed the
-                    // subsequent layer as if that neuron were absent for this training step.
+                    // Dropout is applied by RE-RUNNING each hidden layer's activation through a
+                    // Bernoulli mask, WITHOUT going through the (deterministic, dropout-free) ForwardPass.
+                    // This keeps ForwardPass the single source of truth for inference and avoids a second
+                    // code path that could drift. Masked+rescaled activations feed the next layer as if
+                    // the neuron were absent for this step.
                     var pred = ForwardPassTraining(
                         vec,
                         _weightsIH,
@@ -962,26 +931,20 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     var bc2 = 1.0 - Math.Pow(AdamBeta2, _adamTimestep);
 
                     // === Compute ALL error signals BEFORE updating any weights ===
-                    // Correct backpropagation requires using the forward-pass weights
-                    // for error computation. Updating weights first would skew gradients.
+                    // Correct backprop uses the forward-pass weights for error computation; updating
+                    // weights first would skew gradients.
                     //
-                    // A2 dropout note: a neuron k with mask[k] == 0 was zeroed out in the
-                    // forward pass and therefore produced no output; its error signal must
-                    // be zero (no gradient flow) and, symmetrically, the downstream layer's
-                    // weight-update contribution from that neuron is naturally zero because
-                    // its activation was zero. The mask check duplicates the pre>0 check
-                    // for clarity; both are cheap.
+                    // A2 dropout: a neuron with mask == 0 produced no output, so its error signal is
+                    // zero (no gradient flow) and the downstream weight-update from it is zero too
+                    // (activation was zero). The mask check duplicates the pre>0 check for clarity.
 
-                    // Hidden4 layer error (backprop through ReLU + inverted-dropout scale).
-                    // With inverted dropout the forward activation is a = mask · relu(pre) · invKeep,
-                    // so ∂a/∂pre = invKeep for a kept neuron. The error w.r.t. pre-activation is
-                    // therefore δ_pre = δ_a · invKeep. We fold that invKeep in HERE, once per layer,
-                    // so every consumer of hNErr (the inter-layer propagation below AND the weight/
-                    // bias gradients further down, which pair hNErr with the *upstream* activation)
-                    // sees the correct δ_pre. The downstream activation used by the output-layer
-                    // update (h4Act) carries its own invKeep independently - no double counting.
-                    // When dropout is inactive dropoutInvKeep == 1.0, so this is an exact no-op and
-                    // the dropout-off numerics stay bit-identical.
+                    // Hidden4 error (backprop through ReLU + inverted-dropout scale). With inverted
+                    // dropout a = mask · relu(pre) · invKeep, so ∂a/∂pre = invKeep for a kept neuron and
+                    // δ_pre = δ_a · invKeep. Folding invKeep in HERE, once per layer, means every consumer
+                    // of hNErr (inter-layer propagation below AND the weight/bias gradients, which pair
+                    // hNErr with the upstream activation) sees the correct δ_pre. The downstream activation
+                    // for the output-layer update (h4Act) carries its own invKeep independently (no double
+                    // count). When dropout is inactive invKeep == 1.0, so this is an exact no-op.
                     for (var k = 0; k < Hidden4Size; k++)
                     {
                         h4Err[k] = (h4Pre[k] > 0 && h4Mask[k] > 0)
@@ -989,9 +952,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             : 0.0;
                     }
 
-                    // Hidden3 layer error (backprop through ReLU + inverted-dropout scale from hidden4).
-                    // h4Err already holds δ_pre for hidden4, so summing it against the weights yields
-                    // δ_a for hidden3; multiplying by dropoutInvKeep converts that to δ_pre for hidden3.
+                    // Hidden3 error (backprop through ReLU + inverted-dropout scale from hidden4).
+                    // h4Err holds δ_pre for hidden4, so summing against the weights yields δ_a for
+                    // hidden3; multiplying by invKeep converts that to δ_pre.
                     for (var k = 0; k < Hidden3Size; k++)
                     {
                         if (h3Pre[k] <= 0 || h3Mask[k] == 0.0)
@@ -1206,11 +1169,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 }
             }
 
-            // Always restore the best weights if early stopping ever observed an improvement,
-            // otherwise the reported _lastValidationLoss won't match the persisted model.
-            // The restore inside the patience >= EarlyStoppingPatience branch only fires on
-            // early-stop break; when training runs to maxEpochs the last-epoch weights may
-            // differ from the best-observed weights.
+            // Restore the best weights whenever early stopping observed an improvement, otherwise the
+            // reported _lastValidationLoss won't match the persisted model. The restore in the
+            // patience-break branch only fires on early stop; running to maxEpochs may leave the
+            // last-epoch weights differing from the best-observed.
             if (useEarlyStopping && bestLoss < double.MaxValue)
             {
                 Array.Copy(bestWIH, _weightsIH, _weightsIH.Length);
@@ -1225,38 +1187,22 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _biasOutput = bestBO;
             }
 
-            // Use the early-stopping validation loss as the generalization estimate when
-            // available - it was computed on a held-out split that the model never trained on,
-            // making it a genuine out-of-sample loss.
-            //
-            // Three cases matter for the ensemble quality gate downstream:
-            //   1. useEarlyStopping = false            → truly no validation signal (dataset
-            //                                            too small to reserve a val split).
-            //                                            NaN maps to qualityFactor = 0.5 in
-            //                                            EnsembleScoringStrategy, i.e. half
-            //                                            progression. This is intentional
-            //                                            cold-start behaviour.
-            //   2. useEarlyStopping = true, bestLoss   → healthy training run. Report bestLoss;
-            //      < double.MaxValue                     the ensemble evaluates it against the
-            //                                            validation-loss threshold.
-            //   3. useEarlyStopping = true, bestLoss   → training ran full length but no epoch
-            //      == double.MaxValue                    ever produced an improved validation
-            //                                            loss. The model is actively degrading
-            //                                            (or the initial random weights already
-            //                                            beat every SGD step). Previously this
-            //                                            case also fell back to NaN, hiding a
-            //                                            degrading model behind the same 0.5
-            //                                            factor as the harmless cold-start
-            //                                            case. Now it reports the ceiling
-            //                                            (2× threshold) so the ensemble's
-            //                                            soft-damping formula naturally rolls
-            //                                            alpha back to alphaMin.
-            // Publish standardization stats while the write lock is still held so scorers
-            // that acquire the read lock always see a consistent pair (both null, or both
-            // pointing to the same-generation arrays). Moving this out of the write-lock
-            // region and into _syncRoot would create a window where a scorer holds the read
-            // lock and reads the old _featureMeans while _featureStdDevs has already been
-            // updated, or vice-versa.
+            // Use the early-stopping validation loss as the generalization estimate when available:
+            // it was computed on a held-out split, so it is a genuine out-of-sample loss. Three cases
+            // matter for the ensemble quality gate downstream:
+            //   1. useEarlyStopping = false: no validation signal (dataset too small to reserve a
+            //      split). NaN maps to qualityFactor = 0.5 in EnsembleScoringStrategy (half progression)
+            //      - intentional cold-start behaviour.
+            //   2. useEarlyStopping = true, bestLoss < MaxValue: healthy run. Report bestLoss; the
+            //      ensemble evaluates it against the validation-loss threshold.
+            //   3. useEarlyStopping = true, bestLoss == MaxValue: ran full length but no epoch improved
+            //      validation loss (model degrading, or initial weights beat every SGD step). Previously
+            //      this also fell back to NaN, hiding a degrading model behind the same 0.5 as case 1.
+            //      Now it reports the ceiling (2× threshold) so the ensemble's soft-damping rolls alpha
+            //      back to alphaMin.
+            // Publish standardization stats while the write lock is still held so scorers (read lock)
+            // always see a consistent pair. Moving this out of the write lock would open a window where
+            // a scorer reads old _featureMeans while _featureStdDevs is already updated (or vice-versa).
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
 
@@ -1271,17 +1217,16 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
         }
 
-        // Persist weights and log feature importance outside the write lock so concurrent
-        // Score() callers (read lock) are not blocked by disk I/O or logging allocations.
-        // LogFeatureImportance only reads _weightsIH, which is stable after the write lock
-        // is released: Train() is the only writer and is serialized by the scheduled task.
+        // Persist weights and log feature importance outside the write lock so concurrent Score()
+        // callers (read lock) are not blocked by disk I/O or logging. LogFeatureImportance only reads
+        // _weightsIH, stable after the write lock is released (Train is the only writer, serialized by
+        // the scheduled task).
         TrySaveWeights();
         LogFeatureImportance(inputSize);
 
-        // Compute ranking metrics outside the write lock (Score() needs read lock).
-        // Prefer the caller-supplied held-out slice so P@K/R@K/NDCG are genuine out-of-sample
-        // numbers instead of training-set fit. Falls back to training set only when no held-out
-        // slice was passed or it's too small to be meaningful.
+        // Compute ranking metrics outside the write lock (Score() needs read lock). Prefer the
+        // caller's held-out slice so P@K/R@K/NDCG are genuine out-of-sample numbers; fall back to the
+        // training set only when no held-out slice was passed or it is too small.
         var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         lock (_syncRoot)
@@ -1803,8 +1748,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             return;
         }
 
-        // Guard against corrupted/replaced oversized files before reading into memory.
-        // Neural weights JSON is ~120 KB; a 10 MB ceiling gives ample headroom.
+        // Guard against corrupted/oversized files before reading into memory. Weights JSON is ~120 KB;
+        // a 10 MB ceiling gives ample headroom.
         const long MaxWeightsFileSizeBytes = 10 * 1024 * 1024;
         if (new FileInfo(_weightsPath).Length > MaxWeightsFileSizeBytes)
         {
@@ -1819,8 +1764,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             var json = File.ReadAllText(_weightsPath);
             var data = JsonSerializer.Deserialize<NeuralWeightsData>(json);
-            // Validate standardization arrays: both must be null or both must have FeatureCount length.
-            // Stale files with mismatched lengths would crash StandardizeSingleVector at scoring time.
+            // Validate standardization arrays: both null, or both FeatureCount length. Stale mismatched
+            // lengths would crash StandardizeSingleVector at scoring time.
             var hasValidStandardization = data is null
                                           || (data.FeatureMeans is null && data.FeatureStdDevs is null)
                                           || data is
@@ -1893,29 +1838,22 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <summary>
-    ///     Persists current weights to disk atomically. Safe to call from any thread: the
-    ///     weight-field snapshot is cloned under a Read lock so concurrent Score() calls (also
-    ///     Read lock) are not blocked while disk I/O runs outside the lock. A future concurrent
-    ///     Train() (Write lock) is blocked only for the O(weights.Length) copy - not for
-    ///     serialization or file I/O - and cannot interleave partially-updated weights into the
-    ///     persisted JSON.
+    ///     Persists current weights to disk atomically. Thread-safe: the weight snapshot is cloned
+    ///     under a Read lock so concurrent Score() calls (also Read lock) are not blocked while disk I/O
+    ///     runs outside the lock. A concurrent Train() (Write lock) is blocked only for the
+    ///     O(weights.Length) copy, not for serialization/file I/O, and cannot interleave partial weights.
     ///     <para>
-    ///         Weight mutation paths (for future maintainers):
+    ///         Weight mutation paths (for maintainers):
     ///         <list type="bullet">
-    ///             <item><see cref="InitializeWeights"/> - runs only from the constructor, before
-    ///                 any consumer can see the instance. No lock needed.</item>
+    ///             <item><see cref="InitializeWeights"/> - constructor only, before any consumer sees the
+    ///                 instance. No lock needed.</item>
     ///             <item><see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>
-    ///                 - mutates every weight/bias field and the Adam moment arrays under the
-    ///                 <c>_rwLock</c> write lock, serialized further by the scheduled task's
-    ///                 <c>TrainGate</c> in <c>TrainingService</c>.</item>
-    ///             <item><see cref="EnsureAdamState"/> - reassigns Adam moment arrays; only called
-    ///                 from <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>
-    ///                 under the write lock.</item>
-    ///             <item><see cref="TryLoadWeights"/> - runs from the constructor, same ordering
-    ///                 guarantee as <see cref="InitializeWeights"/>.</item>
+    ///                 - mutates all weight/bias fields and Adam moments under the write lock, serialized
+    ///                 further by the scheduled task's <c>TrainGate</c>.</item>
+    ///             <item><see cref="EnsureAdamState"/> - reassigns Adam moments; only from Train under the write lock.</item>
+    ///             <item><see cref="TryLoadWeights"/> - constructor only, same ordering as InitializeWeights.</item>
     ///         </list>
-    ///         There is no other writer path. If a new one is added, it MUST acquire
-    ///         <c>_rwLock</c>'s write lock before touching any weight array.
+    ///         No other writer path exists. Any new one MUST acquire the write lock before touching a weight array.
     ///     </para>
     /// </summary>
     private void TrySaveWeights()
@@ -1925,9 +1863,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             return;
         }
 
-        // Fast-path early exit if the strategy has already been disposed: this method can
-        // be invoked from a Train() call whose late tail races with plugin shutdown, at which
-        // point _rwLock has been disposed and EnterReadLock() would throw ObjectDisposedException.
+        // Fast-path exit if already disposed: this can run from a Train() tail racing plugin shutdown,
+        // where _rwLock is disposed and EnterReadLock() would throw ObjectDisposedException.
         if (_disposed)
         {
             return;
@@ -1981,16 +1918,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             var json = JsonSerializer.Serialize(data, SerializerOptions);
 
-            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
-            // final File.Move gets a bounded retry instead of silently dropping the save.
-            // AtomicFile also handles temp-file cleanup internally.
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the final File.Move
+            // gets a bounded retry instead of silently dropping the save (it also cleans up temp files).
             AtomicFile.WriteAllText(_weightsPath, json);
         }
         catch (ObjectDisposedException ex)
         {
-            // Extremely rare tail race: Dispose() fired between our early-exit check and any
-            // subsequent lock/IO operation. Non-critical because the whole point of save is
-            // "best effort persist next-training state" - a lost save on shutdown is acceptable.
+            // Rare tail race: Dispose() fired between the early-exit check and a later lock/IO op.
+            // Non-critical: save is best-effort, and a lost save on shutdown is acceptable.
             _logger?.LogDebug(ex, "NeuralScoringStrategy: Save skipped, strategy disposed mid-flight");
         }
         catch (IOException ex)
@@ -2024,11 +1959,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <summary>
-    ///     Logs per-feature importance based on input→hidden1 weight L2 norms.
-    ///     Importance[f] = sqrt(Σ_j weightsIH[j, f]²) - measures how strongly
-    ///     each input feature drives hidden layer activations.
-    ///     Safe to call outside the write lock: only reads <c>_weightsIH</c>, which is
-    ///     stable after Train() releases the write lock (Train is the sole writer).
+    ///     Logs per-feature importance from input→hidden1 weight L2 norms:
+    ///     Importance[f] = sqrt(Σ_j weightsIH[j, f]²), measuring how strongly each input drives hidden
+    ///     activations. Safe outside the write lock: reads only <c>_weightsIH</c>, stable after Train
+    ///     releases the lock (Train is the sole writer).
     /// </summary>
     private void LogFeatureImportance(int inputSize)
     {
@@ -2093,20 +2027,16 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <summary>
-    ///     Releases the read lock in a way that tolerates the plugin being disposed while a
-    ///     scoring call is still in flight. <see cref="Dispose"/> can fire on plugin unload
-    ///     while another thread is mid-<see cref="Score"/>; when that happens the outer catch
-    ///     in the scoring method has already returned the neutral 0.5 fallback but the
-    ///     finally block still has to unwind - a naked <c>ExitReadLock()</c> would then throw
-    ///     <see cref="ObjectDisposedException"/> and propagate up through <c>Parallel.ForEach</c>
-    ///     in the engine, showing as a spurious "Failed to generate recommendations" warning.
-    ///     Absorbing that single exception keeps the batch loop healthy without hiding real bugs.
+    ///     Releases the read lock tolerating disposal mid-scoring. <see cref="Dispose"/> can fire on
+    ///     plugin unload while another thread is mid-<see cref="Score"/>; the scoring method's outer
+    ///     catch has already returned the neutral 0.5, but the finally still has to unwind, and a naked
+    ///     <c>ExitReadLock()</c> would throw <see cref="ObjectDisposedException"/> up through
+    ///     <c>Parallel.ForEach</c> as a spurious "Failed to generate recommendations" warning. Absorbing
+    ///     that one exception keeps the batch loop healthy without hiding real bugs.
     ///     <para>
-    ///         The lock release is intentionally NOT wrapped in a try/finally: we own the entire
-    ///         critical section here and there is no code path between the <c>IsReadLockHeld</c>
-    ///         check and <c>ExitReadLock</c> that could throw, so the analyzer's finally-block
-    ///         requirement (MT1013) would only add noise. The outer method's own finally block
-    ///         already guarantees this helper is invoked exactly once per lock acquisition.
+    ///         Not wrapped in try/finally: we own the whole critical section and nothing between the
+    ///         <c>IsReadLockHeld</c> check and <c>ExitReadLock</c> can throw, so MT1013 would only add
+    ///         noise. The caller's finally guarantees this runs exactly once per acquisition.
     ///     </para>
     /// </summary>
 #pragma warning disable MT1013 // Releasing lock should always be wrapped in finally block

@@ -309,7 +309,7 @@ function downloadLogs() {
         if (btn) {
             btn.disabled = false;
         }
-        // Finding 13: Replace alert() with inline error message for consistent UI
+        // Inline error message instead of alert() for consistent UI
         showButtonFeedback(btn, false,
             T('logsDownloadError', 'Failed to download logs.'),
             mi('download') + ' ' + T('logsDownload', 'Download'), 4000);
@@ -317,7 +317,7 @@ function downloadLogs() {
 }
 
 function clearLogs() {
-    // Finding 12: Replace native confirm() with custom dialog for consistent UI
+    // Custom dialog instead of native confirm() for consistent UI
     removeDialogById('logsClearDialogOverlay');
     var d = createDialogOverlay(
         'logsClearDialogOverlay',
@@ -335,7 +335,7 @@ function clearLogs() {
             apiDelete('JellyfinHelper/Logs', function () {
                 loadLogs();
             }, function () {
-                // Finding 13: Replace alert() with button feedback for consistent UI
+                // Button feedback instead of alert() for consistent UI
                 var clearBtn = document.getElementById('btnLogsClear');
                 if (clearBtn) {
                     showButtonFeedback(clearBtn, false,

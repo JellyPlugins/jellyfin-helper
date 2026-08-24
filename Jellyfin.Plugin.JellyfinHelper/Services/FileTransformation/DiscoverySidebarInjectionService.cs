@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 ///         <see cref="Plugin"/>'s constructor already calls <see cref="Plugin.InjectScript"/>, but
 ///         the constructor runs very early during plugin discovery - before the File Transformation
 ///         plugin is guaranteed to be loaded and before the web assets are reliably in place. This
-///         hosted service runs the same injection again at a robust point in the startup sequence,
+///         hosted service runs the same injection again at a reliable point in the startup sequence,
 ///         which also self-heals the disk-write fallback after a Jellyfin web update overwrites
 ///         <c>index.html</c> (the injected tag returns on the next server start).
 ///     </para>

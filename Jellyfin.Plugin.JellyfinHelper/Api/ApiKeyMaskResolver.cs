@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 ///         The GET <c>/Configuration</c> response never returns a real API key: every stored key is
 ///         replaced with a fixed-length mask so secrets never leave the server in plain text. When a
 ///         client later submits a request whose key field still holds that mask, it means "the key was
-///         not changed — use the one already stored". This helper centralises the "is this the mask?"
+///         not changed, use the one already stored". This helper centralises the "is this the mask?"
 ///         check and the stored-key lookup so the save path (<see cref="ConfigurationController"/>) and
 ///         the stateless Test-Connection endpoints (<see cref="ArrIntegrationController"/>,
 ///         <see cref="SeerrController"/>) all behave identically and never forward the mask upstream.
@@ -35,7 +35,7 @@ internal static class ApiKeyMaskResolver
     /// <summary>
     ///     Resolves the effective API key for an incoming Arr instance value against a set of stored
     ///     instances. When the incoming value is a real (non-mask) key it is returned as-is (this is how
-    ///     an admin changes a key — any value other than the mask is a new key). When it is the mask
+    ///     an admin changes a key: any value other than the mask is a new key). When it is the mask
     ///     sentinel, the stored key is recovered by matching on Name+URL first (handles two instances
     ///     that share the same URL), then URL only (handles a rename where the admin kept the key).
     /// </summary>

@@ -7,40 +7,33 @@ using System.Threading.Tasks;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
-///     Writes text files using write-to-temp then File.Replace/Move with a small,
-///     bounded retry on transient I/O failures.
-///     When the destination already exists, <c>File.Replace</c> is used (atomic via
-///     <c>ReplaceFileW</c> on Windows); when the destination is new, <c>File.Move</c>
-///     is used. Note that on Windows, File.Move with overwrite is NOT atomic when the
-///     destination exists (it deletes then renames), which is why File.Replace is preferred.
+///     Writes text files via write-to-temp then File.Replace/Move, with bounded retry on transient
+///     I/O failures. <c>File.Replace</c> when the destination exists (atomic via <c>ReplaceFileW</c>
+///     on Windows), <c>File.Move</c> when new. File.Move-with-overwrite is NOT atomic on Windows
+///     (deletes then renames), hence File.Replace is preferred.
 ///     <para>
-///         <b>Threading model:</b> Two entry points share the same retry contract:
+///         <b>Threading model:</b> Two entry points share one retry contract:
 ///         <list type="bullet">
 ///             <item>
 ///                 <description>
-///                     <see cref="WriteAllText"/> - synchronous, uses <see cref="Thread.Sleep(int)"/> for
-///                     retry backoff. A fully retrying call blocks the caller for up to ~200 ms with the
-///                     default 5 attempts (4 sleeps: 20 + 40 + 60 + 80 ms; the final attempt
-///                     propagates immediately without sleeping). Intended for background scheduled-task
-///                     paths where thread blocking is acceptable.
+///                     <see cref="WriteAllText"/> - synchronous, backs off via <see cref="Thread.Sleep(int)"/>.
+///                     Blocks up to ~200 ms with the default 5 attempts (sleeps 20 + 40 + 60 + 80 ms; the
+///                     final attempt propagates without sleeping). For background scheduled-task paths.
 ///                 </description>
 ///             </item>
 ///             <item>
 ///                 <description>
-///                     <see cref="WriteAllTextAsync"/> - asynchronous, uses
-///                     <see cref="Task.Delay(int, CancellationToken)"/> for backoff so the caller's request
-///                     thread is released while the retry sleeps. Required for ASP.NET request handlers
-///                     (e.g. discovery dismissal / requested-state persistence) which invoke this from
-///                     latency-sensitive contexts. Honours the passed <see cref="CancellationToken"/> so a
-///                     cancelled request stops retrying instead of blocking the thread pool.
+///                     <see cref="WriteAllTextAsync"/> - asynchronous, backs off via
+///                     <see cref="Task.Delay(int, CancellationToken)"/> so the request thread is released
+///                     during backoff. For latency-sensitive ASP.NET request handlers. Honours the
+///                     <see cref="CancellationToken"/> so a cancelled request stops retrying.
 ///                 </description>
 ///             </item>
 ///         </list>
 ///     </para>
 ///     <para>
-///         <b>Encoding:</b> Files are written as UTF-8 <i>without</i> a byte-order mark, matching
-///         what <c>System.Text.Json</c> expects on read and staying compatible with external
-///         log/JSON tooling that treats a BOM as unexpected input.
+///         <b>Encoding:</b> UTF-8 <i>without</i> BOM, matching what <c>System.Text.Json</c> expects
+///         on read and avoiding a leading BOM that some log/JSON tooling rejects.
 ///     </para>
 /// </summary>
 internal static class AtomicFile
@@ -52,22 +45,19 @@ internal static class AtomicFile
     private const int BaseBackoffMilliseconds = 20;
 
     /// <summary>
-    ///     UTF-8 encoding without a byte-order mark. Cached to avoid re-instantiating the
-    ///     encoder on every write; .NET's default <c>File.WriteAllText(path, contents)</c>
-    ///     uses UTF-8 <i>with</i> BOM which some downstream tools (JSON validators, log
-    ///     parsers) treat as an unexpected first character.
+    ///     UTF-8 encoding without a byte-order mark. Cached to avoid re-instantiating the encoder
+    ///     per write; .NET's default <c>File.WriteAllText</c> emits a BOM that some downstream tools
+    ///     (JSON validators, log parsers) reject.
     /// </summary>
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
     ///     Atomically writes <paramref name="contents"/> to <paramref name="path"/>.
     ///     Retries the temp-write-then-move on transient <see cref="IOException"/> /
-    ///     <see cref="UnauthorizedAccessException"/> up to <paramref name="maxAttempts"/> times.
-    ///     If every attempt fails, the last transient error propagates so the caller's existing
-    ///     best-effort <c>try/catch</c> can log it - behavior is never worse than a single attempt.
+    ///     <see cref="UnauthorizedAccessException"/> up to <paramref name="maxAttempts"/> times; if all
+    ///     fail, the last transient error propagates so the caller's best-effort <c>try/catch</c> can log it.
     ///     <para>
-    ///         Blocks the calling thread for up to ~200 ms across all retries with the default
-    ///         attempt count. See the class-level remarks for the constraint on caller contexts.
+    ///         Blocks the calling thread up to ~200 ms across all retries at the default attempt count.
     ///     </para>
     /// </summary>
     /// <param name="path">The destination file path.</param>
@@ -85,8 +75,7 @@ internal static class AtomicFile
             maxAttempts = 1;
         }
 
-        // Ensure the target directory exists before attempting to write the temp file.
-        // CreateDirectory is idempotent - it does nothing if the directory already exists.
+        // Ensure the target directory exists before writing the temp file (CreateDirectory is idempotent).
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -95,12 +84,10 @@ internal static class AtomicFile
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            // A fresh temp name per attempt avoids colliding with a temp file left behind
-            // by a prior attempt whose cleanup itself failed transiently.
+            // Fresh temp name per attempt avoids colliding with a temp file a prior attempt failed to clean up.
             var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                // Explicit UTF-8 (no BOM) - see the class-level Encoding note.
                 File.WriteAllText(tempPath, contents, Utf8NoBom);
                 if (File.Exists(path))
                 {
@@ -115,15 +102,13 @@ internal static class AtomicFile
             }
             catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < maxAttempts)
             {
-                // Transient lock (AV/indexer). Clean up this attempt's temp file and back off
-                // briefly before retrying; the lock almost always clears within tens of ms.
+                // Transient lock (AV/indexer): clean up this attempt's temp file and back off before retrying.
                 TryDeleteQuietly(tempPath);
                 Thread.Sleep(BaseBackoffMilliseconds * attempt);
             }
             catch
             {
-                // Final attempt, or a non-transient error: remove the orphan temp file and
-                // let the exception propagate to the caller's diagnostic handler.
+                // Final attempt or non-transient error: remove the orphan temp file and propagate.
                 TryDeleteQuietly(tempPath);
                 throw;
             }
@@ -131,22 +116,17 @@ internal static class AtomicFile
     }
 
     /// <summary>
-    ///     Asynchronous counterpart of <see cref="WriteAllText"/> for request-driven callers.
-    ///     Uses <see cref="File.WriteAllTextAsync(string, string, System.Text.Encoding, CancellationToken)"/>
-    ///     for the actual write and <see cref="Task.Delay(int, CancellationToken)"/> for retry backoff
-    ///     so the caller's thread is released while the retry sleeps.
+    ///     Asynchronous counterpart of <see cref="WriteAllText"/> for request-driven callers. Uses
+    ///     <see cref="Task.Delay(int, CancellationToken)"/> for backoff so the caller's thread is released.
     ///     <para>
-    ///         <b>Cancellation behaviour:</b> a signalled <paramref name="cancellationToken"/> stops
-    ///         further retries and propagates <see cref="OperationCanceledException"/>. Any orphaned
-    ///         temp file from the last attempt is cleaned up before propagation, mirroring the
-    ///         synchronous overload's "no orphans on the disk" invariant.
+    ///         <b>Cancellation:</b> a signalled <paramref name="cancellationToken"/> stops further retries
+    ///         and propagates <see cref="OperationCanceledException"/>, cleaning up any orphaned temp file
+    ///         first (same "no orphans on disk" invariant as the sync overload).
     ///     </para>
     ///     <para>
-    ///         <b>Semantic parity:</b> retry count, backoff schedule (4 sleeps: 20 / 40 / 60 / 80 ms across 5 attempts), UTF-8
-    ///         no-BOM encoding, and the temp-then-move atomicity rule are identical to
+    ///         <b>Semantic parity:</b> retry count, backoff schedule (20 / 40 / 60 / 80 ms across 5 attempts),
+    ///         UTF-8 no-BOM encoding, and the temp-then-move atomicity rule are identical to
     ///         <see cref="WriteAllText"/>; the only difference is the yield point during backoff.
-    ///         A caller that already handles exceptions from the sync overload can switch to this
-    ///         one without changing its error-handling contract, only adding <c>await</c>.
     ///     </para>
     /// </summary>
     /// <param name="path">The destination file path.</param>
@@ -171,7 +151,7 @@ internal static class AtomicFile
             maxAttempts = 1;
         }
 
-        // Ensure the target directory exists before attempting to write the temp file.
+        // Ensure the target directory exists before writing the temp file.
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -182,21 +162,15 @@ internal static class AtomicFile
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // A fresh temp name per attempt avoids colliding with a temp file left behind
-            // by a prior attempt whose cleanup itself failed transiently.
+            // Fresh temp name per attempt avoids colliding with a temp file a prior attempt failed to clean up.
             var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                // Explicit UTF-8 (no BOM) - see the class-level Encoding note. The async write
-                // also honours the cancellation token natively, so a cancellation while writing
-                // the temp file will propagate through here without needing the outer check.
+                // The async write honours the cancellation token natively.
                 await File.WriteAllTextAsync(tempPath, contents, Utf8NoBom, cancellationToken).ConfigureAwait(false);
 
-                // File.Replace/Move has no async overload in .NET 8/9. It's a fast metadata
-                // operation (rename within the same directory), so blocking here for the
-                // sub-millisecond duration is acceptable and identical to the sync overload's
-                // contract. File.Replace is used when the destination exists (atomic via
-                // ReplaceFileW on Windows); File.Move is used for new files.
+                // File.Replace/Move has no async overload; it's a fast same-directory metadata rename,
+                // so blocking here for its sub-millisecond duration matches the sync overload's contract.
                 if (File.Exists(path))
                 {
                     File.Replace(tempPath, path, destinationBackupFileName: null);
@@ -210,15 +184,14 @@ internal static class AtomicFile
             }
             catch (OperationCanceledException)
             {
-                // Cancellation during the async write: clean up the temp file and propagate.
-                // We do NOT retry on cancellation - that would defeat cooperative cancellation.
+                // Cancellation during the async write: clean up and propagate. We do NOT retry on
+                // cancellation - that would defeat cooperative cancellation.
                 TryDeleteQuietly(tempPath);
                 throw;
             }
             catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < maxAttempts)
             {
-                // Transient lock (AV/indexer). Clean up this attempt's temp file and back off
-                // briefly before retrying; the lock almost always clears within tens of ms.
+                // Transient lock (AV/indexer): clean up this attempt's temp file and back off before retrying.
                 TryDeleteQuietly(tempPath);
 
                 try
@@ -227,14 +200,13 @@ internal static class AtomicFile
                 }
                 catch (OperationCanceledException)
                 {
-                    // Cancellation between attempts is honoured: stop retrying, propagate.
+                    // Cancellation between attempts: stop retrying, propagate.
                     throw;
                 }
             }
             catch
             {
-                // Final attempt, or a non-transient error: remove the orphan temp file and
-                // let the exception propagate to the caller's diagnostic handler.
+                // Final attempt or non-transient error: remove the orphan temp file and propagate.
                 TryDeleteQuietly(tempPath);
                 throw;
             }

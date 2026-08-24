@@ -7,7 +7,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 
 /// <summary>
-///     Represents the complete backup payload for export and import.
+///     The complete backup payload for export and import.
 ///     Contains configuration preferences, historical trend data, and Arr integration settings.
 ///     Cleanup statistics are intentionally excluded (reset on fresh install).
 /// </summary>

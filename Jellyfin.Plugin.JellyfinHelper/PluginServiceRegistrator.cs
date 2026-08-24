@@ -165,7 +165,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
         // Re-run the Discovery sidebar injection at server startup (after DI is built and the web
         // root is mounted). The plugin constructor already injects once, but this hosted service
-        // runs at a more robust point and self-heals the disk-write fallback after a Jellyfin web
+        // runs at a safer point in startup and self-heals the disk-write fallback after a Jellyfin web
         // update overwrites index.html. Injection is idempotent, so running it twice is safe.
         serviceCollection.AddHostedService<DiscoverySidebarInjectionService>();
     }

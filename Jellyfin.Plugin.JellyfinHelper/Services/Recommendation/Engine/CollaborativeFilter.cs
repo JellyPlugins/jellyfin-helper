@@ -200,7 +200,7 @@ internal static class CollaborativeFilter
         // do NOT precompute this in CollaborativeContext because the target's own watch count
         // would flip its own gate on - the sparse-neighbour attenuation and cold-start release
         // behaviours both hinge on the "NEIGHBOURS ONLY" restriction. The scan is O(profiles),
-        // dwarfed by the co-occurrence loop below, so keeping it per-user is essentially free.
+        // dwarfed by the co-occurrence loop below, so keeping it per-user costs almost nothing.
         var trustGateActive = false;
         foreach (var profile in allProfiles)
         {

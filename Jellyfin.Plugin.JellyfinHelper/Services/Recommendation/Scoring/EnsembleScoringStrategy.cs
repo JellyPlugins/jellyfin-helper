@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
 ///     Ensemble scoring strategy that combines the learned (adaptive ML) strategy
-///     with the heuristic (rule-based) strategy for more robust recommendations.
+///     with the heuristic (rule-based) strategy for steadier recommendations.
 ///     Uses a dynamic blending factor (α) that smoothly shifts weight toward the learned
 ///     model as more training data becomes available via a sigmoid function.
 ///     Alpha progression is gated by validation loss quality - if the learned model

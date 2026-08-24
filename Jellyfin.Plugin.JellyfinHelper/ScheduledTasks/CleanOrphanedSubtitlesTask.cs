@@ -114,7 +114,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 // Symlink-traversal guard: FileInfo.LinkTarget below only inspects the FINAL
                 // subtitle file, so a symlinked ANCESTOR directory could still redirect our
                 // File.Delete into a real media tree. Skip any directory that is itself a reparse
-                // point (symlink/junction) — we only ever clean subtitles inside real directories.
+                // point (symlink/junction). We only ever clean subtitles inside real directories.
                 try
                 {
                     if (IsReparsePoint(dirPath))

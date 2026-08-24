@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 
 /// <summary>
-///     Represents the result of a folder browse operation.
+///     Result of a folder browse operation.
 /// </summary>
 public class FolderBrowseResult
 {

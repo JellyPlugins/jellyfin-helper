@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 
 /// <summary>
-/// Represents the result of comparing an Arr application with Jellyfin.
+/// Result of comparing an Arr application with Jellyfin.
 /// </summary>
 public class ArrComparisonResult
 {

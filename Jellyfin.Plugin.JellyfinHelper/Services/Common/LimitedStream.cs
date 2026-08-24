@@ -65,7 +65,7 @@ internal sealed class LimitedStream : Stream
         var remaining = _maxBytes - _bytesRead;
 
         // At the limit we must still allow the reader's final EOF probe: a response of EXACTLY
-        // _maxBytes bytes is valid. Read a single byte — if it returns data the response is
+        // _maxBytes bytes is valid. Read a single byte: if it returns data the response is
         // genuinely over the limit; if it returns 0 (EOF) the read is fine.
         var toRead = remaining <= 0 ? 1 : (int)Math.Min(count, remaining);
         var n = _inner.Read(buffer, offset, toRead);

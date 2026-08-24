@@ -59,7 +59,7 @@ public sealed class DiscoveryController : ControllerBase
         [FromQuery] int? take = null)
     {
         // The per-user recommendation pool is already capped by MaxVisiblePerUser, but the number
-        // of users is unbounded — a large deployment would return an arbitrarily large payload.
+        // of users is unbounded, so a large deployment would return an arbitrarily large payload.
         // Paginate the outer per-user list; clamp inputs so hostile/invalid values cannot force a
         // huge response or a negative skip.
         const int MaxPageSize = 100;

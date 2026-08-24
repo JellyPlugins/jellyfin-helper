@@ -1,7 +1,7 @@
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
 /// <summary>
-/// Represents the result of a single link file inspection.
+/// Result of a single link file inspection.
 /// </summary>
 public class LinkFileResult
 {

@@ -888,7 +888,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
         // When the HTTP layer looks like something between the browser and Jellyfin
         // dropped the request (network error, HTML body, 5xx), fire a lightweight
         // Ping. If Ping succeeds, we KNOW the backend is reachable and the payload
-        // was rejected on purpose - useful signal for the console.  If Ping ALSO
+        // was rejected on purpose - useful signal for the console. If Ping ALSO
         // fails, we log a clear "backend unreachable" line so infrastructure issues
         // are unmistakable in the report.
         if (diag.kind === 'network' || diag.kind === 'proxy' || diag.kind === 'server') {
@@ -1654,7 +1654,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
 
     wrapper.innerHTML = h;
 
-    // Attach click handler via addEventListener (more robust than inline onclick in Jellyfin plugin context)
+    // Attach click handler via addEventListener (more reliable than inline onclick in Jellyfin plugin context)
     var toggleBtn = wrapper.querySelector('.library-multiselect-toggle');
     if (toggleBtn) {
         toggleBtn.addEventListener('click', function () {

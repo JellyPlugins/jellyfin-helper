@@ -45,7 +45,7 @@ public static class TransformationPatches
             return content.Contents;
         }
 
-        // Inject the new script tag before the LAST </body> (case-insensitive for robustness).
+        // Inject the new script tag before the LAST </body> (case-insensitive to tolerate markup variance).
         // Search is bounded to content before </html> so a literal </body> inside a <template>
         // or framework fragment (Vue, Lit, Svelte) does not cause injection into a non-executing
         // DOM region.

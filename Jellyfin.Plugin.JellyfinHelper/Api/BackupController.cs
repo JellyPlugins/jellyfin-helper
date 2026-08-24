@@ -110,8 +110,8 @@ public class BackupController : ControllerBase
             $"Backup exported ({FormatBackupSize(bytes.LongLength)}, timelinePoints={backup.GrowthTimeline?.DataPoints.Count ?? 0}, baselineDirs={backup.GrowthBaseline?.Directories.Count ?? 0})",
             _logger);
 
-        // Audit: only now — after all size/validation checks have passed and the file is about to
-        // leave the server — record a secrets-included export. Logging earlier would falsely claim
+        // Audit: only now, after all size/validation checks have passed and the file is about to
+        // leave the server, record a secrets-included export. Logging earlier would falsely claim
         // "credentials exported" even when the request was subsequently rejected (e.g. oversize)
         // and no file ever left the server.
         if (includeSecrets && backup.ContainsSecrets)
@@ -127,7 +127,7 @@ public class BackupController : ControllerBase
 
     /// <summary>
     ///     Imports a backup JSON payload to restore plugin configuration and historical data.
-    ///     Performs comprehensive validation to prevent malicious or corrupt data from being imported.
+    ///     Validates the payload to prevent malicious or corrupt data from being imported.
     ///     Accepts the backup JSON directly in the request body (Content-Type: application/json).
     /// </summary>
     /// <returns>A result indicating success with validation details and restore summary.</returns>

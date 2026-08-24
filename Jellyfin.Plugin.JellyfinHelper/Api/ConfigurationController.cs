@@ -97,7 +97,7 @@ public class ConfigurationController : ControllerBase
     ///     Gets the list of available Jellyfin libraries (virtual folders) for the multi-select UI.
     ///     Returns only libraries that are eligible for cleanup (excludes music, boxsets, and
     ///     collection-like libraries). The user's ExcludedLibraries setting is NOT applied here
-    ///     because users need to see currently-excluded libraries in order to uncheck them.
+    ///     because users need to see currently-excluded libraries to uncheck them.
     /// </summary>
     /// <returns>A list of library names.</returns>
     [HttpGet("Libraries")]
@@ -270,7 +270,7 @@ public class ConfigurationController : ControllerBase
         }
 
         // Warn (do not block) when ExcludedLibraries names libraries that do not currently exist.
-        // A stale/typo'd name is benign at runtime — it simply never matches during cleanup — but
+        // A stale/typo'd name is benign at runtime (it simply never matches during cleanup) but
         // surfacing it helps the admin catch a mistake. Libraries can be renamed/removed and later
         // re-added, so this is advisory only and never rejects the save.
         if (!string.IsNullOrWhiteSpace(request.ExcludedLibraries))
@@ -383,7 +383,7 @@ public class ConfigurationController : ControllerBase
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
         {
             // Handles network errors, timeouts, and non-token OperationCanceledException (e.g., HttpClient timeout).
-            // Return a GENERIC warning to the client — the raw ex.Message can reflect upstream reachability
+            // Return a GENERIC warning to the client. The raw ex.Message can reflect upstream reachability
             // (e.g. "connection refused" vs "no such host") and turn the save endpoint into an internal-network
             // oracle. The detailed exception is logged server-side only.
             warnings.Add($"Connection test failed for Seerr ({seerrLabel}). Verify the URL and API Key.");

@@ -267,7 +267,7 @@ public class TrashService : ITrashService
                         }
                         catch (InvalidOperationException)
                         {
-                            // Concurrent replacement detected — fail closed: leave entry unchanged.
+                            // Concurrent replacement detected, so fail closed: leave entry unchanged.
                             _pluginLog.LogWarning(
                                 "Trash",
                                 $"Reparse-point node changed type before purge, skipping: {dir}",
@@ -690,7 +690,7 @@ public class TrashService : ITrashService
 
         // A short numeric scan keeps human-readable names for the common few-collisions case.
         // We deliberately cap this low (was 998) so that on high-latency mounts (NFS/SMB) we do
-        // not perform hundreds of stat round-trips — after this we jump straight to a GUID suffix,
+        // not perform hundreds of stat round-trips. After this we jump straight to a GUID suffix,
         // which is collision-free in practice. Path.Exists checks file+dir in a single syscall.
         const int NumericScanLimit = 20;
         for (var i = 2; i < NumericScanLimit; i++)
@@ -1116,7 +1116,7 @@ public class TrashService : ITrashService
     /// <param name="path">The reparse-point directory whose link node should be removed.</param>
     /// <exception cref="InvalidOperationException">
     ///     Thrown when <paramref name="path" /> is no longer a reparse point at deletion time
-    ///     (concurrent replacement detected — fail closed to avoid deleting a real directory).
+    ///     (concurrent replacement detected, fail closed to avoid deleting a real directory).
     /// </exception>
     internal virtual void DeleteReparsePointLinkNode(string path) =>
         ReparsePointGuard.DeleteLinkNode(path, InvokeDirectoryDelete);
