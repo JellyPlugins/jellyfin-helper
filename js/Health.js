@@ -94,7 +94,7 @@ function attachHealthClickHandlers() {
             return 'healthDetailPanel';
         },
         renderContent: function (item) {
-            var type = item.getAttribute('data-health-type');
+            var type = item.dataset.healthType;
             var mapping = HEALTH_PATH_MAP[type];
             if (!mapping || !_lastScanResult) {
                 return '';

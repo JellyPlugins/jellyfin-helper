@@ -340,14 +340,14 @@ function attachTrendInteraction(container, pointData) {
 
     if (!pointData || pointData.length === 0) return;
 
-    var padL = parseFloat(chart.getAttribute('data-trend-padl'));
-    var padT = parseFloat(chart.getAttribute('data-trend-padt'));
-    var chartW = parseFloat(chart.getAttribute('data-trend-chartw'));
-    var chartH = parseFloat(chart.getAttribute('data-trend-charth'));
-    var vbWidth = parseFloat(chart.getAttribute('data-trend-width'));
-    var vbHeight = parseFloat(chart.getAttribute('data-trend-height'));
-    var yMax = parseFloat(chart.getAttribute('data-trend-ymax'));
-    var granularity = chart.getAttribute('data-trend-granularity');
+    var padL = parseFloat(chart.dataset.trendPadl);
+    var padT = parseFloat(chart.dataset.trendPadt);
+    var chartW = parseFloat(chart.dataset.trendChartw);
+    var chartH = parseFloat(chart.dataset.trendCharth);
+    var vbWidth = parseFloat(chart.dataset.trendWidth);
+    var vbHeight = parseFloat(chart.dataset.trendHeight);
+    var yMax = parseFloat(chart.dataset.trendYmax);
+    var granularity = chart.dataset.trendGranularity;
     var count = pointData.length;
     var step = count > 1 ? chartW / (count - 1) : 0;
 
