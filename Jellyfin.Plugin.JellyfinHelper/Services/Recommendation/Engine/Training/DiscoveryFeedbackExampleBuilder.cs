@@ -57,42 +57,13 @@ internal static class DiscoveryFeedbackExampleBuilder
             // contributes training signal even without user-specific preference data.
             profileById.TryGetValue(userFeedback.UserId, out var userProfile);
 
-            // Build user-specific preferences for feature computation.
-            // Users without a watch profile get empty preferences - their explicit discovery
-            // interactions (request/dismiss) are still valuable training signals even when
-            // genre features default to zero/neutral.
-            var genrePreferences = userProfile != null
-                ? PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts)
-                : new Dictionary<string, double>();
-
-            var avgYear = userProfile != null
-                ? ContentScoring.ComputeAverageYear(userProfile)
-                : 0.0;
-
-            // Build preferred people set from watch profile
-            var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (userProfile?.TopPeople is { } topPeople)
-            {
-                foreach (var person in topPeople)
-                {
-                    preferredPeople.Add(person);
-                }
-            }
-
-            // Genre exposure analysis for advanced features.
-            // BuildGenreExposureAnalysis handles empty genrePreferences gracefully
-            // by returning an analysis with IsValid=false, which causes all exposure
-            // features to default to 0.0 (neutral).
-            var genreExposure = userProfile != null
-                ? PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile)
-                : new PreferenceBuilder.GenreExposureAnalysis
-                {
-                    UnderexposedGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                    DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                    AveragePreferenceWeight = 0,
-                    GenrePreferences = genrePreferences,
-                    IsValid = false
-                };
+            BuildUserContext(
+                userProfile,
+                seriesEpisodeCounts,
+                out var genrePreferences,
+                out var avgYear,
+                out var preferredPeople,
+                out var genreExposure);
 
             foreach (var entry in userFeedback.Entries)
             {
@@ -132,6 +103,64 @@ internal static class DiscoveryFeedbackExampleBuilder
         }
 
         return (examples, examples.Count);
+    }
+
+    /// <summary>
+    ///     Builds the per-user preference context (genre preferences, average year, preferred people,
+    ///     genre-exposure analysis) for discovery-feedback feature computation. Extracted verbatim from
+    ///     <see cref="BuildDiscoveryExamples"/>; the neutral-default fallbacks for profile-less users
+    ///     are unchanged.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile, or <c>null</c>.</param>
+    /// <param name="seriesEpisodeCounts">Optional per-series episode-count map.</param>
+    /// <param name="genrePreferences">Receives the genre preference vector.</param>
+    /// <param name="avgYear">Receives the user's average watched production year.</param>
+    /// <param name="preferredPeople">Receives the preferred-people set.</param>
+    /// <param name="genreExposure">Receives the genre-exposure analysis.</param>
+    private static void BuildUserContext(
+        UserWatchProfile? userProfile,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        out Dictionary<string, double> genrePreferences,
+        out double avgYear,
+        out HashSet<string> preferredPeople,
+        out PreferenceBuilder.GenreExposureAnalysis genreExposure)
+    {
+        // Build user-specific preferences for feature computation.
+        // Users without a watch profile get empty preferences - their explicit discovery
+        // interactions (request/dismiss) are still valuable training signals even when
+        // genre features default to zero/neutral.
+        genrePreferences = userProfile != null
+            ? PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts)
+            : new Dictionary<string, double>();
+
+        avgYear = userProfile != null
+            ? ContentScoring.ComputeAverageYear(userProfile)
+            : 0.0;
+
+        // Build preferred people set from watch profile
+        preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (userProfile?.TopPeople is { } topPeople)
+        {
+            foreach (var person in topPeople)
+            {
+                preferredPeople.Add(person);
+            }
+        }
+
+        // Genre exposure analysis for advanced features.
+        // BuildGenreExposureAnalysis handles empty genrePreferences gracefully
+        // by returning an analysis with IsValid=false, which causes all exposure
+        // features to default to 0.0 (neutral).
+        genreExposure = userProfile != null
+            ? PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile)
+            : new PreferenceBuilder.GenreExposureAnalysis
+            {
+                UnderexposedGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                AveragePreferenceWeight = 0,
+                GenrePreferences = genrePreferences,
+                IsValid = false
+            };
     }
 
     /// <summary>

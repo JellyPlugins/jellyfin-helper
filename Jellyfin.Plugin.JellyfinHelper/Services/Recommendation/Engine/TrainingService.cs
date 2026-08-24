@@ -130,26 +130,7 @@ internal sealed class TrainingService : IDisposable
 
         // Load discovery feedback if available (Phase 4 data source).
         // Best-effort: if the store is unavailable or throws, training continues without it.
-        IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback = null;
-        if (_discoveryFeedbackStore != null)
-        {
-            try
-            {
-                discoveryFeedback = _discoveryFeedbackStore.LoadAll();
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                _pluginLog.LogWarning(
-                    LogSource,
-                    $"Could not load discovery feedback for training: {ex.Message}",
-                    ex,
-                    _logger);
-            }
-        }
+        var discoveryFeedback = LoadDiscoveryFeedback();
 
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
@@ -166,58 +147,9 @@ internal sealed class TrainingService : IDisposable
             $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
             _logger);
 
-        List<TrainingExample> trainingExamples = examples;
-        if (incremental && examples.Count >= EngineConstants.IncrementalMinExamplesThreshold)
-        {
-            var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt) ?? DateTime.UtcNow;
-            var cutoff = latestGeneratedAt.AddDays(-1);
-
-            var newExamples = new List<TrainingExample>();
-            var oldExamples = new List<TrainingExample>();
-
-            foreach (var ex in examples)
-            {
-                if (ex.GeneratedAtUtc >= cutoff)
-                {
-                    newExamples.Add(ex);
-                }
-                else
-                {
-                    oldExamples.Add(ex);
-                }
-            }
-
-            if (oldExamples.Count > 0)
-            {
-                var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, examples.Count));
-                var sampleCount = Math.Clamp(
-                    (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
-                    1,
-                    oldExamples.Count);
-
-                for (var i = 0; i < sampleCount; i++)
-                {
-                    var j = rng.Next(i, oldExamples.Count);
-                    (oldExamples[i], oldExamples[j]) = (oldExamples[j], oldExamples[i]);
-                }
-
-                var sampledOld = oldExamples.GetRange(0, sampleCount);
-                var combined = new List<TrainingExample>(newExamples.Count + sampleCount);
-                combined.AddRange(newExamples);
-                combined.AddRange(sampledOld);
-                trainingExamples = combined;
-
-                _pluginLog.LogInfo(
-                    LogSource,
-                    $"Incremental training: {newExamples.Count} new + {sampleCount} sampled old " +
-                    $"(from {oldExamples.Count} total old) = {trainingExamples.Count} examples.",
-                    _logger);
-            }
-            else
-            {
-                trainingExamples = newExamples;
-            }
-        }
+        var trainingExamples = incremental && examples.Count >= EngineConstants.IncrementalMinExamplesThreshold
+            ? ApplyIncrementalSampling(examples, previousResults)
+            : examples;
 
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -225,25 +157,7 @@ internal sealed class TrainingService : IDisposable
         // Reserve the most recent 10% of examples (by GeneratedAtUtc) as held-out validation, train on
         // the remaining 90%, for honest generalization metrics instead of optimistic training-set fit.
         // Fallback: with <20 examples, skip the split and train on all (metrics become training-set).
-        const int minExamplesForHeldOut = 20;
-        const double heldOutFraction = 0.10;
-
-        List<TrainingExample> trainSplit;
-        List<TrainingExample> heldOutSplit;
-
-        if (trainingExamples.Count >= minExamplesForHeldOut)
-        {
-            // Sort by GeneratedAtUtc descending to pick the most recent as held-out
-            var sorted = trainingExamples.OrderByDescending(e => e.GeneratedAtUtc).ToList();
-            var heldOutCount = Math.Max(2, (int)(sorted.Count * heldOutFraction));
-            heldOutSplit = sorted.GetRange(0, heldOutCount);
-            trainSplit = sorted.GetRange(heldOutCount, sorted.Count - heldOutCount);
-        }
-        else
-        {
-            trainSplit = trainingExamples;
-            heldOutSplit = [];
-        }
+        SplitHeldOut(trainingExamples, out var trainSplit, out var heldOutSplit);
 
         // Pass the held-out slice into the strategy so the metrics it publishes (used by the
         // ensemble's quality gate + trend analyser) come from the same out-of-sample set the
@@ -280,5 +194,127 @@ internal sealed class TrainingService : IDisposable
         }
 
         return trained;
+    }
+
+    /// <summary>
+    ///     Loads discovery feedback for training, best-effort. Extracted verbatim from
+    ///     <see cref="TrainCore"/>; returns <c>null</c> when the store is absent or throws.
+    /// </summary>
+    /// <returns>The discovery feedback results, or <c>null</c>.</returns>
+    private IReadOnlyList<DiscoveryFeedbackResult>? LoadDiscoveryFeedback()
+    {
+        IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback = null;
+        if (_discoveryFeedbackStore != null)
+        {
+            try
+            {
+                discoveryFeedback = _discoveryFeedbackStore.LoadAll();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogWarning(
+                    LogSource,
+                    $"Could not load discovery feedback for training: {ex.Message}",
+                    ex,
+                    _logger);
+            }
+        }
+
+        return discoveryFeedback;
+    }
+
+    /// <summary>
+    ///     Applies incremental-training example selection: keeps recent examples and reservoir-samples a
+    ///     fraction of the older ones. Extracted verbatim from <see cref="TrainCore"/>; the cutoff,
+    ///     sample ratio, and Fisher-Yates partial shuffle are unchanged.
+    /// </summary>
+    /// <param name="examples">All built training examples.</param>
+    /// <param name="previousResults">The previous-run recommendation results (for the recency cutoff).</param>
+    /// <returns>The selected training examples for the incremental run.</returns>
+    private List<TrainingExample> ApplyIncrementalSampling(
+        List<TrainingExample> examples,
+        IReadOnlyList<RecommendationResult> previousResults)
+    {
+        var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt) ?? DateTime.UtcNow;
+        var cutoff = latestGeneratedAt.AddDays(-1);
+
+        var newExamples = new List<TrainingExample>();
+        var oldExamples = new List<TrainingExample>();
+
+        foreach (var ex in examples)
+        {
+            if (ex.GeneratedAtUtc >= cutoff)
+            {
+                newExamples.Add(ex);
+            }
+            else
+            {
+                oldExamples.Add(ex);
+            }
+        }
+
+        if (oldExamples.Count == 0)
+        {
+            return newExamples;
+        }
+
+        var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, examples.Count));
+        var sampleCount = Math.Clamp(
+            (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
+            1,
+            oldExamples.Count);
+
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var j = rng.Next(i, oldExamples.Count);
+            (oldExamples[i], oldExamples[j]) = (oldExamples[j], oldExamples[i]);
+        }
+
+        var sampledOld = oldExamples.GetRange(0, sampleCount);
+        var combined = new List<TrainingExample>(newExamples.Count + sampleCount);
+        combined.AddRange(newExamples);
+        combined.AddRange(sampledOld);
+
+        _pluginLog.LogInfo(
+            LogSource,
+            $"Incremental training: {newExamples.Count} new + {sampleCount} sampled old " +
+            $"(from {oldExamples.Count} total old) = {combined.Count} examples.",
+            _logger);
+
+        return combined;
+    }
+
+    /// <summary>
+    ///     Splits the training examples into a train split and a most-recent held-out validation split.
+    ///     Extracted verbatim from <see cref="TrainCore"/>; the 20-example floor and 10% fraction are unchanged.
+    /// </summary>
+    /// <param name="trainingExamples">The examples to split.</param>
+    /// <param name="trainSplit">Receives the training split.</param>
+    /// <param name="heldOutSplit">Receives the held-out validation split.</param>
+    private static void SplitHeldOut(
+        List<TrainingExample> trainingExamples,
+        out List<TrainingExample> trainSplit,
+        out List<TrainingExample> heldOutSplit)
+    {
+        const int minExamplesForHeldOut = 20;
+        const double heldOutFraction = 0.10;
+
+        if (trainingExamples.Count >= minExamplesForHeldOut)
+        {
+            // Sort by GeneratedAtUtc descending to pick the most recent as held-out
+            var sorted = trainingExamples.OrderByDescending(e => e.GeneratedAtUtc).ToList();
+            var heldOutCount = Math.Max(2, (int)(sorted.Count * heldOutFraction));
+            heldOutSplit = sorted.GetRange(0, heldOutCount);
+            trainSplit = sorted.GetRange(heldOutCount, sorted.Count - heldOutCount);
+        }
+        else
+        {
+            trainSplit = trainingExamples;
+            heldOutSplit = [];
+        }
     }
 }

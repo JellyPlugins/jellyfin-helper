@@ -1152,19 +1152,6 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
-    ///     Per-cohort watched/total counters used by <see cref="ApplyCohortFeedback"/>.
-    /// </summary>
-    private struct CohortTallies
-    {
-        public int ControlWatched;
-        public int ControlTotal;
-        public int HighWatched;
-        public int HighTotal;
-        public int LowWatched;
-        public int LowTotal;
-    }
-
-    /// <summary>
     ///     Computes a soft genre-mismatch penalty that ramps linearly from
     ///     <paramref name="penaltyFloor"/> (at GenreSimilarity = 0) to 1.0
     ///     (at GenreSimilarity >= <see cref="GenrePenaltyThreshold"/>).
@@ -1531,6 +1518,19 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     public void Dispose()
     {
         _neural?.Dispose();
+    }
+
+    /// <summary>
+    ///     Per-cohort watched/total counters used by <see cref="ApplyCohortFeedback"/>.
+    /// </summary>
+    private struct CohortTallies
+    {
+        public int ControlWatched;
+        public int ControlTotal;
+        public int HighWatched;
+        public int HighTotal;
+        public int LowWatched;
+        public int LowTotal;
     }
 
     /// <summary>

@@ -237,27 +237,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            try
-            {
-                var userResult = await GenerateForUserAsync(
-                    profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
+            var userResult = await TryGenerateForUserAsync(
+                profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
 
-                if (userResult != null)
-                {
-                    allResults.Add(userResult);
-                }
-            }
-            catch (OperationCanceledException)
+            if (userResult != null)
             {
-                throw;
-            }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                _pluginLog.LogWarning(
-                    LogCategory,
-                    $"Failed to generate discovery for user {profile.UserName}: {ex.Message}",
-                    ex,
-                    _logger);
+                allResults.Add(userResult);
             }
         }
 
@@ -271,39 +256,79 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         else
         {
-            var persisted = _cache.Save(allResults);
-            if (persisted)
-            {
-                _pluginLog.LogInfo(
-                    LogCategory,
-                    $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
-                    _logger);
+            PersistResultsAndRecordFeedback(allResults);
+        }
+    }
 
-                // Step 4: Record shown items in the feedback store for training data collection.
-                // Only record after successful persistence to prevent feedback/training state
-                // from referencing recommendations that never actually reached disk.
-                // Best-effort: feedback persistence must not break the discovery task.
-                foreach (var result in allResults)
-                {
-                    try
-                    {
-                        _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
-                    }
-                    catch (Exception ex) when (!ex.IsFatal())
-                    {
-                        _pluginLog.LogDebug(
-                            LogCategory,
-                            $"Failed to record feedback for user {result.UserName}: {ex.Message}",
-                            _logger);
-                    }
-                }
-            }
-            else
+    /// <summary>
+    ///     Generates discovery recommendations for a single user, converting any non-fatal,
+    ///     non-cancellation failure into a logged warning and a <c>null</c> result so one user's
+    ///     failure does not abort the whole run.
+    /// </summary>
+    private async Task<DiscoveryResult?> TryGenerateForUserAsync(
+        UserWatchProfile profile,
+        PluginConfiguration config,
+        HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
+        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GenerateForUserAsync(
+                profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Failed to generate discovery for user {profile.UserName}: {ex.Message}",
+                ex,
+                _logger);
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     Persists the discovery results and, on success, records the shown items in the
+    ///     feedback store for training-data collection (best-effort per user).
+    /// </summary>
+    private void PersistResultsAndRecordFeedback(List<DiscoveryResult> allResults)
+    {
+        var persisted = _cache.Save(allResults);
+        if (!persisted)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Failed to persist {allResults.Count} user results. Skipping feedback recording to avoid stale training data.",
+                null,
+                _logger);
+            return;
+        }
+
+        _pluginLog.LogInfo(
+            LogCategory,
+            $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
+            _logger);
+
+        // Step 4: Record shown items in the feedback store for training data collection.
+        // Only record after successful persistence to prevent feedback/training state
+        // from referencing recommendations that never actually reached disk.
+        // Best-effort: feedback persistence must not break the discovery task.
+        foreach (var result in allResults)
+        {
+            try
             {
-                _pluginLog.LogWarning(
+                _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogDebug(
                     LogCategory,
-                    $"Failed to persist {allResults.Count} user results. Skipping feedback recording to avoid stale training data.",
-                    null,
+                    $"Failed to record feedback for user {result.UserName}: {ex.Message}",
                     _logger);
             }
         }
@@ -343,26 +368,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (false, "Seerr is not configured.");
         }
 
-        // Defensive boundary guard: reject negative IDs at the service boundary.
-        // DTO validation covers the controller path, but this method is public and
-        // may be called from other contexts (e.g., admin controller, future internal callers).
-        if (serverId.HasValue && serverId.Value < 0)
+        var boundaryError = ValidateSubmitBoundaries(serverId, profileId, rootFolder);
+        if (boundaryError != null)
         {
-            return (false, "serverId must be 0 or greater.");
-        }
-
-        if (profileId.HasValue && profileId.Value < 0)
-        {
-            return (false, "profileId must be 0 or greater.");
-        }
-
-        if (!string.IsNullOrWhiteSpace(rootFolder)
-            && (rootFolder.Contains("..", StringComparison.Ordinal)
-                || rootFolder.StartsWith('~')
-                || rootFolder.Any(c => char.IsControl(c))
-                || rootFolder.Length > 512))
-        {
-            throw new ArgumentException("rootFolder contains invalid path content.", nameof(rootFolder));
+            return (false, boundaryError);
         }
 
         Uri baseUri;
@@ -384,42 +393,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var client = GetSeerrClient();
         try
         {
-            var payloadDict = new Dictionary<string, object>
-            {
-                ["mediaType"] = mediaType,
-                ["mediaId"] = tmdbId,
-                ["is4k"] = false
-            };
-
-            // For TV requests, include "seasons": "all" to request all available seasons.
-            // Jellyseerr/Overseerr requires the seasons field to be present for TV requests;
-            // omitting it causes a server-side crash ("Cannot read properties of undefined
-            // (reading 'filter')") because the backend assumes seasons is always defined.
-            // The string "all" is the canonical way to request all seasons in Overseerr API v1.
-            if (mediaType == "tv")
-            {
-                payloadDict["seasons"] = "all";
-            }
-
-            if (seerrUserId is > 0)
-            {
-                payloadDict["userId"] = seerrUserId.Value;
-            }
-
-            if (serverId.HasValue)
-            {
-                payloadDict["serverId"] = serverId.Value;
-            }
-
-            if (profileId.HasValue)
-            {
-                payloadDict["profileId"] = profileId.Value;
-            }
-
-            if (!string.IsNullOrWhiteSpace(rootFolder))
-            {
-                payloadDict["rootFolder"] = rootFolder;
-            }
+            var payloadDict = BuildRequestPayload(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
 
             using var content = new StringContent(
                 JsonSerializer.Serialize(payloadDict, JsonOptions),
@@ -473,6 +447,91 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
             return (false, "Request failed.");
         }
+    }
+
+    /// <summary>
+    ///     Validates the numeric and path boundary constraints for a submit request.
+    ///     Returns an error message for a rejected numeric ID, or <c>null</c> when valid.
+    ///     Throws <see cref="ArgumentException"/> if <paramref name="rootFolder"/> contains
+    ///     invalid path content.
+    /// </summary>
+    private static string? ValidateSubmitBoundaries(int? serverId, int? profileId, string? rootFolder)
+    {
+        // Defensive boundary guard: reject negative IDs at the service boundary.
+        // DTO validation covers the controller path, but this method is public and
+        // may be called from other contexts (e.g., admin controller, future internal callers).
+        if (serverId.HasValue && serverId.Value < 0)
+        {
+            return "serverId must be 0 or greater.";
+        }
+
+        if (profileId.HasValue && profileId.Value < 0)
+        {
+            return "profileId must be 0 or greater.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(rootFolder)
+            && (rootFolder.Contains("..", StringComparison.Ordinal)
+                || rootFolder.StartsWith('~')
+                || rootFolder.Any(c => char.IsControl(c))
+                || rootFolder.Length > 512))
+        {
+            throw new ArgumentException("rootFolder contains invalid path content.", nameof(rootFolder));
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Builds the Overseerr/Jellyseerr request payload dictionary, including only the
+    ///     optional fields (seasons, userId, serverId, profileId, rootFolder) that apply.
+    /// </summary>
+    private static Dictionary<string, object> BuildRequestPayload(
+        int tmdbId,
+        string mediaType,
+        int? seerrUserId,
+        int? serverId,
+        int? profileId,
+        string? rootFolder)
+    {
+        var payloadDict = new Dictionary<string, object>
+        {
+            ["mediaType"] = mediaType,
+            ["mediaId"] = tmdbId,
+            ["is4k"] = false
+        };
+
+        // For TV requests, include "seasons": "all" to request all available seasons.
+        // Jellyseerr/Overseerr requires the seasons field to be present for TV requests;
+        // omitting it causes a server-side crash ("Cannot read properties of undefined
+        // (reading 'filter')") because the backend assumes seasons is always defined.
+        // The string "all" is the canonical way to request all seasons in Overseerr API v1.
+        if (mediaType == "tv")
+        {
+            payloadDict["seasons"] = "all";
+        }
+
+        if (seerrUserId is > 0)
+        {
+            payloadDict["userId"] = seerrUserId.Value;
+        }
+
+        if (serverId.HasValue)
+        {
+            payloadDict["serverId"] = serverId.Value;
+        }
+
+        if (profileId.HasValue)
+        {
+            payloadDict["profileId"] = profileId.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(rootFolder))
+        {
+            payloadDict["rootFolder"] = rootFolder;
+        }
+
+        return payloadDict;
     }
 
     /// <inheritdoc />
@@ -532,27 +591,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                using var userRequest = BuildRequest(
-                    HttpMethod.Get,
-                    baseUri,
-                    $"api/v1/user?take={take}&skip={skip}&sort=displayname",
-                    apiKey,
-                    content: null);
-                using var response = await client.SendAsync(userRequest, cancellationToken).ConfigureAwait(false);
+                var (ok, pageResult) = await FetchUserPageAsync(
+                    client, baseUri, apiKey, take, skip, allUsers.Count, cancellationToken).ConfigureAwait(false);
 
-                if (!response.IsSuccessStatusCode)
+                if (!ok)
                 {
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"User list pagination failed at skip={skip}: HTTP {(int)response.StatusCode}. Returning partial result ({allUsers.Count} users fetched so far).",
-                        null,
-                        _logger);
                     fetchComplete = false;
                     break;
                 }
 
-                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var pageResult = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
                 if (pageResult?.Results == null || pageResult.Results.Count == 0)
                 {
                     break;
@@ -597,6 +644,42 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
             return ([], false);
         }
+    }
+
+    /// <summary>
+    ///     Fetches a single page of the Seerr user roster. Returns <c>Ok = false</c> on a non-success
+    ///     HTTP status (logged as a partial-result warning); otherwise returns the deserialized page.
+    /// </summary>
+    private async Task<(bool Ok, SeerrUserPage? Page)> FetchUserPageAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        int take,
+        int skip,
+        int fetchedSoFar,
+        CancellationToken cancellationToken)
+    {
+        using var userRequest = BuildRequest(
+            HttpMethod.Get,
+            baseUri,
+            $"api/v1/user?take={take}&skip={skip}&sort=displayname",
+            apiKey,
+            content: null);
+        using var response = await client.SendAsync(userRequest, cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"User list pagination failed at skip={skip}: HTTP {(int)response.StatusCode}. Returning partial result ({fetchedSoFar} users fetched so far).",
+                null,
+                _logger);
+            return (false, null);
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var pageResult = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
+        return (true, pageResult);
     }
 
     /// <inheritdoc />
@@ -687,44 +770,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var enrichedServers = new List<SeerrServiceInfo>();
             foreach (var server in servers.Take(maxServerIterations))
             {
-                try
-                {
-                    using var detailRequest = BuildRequest(
-                        HttpMethod.Get, baseUri, $"api/v1/service/{serviceType}/{server.Id}", apiKey);
-                    using var detailResponse = await client.SendAsync(detailRequest, cancellationToken).ConfigureAwait(false);
-
-                    if (detailResponse.IsSuccessStatusCode)
-                    {
-                        var detailJson = await detailResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                        var detail = JsonSerializer.Deserialize<SeerrServiceInfo>(detailJson, JsonOptions);
-                        if (detail != null)
-                        {
-                            server.Profiles = detail.Profiles ?? server.Profiles;
-                            server.RootFolders = detail.RootFolders ?? server.RootFolders;
-                            server.ActiveProfileId = detail.ActiveProfileId;
-                            server.ActiveDirectory = detail.ActiveDirectory;
-                        }
-                    }
-                    else
-                    {
-                        _pluginLog.LogDebug(
-                            LogCategory,
-                            $"Failed to fetch profiles for {serviceType} server #{server.Id}: HTTP {(int)detailResponse.StatusCode}.",
-                            _logger);
-                    }
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
-                {
-                    _pluginLog.LogDebug(
-                        LogCategory,
-                        $"Failed to fetch profiles for {serviceType} server #{server.Id}: {ex.Message}",
-                        _logger);
-                }
-
+                await EnrichServerDetailAsync(
+                    client, baseUri, apiKey, serviceType, server, cancellationToken).ConfigureAwait(false);
                 enrichedServers.Add(server);
             }
 
@@ -742,6 +789,58 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 ex,
                 _logger);
             return ([], false);
+        }
+    }
+
+    /// <summary>
+    ///     Fetches the detail payload for a single Seerr service server and merges the
+    ///     profiles, root folders and active selections into <paramref name="server"/>.
+    ///     Best-effort: transient failures are logged and leave the server unenriched.
+    /// </summary>
+    private async Task EnrichServerDetailAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        string serviceType,
+        SeerrServiceInfo server,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var detailRequest = BuildRequest(
+                HttpMethod.Get, baseUri, $"api/v1/service/{serviceType}/{server.Id}", apiKey);
+            using var detailResponse = await client.SendAsync(detailRequest, cancellationToken).ConfigureAwait(false);
+
+            if (detailResponse.IsSuccessStatusCode)
+            {
+                var detailJson = await detailResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var detail = JsonSerializer.Deserialize<SeerrServiceInfo>(detailJson, JsonOptions);
+                if (detail != null)
+                {
+                    server.Profiles = detail.Profiles ?? server.Profiles;
+                    server.RootFolders = detail.RootFolders ?? server.RootFolders;
+                    server.ActiveProfileId = detail.ActiveProfileId;
+                    server.ActiveDirectory = detail.ActiveDirectory;
+                }
+            }
+            else
+            {
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"Failed to fetch profiles for {serviceType} server #{server.Id}: HTTP {(int)detailResponse.StatusCode}.",
+                    _logger);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Failed to fetch profiles for {serviceType} server #{server.Id}: {ex.Message}",
+                _logger);
         }
     }
 
@@ -969,82 +1068,102 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             if (filterToDefault)
             {
-                // Normal users: only the server's active/default profile
-                var defaultProfile = server.Profiles.FirstOrDefault(p => p.Id == server.ActiveProfileId);
-                if (defaultProfile != null)
+                AddDefaultProfileForServer(result, server);
+            }
+            else
+            {
+                AddAllProfilesForServer(result, server);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Adds only the server's active/default quality profile to <paramref name="result"/>.
+    ///     If Seerr does not report a resolvable active/default profile, nothing is added and the
+    ///     request path falls back to Seerr's own server defaults.
+    /// </summary>
+    private static void AddDefaultProfileForServer(List<AllowedQualityProfile> result, SeerrServiceInfo server)
+    {
+        // Normal users: only the server's active/default profile
+        var defaultProfile = server.Profiles.FirstOrDefault(p => p.Id == server.ActiveProfileId);
+        if (defaultProfile != null)
+        {
+            result.Add(new AllowedQualityProfile
+            {
+                ServerId = server.Id,
+                ServerName = server.Name,
+                ProfileId = defaultProfile.Id,
+                ProfileName = defaultProfile.Name,
+                IsDefault = true,
+                RootFolder = server.ActiveDirectory
+            });
+        }
+
+        // If Seerr does not report a resolvable active/default profile for this server,
+        // do not synthesize one from Profiles[0]. The request path will fall back to
+        // Seerr's own server defaults, which is safer than over-granting a random profile.
+    }
+
+    /// <summary>
+    ///     Adds every profile on the server to <paramref name="result"/>, emitting one entry per
+    ///     allowed root folder so the controller's exact-match (ServerId, ProfileId, RootFolder)
+    ///     triple validation can accept any valid combination.
+    /// </summary>
+    private static void AddAllProfilesForServer(List<AllowedQualityProfile> result, SeerrServiceInfo server)
+    {
+        // Advanced users: all profiles on all servers.
+        // Expose each available root folder per profile so the user can select any valid
+        // combination. The controller's SubmitMyRequest validates (ServerId, ProfileId, RootFolder)
+        // as an exact-match triple - so we must emit a separate entry for each allowed path.
+        var rootFolderPaths = server.RootFolders
+            .Where(rf => !string.IsNullOrEmpty(rf.Path))
+            .Select(rf => rf.Path)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        // If the server has no root folders reported (e.g., detail fetch failed),
+        // fall back to ActiveDirectory to maintain backward compatibility.
+        if (rootFolderPaths.Count == 0 && !string.IsNullOrEmpty(server.ActiveDirectory))
+        {
+            rootFolderPaths.Add(server.ActiveDirectory);
+        }
+
+        foreach (var profile in server.Profiles)
+        {
+            if (rootFolderPaths.Count > 0)
+            {
+                foreach (var rootPath in rootFolderPaths)
                 {
                     result.Add(new AllowedQualityProfile
                     {
                         ServerId = server.Id,
                         ServerName = server.Name,
-                        ProfileId = defaultProfile.Id,
-                        ProfileName = defaultProfile.Name,
-                        IsDefault = true,
-                        RootFolder = server.ActiveDirectory
+                        ProfileId = profile.Id,
+                        ProfileName = profile.Name,
+                        IsDefault = profile.Id == server.ActiveProfileId
+                                    && string.Equals(rootPath, server.ActiveDirectory, StringComparison.Ordinal),
+                        RootFolder = rootPath
                     });
                 }
-
-                // If Seerr does not report a resolvable active/default profile for this server,
-                // do not synthesize one from Profiles[0]. The request path will fall back to
-                // Seerr's own server defaults, which is safer than over-granting a random profile.
             }
             else
             {
-                // Advanced users: all profiles on all servers.
-                // Expose each available root folder per profile so the user can select any valid
-                // combination. The controller's SubmitMyRequest validates (ServerId, ProfileId, RootFolder)
-                // as an exact-match triple - so we must emit a separate entry for each allowed path.
-                var rootFolderPaths = server.RootFolders
-                    .Where(rf => !string.IsNullOrEmpty(rf.Path))
-                    .Select(rf => rf.Path)
-                    .Distinct(StringComparer.Ordinal)
-                    .ToList();
-
-                // If the server has no root folders reported (e.g., detail fetch failed),
-                // fall back to ActiveDirectory to maintain backward compatibility.
-                if (rootFolderPaths.Count == 0 && !string.IsNullOrEmpty(server.ActiveDirectory))
+                // No root folders at all - emit with empty RootFolder.
+                // SubmitMyRequest will reject any client-specified rootFolder for this profile,
+                // and the request falls back to Seerr's server-configured default.
+                result.Add(new AllowedQualityProfile
                 {
-                    rootFolderPaths.Add(server.ActiveDirectory);
-                }
-
-                foreach (var profile in server.Profiles)
-                {
-                    if (rootFolderPaths.Count > 0)
-                    {
-                        foreach (var rootPath in rootFolderPaths)
-                        {
-                            result.Add(new AllowedQualityProfile
-                            {
-                                ServerId = server.Id,
-                                ServerName = server.Name,
-                                ProfileId = profile.Id,
-                                ProfileName = profile.Name,
-                                IsDefault = profile.Id == server.ActiveProfileId
-                                            && string.Equals(rootPath, server.ActiveDirectory, StringComparison.Ordinal),
-                                RootFolder = rootPath
-                            });
-                        }
-                    }
-                    else
-                    {
-                        // No root folders at all - emit with empty RootFolder.
-                        // SubmitMyRequest will reject any client-specified rootFolder for this profile,
-                        // and the request falls back to Seerr's server-configured default.
-                        result.Add(new AllowedQualityProfile
-                        {
-                            ServerId = server.Id,
-                            ServerName = server.Name,
-                            ProfileId = profile.Id,
-                            ProfileName = profile.Name,
-                            IsDefault = profile.Id == server.ActiveProfileId,
-                            RootFolder = string.Empty
-                        });
-                    }
-                }
+                    ServerId = server.Id,
+                    ServerName = server.Name,
+                    ProfileId = profile.Id,
+                    ProfileName = profile.Name,
+                    IsDefault = profile.Id == server.ActiveProfileId,
+                    RootFolder = string.Empty
+                });
             }
         }
-
-        return result;
     }
 
     /// <summary>
@@ -1665,46 +1784,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         return minYear;
-    }
-            if (candidate.Id <= 0)
-            {
-                continue;
-            }
-
-            var mediaTypeKey = (candidate.MediaType ?? MediaTypeMovie).ToLowerInvariant();
-            if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
-            {
-                continue;
-            }
-
-            if (candidate.VoteAverage < minVoteAverage)
-            {
-                continue;
-            }
-
-            if (!seen.Add((candidate.Id, mediaTypeKey)))
-            {
-                continue;
-            }
-
-            // Parental rating filter: exclude adult content and restricted genres
-            if (ParentalRatingHelper.ShouldExclude(candidate, maxParentalRating))
-            {
-                continue;
-            }
-
-            // Year-based post-filtering (soft: only if year is available and min is set)
-            if (minYear > 0
-                && candidate.EffectiveReleaseDate.HasValue
-                && candidate.EffectiveReleaseDate.Value.Year < minYear)
-            {
-                continue;
-            }
-
-            result.Add(candidate);
-        }
-
-        return result;
     }
 
     private static List<string> BuildGenreIdList(
