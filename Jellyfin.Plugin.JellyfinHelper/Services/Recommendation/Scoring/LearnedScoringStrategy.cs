@@ -27,12 +27,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     recency×critic), 3 genre exposure features (underexposure, dominance ratio, affinity gap),
 ///     library-added recency, content nearest-neighbor score, language affinity,
 ///     collection progression boost, and subtitle language affinity.
-///     Training uses mean squared error (MSE) loss with L2 regularization, sample weighting
-///     (temporal decay), Z-score feature standardization (applied both at training and scoring time),
-///     and early stopping.
-///     K-fold cross-validation computes standardization statistics per-fold from the training
-///     fold only, avoiding data leakage from validation data into the feature normalization.
-///     Weights are persisted to disk so they survive server restarts.
+///     Training: MSE loss with L2 regularization, sample weighting (temporal decay), Z-score feature
+///     standardization (at both training and scoring time), and early stopping. K-fold
+///     cross-validation computes standardization stats per-fold from the training fold only, avoiding
+///     leakage into normalization. Weights persist to disk so they survive server restarts.
 /// </remarks>
 public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrategy
 {
@@ -447,14 +445,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
             if (useStandardization)
             {
-                // Intentional design trade-off: standardization stats here are computed from the
-                // FULL dataset (all examples), whereas each k-fold fold computed stats from its
-                // training-fold subset only (to prevent leakage). This means the mean/stddev used
-                // by the deployed model (persisted below as _featureMeans/_featureStdDevs) differ
-                // slightly from the per-fold stats that produced the k-fold loss estimate used for
-                // quality gating. In practice the difference is negligible when the dataset is
-                // representative, but callers should be aware that the k-fold loss is an estimate
-                // under fold-only normalization while inference runs under full-dataset normalization.
+                // Intentional trade-off: stats here are computed from the FULL dataset, whereas each
+                // k-fold fold used its training-fold subset only (to prevent leakage). So the mean/stddev
+                // the deployed model uses (persisted below) differ slightly from the per-fold stats behind
+                // the k-fold loss estimate: the k-fold loss is under fold-only normalization, inference
+                // under full-dataset normalization. Negligible when the dataset is representative.
                 (featureMeans, featureStdDevs) = ComputeFeatureStatistics(finalVectors);
                 StandardizeVectors(finalVectors, featureMeans, featureStdDevs);
             }
@@ -980,16 +975,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 json = JsonSerializer.Serialize(data, SerializerOptions);
             }
 
-            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
-            // final File.Move gets a bounded retry instead of silently dropping the save.
-            // AtomicFile also handles temp-file cleanup internally.
-            //
-            // Beyond the two "expected" exception paths (IOException / UnauthorizedAccessException)
-            // AtomicFile can also surface, on its final attempt: SecurityException (CAS / SELinux
-            // policy), NotSupportedException (invalid path characters on some file systems), and
-            // ArgumentException (e.g. reserved device names on Windows). All of these are treated
-            // the same way as the primary I/O errors: non-critical, logged, and swallowed so a
-            // failed weight save never brings down the (already best-effort) training pipeline.
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the final File.Move
+            // gets a bounded retry instead of silently dropping the save (it also cleans up temp files).
+            // Besides IOException / UnauthorizedAccessException, AtomicFile can surface on its final
+            // attempt: SecurityException (CAS/SELinux), NotSupportedException (invalid path chars), and
+            // ArgumentException (reserved device names on Windows). All are treated the same - non-critical,
+            // logged, swallowed - so a failed weight save never brings down the best-effort training pipeline.
             AtomicFile.WriteAllText(_weightsPath, json);
         }
         catch (IOException ex)

@@ -47,14 +47,13 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Batch-loads people (actors/directors) for all candidate items into a lookup dictionary.
-    ///     Called once per recommendation run and shared across all users for performance.
-    ///     Only stores person names for relevant types (Actor, Director) to keep memory compact.
+    ///     Batch-loads people (actors/directors) for all candidate items into a lookup dictionary,
+    ///     once per recommendation run and shared across users. Only stores names for relevant types
+    ///     (Actor, Director) to keep memory compact.
     ///     <para>
-    ///         Uses <see cref="ILibraryManager.GetPeopleNamesByItems"/> (Jellyfin 12+) as a single
-    ///         database roundtrip when available, falling back to per-item
-    ///         <c>ILibraryManager.GetPeople(BaseItem)</c> calls if the batch API throws for any reason.
-    ///         The fallback guarantees the lookup is never worse than the pre-Jellyfin-12 implementation.
+    ///         Uses <see cref="ILibraryManager.GetPeopleNamesByItems"/> (Jellyfin 12+) as a single DB
+    ///         roundtrip when available, falling back to per-item <c>ILibraryManager.GetPeople(BaseItem)</c>
+    ///         if the batch API throws, so the lookup is never worse than the pre-Jellyfin-12 path.
     ///     </para>
     /// </summary>
     /// <param name="candidates">All candidate base items.</param>
@@ -309,11 +308,11 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Unknown-genre damping: reduce similarity proportionally when a candidate has genres
-        // the user has never watched, so items mixing familiar and unfamiliar genres don't score
-        // as high as fully-familiar ones. Factor 0.5 = moderate: "never watched" != "dislikes".
-        // Example: Anime ["Animation","Action","Drama"] for an Action/Drama user:
-        //   unknownFraction = 1/3, damping = 1 - 0.33 * 0.5 = 0.835 -> ~17% reduction.
+        // Unknown-genre damping: reduce similarity proportionally when a candidate has genres the user
+        // has never watched, so items mixing familiar and unfamiliar genres score below fully-familiar
+        // ones. Factor 0.5 = moderate ("never watched" != "dislikes"). Example: Anime
+        // ["Animation","Action","Drama"] for an Action/Drama user: unknownFraction = 1/3,
+        // damping = 1 - 0.33 * 0.5 = 0.835 -> ~17% reduction.
         if (unknownGenreCount == 0)
         {
             return cosineSimilarity;
@@ -327,12 +326,11 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes people similarity between a candidate's cast/directors and the user's
-    ///     preferred people set using Overlap coefficient: |A ∩ B| / min(|A|, |B|).
-    ///     This is preferred over Jaccard for people similarity because the user's preferred
-    ///     people set is typically much larger than a single candidate's cast, which would
-    ///     make Jaccard converge towards zero. Overlap coefficient focuses on what fraction
-    ///     of the smaller set is shared, giving a meaningful signal.
+    ///     Computes people similarity between a candidate's cast/directors and the user's preferred
+    ///     people set using the overlap coefficient: |A ∩ B| / min(|A|, |B|). Preferred over Jaccard
+    ///     here because the user's preferred set is typically far larger than one candidate's cast, which
+    ///     would drive Jaccard toward zero; the overlap coefficient measures what fraction of the smaller
+    ///     set is shared, giving a meaningful signal.
     /// </summary>
     /// <param name="candidatePeople">The candidate item's person names.</param>
     /// <param name="preferredPeople">The user's preferred person names.</param>
@@ -366,9 +364,9 @@ internal sealed class SimilarityComputer
 
     /// <summary>
     ///     Weighted variant of <see cref="ComputePeopleSimilarity(HashSet{string}, HashSet{string})"/>
-    ///     that scores candidates by how much of the user's <b>weight mass</b> they carry rather than
-    ///     raw set membership. Used at inference by <c>Engine.ScoreCandidate</c> and across all training
-    ///     phases in <c>TrainingDataBuilder</c> so the ML feature is identical on both sides.
+    ///     that scores candidates by how much of the user's <b>weight mass</b> they carry rather than raw
+    ///     set membership. Used at inference by <c>Engine.ScoreCandidate</c> and across all training phases
+    ///     in <c>TrainingDataBuilder</c> so the ML feature is identical on both sides.
     ///     <para>
     ///         <b>Active formula</b> (top-K weighted-budget, clamped [0, 1]):
     ///         <code>
@@ -378,25 +376,23 @@ internal sealed class SimilarityComputer
     ///                          0, 1 )
     ///         </code>
     ///         where <c>avg(topK(preferredWeight))</c> is the mean of the <see
-    ///         cref="EngineConstants.WeightedPeopleSimilarityTopK"/> largest positive weights (the full
-    ///         positive set if fewer than <c>K</c> exist). Averaging only the heavy hitters anchors the
-    ///         denominator to the collaborators driving the user's preferences; averaging the full set
-    ///         would let two heavy matches saturate to 1.0 on 100-person profiles full of one-off cameos.
-    ///         The floor guards sparse-user overshoot and empty-preferred stability (see the floor
-    ///         constant's XML doc).
+    ///         cref="EngineConstants.WeightedPeopleSimilarityTopK"/> largest positive weights (full positive
+    ///         set if fewer than <c>K</c>). Averaging only the heavy hitters anchors the denominator to the
+    ///         collaborators driving the user's preferences; averaging the full set would let two heavy
+    ///         matches saturate to 1.0 on 100-person profiles full of one-off cameos. The floor guards
+    ///         sparse-user overshoot and empty-preferred stability (see the floor constant's XML doc).
     ///     </para>
     ///     <para>
     ///         <b>Intuition</b>: <c>|candidate| × avg</c> is the expected matched weight if the cast were
-    ///         all "average preferred" people. Delivering exactly that scores 1.0; less scores lower. The
-    ///         monotone ordering (more matched weight -> strictly higher score, up to the clamp) is what the
+    ///         all "average preferred" people; delivering exactly that scores 1.0, less scores lower. The
+    ///         monotone ordering (more matched weight -> strictly higher, up to the clamp) is what the
     ///         downstream neural ranking head needs.
     ///     </para>
     ///     <para>
     ///         <b>Design history</b>: an earlier <c>matchedWeight / min(|candidate|, totalPreferredWeight)</c>
     ///         (a) collapsed rich-profile candidates to 1.0 once matched-weight exceeded |candidate|
-    ///         (ceiling-compression) and (b) let one heavy-weight match on a sparse profile hit 1.0
-    ///         (sparse-user overshoot). The weighted-budget formula fixes both; see regression tests in
-    ///         <c>SimilarityComputerTests</c>.
+    ///         (ceiling-compression) and (b) let one heavy match on a sparse profile hit 1.0 (sparse-user
+    ///         overshoot). The weighted-budget formula fixes both; see <c>SimilarityComputerTests</c>.
     ///     </para>
     ///     <para>
     ///         Empty-input contract mirrors <see cref="ComputePeopleSimilarity(HashSet{string},HashSet{string})"/>:
@@ -429,14 +425,13 @@ internal sealed class SimilarityComputer
     /// <summary>
     ///     Precomputes the top-K average preferred weight used as the denominator anchor in
     ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double})"/>.
-    ///     Callers that score many candidates against the SAME <paramref name="preferredPeopleWeights"/>
-    ///     (batched inference, training-data build) should call this once per user and pass the
-    ///     result into <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double}, double)"/>
-    ///     to skip the O(P log P) sort inside the per-candidate hot path.
+    ///     Callers scoring many candidates against the SAME <paramref name="preferredPeopleWeights"/>
+    ///     (batched inference, training-data build) should call this once per user and pass the result to
+    ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double}, double)"/>
+    ///     to skip the O(P log P) sort in the per-candidate hot path.
     ///     <para>
-    ///         Returns <c>0.0</c> when no positive-weight entries exist; the overload that consumes
-    ///         this value treats a zero average as "no meaningful preference structure" and yields
-    ///         the same result as the eager path.
+    ///         Returns <c>0.0</c> when no positive-weight entries exist; the consuming overload treats a
+    ///         zero average as "no meaningful preference structure", matching the eager path's result.
     ///     </para>
     /// </summary>
     /// <param name="preferredPeopleWeights">The user's weighted preferences.</param>

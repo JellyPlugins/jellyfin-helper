@@ -19,28 +19,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 ///     Supports configuration-driven library filtering, orphan age, trash/delete mode, and storage tracking.
 /// </summary>
 /// <remarks>
+///     Targets the common case where deleting a movie/episode removes only the video file, leaving
+///     the folder of metadata (.nfo), artwork (.jpg), subtitles (.srt). Scans top-level folders
+///     (direct children of each library root), checking each tree recursively. A folder is orphaned
+///     only if it holds non-metadata files but NO video anywhere in the tree; a single video
+///     anywhere leaves the whole folder untouched (including empty Sonarr "wanted" Season subfolders).
 ///     <para>
-///         This plugin targets a common scenario: when a movie or episode is deleted, only the video file
-///         is removed while the surrounding folder with metadata (.nfo), artwork (.jpg), subtitles (.srt)
-///         etc. remains as an orphaned folder.
-///     </para>
-///     <para>
-///         The scan operates on <strong>top-level folders</strong> (direct children of each library root).
-///         For each top-level folder, the entire directory tree is checked recursively. A folder is only
-///         considered orphaned and eligible for deletion when it contains <strong>non-metadata files</strong>
-///         (e.g. subtitles, text files) but absolutely NO video file anywhere in the tree.
-///         If at least one video file exists anywhere (even in a deeply nested subdirectory), the entire
-///         folder is left untouched - including subfolders that may not contain videos themselves
-///         (e.g. empty Season folders created by Sonarr as "wanted" placeholders).
-///     </para>
-///     <para>
-///         Completely empty folders (containing zero files in the entire tree) are intentionally skipped,
-///         as they are often pre-created by tools like Radarr/Sonarr for upcoming media.
-///     </para>
-///     <para>
-///         Folders that contain <strong>only metadata/artwork files</strong> (images like .jpg/.png and
-///         NFO/XML files) but no video or other files are also skipped, as they are typically placeholders
-///         created by Sonarr/Radarr for wanted media that hasn't been downloaded yet.
+///         Skipped: fully empty trees (Radarr/Sonarr placeholders for upcoming media), and folders
+///         holding only metadata/artwork (images, NFO/XML) - also wanted-media placeholders.
 ///     </para>
 /// </remarks>
 public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask

@@ -210,12 +210,11 @@ public class HelperCleanupTask : IScheduledTask
                 var totalItemsPurged = 0;
 
                 // Resolve each library's trash path, then purge the DISTINCT set so a shared absolute
-                // TrashFolderPath is purged exactly once. Reject only a path that resolves to a library
-                // root itself (never a valid trash folder); an absolute trash path OUTSIDE every root is
-                // a supported configuration and MUST be purged, else TrashRetentionDays is silently
-                // defeated. Deletion stays bounded regardless: PurgeExpiredTrash only removes entries
-                // whose names match the strict "yyyyMMdd-HHmmss_" trash-timestamp prefix, so even a
-                // misconfigured absolute path loses nothing that is not a real trash entry.
+                // TrashFolderPath is purged once. Reject only a path resolving to a library root itself
+                // (never valid trash); an absolute path OUTSIDE every root is supported and MUST be
+                // purged, else TrashRetentionDays is silently defeated. Bounded regardless:
+                // PurgeExpiredTrash removes only entries matching the strict "yyyyMMdd-HHmmss_" prefix,
+                // so even a misconfigured path loses nothing that is not a real trash entry.
                 var pathComparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
 
                 var libraryRoots = new HashSet<string>(pathComparer);

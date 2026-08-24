@@ -13,24 +13,20 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Controllers decorated with <c>[ApiController]</c> automatically return 400 for invalid
-/// <c>ModelState</c> (or a null request body) via <c>ModelStateInvalidFilter</c>. That short-circuit
-/// happens <em>before</em> the action method runs, so a hand-written <c>if (!ModelState.IsValid)</c>
-/// inside the action is dead code on the real request pipeline - the raw HTTP 400 makes it out,
-/// but no <see cref="IPluginLogService"/> entry is written.
+/// <c>[ApiController]</c>'s <c>ModelStateInvalidFilter</c> auto-returns 400 for invalid
+/// <c>ModelState</c> (or null body) <em>before</em> the action runs, so a hand-written
+/// <c>if (!ModelState.IsValid)</c> in the action is dead code: the 400 goes out but no
+/// <see cref="IPluginLogService"/> entry is written.
 /// </para>
 /// <para>
-/// This filter closes that gap. It runs as an <see cref="IAsyncActionFilter"/> which fires
-/// <em>after</em> model binding but <em>before</em> the <c>[ApiController]</c> auto-400 filter
-/// (because action filters execute before the built-in <c>ModelStateInvalidFilter</c> when
-/// registered explicitly). If <c>ModelState</c> is invalid, we log a WARNING through the plugin
-/// log service and short-circuit the response ourselves with a message body that mirrors what
-/// the frontend used to parse from the field-level errors.
+/// This filter closes the gap as an <see cref="IAsyncActionFilter"/> firing after model binding but
+/// before the auto-400 filter (explicit action filters run before the built-in one). On invalid
+/// <c>ModelState</c> it logs a WARNING and short-circuits with a body mirroring the field-level
+/// errors the frontend used to parse.
 /// </para>
 /// <para>
-/// Registered as a scoped service so it can be attached via <c>[ServiceFilter(typeof(...))]</c>
-/// on the target action. Do NOT register globally - other Jellyfin controllers have their own
-/// error-handling contracts and must not have their responses rewritten by this filter.
+/// Scoped so it attaches via <c>[ServiceFilter(typeof(...))]</c> per action. Do NOT register
+/// globally - other Jellyfin controllers have their own error contracts and must not be rewritten.
 /// </para>
 /// </remarks>
 public sealed class ModelBindingLogFilter : IAsyncActionFilter, IOrderedFilter

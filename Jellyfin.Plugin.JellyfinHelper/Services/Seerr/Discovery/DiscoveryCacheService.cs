@@ -15,12 +15,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 ///     Handles persistence of discovery results to the plugin data directory.
 ///     Mirrors the pattern used by <see cref="Recommendation.RecommendationCacheService"/>.
 ///     <para>
-///         <b>Synchronisation:</b> uses a <see cref="SemaphoreSlim"/> instead of a plain
-///         <c>lock</c> so both synchronous callers (scheduled tasks, <see cref="Save"/>) and
-///         asynchronous request-driven callers (<see cref="MarkAsRequestedAsync(int, string, CancellationToken)"/> /
-///         <see cref="RemoveItemAsync"/>) serialise through the exact same mutex. Falling back
-///         to two separate primitives would allow a background task's <c>Save</c> to race with
-///         a live HTTP mutation of the same in-memory cache.
+///         <b>Synchronisation:</b> a single <see cref="SemaphoreSlim"/> (not a plain <c>lock</c>)
+///         serialises both synchronous callers (scheduled tasks, <see cref="Save"/>) and async
+///         request callers (<see cref="MarkAsRequestedAsync(int, string, CancellationToken)"/> /
+///         <see cref="RemoveItemAsync"/>) through one mutex. Two separate primitives would let a
+///         background <c>Save</c> race a live HTTP mutation of the same in-memory cache.
 ///     </para>
 /// </summary>
 public sealed class DiscoveryCacheService : IDisposable
@@ -103,14 +102,12 @@ public sealed class DiscoveryCacheService : IDisposable
     ///     Loads cached discovery results. Returns a deep-copied snapshot of the in-memory cache
     ///     if available, otherwise reads from disk and populates the cache first.
     ///     <para>
-    ///         <b>Deep copy guarantee:</b> each <see cref="DiscoveryResult"/> and each nested
-    ///         <see cref="DiscoveryRecommendation"/> in the returned list is a detached clone
-    ///         produced via <see cref="DiscoveryResult.Clone"/>. Callers may freely read or even
-    ///         mutate the returned objects - those changes will never propagate back to the live
-    ///         <see cref="_memoryCache"/> or the on-disk file. Authoritative mutation operations
-    ///         (e.g. <see cref="MarkAsRequested"/>) must still go through this service so that
-    ///         both the in-memory cache and the on-disk file are updated atomically under
-    ///         <see cref="_fileLock"/>.
+    ///         <b>Deep copy guarantee:</b> every returned <see cref="DiscoveryResult"/> and nested
+    ///         <see cref="DiscoveryRecommendation"/> is a detached clone via
+    ///         <see cref="DiscoveryResult.Clone"/>, so callers may mutate them without affecting the
+    ///         live <see cref="_memoryCache"/> or on-disk file. Authoritative mutations (e.g.
+    ///         <see cref="MarkAsRequested"/>) must still go through this service to update cache and
+    ///         file atomically under <see cref="_fileLock"/>.
     ///     </para>
     /// </summary>
     /// <returns>A deep-copied list of discovery results, or an empty list if the file does not exist or is invalid.</returns>

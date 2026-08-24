@@ -37,12 +37,11 @@ internal static class TrainingDataBuilder
     /// <param name="discoveryFeedback">Optional discovery feedback data for Phase 4.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>
-    ///     A tuple with the training examples and three separate counters - organic watches
-    ///     (Phase 2), cross-user random negatives (Phase 3) and discovery interactions
-    ///     (Phase 4). Splitting the discovery counter out of <c>OrganicCount</c> lets
-    ///     operators tell at a glance whether the positive signal comes from actual
-    ///     consumption or external Seerr requests, which have very different implications
-    ///     for training-data health.
+    ///     A tuple with the training examples and three separate counters - organic watches (Phase 2),
+    ///     cross-user random negatives (Phase 3) and discovery interactions (Phase 4). Splitting the
+    ///     discovery counter out of <c>OrganicCount</c> lets operators see at a glance whether the
+    ///     positive signal comes from actual consumption or external Seerr requests (very different
+    ///     implications for training-data health).
     /// </returns>
     internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamples(
         IReadOnlyList<RecommendationResult> previousResults,
@@ -74,12 +73,11 @@ internal static class TrainingDataBuilder
     /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>
-    ///     A tuple with the training examples and three separate counters - organic watches
-    ///     (Phase 2), cross-user random negatives (Phase 3) and discovery interactions
-    ///     (Phase 4). Splitting the discovery counter out of <c>OrganicCount</c> lets
-    ///     operators tell at a glance whether the positive signal comes from actual
-    ///     consumption or external Seerr requests, which have very different implications
-    ///     for training-data health.
+    ///     A tuple with the training examples and three separate counters - organic watches (Phase 2),
+    ///     cross-user random negatives (Phase 3) and discovery interactions (Phase 4). Splitting the
+    ///     discovery counter out of <c>OrganicCount</c> lets operators see at a glance whether the
+    ///     positive signal comes from actual consumption or external Seerr requests (very different
+    ///     implications for training-data health).
     /// </returns>
     internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamples(
         IReadOnlyList<RecommendationResult> previousResults,
@@ -262,12 +260,11 @@ internal static class TrainingDataBuilder
                 list.Add(w);
             }
 
-            // Build watched genre/people/studio sets for ContentNearestNeighborScore computation.
-            // Mirrors Engine.GenerateForUser() logic: parallel lists indexed by watched item.
-            // Use HasMeaningfulInteraction() to match the live inference path (which includes
-            // PlayCount > 0 and PlaybackPositionTicks > 0 items, not just Played || IsFavorite).
-            // Using a narrower filter here would produce a smaller watched set at training time
-            // than at inference, creating a train/serve skew for ContentNearestNeighborScore.
+            // Build watched genre/people/studio sets for ContentNearestNeighborScore. Mirrors
+            // Engine.GenerateForUser (parallel lists indexed by watched item). Filter on
+            // HasMeaningfulInteraction() to match the live path (PlayCount > 0 / PlaybackPositionTicks > 0,
+            // not just Played || IsFavorite); a narrower filter would shrink the training watched set vs.
+            // inference, skewing ContentNearestNeighborScore.
             var watchedGenreSets = new List<HashSet<string>>();
             var watchedPeopleSets = new List<HashSet<string>>();
             var watchedStudioSets = new List<HashSet<string>>();
@@ -295,12 +292,11 @@ internal static class TrainingDataBuilder
                 watchedStudioSets.Add(studioSet);
             }
 
-            // Build per-user watchedBoxSetCounts by iterating the user's watched items directly,
-            // matching Engine.BuildWatchedBoxSetCounts. Uses the global itemBoxSetIdsLookup so
-            // organic watches (items the user found on their own, never recommended to them) also
-            // contribute BoxSet membership when the item was recommended to at least one other user
-            // and thus has BoxSet metadata cached. Previously only recommendations for THIS user
-            // were considered, systematically under-counting BoxSet progression at training time.
+            // Build per-user watchedBoxSetCounts by iterating the user's watched items directly (matches
+            // Engine.BuildWatchedBoxSetCounts). Uses the global itemBoxSetIdsLookup so organic watches
+            // (never recommended to this user) also contribute BoxSet membership when the item was
+            // recommended to at least one OTHER user and thus has cached BoxSet metadata. Previously only
+            // this user's recommendations counted, systematically under-counting BoxSet progression.
             var watchedBoxSetCounts = new Dictionary<Guid, int>();
             foreach (var watchedId in BuildWatchedIdSet(watchedIds, watchedSeriesIds))
             {
@@ -536,11 +532,9 @@ internal static class TrainingDataBuilder
         }
 
         // === Phase 2: Add organic watch examples (watched-but-never-recommended items) ===
-        // Items the user found and watched on their own provide strong positive signal
-        // that the recommendation-only approach misses. This reduces training bias.
-        //
-        // Build per-user recommended item sets so that an item recommended to user A
-        // does not suppress user B's organic discovery of the same item.
+        // Items the user found and watched on their own are strong positive signal the
+        // recommendation-only approach misses, reducing training bias. Per-user recommended sets keep
+        // an item recommended to user A from suppressing user B's organic discovery of the same item.
         var recommendedItemIdsByUser = new Dictionary<Guid, HashSet<Guid>>();
         foreach (var prevResult in previousResults)
         {
@@ -788,12 +782,11 @@ internal static class TrainingDataBuilder
                     YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
                     GenreCount = wGenres.Count,
                     IsSeries = isSeries,
-                    // Train/serve parity: at inference time these organic items appear as unwatched
-                    // candidates (candidate.Id is not in watchedItemLookup) so UserRatingScore is the
-                    // neutral 0.5 default returned by ComputeUserRatingScore(null) and HasUserInteraction
-                    // is false. Feeding the real w.UserRating / true here creates a feature-distribution
-                    // skew because the "user liked this" signal is already carried by the positive Label
-                    // computed below from completionRatio (or the 0.65 favorite-only branch).
+                    // Train/serve parity: at inference these organic items are unwatched candidates
+                    // (candidate.Id not in watchedItemLookup), so UserRatingScore is the neutral 0.5
+                    // default from ComputeUserRatingScore(null) and HasUserInteraction is false. Feeding
+                    // real w.UserRating / true here would skew the feature distribution; the "user liked
+                    // this" signal is already carried by the positive Label below.
                     UserRatingScore = 0.5,
                     HasUserInteraction = false,
                     CompletionRatio = completionRatio,
@@ -868,11 +861,11 @@ internal static class TrainingDataBuilder
         }
 
         // === Phase 3: Random negative sampling (cross-user items the user never interacted with) ===
-        // Phase 1 negatives are only items the system recommended to THIS user (exposure bias).
-        // Phase 2 only adds positives (organic watches). Without true negatives, the model lacks
-        // a "baseline irrelevant" class and may overfit to its own recommendation distribution.
-        // Cross-user negatives sample items recommended to OTHER users that this user never touched,
-        // providing genuine "irrelevant for this user" examples with full metadata available.
+        // Phase 1 negatives are only items the system recommended to THIS user (exposure bias); Phase 2
+        // adds only positives. Without true negatives the model lacks a "baseline irrelevant" class and
+        // may overfit its own recommendation distribution. Cross-user negatives sample items recommended
+        // to OTHER users that this user never touched - genuine "irrelevant for this user" examples with
+        // full metadata available.
         var randomNegativeCount = 0;
         // Deduplicate by ItemId to prevent popular titles (recommended to multiple users)
         // from appearing multiple times in candidateNegatives, which would overweight them
@@ -1051,13 +1044,11 @@ internal static class TrainingDataBuilder
                             watchedPeopleSetsNeg,
                             watchedStudioSetsNeg),
                         LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile),
-                        // Use the same diminishing-returns formula as inference
-                        // (Engine.ComputeCollectionProgressionBoostLive) by leveraging the per-user
-                        // watchedBoxSetCountsNeg dictionary built above. This eliminates the previous
-                        // train/serve divergence where Phase 3 emitted 0.0/0.3/0.5 while inference
-                        // emitted 0.3/0.5/0.7/0.9. Falls back to the legacy flat heuristic only when
-                        // no watched BoxSet counts exist for the user (empty dictionary -> 0.0 from
-                        // ComputeCollectionProgressionBoostWithCounts, which is the correct signal).
+                        // Same diminishing-returns formula as inference
+                        // (Engine.ComputeCollectionProgressionBoostLive), via the per-user
+                        // watchedBoxSetCountsNeg built above. Eliminates the prior train/serve divergence
+                        // where Phase 3 emitted 0.0/0.3/0.5 while inference emitted 0.3/0.5/0.7/0.9. An
+                        // empty dictionary yields 0.0, the correct signal.
                         CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(neg.BoxSetIds, watchedBoxSetCountsNeg),
                         SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile),
                         // Content-affinity signals - same shared helpers, over the cached RecommendedItem
@@ -1095,13 +1086,11 @@ internal static class TrainingDataBuilder
         }
 
         // === Phase 4: Discovery feedback examples (shown/dismissed/requested/watched) ===
-        // Discovery items are external (not in library). Their interactions provide valuable
-        // explicit signals: requests are strong positives, dismissals are negatives.
-        // Only added when discovery feedback is available (non-null, non-empty).
-        // Kept as a separate counter (not folded into organicCount) so operators can see
-        // exactly how much of the positive training signal comes from external Seerr
-        // requests vs. actual watched consumption - the two mixed together used to make
-        // a "205 organic" log look healthy when in fact only 5 items were truly watched.
+        // Discovery items are external (not in library); their interactions give explicit signals -
+        // requests are strong positives, dismissals negatives. Added only when feedback is available.
+        // Kept as a separate counter (not folded into organicCount) so operators can see how much
+        // positive signal comes from external Seerr requests vs. actual watched consumption - mixing
+        // them once made a "205 organic" log look healthy when only 5 items were truly watched.
         var discoveryCount = 0;
         if (discoveryFeedback is { Count: > 0 })
         {
@@ -1138,21 +1127,19 @@ internal static class TrainingDataBuilder
 
     /// <summary>
     ///     Computes CollectionProgressionBoost using the same diminishing-returns formula as
-    ///     <see cref="Engine.ComputeCollectionProgressionBoostLive"/>. Uses a pre-built
-    ///     <paramref name="watchedBoxSetCounts"/> dictionary (built once per user by iterating
-    ///     the user's watched items through the global BoxSet lookup) to achieve training/inference parity.
+    ///     <see cref="Engine.ComputeCollectionProgressionBoostLive"/>, via a pre-built
+    ///     <paramref name="watchedBoxSetCounts"/> dictionary (built once per user by iterating the user's
+    ///     watched items through the global BoxSet lookup) for train/serve parity.
     ///     <para>
-    ///         Visibility raised from <c>private</c> to <c>internal</c> so the
-    ///         test assembly (via <c>InternalsVisibleTo</c>) can call it directly, without reflection.
+    ///         <c>internal</c> (not <c>private</c>) so the test assembly can call it directly via
+    ///         <c>InternalsVisibleTo</c> without reflection.
     ///     </para>
     ///     <para>
-    ///         The actual formula
-    ///         <c>0.3 + (n-1) × 0.2, clamped [0,1]</c> now lives centrally in
-    ///         <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/>. Both this
-    ///         training path and the live inference path in
-    ///         <see cref="Engine.ComputeCollectionProgressionBoostLive"/> call the same helper,
-    ///         making copy-drift <b>architecturally impossible</b>. The 16 formula tests in
-    ///         <c>CollectionProgressionBoostTests</c> therefore automatically protect both callers.
+    ///         The formula <c>0.3 + (n-1) × 0.2, clamped [0,1]</c> lives centrally in
+    ///         <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/>; both this training
+    ///         path and <see cref="Engine.ComputeCollectionProgressionBoostLive"/> call it, making
+    ///         copy-drift architecturally impossible. The 16 <c>CollectionProgressionBoostTests</c>
+    ///         therefore protect both callers.
     ///     </para>
     /// </summary>
     /// <param name="boxSetIds">The cached BoxSet IDs for the candidate item.</param>

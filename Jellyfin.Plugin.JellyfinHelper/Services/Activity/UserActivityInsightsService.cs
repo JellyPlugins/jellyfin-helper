@@ -265,23 +265,18 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     }
 
     /// <summary>
-    ///     Runs one batch call per user to pre-load their user data for every library item.
-    ///     A failed batch call records <c>null</c> in the outer dictionary as a "fall back to
-    ///     per-item lookup for this user" marker. Cancellation propagation is handled by
-    ///     <see cref="BatchFallbackHelper"/> for parity with other batch call sites.
+    ///     Runs one batch call per user to pre-load their user data for every library item. A failed
+    ///     batch records <c>null</c> in the outer dictionary, marking "fall back to per-item lookup".
     ///     <para>
     ///         Cancellation: <see cref="BatchFallbackHelper.TryRunBatch{T}"/> lets
-    ///         <see cref="OperationCanceledException"/> propagate out of the batch delegate,
-    ///         unwinding the whole method and discarding the local <c>result</c>. Invariant:
-    ///         cancellation aborts the whole scan; a partial report is never observable.
+    ///         <see cref="OperationCanceledException"/> propagate, discarding the partial
+    ///         <c>result</c>. Invariant: cancellation aborts the whole scan; no partial report shows.
     ///     </para>
     ///     <para>
-    ///         <b>Memory trade-off:</b> pre-fetching holds one <see cref="UserItemData"/>
-    ///         dictionary in memory per user for the report duration, so peak memory scales as
-    ///         <c>O(users × items)</c> (roughly 5-50 MB on a 5-user / 50k-item library) vs. the
-    ///         old one-row path. This is amortised by cutting DB roundtrips from
-    ///         <c>users × items</c> to <c>users</c>. Revisit for hundreds of users on very large
-    ///         libraries if the report begins to page.
+    ///         <b>Memory trade-off:</b> holds one <see cref="UserItemData"/> dictionary per user for
+    ///         the report duration - peak memory O(users x items) (~5-50 MB on 5 users / 50k items) -
+    ///         amortised by cutting DB roundtrips from users x items to users. Revisit for hundreds of
+    ///         users on very large libraries.
     ///     </para>
     /// </summary>
     /// <param name="users">The users to pre-load data for.</param>

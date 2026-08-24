@@ -16,14 +16,14 @@ internal static class ReparsePointGuard
     ///     <see cref="FileAttributes.Directory" /> flag; use <c>FileInfo.LinkTarget</c> for file
     ///     entries. All current callers pass directory paths.
     ///     <para>
-    ///         Attributes are read via <see cref="File.GetAttributes(string)" />, not
-    ///         <see cref="DirectoryInfo.Exists" />, so the guard fails closed. The <c>Exists</c>
-    ///         property swallows <see cref="UnauthorizedAccessException" /> and I/O failures and
-    ///         returns <see langword="false" />, which would report an un-stat'able directory as
-    ///         "not a reparse point" and let the caller delete a link into a foreign tree. Reading
-    ///         attributes directly lets those access errors propagate to the callers'
-    ///         <c>catch (IOException or UnauthorizedAccessException)</c> guards; only the genuine
-    ///         "path is absent" exceptions map to <see langword="false" />.
+    ///         Fails closed: attributes are read via <see cref="File.GetAttributes(string)" />, not
+    ///         <see cref="DirectoryInfo.Exists" />. <c>Exists</c> swallows
+    ///         <see cref="UnauthorizedAccessException" />/I/O failures and returns
+    ///         <see langword="false" />, reporting an un-stat'able directory as "not a reparse point"
+    ///         and letting the caller delete a link into a foreign tree. Reading attributes directly
+    ///         propagates those access errors to the callers'
+    ///         <c>catch (IOException or UnauthorizedAccessException)</c>; only genuine "path absent"
+    ///         maps to <see langword="false" />.
     ///     </para>
     /// </summary>
     /// <param name="path">Directory path to inspect.</param>
@@ -58,14 +58,13 @@ internal static class ReparsePointGuard
     ///     <see cref="FileAttributes.ReparsePoint" /> flag, whether the filesystem surfaces the
     ///     entry as a file or a directory.
     ///     <para>
-    ///         This exists because <see cref="IsReparsePoint" /> requires the
+    ///         Needed because <see cref="IsReparsePoint" /> requires the
     ///         <see cref="FileAttributes.Directory" /> flag and so only detects link nodes the OS
-    ///         classified as directories. On some mounts, notably Docker Desktop for Windows bind
-    ///         mounts (9p/virtiofs), a symlink pointing at a directory is enumerated as a file, so a
+    ///         classified as directories. On some mounts - notably Docker Desktop for Windows bind
+    ///         mounts (9p/virtiofs) - a symlink to a directory enumerates as a file, so a
     ///         directory-only check misses it and the caller could dereference or delete a link into
     ///         a foreign tree. <see cref="File.GetAttributes(string)" /> reads the node's own
-    ///         attributes (it does not follow the link) and reports the reparse-point flag for both
-    ///         classifications.
+    ///         attributes without following the link, reporting the flag for both classifications.
     ///     </para>
     /// </summary>
     /// <param name="path">The path to inspect (file or directory entry).</param>

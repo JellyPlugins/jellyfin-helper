@@ -220,10 +220,9 @@ internal sealed class TrainingService : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
 
         // === Held-out validation split ===
-        // Reserve the most recent 10% of examples (by GeneratedAtUtc) as a held-out validation set.
-        // Train only on the remaining 90%. This provides honest generalization metrics
-        // instead of optimistic training-set fit numbers.
-        // Fallback: if <20 examples, skip the split and train on all (metrics will be training-set).
+        // Reserve the most recent 10% of examples (by GeneratedAtUtc) as held-out validation, train on
+        // the remaining 90%, for honest generalization metrics instead of optimistic training-set fit.
+        // Fallback: with <20 examples, skip the split and train on all (metrics become training-set).
         const int minExamplesForHeldOut = 20;
         const double heldOutFraction = 0.10;
 

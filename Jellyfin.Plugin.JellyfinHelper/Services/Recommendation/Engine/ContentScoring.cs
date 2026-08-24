@@ -299,18 +299,15 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        // Parallel-array invariant: all three lists MUST be the same length, since they are
-        // populated in the same loop in Engine.GenerateForUser() and the training-data builders.
-        // A mismatch is always a bug, but throwing would abort a whole training run for one
-        // misconfigured user, leaving the neural pipeline with no updated weights.
-        //
-        // Fail-safe degradation: iterate the full genre list (primary signal, 50% weight) and
-        // treat missing people/studio entries as unavailable rather than dropping the watched
-        // item, so a stray refactor cannot bring down the task or silently discard half the signal.
-        //
-        // Production visibility: Debug.Assert catches this in Debug/tests but compiles away in
-        // Release, so also increment a static counter (queryable via ParallelArrayMismatchCount)
-        // and emit a single Trace.TraceWarning on the FIRST mismatch; later calls stay cheap.
+        // Parallel-array invariant: all three lists MUST be the same length (populated in the same loop
+        // in Engine.GenerateForUser and the training-data builders). A mismatch is always a bug, but
+        // throwing would abort a whole training run for one misconfigured user, leaving no updated weights.
+        // Fail-safe: iterate the full genre list (primary signal, 50% weight) and treat missing
+        // people/studio entries as unavailable rather than dropping the watched item, so a stray refactor
+        // cannot down the task or silently discard half the signal.
+        // Visibility: Debug.Assert catches this in Debug/tests but compiles away in Release, so also bump
+        // a static counter (ParallelArrayMismatchCount) and emit ONE Trace.TraceWarning on the FIRST
+        // mismatch; later calls stay cheap.
         var mismatch = watchedGenreSets.Count != watchedPeopleSets.Count
             || watchedGenreSets.Count != watchedStudioSets.Count;
         Debug.Assert(

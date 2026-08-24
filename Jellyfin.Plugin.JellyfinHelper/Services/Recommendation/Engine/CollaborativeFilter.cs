@@ -35,22 +35,17 @@ internal static class CollaborativeFilter
     }
 
     /// <summary>
-    ///     Pre-computes the batch-scoped <see cref="CollaborativeContext"/> in one pass over
-    ///     the provided user sets. Currently this materialises only the item-popularity map
-    ///     - the popularity IDF prior is a pure deployment-wide quantity (how many users
-    ///     have watched item X, deployment-wide) so folding it out of the per-user loop
-    ///     saves an O(U×M) pass on every downstream <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
-    ///     invocation.
+    ///     Pre-computes the batch-scoped <see cref="CollaborativeContext"/> in one pass over the user
+    ///     sets. Currently materialises only the item-popularity map - a pure deployment-wide quantity
+    ///     (how many users watched item X) - so folding it out of the per-user loop saves an O(U×M) pass
+    ///     on every downstream <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/> call.
     ///     <para>
-    ///         The trust-gate decision is deliberately NOT precomputed here: it is a per-target-user
-    ///         question ("does the target's NEIGHBOURHOOD contain at least one rich profile?"),
-    ///         not a deployment-wide one. Excluding the target from the scan is essential -
-    ///         otherwise a 28-watch anchor with a 4-watch neighbour would flip its own trust
-    ///         gate on and dampen the sparse neighbour's contribution, which is the exact
-    ///         opposite of the "cold-start release" behaviour the gate exists for. The
-    ///         batch-overload of <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/> therefore keeps its own
-    ///         O(U) trust-gate scan, but that scan is proportional to the number of profiles,
-    ///         not to the candidate-set size, so it is a cheap constant per user.
+    ///         The trust-gate decision is deliberately NOT precomputed: it is a per-target-user question
+    ///         ("does the target's NEIGHBOURHOOD contain a rich profile?"), not a deployment-wide one, and
+    ///         must EXCLUDE the target - otherwise a 28-watch anchor with a 4-watch neighbour would flip
+    ///         its own gate on and dampen the sparse neighbour, the opposite of the cold-start-release the
+    ///         gate exists for. The batch overload keeps its own O(U) trust-gate scan, cheap because it is
+    ///         proportional to profile count, not candidate-set size.
     ///     </para>
     /// </summary>
     /// <param name="userSets">
@@ -106,14 +101,13 @@ internal static class CollaborativeFilter
         var combined = new HashSet<Guid>();
         foreach (var w in profile.WatchedItems)
         {
-            // Include every item the user meaningfully interacted with - played, favorited,
-            // re-watched (PlayCount) OR in-progress (PlaybackPositionTicks). This MUST use the
-            // same centralized HasMeaningfulInteraction predicate the engine's routing gate and
-            // WatchHistoryService admission use: otherwise a user whose only signal is in-progress
-            // items is routed into the collaborative path (gate sees meaningful interaction) yet
-            // builds an EMPTY watch set here (narrower Played||IsFavorite test), getting zero
-            // collaborative signal while also being denied the cold-start fallback. In-progress
-            // watches would likewise never contribute to overlap counting or the popularity/IDF map.
+            // Include every item the user meaningfully interacted with - played, favorited, re-watched
+            // (PlayCount) OR in-progress (PlaybackPositionTicks). MUST use the same centralized
+            // HasMeaningfulInteraction predicate as the engine's routing gate and WatchHistoryService
+            // admission: otherwise a user whose only signal is in-progress items is routed into the
+            // collaborative path (gate sees interaction) yet builds an EMPTY set here (narrower
+            // Played||IsFavorite test), getting zero collaborative signal AND no cold-start fallback -
+            // and in-progress watches would never feed overlap counting or the popularity/IDF map.
             if (!w.HasMeaningfulInteraction())
             {
                 continue;
@@ -266,18 +260,14 @@ internal static class CollaborativeFilter
             var union = userCombinedIds.Count + otherCombinedIds.Count - overlap;
             var jaccardWeight = union > 0 ? (double)overlap / union : 0.0;
 
-            // Trust weight: down-weight neighbours whose overall history is very small so
-            // sparse users cannot dominate through a trivially high Jaccard on a handful of
-            // items. Uses a saturating exponential curve so the ramp is gentle at the low end
-            // (5 watches -> ~0.39) and reaches near-full trust well before the ceiling
-            // (20 watches -> ~0.86, 30 -> ~0.95), avoiding the linear cliff of the previous
-            // formula that quartered a 5-watch neighbour to 25%.
+            // Trust weight: down-weight neighbours whose overall history is very small so sparse users
+            // cannot dominate via a trivially high Jaccard on a handful of items. Saturating exponential:
+            // gentle at the low end (5 watches -> ~0.39), near-full well before the ceiling (20 -> ~0.86,
+            // 30 -> ~0.95), avoiding the previous linear formula's cliff that quartered a 5-watch neighbour.
             //
-            // Cold-start gate: when the whole deployment is below the ceiling (early rollout
-            // with a couple of low-history users), trust would still collapse the signal to a
-            // few percent even against the least-sparse neighbour. In that case we release
-            // the trust factor entirely so the collaborative branch produces meaningful
-            // recommendations from day one.
+            // Cold-start gate: when the whole deployment is below the ceiling (early rollout with a few
+            // low-history users), trust would still collapse the signal to a few percent even against the
+            // least-sparse neighbour, so we release the trust factor entirely for day-one recommendations.
             var neighbourTrust = trustGateActive
                 ? 1.0 - Math.Exp(-otherCombinedIds.Count / EngineConstants.CollaborativeTrustScale)
                 : 1.0;
@@ -287,18 +277,17 @@ internal static class CollaborativeFilter
                 continue;
             }
 
-            // Accumulate Jaccard-weighted co-occurrence for items the other user watched but we haven't.
-            // This includes both episode IDs AND series IDs, so series candidates get collaborative scores.
-            // The geometric mean lives in <c>[min(a,b), max(a,b)]</c>, so it cannot fall below the
-            // smaller of the two factors - a mathematically cleaner "combined damping" that
-            // preserves the ordering guarantees of both factors:
-            //   • trust=1.0, idf=1.0 -> modifier=1.0                       (rich neighbour, niche item)
-            //   • trust=0.86, idf=0.18 -> modifier=0.394 (was 0.155)       (~2.5× stronger signal)
-            //   • trust=0.39, idf=1.0 -> modifier=0.628 (was 0.39)         (sparse neighbour keeps its unique-item boost)
+            // Accumulate Jaccard-weighted co-occurrence for items the other user watched but we haven't
+            // (episode AND series IDs, so series candidates get collaborative scores). The geometric mean
+            // lives in <c>[min(a,b), max(a,b)]</c>, so it cannot fall below the smaller factor - a cleaner
+            // "combined damping" that preserves both factors' ordering:
+            //   • trust=1.0, idf=1.0 -> modifier=1.0                 (rich neighbour, niche item)
+            //   • trust=0.86, idf=0.18 -> modifier=0.394 (was 0.155) (~2.5× stronger signal)
+            //   • trust=0.39, idf=1.0 -> modifier=0.628 (was 0.39)   (sparse neighbour keeps unique-item boost)
             //
-            // Ordering-preserving properties verified via the existing IDF and cold-start-gate tests:
-            //   niche > mainstream                     ← IDF direction preserved: √(t·1) > √(t·<1)
-            //   coldStartScore > controlScore          ← Trust direction preserved: √(1·i) > √(<1·i)
+            // Ordering-preserving (verified by the IDF and cold-start-gate tests):
+            //   niche > mainstream            <- IDF direction: √(t·1) > √(t·<1)
+            //   coldStartScore > controlScore <- trust direction: √(1·i) > √(<1·i)
             foreach (var itemId in otherCombinedIds)
             {
                 if (userCombinedIds.Contains(itemId))
@@ -330,23 +319,19 @@ internal static class CollaborativeFilter
     /// <summary>
     ///     Batch-mode aggregate state shared across every
     ///     <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
-    ///     invocation in a single scheduled run. Bundles the per-user watch sets with the
-    ///     precomputed item-popularity map (for IDF weighting) so the O(U×M) popularity scan
-    ///     is performed exactly once - not N times per user as it would be if it were rebuilt
-    ///     on every call.
+    ///     call in one scheduled run. Bundles the per-user watch sets with the precomputed item-popularity
+    ///     map (for IDF weighting) so the O(U×M) popularity scan runs exactly once, not N times per user.
     ///     <para>
-    ///         The trust-gate decision is intentionally NOT part of this record because it is
-    ///         a per-target-user question (see the block comment inside
-    ///         <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
-    ///         for the full rationale). Precomputing it deployment-wide would incorrectly fold
-    ///         the current user's own watch count into the "do we have a rich neighbour?" answer
-    ///         and break the sparse-neighbour attenuation the gate exists for.
+    ///         The trust-gate decision is intentionally NOT part of this record - it is a per-target-user
+    ///         question (see the block comment in
+    ///         <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>);
+    ///         precomputing it deployment-wide would fold the current user's own watch count into the
+    ///         "do we have a rich neighbour?" answer and break sparse-neighbour attenuation.
     ///     </para>
     ///     <para>
-    ///         Single-user (live) callers never construct one of these and let the
+    ///         Single-user (live) callers never construct one; the
     ///         <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, Dictionary{Guid, HashSet{Guid}}?)"/>
-    ///         overload derive itemPopularity on demand from the local <c>userSets</c>
-    ///         materialisation.
+    ///         overload derives itemPopularity on demand from the local <c>userSets</c>.
     ///     </para>
     /// </summary>
     /// <param name="UserSets">Per-user combined watched-item sets (item IDs + series IDs).</param>

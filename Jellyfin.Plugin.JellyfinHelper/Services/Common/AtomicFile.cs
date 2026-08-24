@@ -7,33 +7,20 @@ using System.Threading.Tasks;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
-///     Writes text files via write-to-temp then File.Replace/Move, with bounded retry on transient
-///     I/O failures. <c>File.Replace</c> when the destination exists (atomic via <c>ReplaceFileW</c>
-///     on Windows), <c>File.Move</c> when new. File.Move-with-overwrite is NOT atomic on Windows
-///     (deletes then renames), hence File.Replace is preferred.
+///     Writes text via write-to-temp then <c>File.Replace</c> (atomic <c>ReplaceFileW</c> when the
+///     destination exists) or <c>File.Move</c> (when new), with bounded retry on transient I/O.
+///     Replace is preferred because Move-with-overwrite is not atomic on Windows (delete then rename).
 ///     <para>
-///         <b>Threading model:</b> Two entry points share one retry contract:
-///         <list type="bullet">
-///             <item>
-///                 <description>
-///                     <see cref="WriteAllText"/> - synchronous, backs off via <see cref="Thread.Sleep(int)"/>.
-///                     Blocks up to ~200 ms with the default 5 attempts (sleeps 20 + 40 + 60 + 80 ms; the
-///                     final attempt propagates without sleeping). For background scheduled-task paths.
-///                 </description>
-///             </item>
-///             <item>
-///                 <description>
-///                     <see cref="WriteAllTextAsync"/> - asynchronous, backs off via
-///                     <see cref="Task.Delay(int, CancellationToken)"/> so the request thread is released
-///                     during backoff. For latency-sensitive ASP.NET request handlers. Honours the
-///                     <see cref="CancellationToken"/> so a cancelled request stops retrying.
-///                 </description>
-///             </item>
-///         </list>
+///         <b>Threading:</b> two entry points share the retry contract. <see cref="WriteAllText"/> is
+///         synchronous (<see cref="Thread.Sleep(int)"/> backoff of 20 + 40 + 60 + 80 ms - up to
+///         ~200 ms over the default 5 attempts, the final attempt propagating without sleeping) for
+///         background tasks; <see cref="WriteAllTextAsync"/> uses
+///         <see cref="Task.Delay(int, CancellationToken)"/> so ASP.NET request threads are released
+///         during backoff and a cancelled <see cref="CancellationToken"/> stops retrying.
 ///     </para>
 ///     <para>
-///         <b>Encoding:</b> UTF-8 <i>without</i> BOM, matching what <c>System.Text.Json</c> expects
-///         on read and avoiding a leading BOM that some log/JSON tooling rejects.
+///         <b>Encoding:</b> UTF-8 without BOM, matching <c>System.Text.Json</c> and avoiding a leading
+///         BOM that some log/JSON tooling rejects.
 ///     </para>
 /// </summary>
 internal static class AtomicFile
