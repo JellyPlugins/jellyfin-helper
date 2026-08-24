@@ -370,7 +370,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 continue;
             }
 
-            foreach (var subDir in subDirs)
+            foreach (var subDirPath in subDirs.Select(subDir => subDir.FullName))
             {
                 // Skip reparse-point subdirectories to prevent following symlinks or
                 // junctions into foreign trees during recursive analysis. A stat failure is
@@ -378,7 +378,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 bool subIsReparsePoint;
                 try
                 {
-                    subIsReparsePoint = IsReparsePoint(subDir.FullName);
+                    subIsReparsePoint = IsReparsePoint(subDirPath);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -387,7 +387,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     hasUnresolvedLink = true;
                     PluginLog.LogWarning(
                         TaskName,
-                        $"Could not stat subdirectory, not traversing: {subDir.FullName}",
+                        $"Could not stat subdirectory, not traversing: {subDirPath}",
                         ex,
                         Logger);
                     continue;
@@ -401,7 +401,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                stack.Push(subDir.FullName);
+                stack.Push(subDirPath);
             }
         }
 
