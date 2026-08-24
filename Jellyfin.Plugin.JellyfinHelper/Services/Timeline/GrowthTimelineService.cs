@@ -425,14 +425,14 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
                 // Collect top-level subdirectories as media items
-                foreach (var subDir in _fileSystem.GetDirectories(location))
+                foreach (var subDirPath in _fileSystem.GetDirectories(location).Select(subDir => subDir.FullName))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var dirName = Path.GetFileName(subDir.FullName);
+                    var dirName = Path.GetFileName(subDirPath);
 
                     // Skip .trickplay and trash directories
-                    if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                    if (ShouldSkipDirectory(subDirPath, dirName, trashFolderName, fullTrashPath))
                     {
                         continue;
                     }
@@ -442,7 +442,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     // the timeline. Child directories are checked inside GetDirectorySize().
                     try
                     {
-                        var topLevelAttrs = new DirectoryInfo(subDir.FullName).Attributes;
+                        var topLevelAttrs = new DirectoryInfo(subDirPath).Attributes;
                         if ((topLevelAttrs & FileAttributes.ReparsePoint) != 0)
                         {
                             continue;
@@ -452,7 +452,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     {
                         _pluginLog.LogDebug(
                             LogSource,
-                            $"Skipping inaccessible subdirectory during reparse-point check: {subDir.FullName}: {ex.Message}",
+                            $"Skipping inaccessible subdirectory during reparse-point check: {subDirPath}: {ex.Message}",
                             _logger);
                         continue;
                     }
@@ -464,8 +464,8 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     // DateTime.MinValue default), which would skip every entry. Skip only when no
                     // sane date can be derived from a real stat.
                     var createdUtc = ResolveEntryDateUtc(
-                        Directory.GetCreationTimeUtc(subDir.FullName),
-                        Directory.GetLastWriteTimeUtc(subDir.FullName));
+                        Directory.GetCreationTimeUtc(subDirPath),
+                        Directory.GetLastWriteTimeUtc(subDirPath));
                     if (createdUtc is null)
                     {
                         continue;
@@ -473,7 +473,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
                     // Sum up all file sizes recursively within this directory
                     var totalSize = GetDirectorySize(
-                        subDir.FullName,
+                        subDirPath,
                         trashFolderName,
                         fullTrashPath,
                         cancellationToken);
@@ -482,7 +482,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         entries.Add(
                             new DirectoryEntry
                             {
-                                Path = subDir.FullName,
+                                Path = subDirPath,
                                 CreatedUtc = createdUtc.Value,
                                 Size = totalSize,
                                 Count = 1
@@ -620,13 +620,13 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     total += file.Length;
                 }
 
-                foreach (var subDir in _fileSystem.GetDirectories(current))
+                foreach (var subDirPath in _fileSystem.GetDirectories(current).Select(subDir => subDir.FullName))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var dirName = Path.GetFileName(subDir.FullName);
+                    var dirName = Path.GetFileName(subDirPath);
 
                     // Skip .trickplay and trash subdirectories
-                    if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                    if (ShouldSkipDirectory(subDirPath, dirName, trashFolderName, fullTrashPath))
                     {
                         continue;
                     }
@@ -635,13 +635,13 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     FileAttributes attributes;
                     try
                     {
-                        attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                        attributes = new DirectoryInfo(subDirPath).Attributes;
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
                         _pluginLog.LogDebug(
                             LogSource,
-                            $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
+                            $"Skipping inaccessible subdirectory during attribute check: {subDirPath}: {ex.Message}",
                             _logger);
                         continue;
                     }
@@ -651,7 +651,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         continue;
                     }
 
-                    stack.Push(subDir.FullName);
+                    stack.Push(subDirPath);
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

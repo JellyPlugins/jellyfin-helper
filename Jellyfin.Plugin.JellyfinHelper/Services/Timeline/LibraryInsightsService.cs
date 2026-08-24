@@ -145,11 +145,11 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
         CancellationToken cancellationToken)
     {
         // Collect top-level subdirectories as media items
-        foreach (var subDir in _fileSystem.GetDirectories(location))
+        foreach (var subDirPath in _fileSystem.GetDirectories(location).Select(subDir => subDir.FullName))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var dirName = Path.GetFileName(subDir.FullName);
+            var dirName = Path.GetFileName(subDirPath);
 
             // Skip .trickplay directories
             if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
@@ -158,15 +158,15 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
             }
 
             // Skip trash directories: match by leaf name (relative paths) or resolved full path (absolute paths)
-            if (ShouldSkipAsTrash(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+            if (ShouldSkipAsTrash(subDirPath, dirName, trashFolderName, fullTrashPath))
             {
                 continue;
             }
 
-            var createdUtc = Directory.GetCreationTimeUtc(subDir.FullName);
+            var createdUtc = Directory.GetCreationTimeUtc(subDirPath);
             if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
             {
-                createdUtc = Directory.GetLastWriteTimeUtc(subDir.FullName);
+                createdUtc = Directory.GetLastWriteTimeUtc(subDirPath);
             }
 
             if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
@@ -175,14 +175,14 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
             }
 
             var (totalSize, newestFileTime) = GetDirectorySizeAndNewestTime(
-                subDir.FullName, trashFolderName, fullTrashPath, cancellationToken);
+                subDirPath, trashFolderName, fullTrashPath, cancellationToken);
             if (totalSize <= 0)
             {
                 continue;
             }
 
             // Use the newest file modification time if it's more recent than the directory timestamp
-            var dirModifiedUtc = Directory.GetLastWriteTimeUtc(subDir.FullName);
+            var dirModifiedUtc = Directory.GetLastWriteTimeUtc(subDirPath);
             var modifiedUtc = newestFileTime > dirModifiedUtc ? newestFileTime : dirModifiedUtc;
 
             var changeType = DetermineChangeType(createdUtc, modifiedUtc);
@@ -393,22 +393,22 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
                     }
                 }
 
-                foreach (var subDir in _fileSystem.GetDirectories(current))
+                foreach (var subDirPath in _fileSystem.GetDirectories(current).Select(subDir => subDir.FullName))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var dirName = Path.GetFileName(subDir.FullName);
+                    var dirName = Path.GetFileName(subDirPath);
 
                     // Check for reparse point (symlink/junction) to avoid cycles
                     FileAttributes attributes;
                     try
                     {
-                        attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                        attributes = new DirectoryInfo(subDirPath).Attributes;
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
                         _pluginLog.LogDebug(
                             "LibraryInsights",
-                            $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
+                            $"Skipping inaccessible subdirectory during attribute check: {subDirPath}: {ex.Message}",
                             _logger);
                         continue;
                     }
@@ -423,12 +423,12 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
                         continue;
                     }
 
-                    if (ShouldSkipAsTrash(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                    if (ShouldSkipAsTrash(subDirPath, dirName, trashFolderName, fullTrashPath))
                     {
                         continue;
                     }
 
-                    stack.Push(subDir.FullName);
+                    stack.Push(subDirPath);
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -24,6 +24,10 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     /// </summary>
     internal const int PageSize = 50;
 
+    private const string LogCategory = "SeerrCleanup";
+
+    private const string UnknownTitle = "Unknown";
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<SeerrIntegrationService> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -89,7 +93,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
         catch (ResponseTooLargeException ex)
         {
-            _pluginLog.LogWarning("SeerrCleanup", $"Seerr settings response exceeded the size limit: {ex.Message}", ex, _logger);
+            _pluginLog.LogWarning(LogCategory, $"Seerr settings response exceeded the size limit: {ex.Message}", ex, _logger);
             return (false, "Connection failed: the Seerr response was too large.");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or UriFormatException or JsonException or ArgumentException or FormatException)
@@ -124,7 +128,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         catch (Exception ex) when (ex is UriFormatException or ArgumentException or FormatException)
         {
             _pluginLog.LogWarning(
-                "SeerrCleanup",
+                LogCategory,
                 $"Invalid Seerr configuration: {ex.Message}",
                 ex,
                 _logger);
@@ -164,7 +168,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 result.Failed++;
                 phaseOneFailed = true;
                 _pluginLog.LogWarning(
-                    "SeerrCleanup",
+                    LogCategory,
                     $"Unexpected null response deserializing requests page (skip={skip})",
                     logger: _logger);
                 break;
@@ -180,7 +184,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 result.Failed++;
                 phaseOneFailed = true;
                 _pluginLog.LogWarning(
-                    "SeerrCleanup",
+                    LogCategory,
                     "Unexpected API response: missing pageInfo, aborting pagination",
                     logger: _logger);
                 break;
@@ -208,7 +212,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         if (phaseOneFailed)
         {
             _pluginLog.LogWarning(
-                "SeerrCleanup",
+                LogCategory,
                 "Phase 1 pagination did not complete successfully; skipping deletion to avoid acting on an incomplete snapshot.",
                 logger: _logger);
             return result;
@@ -257,7 +261,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         if (request.Id <= 0)
         {
             _pluginLog.LogWarning(
-                "SeerrCleanup",
+                LogCategory,
                 $"Skipping expired request with invalid Id={request.Id} — likely a deserialization issue.",
                 logger: _logger);
             result.Failed++;
@@ -277,7 +281,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         if (dryRun)
         {
             _pluginLog.LogInfo(
-                "SeerrCleanup",
+                LogCategory,
                 $"[Dry Run] Would delete expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
                 _logger);
             return false;
@@ -316,7 +320,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             {
                 result.Deleted++;
                 _pluginLog.LogInfo(
-                    "SeerrCleanup",
+                    LogCategory,
                     $"Deleted expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
                     _logger);
             }
@@ -324,7 +328,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             {
                 result.Failed++;
                 _pluginLog.LogWarning(
-                    "SeerrCleanup",
+                    LogCategory,
                     $"Failed to delete request #{request.Id}: HTTP {(int)deleteResponse.StatusCode}",
                     logger: _logger);
             }
@@ -333,7 +337,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             result.Failed++;
             _pluginLog.LogWarning(
-                "SeerrCleanup",
+                LogCategory,
                 $"Failed to delete request #{request.Id}: timeout",
                 ex,
                 _logger);
@@ -342,7 +346,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             result.Failed++;
             _pluginLog.LogWarning(
-                "SeerrCleanup",
+                LogCategory,
                 $"Failed to delete request #{request.Id}: {ex.Message}",
                 ex,
                 _logger);
@@ -427,7 +431,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             result.Failed++;
             _pluginLog.LogWarning(
-                "SeerrCleanup",
+                LogCategory,
                 $"Timed out fetching requests page (skip={skip}): {ex.Message}",
                 ex,
                 _logger);
@@ -437,7 +441,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             result.Failed++;
             _pluginLog.LogWarning(
-                "SeerrCleanup",
+                LogCategory,
                 $"Failed to fetch requests page (skip={skip}): {ex.Message}",
                 ex,
                 _logger);
@@ -468,7 +472,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     {
         if (media == null || media.TmdbId <= 0)
         {
-            return "Unknown";
+            return UnknownTitle;
         }
 
         var cacheKey = $"{media.MediaType}:{media.TmdbId}";
@@ -500,7 +504,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     {
         if (media == null || media.TmdbId <= 0)
         {
-            return "Unknown";
+            return UnknownTitle;
         }
 
         try
@@ -514,13 +518,13 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
             if (!response.IsSuccessStatusCode)
             {
-                return "Unknown";
+                return UnknownTitle;
             }
 
             var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
             var details = JsonSerializer.Deserialize<SeerrMediaDetails>(json, JsonOptions);
 
-            return details?.DisplayTitle ?? "Unknown";
+            return details?.DisplayTitle ?? UnknownTitle;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -529,10 +533,10 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException or ResponseTooLargeException)
         {
             _pluginLog.LogDebug(
-                "SeerrCleanup",
+                LogCategory,
                 $"Could not resolve title for TMDB {media.TmdbId}: {ex.Message}",
                 _logger);
-            return "Unknown";
+            return UnknownTitle;
         }
     }
 
