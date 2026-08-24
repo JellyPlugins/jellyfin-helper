@@ -723,20 +723,15 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // needs TrendMinSnapshots (5) real rows before it does anything, and NaN comparisons
             // silently fall through to MetricsTrend.Stable, so the placeholder cannot poison
             // trend detection either.
-            var stateChanged = false;
             lock (_syncRoot)
             {
                 RecordColdStartPlaceholder(examples.Count);
 
-                stateChanged = true;
-
                 DecayNeuralBetaOnFailure();
             }
 
-            if (stateChanged)
-            {
-                TrySaveState();
-            }
+            // Both operations inside the lock always mutate state, so a save is always required.
+            TrySaveState();
         }
 
         return result;

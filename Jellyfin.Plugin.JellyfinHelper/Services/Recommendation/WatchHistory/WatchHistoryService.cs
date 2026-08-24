@@ -278,22 +278,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // that appear as live scoring candidates - episodes never do. Skipping episodes also
         // preserves the invariant that people are aggregated at series level, never per episode
         // (GetPeople is never called on an Episode), avoiding guest-cast noise.
-        IReadOnlyList<PersonInfo>? itemPeople = null;
-        if (item is not Episode)
-        {
-            try
-            {
-                itemPeople = _libraryManager.GetPeople(item);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                itemPeople = null;
-            }
-        }
+        var itemPeople = ResolveWatchedItemPeople(item);
 
         var (billedNames, billedWeights) = SimilarityComputer.ExtractBilledPeople(itemPeople);
 
@@ -339,6 +324,57 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         profile.WatchedItems.Add(watchedItem);
 
+        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, ref ratingSum, ref ratingCount);
+    }
+
+    /// <summary>
+    ///     Resolves the billed cast/directors for a watched item, returning <c>null</c> for episodes
+    ///     (people are aggregated at series level, never per episode) and swallowing non-fatal lookup
+    ///     failures. Extracted verbatim from the people-resolution block of
+    ///     <see cref="AccumulateWatchedItem"/>.
+    /// </summary>
+    /// <param name="item">The library item to resolve people for.</param>
+    /// <returns>The item's people, or <c>null</c> when the item is an episode or lookup fails.</returns>
+    private IReadOnlyList<PersonInfo>? ResolveWatchedItemPeople(BaseItem item)
+    {
+        if (item is Episode)
+        {
+            return null;
+        }
+
+        try
+        {
+            return _libraryManager.GetPeople(item);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     Folds a watched item's statistics (played counts, runtime, genres, favorites, community
+    ///     rating, last activity) into the profile. Extracted verbatim from the statistics-accumulation
+    ///     block of <see cref="AccumulateWatchedItem"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="item">The library item the user interacted with.</param>
+    /// <param name="userData">The user data for the item.</param>
+    /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
+    /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
+    /// <param name="ratingCount">Running community-rating count (updated in place).</param>
+    private static void AccumulateWatchedItemStatistics(
+        UserWatchProfile profile,
+        BaseItem item,
+        UserItemData userData,
+        HashSet<Guid> watchedSeriesIds,
+        ref double ratingSum,
+        ref int ratingCount)
+    {
         // Accumulate statistics
         if (userData.Played)
         {
@@ -616,38 +652,44 @@ public sealed class WatchHistoryService : IWatchHistoryService
         UserItemData userData,
         List<MediaStream> subtitleStreams)
     {
-        if (userData.SubtitleStreamIndex.HasValue && userData.SubtitleStreamIndex.Value >= 0 && subtitleStreams.Count > 0)
+        if (!userData.SubtitleStreamIndex.HasValue || userData.SubtitleStreamIndex.Value < 0 || subtitleStreams.Count == 0)
         {
-            var chosenSubStream = subtitleStreams
-                .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
-            var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
+            return;
+        }
 
-            if (!string.IsNullOrEmpty(usedSubLanguage))
-            {
-                var availableSubLanguages = subtitleStreams
-                    .Select(s => NormalizeLanguage(s.Language))
-                    .Where(l => !string.IsNullOrEmpty(l))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Count();
+        var chosenSubStream = subtitleStreams
+            .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
+        var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
 
-                if (availableSubLanguages > 0)
-                {
-                    if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
-                    {
-                        subEntry = new LanguageProfileEntry();
-                        profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
-                    }
+        if (string.IsNullOrEmpty(usedSubLanguage))
+        {
+            return;
+        }
 
-                    if (availableSubLanguages > 1)
-                    {
-                        subEntry.ChosenCount++;
-                    }
-                    else
-                    {
-                        subEntry.ForcedCount++;
-                    }
-                }
-            }
+        var availableSubLanguages = subtitleStreams
+            .Select(s => NormalizeLanguage(s.Language))
+            .Where(l => !string.IsNullOrEmpty(l))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        if (availableSubLanguages <= 0)
+        {
+            return;
+        }
+
+        if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
+        {
+            subEntry = new LanguageProfileEntry();
+            profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
+        }
+
+        if (availableSubLanguages > 1)
+        {
+            subEntry.ChosenCount++;
+        }
+        else
+        {
+            subEntry.ForcedCount++;
         }
     }
 

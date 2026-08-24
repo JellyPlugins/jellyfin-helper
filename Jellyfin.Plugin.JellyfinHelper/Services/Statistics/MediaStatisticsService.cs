@@ -258,11 +258,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             var files = _fileSystem.GetFiles(directoryPath).ToList();
 
-            var hasVideo = false;
-            var hasSubs = false;
-            var hasImage = false;
-            var hasNfo = false;
-            var hasAnyNonTrickplayFile = false;
+            var flags = new DirectoryFileFlags();
 
             // Collect video files for health checks and metadata extraction
             var videoFiles = new List<FileSystemMetadata>();
@@ -279,13 +275,10 @@ public class MediaStatisticsService : IMediaStatisticsService
                     itemLookup,
                     videoFiles,
                     videoStreamsCache,
-                    ref hasVideo,
-                    ref hasSubs,
-                    ref hasImage,
-                    ref hasNfo,
-                    ref hasAnyNonTrickplayFile,
-                    ref containsVideo);
+                    flags);
             }
+
+            containsVideo = flags.ContainsVideo;
 
             // Recurse into subdirectories
             var subDirs = _fileSystem.GetDirectories(directoryPath);
@@ -294,15 +287,18 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             // resolvedFullTrashPath is computed once at the top-level call site and threaded
             // through every recursive call - no config re-read on each directory.
-            var subDirHasVideo = ScanSubdirectories(
-                subDirs,
-                stats,
-                itemLookup,
+            var scanContext = new SubdirectoryScanContext(
                 resolvedTrashFolderName,
                 libraryRoot,
                 skipHealthChecks,
                 trashFolderName,
-                resolvedFullTrashPath,
+                resolvedFullTrashPath);
+
+            var subDirHasVideo = ScanSubdirectories(
+                subDirs,
+                stats,
+                itemLookup,
+                scanContext,
                 ref containsVideo);
 
             // Health checks - per-directory analysis
@@ -310,17 +306,17 @@ public class MediaStatisticsService : IMediaStatisticsService
             // that group related movies and typically only contain posters/images, not real media.
             if (!skipHealthChecks)
             {
-                if (hasVideo)
+                if (flags.HasVideo)
                 {
                     RecordVideoHealth(
                         stats,
                         files,
                         videoFiles,
                         videoStreamsCache,
-                        hasImage,
-                        hasNfo);
+                        flags.HasImage,
+                        flags.HasNfo);
                 }
-                else if (hasAnyNonTrickplayFile && (hasSubs || hasImage || hasNfo))
+                else if (flags.HasAnyNonTrickplayFile && (flags.HasSubs || flags.HasImage || flags.HasNfo))
                 {
                     RecordOrphanedMetadata(stats, directoryPath, subDirHasVideo);
                 }
@@ -344,24 +340,14 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
     /// <param name="videoFiles">Accumulator of video files for later health checks.</param>
     /// <param name="videoStreamsCache">Cache of media streams keyed by video file path.</param>
-    /// <param name="hasVideo">Set true when the file is a video.</param>
-    /// <param name="hasSubs">Set true when the file is a subtitle.</param>
-    /// <param name="hasImage">Set true when the file is an image.</param>
-    /// <param name="hasNfo">Set true when the file is an NFO.</param>
-    /// <param name="hasAnyNonTrickplayFile">Set true for any non-audio (non-trickplay) file.</param>
-    /// <param name="containsVideo">Set true when the file is a video (propagates to the caller's return value).</param>
+    /// <param name="flags">The per-directory presence flags updated as files are classified.</param>
     private void ClassifyFile(
         FileSystemMetadata file,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
         List<FileSystemMetadata> videoFiles,
         Dictionary<string, IReadOnlyList<MediaStream>?> videoStreamsCache,
-        ref bool hasVideo,
-        ref bool hasSubs,
-        ref bool hasImage,
-        ref bool hasNfo,
-        ref bool hasAnyNonTrickplayFile,
-        ref bool containsVideo)
+        DirectoryFileFlags flags)
     {
         var ext = Path.GetExtension(file.FullName);
         var size = file.Length;
@@ -370,15 +356,15 @@ public class MediaStatisticsService : IMediaStatisticsService
         // avoid false positives in audio-only directories.
         if (!MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
         {
-            hasAnyNonTrickplayFile = true;
+            flags.HasAnyNonTrickplayFile = true;
         }
 
         if (MediaExtensions.VideoExtensions.Contains(ext))
         {
             stats.VideoSize += size;
             stats.VideoFileCount++;
-            hasVideo = true;
-            containsVideo = true;
+            flags.HasVideo = true;
+            flags.ContainsVideo = true;
             videoFiles.Add(file);
 
             // Container format tracking (from file extension - this IS the container)
@@ -396,19 +382,19 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             stats.SubtitleSize += size;
             stats.SubtitleFileCount++;
-            hasSubs = true;
+            flags.HasSubs = true;
         }
         else if (MediaExtensions.ImageExtensions.Contains(ext))
         {
             stats.ImageSize += size;
             stats.ImageFileCount++;
-            hasImage = true;
+            flags.HasImage = true;
         }
         else if (MediaExtensions.NfoExtensions.Contains(ext))
         {
             stats.NfoSize += size;
             stats.NfoFileCount++;
-            hasNfo = true;
+            flags.HasNfo = true;
         }
         else if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
         {
@@ -433,22 +419,14 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="subDirs">The subdirectories to scan.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
-    /// <param name="resolvedTrashFolderName">The resolved trash folder name (empty when unset).</param>
-    /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
-    /// <param name="skipHealthChecks">When true, skip health check counters.</param>
-    /// <param name="trashFolderName">Pre-resolved trash folder name, threaded through recursion.</param>
-    /// <param name="resolvedFullTrashPath">The normalized absolute trash path for this library root.</param>
+    /// <param name="scanContext">The trash-resolution and recursion context.</param>
     /// <param name="containsVideo">Set true when any recursed subdirectory contained a video.</param>
     /// <returns><c>true</c> when at least one subdirectory contained a video.</returns>
     private bool ScanSubdirectories(
         IEnumerable<FileSystemMetadata> subDirs,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
-        string resolvedTrashFolderName,
-        string? libraryRoot,
-        bool skipHealthChecks,
-        string? trashFolderName,
-        string? resolvedFullTrashPath,
+        SubdirectoryScanContext scanContext,
         ref bool containsVideo)
     {
         var subDirHasVideo = false;
@@ -460,11 +438,11 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             if (string.Equals(
                     subDir.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    resolvedTrashFolderName,
+                    scanContext.ResolvedTrashFolderName,
                     StringComparison.OrdinalIgnoreCase)
-                || (resolvedFullTrashPath != null && string.Equals(
+                || (scanContext.ResolvedFullTrashPath != null && string.Equals(
                     normalizedSubDirFullName,
-                    resolvedFullTrashPath,
+                    scanContext.ResolvedFullTrashPath,
                     StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
@@ -476,7 +454,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 stats.TrickplaySize += trickplaySize;
                 stats.TrickplayFolderCount++;
             }
-            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, libraryRoot, skipHealthChecks, trashFolderName, resolvedFullTrashPath))
+            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, scanContext.LibraryRoot, scanContext.SkipHealthChecks, scanContext.TrashFolderName, scanContext.ResolvedFullTrashPath))
             {
                 subDirHasVideo = true;
                 containsVideo = true;
@@ -977,5 +955,48 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
 
         return "AAC";
+    }
+
+    /// <summary>
+    ///     Groups the trash-resolution and recursion context threaded through
+    ///     <see cref="ScanSubdirectories" /> and the recursive analysis, keeping the parameter
+    ///     count within bounds without changing behaviour.
+    /// </summary>
+    /// <param name="ResolvedTrashFolderName">The resolved trash folder name (empty when unset).</param>
+    /// <param name="LibraryRoot">The library root path (used for trash folder resolution).</param>
+    /// <param name="SkipHealthChecks">When true, skip health check counters.</param>
+    /// <param name="TrashFolderName">Pre-resolved trash folder name, threaded through recursion.</param>
+    /// <param name="ResolvedFullTrashPath">The normalized absolute trash path for this library root.</param>
+    private readonly record struct SubdirectoryScanContext(
+        string ResolvedTrashFolderName,
+        string? LibraryRoot,
+        bool SkipHealthChecks,
+        string? TrashFolderName,
+        string? ResolvedFullTrashPath);
+
+    /// <summary>
+    ///     Mutable per-directory presence flags accumulated while classifying the files of a
+    ///     single directory. Grouped into one object so <see cref="ClassifyFile" /> can update
+    ///     them without an unwieldy list of <c>ref bool</c> parameters.
+    /// </summary>
+    private sealed class DirectoryFileFlags
+    {
+        /// <summary>Gets or sets a value indicating whether the directory contains a video file.</summary>
+        public bool HasVideo { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory contains a subtitle file.</summary>
+        public bool HasSubs { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory contains an image file.</summary>
+        public bool HasImage { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory contains an NFO file.</summary>
+        public bool HasNfo { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory contains any non-audio (non-trickplay) file.</summary>
+        public bool HasAnyNonTrickplayFile { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory (or a recursed subdirectory) contains a video.</summary>
+        public bool ContainsVideo { get; set; }
     }
 }

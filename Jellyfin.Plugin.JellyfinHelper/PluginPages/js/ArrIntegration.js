@@ -72,7 +72,7 @@ function collectArrInstances(type) {
         '.arr-instance-row[data-type="' + type + '"]');
     var result = [];
     for (var i = 0; i < rows.length; i++) {
-        var idx = rows[i].getAttribute('data-index');
+        var idx = rows[i].dataset.index;
         var prefix = type + '_' + idx;
         var nameEl = document.getElementById(prefix + '_name');
         var urlEl = document.getElementById(prefix + '_url');
@@ -156,7 +156,7 @@ function removeArrInstance(type, index) {
     var testBtns = document.querySelectorAll(
         '.btnTestArr[data-type="' + type + '"]');
     for (var b = 0; b < testBtns.length; b++) {
-        if (Number.parseInt(testBtns[b].getAttribute('data-index'), 10) >= index) {
+        if (Number.parseInt(testBtns[b].dataset.index, 10) >= index) {
             testBtns[b].classList.remove('success', 'error');
             testBtns[b].disabled = false;
             testBtns[b].innerHTML = mi('extension') + T('testConnection', 'Test Connection');
@@ -281,8 +281,8 @@ function attachTestHandlers() {
     for (var i = 0; i < btns.length; i++) {
         // Use onclick assignment (not addEventListener) to prevent handler stacking on re-bind
         btns[i].onclick = function () {
-            testArrConnection(this.getAttribute('data-type'),
-                Number.parseInt(this.getAttribute('data-index'), 10));
+            testArrConnection(this.dataset.type,
+                Number.parseInt(this.dataset.index, 10));
         };
     }
 }
@@ -294,8 +294,8 @@ function attachRemoveHandlers(type) {
     for (var i = 0; i < btns.length; i++) {
         // Use onclick assignment (not addEventListener) to prevent handler stacking on re-bind
         btns[i].onclick = function () {
-            removeArrInstance(this.getAttribute('data-type'),
-                Number.parseInt(this.getAttribute('data-index'), 10));
+            removeArrInstance(this.dataset.type,
+                Number.parseInt(this.dataset.index, 10));
         };
     }
 }

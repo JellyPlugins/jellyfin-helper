@@ -682,35 +682,78 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
                 var h3h4W = _weightsH3H4[(m * Hidden3Size) + l];
                 var combinedH4H3 = outW * h3h4W;
-                for (var k = 0; k < Hidden2Size; k++)
-                {
-                    if (h2Pre[k] <= 0)
-                    {
-                        continue;
-                    }
-
-                    var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
-                    var combinedOuter = combinedH4H3 * h2h3W;
-                    for (var j = 0; j < Hidden1Size; j++)
-                    {
-                        if (h1Pre[j] <= 0)
-                        {
-                            continue;
-                        }
-
-                        var h1h2W = _weightsH1H2[(k * Hidden1Size) + j];
-                        var combined = combinedOuter * h1h2W;
-                        var baseIdx = j * inputSize;
-                        for (var i = 0; i < inputSize; i++)
-                        {
-                            attr[i] += combined * _weightsIH[baseIdx + i];
-                        }
-                    }
-                }
+                AccumulateHidden2Attribution(attr, inputSize, combinedH4H3, l, h1Pre, h2Pre);
             }
         }
 
         return attr;
+    }
+
+    /// <summary>
+    ///     Accumulates the hidden2-level attribution for one active (ReLU-open) hidden3 neuron.
+    ///     Extracted verbatim from the hidden2 loop of <see cref="ComputeInputAttribution"/>; the
+    ///     <c>h2Pre[k] &lt;= 0</c> ReLU short-circuit, weight indexing, and accumulation order are unchanged.
+    /// </summary>
+    /// <param name="attr">Per-input attribution accumulator [inputSize].</param>
+    /// <param name="inputSize">Number of input features (row stride for the input weights).</param>
+    /// <param name="combinedH4H3">Pre-multiplied output×h3h4 weight product for the active path.</param>
+    /// <param name="l">Active hidden3 neuron index.</param>
+    /// <param name="h1Pre">Hidden1 pre-activation values.</param>
+    /// <param name="h2Pre">Hidden2 pre-activation values.</param>
+    private void AccumulateHidden2Attribution(
+        double[] attr,
+        int inputSize,
+        double combinedH4H3,
+        int l,
+        double[] h1Pre,
+        double[] h2Pre)
+    {
+        for (var k = 0; k < Hidden2Size; k++)
+        {
+            if (h2Pre[k] <= 0)
+            {
+                continue;
+            }
+
+            var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
+            var combinedOuter = combinedH4H3 * h2h3W;
+            AccumulateHidden1Attribution(attr, inputSize, combinedOuter, k, h1Pre);
+        }
+    }
+
+    /// <summary>
+    ///     Accumulates the hidden1-level attribution for one active (ReLU-open) hidden2 neuron.
+    ///     Extracted verbatim from the innermost two loops of <see cref="ComputeInputAttribution"/>; the
+    ///     <c>h1Pre[j] &lt;= 0</c> ReLU short-circuit, weight indexing, and the
+    ///     <c>attr[i] += combined * _weightsIH[baseIdx + i]</c> accumulation order are unchanged.
+    /// </summary>
+    /// <param name="attr">Per-input attribution accumulator [inputSize].</param>
+    /// <param name="inputSize">Number of input features (row stride for the input weights).</param>
+    /// <param name="combinedOuter">Pre-multiplied product for the active path down to hidden2.</param>
+    /// <param name="k">Active hidden2 neuron index.</param>
+    /// <param name="h1Pre">Hidden1 pre-activation values.</param>
+    private void AccumulateHidden1Attribution(
+        double[] attr,
+        int inputSize,
+        double combinedOuter,
+        int k,
+        double[] h1Pre)
+    {
+        for (var j = 0; j < Hidden1Size; j++)
+        {
+            if (h1Pre[j] <= 0)
+            {
+                continue;
+            }
+
+            var h1h2W = _weightsH1H2[(k * Hidden1Size) + j];
+            var combined = combinedOuter * h1h2W;
+            var baseIdx = j * inputSize;
+            for (var i = 0; i < inputSize; i++)
+            {
+                attr[i] += combined * _weightsIH[baseIdx + i];
+            }
+        }
     }
 
     /// <summary>
@@ -919,6 +962,29 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h2Mask = new double[Hidden2Size];
             var h3Mask = new double[Hidden3Size];
             var h4Mask = new double[Hidden4Size];
+
+            // Group the pre-allocated per-layer scratch buffers and the best-so-far snapshot buffers into
+            // parameter objects so the backprop/update helpers keep a small parameter list without any
+            // extra allocation (the objects wrap the same arrays already allocated above).
+            var buffers = new TrainingBuffers(
+                h1Pre,
+                h1Act,
+                h2Pre,
+                h2Act,
+                h3Pre,
+                h3Act,
+                h4Pre,
+                h4Act,
+                h1Err,
+                h2Err,
+                h3Err,
+                h4Err,
+                h1Mask,
+                h2Mask,
+                h3Mask,
+                h4Mask);
+            var bestWeights = new WeightSnapshot(
+                bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O);
             // Gate on the training-split size, not examples.Count: the held-out validation slice gets
             // no gradient updates, so counting it would activate dropout below the starvation threshold.
             var dropoutActive = trainIdx.Length >= MinExamplesForDropout;
@@ -991,37 +1057,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // === Compute ALL error signals BEFORE updating any weights ===
                     // Correct backprop uses the forward-pass weights for error computation; updating
                     // weights first would skew gradients.
-                    ComputeErrorSignals(
-                        outErr,
-                        dropoutInvKeep,
-                        h1Pre,
-                        h2Pre,
-                        h3Pre,
-                        h4Pre,
-                        h1Mask,
-                        h2Mask,
-                        h3Mask,
-                        h4Mask,
-                        h1Err,
-                        h2Err,
-                        h3Err,
-                        h4Err);
+                    ComputeErrorSignals(outErr, dropoutInvKeep, buffers);
 
                     // === Now update all weights using the pre-computed error signals ===
-                    ApplyAdamUpdates(
-                        outErr,
-                        bc1,
-                        bc2,
-                        inputSize,
-                        vec,
-                        h1Act,
-                        h2Act,
-                        h3Act,
-                        h4Act,
-                        h1Err,
-                        h2Err,
-                        h3Err,
-                        h4Err);
+                    ApplyAdamUpdates(outErr, bc1, bc2, inputSize, vec, buffers);
                 }
 
                 if (useEarlyStopping && valIdx.Length > 0)
@@ -1031,8 +1070,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     {
                         bestLoss = valLoss;
                         patience = 0;
-                        SnapshotBestWeights(
-                            bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O);
+                        SnapshotBestWeights(bestWeights);
                         bestBO = _biasOutput;
                     }
                     else
@@ -1040,8 +1078,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         patience++;
                         if (patience >= EarlyStoppingPatience)
                         {
-                            RestoreBestWeights(
-                                bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O);
+                            RestoreBestWeights(bestWeights);
                             _biasOutput = bestBO;
                             break;
                         }
@@ -1055,8 +1092,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // last-epoch weights differing from the best-observed.
             if (useEarlyStopping && bestLoss < double.MaxValue)
             {
-                RestoreBestWeights(
-                    bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O);
+                RestoreBestWeights(bestWeights);
                 _biasOutput = bestBO;
             }
 
@@ -1137,26 +1173,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>;
     ///     the copied arrays and order are unchanged (the output bias scalar is handled by the caller).
     /// </summary>
-    private void SnapshotBestWeights(
-        double[] bestWIH,
-        double[] bestBH1,
-        double[] bestWH1H2,
-        double[] bestBH2,
-        double[] bestWH2H3,
-        double[] bestBH3,
-        double[] bestWH3H4,
-        double[] bestBH4,
-        double[] bestWH4O)
+    /// <param name="best">The best-so-far weight/bias snapshot buffers to copy into.</param>
+    private void SnapshotBestWeights(WeightSnapshot best)
     {
-        Array.Copy(_weightsIH, bestWIH, _weightsIH.Length);
-        Array.Copy(_biasH1, bestBH1, _biasH1.Length);
-        Array.Copy(_weightsH1H2, bestWH1H2, _weightsH1H2.Length);
-        Array.Copy(_biasH2, bestBH2, _biasH2.Length);
-        Array.Copy(_weightsH2H3, bestWH2H3, _weightsH2H3.Length);
-        Array.Copy(_biasH3, bestBH3, _biasH3.Length);
-        Array.Copy(_weightsH3H4, bestWH3H4, _weightsH3H4.Length);
-        Array.Copy(_biasH4, bestBH4, _biasH4.Length);
-        Array.Copy(_weightsH4O, bestWH4O, _weightsH4O.Length);
+        Array.Copy(_weightsIH, best.BestWIH, _weightsIH.Length);
+        Array.Copy(_biasH1, best.BestBH1, _biasH1.Length);
+        Array.Copy(_weightsH1H2, best.BestWH1H2, _weightsH1H2.Length);
+        Array.Copy(_biasH2, best.BestBH2, _biasH2.Length);
+        Array.Copy(_weightsH2H3, best.BestWH2H3, _weightsH2H3.Length);
+        Array.Copy(_biasH3, best.BestBH3, _biasH3.Length);
+        Array.Copy(_weightsH3H4, best.BestWH3H4, _weightsH3H4.Length);
+        Array.Copy(_biasH4, best.BestBH4, _biasH4.Length);
+        Array.Copy(_weightsH4O, best.BestWH4O, _weightsH4O.Length);
     }
 
     /// <summary>
@@ -1165,26 +1193,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>;
     ///     the copied arrays and order are unchanged (the output bias scalar is handled by the caller).
     /// </summary>
-    private void RestoreBestWeights(
-        double[] bestWIH,
-        double[] bestBH1,
-        double[] bestWH1H2,
-        double[] bestBH2,
-        double[] bestWH2H3,
-        double[] bestBH3,
-        double[] bestWH3H4,
-        double[] bestBH4,
-        double[] bestWH4O)
+    /// <param name="best">The best-so-far weight/bias snapshot buffers to restore from.</param>
+    private void RestoreBestWeights(WeightSnapshot best)
     {
-        Array.Copy(bestWIH, _weightsIH, _weightsIH.Length);
-        Array.Copy(bestBH1, _biasH1, _biasH1.Length);
-        Array.Copy(bestWH1H2, _weightsH1H2, _weightsH1H2.Length);
-        Array.Copy(bestBH2, _biasH2, _biasH2.Length);
-        Array.Copy(bestWH2H3, _weightsH2H3, _weightsH2H3.Length);
-        Array.Copy(bestBH3, _biasH3, _biasH3.Length);
-        Array.Copy(bestWH3H4, _weightsH3H4, _weightsH3H4.Length);
-        Array.Copy(bestBH4, _biasH4, _biasH4.Length);
-        Array.Copy(bestWH4O, _weightsH4O, _weightsH4O.Length);
+        Array.Copy(best.BestWIH, _weightsIH, _weightsIH.Length);
+        Array.Copy(best.BestBH1, _biasH1, _biasH1.Length);
+        Array.Copy(best.BestWH1H2, _weightsH1H2, _weightsH1H2.Length);
+        Array.Copy(best.BestBH2, _biasH2, _biasH2.Length);
+        Array.Copy(best.BestWH2H3, _weightsH2H3, _weightsH2H3.Length);
+        Array.Copy(best.BestBH3, _biasH3, _biasH3.Length);
+        Array.Copy(best.BestWH3H4, _weightsH3H4, _weightsH3H4.Length);
+        Array.Copy(best.BestBH4, _biasH4, _biasH4.Length);
+        Array.Copy(best.BestWH4O, _weightsH4O, _weightsH4O.Length);
     }
 
     /// <summary>
@@ -1192,24 +1212,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     ///     pre-activation error buffers (δ_pre). Extracted verbatim from the per-example loop of
     ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>; the ReLU
     ///     + dropout gating, weight indexing, accumulation order, and inverted-dropout scaling are
-    ///     unchanged. Reads the forward-pass weights (never mutates them). Many array parameters by
-    ///     design: pre-allocated training buffers passed in to keep the backprop path allocation-free.
+    ///     unchanged. Reads the forward-pass weights (never mutates them). The pre-allocated training
+    ///     buffers are grouped into <paramref name="buffers"/> to keep the backprop path allocation-free.
     /// </summary>
-    private void ComputeErrorSignals(
-        double outErr,
-        double dropoutInvKeep,
-        double[] h1Pre,
-        double[] h2Pre,
-        double[] h3Pre,
-        double[] h4Pre,
-        double[] h1Mask,
-        double[] h2Mask,
-        double[] h3Mask,
-        double[] h4Mask,
-        double[] h1Err,
-        double[] h2Err,
-        double[] h3Err,
-        double[] h4Err)
+    /// <param name="outErr">The output-layer error signal (δ at the sigmoid output).</param>
+    /// <param name="dropoutInvKeep">Inverted-dropout scale (1 / keep, or 1.0 when dropout is inactive).</param>
+    /// <param name="buffers">Pre-allocated per-layer scratch buffers (pre-activations, masks, errors).</param>
+    private void ComputeErrorSignals(double outErr, double dropoutInvKeep, TrainingBuffers buffers)
     {
         // A2 dropout: a neuron with mask == 0 produced no output, so its error signal is
         // zero (no gradient flow) and the downstream weight-update from it is zero too
@@ -1224,65 +1233,99 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // dropout is inactive invKeep == 1.0, an exact no-op.
         for (var k = 0; k < Hidden4Size; k++)
         {
-            h4Err[k] = (h4Pre[k] > 0 && h4Mask[k] > 0)
+            buffers.H4Err[k] = (buffers.H4Pre[k] > 0 && buffers.H4Mask[k] > 0)
                 ? outErr * _weightsH4O[k] * dropoutInvKeep
                 : 0.0;
         }
 
+        ComputeHidden3Error(dropoutInvKeep, buffers);
+        ComputeHidden2Error(dropoutInvKeep, buffers);
+        ComputeHidden1Error(dropoutInvKeep, buffers);
+    }
+
+    /// <summary>
+    ///     Backpropagates the hidden4 error into hidden3's pre-activation error buffer.
+    ///     Extracted verbatim from <see cref="ComputeErrorSignals"/>; the <c>h3Mask[k] == 0.0</c> gating,
+    ///     weight indexing, accumulation order, and inverted-dropout scaling are unchanged.
+    /// </summary>
+    /// <param name="dropoutInvKeep">Inverted-dropout scale (1 / keep, or 1.0 when dropout is inactive).</param>
+    /// <param name="buffers">Pre-allocated per-layer scratch buffers.</param>
+    private void ComputeHidden3Error(double dropoutInvKeep, TrainingBuffers buffers)
+    {
         // Hidden3 error (backprop through ReLU + inverted-dropout scale from hidden4).
         // h4Err holds δ_pre for hidden4, so summing against the weights yields δ_a for
         // hidden3; multiplying by invKeep converts that to δ_pre.
         for (var k = 0; k < Hidden3Size; k++)
         {
-            if (h3Pre[k] <= 0 || h3Mask[k] == 0.0)
+            if (buffers.H3Pre[k] <= 0 || buffers.H3Mask[k] == 0.0)
             {
-                h3Err[k] = 0.0;
+                buffers.H3Err[k] = 0.0;
                 continue;
             }
 
             var sum = 0.0;
             for (var m = 0; m < Hidden4Size; m++)
             {
-                sum += h4Err[m] * _weightsH3H4[(m * Hidden3Size) + k];
+                sum += buffers.H4Err[m] * _weightsH3H4[(m * Hidden3Size) + k];
             }
 
-            h3Err[k] = sum * dropoutInvKeep;
+            buffers.H3Err[k] = sum * dropoutInvKeep;
         }
+    }
 
+    /// <summary>
+    ///     Backpropagates the hidden3 error into hidden2's pre-activation error buffer.
+    ///     Extracted verbatim from <see cref="ComputeErrorSignals"/>; the <c>h2Mask[k] &lt;= 0.0</c> gating,
+    ///     weight indexing, accumulation order, and inverted-dropout scaling are unchanged.
+    /// </summary>
+    /// <param name="dropoutInvKeep">Inverted-dropout scale (1 / keep, or 1.0 when dropout is inactive).</param>
+    /// <param name="buffers">Pre-allocated per-layer scratch buffers.</param>
+    private void ComputeHidden2Error(double dropoutInvKeep, TrainingBuffers buffers)
+    {
         // Hidden2 layer error (backprop through ReLU + inverted-dropout scale from hidden3)
         for (var k = 0; k < Hidden2Size; k++)
         {
-            if (h2Pre[k] <= 0 || h2Mask[k] <= 0.0)
+            if (buffers.H2Pre[k] <= 0 || buffers.H2Mask[k] <= 0.0)
             {
-                h2Err[k] = 0.0;
+                buffers.H2Err[k] = 0.0;
                 continue;
             }
 
             var sum = 0.0;
             for (var l = 0; l < Hidden3Size; l++)
             {
-                sum += h3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
+                sum += buffers.H3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
             }
 
-            h2Err[k] = sum * dropoutInvKeep;
+            buffers.H2Err[k] = sum * dropoutInvKeep;
         }
+    }
 
+    /// <summary>
+    ///     Backpropagates the hidden2 error into hidden1's pre-activation error buffer.
+    ///     Extracted verbatim from <see cref="ComputeErrorSignals"/>; the <c>h1Mask[j] &lt;= 0.0</c> gating,
+    ///     weight indexing, accumulation order, and inverted-dropout scaling are unchanged.
+    /// </summary>
+    /// <param name="dropoutInvKeep">Inverted-dropout scale (1 / keep, or 1.0 when dropout is inactive).</param>
+    /// <param name="buffers">Pre-allocated per-layer scratch buffers.</param>
+    private void ComputeHidden1Error(double dropoutInvKeep, TrainingBuffers buffers)
+    {
         // Hidden1 layer error (backprop through ReLU + inverted-dropout scale from hidden2)
         for (var j = 0; j < Hidden1Size; j++)
         {
-            if (h1Pre[j] <= 0 || h1Mask[j] <= 0.0)
+            if (buffers.H1Pre[j] <= 0 || buffers.H1Mask[j] <= 0.0)
             {
-                h1Err[j] = 0.0;
+                buffers.H1Err[j] = 0.0;
                 continue;
             }
 
             var sum = 0.0;
             for (var k = 0; k < Hidden2Size; k++)
             {
-                sum += h2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
+                sum += buffers.H2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
             }
 
-            h1Err[j] = sum * dropoutInvKeep;
+            buffers.H1Err[j] = sum * dropoutInvKeep;
         }
     }
 
@@ -1290,25 +1333,33 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     ///     Applies the Adam weight/bias updates for all five layers using the pre-computed error
     ///     signals. Extracted verbatim from the per-example loop of
     ///     <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>; the Adam
-    ///     moment updates, L2 term, learning-rate step, clamp, and per-layer order are unchanged. Many
-    ///     array parameters by design: pre-allocated training buffers passed in to keep the update path
-    ///     allocation-free.
+    ///     moment updates, L2 term, learning-rate step, clamp, and per-layer order are unchanged. The
+    ///     pre-allocated activation/error buffers are grouped into <paramref name="buffers"/> to keep the
+    ///     update path allocation-free.
     /// </summary>
+    /// <param name="outErr">The output-layer error signal (δ at the sigmoid output).</param>
+    /// <param name="bc1">Adam first-moment bias-correction denominator (1 - β1^t).</param>
+    /// <param name="bc2">Adam second-moment bias-correction denominator (1 - β2^t).</param>
+    /// <param name="inputSize">Number of input features (row stride for the input weights).</param>
+    /// <param name="vec">The current training example's (standardized) feature vector.</param>
+    /// <param name="buffers">Pre-allocated per-layer scratch buffers (activations and errors).</param>
     private void ApplyAdamUpdates(
         double outErr,
         double bc1,
         double bc2,
         int inputSize,
         double[] vec,
-        double[] h1Act,
-        double[] h2Act,
-        double[] h3Act,
-        double[] h4Act,
-        double[] h1Err,
-        double[] h2Err,
-        double[] h3Err,
-        double[] h4Err)
+        TrainingBuffers buffers)
     {
+        var h1Act = buffers.H1Act;
+        var h2Act = buffers.H2Act;
+        var h3Act = buffers.H3Act;
+        var h4Act = buffers.H4Act;
+        var h1Err = buffers.H1Err;
+        var h2Err = buffers.H2Err;
+        var h3Err = buffers.H3Err;
+        var h4Err = buffers.H4Err;
+
         // Output layer Adam update (hidden4 -> output)
         for (var k = 0; k < Hidden4Size; k++)
         {
@@ -1620,70 +1671,27 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     {
         var inputSize = input.Length;
         var dropoutOff = keepProbability >= 1.0;
+        var dropout = new DropoutContext(dropoutOff, rng, keepProbability, invKeepScale);
 
         // Hidden layer 1: input -> hidden1 (ReLU + optional dropout)
         ForwardPassTrainingLayer(
-            input,
-            inputSize,
-            wIH,
-            bH1,
-            h1Pre,
-            h1Act,
-            h1Mask,
-            Hidden1Size,
-            inputSize,
-            dropoutOff,
-            rng,
-            keepProbability,
-            invKeepScale);
+            new LayerComputeSpec(input, inputSize, wIH, bH1, h1Pre, h1Act, h1Mask, Hidden1Size, inputSize),
+            dropout);
 
         // Hidden layer 2: hidden1 -> hidden2 (ReLU + optional dropout)
         ForwardPassTrainingLayer(
-            h1Act,
-            Hidden1Size,
-            wH1H2,
-            bH2,
-            h2Pre,
-            h2Act,
-            h2Mask,
-            Hidden2Size,
-            Hidden1Size,
-            dropoutOff,
-            rng,
-            keepProbability,
-            invKeepScale);
+            new LayerComputeSpec(h1Act, Hidden1Size, wH1H2, bH2, h2Pre, h2Act, h2Mask, Hidden2Size, Hidden1Size),
+            dropout);
 
         // Hidden layer 3: hidden2 -> hidden3 (ReLU + optional dropout)
         ForwardPassTrainingLayer(
-            h2Act,
-            Hidden2Size,
-            wH2H3,
-            bH3,
-            h3Pre,
-            h3Act,
-            h3Mask,
-            Hidden3Size,
-            Hidden2Size,
-            dropoutOff,
-            rng,
-            keepProbability,
-            invKeepScale);
+            new LayerComputeSpec(h2Act, Hidden2Size, wH2H3, bH3, h3Pre, h3Act, h3Mask, Hidden3Size, Hidden2Size),
+            dropout);
 
         // Hidden layer 4: hidden3 -> hidden4 (ReLU + optional dropout)
         ForwardPassTrainingLayer(
-            h3Act,
-            Hidden3Size,
-            wH3H4,
-            bH4,
-            h4Pre,
-            h4Act,
-            h4Mask,
-            Hidden4Size,
-            Hidden3Size,
-            dropoutOff,
-            rng,
-            keepProbability,
-            invKeepScale);
+            new LayerComputeSpec(h3Act, Hidden3Size, wH3H4, bH4, h4Pre, h4Act, h4Mask, Hidden4Size, Hidden3Size),
+            dropout);
 
         // Output layer: hidden4 -> output (Sigmoid, no dropout on the output neuron)
         var outputZ = bO;
@@ -1698,58 +1706,35 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>
     ///     Computes one ReLU + optional-dropout hidden layer for <see cref="ForwardPassTraining"/>.
     ///     Extracted verbatim from the per-layer loops; the arithmetic, activation, weight indexing,
-    ///     and dropout branch are unchanged.
+    ///     and dropout branch are unchanged. The per-layer arrays/dimensions are grouped into
+    ///     <paramref name="spec"/> and the dropout controls into <paramref name="dropout"/>.
     /// </summary>
-    /// <param name="prevAct">Previous layer's activations (input source).</param>
-    /// <param name="prevSize">Number of neurons in the previous layer.</param>
-    /// <param name="weights">Weight matrix [layerSize × prevSize] row-major.</param>
-    /// <param name="bias">Bias vector for this layer.</param>
-    /// <param name="pre">Buffer for this layer's pre-activation values.</param>
-    /// <param name="act">Buffer for this layer's post-activation (dropout-scaled) values.</param>
-    /// <param name="mask">Buffer for this layer's dropout mask.</param>
-    /// <param name="layerSize">Number of neurons in this layer.</param>
-    /// <param name="strideSize">Row stride for the weight matrix (equals prevSize).</param>
-    /// <param name="dropoutOff">Whether dropout is disabled for this pass.</param>
-    /// <param name="rng">RNG used for the Bernoulli draws.</param>
-    /// <param name="keepProbability">Probability of keeping a neuron [0..1].</param>
-    /// <param name="invKeepScale">Precomputed 1 / keepProbability.</param>
-    private static void ForwardPassTrainingLayer(
-        double[] prevAct,
-        int prevSize,
-        double[] weights,
-        double[] bias,
-        double[] pre,
-        double[] act,
-        double[] mask,
-        int layerSize,
-        int strideSize,
-        bool dropoutOff,
-        Random rng,
-        double keepProbability,
-        double invKeepScale)
+    /// <param name="spec">The layer's compute inputs (activations, weights, bias, buffers, dimensions).</param>
+    /// <param name="dropout">The dropout controls (off-flag, RNG, keep-probability, inverse-keep scale).</param>
+    private static void ForwardPassTrainingLayer(LayerComputeSpec spec, DropoutContext dropout)
     {
-        for (var j = 0; j < layerSize; j++)
+        for (var j = 0; j < spec.LayerSize; j++)
         {
-            var sum = bias[j];
-            var baseIdx = j * strideSize;
-            for (var i = 0; i < prevSize; i++)
+            var sum = spec.Bias[j];
+            var baseIdx = j * spec.StrideSize;
+            for (var i = 0; i < spec.PrevSize; i++)
             {
-                sum += weights[baseIdx + i] * prevAct[i];
+                sum += spec.Weights[baseIdx + i] * spec.PrevAct[i];
             }
 
-            pre[j] = sum;
+            spec.Pre[j] = sum;
             var relu = sum > 0 ? sum : 0.0;
 
-            if (dropoutOff)
+            if (dropout.DropoutOff)
             {
-                mask[j] = 1.0;
-                act[j] = relu;
+                spec.Mask[j] = 1.0;
+                spec.Act[j] = relu;
             }
             else
             {
-                var keep = rng.NextDouble() < keepProbability;
-                mask[j] = keep ? 1.0 : 0.0;
-                act[j] = keep ? relu * invKeepScale : 0.0;
+                var keep = dropout.Rng.NextDouble() < dropout.KeepProbability;
+                spec.Mask[j] = keep ? 1.0 : 0.0;
+                spec.Act[j] = keep ? relu * dropout.InvKeepScale : 0.0;
             }
         }
     }
@@ -2234,6 +2219,107 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
     }
 #pragma warning restore MT1013
+
+    /// <summary>
+    ///     Groups the pre-allocated per-layer scratch buffers threaded through the training backprop and
+    ///     Adam-update helpers. Wraps the same arrays allocated once per <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>
+    ///     call, so passing it around adds no allocation while keeping helper parameter lists small.
+    /// </summary>
+    /// <param name="H1Pre">Hidden1 pre-activation buffer.</param>
+    /// <param name="H1Act">Hidden1 post-activation (dropout-scaled) buffer.</param>
+    /// <param name="H2Pre">Hidden2 pre-activation buffer.</param>
+    /// <param name="H2Act">Hidden2 post-activation (dropout-scaled) buffer.</param>
+    /// <param name="H3Pre">Hidden3 pre-activation buffer.</param>
+    /// <param name="H3Act">Hidden3 post-activation (dropout-scaled) buffer.</param>
+    /// <param name="H4Pre">Hidden4 pre-activation buffer.</param>
+    /// <param name="H4Act">Hidden4 post-activation (dropout-scaled) buffer.</param>
+    /// <param name="H1Err">Hidden1 pre-activation error (δ_pre) buffer.</param>
+    /// <param name="H2Err">Hidden2 pre-activation error (δ_pre) buffer.</param>
+    /// <param name="H3Err">Hidden3 pre-activation error (δ_pre) buffer.</param>
+    /// <param name="H4Err">Hidden4 pre-activation error (δ_pre) buffer.</param>
+    /// <param name="H1Mask">Hidden1 dropout mask (1.0 = kept, 0.0 = dropped).</param>
+    /// <param name="H2Mask">Hidden2 dropout mask.</param>
+    /// <param name="H3Mask">Hidden3 dropout mask.</param>
+    /// <param name="H4Mask">Hidden4 dropout mask.</param>
+    private readonly record struct TrainingBuffers(
+        double[] H1Pre,
+        double[] H1Act,
+        double[] H2Pre,
+        double[] H2Act,
+        double[] H3Pre,
+        double[] H3Act,
+        double[] H4Pre,
+        double[] H4Act,
+        double[] H1Err,
+        double[] H2Err,
+        double[] H3Err,
+        double[] H4Err,
+        double[] H1Mask,
+        double[] H2Mask,
+        double[] H3Mask,
+        double[] H4Mask);
+
+    /// <summary>
+    ///     Groups the best-so-far weight/bias snapshot buffers used by early stopping. Wraps the arrays
+    ///     cloned once per <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>
+    ///     call (the output bias scalar is tracked separately by the caller).
+    /// </summary>
+    /// <param name="BestWIH">Best-so-far input->hidden1 weights.</param>
+    /// <param name="BestBH1">Best-so-far hidden1 biases.</param>
+    /// <param name="BestWH1H2">Best-so-far hidden1->hidden2 weights.</param>
+    /// <param name="BestBH2">Best-so-far hidden2 biases.</param>
+    /// <param name="BestWH2H3">Best-so-far hidden2->hidden3 weights.</param>
+    /// <param name="BestBH3">Best-so-far hidden3 biases.</param>
+    /// <param name="BestWH3H4">Best-so-far hidden3->hidden4 weights.</param>
+    /// <param name="BestBH4">Best-so-far hidden4 biases.</param>
+    /// <param name="BestWH4O">Best-so-far hidden4->output weights.</param>
+    private readonly record struct WeightSnapshot(
+        double[] BestWIH,
+        double[] BestBH1,
+        double[] BestWH1H2,
+        double[] BestBH2,
+        double[] BestWH2H3,
+        double[] BestBH3,
+        double[] BestWH3H4,
+        double[] BestBH4,
+        double[] BestWH4O);
+
+    /// <summary>
+    ///     Groups the compute inputs for a single training forward-pass hidden layer:
+    ///     the source activations, weight matrix, bias, output buffers, and dimensions.
+    /// </summary>
+    /// <param name="PrevAct">Previous layer's activations (input source).</param>
+    /// <param name="PrevSize">Number of neurons in the previous layer.</param>
+    /// <param name="Weights">Weight matrix [layerSize × prevSize] row-major.</param>
+    /// <param name="Bias">Bias vector for this layer.</param>
+    /// <param name="Pre">Buffer for this layer's pre-activation values.</param>
+    /// <param name="Act">Buffer for this layer's post-activation (dropout-scaled) values.</param>
+    /// <param name="Mask">Buffer for this layer's dropout mask.</param>
+    /// <param name="LayerSize">Number of neurons in this layer.</param>
+    /// <param name="StrideSize">Row stride for the weight matrix (equals prevSize).</param>
+    private readonly record struct LayerComputeSpec(
+        double[] PrevAct,
+        int PrevSize,
+        double[] Weights,
+        double[] Bias,
+        double[] Pre,
+        double[] Act,
+        double[] Mask,
+        int LayerSize,
+        int StrideSize);
+
+    /// <summary>
+    ///     Groups the dropout controls threaded through the per-layer training forward pass.
+    /// </summary>
+    /// <param name="DropoutOff">Whether dropout is disabled for this pass.</param>
+    /// <param name="Rng">RNG used for the Bernoulli draws.</param>
+    /// <param name="KeepProbability">Probability of keeping a neuron [0..1]. Values >= 1.0 disable dropout.</param>
+    /// <param name="InvKeepScale">Precomputed 1 / keepProbability so we skip a division per neuron.</param>
+    private readonly record struct DropoutContext(
+        bool DropoutOff,
+        Random Rng,
+        double KeepProbability,
+        double InvKeepScale);
 
     /// <summary>Serializable container for persisted neural network weights.</summary>
     internal sealed class NeuralWeightsData

@@ -214,18 +214,17 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
         var titleCache = new Dictionary<string, string>(StringComparer.Ordinal);
 
+        var context = new SeerrExpiredRequestContext(client, baseUri, key, result);
+
         foreach (var request in expiredRequests)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var breakRequested = await ProcessExpiredRequestAsync(
-                client,
-                baseUri,
-                key,
+                context,
                 request,
                 dryRun,
                 titleCache,
-                result,
                 cancellationToken).ConfigureAwait(false);
             if (breakRequested)
             {
@@ -242,15 +241,14 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     ///     caller's loop should break (cancellation during the inter-call delay).
     /// </summary>
     private async Task<bool> ProcessExpiredRequestAsync(
-        HttpClient client,
-        Uri baseUri,
-        string key,
+        SeerrExpiredRequestContext context,
         SeerrRequest request,
         bool dryRun,
         Dictionary<string, string> titleCache,
-        SeerrCleanupResult result,
         CancellationToken cancellationToken)
     {
+        var result = context.Result;
+
         // Guard against invalid IDs from deserialization failures.
         // request.Id == 0 (default int) when JSON deserialization returns no value,
         // and api/v1/request/0 is a valid but entirely unintended Seerr endpoint.
@@ -267,7 +265,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         // Guaranteed non-null: every item in expiredRequests passed the fail-closed age guard above.
         var createdAt = request.CreatedAt!.Value;
 
-        var mediaTitle = await ResolveMediaTitleCachedAsync(client, baseUri, key, request.Media, titleCache, cancellationToken).ConfigureAwait(false);
+        var mediaTitle = await ResolveMediaTitleCachedAsync(context.Client, context.BaseUri, context.Key, request.Media, titleCache, cancellationToken).ConfigureAwait(false);
         var mediaInfo = request.Media != null
             ? $"\"{mediaTitle}\" ({request.Media.MediaType}, TMDB: {request.Media.TmdbId})"
             : $"request #{request.Id}";
@@ -284,14 +282,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
 
         return await DeleteExpiredRequestAsync(
-            client,
-            baseUri,
-            key,
+            context,
             request,
             mediaInfo,
             createdAt,
             ageDays,
-            result,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -300,19 +295,19 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     ///     Returns <see langword="true" /> when the caller's loop should break (cancellation during the delay).
     /// </summary>
     private async Task<bool> DeleteExpiredRequestAsync(
-        HttpClient client,
-        Uri baseUri,
-        string key,
+        SeerrExpiredRequestContext context,
         SeerrRequest request,
         string mediaInfo,
         DateTimeOffset createdAt,
         int ageDays,
-        SeerrCleanupResult result,
         CancellationToken cancellationToken)
     {
+        var client = context.Client;
+        var result = context.Result;
+
         try
         {
-            using var deleteReq = BuildRequest(HttpMethod.Delete, baseUri, $"api/v1/request/{request.Id}", key);
+            using var deleteReq = BuildRequest(HttpMethod.Delete, context.BaseUri, $"api/v1/request/{request.Id}", context.Key);
             using var deleteResponse = await client.SendAsync(deleteReq, cancellationToken).ConfigureAwait(false);
 
             if (deleteResponse.IsSuccessStatusCode)
@@ -587,4 +582,19 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return request;
     }
+
+    /// <summary>
+    ///     Groups the connection details and shared result accumulator threaded through the
+    ///     Phase 2 expired-request processing helpers, keeping their parameter counts within
+    ///     bounds without changing behaviour.
+    /// </summary>
+    /// <param name="Client">The Seerr <see cref="HttpClient" />.</param>
+    /// <param name="BaseUri">The normalized Seerr base URI.</param>
+    /// <param name="Key">The Seerr API key attached per-request.</param>
+    /// <param name="Result">The shared cleanup result accumulator.</param>
+    private readonly record struct SeerrExpiredRequestContext(
+        HttpClient Client,
+        Uri BaseUri,
+        string Key,
+        SeerrCleanupResult Result);
 }

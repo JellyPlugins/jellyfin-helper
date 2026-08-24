@@ -126,94 +126,8 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
         string trashPath,
         bool dryRun)
     {
-        // Skip the trash root itself and any directories inside it to prevent
-        // re-trashing already-trashed items.
-        var normalizedDirPath = Path.GetFullPath(dirFullName)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (normalizedDirPath.Equals(trashRoot, pathComparison)
-            || normalizedDirPath.StartsWith(trashRoot + Path.DirectorySeparatorChar, pathComparison))
+        if (!IsDeletableOrphanedTrickplayDirectory(dirFullName, trashRoot, pathComparison, fileCache, config))
         {
-            return (0, 0);
-        }
-
-        var dirName = Path.GetFileName(dirFullName);
-        if (!dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-        {
-            return (0, 0);
-        }
-
-        // Check if parent is also a .trickplay folder (skip nested ones if any, based on script logic)
-        var parentPath = Path.GetDirectoryName(dirFullName);
-        if (string.IsNullOrEmpty(parentPath))
-        {
-            return (0, 0);
-        }
-
-        var parentName = Path.GetFileName(parentPath);
-        if (parentName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-        {
-            return (0, 0);
-        }
-
-        var trickplayBaseName = dirName[..^".trickplay".Length];
-
-        // Check if any media file exists in parent with the same basename (cached)
-        if (!fileCache.TryGetValue(parentPath, out var files))
-        {
-            try
-            {
-                files = FileSystem.GetFiles(parentPath).ToArray();
-                fileCache[parentPath] = files;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                PluginLog.LogWarning(TaskName, $"Could not list files in: {parentPath}", ex, Logger);
-                return (0, 0);
-            }
-        }
-
-        var mediaExists = files.Any(f =>
-            MediaExtensions.VideoExtensions.Contains(Path.GetExtension(f.FullName)) &&
-            Path.GetFileNameWithoutExtension(f.FullName)
-                .Equals(trickplayBaseName, StringComparison.OrdinalIgnoreCase));
-
-        if (mediaExists)
-        {
-            return (0, 0);
-        }
-
-        // Check orphan age
-        if (!ConfigHelper.IsOldEnoughForDeletion(dirFullName))
-        {
-            PluginLog.LogDebug(
-                TaskName,
-                $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {dirFullName}",
-                Logger);
-            return (0, 0);
-        }
-
-        // Symlink guard for ALL modes (dry-run, trash, hard-delete): a reparse-point
-        // (symlink/junction) trickplay dir is never trashed, never recursively deleted, and
-        // never reported as a dry-run deletion. Trashing would relocate the link node while
-        // its target stays behind, and Directory.Delete(recursive) could be redirected into
-        // the link's real target. Hoisted above the mode branches (which are mutually
-        // exclusive per iteration) so a single check covers all three and dry-run output
-        // matches the real run. A stat failure is treated as "skip" (fail closed) and must
-        // not surface as a misleading delete error.
-        bool dirIsReparsePoint;
-        try
-        {
-            dirIsReparsePoint = IsReparsePoint(dirFullName);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirFullName}", ex, Logger);
-            return (0, 0);
-        }
-
-        if (dirIsReparsePoint)
-        {
-            PluginLog.LogWarning(TaskName, $"Skipping symlinked trickplay directory (reparse point): {dirFullName}", logger: Logger);
             return (0, 0);
         }
 
@@ -250,6 +164,143 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             PluginLog.LogError(TaskName, $"Failed to delete directory: {dirFullName}", ex, Logger);
             return (0, 0);
         }
+    }
+
+    /// <summary>
+    ///     Determines whether the candidate directory is an orphaned trickplay folder that is safe to
+    ///     delete under the configured mode. Runs all eligibility guards (trash-root skip, .trickplay
+    ///     suffix, parent-is-trickplay skip, media-exists check with file cache, orphan-age check) and
+    ///     the reparse-point (symlink) guard that fails closed on stat errors. Returns <c>false</c> for
+    ///     any directory that must be skipped; returns <c>true</c> only when the directory is a deletable
+    ///     orphan.
+    /// </summary>
+    /// <param name="dirFullName">The candidate trickplay directory to evaluate.</param>
+    /// <param name="trashRoot">The normalized trash root used to skip already-trashed items.</param>
+    /// <param name="pathComparison">The OS-aware path comparison to use for the trash-root check.</param>
+    /// <param name="fileCache">The per-parent-directory file listing cache (populated on demand).</param>
+    /// <param name="config">The plugin configuration (used for orphan-age messaging).</param>
+    /// <returns><c>true</c> if the directory is a deletable orphaned trickplay folder; otherwise <c>false</c>.</returns>
+    private bool IsDeletableOrphanedTrickplayDirectory(
+        string dirFullName,
+        string trashRoot,
+        StringComparison pathComparison,
+        Dictionary<string, FileSystemMetadata[]> fileCache,
+        PluginConfiguration config)
+    {
+        // Skip the trash root itself and any directories inside it to prevent
+        // re-trashing already-trashed items.
+        var normalizedDirPath = Path.GetFullPath(dirFullName)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (normalizedDirPath.Equals(trashRoot, pathComparison)
+            || normalizedDirPath.StartsWith(trashRoot + Path.DirectorySeparatorChar, pathComparison))
+        {
+            return false;
+        }
+
+        var dirName = Path.GetFileName(dirFullName);
+        if (!dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Check if parent is also a .trickplay folder (skip nested ones if any, based on script logic)
+        var parentPath = Path.GetDirectoryName(dirFullName);
+        if (string.IsNullOrEmpty(parentPath))
+        {
+            return false;
+        }
+
+        var parentName = Path.GetFileName(parentPath);
+        if (parentName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (MediaExistsForTrickplay(dirName, parentPath, fileCache))
+        {
+            return false;
+        }
+
+        // Check orphan age
+        if (!ConfigHelper.IsOldEnoughForDeletion(dirFullName))
+        {
+            PluginLog.LogDebug(
+                TaskName,
+                $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {dirFullName}",
+                Logger);
+            return false;
+        }
+
+        return !IsSkippedReparsePoint(dirFullName);
+    }
+
+    /// <summary>
+    ///     Determines whether a media file with the trickplay folder's base name exists in the parent
+    ///     directory, populating the per-parent file cache on demand. A file-listing failure is treated
+    ///     as "media exists" (skip, fail closed) so an unreadable parent never triggers a deletion.
+    /// </summary>
+    /// <param name="dirName">The trickplay directory name (with the <c>.trickplay</c> suffix).</param>
+    /// <param name="parentPath">The parent directory whose files are inspected.</param>
+    /// <param name="fileCache">The per-parent-directory file listing cache (populated on demand).</param>
+    /// <returns><c>true</c> if matching media exists or the parent could not be listed; otherwise <c>false</c>.</returns>
+    private bool MediaExistsForTrickplay(
+        string dirName,
+        string parentPath,
+        Dictionary<string, FileSystemMetadata[]> fileCache)
+    {
+        var trickplayBaseName = dirName[..^".trickplay".Length];
+
+        // Check if any media file exists in parent with the same basename (cached)
+        if (!fileCache.TryGetValue(parentPath, out var files))
+        {
+            try
+            {
+                files = FileSystem.GetFiles(parentPath).ToArray();
+                fileCache[parentPath] = files;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                PluginLog.LogWarning(TaskName, $"Could not list files in: {parentPath}", ex, Logger);
+                return true;
+            }
+        }
+
+        return files.Any(f =>
+            MediaExtensions.VideoExtensions.Contains(Path.GetExtension(f.FullName)) &&
+            Path.GetFileNameWithoutExtension(f.FullName)
+                .Equals(trickplayBaseName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    ///     Applies the reparse-point (symlink/junction) guard used by ALL modes (dry-run, trash,
+    ///     hard-delete): a reparse-point trickplay dir is never trashed, never recursively deleted, and
+    ///     never reported as a dry-run deletion. Trashing would relocate the link node while its target
+    ///     stays behind, and Directory.Delete(recursive) could be redirected into the link's real
+    ///     target. A stat failure is treated as "skip" (fail closed) and must not surface as a
+    ///     misleading delete error.
+    /// </summary>
+    /// <param name="dirFullName">The candidate trickplay directory to stat.</param>
+    /// <returns><c>true</c> if the directory is a reparse point or could not be stat'd; otherwise <c>false</c>.</returns>
+    private bool IsSkippedReparsePoint(string dirFullName)
+    {
+        bool dirIsReparsePoint;
+        try
+        {
+            dirIsReparsePoint = IsReparsePoint(dirFullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirFullName}", ex, Logger);
+            return true;
+        }
+
+        if (dirIsReparsePoint)
+        {
+            PluginLog.LogWarning(TaskName, $"Skipping symlinked trickplay directory (reparse point): {dirFullName}", logger: Logger);
+            return true;
+        }
+
+        return false;
     }
 
     // Enumerate directories lazily with per-directory error isolation instead of
