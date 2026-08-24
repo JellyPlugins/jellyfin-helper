@@ -310,8 +310,28 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Pre-normalize all roots once so the inner Any check is O(n) rather than O(n*m).
         var comparison = GetOsPathComparison();
+        var normalizedAllRoots = NormalizeLibraryRoots(allLibraryRoots);
+
+        if (Path.IsPathFullyQualified(queryPath))
+        {
+            ResolveAbsoluteTrashFolder(queryPath, normalizedAllRoots, comparison, existingPaths);
+        }
+        else
+        {
+            ResolveRelativeTrashFolders(queryPath, virtualFolders, normalizedAllRoots, comparison, existingPaths);
+        }
+
+        return existingPaths;
+    }
+
+    /// <summary>
+    ///     Normalizes each library root to a full path with trailing separators trimmed. Roots whose
+    ///     paths cannot be resolved are skipped. Pre-normalizing once keeps the inner containment
+    ///     checks O(n) rather than O(n*m).
+    /// </summary>
+    private static List<string> NormalizeLibraryRoots(List<string> allLibraryRoots)
+    {
         var normalizedAllRoots = new List<string>(allLibraryRoots.Count);
         foreach (var root in allLibraryRoots)
         {
@@ -327,27 +347,90 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             }
         }
 
-        if (Path.IsPathFullyQualified(queryPath))
+        return normalizedAllRoots;
+    }
+
+    /// <summary>
+    ///     Resolves an absolute trash path, adding it to <paramref name="existingPaths"/> only when it
+    ///     exists on disk and is not itself a library root.
+    /// </summary>
+    private static void ResolveAbsoluteTrashFolder(
+        string queryPath,
+        IReadOnlyList<string> normalizedAllRoots,
+        StringComparison comparison,
+        List<string> existingPaths)
+    {
+        // Absolute path: single trash folder
+        try
         {
-            // Absolute path: single trash folder
+            var fullPath = Path.GetFullPath(queryPath);
+
+            // Never report a library root as an existing trash folder.
+            // If it were reported, the relocate/delete flow could target the entire library.
+            var fullPathTrimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var isLibraryRoot = normalizedAllRoots.Any(root =>
+                string.Equals(root, fullPathTrimmed, comparison));
+
+            if (isLibraryRoot)
+            {
+                return;
+            }
+
+            if (Directory.Exists(fullPath))
+            {
+                existingPaths.Add(fullPath);
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Skip invalid paths silently
+        }
+    }
+
+    /// <summary>
+    ///     Resolves a relative trash path against each managed (filtered) library root, adding the
+    ///     per-library trash folders that exist on disk, stay within their root, and are not roots.
+    /// </summary>
+    private void ResolveRelativeTrashFolders(
+        string queryPath,
+        IEnumerable<VirtualFolderInfo> virtualFolders,
+        IReadOnlyList<string> normalizedAllRoots,
+        StringComparison comparison,
+        List<string> existingPaths)
+    {
+        // Relative path: resolve per filtered library (only managed libraries have trash).
+        // Derive the filtered set from the already-fetched virtualFolders snapshot.
+        var libraryFolders = GetManagedLibraryFolders(virtualFolders);
+
+        foreach (var folder in libraryFolders)
+        {
             try
             {
-                var fullPath = Path.GetFullPath(queryPath);
+                var resolved = Path.GetFullPath(Path.Join(folder, queryPath));
+                var normalizedRoot = Path.GetFullPath(folder)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
 
-                // Never report a library root as an existing trash folder.
-                // If it were reported, the relocate/delete flow could target the entire library.
-                var fullPathTrimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var isLibraryRoot = normalizedAllRoots.Any(root =>
-                    string.Equals(root, fullPathTrimmed, comparison));
-
-                if (isLibraryRoot)
+                // Must stay within the library root
+                if (!resolved.StartsWith(rootPrefix, comparison))
                 {
-                    return existingPaths;
+                    continue;
                 }
 
-                if (Directory.Exists(fullPath))
+                // Never report ANY library root as an existing trash folder.
+                // Check against all roots (not just filtered) to protect music/boxset libraries too.
+                var resolvedTrimmed = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var isAnyLibraryRoot = normalizedAllRoots.Any(root =>
+                    string.Equals(root, resolvedTrimmed, comparison));
+
+                if (isAnyLibraryRoot)
                 {
-                    existingPaths.Add(fullPath);
+                    continue;
+                }
+
+                if (Directory.Exists(resolved))
+                {
+                    existingPaths.Add(resolved);
                 }
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -355,81 +438,45 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 // Skip invalid paths silently
             }
         }
-        else
-        {
-            // Relative path: resolve per filtered library (only managed libraries have trash).
-            // Derive the filtered set from the already-fetched virtualFolders snapshot.
-            var config = GetConfig();
-            var excludedSet = ParseCommaSeparated(config.ExcludedLibraries);
-            var libraryFolders = virtualFolders
-                .Where(f =>
-                {
-                    var name = f.Name ?? string.Empty;
+    }
 
-                    // Always exclude non-video library types
-                    if (f.CollectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets)
-                    {
-                        return false;
-                    }
-
-                    // Fallback: also exclude by name pattern in case CollectionType is null/unknown
-                    if (name.Contains("collection", StringComparison.OrdinalIgnoreCase)
-                        || name.Contains("boxset", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return false;
-                    }
-
-                    if (excludedSet.Count > 0 && excludedSet.Contains(name))
-                    {
-                        return false;
-                    }
-
-                    return true;
-                })
-                .SelectMany(f => f.Locations ?? [])
-                .Where(loc => !IsCollectionsPath(loc))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            foreach (var folder in libraryFolders)
+    /// <summary>
+    ///     Derives the managed library folders (video libraries that are not collections/boxsets and
+    ///     not user-excluded) from the supplied virtual-folder snapshot.
+    /// </summary>
+    private List<string> GetManagedLibraryFolders(IEnumerable<VirtualFolderInfo> virtualFolders)
+    {
+        var config = GetConfig();
+        var excludedSet = ParseCommaSeparated(config.ExcludedLibraries);
+        return virtualFolders
+            .Where(f =>
             {
-                try
+                var name = f.Name ?? string.Empty;
+
+                // Always exclude non-video library types
+                if (f.CollectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets)
                 {
-                    var resolved = Path.GetFullPath(Path.Join(folder, queryPath));
-                    var normalizedRoot = Path.GetFullPath(folder)
-                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
-
-                    // Must stay within the library root
-                    if (!resolved.StartsWith(rootPrefix, comparison))
-                    {
-                        continue;
-                    }
-
-                    // Never report ANY library root as an existing trash folder.
-                    // Check against all roots (not just filtered) to protect music/boxset libraries too.
-                    var resolvedTrimmed = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    var isAnyLibraryRoot = normalizedAllRoots.Any(root =>
-                        string.Equals(root, resolvedTrimmed, comparison));
-
-                    if (isAnyLibraryRoot)
-                    {
-                        continue;
-                    }
-
-                    if (Directory.Exists(resolved))
-                    {
-                        existingPaths.Add(resolved);
-                    }
+                    return false;
                 }
-                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+
+                // Fallback: also exclude by name pattern in case CollectionType is null/unknown
+                if (name.Contains("collection", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("boxset", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Skip invalid paths silently
+                    return false;
                 }
-            }
-        }
 
-        return existingPaths;
+                if (excludedSet.Count > 0 && excludedSet.Contains(name))
+                {
+                    return false;
+                }
+
+                return true;
+            })
+            .SelectMany(f => f.Locations ?? [])
+            .Where(loc => !IsCollectionsPath(loc))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     // ===== Private helpers =====

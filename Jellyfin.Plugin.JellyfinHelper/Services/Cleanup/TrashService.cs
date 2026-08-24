@@ -244,80 +244,13 @@ public class TrashService : ITrashService
             // Purge old directories
             foreach (var dir in Directory.GetDirectories(trashBasePath))
             {
-                var dirName = Path.GetFileName(dir);
-                if (!TryParseTrashTimestamp(dirName, out var timestamp) || timestamp >= cutoff)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    if (IsReparsePoint(dir))
-                    {
-                        // Delete only the symlink/junction itself, not what it points to.
-                        // Size is 0 - only the link entry is removed, not the target data.
-                        try
-                        {
-                            DeleteReparsePointLinkNode(dir);
-                        }
-                        catch (InvalidOperationException)
-                        {
-                            // Concurrent replacement detected, so fail closed: leave entry unchanged.
-                            _pluginLog.LogWarning(
-                                LogCategory,
-                                $"Reparse-point node changed type before purge, skipping: {dir}",
-                                logger: logger);
-                            continue;
-                        }
-
-                        itemsPurged++;
-                        _pluginLog.LogInfo(
-                            LogCategory,
-                            $"Purged expired trash directory: {dir} (reparse point, created {timestamp})",
-                            logger);
-                    }
-                    else
-                    {
-                        var size = CalculateDirectorySize(dir);
-                        Directory.Delete(dir, true);
-                        totalBytesFreed += size;
-                        itemsPurged++;
-                        _pluginLog.LogInfo(
-                            LogCategory,
-                            $"Purged expired trash directory: {dir} ({size} bytes, created {timestamp})",
-                            logger);
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    _pluginLog.LogError(LogCategory, $"Failed to purge trash directory: {dir}", ex, logger);
-                }
+                PurgeExpiredDirectory(dir, cutoff, logger, ref totalBytesFreed, ref itemsPurged);
             }
 
             // Purge old files
             foreach (var file in Directory.GetFiles(trashBasePath))
             {
-                var fileName = Path.GetFileName(file);
-                if (!TryParseTrashTimestamp(fileName, out var timestamp) || timestamp >= cutoff)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    var size = new FileInfo(file).Length;
-                    File.Delete(file);
-                    totalBytesFreed += size;
-                    itemsPurged++;
-                    _pluginLog.LogInfo(
-                        LogCategory,
-                        $"Purged expired trash file: {file} ({size} bytes, created {timestamp})",
-                        logger);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    _pluginLog.LogError(LogCategory, $"Failed to purge trash file: {file}", ex, logger);
-                }
+                PurgeExpiredFile(file, cutoff, logger, ref totalBytesFreed, ref itemsPurged);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -326,6 +259,101 @@ public class TrashService : ITrashService
         }
 
         return (totalBytesFreed, itemsPurged);
+    }
+
+    /// <summary>
+    ///     Purges a single trash subdirectory when its timestamp-prefixed name is older than
+    ///     <paramref name="cutoff"/>. Reparse-point entries have only their link node removed.
+    /// </summary>
+    private void PurgeExpiredDirectory(
+        string dir,
+        DateTime cutoff,
+        ILogger logger,
+        ref long totalBytesFreed,
+        ref int itemsPurged)
+    {
+        var dirName = Path.GetFileName(dir);
+        if (!TryParseTrashTimestamp(dirName, out var timestamp) || timestamp >= cutoff)
+        {
+            return;
+        }
+
+        try
+        {
+            if (IsReparsePoint(dir))
+            {
+                // Delete only the symlink/junction itself, not what it points to.
+                // Size is 0 - only the link entry is removed, not the target data.
+                try
+                {
+                    DeleteReparsePointLinkNode(dir);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Concurrent replacement detected, so fail closed: leave entry unchanged.
+                    _pluginLog.LogWarning(
+                        LogCategory,
+                        $"Reparse-point node changed type before purge, skipping: {dir}",
+                        logger: logger);
+                    return;
+                }
+
+                itemsPurged++;
+                _pluginLog.LogInfo(
+                    LogCategory,
+                    $"Purged expired trash directory: {dir} (reparse point, created {timestamp})",
+                    logger);
+            }
+            else
+            {
+                var size = CalculateDirectorySize(dir);
+                Directory.Delete(dir, true);
+                totalBytesFreed += size;
+                itemsPurged++;
+                _pluginLog.LogInfo(
+                    LogCategory,
+                    $"Purged expired trash directory: {dir} ({size} bytes, created {timestamp})",
+                    logger);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _pluginLog.LogError(LogCategory, $"Failed to purge trash directory: {dir}", ex, logger);
+        }
+    }
+
+    /// <summary>
+    ///     Purges a single trash file when its timestamp-prefixed name is older than
+    ///     <paramref name="cutoff"/>.
+    /// </summary>
+    private void PurgeExpiredFile(
+        string file,
+        DateTime cutoff,
+        ILogger logger,
+        ref long totalBytesFreed,
+        ref int itemsPurged)
+    {
+        var fileName = Path.GetFileName(file);
+        if (!TryParseTrashTimestamp(fileName, out var timestamp) || timestamp >= cutoff)
+        {
+            return;
+        }
+
+        try
+        {
+            var size = new FileInfo(file).Length;
+            File.Delete(file);
+            totalBytesFreed += size;
+            itemsPurged++;
+            _pluginLog.LogInfo(
+                LogCategory,
+                $"Purged expired trash file: {file} ({size} bytes, created {timestamp})",
+                logger);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _pluginLog.LogError(LogCategory, $"Failed to purge trash file: {file}", ex, logger);
+        }
     }
 
     /// <inheritdoc />
@@ -502,6 +530,23 @@ public class TrashService : ITrashService
         }
 
         // Move directories
+        MoveTrashDirectories(oldTrashPath, newTrashPath, logger, ref moved, ref failed);
+
+        // Move files
+        MoveTrashFiles(oldTrashPath, newTrashPath, logger, ref moved, ref failed);
+
+        TryRemoveEmptyDirectory(oldTrashPath, logger);
+
+        _pluginLog.LogInfo(LogCategory, $"Relocation complete: {moved} moved, {failed} failed ({oldTrashPath} → {newTrashPath})", logger);
+        return (moved, failed);
+    }
+
+    /// <summary>
+    ///     Moves each subdirectory of <paramref name="oldTrashPath"/> into
+    ///     <paramref name="newTrashPath"/>, resolving name collisions and tallying outcomes.
+    /// </summary>
+    private void MoveTrashDirectories(string oldTrashPath, string newTrashPath, ILogger logger, ref int moved, ref int failed)
+    {
         try
         {
             foreach (var dir in Directory.GetDirectories(oldTrashPath))
@@ -527,8 +572,14 @@ public class TrashService : ITrashService
         {
             _pluginLog.LogError(LogCategory, $"Failed to enumerate directories in old trash: {oldTrashPath}", ex, logger);
         }
+    }
 
-        // Move files
+    /// <summary>
+    ///     Moves each file of <paramref name="oldTrashPath"/> into <paramref name="newTrashPath"/>,
+    ///     resolving name collisions and tallying outcomes.
+    /// </summary>
+    private void MoveTrashFiles(string oldTrashPath, string newTrashPath, ILogger logger, ref int moved, ref int failed)
+    {
         try
         {
             foreach (var file in Directory.GetFiles(oldTrashPath))
@@ -554,11 +605,6 @@ public class TrashService : ITrashService
         {
             _pluginLog.LogError(LogCategory, $"Failed to enumerate files in old trash: {oldTrashPath}", ex, logger);
         }
-
-        TryRemoveEmptyDirectory(oldTrashPath, logger);
-
-        _pluginLog.LogInfo(LogCategory, $"Relocation complete: {moved} moved, {failed} failed ({oldTrashPath} → {newTrashPath})", logger);
-        return (moved, failed);
     }
 
     /// <summary>
@@ -978,37 +1024,55 @@ public class TrashService : ITrashService
         // If the path exists as a directory, check read/write on it directly.
         if (Directory.Exists(fullPath))
         {
-            var canRead = CanReadDirectory(fullPath);
-            var canWrite = CanWriteDirectory(fullPath);
-
-            if (!canRead || !canWrite)
-            {
-                string issue;
-                if (!canRead && !canWrite)
-                {
-                    issue = "read or write";
-                }
-                else
-                {
-                    issue = !canRead ? "read" : "write";
-                }
-
-                var msg = $"Insufficient permissions: cannot {issue} path '{fullPath}'.";
-                _pluginLog.LogWarning(LogCategory, msg, logger: logger);
-                return new TrashPathAccessResult
-                {
-                    Exists = true,
-                    CanRead = canRead,
-                    CanWrite = canWrite,
-                    ErrorMessage = msg
-                };
-            }
-
-            _pluginLog.LogDebug(LogCategory, $"Path access check OK (exists, read+write): {fullPath}");
-            return new TrashPathAccessResult { Exists = true, CanRead = true, CanWrite = true };
+            return CheckExistingDirectoryAccess(fullPath, logger);
         }
 
         // Path does not exist - walk up to the nearest existing parent and check if we can create there.
+        return CheckCreatableAtParent(fullPath, logger);
+    }
+
+    /// <summary>
+    ///     Checks read and write access on an existing directory and builds the corresponding
+    ///     <see cref="TrashPathAccessResult"/>.
+    /// </summary>
+    private TrashPathAccessResult CheckExistingDirectoryAccess(string fullPath, ILogger logger)
+    {
+        var canRead = CanReadDirectory(fullPath);
+        var canWrite = CanWriteDirectory(fullPath);
+
+        if (!canRead || !canWrite)
+        {
+            string issue;
+            if (!canRead && !canWrite)
+            {
+                issue = "read or write";
+            }
+            else
+            {
+                issue = !canRead ? "read" : "write";
+            }
+
+            var msg = $"Insufficient permissions: cannot {issue} path '{fullPath}'.";
+            _pluginLog.LogWarning(LogCategory, msg, logger: logger);
+            return new TrashPathAccessResult
+            {
+                Exists = true,
+                CanRead = canRead,
+                CanWrite = canWrite,
+                ErrorMessage = msg
+            };
+        }
+
+        _pluginLog.LogDebug(LogCategory, $"Path access check OK (exists, read+write): {fullPath}");
+        return new TrashPathAccessResult { Exists = true, CanRead = true, CanWrite = true };
+    }
+
+    /// <summary>
+    ///     Walks up to the nearest existing ancestor of a not-yet-created path and reports whether the
+    ///     path could be created there (i.e. the parent is writable).
+    /// </summary>
+    private TrashPathAccessResult CheckCreatableAtParent(string fullPath, ILogger logger)
+    {
         var parent = fullPath;
         while (!string.IsNullOrEmpty(parent))
         {

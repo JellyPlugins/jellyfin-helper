@@ -148,96 +148,142 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
         foreach (var subDirPath in _fileSystem.GetDirectories(location).Select(subDir => subDir.FullName))
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            var dirName = Path.GetFileName(subDirPath);
-
-            // Skip .trickplay directories
-            if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            // Skip trash directories: match by leaf name (relative paths) or resolved full path (absolute paths)
-            if (ShouldSkipAsTrash(subDirPath, dirName, trashFolderName, fullTrashPath))
-            {
-                continue;
-            }
-
-            var createdUtc = Directory.GetCreationTimeUtc(subDirPath);
-            if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
-            {
-                createdUtc = Directory.GetLastWriteTimeUtc(subDirPath);
-            }
-
-            if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
-            {
-                continue;
-            }
-
-            var (totalSize, newestFileTime) = GetDirectorySizeAndNewestTime(
-                subDirPath, trashFolderName, fullTrashPath, cancellationToken);
-            if (totalSize <= 0)
-            {
-                continue;
-            }
-
-            // Use the newest file modification time if it's more recent than the directory timestamp
-            var dirModifiedUtc = Directory.GetLastWriteTimeUtc(subDirPath);
-            var modifiedUtc = newestFileTime > dirModifiedUtc ? newestFileTime : dirModifiedUtc;
-
-            var changeType = DetermineChangeType(createdUtc, modifiedUtc);
-
-            entries.Add(
-                new LibraryInsightEntry
-                {
-                    Name = dirName,
-                    Size = totalSize,
-                    CreatedUtc = createdUtc,
-                    ModifiedUtc = modifiedUtc,
-                    LibraryName = libraryName,
-                    CollectionType = collectionType,
-                    ChangeType = changeType
-                });
+            TryAddSubdirectoryEntry(
+                subDirPath,
+                libraryName,
+                collectionType,
+                trashFolderName,
+                fullTrashPath,
+                entries,
+                cancellationToken);
         }
 
         // Collect loose files directly in the library root
         foreach (var file in _fileSystem.GetFiles(location))
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            var ext = Path.GetExtension(file.FullName);
-            if (!MediaExtensions.VideoExtensions.Contains(ext) &&
-                !MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
-            {
-                continue;
-            }
-
-            var createdUtc = File.GetCreationTimeUtc(file.FullName);
-            if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
-            {
-                createdUtc = File.GetLastWriteTimeUtc(file.FullName);
-            }
-
-            if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
-            {
-                continue;
-            }
-
-            var modifiedUtc = File.GetLastWriteTimeUtc(file.FullName);
-            var changeType = DetermineChangeType(createdUtc, modifiedUtc);
-
-            entries.Add(
-                new LibraryInsightEntry
-                {
-                    Name = Path.GetFileNameWithoutExtension(file.FullName),
-                    Size = file.Length,
-                    CreatedUtc = createdUtc,
-                    ModifiedUtc = modifiedUtc,
-                    LibraryName = libraryName,
-                    CollectionType = collectionType,
-                    ChangeType = changeType
-                });
+            TryAddLooseFileEntry(file, libraryName, collectionType, entries);
         }
+    }
+
+    /// <summary>
+    ///     Evaluates a single top-level subdirectory and, when it qualifies, adds a media entry
+    ///     for it to <paramref name="entries" />. Skips .trickplay/trash folders and directories
+    ///     with no usable creation date or zero size.
+    /// </summary>
+    /// <param name="subDirPath">The subdirectory path.</param>
+    /// <param name="libraryName">The owning library name.</param>
+    /// <param name="collectionType">The collection type string.</param>
+    /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
+    /// <param name="fullTrashPath">Resolved absolute path of the trash folder to skip (may be empty).</param>
+    /// <param name="entries">The entry list to append to.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    private void TryAddSubdirectoryEntry(
+        string subDirPath,
+        string libraryName,
+        string collectionType,
+        string trashFolderName,
+        string fullTrashPath,
+        List<LibraryInsightEntry> entries,
+        CancellationToken cancellationToken)
+    {
+        var dirName = Path.GetFileName(subDirPath);
+
+        // Skip .trickplay directories
+        if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Skip trash directories: match by leaf name (relative paths) or resolved full path (absolute paths)
+        if (ShouldSkipAsTrash(subDirPath, dirName, trashFolderName, fullTrashPath))
+        {
+            return;
+        }
+
+        var createdUtc = Directory.GetCreationTimeUtc(subDirPath);
+        if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+        {
+            createdUtc = Directory.GetLastWriteTimeUtc(subDirPath);
+        }
+
+        if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+        {
+            return;
+        }
+
+        var (totalSize, newestFileTime) = GetDirectorySizeAndNewestTime(
+            subDirPath, trashFolderName, fullTrashPath, cancellationToken);
+        if (totalSize <= 0)
+        {
+            return;
+        }
+
+        // Use the newest file modification time if it's more recent than the directory timestamp
+        var dirModifiedUtc = Directory.GetLastWriteTimeUtc(subDirPath);
+        var modifiedUtc = newestFileTime > dirModifiedUtc ? newestFileTime : dirModifiedUtc;
+
+        var changeType = DetermineChangeType(createdUtc, modifiedUtc);
+
+        entries.Add(
+            new LibraryInsightEntry
+            {
+                Name = dirName,
+                Size = totalSize,
+                CreatedUtc = createdUtc,
+                ModifiedUtc = modifiedUtc,
+                LibraryName = libraryName,
+                CollectionType = collectionType,
+                ChangeType = changeType
+            });
+    }
+
+    /// <summary>
+    ///     Evaluates a single loose file in a library root and, when it is recognised media,
+    ///     adds an entry for it to <paramref name="entries" />.
+    /// </summary>
+    /// <param name="file">The file metadata.</param>
+    /// <param name="libraryName">The owning library name.</param>
+    /// <param name="collectionType">The collection type string.</param>
+    /// <param name="entries">The entry list to append to.</param>
+    private static void TryAddLooseFileEntry(
+        FileSystemMetadata file,
+        string libraryName,
+        string collectionType,
+        List<LibraryInsightEntry> entries)
+    {
+        var ext = Path.GetExtension(file.FullName);
+        if (!MediaExtensions.VideoExtensions.Contains(ext) &&
+            !MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
+        {
+            return;
+        }
+
+        var createdUtc = File.GetCreationTimeUtc(file.FullName);
+        if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+        {
+            createdUtc = File.GetLastWriteTimeUtc(file.FullName);
+        }
+
+        if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+        {
+            return;
+        }
+
+        var modifiedUtc = File.GetLastWriteTimeUtc(file.FullName);
+        var changeType = DetermineChangeType(createdUtc, modifiedUtc);
+
+        entries.Add(
+            new LibraryInsightEntry
+            {
+                Name = Path.GetFileNameWithoutExtension(file.FullName),
+                Size = file.Length,
+                CreatedUtc = createdUtc,
+                ModifiedUtc = modifiedUtc,
+                LibraryName = libraryName,
+                CollectionType = collectionType,
+                ChangeType = changeType
+            });
     }
 
     /// <summary>
@@ -393,43 +439,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
                     }
                 }
 
-                foreach (var subDirPath in _fileSystem.GetDirectories(current).Select(subDir => subDir.FullName))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var dirName = Path.GetFileName(subDirPath);
-
-                    // Check for reparse point (symlink/junction) to avoid cycles
-                    FileAttributes attributes;
-                    try
-                    {
-                        attributes = new DirectoryInfo(subDirPath).Attributes;
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        _pluginLog.LogDebug(
-                            "LibraryInsights",
-                            $"Skipping inaccessible subdirectory during attribute check: {subDirPath}: {ex.Message}",
-                            _logger);
-                        continue;
-                    }
-
-                    if ((attributes & FileAttributes.ReparsePoint) != 0)
-                    {
-                        continue;
-                    }
-
-                    if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    if (ShouldSkipAsTrash(subDirPath, dirName, trashFolderName, fullTrashPath))
-                    {
-                        continue;
-                    }
-
-                    stack.Push(subDirPath);
-                }
+                EnqueueChildDirectories(current, trashFolderName, fullTrashPath, stack, cancellationToken);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -441,5 +451,60 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
         }
 
         return (total, newestTime);
+    }
+
+    /// <summary>
+    ///     Pushes traversable child directories of <paramref name="current" /> onto the stack,
+    ///     skipping reparse points (symlinks/junctions), .trickplay directories, and trash folders.
+    /// </summary>
+    /// <param name="current">The directory whose children are being enumerated.</param>
+    /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
+    /// <param name="fullTrashPath">Resolved absolute path of the trash folder to skip (may be empty).</param>
+    /// <param name="stack">The traversal stack to push child directories onto.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    private void EnqueueChildDirectories(
+        string current,
+        string trashFolderName,
+        string fullTrashPath,
+        Stack<string> stack,
+        CancellationToken cancellationToken)
+    {
+        foreach (var subDirPath in _fileSystem.GetDirectories(current).Select(subDir => subDir.FullName))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var dirName = Path.GetFileName(subDirPath);
+
+            // Check for reparse point (symlink/junction) to avoid cycles
+            FileAttributes attributes;
+            try
+            {
+                attributes = new DirectoryInfo(subDirPath).Attributes;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _pluginLog.LogDebug(
+                    "LibraryInsights",
+                    $"Skipping inaccessible subdirectory during attribute check: {subDirPath}: {ex.Message}",
+                    _logger);
+                continue;
+            }
+
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                continue;
+            }
+
+            if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (ShouldSkipAsTrash(subDirPath, dirName, trashFolderName, fullTrashPath))
+            {
+                continue;
+            }
+
+            stack.Push(subDirPath);
+        }
     }
 }

@@ -79,40 +79,7 @@ public static class TimelineAggregator
         // 2. Process current directories
         foreach (var dir in currentDirs)
         {
-            if (baseline.Directories.TryGetValue(dir.Path, out var baselineEntry))
-            {
-                // Existing directory: check for size or count change
-                var sizeDiff = dir.Size - baselineEntry.Size;
-                var baselineCount = baselineEntry.Count > 0 ? baselineEntry.Count : 1;
-                var currentCount = dir.Count > 0 ? dir.Count : 1;
-                var countDiff = currentCount - baselineCount;
-
-                if (sizeDiff != 0 || countDiff != 0)
-                {
-                    // Directory changed: emit a delta entry at the current scan time
-                    entries.Add(
-                        new GrowthTimelineService.FileEntry
-                        {
-                            CreatedUtc = now,
-                            Size = sizeDiff,
-                            CountDelta = countDiff
-                        });
-                }
-
-                // No change in size or count: no entry needed (baseline already covers it)
-            }
-            else
-            {
-                // New directory (not in baseline). Add at its creation date with full size.
-                var count = dir.Count > 0 ? dir.Count : 1;
-                entries.Add(
-                    new GrowthTimelineService.FileEntry
-                    {
-                        CreatedUtc = dir.CreatedUtc,
-                        Size = dir.Size,
-                        CountDelta = count
-                    });
-            }
+            AppendCurrentDirEntry(dir, baseline, now, entries);
         }
 
         // 3. Handle deleted directories (in baseline but not in current scan)
@@ -124,6 +91,58 @@ public static class TimelineAggregator
             select new GrowthTimelineService.FileEntry { CreatedUtc = now, Size = -kvp.Value.Size, CountDelta = -removedCount });
 
         return entries;
+    }
+
+    /// <summary>
+    ///     Folds a single current directory into the incremental entry list: an existing baseline
+    ///     directory contributes a positive/negative delta at the scan time when its size or count
+    ///     changed; a directory not present in the baseline contributes its full size at its creation
+    ///     date.
+    /// </summary>
+    /// <param name="dir">The current directory entry.</param>
+    /// <param name="baseline">The baseline from the first scan.</param>
+    /// <param name="now">The current scan timestamp.</param>
+    /// <param name="entries">The entry list to append to.</param>
+    private static void AppendCurrentDirEntry(
+        GrowthTimelineService.DirectoryEntry dir,
+        GrowthTimelineBaseline baseline,
+        DateTime now,
+        List<GrowthTimelineService.FileEntry> entries)
+    {
+        if (baseline.Directories.TryGetValue(dir.Path, out var baselineEntry))
+        {
+            // Existing directory: check for size or count change
+            var sizeDiff = dir.Size - baselineEntry.Size;
+            var baselineCount = baselineEntry.Count > 0 ? baselineEntry.Count : 1;
+            var currentCount = dir.Count > 0 ? dir.Count : 1;
+            var countDiff = currentCount - baselineCount;
+
+            if (sizeDiff != 0 || countDiff != 0)
+            {
+                // Directory changed: emit a delta entry at the current scan time
+                entries.Add(
+                    new GrowthTimelineService.FileEntry
+                    {
+                        CreatedUtc = now,
+                        Size = sizeDiff,
+                        CountDelta = countDiff
+                    });
+            }
+
+            // No change in size or count: no entry needed (baseline already covers it)
+        }
+        else
+        {
+            // New directory (not in baseline). Add at its creation date with full size.
+            var count = dir.Count > 0 ? dir.Count : 1;
+            entries.Add(
+                new GrowthTimelineService.FileEntry
+                {
+                    CreatedUtc = dir.CreatedUtc,
+                    Size = dir.Size,
+                    CountDelta = count
+                });
+        }
     }
 
     /// <summary>

@@ -453,33 +453,13 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         // ProcessLocation never sees the symlinked ancestor. Without this check the children of a
         // symlinked root would be traversed and cleaned inside a foreign tree. A stat failure is
         // treated as "do not traverse" (fail closed).
-        try
+        if (!IsTraversableLibraryRoot(libraryPath))
         {
-            if (IsReparsePoint(libraryPath))
-            {
-                PluginLog.LogWarning(TaskName, $"Skipping symlinked library root (reparse point): {libraryPath}", logger: Logger);
-                return result;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            PluginLog.LogWarning(TaskName, $"Could not stat library root, not traversing: {libraryPath}", ex, Logger);
             return result;
         }
 
         // Seed the stack with the direct children of the library root.
-        try
-        {
-            foreach (var d in FileSystem.GetDirectories(libraryPath))
-            {
-                stack.Push(d.FullName);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {libraryPath}", ex, Logger);
-            return result;
-        }
+        PushChildDirectories(libraryPath, stack);
 
         while (stack.Count > 0)
         {
@@ -507,19 +487,52 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 continue;
             }
 
-            try
-            {
-                foreach (var d in FileSystem.GetDirectories(current))
-                {
-                    stack.Push(d.FullName);
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {current}", ex, Logger);
-            }
+            PushChildDirectories(current, stack);
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Returns <c>true</c> when the library root may be traversed (it exists and is not a
+    ///     reparse point). A stat failure is treated as "do not traverse" (fail closed).
+    /// </summary>
+    private bool IsTraversableLibraryRoot(string libraryPath)
+    {
+        try
+        {
+            if (IsReparsePoint(libraryPath))
+            {
+                PluginLog.LogWarning(TaskName, $"Skipping symlinked library root (reparse point): {libraryPath}", logger: Logger);
+                return false;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not stat library root, not traversing: {libraryPath}", ex, Logger);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    ///     Pushes the direct child directories of <paramref name="directory"/> onto
+    ///     <paramref name="stack"/>. An enumeration failure is logged and swallowed so a single
+    ///     unreadable directory does not abort the scan.
+    /// </summary>
+    private void PushChildDirectories(string directory, Stack<string> stack)
+    {
+        try
+        {
+            foreach (var d in FileSystem.GetDirectories(directory))
+            {
+                stack.Push(d.FullName);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {directory}", ex, Logger);
+        }
     }
 }
