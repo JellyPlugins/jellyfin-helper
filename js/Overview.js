@@ -5,13 +5,14 @@ function getCollectionBadge(type) {
     if (t === 'tvshows') return '<span class="badge badge-tvshows">' + escHtml(T('tvShows', 'TV Shows')) + '</span>';
     if (t === 'movies' || t === '') return '<span class="badge badge-movies">' + escHtml(T('movies', 'Movies')) + '</span>';
     if (t === 'music') return '<span class="badge badge-music">' + escHtml(T('music', 'Music')) + '</span>';
+    if (t === 'books') return '<span class="badge badge-books">' + escHtml(T('books', 'Books')) + '</span>';
     return '<span class="badge badge-other">' + escHtml(type || T('mixed', 'Mixed')) + '</span>';
 }
 
 function buildBarSegments(data) {
     var total = data.TotalMovieVideoSize + data.TotalTvShowVideoSize +
         data.TotalSubtitleSize + data.TotalImageSize + data.TotalTrickplaySize +
-        data.TotalNfoSize + data.TotalMusicAudioSize;
+        data.TotalNfoSize + data.TotalMusicAudioSize + data.TotalBookSize;
 
     var otherSize = 0;
     for (var i = 0; i < data.Libraries.length; i++) {
@@ -31,6 +32,11 @@ function buildBarSegments(data) {
         {cls: 'bar-nfo', bytes: data.TotalNfoSize, labelKey: 'metadata', labelFallback: 'Metadata'},
         {cls: 'bar-other', bytes: otherSize, labelKey: 'other', labelFallback: 'Other'}
     ];
+
+    // Books segment only appears when a Book library contributed data.
+    if (data.TotalBookFileCount > 0) {
+        categories.splice(2, 0, {cls: 'bar-books', bytes: data.TotalBookSize, labelKey: 'books', labelFallback: 'Books'});
+    }
 
     var barHtml = '<div class="total-bar">';
     for (var s = 0; s < categories.length; s++) {
@@ -105,6 +111,15 @@ function fillOverviewData(data) {
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMusicAudioSize) + '</p>';
     overviewHtml += '<p class="stat-detail">' + totalAudioFileCount + ' ' + (totalAudioFileCount === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
     overviewHtml += '</div>';
+
+    // Books card only renders when a Book library exists.
+    if (data.TotalBookFileCount > 0) {
+        var totalBookFileCount = data.TotalBookFileCount || 0;
+        overviewHtml += '<div class="stat-card"><h3>' + mi('library_books') + escHtml(T('books', 'Books')) + '</h3>';
+        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalBookSize) + '</p>';
+        overviewHtml += '<p class="stat-detail">' + totalBookFileCount + ' ' + (totalBookFileCount === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
+        overviewHtml += '</div>';
+    }
 
     overviewHtml += '<div class="stat-card"><h3>' + mi('image') + escHtml(T('trickplayData', 'Trickplay Data')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTrickplaySize) + '</p>';

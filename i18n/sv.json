@@ -383,5 +383,7 @@
   "trashPathDeleteSuccess": "Gammalt papperskorgsinnehåll borttaget.",
   "trashPathCheckingAccess": "Kontrollerar behörigheter…",
   "trashPathAccessDenied": "Behörighet nekad för den nya papperskorgsökvägen.",
-  "trashPathMoveNothingMoved": "Inga objekt flyttades. Källan kan vara tom eller otillgänglig på grund av behörigheter."
+  "trashPathMoveNothingMoved": "Inga objekt flyttades. Källan kan vara tom eller otillgänglig på grund av behörigheter.",
+  "bookFormats": "Bokformat",
+  "books": "Böcker"
 }

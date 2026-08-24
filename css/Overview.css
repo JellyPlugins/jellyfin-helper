@@ -148,6 +148,11 @@
 }
 
 /* noinspection CssUnusedSymbol */
+.bar-books {
+    background: var(--color-teal);
+}
+
+/* noinspection CssUnusedSymbol */
 .bar-other {
     background: var(--color-grey);
 }

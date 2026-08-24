@@ -280,6 +280,11 @@
     color: #fff;
 }
 
+.badge-books {
+    background: var(--color-teal);
+    color: #fff;
+}
+
 .badge-other {
     background: var(--color-grey);
     color: #fff;
