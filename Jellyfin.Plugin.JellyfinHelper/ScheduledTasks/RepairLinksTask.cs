@@ -15,6 +15,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// </summary>
 public class RepairLinksTask
 {
+    private const string LogSource = "LinkRepair";
+
     private readonly ICleanupConfigHelper _configHelper;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<RepairLinksTask> _logger;
@@ -54,7 +56,7 @@ public class RepairLinksTask
         var dryRun = _configHelper.IsDryRunLinkRepair();
 
         _pluginLog.LogInfo(
-            "LinkRepair",
+            LogSource,
             dryRun ? "Task started (Dry Run). No links will be modified." : "Task started.",
             _logger);
         progress.Report(0);
@@ -63,13 +65,13 @@ public class RepairLinksTask
 
         if (libraryPaths.Count == 0)
         {
-            _pluginLog.LogWarning("LinkRepair", "No library paths configured for link repair.", logger: _logger);
+            _pluginLog.LogWarning(LogSource, "No library paths configured for link repair.", logger: _logger);
             progress.Report(100);
             return Task.CompletedTask;
         }
 
         _pluginLog.LogInfo(
-            "LinkRepair",
+            LogSource,
             $"Scanning {libraryPaths.Count} library paths...",
             _logger);
 
@@ -81,7 +83,7 @@ public class RepairLinksTask
                 var result = _linkRepairService.RepairLinks(libraryPaths, dryRun, cancellationToken);
                 progress.Report(90);
                 _pluginLog.LogInfo(
-                    "LinkRepair",
+                    LogSource,
                     dryRun
                         ? $"Task finished (Dry Run). Valid: {result.ValidCount}, Would repair: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}"
                         : $"Task finished. Valid: {result.ValidCount}, Repaired: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}",

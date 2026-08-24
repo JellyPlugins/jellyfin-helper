@@ -526,7 +526,7 @@
         injectPopupStyles();
 
         var serverIds = {};
-        for (var i = 0; i < profiles.length; i++) { serverIds[profiles[i].ServerId] = true; }
+        for (let i = 0; i < profiles.length; i++) { serverIds[profiles[i].ServerId] = true; }
         var multiServer = Object.keys(serverIds).length > 1;
 
         var overlay = document.createElement('div');
@@ -551,7 +551,7 @@
 
         var list = document.createElement('div');
         list.className = 'jfh-discovery-popup-list';
-        for (var i = 0; i < profiles.length; i++) {
+        for (let i = 0; i < profiles.length; i++) {
             var prof = profiles[i];
             var item = document.createElement('button');
             item.className = 'jfh-discovery-popup-item' + (prof.IsDefault ? ' jfh-discovery-popup-item-default' : '');

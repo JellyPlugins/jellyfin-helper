@@ -38,7 +38,7 @@ PLUGIN_STAGE="$RUNTIME/config/plugins/${PLUGIN_NAME}_${PLUGIN_VERSION}"
 KEEP=0; BUILD=1; UI_MODE=0
 # In CI we keep the stack up on exit so the workflow can collect container logs;
 # CI tears the whole runner down anyway.
-[ "${CI:-}" = "true" ] && KEEP=1
+[[ "${CI:-}" = "true" ]] && KEEP=1
 for arg in "$@"; do
   case "$arg" in
     --keep)     KEEP=1 ;;
@@ -56,7 +56,7 @@ log() { printf '\n\033[1;36m=== %s ===\033[0m\n' "$*"; }
 
 cleanup() {
   local code=$?
-  if [ "$KEEP" -eq 1 ]; then
+  if [[ "$KEEP" -eq 1 ]]; then
     log "Leaving stack running (--keep). Tear down with: ${COMPOSE[*]} down -v"
   else
     log "Tearing down stack"
@@ -69,13 +69,13 @@ trap cleanup EXIT
 log "Plugin: ${PLUGIN_NAME} v${PLUGIN_VERSION} (from Directory.Build.props)"
 
 # --- 1. build the plugin ---------------------------------------------------
-if [ "$BUILD" -eq 1 ]; then
+if [[ "$BUILD" -eq 1 ]]; then
   log "Building plugin (Release)"
   dotnet publish "$PLUGIN_PROJ/Jellyfin.Plugin.JellyfinHelper.csproj" \
     -c Release -o "$RUNTIME/publish" --nologo
 else
   log "Skipping build (--no-build)"
-  [ -f "$RUNTIME/publish/Jellyfin.Plugin.JellyfinHelper.dll" ] || {
+  [[ -f "$RUNTIME/publish/Jellyfin.Plugin.JellyfinHelper.dll" ]] || {
     echo "No prior build found in $RUNTIME/publish. Run without --no-build first." >&2; exit 1; }
 fi
 
@@ -101,7 +101,7 @@ cp "$E2E_DIR/fixtures/gen-media.sh" "$RUNTIME/media/.gen/gen-media.sh"
 # container already runs as the invoking user (JELLYFIN_UID/GID exported below),
 # so a group/user-writable bit is enough - no world-writable state dirs on CI.
 # Elsewhere (Docker Desktop, unknown UID mapping) fall back to the blanket 777.
-if [ "$(uname -s)" = "Linux" ]; then
+if [[ "$(uname -s)" = "Linux" ]]; then
   chmod -R u+rwX,g+rwX "$RUNTIME/config" "$RUNTIME/cache" 2>/dev/null || true
 else
   chmod -R 777 "$RUNTIME/config" "$RUNTIME/cache" 2>/dev/null || true
@@ -133,7 +133,7 @@ for dll in "$RUNTIME"/publish/*.dll; do
   staged=$((staged + 1))
 done
 echo "[stage] copied $staged plugin dll(s) to $PLUGIN_STAGE"
-[ "$staged" -ge 1 ] || { echo "No plugin dlls staged - publish output missing?" >&2; exit 1; }
+[[ "$staged" -ge 1 ]] || { echo "No plugin dlls staged - publish output missing?" >&2; exit 1; }
 cp "$RUNTIME/publish/logo.png" "$PLUGIN_STAGE/" 2>/dev/null || true
 # meta.json so Jellyfin shows a clean plugin entry (name/version/guid).
 # Invoked via `bash` so it works regardless of the file's execute bit.
@@ -141,7 +141,7 @@ bash "$SCRIPT_DIR/write-meta.sh" "$PLUGIN_STAGE" "$PLUGIN_VERSION"
 
 # Run the container as the invoking user where possible (Linux/CI); on other
 # hosts the image's default user + the 777 above keep /config writable.
-if [ "$(uname -s)" = "Linux" ]; then
+if [[ "$(uname -s)" = "Linux" ]]; then
   # Declare then export separately so the command substitution's exit status isn't
   # masked by the export builtin (shellcheck SC2155).
   JELLYFIN_UID="$(id -u)"; export JELLYFIN_UID
@@ -160,13 +160,13 @@ JELLYFIN_CONTAINER="jfh-e2e-jellyfin"
 healthy=0
 for _ in $(seq 1 60); do
   status="$(docker inspect -f '{{.State.Health.Status}}' "$JELLYFIN_CONTAINER" 2>/dev/null || echo starting)"
-  if [ "$status" = "healthy" ]; then healthy=1; break; fi
+  if [[ "$status" = "healthy" ]]; then healthy=1; break; fi
   # Bail early if the container died outright.
   running="$(docker inspect -f '{{.State.Running}}' "$JELLYFIN_CONTAINER" 2>/dev/null || echo false)"
-  if [ "$running" = "false" ] && [ "$status" != "starting" ]; then break; fi
+  if [[ "$running" = "false" ]] && [[ "$status" != "starting" ]]; then break; fi
   sleep 3
 done
-if [ "$healthy" -ne 1 ]; then
+if [[ "$healthy" -ne 1 ]]; then
   echo "Jellyfin did not become healthy (last status: ${status:-unknown})" >&2
   "${COMPOSE[@]}" logs jellyfin || true
   exit 1
@@ -184,7 +184,7 @@ log "Generating fake media library"
 MSYS2_ARG_CONV_EXCL='/media' \
   "${COMPOSE[@]}" exec -T jellyfin bash /media/.gen/gen-media.sh /media
 media_count="$("${COMPOSE[@]}" exec -T jellyfin sh -c 'find /media -name "*.mkv" -o -name "*.mp4" 2>/dev/null | wc -l' | tr -d '[:space:]')"
-if [ "${media_count:-0}" -lt 1 ]; then
+if [[ "${media_count:-0}" -lt 1 ]]; then
   echo "Media generation produced no video files - aborting before tests run on an empty library." >&2
   exit 1
 fi
@@ -193,22 +193,22 @@ echo "Media generated (${media_count} video files)."
 # --- 6. install Playwright deps (first run only) ---------------------------
 log "Installing test dependencies"
 cd "$E2E_DIR"
-[ -d node_modules ] || npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+[[ -d node_modules ]] || npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 # Try the full "--with-deps" install first (needs sudo/apt for OS libs). If that
 # fails - common on hosts without root/apt - log why and fall back to a
 # browser-only install so a real network/permission error isn't hidden behind
 # an opaque browser-launch failure later.
-npx playwright install --with-deps chromium >/dev/null || {
+npx --no-install playwright install --with-deps chromium >/dev/null || {
   echo "[run] '--with-deps' install failed (likely no sudo/apt); retrying browser-only." >&2
-  npx playwright install chromium
+  npx --no-install playwright install chromium
 }
 
 # --- 7. run the tests -------------------------------------------------------
 # Setup (wizard + scan) runs as a Playwright global-setup, so the tests get a
 # ready server + admin token via storage state / env.
 log "Running E2E tests"
-if [ "$UI_MODE" -eq 1 ]; then
-  npx playwright test --ui
+if [[ "$UI_MODE" -eq 1 ]]; then
+  npx --no-install playwright test --ui
 else
-  npx playwright test
+  npx --no-install playwright test
 fi

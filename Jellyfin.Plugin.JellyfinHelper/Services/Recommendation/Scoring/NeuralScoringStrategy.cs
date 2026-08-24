@@ -307,7 +307,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             finally
             {
-                ReleaseReadLockSafely();
+                if (_rwLock.IsReadLockHeld)
+                {
+                    _rwLock.ExitReadLock();
+                }
             }
         }
     }
@@ -324,7 +327,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             finally
             {
-                ReleaseReadLockSafely();
+                if (_rwLock.IsReadLockHeld)
+                {
+                    _rwLock.ExitReadLock();
+                }
             }
         }
     }
@@ -341,7 +347,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             finally
             {
-                ReleaseReadLockSafely();
+                if (_rwLock.IsReadLockHeld)
+                {
+                    _rwLock.ExitReadLock();
+                }
             }
         }
     }
@@ -358,7 +367,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             finally
             {
-                ReleaseReadLockSafely();
+                if (_rwLock.IsReadLockHeld)
+                {
+                    _rwLock.ExitReadLock();
+                }
             }
         }
     }
@@ -375,7 +387,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             finally
             {
-                ReleaseReadLockSafely();
+                if (_rwLock.IsReadLockHeld)
+                {
+                    _rwLock.ExitReadLock();
+                }
             }
         }
     }

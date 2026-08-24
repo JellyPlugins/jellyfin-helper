@@ -528,22 +528,17 @@ public class TrashController : ControllerBase
         // with it). This must run to completion before any allow, otherwise an early
         // "strictly inside library A" allow could short-circuit a later "contains library
         // B" reject for a nested library - approving a delete/relocate that wipes B.
-        foreach (var libraryRoot in libraryRoots)
+        if (libraryRoots.Any(libraryRoot =>
+                string.Equals(normalizedPath, libraryRoot, comparison)
+                || libraryRoot.StartsWith(normalizedPath + Path.DirectorySeparatorChar, comparison)))
         {
-            if (string.Equals(normalizedPath, libraryRoot, comparison)
-                || libraryRoot.StartsWith(normalizedPath + Path.DirectorySeparatorChar, comparison))
-            {
-                return false;
-            }
+            return false;
         }
 
         // ALLOW pass: strictly inside a library root -> safe (a dedicated trash sub-folder).
-        foreach (var libraryRoot in libraryRoots)
+        if (libraryRoots.Any(libraryRoot => normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison)))
         {
-            if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
-            {
-                return true;
-            }
+            return true;
         }
 
         // Outside every library root: allow only a dedicated absolute directory that is

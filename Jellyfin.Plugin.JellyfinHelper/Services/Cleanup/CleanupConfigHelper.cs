@@ -16,6 +16,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 /// </summary>
 public class CleanupConfigHelper : ICleanupConfigHelper
 {
+    private const string DefaultTrashFolderName = ".jellyfin-trash";
+
     private readonly IPluginConfigurationService _configService;
 
     /// <summary>
@@ -215,7 +217,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
         if (string.IsNullOrWhiteSpace(trashPath))
         {
-            trashPath = ".jellyfin-trash";
+            trashPath = DefaultTrashFolderName;
         }
 
         if (Path.IsPathFullyQualified(trashPath))
@@ -233,12 +235,12 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
                 if (string.Equals(absTrashNormalized, absRootNormalized, absPathComparison))
                 {
-                    return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+                    return Path.GetFullPath(Path.Join(libraryRootPath, DefaultTrashFolderName));
                 }
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
-                return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+                return Path.GetFullPath(Path.Join(libraryRootPath, DefaultTrashFolderName));
             }
 
             return trashPath;
@@ -256,7 +258,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+            return Path.GetFullPath(Path.Join(libraryRootPath, DefaultTrashFolderName));
         }
 
         var pathComparison = GetOsPathComparison();
@@ -270,7 +272,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         if (string.Equals(resolvedTrimmed, rootTrimmed, pathComparison))
         {
             // TrashFolderPath resolves to the library root itself (e.g. ".") - not safe.
-            return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+            return Path.GetFullPath(Path.Join(libraryRootPath, DefaultTrashFolderName));
         }
 
         var rootPrefix = rootTrimmed + Path.DirectorySeparatorChar;
@@ -278,7 +280,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         {
             // Relative path escapes the library root - fall back to the safe default.
             // Note: admins who intend a path outside the library root should use an absolute path.
-            return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+            return Path.GetFullPath(Path.Join(libraryRootPath, DefaultTrashFolderName));
         }
 
         return resolved;
@@ -482,7 +484,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         // Split on all three possible separators so the check works correctly on both
         // Linux (separator='/') and Windows (separator='\'), including Windows-style paths
         // stored in config on a Linux host.
-        var segments = location.Split('/', '\\');
+        var segments = location.Split(['/', '\\'], StringSplitOptions.None);
         return segments.Any(s => string.Equals(s, "collections", StringComparison.OrdinalIgnoreCase));
     }
 

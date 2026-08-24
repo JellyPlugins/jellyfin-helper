@@ -23,7 +23,6 @@ function renderArrInstanceRow(type, index, inst) {
     var prefix = type + '_' + index;
     var name = inst ? (inst.Name || '') : '';
     var url = inst ? (inst.Url || '') : '';
-    var apiKey = inst ? (inst.ApiKey || '') : '';
     var placeholderUrl = type === 'Radarr' ? 'http://localhost:7878'
         : 'http://localhost:8989';
     var h = '<div class="arr-instance-row" data-type="' + type + '" data-index="'
@@ -157,7 +156,7 @@ function removeArrInstance(type, index) {
     var testBtns = document.querySelectorAll(
         '.btnTestArr[data-type="' + type + '"]');
     for (var b = 0; b < testBtns.length; b++) {
-        if (parseInt(testBtns[b].getAttribute('data-index'), 10) >= index) {
+        if (Number.parseInt(testBtns[b].getAttribute('data-index'), 10) >= index) {
             testBtns[b].classList.remove('success', 'error');
             testBtns[b].disabled = false;
             testBtns[b].innerHTML = mi('extension') + T('testConnection', 'Test Connection');
@@ -283,7 +282,7 @@ function attachTestHandlers() {
         // Use onclick assignment (not addEventListener) to prevent handler stacking on re-bind
         btns[i].onclick = function () {
             testArrConnection(this.getAttribute('data-type'),
-                parseInt(this.getAttribute('data-index'), 10));
+                Number.parseInt(this.getAttribute('data-index'), 10));
         };
     }
 }
@@ -296,7 +295,7 @@ function attachRemoveHandlers(type) {
         // Use onclick assignment (not addEventListener) to prevent handler stacking on re-bind
         btns[i].onclick = function () {
             removeArrInstance(this.getAttribute('data-type'),
-                parseInt(this.getAttribute('data-index'), 10));
+                Number.parseInt(this.getAttribute('data-index'), 10));
         };
     }
 }
@@ -407,7 +406,7 @@ function refreshArrInstanceStatus(type, index) {
             _arrStatusCache[cacheKey] = {state: ok ? 'ok' : 'error', ts: Date.now()};
             // Also only paint if the dropdown is still on this index.
             var sel = document.getElementById('arrSelect' + type);
-            if (sel && parseInt(sel.value, 10) === index) {
+            if (sel && Number.parseInt(sel.value, 10) === index) {
                 _renderArrStatusBadge(type, ok ? 'ok' : 'error');
             }
         }, function () {
@@ -416,7 +415,7 @@ function refreshArrInstanceStatus(type, index) {
             }
             _arrStatusCache[cacheKey] = {state: 'error', ts: Date.now()};
             var sel = document.getElementById('arrSelect' + type);
-            if (sel && parseInt(sel.value, 10) === index) {
+            if (sel && Number.parseInt(sel.value, 10) === index) {
                 _renderArrStatusBadge(type, 'error');
             }
         });
@@ -529,8 +528,8 @@ function _wireArrCompareControls(type, instances) {
     var btn = document.getElementById('btnCompare' + type);
     if (sel) {
         sel.onchange = function () {
-            var idx = parseInt(sel.value, 10);
-            if (isNaN(idx)) {
+            var idx = Number.parseInt(sel.value, 10);
+            if (Number.isNaN(idx)) {
                 return;
             }
             refreshArrInstanceStatus(type, idx);
@@ -539,8 +538,8 @@ function _wireArrCompareControls(type, instances) {
     if (btn) {
         btn.onclick = function () {
             var idxSel = document.getElementById('arrSelect' + type);
-            var idx = idxSel ? parseInt(idxSel.value, 10) : 0;
-            if (isNaN(idx) || idx < 0) {
+            var idx = idxSel ? Number.parseInt(idxSel.value, 10) : 0;
+            if (Number.isNaN(idx) || idx < 0) {
                 idx = 0;
             }
             var opt = idxSel && idxSel.options[idxSel.selectedIndex];

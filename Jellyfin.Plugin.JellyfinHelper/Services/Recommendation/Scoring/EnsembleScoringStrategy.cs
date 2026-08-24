@@ -229,7 +229,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         // values like 0.999 slip through, silently reintroducing a tiny secondary penalty on
         // top of the ensemble's own; both sides of this check are compile-time constants or
         // caller-supplied, so representation drift is not a concern.
-        if (heuristic.GenrePenaltyFloor != 1.0)
+        if (!heuristic.GenrePenaltyFloor.Equals(1.0))
         {
             throw new ArgumentException(
                 $"Heuristic sub-strategy must have genrePenaltyFloor=1.0 (penalty disabled) to avoid " +

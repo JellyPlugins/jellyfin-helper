@@ -24,6 +24,8 @@ public class PluginLogService : IPluginLogService
     /// </summary>
     internal const int MaxEntries = 2000;
 
+    private const string LogTemplate = "[{Source}] {Message}";
+
     /// <summary>
     ///     Ordered log levels for comparison.
     /// </summary>
@@ -65,7 +67,7 @@ public class PluginLogService : IPluginLogService
         var safeMessage = SanitizeForLog(message);
         if (logger is not null && logger.IsEnabled(LogLevel.Debug))
         {
-            logger.LogDebug("[{Source}] {Message}", safeSource, safeMessage);
+            logger.LogDebug(LogTemplate, safeSource, safeMessage);
         }
 
         AddEntry("DEBUG", safeSource, safeMessage, null);
@@ -83,7 +85,7 @@ public class PluginLogService : IPluginLogService
         var safeMessage = SanitizeForLog(message);
         if (logger is not null && logger.IsEnabled(LogLevel.Information))
         {
-            logger.LogInformation("[{Source}] {Message}", safeSource, safeMessage);
+            logger.LogInformation(LogTemplate, safeSource, safeMessage);
         }
 
         AddEntry("INFO", safeSource, safeMessage, null);
@@ -106,11 +108,11 @@ public class PluginLogService : IPluginLogService
         {
             if (exception != null)
             {
-                logger.LogWarning(exception, "[{Source}] {Message}", safeSource, safeMessage);
+                logger.LogWarning(exception, LogTemplate, safeSource, safeMessage);
             }
             else
             {
-                logger.LogWarning("[{Source}] {Message}", safeSource, safeMessage);
+                logger.LogWarning(LogTemplate, safeSource, safeMessage);
             }
         }
 
@@ -134,11 +136,11 @@ public class PluginLogService : IPluginLogService
         {
             if (exception != null)
             {
-                logger.LogError(exception, "[{Source}] {Message}", safeSource, safeMessage);
+                logger.LogError(exception, LogTemplate, safeSource, safeMessage);
             }
             else
             {
-                logger.LogError("[{Source}] {Message}", safeSource, safeMessage);
+                logger.LogError(LogTemplate, safeSource, safeMessage);
             }
         }
 

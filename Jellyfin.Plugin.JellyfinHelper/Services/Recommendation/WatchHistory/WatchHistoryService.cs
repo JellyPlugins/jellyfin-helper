@@ -236,6 +236,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
             var (billedNames, billedWeights) = SimilarityComputer.ExtractBilledPeople(itemPeople);
 
+            Guid? seriesId = null;
+            if (item is Episode ep)
+            {
+                seriesId = ep.SeriesId != Guid.Empty ? ep.SeriesId : null;
+            }
+
             var watchedItem = new WatchedItemInfo
             {
                 ItemId = item.Id,
@@ -251,7 +257,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 CommunityRating = item.CommunityRating,
                 Genres = item.Genres ?? [],
                 Year = item.ProductionYear,
-                SeriesId = item is Episode ep ? (ep.SeriesId != Guid.Empty ? ep.SeriesId : null) : null,
+                SeriesId = seriesId,
                 DateCreated = item.DateCreated,
                 PrimaryImageTag = null,
                 PeopleNames = billedNames,
@@ -298,13 +304,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
             // Track genre distribution
             if (item.Genres is not null)
             {
-                foreach (var genre in item.Genres)
+                foreach (var genre in item.Genres.Where(genre => !string.IsNullOrWhiteSpace(genre)))
                 {
-                    if (!string.IsNullOrWhiteSpace(genre))
-                    {
-                        profile.GenreDistribution.TryGetValue(genre, out var count);
-                        profile.GenreDistribution[genre] = count + 1;
-                    }
+                    profile.GenreDistribution.TryGetValue(genre, out var count);
+                    profile.GenreDistribution[genre] = count + 1;
                 }
             }
 
@@ -402,13 +405,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 // Also accumulate genre distribution for series-level favorites
                 if (series.Genres is not null)
                 {
-                    foreach (var genre in series.Genres)
+                    foreach (var genre in series.Genres.Where(genre => !string.IsNullOrWhiteSpace(genre)))
                     {
-                        if (!string.IsNullOrWhiteSpace(genre))
-                        {
-                            profile.GenreDistribution.TryGetValue(genre, out var count);
-                            profile.GenreDistribution[genre] = count + 1;
-                        }
+                        profile.GenreDistribution.TryGetValue(genre, out var count);
+                        profile.GenreDistribution[genre] = count + 1;
                     }
                 }
             }
@@ -421,7 +421,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         BuildLanguageProfiles(profile, user, allItems, itemUserDataLookup);
 
         // Build people (actors/directors) profile from BaseItem.People metadata
-        BuildPeopleProfile(profile, user, allItems, allSeries);
+        BuildPeopleProfile(profile, allItems, allSeries);
 
         profile.WatchedSeriesCount = watchedSeriesIds.Count;
         profile.AverageCommunityRating = ratingCount > 0 ? Math.Round(ratingSum / ratingCount, 1) : 0;
@@ -539,38 +539,35 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
 
             // === Subtitle Language Analysis ===
-            if (userData.SubtitleStreamIndex.HasValue && userData.SubtitleStreamIndex.Value >= 0)
+            if (userData.SubtitleStreamIndex.HasValue && userData.SubtitleStreamIndex.Value >= 0 && subtitleStreams.Count > 0)
             {
-                if (subtitleStreams.Count > 0)
+                var chosenSubStream = subtitleStreams
+                    .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
+                var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
+
+                if (!string.IsNullOrEmpty(usedSubLanguage))
                 {
-                    var chosenSubStream = subtitleStreams
-                        .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
-                    var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
+                    var availableSubLanguages = subtitleStreams
+                        .Select(s => NormalizeLanguage(s.Language))
+                        .Where(l => !string.IsNullOrEmpty(l))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count();
 
-                    if (!string.IsNullOrEmpty(usedSubLanguage))
+                    if (availableSubLanguages > 0)
                     {
-                        var availableSubLanguages = subtitleStreams
-                            .Select(s => NormalizeLanguage(s.Language))
-                            .Where(l => !string.IsNullOrEmpty(l))
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .Count();
-
-                        if (availableSubLanguages > 0)
+                        if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
                         {
-                            if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
-                            {
-                                subEntry = new LanguageProfileEntry();
-                                profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
-                            }
+                            subEntry = new LanguageProfileEntry();
+                            profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
+                        }
 
-                            if (availableSubLanguages > 1)
-                            {
-                                subEntry.ChosenCount++;
-                            }
-                            else
-                            {
-                                subEntry.ForcedCount++;
-                            }
+                        if (availableSubLanguages > 1)
+                        {
+                            subEntry.ChosenCount++;
+                        }
+                        else
+                        {
+                            subEntry.ForcedCount++;
                         }
                     }
                 }
@@ -587,12 +584,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     counting per-episode guest actors disproportionately.
     /// </summary>
     /// <param name="profile">The user profile to populate with people data.</param>
-    /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
     /// <param name="allSeries">Pre-loaded series items from the library.</param>
     private void BuildPeopleProfile(
         UserWatchProfile profile,
-        Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem> allItems,
         IReadOnlyList<BaseItem>? allSeries)
     {

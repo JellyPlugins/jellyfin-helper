@@ -81,7 +81,7 @@ internal static class ExternalCandidateFeatureBuilder
             // different recency at train vs. serve - a subtle skew on this feature.
             RecencyScore = candidate.EffectiveReleaseDate is { } releaseDate
                                 && releaseDate.Year is >= 1 and <= 9999
-                ? ContentScoring.ComputeRecencyScore(new DateTime(releaseDate.Year, 7, 1))
+                ? ContentScoring.ComputeRecencyScore(new DateTime(releaseDate.Year, 7, 1, 0, 0, 0, DateTimeKind.Utc))
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(
                 candidate.EffectiveReleaseDate?.Year, avgYear),

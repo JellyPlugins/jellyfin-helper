@@ -29,6 +29,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [ProducesResponseType(StatusCodes.Status401Unauthorized)]
 public sealed class UserDiscoveryController : ControllerBase
 {
+    private const string DiscoveryAccessDisabledMessage = "Discovery user access is disabled by the administrator.";
+    private const string MovieMediaType = "movie";
+    private const string RadarrServiceType = "radarr";
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
 
     // Guards the rate-limit check-and-update so it is atomic. The controller is instantiated per
@@ -85,7 +88,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
 
         var userId = GetCurrentUserId();
@@ -111,7 +114,7 @@ public sealed class UserDiscoveryController : ControllerBase
             .Where(r =>
             {
                 var normalizedMediaType = string.IsNullOrWhiteSpace(r.MediaType)
-                    ? "movie"
+                    ? MovieMediaType
                     : r.MediaType.Trim().ToLowerInvariant();
                 return !r.AlreadyRequested && !excluded.Contains((r.TmdbId, normalizedMediaType));
             })
@@ -145,7 +148,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
 
         var userId = GetCurrentUserId();
@@ -158,12 +161,12 @@ public sealed class UserDiscoveryController : ControllerBase
         serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
         mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
 
-        if (serviceType is not ("radarr" or "sonarr"))
+        if (serviceType is not (RadarrServiceType or "sonarr"))
         {
             return BadRequest(new RequestResult { Success = false, Message = "serviceType must be 'radarr' or 'sonarr'." });
         }
 
-        if (mediaType is not ("movie" or "tv"))
+        if (mediaType is not (MovieMediaType or "tv"))
         {
             return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
         }
@@ -191,7 +194,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
 
         var userId = GetCurrentUserId();
@@ -201,7 +204,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (serviceType is not ("radarr" or "sonarr"))
+        if (serviceType is not (RadarrServiceType or "sonarr"))
         {
             return BadRequest(new RequestResult { Success = false, Message = "serviceType must be 'radarr' or 'sonarr'." });
         }
@@ -209,7 +212,7 @@ public sealed class UserDiscoveryController : ControllerBase
         // Only expose service infrastructure to users who actually have request permission.
         // Prevents information disclosure of Radarr/Sonarr server names, paths, and profiles
         // to users without the Seerr REQUEST permission.
-        var mediaType = serviceType == "radarr" ? "movie" : "tv";
+        var mediaType = serviceType == RadarrServiceType ? MovieMediaType : "tv";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(
             userId.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
         if (!permissions.CanRequest)
@@ -257,7 +260,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
 
         var userId = GetCurrentUserId();
@@ -319,7 +322,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
 
         var jellyfinUserId = GetCurrentUserId();
@@ -379,7 +382,7 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
-        var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
+        var serviceType = mediaType == MovieMediaType ? RadarrServiceType : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(
             currentJellyfinUserId, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
 
@@ -515,7 +518,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
 
         var userId = GetCurrentUserId();

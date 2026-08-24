@@ -601,7 +601,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         {
             if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug("Unexpected mediaType value '{Value}' normalized to 'movie'.", mediaType?.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' '));
+                _logger.LogDebug("Unexpected mediaType value '{Value}' normalized to 'movie'.", mediaType.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' '));
             }
 
             return "movie";

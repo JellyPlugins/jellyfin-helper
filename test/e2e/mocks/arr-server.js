@@ -66,17 +66,17 @@ const server = http.createServer((req, res) => {
   const apiKey = req.headers['x-api-key'];
 
   // Unauthenticated health probe for the compose healthcheck.
-  if (path === '/health') return finish('/health', send(res, 200, { ok: true }));
+  if (path === '/health') { send(res, 200, { ok: true }); return finish('/health'); }
 
   // Everything else requires an API key (mirrors real Arr behaviour).
-  if (!apiKey) return finish(path, send(res, 401, { error: 'missing X-Api-Key' }));
-  if (apiKey === FAIL_KEY) return finish(path, send(res, 500, { error: 'forced failure' }));
+  if (!apiKey) { send(res, 401, { error: 'missing X-Api-Key' }); return finish(path); }
+  if (apiKey === FAIL_KEY) { send(res, 500, { error: 'forced failure' }); return finish(path); }
 
   // Adversarial sentinel keys.
   if (apiKey === SLOW_KEY) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     setTimeout(() => { try { res.end('[]'); } catch { /* client gone */ } }, 40_000);
-    return finish(path, undefined);
+    return finish(path);
   }
   if (apiKey === GIANT_KEY) {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' });
@@ -89,25 +89,27 @@ const server = http.createServer((req, res) => {
       if (res.write(chunk)) { setImmediate(pump); } else { res.once('drain', pump); }
     };
     pump();
-    return finish(path, undefined);
+    return finish(path);
   }
   if (apiKey === GARBAGE_KEY) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end('<html>not json</html>{truncated');
-    return finish(path, undefined);
+    return finish(path);
   }
 
   if (path === '/api/v3/system/status') {
     // Distinguish Radarr vs Sonarr by an optional ?app= hint; default Radarr.
     const app = url.searchParams.get('app');
-    return finish(path, send(res, 200, app === 'sonarr' ? sonarrStatus : radarrStatus));
+    send(res, 200, app === 'sonarr' ? sonarrStatus : radarrStatus);
+    return finish(path);
   }
-  if (path === '/api/v3/movie') return finish(path, send(res, 200, radarrMovies));
-  if (path === '/api/v3/series') return finish(path, send(res, 200, sonarrSeries));
+  if (path === '/api/v3/movie') { send(res, 200, radarrMovies); return finish(path); }
+  if (path === '/api/v3/series') { send(res, 200, sonarrSeries); return finish(path); }
 
-  return finish(path, send(res, 404, { error: 'not found' }));
+  send(res, 404, { error: 'not found' });
+  return finish(path);
 
-  function finish(p, _r) {
+  function finish(p) {
     log(req.method ?? '?', p, res.statusCode);
   }
 });

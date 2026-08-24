@@ -200,7 +200,7 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         // Compute recency from production year
         var recencyScore = entry.Year is { } year and >= 1 and <= 9999
-            ? ContentScoring.ComputeRecencyScore(new DateTime(year, 7, 1))
+            ? ContentScoring.ComputeRecencyScore(new DateTime(year, 7, 1, 0, 0, 0, DateTimeKind.Utc))
             : 0.5;
 
         // Year proximity

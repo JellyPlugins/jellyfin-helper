@@ -16,6 +16,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 /// </summary>
 public sealed class ArrIntegrationService : IArrIntegrationService
 {
+    private const string LogSource = "ArrIntegration";
+
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private static readonly char[] PathSeparators = ['/', '\\'];
 
@@ -79,13 +81,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         catch (OperationCanceledException ex)
         {
             // HttpClient.Timeout elapsed - not a user cancellation
-            _pluginLog.LogWarning("ArrIntegration", $"Arr connection test timed out for {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
+            _pluginLog.LogWarning(LogSource, $"Arr connection test timed out for {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return (false, "Connection timed out.");
         }
         catch (HttpRequestException ex)
         {
             _pluginLog.LogWarning(
-                "ArrIntegration",
+                LogSource,
                 $"Arr connection test failed for {SsrfGuard.SafeEndpointLabel(baseUrl)}: {ex.Message}",
                 ex,
                 _logger);
@@ -93,13 +95,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         }
         catch (ResponseTooLargeException ex)
         {
-            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Arr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
+            _pluginLog.LogWarning(LogSource, $"Response too large from Arr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return (false, "Response too large.");
         }
         catch (Exception ex) when (ex is JsonException or UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(
-                "ArrIntegration",
+                LogSource,
                 $"Arr connection test failed for {SsrfGuard.SafeEndpointLabel(baseUrl)}: {ex.Message}",
                 ex,
                 _logger);
@@ -148,17 +150,17 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         catch (OperationCanceledException)
         {
             // HttpClient.Timeout elapsed - not a user cancellation; warn that the instance is unreachable.
-            _pluginLog.LogWarning("ArrIntegration", $"Request to {SsrfGuard.SafeEndpointLabel(baseUrl)} timed out", null, _logger);
+            _pluginLog.LogWarning(LogSource, $"Request to {SsrfGuard.SafeEndpointLabel(baseUrl)} timed out", null, _logger);
             return null;
         }
         catch (ResponseTooLargeException ex)
         {
-            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Radarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
+            _pluginLog.LogWarning(LogSource, $"Response too large from Radarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return null;
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException)
         {
-            _pluginLog.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
+            _pluginLog.LogError(LogSource, $"Failed to fetch movies from Radarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return null;
         }
     }
@@ -206,17 +208,17 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         catch (OperationCanceledException)
         {
             // HttpClient.Timeout elapsed - not a user cancellation; warn that the instance is unreachable.
-            _pluginLog.LogWarning("ArrIntegration", $"Request to {SsrfGuard.SafeEndpointLabel(baseUrl)} timed out", null, _logger);
+            _pluginLog.LogWarning(LogSource, $"Request to {SsrfGuard.SafeEndpointLabel(baseUrl)} timed out", null, _logger);
             return null;
         }
         catch (ResponseTooLargeException ex)
         {
-            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Sonarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
+            _pluginLog.LogWarning(LogSource, $"Response too large from Sonarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return null;
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException)
         {
-            _pluginLog.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
+            _pluginLog.LogError(LogSource, $"Failed to fetch series from Sonarr at {SsrfGuard.SafeEndpointLabel(baseUrl)}", ex, _logger);
             return null;
         }
     }
@@ -349,7 +351,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         ValidateArrUrl(baseUrl);
         var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), relPath);
         // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
-        var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
+        var httpClient = _httpClientFactory.CreateClient(LogSource);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 

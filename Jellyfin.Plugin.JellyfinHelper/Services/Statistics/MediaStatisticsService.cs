@@ -219,9 +219,11 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
         catch (IOException)
         {
+            // Intentionally empty: an unreadable path is skipped (best-effort trickplay size scan).
         }
         catch (UnauthorizedAccessException)
         {
+            // Intentionally empty: an inaccessible path is skipped (best-effort trickplay size scan).
         }
 
         return total;

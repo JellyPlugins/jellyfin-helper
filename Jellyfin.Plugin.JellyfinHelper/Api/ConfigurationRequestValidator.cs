@@ -255,7 +255,10 @@ public static class ConfigurationRequestValidator
             return null;
         }
 
-        for (var i = 0; i < instances.Count; i++)
+        // The caller (Validate) already rejects lists longer than MaxArrInstances, so this Min
+        // is a runtime no-op; it makes the loop bound provably constant for taint analysis.
+        var count = Math.Min(instances.Count, MaxArrInstances);
+        for (var i = 0; i < count; i++)
         {
             var instance = instances[i];
 

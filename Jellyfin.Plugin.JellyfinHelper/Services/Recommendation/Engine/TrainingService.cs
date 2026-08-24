@@ -18,6 +18,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 internal sealed class TrainingService : IDisposable
 {
+    private const string LogSource = "Recommendations";
+
     /// <summary>
     ///     Non-blocking gate to prevent concurrent Train() invocations.
     ///     The scheduled task serializes calls, but this guard ensures correctness
@@ -86,7 +88,7 @@ internal sealed class TrainingService : IDisposable
     {
         if (previousResults.Count == 0)
         {
-            _pluginLog.LogInfo("Recommendations", "Training skipped - no previous recommendations available.", _logger);
+            _pluginLog.LogInfo(LogSource, "Training skipped - no previous recommendations available.", _logger);
             return false;
         }
 
@@ -95,7 +97,7 @@ internal sealed class TrainingService : IDisposable
         if (!_trainGate.Wait(0, CancellationToken.None))
         {
             _pluginLog.LogInfo(
-                "Recommendations",
+                LogSource,
                 "Training skipped - another training run is already in progress.",
                 _logger);
             return false;
@@ -142,7 +144,7 @@ internal sealed class TrainingService : IDisposable
             catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
-                    "Recommendations",
+                    LogSource,
                     $"Could not load discovery feedback for training: {ex.Message}",
                     ex,
                     _logger);
@@ -158,7 +160,7 @@ internal sealed class TrainingService : IDisposable
         // signal comes from actual watched consumption or external Seerr requests. Previously
         // both were folded into "organic" which hid unhealthy training-data mixes.
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogSource,
             $"Built {examples.Count} training examples ({positiveCount} positive, " +
             $"{examples.Count - positiveCount} negative) from {previousResults.Count} users " +
             $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
@@ -206,7 +208,7 @@ internal sealed class TrainingService : IDisposable
                 trainingExamples = combined;
 
                 _pluginLog.LogInfo(
-                    "Recommendations",
+                    LogSource,
                     $"Incremental training: {newExamples.Count} new + {sampleCount} sampled old " +
                     $"(from {oldExamples.Count} total old) = {trainingExamples.Count} examples.",
                     _logger);
@@ -261,7 +263,7 @@ internal sealed class TrainingService : IDisposable
                 strategy);
 
             _pluginLog.LogInfo(
-                "Recommendations",
+                LogSource,
                 $"Strategy '{strategy.Name}' training completed ({metricsLabel}) - " +
                 $"P@{RankingMetrics.DefaultK}: {precisionAtK:F3}, " +
                 $"R@{RankingMetrics.DefaultK}: {recallAtK:F3}, " +
@@ -272,7 +274,7 @@ internal sealed class TrainingService : IDisposable
         else
         {
             _pluginLog.LogInfo(
-                "Recommendations",
+                LogSource,
                 $"Strategy '{strategy.Name}' training skipped (insufficient training data).",
                 _logger);
         }
