@@ -1069,7 +1069,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="watchedIds">Item ids the user has meaningfully interacted with.</param>
     /// <param name="watchedSeriesIds">Series ids the user has interacted with or favorited.</param>
     /// <returns><c>true</c> when the candidate must be excluded from recommendations.</returns>
-    private bool ShouldSkipCandidate(
+    private static bool ShouldSkipCandidate(
         BaseItem candidate,
         int? userMaxRating,
         HashSet<Guid> watchedIds,
@@ -2304,30 +2304,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             // Collect composite (TmdbId, MediaType) keys of items this user has watched.
             // MediaType resolved from library item type (Movie -> "movie", Series -> "tv").
-            var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
-            foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
-            {
-                if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
-                {
-                    var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : "movie";
-                    watchedItems.Add((tmdbId, mt));
-                }
-
-                // Also check series-level TMDb IDs (for TV shows)
-                if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
-                {
-                    watchedItems.Add((seriesTmdbId, "tv"));
-                }
-            }
-
-            // Include series-level favorites (user favorited the series itself, not individual episodes)
-            foreach (var favoriteSeriesId in userProfile.FavoriteSeriesIds)
-            {
-                if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
-                {
-                    watchedItems.Add((favoriteSeriesTmdbId, "tv"));
-                }
-            }
+            var watchedItems = CollectWatchedTmdbKeys(userProfile, tmdbIdByItemId, mediaTypeByItemId);
 
             if (watchedItems.Count > 0)
             {
@@ -2345,6 +2322,43 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 $"Could not update discovery watched status for user '{userId}': {ex.Message}",
                 _logger);
         }
+    }
+
+    /// <summary>
+    ///     Builds the composite (TmdbId, MediaType) key set for a single user's watched items and
+    ///     series-level favorites. Extracted verbatim from <see cref="UpdateWatchedStatusForUser"/>.
+    /// </summary>
+    private static HashSet<(int TmdbId, string MediaType)> CollectWatchedTmdbKeys(
+        UserWatchProfile userProfile,
+        Dictionary<Guid, int> tmdbIdByItemId,
+        Dictionary<Guid, string> mediaTypeByItemId)
+    {
+        var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
+        foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
+        {
+            if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
+            {
+                var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : "movie";
+                watchedItems.Add((tmdbId, mt));
+            }
+
+            // Also check series-level TMDb IDs (for TV shows)
+            if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
+            {
+                watchedItems.Add((seriesTmdbId, "tv"));
+            }
+        }
+
+        // Include series-level favorites (user favorited the series itself, not individual episodes)
+        foreach (var favoriteSeriesId in userProfile.FavoriteSeriesIds)
+        {
+            if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
+            {
+                watchedItems.Add((favoriteSeriesTmdbId, "tv"));
+            }
+        }
+
+        return watchedItems;
     }
 
     /// <summary>

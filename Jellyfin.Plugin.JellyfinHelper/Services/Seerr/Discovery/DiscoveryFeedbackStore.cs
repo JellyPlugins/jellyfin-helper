@@ -183,6 +183,22 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             modified = true;
         }
 
+        modified |= BackfillNumericAndPeople(existing, item);
+
+        return modified;
+    }
+
+    /// <summary>
+    ///     Backfills the score, popularity, and known-people fields of an existing entry. Extracted
+    ///     verbatim from <see cref="BackfillExistingEntry"/> to keep each merge routine focused.
+    /// </summary>
+    /// <param name="existing">The existing feedback entry to backfill in place.</param>
+    /// <param name="item">The freshly shown recommendation providing candidate values.</param>
+    /// <returns><see langword="true"/> if any field was modified; otherwise <see langword="false"/>.</returns>
+    private static bool BackfillNumericAndPeople(DiscoveryFeedbackEntry existing, DiscoveryRecommendation item)
+    {
+        var modified = false;
+
         if (existing.Score == 0 && item.Score > 0)
         {
             existing.Score = item.Score;

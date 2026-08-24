@@ -1025,38 +1025,49 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             foreach (var rec in result.Recommendations)
             {
                 var wasWatched = userWatched is not null && userWatched.Contains(rec.ItemId);
-
-                switch (cohort)
-                {
-                    case "explore-high":
-                        tallies.HighTotal++;
-                        if (wasWatched)
-                        {
-                            tallies.HighWatched++;
-                        }
-
-                        break;
-                    case "explore-low":
-                        tallies.LowTotal++;
-                        if (wasWatched)
-                        {
-                            tallies.LowWatched++;
-                        }
-
-                        break;
-                    default:
-                        tallies.ControlTotal++;
-                        if (wasWatched)
-                        {
-                            tallies.ControlWatched++;
-                        }
-
-                        break;
-                }
+                TallyRecommendation(ref tallies, cohort, wasWatched);
             }
         }
 
         return tallies;
+    }
+
+    /// <summary>
+    ///     Applies a single recommendation's outcome to the per-cohort counters. Extracted verbatim
+    ///     from the switch body in <see cref="TallyCohortOutcomes"/>.
+    /// </summary>
+    /// <param name="tallies">The running per-cohort tallies, mutated in place.</param>
+    /// <param name="cohort">The cohort the recommendation belongs to.</param>
+    /// <param name="wasWatched">Whether the recommended item was subsequently watched.</param>
+    private static void TallyRecommendation(ref CohortTallies tallies, string cohort, bool wasWatched)
+    {
+        switch (cohort)
+        {
+            case "explore-high":
+                tallies.HighTotal++;
+                if (wasWatched)
+                {
+                    tallies.HighWatched++;
+                }
+
+                break;
+            case "explore-low":
+                tallies.LowTotal++;
+                if (wasWatched)
+                {
+                    tallies.LowWatched++;
+                }
+
+                break;
+            default:
+                tallies.ControlTotal++;
+                if (wasWatched)
+                {
+                    tallies.ControlWatched++;
+                }
+
+                break;
+        }
     }
 
     /// <summary>

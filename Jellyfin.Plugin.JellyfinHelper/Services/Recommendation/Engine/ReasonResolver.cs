@@ -130,6 +130,20 @@ internal static class ReasonResolver
         string? matchedPerson,
         string? matchedStudio)
     {
+        return ResolveSimpleDominantReason(explanation, dominant, topGenre)
+            ?? ResolvePeopleOrStudioReason(explanation, dominant, matchedPerson, matchedStudio);
+    }
+
+    /// <summary>
+    ///     Resolves the single-condition dominant-signal reasons (collaborative, genre, rating,
+    ///     user-rating, recency, year-proximity, interaction), or <c>null</c> when none apply.
+    ///     Extracted verbatim from <see cref="ResolveDominantSignalReason"/>.
+    /// </summary>
+    private static (string Reason, string ReasonKey, string? RelatedItem)? ResolveSimpleDominantReason(
+        ScoreExplanation explanation,
+        string? dominant,
+        string? topGenre)
+    {
         if (string.Equals(dominant, "Collaborative", StringComparison.OrdinalIgnoreCase)
             && explanation.CollaborativeContribution > EngineConstants.ReasonScoreThreshold)
         {
@@ -173,6 +187,20 @@ internal static class ReasonResolver
             return ("Matches your viewing patterns", "reasonInteraction", null);
         }
 
+        return null;
+    }
+
+    /// <summary>
+    ///     Resolves the people/studio dominant-signal reasons (which may surface a concrete matched
+    ///     name), falling back to the generic default. Extracted verbatim from
+    ///     <see cref="ResolveDominantSignalReason"/>.
+    /// </summary>
+    private static (string Reason, string ReasonKey, string? RelatedItem) ResolvePeopleOrStudioReason(
+        ScoreExplanation explanation,
+        string? dominant,
+        string? matchedPerson,
+        string? matchedStudio)
+    {
         if (string.Equals(dominant, "People", StringComparison.OrdinalIgnoreCase)
             && explanation.PeopleContribution > EngineConstants.ReasonScoreThreshold)
         {

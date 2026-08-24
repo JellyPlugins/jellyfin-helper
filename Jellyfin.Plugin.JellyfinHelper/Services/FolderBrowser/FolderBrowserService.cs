@@ -160,7 +160,7 @@ public class FolderBrowserService : IFolderBrowserService
     /// <summary>
     ///     Returns the single "/" root entry (Linux/macOS branch).
     /// </summary>
-    private List<FolderEntry> GetUnixRootEntries()
+    private static List<FolderEntry> GetUnixRootEntries()
     {
         // On Linux/macOS, root is always "/"
         var hasChildren = SafeHasSubdirectories("/");
@@ -398,33 +398,7 @@ public class FolderBrowserService : IFolderBrowserService
         {
             if (Directory.Exists(normalized))
             {
-                // Path exists AND is a directory - happy path.
-                var attrs = new DirectoryInfo(normalized).Attributes;
-                if (attrs != (FileAttributes)(-1) && !attrs.HasFlag(FileAttributes.Directory))
-                {
-                    return "Path must point to a directory.";
-                }
-
-                // Symlink escape guard: the lexical IsSensitiveSystemPath check above cannot see
-                // through a directory link whose own path is innocuous but which points at a
-                // sensitive target (e.g. /media/movies/peek -> /etc). Path.GetFullPath does not
-                // dereference symlinks on .NET, so resolve the final target and re-apply the guard,
-                // refusing a browse INTO a link that lands on a protected directory. Guarded on a
-                // valid, existing directory so it never runs against the (FileAttributes)(-1)
-                // sentinel returned for missing paths.
-                if (attrs != (FileAttributes)(-1) && (attrs & FileAttributes.ReparsePoint) != 0)
-                {
-                    var resolved = new DirectoryInfo(normalized).ResolveLinkTarget(returnFinalTarget: true);
-                    if (resolved is not null && PathValidator.IsSensitiveSystemPath(resolved.FullName))
-                    {
-                        _logger.LogWarning(
-                            "Folder-browse request refused: {Path} is a link to a sensitive system path",
-                            SanitizeForLog(path));
-                        return "This is a protected system folder and cannot be browsed.";
-                    }
-                }
-
-                return null;
+                return ValidateExistingDirectory(normalized, path);
             }
 
             if (File.Exists(normalized))
@@ -469,6 +443,42 @@ public class FolderBrowserService : IFolderBrowserService
         {
             return ErrorCannotAccessDirectory;
         }
+    }
+
+    /// <summary>
+    ///     Validates a path already confirmed to exist as a directory: rejects a non-directory entry and,
+    ///     for symlinks, refuses a browse into a link that resolves to a sensitive system target. Returns an
+    ///     error message, or <c>null</c> when the target is valid.
+    /// </summary>
+    private string? ValidateExistingDirectory(string normalized, string path)
+    {
+        // Path exists AND is a directory - happy path.
+        var attrs = new DirectoryInfo(normalized).Attributes;
+        if (attrs != (FileAttributes)(-1) && !attrs.HasFlag(FileAttributes.Directory))
+        {
+            return "Path must point to a directory.";
+        }
+
+        // Symlink escape guard: the lexical IsSensitiveSystemPath check above cannot see
+        // through a directory link whose own path is innocuous but which points at a
+        // sensitive target (e.g. /media/movies/peek -> /etc). Path.GetFullPath does not
+        // dereference symlinks on .NET, so resolve the final target and re-apply the guard,
+        // refusing a browse INTO a link that lands on a protected directory. Guarded on a
+        // valid, existing directory so it never runs against the (FileAttributes)(-1)
+        // sentinel returned for missing paths.
+        if (attrs != (FileAttributes)(-1) && (attrs & FileAttributes.ReparsePoint) != 0)
+        {
+            var resolved = new DirectoryInfo(normalized).ResolveLinkTarget(returnFinalTarget: true);
+            if (resolved is not null && PathValidator.IsSensitiveSystemPath(resolved.FullName))
+            {
+                _logger.LogWarning(
+                    "Folder-browse request refused: {Path} is a link to a sensitive system path",
+                    SanitizeForLog(path));
+                return "This is a protected system folder and cannot be browsed.";
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

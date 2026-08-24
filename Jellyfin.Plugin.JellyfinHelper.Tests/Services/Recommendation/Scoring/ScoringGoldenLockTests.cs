@@ -29,14 +29,9 @@ public class ScoringGoldenLockTests
     {
         var digest = ComputeDigest();
 
-        if (ExpectedDigest == "PENDING")
-        {
-            // First run prints the baseline so it can be pinned; treat as informational.
-#pragma warning disable CS0162 // Unreachable code detected
-            Assert.Fail($"Golden digest baseline = {digest}");
-#pragma warning restore CS0162 // Unreachable code detected
-        }
-
+        // If this fails, a change altered scoring output. For a deliberate scoring-math change,
+        // regenerate ExpectedDigest from the new value (after reviewing the diff); otherwise the
+        // refactor was not behavior-preserving and must be fixed.
         Assert.Equal(ExpectedDigest, digest);
     }
 
@@ -44,7 +39,7 @@ public class ScoringGoldenLockTests
     {
         var heuristic = new HeuristicScoringStrategy();
         var learned = new LearnedScoringStrategy();
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
 
         var settableDoubles = Array.FindAll(
             typeof(CandidateFeatures).GetProperties(BindingFlags.Public | BindingFlags.Instance),
@@ -77,6 +72,10 @@ public class ScoringGoldenLockTests
         return Convert.ToHexString(bytes);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Security",
+        "CA5394:Do not use insecure randomness",
+        Justification = "Seeded System.Random is required here for REPRODUCIBLE test fixtures — the golden digest must be identical on every run. A cryptographic RNG would be non-deterministic and defeat the test.")]
     private static CandidateFeatures BuildDeterministicFeatures(PropertyInfo[] props, int seed)
     {
         var rng = new Random(seed);

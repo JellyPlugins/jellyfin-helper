@@ -339,23 +339,7 @@ internal static class PreferenceBuilder
         var cooccurrence = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in profile.WatchedItems)
         {
-            if (item is { Played: false, IsFavorite: false })
-            {
-                continue;
-            }
-
-            if (item.Genres is not { Count: > 0 })
-            {
-                continue;
-            }
-
-            // De-duplicate genres to prevent malformed metadata like ["Action", "Action", "Comedy"]
-            // from inflating co-occurrence counts (Action↔Comedy would be counted twice otherwise).
-            var distinctGenres = item.Genres
-                .Where(static g => !string.IsNullOrWhiteSpace(g))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
+            var distinctGenres = GetEligibleDistinctGenres(item);
             if (distinctGenres.Length < 2)
             {
                 continue;
@@ -363,34 +347,67 @@ internal static class PreferenceBuilder
 
             for (var i = 0; i < distinctGenres.Length; i++)
             {
-                var g1 = distinctGenres[i];
-
-                if (!cooccurrence.TryGetValue(g1, out var neighbors))
-                {
-                    neighbors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                    cooccurrence[g1] = neighbors;
-                }
-
                 for (var j = i + 1; j < distinctGenres.Length; j++)
                 {
-                    var g2 = distinctGenres[j];
-
-                    neighbors.TryGetValue(g2, out var cnt);
-                    neighbors[g2] = cnt + 1;
-
-                    if (!cooccurrence.TryGetValue(g2, out var neighbors2))
-                    {
-                        neighbors2 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                        cooccurrence[g2] = neighbors2;
-                    }
-
-                    neighbors2.TryGetValue(g1, out var cnt2);
-                    neighbors2[g1] = cnt2 + 1;
+                    RecordCooccurrencePair(cooccurrence, distinctGenres[i], distinctGenres[j]);
                 }
             }
         }
 
         return cooccurrence;
+    }
+
+    /// <summary>
+    ///     Returns the de-duplicated, non-blank genres of a watched item that qualifies for
+    ///     co-occurrence (played or favorited with genre metadata), or an empty array otherwise.
+    ///     Extracted verbatim from <see cref="BuildGenreCooccurrence"/>.
+    /// </summary>
+    private static string[] GetEligibleDistinctGenres(WatchedItemInfo item)
+    {
+        if (item is { Played: false, IsFavorite: false })
+        {
+            return [];
+        }
+
+        if (item.Genres is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        // De-duplicate genres to prevent malformed metadata like ["Action", "Action", "Comedy"]
+        // from inflating co-occurrence counts (Action↔Comedy would be counted twice otherwise).
+        return item.Genres
+            .Where(static g => !string.IsNullOrWhiteSpace(g))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
+    ///     Records a symmetric +1 co-occurrence between two genres in the map. Extracted verbatim
+    ///     from <see cref="BuildGenreCooccurrence"/>.
+    /// </summary>
+    private static void RecordCooccurrencePair(
+        Dictionary<string, Dictionary<string, int>> cooccurrence,
+        string g1,
+        string g2)
+    {
+        if (!cooccurrence.TryGetValue(g1, out var neighbors))
+        {
+            neighbors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            cooccurrence[g1] = neighbors;
+        }
+
+        neighbors.TryGetValue(g2, out var cnt);
+        neighbors[g2] = cnt + 1;
+
+        if (!cooccurrence.TryGetValue(g2, out var neighbors2))
+        {
+            neighbors2 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            cooccurrence[g2] = neighbors2;
+        }
+
+        neighbors2.TryGetValue(g1, out var cnt2);
+        neighbors2[g1] = cnt2 + 1;
     }
 
     /// <summary>

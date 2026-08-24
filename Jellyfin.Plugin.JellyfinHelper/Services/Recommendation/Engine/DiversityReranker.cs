@@ -190,30 +190,7 @@ internal static class DiversityReranker
     {
         while (selected.Count < mmrSlotCount && remaining.Count > 0)
         {
-            var bestIdx = -1;
-            var bestMmrScore = double.MinValue;
-
-            for (var i = 0; i < remaining.Count; i++)
-            {
-                var relevance = remaining[i].Score;
-                var maxSimilarity = 0.0;
-                foreach (var selectedItem in selected.Select(selectedEntry => selectedEntry.Item))
-                {
-                    var sim = similarity.Compute(remaining[i].Item, selectedItem);
-                    if (sim > maxSimilarity)
-                    {
-                        maxSimilarity = sim;
-                    }
-                }
-
-                var mmrScore = (EngineConstants.MmrLambda * relevance) - ((1.0 - EngineConstants.MmrLambda) * maxSimilarity);
-
-                if (mmrScore > bestMmrScore)
-                {
-                    bestMmrScore = mmrScore;
-                    bestIdx = i;
-                }
-            }
+            var bestIdx = FindBestMmrIndex(remaining, selected, similarity);
 
             if (bestIdx >= 0)
             {
@@ -232,6 +209,44 @@ internal static class DiversityReranker
                 break;
             }
         }
+    }
+
+    /// <summary>
+    ///     Finds the index in <paramref name="remaining"/> of the item that maximises the MMR score
+    ///     (relevance minus similarity to any already-<paramref name="selected"/> item), or -1 when
+    ///     <paramref name="remaining"/> is empty.
+    /// </summary>
+    private static int FindBestMmrIndex(
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> remaining,
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> selected,
+        SimilarityCache similarity)
+    {
+        var bestIdx = -1;
+        var bestMmrScore = double.MinValue;
+
+        for (var i = 0; i < remaining.Count; i++)
+        {
+            var relevance = remaining[i].Score;
+            var maxSimilarity = 0.0;
+            foreach (var selectedItem in selected.Select(selectedEntry => selectedEntry.Item))
+            {
+                var sim = similarity.Compute(remaining[i].Item, selectedItem);
+                if (sim > maxSimilarity)
+                {
+                    maxSimilarity = sim;
+                }
+            }
+
+            var mmrScore = (EngineConstants.MmrLambda * relevance) - ((1.0 - EngineConstants.MmrLambda) * maxSimilarity);
+
+            if (mmrScore > bestMmrScore)
+            {
+                bestMmrScore = mmrScore;
+                bestIdx = i;
+            }
+        }
+
+        return bestIdx;
     }
 
     /// <summary>
