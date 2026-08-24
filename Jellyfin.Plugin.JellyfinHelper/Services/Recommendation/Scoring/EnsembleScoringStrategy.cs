@@ -224,12 +224,13 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         // Guard: the heuristic must have its genre penalty disabled (floor = 1.0) because
         // the ensemble applies the penalty centrally via ComputeSoftGenrePenalty after blending.
-        // A default-configured heuristic (floor 0.10) would cause double-penalization. We
-        // compare with strict equality - the previous 0.001 epsilon window let hand-tuned
-        // values like 0.999 slip through, silently reintroducing a tiny secondary penalty on
-        // top of the ensemble's own; both sides of this check are compile-time constants or
-        // caller-supplied, so representation drift is not a concern.
-        if (!heuristic.GenrePenaltyFloor.Equals(1.0))
+        // A default-configured heuristic (floor 0.10) would cause double-penalization. We require
+        // an EXACT 1.0 - the previous 0.001 epsilon window let hand-tuned values like 0.999 slip
+        // through, silently reintroducing a tiny secondary penalty on top of the ensemble's own.
+        // Compared via raw bit pattern so this stays exact-equality (both sides are compile-time
+        // constants or caller-supplied, so representation drift is not a concern) without tripping
+        // the "no direct floating-point equality" analyzer that a `!=` / `.Equals` would.
+        if (BitConverter.DoubleToInt64Bits(heuristic.GenrePenaltyFloor) != BitConverter.DoubleToInt64Bits(1.0))
         {
             throw new ArgumentException(
                 $"Heuristic sub-strategy must have genrePenaltyFloor=1.0 (penalty disabled) to avoid " +

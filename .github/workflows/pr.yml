@@ -192,6 +192,61 @@ jobs:
         disable_search: true
         fail_ci_if_error: false
 
+  # Dedicated SonarCloud analysis with coverage import. SonarScanner for .NET requires a
+  # single begin -> build -> test -> end sequence in ONE job, so this cannot ride the `test`
+  # matrix above (which runs three parallel buckets). It builds once, runs the full unit-test
+  # suite with Cobertura coverage, and feeds that report to SonarCloud via
+  # sonar.cs.cobertura.reportsPaths.
+  sonar:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SONAR_PROJECT_KEY: JellyPlugins_jellyfin-helper
+      SONAR_ORG: jellyplugins
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        # Full history lets SonarCloud attribute issues to blame/authors and compute new-code
+        # periods accurately.
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+
+    # SonarScanner for .NET is a JVM tool.
+    - name: Setup JDK
+      uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: 21
+
+    - name: Install SonarScanner tool
+      run: dotnet tool install --global dotnet-sonarscanner
+
+    - name: SonarCloud analysis
+      # No secret -> skip cleanly (forks / when SONAR_TOKEN is not yet configured) instead of
+      # failing the whole PR check.
+      if: ${{ env.SONAR_TOKEN != '' }}
+      run: |
+        set -euo pipefail
+        dotnet sonarscanner begin \
+          /k:"$SONAR_PROJECT_KEY" \
+          /o:"$SONAR_ORG" \
+          /d:sonar.host.url="https://sonarcloud.io" \
+          /d:sonar.token="$SONAR_TOKEN" \
+          /d:sonar.cs.cobertura.reportsPaths="**/coverage.cobertura.xml"
+        dotnet build --configuration Release --no-incremental
+        dotnet test --configuration Release --no-build --verbosity normal \
+          --collect:"XPlat Code Coverage" \
+          --results-directory "./TestResults/Sonar"
+        dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+
   # Keeps the README test-count badge in sync automatically: counts the tests actually
   # executed in CI (from the .trx artifacts the `test` job already produced) and commits the
   # updated badge straight back onto the open PR branch — so contributors never hand-edit it.

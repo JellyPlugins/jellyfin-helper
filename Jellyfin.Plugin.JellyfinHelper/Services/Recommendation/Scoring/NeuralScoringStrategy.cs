@@ -633,116 +633,160 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             // Input-gradient attribution through all four hidden layers
             var inputSize = CandidateFeatures.FeatureCount;
-            var attr = new double[inputSize];
+            var attr = ComputeInputAttribution(inputSize, h1Pre, h2Pre, h3Pre, h4Pre);
 
-            for (var m = 0; m < Hidden4Size; m++)
-            {
-                if (h4Pre[m] <= 0)
-                {
-                    continue;
-                }
+            var interactionContrib = ComputeInteractionContribution(attr);
 
-                var outW = _weightsH4O[m];
-                for (var l = 0; l < Hidden3Size; l++)
-                {
-                    if (h3Pre[l] <= 0)
-                    {
-                        continue;
-                    }
-
-                    var h3h4W = _weightsH3H4[(m * Hidden3Size) + l];
-                    var combinedH4H3 = outW * h3h4W;
-                    for (var k = 0; k < Hidden2Size; k++)
-                    {
-                        if (h2Pre[k] <= 0)
-                        {
-                            continue;
-                        }
-
-                        var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
-                        var combinedOuter = combinedH4H3 * h2h3W;
-                        for (var j = 0; j < Hidden1Size; j++)
-                        {
-                            if (h1Pre[j] <= 0)
-                            {
-                                continue;
-                            }
-
-                            var h1h2W = _weightsH1H2[(k * Hidden1Size) + j];
-                            var combined = combinedOuter * h1h2W;
-                            var baseIdx = j * inputSize;
-                            for (var i = 0; i < inputSize; i++)
-                            {
-                                attr[i] += combined * _weightsIH[baseIdx + i];
-                            }
-                        }
-                    }
-                }
-            }
-
-            var interactionContrib =
-                attr[(int)FeatureIndex.GenreCountNormalized] +
-                attr[(int)FeatureIndex.IsSeries] +
-                attr[(int)FeatureIndex.GenreCriticInteraction] +
-                attr[(int)FeatureIndex.GenreCollabInteraction] +
-                attr[(int)FeatureIndex.CompletionRatio] +
-                attr[(int)FeatureIndex.IsAbandoned] +
-                attr[(int)FeatureIndex.HasInteraction] +
-                attr[(int)FeatureIndex.SeriesProgressionBoost] +
-                attr[(int)FeatureIndex.PopularityScore] +
-                attr[(int)FeatureIndex.DayOfWeekAffinity] +
-                attr[(int)FeatureIndex.HourOfDayAffinity] +
-                attr[(int)FeatureIndex.IsWeekend] +
-                attr[(int)FeatureIndex.TagSimilarity] +
-                attr[(int)FeatureIndex.PeopleGenreInteraction] +
-                attr[(int)FeatureIndex.RecencyCriticInteraction] +
-                attr[(int)FeatureIndex.GenreUnderexposure] +
-                attr[(int)FeatureIndex.GenreDominanceRatio] +
-                attr[(int)FeatureIndex.GenreAffinityGap] +
-                attr[(int)FeatureIndex.LibraryAddedRecency] +
-                attr[(int)FeatureIndex.ContentNearestNeighborScore] +
-                attr[(int)FeatureIndex.LanguageAffinity] +
-                attr[(int)FeatureIndex.CollectionProgressionBoost] +
-                attr[(int)FeatureIndex.SubtitleLanguageAffinity] +
-                attr[(int)FeatureIndex.FranchiseAffinity] +
-                attr[(int)FeatureIndex.ProductionLocationAffinity] +
-                attr[(int)FeatureIndex.InheritedTagSimilarity] +
-                attr[(int)FeatureIndex.SeriesCompletability] +
-                attr[(int)FeatureIndex.WriterAffinity] +
-                attr[(int)FeatureIndex.BillingWeightedPeople] +
-                attr[(int)FeatureIndex.GenreStudioIdfPrior];
-
-            return new ScoreExplanation
-            {
-                FinalScore = score,
-                GenreContribution = attr[(int)FeatureIndex.GenreSimilarity],
-                CollaborativeContribution = attr[(int)FeatureIndex.CollaborativeScore],
-                RatingContribution = attr[(int)FeatureIndex.CombinedCriticScore],
-                RecencyContribution = attr[(int)FeatureIndex.RecencyScore],
-                YearProximityContribution = attr[(int)FeatureIndex.YearProximityScore],
-                UserRatingContribution = attr[(int)FeatureIndex.UserRatingScore],
-                PeopleContribution = attr[(int)FeatureIndex.PeopleSimilarity],
-                StudioContribution = attr[(int)FeatureIndex.StudioMatch],
-                InteractionContribution = interactionContrib,
-                GenrePenaltyMultiplier = 1.0,
-                DominantSignal = ScoreExplanation.DetermineDominantSignal(
-                    attr[(int)FeatureIndex.GenreSimilarity],
-                    attr[(int)FeatureIndex.CollaborativeScore],
-                    attr[(int)FeatureIndex.CombinedCriticScore],
-                    attr[(int)FeatureIndex.UserRatingScore],
-                    attr[(int)FeatureIndex.RecencyScore],
-                    attr[(int)FeatureIndex.YearProximityScore],
-                    interactionContrib,
-                    attr[(int)FeatureIndex.PeopleSimilarity],
-                    attr[(int)FeatureIndex.StudioMatch]),
-                StrategyName = Name
-            };
+            return BuildScoreExplanation(score, attr, interactionContrib);
         }
         finally
         {
             ReleaseReadLockSafely();
         }
     }
+
+    /// <summary>
+    ///     Computes the input-gradient attribution vector through all four hidden layers.
+    ///     Extracted verbatim from <see cref="ScoreWithExplanation"/>; the ReLU gating, weight
+    ///     indexing, and accumulation order are unchanged.
+    /// </summary>
+    /// <param name="inputSize">Number of input features (row stride for the input weights).</param>
+    /// <param name="h1Pre">Hidden1 pre-activation values.</param>
+    /// <param name="h2Pre">Hidden2 pre-activation values.</param>
+    /// <param name="h3Pre">Hidden3 pre-activation values.</param>
+    /// <param name="h4Pre">Hidden4 pre-activation values.</param>
+    /// <returns>Per-input attribution vector [inputSize].</returns>
+    private double[] ComputeInputAttribution(
+        int inputSize,
+        double[] h1Pre,
+        double[] h2Pre,
+        double[] h3Pre,
+        double[] h4Pre)
+    {
+        var attr = new double[inputSize];
+
+        for (var m = 0; m < Hidden4Size; m++)
+        {
+            if (h4Pre[m] <= 0)
+            {
+                continue;
+            }
+
+            var outW = _weightsH4O[m];
+            for (var l = 0; l < Hidden3Size; l++)
+            {
+                if (h3Pre[l] <= 0)
+                {
+                    continue;
+                }
+
+                var h3h4W = _weightsH3H4[(m * Hidden3Size) + l];
+                var combinedH4H3 = outW * h3h4W;
+                for (var k = 0; k < Hidden2Size; k++)
+                {
+                    if (h2Pre[k] <= 0)
+                    {
+                        continue;
+                    }
+
+                    var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
+                    var combinedOuter = combinedH4H3 * h2h3W;
+                    for (var j = 0; j < Hidden1Size; j++)
+                    {
+                        if (h1Pre[j] <= 0)
+                        {
+                            continue;
+                        }
+
+                        var h1h2W = _weightsH1H2[(k * Hidden1Size) + j];
+                        var combined = combinedOuter * h1h2W;
+                        var baseIdx = j * inputSize;
+                        for (var i = 0; i < inputSize; i++)
+                        {
+                            attr[i] += combined * _weightsIH[baseIdx + i];
+                        }
+                    }
+                }
+            }
+        }
+
+        return attr;
+    }
+
+    /// <summary>
+    ///     Sums the interaction-feature attribution contributions.
+    ///     Extracted verbatim from <see cref="ScoreWithExplanation"/>; the summed terms and order
+    ///     are unchanged.
+    /// </summary>
+    /// <param name="attr">Per-input attribution vector.</param>
+    /// <returns>The combined interaction contribution.</returns>
+    private static double ComputeInteractionContribution(double[] attr) =>
+        attr[(int)FeatureIndex.GenreCountNormalized] +
+        attr[(int)FeatureIndex.IsSeries] +
+        attr[(int)FeatureIndex.GenreCriticInteraction] +
+        attr[(int)FeatureIndex.GenreCollabInteraction] +
+        attr[(int)FeatureIndex.CompletionRatio] +
+        attr[(int)FeatureIndex.IsAbandoned] +
+        attr[(int)FeatureIndex.HasInteraction] +
+        attr[(int)FeatureIndex.SeriesProgressionBoost] +
+        attr[(int)FeatureIndex.PopularityScore] +
+        attr[(int)FeatureIndex.DayOfWeekAffinity] +
+        attr[(int)FeatureIndex.HourOfDayAffinity] +
+        attr[(int)FeatureIndex.IsWeekend] +
+        attr[(int)FeatureIndex.TagSimilarity] +
+        attr[(int)FeatureIndex.PeopleGenreInteraction] +
+        attr[(int)FeatureIndex.RecencyCriticInteraction] +
+        attr[(int)FeatureIndex.GenreUnderexposure] +
+        attr[(int)FeatureIndex.GenreDominanceRatio] +
+        attr[(int)FeatureIndex.GenreAffinityGap] +
+        attr[(int)FeatureIndex.LibraryAddedRecency] +
+        attr[(int)FeatureIndex.ContentNearestNeighborScore] +
+        attr[(int)FeatureIndex.LanguageAffinity] +
+        attr[(int)FeatureIndex.CollectionProgressionBoost] +
+        attr[(int)FeatureIndex.SubtitleLanguageAffinity] +
+        attr[(int)FeatureIndex.FranchiseAffinity] +
+        attr[(int)FeatureIndex.ProductionLocationAffinity] +
+        attr[(int)FeatureIndex.InheritedTagSimilarity] +
+        attr[(int)FeatureIndex.SeriesCompletability] +
+        attr[(int)FeatureIndex.WriterAffinity] +
+        attr[(int)FeatureIndex.BillingWeightedPeople] +
+        attr[(int)FeatureIndex.GenreStudioIdfPrior];
+
+    /// <summary>
+    ///     Builds the <see cref="ScoreExplanation"/> from the computed score and attribution.
+    ///     Extracted verbatim from <see cref="ScoreWithExplanation"/>; the assigned contributions
+    ///     are unchanged.
+    /// </summary>
+    /// <param name="score">The guarded final score.</param>
+    /// <param name="attr">Per-input attribution vector.</param>
+    /// <param name="interactionContrib">The combined interaction contribution.</param>
+    /// <returns>The populated score explanation.</returns>
+    private ScoreExplanation BuildScoreExplanation(double score, double[] attr, double interactionContrib) =>
+        new()
+        {
+            FinalScore = score,
+            GenreContribution = attr[(int)FeatureIndex.GenreSimilarity],
+            CollaborativeContribution = attr[(int)FeatureIndex.CollaborativeScore],
+            RatingContribution = attr[(int)FeatureIndex.CombinedCriticScore],
+            RecencyContribution = attr[(int)FeatureIndex.RecencyScore],
+            YearProximityContribution = attr[(int)FeatureIndex.YearProximityScore],
+            UserRatingContribution = attr[(int)FeatureIndex.UserRatingScore],
+            PeopleContribution = attr[(int)FeatureIndex.PeopleSimilarity],
+            StudioContribution = attr[(int)FeatureIndex.StudioMatch],
+            InteractionContribution = interactionContrib,
+            GenrePenaltyMultiplier = 1.0,
+            DominantSignal = ScoreExplanation.DetermineDominantSignal(
+                attr[(int)FeatureIndex.GenreSimilarity],
+                attr[(int)FeatureIndex.CollaborativeScore],
+                attr[(int)FeatureIndex.CombinedCriticScore],
+                attr[(int)FeatureIndex.UserRatingScore],
+                attr[(int)FeatureIndex.RecencyScore],
+                attr[(int)FeatureIndex.YearProximityScore],
+                interactionContrib,
+                attr[(int)FeatureIndex.PeopleSimilarity],
+                attr[(int)FeatureIndex.StudioMatch]),
+            StrategyName = Name
+        };
 
     /// <summary>
     ///     Trains the MLP via backpropagation with Adam optimizer.
@@ -1465,108 +1509,68 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var dropoutOff = keepProbability >= 1.0;
 
         // Hidden layer 1: input -> hidden1 (ReLU + optional dropout)
-        for (var j = 0; j < Hidden1Size; j++)
-        {
-            var sum = bH1[j];
-            var baseIdx = j * inputSize;
-            for (var i = 0; i < inputSize; i++)
-            {
-                sum += wIH[baseIdx + i] * input[i];
-            }
-
-            h1Pre[j] = sum;
-            var relu = sum > 0 ? sum : 0.0;
-
-            if (dropoutOff)
-            {
-                h1Mask[j] = 1.0;
-                h1Act[j] = relu;
-            }
-            else
-            {
-                var keep = rng.NextDouble() < keepProbability;
-                h1Mask[j] = keep ? 1.0 : 0.0;
-                h1Act[j] = keep ? relu * invKeepScale : 0.0;
-            }
-        }
+        ForwardPassTrainingLayer(
+            input,
+            inputSize,
+            wIH,
+            bH1,
+            h1Pre,
+            h1Act,
+            h1Mask,
+            Hidden1Size,
+            inputSize,
+            dropoutOff,
+            rng,
+            keepProbability,
+            invKeepScale);
 
         // Hidden layer 2: hidden1 -> hidden2 (ReLU + optional dropout)
-        for (var k = 0; k < Hidden2Size; k++)
-        {
-            var sum = bH2[k];
-            var baseIdx = k * Hidden1Size;
-            for (var j = 0; j < Hidden1Size; j++)
-            {
-                sum += wH1H2[baseIdx + j] * h1Act[j];
-            }
-
-            h2Pre[k] = sum;
-            var relu = sum > 0 ? sum : 0.0;
-
-            if (dropoutOff)
-            {
-                h2Mask[k] = 1.0;
-                h2Act[k] = relu;
-            }
-            else
-            {
-                var keep = rng.NextDouble() < keepProbability;
-                h2Mask[k] = keep ? 1.0 : 0.0;
-                h2Act[k] = keep ? relu * invKeepScale : 0.0;
-            }
-        }
+        ForwardPassTrainingLayer(
+            h1Act,
+            Hidden1Size,
+            wH1H2,
+            bH2,
+            h2Pre,
+            h2Act,
+            h2Mask,
+            Hidden2Size,
+            Hidden1Size,
+            dropoutOff,
+            rng,
+            keepProbability,
+            invKeepScale);
 
         // Hidden layer 3: hidden2 -> hidden3 (ReLU + optional dropout)
-        for (var l = 0; l < Hidden3Size; l++)
-        {
-            var sum = bH3[l];
-            var baseIdx = l * Hidden2Size;
-            for (var k = 0; k < Hidden2Size; k++)
-            {
-                sum += wH2H3[baseIdx + k] * h2Act[k];
-            }
-
-            h3Pre[l] = sum;
-            var relu = sum > 0 ? sum : 0.0;
-
-            if (dropoutOff)
-            {
-                h3Mask[l] = 1.0;
-                h3Act[l] = relu;
-            }
-            else
-            {
-                var keep = rng.NextDouble() < keepProbability;
-                h3Mask[l] = keep ? 1.0 : 0.0;
-                h3Act[l] = keep ? relu * invKeepScale : 0.0;
-            }
-        }
+        ForwardPassTrainingLayer(
+            h2Act,
+            Hidden2Size,
+            wH2H3,
+            bH3,
+            h3Pre,
+            h3Act,
+            h3Mask,
+            Hidden3Size,
+            Hidden2Size,
+            dropoutOff,
+            rng,
+            keepProbability,
+            invKeepScale);
 
         // Hidden layer 4: hidden3 -> hidden4 (ReLU + optional dropout)
-        for (var m = 0; m < Hidden4Size; m++)
-        {
-            var sum = bH4[m];
-            var baseIdx = m * Hidden3Size;
-            for (var l = 0; l < Hidden3Size; l++)
-            {
-                sum += wH3H4[baseIdx + l] * h3Act[l];
-            }
-
-            h4Pre[m] = sum;
-            var relu = sum > 0 ? sum : 0.0;
-
-            if (dropoutOff)
-            {
-                h4Mask[m] = 1.0;
-                h4Act[m] = relu;
-            }
-            else
-            {
-                var keep = rng.NextDouble() < keepProbability;
-                h4Mask[m] = keep ? 1.0 : 0.0;
-                h4Act[m] = keep ? relu * invKeepScale : 0.0;
-            }
-        }
+        ForwardPassTrainingLayer(
+            h3Act,
+            Hidden3Size,
+            wH3H4,
+            bH4,
+            h4Pre,
+            h4Act,
+            h4Mask,
+            Hidden4Size,
+            Hidden3Size,
+            dropoutOff,
+            rng,
+            keepProbability,
+            invKeepScale);
 
         // Output layer: hidden4 -> output (Sigmoid, no dropout on the output neuron)
         var outputZ = bO;
@@ -1576,6 +1580,65 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         return Sigmoid(outputZ);
+    }
+
+    /// <summary>
+    ///     Computes one ReLU + optional-dropout hidden layer for <see cref="ForwardPassTraining"/>.
+    ///     Extracted verbatim from the per-layer loops; the arithmetic, activation, weight indexing,
+    ///     and dropout branch are unchanged.
+    /// </summary>
+    /// <param name="prevAct">Previous layer's activations (input source).</param>
+    /// <param name="prevSize">Number of neurons in the previous layer.</param>
+    /// <param name="weights">Weight matrix [layerSize × prevSize] row-major.</param>
+    /// <param name="bias">Bias vector for this layer.</param>
+    /// <param name="pre">Buffer for this layer's pre-activation values.</param>
+    /// <param name="act">Buffer for this layer's post-activation (dropout-scaled) values.</param>
+    /// <param name="mask">Buffer for this layer's dropout mask.</param>
+    /// <param name="layerSize">Number of neurons in this layer.</param>
+    /// <param name="strideSize">Row stride for the weight matrix (equals prevSize).</param>
+    /// <param name="dropoutOff">Whether dropout is disabled for this pass.</param>
+    /// <param name="rng">RNG used for the Bernoulli draws.</param>
+    /// <param name="keepProbability">Probability of keeping a neuron [0..1].</param>
+    /// <param name="invKeepScale">Precomputed 1 / keepProbability.</param>
+    private static void ForwardPassTrainingLayer(
+        double[] prevAct,
+        int prevSize,
+        double[] weights,
+        double[] bias,
+        double[] pre,
+        double[] act,
+        double[] mask,
+        int layerSize,
+        int strideSize,
+        bool dropoutOff,
+        Random rng,
+        double keepProbability,
+        double invKeepScale)
+    {
+        for (var j = 0; j < layerSize; j++)
+        {
+            var sum = bias[j];
+            var baseIdx = j * strideSize;
+            for (var i = 0; i < prevSize; i++)
+            {
+                sum += weights[baseIdx + i] * prevAct[i];
+            }
+
+            pre[j] = sum;
+            var relu = sum > 0 ? sum : 0.0;
+
+            if (dropoutOff)
+            {
+                mask[j] = 1.0;
+                act[j] = relu;
+            }
+            else
+            {
+                var keep = rng.NextDouble() < keepProbability;
+                mask[j] = keep ? 1.0 : 0.0;
+                act[j] = keep ? relu * invKeepScale : 0.0;
+            }
+        }
     }
 
     /// <summary>
