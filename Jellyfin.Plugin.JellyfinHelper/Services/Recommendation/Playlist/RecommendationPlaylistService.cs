@@ -30,11 +30,6 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// </summary>
     internal const string PlaylistNamePrefix = "🎬 Recommended";
 
-    /// <summary>
-    ///     The log category used for all plugin log entries emitted by this service.
-    /// </summary>
-    private const string LogCategory = "PlaylistSync";
-
     private readonly IPlaylistManager _playlistManager;
     private readonly IUserManager _userManager;
     private readonly ILibraryManager _libraryManager;
@@ -73,7 +68,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var syncResult = new PlaylistSyncResult();
 
         _pluginLog.LogInfo(
-            LogCategory,
+            "PlaylistSync",
             $"Starting playlist sync for {results.Count} users.",
             _logger);
 
@@ -91,7 +86,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     syncResult.OldPlaylistsRemoved += removedEmpty;
 
                     _pluginLog.LogDebug(
-                        LogCategory,
+                        "PlaylistSync",
                         $"No recommendations for user '{result.UserName}' - skipping playlist creation.",
                         _logger);
                     continue;
@@ -112,7 +107,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     syncResult.OldPlaylistsRemoved += removedStale;
 
                     _pluginLog.LogDebug(
-                        LogCategory,
+                        "PlaylistSync",
                         $"No playable items resolved for user '{result.UserName}' - skipping playlist creation.",
                         _logger);
                     continue;
@@ -146,7 +141,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     syncResult.TotalItemsAdded += itemIds.Length;
 
                     _pluginLog.LogDebug(
-                        LogCategory,
+                        "PlaylistSync",
                         $"Created playlist '{playlistName}' for user '{result.UserName}' with {itemIds.Length} items.",
                         _logger);
                 }
@@ -154,7 +149,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 {
                     syncResult.PlaylistsFailed++;
                     _pluginLog.LogWarning(
-                        LogCategory,
+                        "PlaylistSync",
                         $"Playlist creation returned empty ID for user '{result.UserName}'.",
                         logger: _logger);
                 }
@@ -167,7 +162,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             {
                 syncResult.PlaylistsFailed++;
                 _pluginLog.LogWarning(
-                    LogCategory,
+                    "PlaylistSync",
                     $"Failed to sync playlist for user '{result.UserName}'.",
                     ex,
                     _logger);
@@ -175,7 +170,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         }
 
         _pluginLog.LogInfo(
-            LogCategory,
+            "PlaylistSync",
             $"Playlist sync complete: {syncResult.PlaylistsCreated} created, {syncResult.OldPlaylistsRemoved} old removed, {syncResult.PlaylistsFailed} failed, {syncResult.TotalItemsAdded} total items.",
             _logger);
 
@@ -189,7 +184,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var users = _userManager.GetUsers().ToList();
 
         _pluginLog.LogInfo(
-            LogCategory,
+            "PlaylistSync",
             $"Removing all recommendation playlists for {users.Count} users...",
             _logger);
 
@@ -209,7 +204,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
-                    LogCategory,
+                    "PlaylistSync",
                     $"Failed to remove playlists for user '{user.Username}'.",
                     ex,
                     _logger);
@@ -217,7 +212,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         }
 
         _pluginLog.LogInfo(
-            LogCategory,
+            "PlaylistSync",
             $"Removed {totalRemoved} recommendation playlists.",
             _logger);
 
@@ -282,7 +277,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 {
                     resolvedIds.Add(firstEpisode.Value);
                     _pluginLog.LogDebug(
-                        LogCategory,
+                        "PlaylistSync",
                         $"Resolved series '{rec.Name}' to first episode (ID: {firstEpisode.Value}).",
                         _logger);
                 }
@@ -291,7 +286,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     // Skip unresolvable series and let the loop pick the next candidate.
                     skippedCount++;
                     _pluginLog.LogDebug(
-                        LogCategory,
+                        "PlaylistSync",
                         $"Could not resolve first episode for series '{rec.Name}' (ID: {rec.ItemId}) - skipping, will backfill.",
                         _logger);
                 }
@@ -306,7 +301,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         if (skippedCount > 0)
         {
             _pluginLog.LogInfo(
-                LogCategory,
+                "PlaylistSync",
                 $"Skipped {skippedCount} unresolvable items during playlist resolution. Resolved {resolvedIds.Count}/{maxItems} items.",
                 _logger);
         }
@@ -394,7 +389,22 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!IsManagedPlaylistName(playlist.Name, expectedName))
+            // Match our managed playlists by exact name or exact name + numeric dedupe suffix
+            // (e.g. "🎬 Recommended for Alice1"). Using StartsWith alone would match
+            // "🎬 Recommended for Al" against "🎬 Recommended for Alice", potentially
+            // deleting another user's playlist.
+            var isManagedName =
+                playlist.Name is not null
+                && (
+                    string.Equals(playlist.Name, expectedName, StringComparison.Ordinal)
+                    || (
+                        playlist.Name.StartsWith(expectedName, StringComparison.Ordinal)
+                        && playlist.Name.Length > expectedName.Length
+                        && playlist.Name[expectedName.Length..].All(char.IsDigit)
+                    )
+                );
+
+            if (!isManagedName)
             {
                 continue;
             }
@@ -405,150 +415,96 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 continue;
             }
 
-            if (TryRemovePlaylist(playlist, userId))
+            // Delete the playlist resiliently. Two hardening points learned from an
+            // orphaned-folder case:
+            //   1. Per-playlist try/catch - a single failure must not abort deleting the
+            //      user's other managed playlists (the caller's catch is per-USER).
+            //   2. DeleteFileLocation=true can THROW when the on-disk playlist folder is
+            //      missing or its path drifted (Jellyfin appends a "1" dedupe suffix when a
+            //      stale folder lingers, so the item's Path may not match a deletable
+            //      location). If it throws, fall back to removing just the DB item
+            //      (DeleteFileLocation=false) so the playlist stops being re-imported on the
+            //      next scan, then best-effort delete the folder ourselves. Leaving the DB
+            //      row behind is what let a "purged" playlist resurrect.
+            try
             {
+                _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = true });
                 removed++;
+                _pluginLog.LogDebug(
+                    "PlaylistSync",
+                    $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
+                    _logger);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                var fellBack = false;
+                try
+                {
+                    // Remove the DB item without touching the file location, so it can't be
+                    // re-imported; then best-effort remove the orphaned folder.
+                    _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = false });
+                    fellBack = true;
+                    var path = playlist.Path;
+
+                    // playlist.Path is DB-sourced and, when a playlist's on-disk folder has
+                    // drifted, may not point where we expect. Before recursively deleting it,
+                    // confirm it resolves strictly INSIDE Jellyfin's own playlists root - never
+                    // the root itself, and never a system/sensitive location. This keeps a
+                    // fallback delete from ever escaping to /config, an OS dir, or another
+                    // library because of a stale/hostile path.
+                    var playlistsRoot = _playlistManager.GetPlaylistsFolder()?.Path;
+                    if (!string.IsNullOrEmpty(path)
+                        && !string.IsNullOrEmpty(playlistsRoot)
+                        && PathValidator.IsSafePath(path, playlistsRoot, _pluginLog)
+                        && !string.Equals(
+                            Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            Path.GetFullPath(playlistsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                        && Directory.Exists(path))
+                    {
+                        Directory.Delete(path, recursive: true);
+                    }
+                    else if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                    {
+                        _pluginLog.LogWarning(
+                            "PlaylistSync",
+                            $"Skipped recursive delete of playlist folder '{path}' (ID: {playlist.Id}): "
+                            + "path is outside the playlists root or is a sensitive location.",
+                            logger: _logger);
+                    }
+                }
+                catch (Exception inner) when (!inner.IsFatal())
+                {
+                    _pluginLog.LogWarning(
+                        "PlaylistSync",
+                        $"Fallback delete for playlist '{playlist.Name}' (ID: {playlist.Id}) partially failed.",
+                        inner,
+                        _logger);
+                }
+
+                if (fellBack)
+                {
+                    removed++;
+                    _pluginLog.LogInfo(
+                        "PlaylistSync",
+                        $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) via DB-item fallback (file location was not deletable).",
+                        _logger);
+                }
+                else
+                {
+                    _pluginLog.LogWarning(
+                        "PlaylistSync",
+                        $"Failed to remove playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
+                        ex,
+                        _logger);
+                }
             }
         }
 
         return removed;
-    }
-
-    /// <summary>
-    ///     Determines whether a playlist name identifies one of this plugin's managed
-    ///     recommendation playlists for the given expected name. Matches the exact name or the
-    ///     exact name followed by a numeric dedupe suffix (e.g. "🎬 Recommended for Alice1").
-    ///     Using StartsWith alone would match "🎬 Recommended for Al" against
-    ///     "🎬 Recommended for Alice", potentially deleting another user's playlist.
-    /// </summary>
-    /// <param name="playlistName">The playlist name to test, or null.</param>
-    /// <param name="expectedName">The expected managed playlist name for the user.</param>
-    /// <returns><see langword="true"/> if the name is a managed playlist name; otherwise <see langword="false"/>.</returns>
-    private static bool IsManagedPlaylistName(string? playlistName, string expectedName)
-    {
-        return playlistName is not null
-            && (
-                string.Equals(playlistName, expectedName, StringComparison.Ordinal)
-                || (
-                    playlistName.StartsWith(expectedName, StringComparison.Ordinal)
-                    && playlistName.Length > expectedName.Length
-                    && playlistName[expectedName.Length..].All(char.IsDigit)
-                )
-            );
-    }
-
-    /// <summary>
-    ///     Deletes a single managed playlist resiliently. Two hardening points learned from an
-    ///     orphaned-folder case:
-    ///     <list type="number">
-    ///         <item>
-    ///             Per-playlist try/catch - a single failure must not abort deleting the
-    ///             user's other managed playlists (the caller's catch is per-USER).
-    ///         </item>
-    ///         <item>
-    ///             DeleteFileLocation=true can THROW when the on-disk playlist folder is
-    ///             missing or its path drifted. If it throws, fall back to removing just the DB
-    ///             item so the playlist stops being re-imported on the next scan, then best-effort
-    ///             delete the folder ourselves.
-    ///         </item>
-    ///     </list>
-    /// </summary>
-    /// <param name="playlist">The playlist item to remove.</param>
-    /// <param name="userId">The owning user ID, used for log context.</param>
-    /// <returns><see langword="true"/> if the playlist was removed (directly or via fallback); otherwise <see langword="false"/>.</returns>
-    private bool TryRemovePlaylist(BaseItem playlist, Guid userId)
-    {
-        try
-        {
-            _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = true });
-            _pluginLog.LogDebug(
-                LogCategory,
-                $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
-                _logger);
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            return RemovePlaylistViaFallback(playlist, userId, ex);
-        }
-    }
-
-    /// <summary>
-    ///     Fallback deletion used when the direct delete throws. Removes the DB item without
-    ///     touching the file location (so it can't be re-imported), then best-effort removes the
-    ///     orphaned folder only when it resolves strictly inside Jellyfin's own playlists root.
-    /// </summary>
-    /// <param name="playlist">The playlist item to remove.</param>
-    /// <param name="userId">The owning user ID, used for log context.</param>
-    /// <param name="originalException">The exception raised by the direct delete attempt.</param>
-    /// <returns><see langword="true"/> if the DB item was removed via fallback; otherwise <see langword="false"/>.</returns>
-    private bool RemovePlaylistViaFallback(BaseItem playlist, Guid userId, Exception originalException)
-    {
-        var fellBack = false;
-        try
-        {
-            // Remove the DB item without touching the file location, so it can't be
-            // re-imported; then best-effort remove the orphaned folder.
-            _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = false });
-            fellBack = true;
-            var path = playlist.Path;
-
-            // playlist.Path is DB-sourced and, when a playlist's on-disk folder has
-            // drifted, may not point where we expect. Before recursively deleting it,
-            // confirm it resolves strictly INSIDE Jellyfin's own playlists root - never
-            // the root itself, and never a system/sensitive location. This keeps a
-            // fallback delete from ever escaping to /config, an OS dir, or another
-            // library because of a stale/hostile path.
-            var playlistsRoot = _playlistManager.GetPlaylistsFolder()?.Path;
-            if (!string.IsNullOrEmpty(path)
-                && !string.IsNullOrEmpty(playlistsRoot)
-                && PathValidator.IsSafePath(path, playlistsRoot, _pluginLog)
-                && !string.Equals(
-                    Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    Path.GetFullPath(playlistsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
-                && Directory.Exists(path))
-            {
-                Directory.Delete(path, recursive: true);
-            }
-            else if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
-            {
-                _pluginLog.LogWarning(
-                    LogCategory,
-                    $"Skipped recursive delete of playlist folder '{path}' (ID: {playlist.Id}): "
-                    + "path is outside the playlists root or is a sensitive location.",
-                    logger: _logger);
-            }
-        }
-        catch (Exception inner) when (!inner.IsFatal())
-        {
-            _pluginLog.LogWarning(
-                LogCategory,
-                $"Fallback delete for playlist '{playlist.Name}' (ID: {playlist.Id}) partially failed.",
-                inner,
-                _logger);
-        }
-
-        if (fellBack)
-        {
-            _pluginLog.LogInfo(
-                LogCategory,
-                $"Removed old playlist '{playlist.Name}' (ID: {playlist.Id}) via DB-item fallback (file location was not deletable).",
-                _logger);
-        }
-        else
-        {
-            _pluginLog.LogWarning(
-                LogCategory,
-                $"Failed to remove playlist '{playlist.Name}' (ID: {playlist.Id}) for user {userId}.",
-                originalException,
-                _logger);
-        }
-
-        return fellBack;
     }
 }

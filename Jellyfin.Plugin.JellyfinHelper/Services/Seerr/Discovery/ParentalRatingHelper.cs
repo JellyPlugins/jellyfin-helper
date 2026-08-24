@@ -78,52 +78,42 @@ internal static class ParentalRatingHelper
         // Must have Family (10751) or Kids (10762) or Music (10402) genre
         if (maxParentalRating.Value <= 60)
         {
-            return ShouldExcludeForChild(candidate);
+            var hasPrimaryChildGenre = false;
+            var hasRestrictedGenre = false;
+
+            foreach (var genreId in candidate.GenreIds)
+            {
+                if (ChildAllowedGenreIds.Contains(genreId))
+                {
+                    hasPrimaryChildGenre = true;
+                }
+
+                if (TeenRestrictedGenreIds.Contains(genreId))
+                {
+                    hasRestrictedGenre = true;
+                }
+            }
+
+            // Must have at least one primary child-safe genre (Family, Kids, Music).
+            // Conditional genres (Animation/Comedy/Adventure/Fantasy) alone are NOT safe
+            // because of adult animation (Family Guy, Archer) and adult comedies.
+            if (!hasPrimaryChildGenre)
+            {
+                return true;
+            }
+
+            // Even with Family genre, still exclude if a restricted genre is present
+            if (hasRestrictedGenre)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         // For young teen accounts (FSK-12): BLACKLIST approach
         // Exclude specific inappropriate genres
         if (maxParentalRating.Value <= 100 && candidate.GenreIds.Any(TeenRestrictedGenreIds.Contains))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    ///     Applies the strict whitelist filter used for child accounts (FSK-6 and below).
-    /// </summary>
-    /// <param name="candidate">The TMDb discover item to check.</param>
-    /// <returns>True if the item should be excluded for a child account, false otherwise.</returns>
-    private static bool ShouldExcludeForChild(TmdbDiscoverItem candidate)
-    {
-        var hasPrimaryChildGenre = false;
-        var hasRestrictedGenre = false;
-
-        foreach (var genreId in candidate.GenreIds)
-        {
-            if (ChildAllowedGenreIds.Contains(genreId))
-            {
-                hasPrimaryChildGenre = true;
-            }
-
-            if (TeenRestrictedGenreIds.Contains(genreId))
-            {
-                hasRestrictedGenre = true;
-            }
-        }
-
-        // Must have at least one primary child-safe genre (Family, Kids, Music).
-        // Conditional genres (Animation/Comedy/Adventure/Fantasy) alone are NOT safe
-        // because of adult animation (Family Guy, Archer) and adult comedies.
-        if (!hasPrimaryChildGenre)
-        {
-            return true;
-        }
-
-        // Even with Family genre, still exclude if a restricted genre is present
-        if (hasRestrictedGenre)
         {
             return true;
         }
