@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -190,7 +191,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(
                 "MediaStatistics",
@@ -219,9 +220,11 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
         catch (IOException)
         {
+            // Intentionally empty: an unreadable path is skipped (best-effort trickplay size scan).
         }
         catch (UnauthorizedAccessException)
         {
+            // Intentionally empty: an inaccessible path is skipped (best-effort trickplay size scan).
         }
 
         return total;
@@ -256,11 +259,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             var files = _fileSystem.GetFiles(directoryPath).ToList();
 
-            var hasVideo = false;
-            var hasSubs = false;
-            var hasImage = false;
-            var hasNfo = false;
-            var hasAnyNonTrickplayFile = false;
+            var flags = new DirectoryFileFlags();
 
             // Collect video files for health checks and metadata extraction
             var videoFiles = new List<FileSystemMetadata>();
@@ -271,176 +270,56 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             foreach (var file in files)
             {
-                var ext = Path.GetExtension(file.FullName);
-                var size = file.Length;
-                // Set for any non-trickplay, non-audio file.
-                // Orphaned-metadata detection uses this flag; audio files are excluded to
-                // avoid false positives in audio-only directories.
-                if (!MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
-                {
-                    hasAnyNonTrickplayFile = true;
-                }
-
-                if (MediaExtensions.VideoExtensions.Contains(ext))
-                {
-                    stats.VideoSize += size;
-                    stats.VideoFileCount++;
-                    hasVideo = true;
-                    containsVideo = true;
-                    videoFiles.Add(file);
-
-                    // Container format tracking (from file extension - this IS the container)
-                    var container = ext.TrimStart('.').ToUpperInvariant();
-                    FileSystemHelper.IncrementCount(stats.ContainerFormats, container);
-                    FileSystemHelper.AccumulateValue(stats.ContainerSizes, container, size);
-                    FileSystemHelper.AddPath(stats.ContainerFormatPaths, container, file.FullName);
-
-                    // Extract metadata from Jellyfin MediaStreams (resolution, codecs, dynamic range)
-                    // and cache the streams for subtitle health checks below
-                    var streams = ExtractVideoMetadata(file.FullName, size, stats, itemLookup);
-                    videoStreamsCache[file.FullName] = streams;
-                }
-                else if (MediaExtensions.SubtitleExtensions.Contains(ext))
-                {
-                    stats.SubtitleSize += size;
-                    stats.SubtitleFileCount++;
-                    hasSubs = true;
-                }
-                else if (MediaExtensions.ImageExtensions.Contains(ext))
-                {
-                    stats.ImageSize += size;
-                    stats.ImageFileCount++;
-                    hasImage = true;
-                }
-                else if (MediaExtensions.NfoExtensions.Contains(ext))
-                {
-                    stats.NfoSize += size;
-                    stats.NfoFileCount++;
-                    hasNfo = true;
-                }
-                else if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
-                {
-                    stats.AudioSize += size;
-                    stats.AudioFileCount++;
-
-                    // Extract music audio codec from Jellyfin metadata with extension fallback
-                    ExtractMusicAudioMetadata(file.FullName, ext, size, stats, itemLookup);
-                }
-                else
-                {
-                    stats.OtherSize += size;
-                    stats.OtherFileCount++;
-                }
+                ClassifyFile(
+                    file,
+                    stats,
+                    itemLookup,
+                    videoFiles,
+                    videoStreamsCache,
+                    flags);
             }
+
+            containsVideo = flags.ContainsVideo;
 
             // Recurse into subdirectories
             var subDirs = _fileSystem.GetDirectories(directoryPath);
-            var subDirHasVideo = false;
 
             var resolvedTrashFolderName = trashFolderName ?? string.Empty;
 
             // resolvedFullTrashPath is computed once at the top-level call site and threaded
             // through every recursive call - no config re-read on each directory.
-            foreach (var subDir in subDirs)
-            {
-                var normalizedSubDirFullName = Path.GetFullPath(subDir.FullName)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var scanContext = new SubdirectoryScanContext(
+                resolvedTrashFolderName,
+                libraryRoot,
+                skipHealthChecks,
+                trashFolderName,
+                resolvedFullTrashPath);
 
-                if (string.Equals(
-                        subDir.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                        resolvedTrashFolderName,
-                        StringComparison.OrdinalIgnoreCase)
-                    || (resolvedFullTrashPath != null && string.Equals(
-                        normalizedSubDirFullName,
-                        resolvedFullTrashPath,
-                        StringComparison.OrdinalIgnoreCase)))
-                {
-                    continue;
-                }
-
-                if (subDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-                {
-                    var trickplaySize = CalculateTrickplaySize(subDir.FullName);
-                    stats.TrickplaySize += trickplaySize;
-                    stats.TrickplayFolderCount++;
-                }
-                else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, libraryRoot, skipHealthChecks, trashFolderName, resolvedFullTrashPath))
-                {
-                    subDirHasVideo = true;
-                    containsVideo = true;
-                }
-            }
+            var subDirHasVideo = ScanSubdirectories(
+                subDirs,
+                stats,
+                itemLookup,
+                scanContext,
+                ref containsVideo);
 
             // Health checks - per-directory analysis
             // Boxset/collection libraries are excluded: they are Jellyfin-internal virtual folders
             // that group related movies and typically only contain posters/images, not real media.
             if (!skipHealthChecks)
             {
-                if (hasVideo)
+                if (flags.HasVideo)
                 {
-                    var videoCount = videoFiles.Count;
-
-                    // Build a set of video stems that have a matching sidecar subtitle file
-                    var subsStems = files
-                        .Where(f => MediaExtensions.SubtitleExtensions.Contains(Path.GetExtension(f.FullName)))
-                        .Select(f => Path.GetFileNameWithoutExtension(f.FullName))
-                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                    foreach (var vf2 in videoFiles)
-                    {
-                        var videoStem = Path.GetFileNameWithoutExtension(vf2.FullName);
-                        var hasSidecar = subsStems.Any(s =>
-                            string.Equals(s, videoStem, StringComparison.OrdinalIgnoreCase) ||
-                            s.StartsWith(videoStem + ".", StringComparison.OrdinalIgnoreCase));
-                        if (!hasSidecar &&
-                            !HasEmbeddedSubtitles(vf2.FullName, videoStreamsCache.GetValueOrDefault(vf2.FullName)))
-                        {
-                            stats.VideosWithoutSubtitles++;
-                            stats.VideosWithoutSubtitlesPaths.Add(vf2.FullName);
-                        }
-                    }
-
-                    if (!hasImage)
-                    {
-                        stats.VideosWithoutImages += videoCount;
-                        foreach (var vf2 in videoFiles)
-                        {
-                            stats.VideosWithoutImagesPaths.Add(vf2.FullName);
-                        }
-                    }
-
-                    if (!hasNfo)
-                    {
-                        stats.VideosWithoutNfo += videoCount;
-                        foreach (var vf2 in videoFiles)
-                        {
-                            stats.VideosWithoutNfoPaths.Add(vf2.FullName);
-                        }
-                    }
+                    RecordVideoHealth(
+                        stats,
+                        files,
+                        videoFiles,
+                        videoStreamsCache,
+                        flags.HasImage,
+                        flags.HasNfo);
                 }
-                else if (hasAnyNonTrickplayFile && (hasSubs || hasImage || hasNfo))
+                else if (flags.HasAnyNonTrickplayFile && (flags.HasSubs || flags.HasImage || flags.HasNfo))
                 {
-                    // Special case for TV Shows: Don't mark as orphaned if it contains subdirectories with videos
-                    // (e.g. "Series 1" folder containing "Season 01")
-                    // OR if it is a known TV show container folder (Specials, Season XX)
-                    var isTvShow = string.Equals(stats.CollectionType, "tvshows", StringComparison.OrdinalIgnoreCase);
-                    var isTvContainer = false;
-                    if (isTvShow)
-                    {
-                        var dirName = Path.GetFileName(directoryPath);
-                        if (string.Equals(dirName, "Specials", StringComparison.OrdinalIgnoreCase) ||
-                            dirName.StartsWith("Season ", StringComparison.OrdinalIgnoreCase) ||
-                            dirName.StartsWith("Staffel ", StringComparison.OrdinalIgnoreCase))
-                        {
-                            isTvContainer = true;
-                        }
-                    }
-
-                    if (!isTvShow || (!subDirHasVideo && !isTvContainer))
-                    {
-                        stats.OrphanedMetadataDirectories++;
-                        stats.OrphanedMetadataDirectoriesPaths.Add(directoryPath);
-                    }
+                    RecordOrphanedMetadata(stats, directoryPath, subDirHasVideo);
                 }
             }
         }
@@ -450,6 +329,236 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
 
         return containsVideo;
+    }
+
+    /// <summary>
+    ///     Classifies a single file by extension and accumulates its size/count into the
+    ///     statistics, updating the per-directory presence flags. Extracted verbatim from the
+    ///     file loop of <see cref="AnalyzeDirectoryRecursive"/>.
+    /// </summary>
+    /// <param name="file">The file to classify.</param>
+    /// <param name="stats">The statistics accumulator.</param>
+    /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
+    /// <param name="videoFiles">Accumulator of video files for later health checks.</param>
+    /// <param name="videoStreamsCache">Cache of media streams keyed by video file path.</param>
+    /// <param name="flags">The per-directory presence flags updated as files are classified.</param>
+    private void ClassifyFile(
+        FileSystemMetadata file,
+        LibraryStatistics stats,
+        Dictionary<string, BaseItem> itemLookup,
+        List<FileSystemMetadata> videoFiles,
+        Dictionary<string, IReadOnlyList<MediaStream>?> videoStreamsCache,
+        DirectoryFileFlags flags)
+    {
+        var ext = Path.GetExtension(file.FullName);
+        var size = file.Length;
+        // Set for any non-trickplay, non-audio file.
+        // Orphaned-metadata detection uses this flag; audio files are excluded to
+        // avoid false positives in audio-only directories.
+        if (!MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
+        {
+            flags.HasAnyNonTrickplayFile = true;
+        }
+
+        if (MediaExtensions.VideoExtensions.Contains(ext))
+        {
+            stats.VideoSize += size;
+            stats.VideoFileCount++;
+            flags.HasVideo = true;
+            flags.ContainsVideo = true;
+            videoFiles.Add(file);
+
+            // Container format tracking (from file extension - this IS the container)
+            var container = ext.TrimStart('.').ToUpperInvariant();
+            FileSystemHelper.IncrementCount(stats.ContainerFormats, container);
+            FileSystemHelper.AccumulateValue(stats.ContainerSizes, container, size);
+            FileSystemHelper.AddPath(stats.ContainerFormatPaths, container, file.FullName);
+
+            // Extract metadata from Jellyfin MediaStreams (resolution, codecs, dynamic range)
+            // and cache the streams for subtitle health checks below
+            var streams = ExtractVideoMetadata(file.FullName, size, stats, itemLookup);
+            videoStreamsCache[file.FullName] = streams;
+        }
+        else if (MediaExtensions.SubtitleExtensions.Contains(ext))
+        {
+            stats.SubtitleSize += size;
+            stats.SubtitleFileCount++;
+            flags.HasSubs = true;
+        }
+        else if (MediaExtensions.ImageExtensions.Contains(ext))
+        {
+            stats.ImageSize += size;
+            stats.ImageFileCount++;
+            flags.HasImage = true;
+        }
+        else if (MediaExtensions.NfoExtensions.Contains(ext))
+        {
+            stats.NfoSize += size;
+            stats.NfoFileCount++;
+            flags.HasNfo = true;
+        }
+        else if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
+        {
+            stats.AudioSize += size;
+            stats.AudioFileCount++;
+
+            // Extract music audio codec from Jellyfin metadata with extension fallback
+            ExtractMusicAudioMetadata(file.FullName, ext, size, stats, itemLookup);
+        }
+        else
+        {
+            stats.OtherSize += size;
+            stats.OtherFileCount++;
+        }
+    }
+
+    /// <summary>
+    ///     Iterates the subdirectories of the current directory, skipping the trash folder,
+    ///     accumulating trickplay statistics, and recursing into the rest. Extracted verbatim
+    ///     from the subdirectory loop of <see cref="AnalyzeDirectoryRecursive"/>.
+    /// </summary>
+    /// <param name="subDirs">The subdirectories to scan.</param>
+    /// <param name="stats">The statistics accumulator.</param>
+    /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
+    /// <param name="scanContext">The trash-resolution and recursion context.</param>
+    /// <param name="containsVideo">Set true when any recursed subdirectory contained a video.</param>
+    /// <returns><c>true</c> when at least one subdirectory contained a video.</returns>
+    private bool ScanSubdirectories(
+        IEnumerable<FileSystemMetadata> subDirs,
+        LibraryStatistics stats,
+        Dictionary<string, BaseItem> itemLookup,
+        SubdirectoryScanContext scanContext,
+        ref bool containsVideo)
+    {
+        var subDirHasVideo = false;
+
+        foreach (var subDir in subDirs)
+        {
+            var normalizedSubDirFullName = Path.GetFullPath(subDir.FullName)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            if (string.Equals(
+                    subDir.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    scanContext.ResolvedTrashFolderName,
+                    StringComparison.OrdinalIgnoreCase)
+                || (scanContext.ResolvedFullTrashPath != null && string.Equals(
+                    normalizedSubDirFullName,
+                    scanContext.ResolvedFullTrashPath,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (subDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+            {
+                var trickplaySize = CalculateTrickplaySize(subDir.FullName);
+                stats.TrickplaySize += trickplaySize;
+                stats.TrickplayFolderCount++;
+            }
+            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, scanContext.LibraryRoot, scanContext.SkipHealthChecks, scanContext.TrashFolderName, scanContext.ResolvedFullTrashPath))
+            {
+                subDirHasVideo = true;
+                containsVideo = true;
+            }
+        }
+
+        return subDirHasVideo;
+    }
+
+    /// <summary>
+    ///     Records video-directory health statistics (missing subtitles, images, NFO) for a
+    ///     directory that contains at least one video. Extracted verbatim from the health-check
+    ///     block of <see cref="AnalyzeDirectoryRecursive"/>.
+    /// </summary>
+    /// <param name="stats">The statistics accumulator.</param>
+    /// <param name="files">All files in the current directory.</param>
+    /// <param name="videoFiles">The video files in the current directory.</param>
+    /// <param name="videoStreamsCache">Cache of media streams keyed by video file path.</param>
+    /// <param name="hasImage">Whether the directory contains an image file.</param>
+    /// <param name="hasNfo">Whether the directory contains an NFO file.</param>
+    private void RecordVideoHealth(
+        LibraryStatistics stats,
+        List<FileSystemMetadata> files,
+        List<FileSystemMetadata> videoFiles,
+        Dictionary<string, IReadOnlyList<MediaStream>?> videoStreamsCache,
+        bool hasImage,
+        bool hasNfo)
+    {
+        var videoCount = videoFiles.Count;
+
+        // Build a set of video stems that have a matching sidecar subtitle file
+        var subsStems = files
+            .Where(f => MediaExtensions.SubtitleExtensions.Contains(Path.GetExtension(f.FullName)))
+            .Select(f => Path.GetFileNameWithoutExtension(f.FullName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var vf2 in videoFiles)
+        {
+            var videoStem = Path.GetFileNameWithoutExtension(vf2.FullName);
+            var hasSidecar = subsStems.Any(s =>
+                string.Equals(s, videoStem, StringComparison.OrdinalIgnoreCase) ||
+                s.StartsWith(videoStem + ".", StringComparison.OrdinalIgnoreCase));
+            if (!hasSidecar &&
+                !HasEmbeddedSubtitles(vf2.FullName, videoStreamsCache.GetValueOrDefault(vf2.FullName)))
+            {
+                stats.VideosWithoutSubtitles++;
+                stats.VideosWithoutSubtitlesPaths.Add(vf2.FullName);
+            }
+        }
+
+        if (!hasImage)
+        {
+            stats.VideosWithoutImages += videoCount;
+            foreach (var vf2 in videoFiles)
+            {
+                stats.VideosWithoutImagesPaths.Add(vf2.FullName);
+            }
+        }
+
+        if (!hasNfo)
+        {
+            stats.VideosWithoutNfo += videoCount;
+            foreach (var vf2 in videoFiles)
+            {
+                stats.VideosWithoutNfoPaths.Add(vf2.FullName);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Records an orphaned-metadata directory (metadata-only, no video) unless it is a
+    ///     TV show container folder. Extracted verbatim from the health-check block of
+    ///     <see cref="AnalyzeDirectoryRecursive"/>.
+    /// </summary>
+    /// <param name="stats">The statistics accumulator.</param>
+    /// <param name="directoryPath">The directory being analyzed.</param>
+    /// <param name="subDirHasVideo">Whether any subdirectory contained a video.</param>
+    private static void RecordOrphanedMetadata(
+        LibraryStatistics stats,
+        string directoryPath,
+        bool subDirHasVideo)
+    {
+        // Special case for TV Shows: Don't mark as orphaned if it contains subdirectories with videos
+        // (e.g. "Series 1" folder containing "Season 01")
+        // OR if it is a known TV show container folder (Specials, Season XX)
+        var isTvShow = string.Equals(stats.CollectionType, "tvshows", StringComparison.OrdinalIgnoreCase);
+        var isTvContainer = false;
+        if (isTvShow)
+        {
+            var dirName = Path.GetFileName(directoryPath);
+            if (string.Equals(dirName, "Specials", StringComparison.OrdinalIgnoreCase) ||
+                dirName.StartsWith("Season ", StringComparison.OrdinalIgnoreCase) ||
+                dirName.StartsWith("Staffel ", StringComparison.OrdinalIgnoreCase))
+            {
+                isTvContainer = true;
+            }
+        }
+
+        if (!isTvShow || (!subDirHasVideo && !isTvContainer))
+        {
+            stats.OrphanedMetadataDirectories++;
+            stats.OrphanedMetadataDirectoriesPaths.Add(directoryPath);
+        }
     }
 
     /// <summary>
@@ -474,7 +583,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             return _libraryManager.FindByPath(filePath, false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
                 "MediaStatistics",
@@ -496,7 +605,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             return item.GetMediaStreams();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
                 "MediaStatistics",
@@ -847,5 +956,48 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
 
         return "AAC";
+    }
+
+    /// <summary>
+    ///     Groups the trash-resolution and recursion context threaded through
+    ///     <see cref="ScanSubdirectories" /> and the recursive analysis, keeping the parameter
+    ///     count within bounds without changing behaviour.
+    /// </summary>
+    /// <param name="ResolvedTrashFolderName">The resolved trash folder name (empty when unset).</param>
+    /// <param name="LibraryRoot">The library root path (used for trash folder resolution).</param>
+    /// <param name="SkipHealthChecks">When true, skip health check counters.</param>
+    /// <param name="TrashFolderName">Pre-resolved trash folder name, threaded through recursion.</param>
+    /// <param name="ResolvedFullTrashPath">The normalized absolute trash path for this library root.</param>
+    private readonly record struct SubdirectoryScanContext(
+        string ResolvedTrashFolderName,
+        string? LibraryRoot,
+        bool SkipHealthChecks,
+        string? TrashFolderName,
+        string? ResolvedFullTrashPath);
+
+    /// <summary>
+    ///     Mutable per-directory presence flags accumulated while classifying the files of a
+    ///     single directory. Grouped into one object so <see cref="ClassifyFile" /> can update
+    ///     them without an unwieldy list of <c>ref bool</c> parameters.
+    /// </summary>
+    private sealed class DirectoryFileFlags
+    {
+        /// <summary>Gets or sets a value indicating whether the directory contains a video file.</summary>
+        public bool HasVideo { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory contains a subtitle file.</summary>
+        public bool HasSubs { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory contains an image file.</summary>
+        public bool HasImage { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory contains an NFO file.</summary>
+        public bool HasNfo { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory contains any non-audio (non-trickplay) file.</summary>
+        public bool HasAnyNonTrickplayFile { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the directory (or a recursed subdirectory) contains a video.</summary>
+        public bool ContainsVideo { get; set; }
     }
 }

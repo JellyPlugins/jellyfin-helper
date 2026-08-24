@@ -86,6 +86,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// <inheritdoc />
     public void RecordShown(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items)
     {
+        ArgumentNullException.ThrowIfNull(userName);
+        ArgumentNullException.ThrowIfNull(items);
+
         if (items.Count == 0)
         {
             return;
@@ -229,6 +232,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// <inheritdoc />
     public void MarkWatched(Guid userId, IReadOnlySet<(int TmdbId, string MediaType)> watchedItems)
     {
+        ArgumentNullException.ThrowIfNull(watchedItems);
+
         if (watchedItems.Count == 0)
         {
             return;
@@ -601,7 +606,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         {
             if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug("Unexpected mediaType value '{Value}' normalized to 'movie'.", mediaType?.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' '));
+                _logger.LogDebug("Unexpected mediaType value '{Value}' normalized to 'movie'.", mediaType.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' '));
             }
 
             return "movie";

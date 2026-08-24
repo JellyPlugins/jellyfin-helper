@@ -37,6 +37,7 @@ public static class FileSystemHelper
                     }
                     catch (IOException)
                     {
+                        // Intentionally empty: skip an unreadable file and keep summing the rest.
                     }
                 }
 
@@ -52,9 +53,11 @@ public static class FileSystemHelper
             }
             catch (IOException)
             {
+                // Intentionally empty: an unreadable directory is skipped (best-effort size scan).
             }
             catch (UnauthorizedAccessException)
             {
+                // Intentionally empty: an inaccessible directory is skipped (best-effort size scan).
             }
         }
 

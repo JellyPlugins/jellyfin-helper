@@ -13,6 +13,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 /// </summary>
 public class BackupData
 {
+    private const string DefaultTaskMode = "DryRun";
+
     /// <summary>
     ///     Gets or sets the backup format version. Used for future compatibility checks.
     /// </summary>
@@ -71,25 +73,25 @@ public class BackupData
     ///     Gets or sets the Trickplay task mode.
     /// </summary>
     [JsonPropertyName("trickplayTaskMode")]
-    public string TrickplayTaskMode { get; set; } = "DryRun";
+    public string TrickplayTaskMode { get; set; } = DefaultTaskMode;
 
     /// <summary>
     ///     Gets or sets the Empty Media Folder task mode.
     /// </summary>
     [JsonPropertyName("emptyMediaFolderTaskMode")]
-    public string EmptyMediaFolderTaskMode { get; set; } = "DryRun";
+    public string EmptyMediaFolderTaskMode { get; set; } = DefaultTaskMode;
 
     /// <summary>
     ///     Gets or sets the Orphaned Subtitle task mode.
     /// </summary>
     [JsonPropertyName("orphanedSubtitleTaskMode")]
-    public string OrphanedSubtitleTaskMode { get; set; } = "DryRun";
+    public string OrphanedSubtitleTaskMode { get; set; } = DefaultTaskMode;
 
     /// <summary>
     ///     Gets or sets the Link Repair task mode.
     /// </summary>
     [JsonPropertyName("linkRepairTaskMode")]
-    public string LinkRepairTaskMode { get; set; } = "DryRun";
+    public string LinkRepairTaskMode { get; set; } = DefaultTaskMode;
 
     // === Trash Settings ===
 
@@ -168,7 +170,7 @@ public class BackupData
     ///     Gets or sets the Recommendations task mode.
     /// </summary>
     [JsonPropertyName("recommendationsTaskMode")]
-    public string RecommendationsTaskMode { get; set; } = "DryRun";
+    public string RecommendationsTaskMode { get; set; } = DefaultTaskMode;
 
     /// <summary>
     ///     Gets or sets a value indicating whether recommendation results are synced

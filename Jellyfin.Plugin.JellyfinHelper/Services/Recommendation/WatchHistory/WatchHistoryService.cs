@@ -210,123 +210,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            // Billed cast/directors for this item, cached as aligned name/weight lists so the training
-            // path can compute BillingWeightedPeople with the same shared helper the live path uses
-            // (closes the organic/aggregated-series train/serve gap that previously hardcoded 0.0).
-            // Resolved ONLY for non-episode items (movies + series), which are exactly the item types
-            // that appear as live scoring candidates - episodes never do. Skipping episodes also
-            // preserves the invariant that people are aggregated at series level, never per episode
-            // (GetPeople is never called on an Episode), avoiding guest-cast noise.
-            IReadOnlyList<PersonInfo>? itemPeople = null;
-            if (item is not Episode)
-            {
-                try
-                {
-                    itemPeople = _libraryManager.GetPeople(item);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (!ex.IsFatal())
-                {
-                    itemPeople = null;
-                }
-            }
-
-            var (billedNames, billedWeights) = SimilarityComputer.ExtractBilledPeople(itemPeople);
-
-            var watchedItem = new WatchedItemInfo
-            {
-                ItemId = item.Id,
-                Name = item.Name ?? string.Empty,
-                ItemType = item.GetType().Name,
-                PlayCount = userData.PlayCount,
-                LastPlayedDate = userData.LastPlayedDate,
-                PlaybackPositionTicks = userData.PlaybackPositionTicks,
-                RuntimeTicks = item.RunTimeTicks ?? 0,
-                Played = userData.Played,
-                IsFavorite = userData.IsFavorite,
-                UserRating = userData.Rating,
-                CommunityRating = item.CommunityRating,
-                Genres = item.Genres ?? [],
-                Year = item.ProductionYear,
-                SeriesId = item is Episode ep ? (ep.SeriesId != Guid.Empty ? ep.SeriesId : null) : null,
-                DateCreated = item.DateCreated,
-                PrimaryImageTag = null,
-                PeopleNames = billedNames,
-                PeopleWeights = billedWeights,
-
-                // Content-affinity source fields. Populated here on the watched side so the preference
-                // builders (franchise/country/inherited-tag/writer/series-completability) have real
-                // signal to compare live candidates against - extracted with the exact same shared,
-                // library-free resolvers the live scoring and precompute paths use, guaranteeing parity.
-                // WriterNames reuses the people list already fetched above (no extra GetPeople call).
-                TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
-                ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(item),
-                InheritedTags = ContentAffinityResolver.ResolveInheritedTags(item),
-                SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(item),
-                EndDate = ContentAffinityResolver.ResolveSeriesEndDate(item),
-                WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
-            };
-
-            profile.WatchedItems.Add(watchedItem);
-
-            // Accumulate statistics
-            if (userData.Played)
-            {
-                if (item is Movie)
-                {
-                    profile.WatchedMovieCount++;
-                }
-                else if (item is Episode episode)
-                {
-                    profile.WatchedEpisodeCount++;
-                    if (episode.SeriesId != Guid.Empty)
-                    {
-                        watchedSeriesIds.Add(episode.SeriesId);
-                    }
-                }
-
-                // Add runtime to total watch time
-                if (item.RunTimeTicks.HasValue)
-                {
-                    profile.TotalWatchTimeTicks += item.RunTimeTicks.Value;
-                }
-            }
-
-            // Track genre distribution
-            if (item.Genres is not null)
-            {
-                foreach (var genre in item.Genres)
-                {
-                    if (!string.IsNullOrWhiteSpace(genre))
-                    {
-                        profile.GenreDistribution.TryGetValue(genre, out var count);
-                        profile.GenreDistribution[genre] = count + 1;
-                    }
-                }
-            }
-
-            // Track favorites
-            if (userData.IsFavorite)
-            {
-                profile.FavoriteCount++;
-            }
-
-            // Track community rating for average
-            if (item.CommunityRating.HasValue)
-            {
-                ratingSum += item.CommunityRating.Value;
-                ratingCount++;
-            }
-
-            // Track last activity
-            if (userData.LastPlayedDate.HasValue &&
-                (!profile.LastActivityDate.HasValue || userData.LastPlayedDate > profile.LastActivityDate))
-            {
-                profile.LastActivityDate = userData.LastPlayedDate;
-            }
+            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, ref ratingSum, ref ratingCount);
         }
 
         // Check series-level favorites: users can favorite an entire series in Jellyfin
@@ -342,75 +226,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             var seriesUserData = LookupUserData(seriesUserDataLookup, series, user);
             if (seriesUserData is not null && seriesUserData.IsFavorite)
             {
-                profile.FavoriteSeriesIds.Add(series.Id);
-                profile.FavoriteCount++;
-
-                // Create a synthetic WatchedItemInfo so that the series' genres, year,
-                // and community rating flow into PreferenceBuilder.BuildGenrePreferenceVector()
-                // with the FavoriteGenreBoostFactor (3×). Without this, favoriting a series
-                // only populates FavoriteSeriesIds (used for candidate exclusion) but does NOT
-                // influence genre preferences, studio preferences, or training labels.
-                IReadOnlyList<PersonInfo>? seriesPeople;
-                try
-                {
-                    seriesPeople = _libraryManager.GetPeople(series);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (!ex.IsFatal())
-                {
-                    seriesPeople = null;
-                }
-
-                var (favBilledNames, favBilledWeights) = SimilarityComputer.ExtractBilledPeople(seriesPeople);
-
-                profile.WatchedItems.Add(new WatchedItemInfo
-                {
-                    ItemId = series.Id,
-                    Name = series.Name ?? string.Empty,
-                    ItemType = nameof(Series),
-                    PlayCount = 0,
-                    LastPlayedDate = null,
-                    PlaybackPositionTicks = 0,
-                    RuntimeTicks = 0,
-                    Played = false,
-                    IsFavorite = true,
-                    UserRating = seriesUserData.Rating,
-                    CommunityRating = series.CommunityRating,
-                    Genres = series.Genres ?? [],
-                    Year = series.ProductionYear,
-                    SeriesId = null, // This IS the series itself, not an episode
-                    DateCreated = series.DateCreated,
-                    PrimaryImageTag = null,
-                    PeopleNames = favBilledNames,
-                    PeopleWeights = favBilledWeights,
-
-                    // Content-affinity source fields for the favorited series, using the same shared
-                    // resolvers as the primary loop so a favorited series contributes franchise/country/
-                    // inherited-tag/writer/completability preference signal identically to a watched item.
-                    // WriterNames reuses seriesPeople (already fetched); SeriesStatus/EndDate are real here.
-                    TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(series),
-                    ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(series),
-                    InheritedTags = ContentAffinityResolver.ResolveInheritedTags(series),
-                    SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),
-                    EndDate = ContentAffinityResolver.ResolveSeriesEndDate(series),
-                    WriterNames = ContentAffinityResolver.ExtractWriterNames(seriesPeople)
-                });
-
-                // Also accumulate genre distribution for series-level favorites
-                if (series.Genres is not null)
-                {
-                    foreach (var genre in series.Genres)
-                    {
-                        if (!string.IsNullOrWhiteSpace(genre))
-                        {
-                            profile.GenreDistribution.TryGetValue(genre, out var count);
-                            profile.GenreDistribution[genre] = count + 1;
-                        }
-                    }
-                }
+                AccumulateFavoriteSeries(profile, series, seriesUserData);
             }
         }
 
@@ -421,7 +237,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         BuildLanguageProfiles(profile, user, allItems, itemUserDataLookup);
 
         // Build people (actors/directors) profile from BaseItem.People metadata
-        BuildPeopleProfile(profile, user, allItems, allSeries);
+        BuildPeopleProfile(profile, allItems, allSeries);
 
         profile.WatchedSeriesCount = watchedSeriesIds.Count;
         profile.AverageCommunityRating = ratingCount > 0 ? Math.Round(ratingSum / ratingCount, 1) : 0;
@@ -434,6 +250,270 @@ public sealed class WatchHistoryService : IWatchHistoryService
             _logger);
 
         return profile;
+    }
+
+    /// <summary>
+    ///     Builds a <see cref="WatchedItemInfo"/> for an interacted library item and folds its
+    ///     statistics (watch counts, runtime, genres, favorites, ratings, last activity) into the
+    ///     profile. Extracted verbatim from the primary watched-items loop in <see cref="BuildProfile"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="item">The library item the user interacted with.</param>
+    /// <param name="userData">The user data for the item.</param>
+    /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
+    /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
+    /// <param name="ratingCount">Running community-rating count (updated in place).</param>
+    private void AccumulateWatchedItem(
+        UserWatchProfile profile,
+        BaseItem item,
+        UserItemData userData,
+        HashSet<Guid> watchedSeriesIds,
+        ref double ratingSum,
+        ref int ratingCount)
+    {
+        // Billed cast/directors for this item, cached as aligned name/weight lists so the training
+        // path can compute BillingWeightedPeople with the same shared helper the live path uses
+        // (closes the organic/aggregated-series train/serve gap that previously hardcoded 0.0).
+        // Resolved ONLY for non-episode items (movies + series), which are exactly the item types
+        // that appear as live scoring candidates - episodes never do. Skipping episodes also
+        // preserves the invariant that people are aggregated at series level, never per episode
+        // (GetPeople is never called on an Episode), avoiding guest-cast noise.
+        var itemPeople = ResolveWatchedItemPeople(item);
+
+        var (billedNames, billedWeights) = SimilarityComputer.ExtractBilledPeople(itemPeople);
+
+        Guid? seriesId = null;
+        if (item is Episode ep)
+        {
+            seriesId = ep.SeriesId != Guid.Empty ? ep.SeriesId : null;
+        }
+
+        var watchedItem = new WatchedItemInfo
+        {
+            ItemId = item.Id,
+            Name = item.Name ?? string.Empty,
+            ItemType = item.GetType().Name,
+            PlayCount = userData.PlayCount,
+            LastPlayedDate = userData.LastPlayedDate,
+            PlaybackPositionTicks = userData.PlaybackPositionTicks,
+            RuntimeTicks = item.RunTimeTicks ?? 0,
+            Played = userData.Played,
+            IsFavorite = userData.IsFavorite,
+            UserRating = userData.Rating,
+            CommunityRating = item.CommunityRating,
+            Genres = item.Genres ?? [],
+            Year = item.ProductionYear,
+            SeriesId = seriesId,
+            DateCreated = item.DateCreated,
+            PrimaryImageTag = null,
+            PeopleNames = billedNames,
+            PeopleWeights = billedWeights,
+
+            // Content-affinity source fields. Populated here on the watched side so the preference
+            // builders (franchise/country/inherited-tag/writer/series-completability) have real
+            // signal to compare live candidates against - extracted with the exact same shared,
+            // library-free resolvers the live scoring and precompute paths use, guaranteeing parity.
+            // WriterNames reuses the people list already fetched above (no extra GetPeople call).
+            TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
+            ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(item),
+            InheritedTags = ContentAffinityResolver.ResolveInheritedTags(item),
+            SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(item),
+            EndDate = ContentAffinityResolver.ResolveSeriesEndDate(item),
+            WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
+        };
+
+        profile.WatchedItems.Add(watchedItem);
+
+        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, ref ratingSum, ref ratingCount);
+    }
+
+    /// <summary>
+    ///     Resolves the billed cast/directors for a watched item, returning <c>null</c> for episodes
+    ///     (people are aggregated at series level, never per episode) and swallowing non-fatal lookup
+    ///     failures. Extracted verbatim from the people-resolution block of
+    ///     <see cref="AccumulateWatchedItem"/>.
+    /// </summary>
+    /// <param name="item">The library item to resolve people for.</param>
+    /// <returns>The item's people, or <c>null</c> when the item is an episode or lookup fails.</returns>
+    private IReadOnlyList<PersonInfo>? ResolveWatchedItemPeople(BaseItem item)
+    {
+        if (item is Episode)
+        {
+            return null;
+        }
+
+        try
+        {
+            return _libraryManager.GetPeople(item);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     Folds a watched item's statistics (played counts, runtime, genres, favorites, community
+    ///     rating, last activity) into the profile. Extracted verbatim from the statistics-accumulation
+    ///     block of <see cref="AccumulateWatchedItem"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="item">The library item the user interacted with.</param>
+    /// <param name="userData">The user data for the item.</param>
+    /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
+    /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
+    /// <param name="ratingCount">Running community-rating count (updated in place).</param>
+    private static void AccumulateWatchedItemStatistics(
+        UserWatchProfile profile,
+        BaseItem item,
+        UserItemData userData,
+        HashSet<Guid> watchedSeriesIds,
+        ref double ratingSum,
+        ref int ratingCount)
+    {
+        // Accumulate statistics
+        if (userData.Played)
+        {
+            if (item is Movie)
+            {
+                profile.WatchedMovieCount++;
+            }
+            else if (item is Episode episode)
+            {
+                profile.WatchedEpisodeCount++;
+                if (episode.SeriesId != Guid.Empty)
+                {
+                    watchedSeriesIds.Add(episode.SeriesId);
+                }
+            }
+
+            // Add runtime to total watch time
+            if (item.RunTimeTicks.HasValue)
+            {
+                profile.TotalWatchTimeTicks += item.RunTimeTicks.Value;
+            }
+        }
+
+        // Track genre distribution
+        AccumulateGenreDistribution(profile, item.Genres);
+
+        // Track favorites
+        if (userData.IsFavorite)
+        {
+            profile.FavoriteCount++;
+        }
+
+        // Track community rating for average
+        if (item.CommunityRating.HasValue)
+        {
+            ratingSum += item.CommunityRating.Value;
+            ratingCount++;
+        }
+
+        // Track last activity
+        if (userData.LastPlayedDate.HasValue &&
+            (!profile.LastActivityDate.HasValue || userData.LastPlayedDate > profile.LastActivityDate))
+        {
+            profile.LastActivityDate = userData.LastPlayedDate;
+        }
+    }
+
+    /// <summary>
+    ///     Records a favorited series into the profile: adds it to <c>FavoriteSeriesIds</c>, appends
+    ///     a synthetic <see cref="WatchedItemInfo"/> so its metadata influences preference vectors, and
+    ///     folds its genres into the distribution. Extracted verbatim from the series loop in
+    ///     <see cref="BuildProfile"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="series">The favorited series item.</param>
+    /// <param name="seriesUserData">The user data for the series (already known favorite).</param>
+    private void AccumulateFavoriteSeries(
+        UserWatchProfile profile,
+        BaseItem series,
+        UserItemData seriesUserData)
+    {
+        profile.FavoriteSeriesIds.Add(series.Id);
+        profile.FavoriteCount++;
+
+        // Create a synthetic WatchedItemInfo so that the series' genres, year,
+        // and community rating flow into PreferenceBuilder.BuildGenrePreferenceVector()
+        // with the FavoriteGenreBoostFactor (3×). Without this, favoriting a series
+        // only populates FavoriteSeriesIds (used for candidate exclusion) but does NOT
+        // influence genre preferences, studio preferences, or training labels.
+        IReadOnlyList<PersonInfo>? seriesPeople;
+        try
+        {
+            seriesPeople = _libraryManager.GetPeople(series);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            seriesPeople = null;
+        }
+
+        var (favBilledNames, favBilledWeights) = SimilarityComputer.ExtractBilledPeople(seriesPeople);
+
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = series.Id,
+            Name = series.Name ?? string.Empty,
+            ItemType = nameof(Series),
+            PlayCount = 0,
+            LastPlayedDate = null,
+            PlaybackPositionTicks = 0,
+            RuntimeTicks = 0,
+            Played = false,
+            IsFavorite = true,
+            UserRating = seriesUserData.Rating,
+            CommunityRating = series.CommunityRating,
+            Genres = series.Genres ?? [],
+            Year = series.ProductionYear,
+            SeriesId = null, // This IS the series itself, not an episode
+            DateCreated = series.DateCreated,
+            PrimaryImageTag = null,
+            PeopleNames = favBilledNames,
+            PeopleWeights = favBilledWeights,
+
+            // Content-affinity source fields for the favorited series, using the same shared
+            // resolvers as the primary loop so a favorited series contributes franchise/country/
+            // inherited-tag/writer/completability preference signal identically to a watched item.
+            // WriterNames reuses seriesPeople (already fetched); SeriesStatus/EndDate are real here.
+            TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(series),
+            ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(series),
+            InheritedTags = ContentAffinityResolver.ResolveInheritedTags(series),
+            SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),
+            EndDate = ContentAffinityResolver.ResolveSeriesEndDate(series),
+            WriterNames = ContentAffinityResolver.ExtractWriterNames(seriesPeople)
+        });
+
+        // Also accumulate genre distribution for series-level favorites
+        AccumulateGenreDistribution(profile, series.Genres);
+    }
+
+    /// <summary>
+    ///     Folds an item's genres into the profile's genre distribution, skipping null/whitespace
+    ///     entries. Extracted verbatim from the two identical genre-distribution blocks in
+    ///     <see cref="BuildProfile"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="genres">The item's genres, or <c>null</c>.</param>
+    private static void AccumulateGenreDistribution(UserWatchProfile profile, IReadOnlyList<string>? genres)
+    {
+        if (genres is not null)
+        {
+            foreach (var genre in genres.Where(genre => !string.IsNullOrWhiteSpace(genre)))
+            {
+                profile.GenreDistribution.TryGetValue(genre, out var count);
+                profile.GenreDistribution[genre] = count + 1;
+            }
+        }
     }
 
     /// <summary>
@@ -495,86 +575,121 @@ public sealed class WatchHistoryService : IWatchHistoryService
             var subtitleStreams = streamsByType[MediaStreamType.Subtitle].ToList();
 
             // === Audio Language Analysis ===
-            if (audioStreams.Count > 0)
-            {
-                string? usedAudioLanguage = null;
-
-                if (userData.AudioStreamIndex.HasValue)
-                {
-                    var chosenStream = audioStreams
-                        .FirstOrDefault(s => s.Index == userData.AudioStreamIndex.Value);
-                    usedAudioLanguage = NormalizeLanguage(chosenStream?.Language);
-                }
-
-                if (string.IsNullOrEmpty(usedAudioLanguage))
-                {
-                    usedAudioLanguage = NormalizeLanguage(audioStreams[0].Language);
-                }
-
-                if (!string.IsNullOrEmpty(usedAudioLanguage))
-                {
-                    // availableAudioLanguages is always >= 1 here (usedAudioLanguage was resolved
-                    // from the same audioStreams list), so the old "> 0" guard was dead code.
-                    var availableAudioLanguages = audioStreams
-                        .Select(s => NormalizeLanguage(s.Language))
-                        .Where(l => !string.IsNullOrEmpty(l))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Count();
-
-                    if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
-                    {
-                        audioEntry = new LanguageProfileEntry();
-                        profile.LanguageProfile[usedAudioLanguage] = audioEntry;
-                    }
-
-                    if (availableAudioLanguages > 1)
-                    {
-                        audioEntry.ChosenCount++;
-                    }
-                    else
-                    {
-                        audioEntry.ForcedCount++;
-                    }
-                }
-            }
+            AccumulateAudioLanguage(profile, userData, audioStreams);
 
             // === Subtitle Language Analysis ===
-            if (userData.SubtitleStreamIndex.HasValue && userData.SubtitleStreamIndex.Value >= 0)
+            AccumulateSubtitleLanguage(profile, userData, subtitleStreams);
+        }
+    }
+
+    /// <summary>
+    ///     Folds the audio language the user watched an item in into the profile's language profile,
+    ///     distinguishing "chosen" (alternatives existed) from "forced" (single option). Extracted
+    ///     verbatim from the audio-analysis block of <see cref="BuildLanguageProfiles"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="userData">The user data for the item.</param>
+    /// <param name="audioStreams">The item's audio streams.</param>
+    private static void AccumulateAudioLanguage(
+        UserWatchProfile profile,
+        UserItemData userData,
+        List<MediaStream> audioStreams)
+    {
+        if (audioStreams.Count > 0)
+        {
+            string? usedAudioLanguage = null;
+
+            if (userData.AudioStreamIndex.HasValue)
             {
-                if (subtitleStreams.Count > 0)
+                var chosenStream = audioStreams
+                    .FirstOrDefault(s => s.Index == userData.AudioStreamIndex.Value);
+                usedAudioLanguage = NormalizeLanguage(chosenStream?.Language);
+            }
+
+            if (string.IsNullOrEmpty(usedAudioLanguage))
+            {
+                usedAudioLanguage = NormalizeLanguage(audioStreams[0].Language);
+            }
+
+            if (!string.IsNullOrEmpty(usedAudioLanguage))
+            {
+                // availableAudioLanguages is always >= 1 here (usedAudioLanguage was resolved
+                // from the same audioStreams list), so the old "> 0" guard was dead code.
+                var availableAudioLanguages = audioStreams
+                    .Select(s => NormalizeLanguage(s.Language))
+                    .Where(l => !string.IsNullOrEmpty(l))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count();
+
+                if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
                 {
-                    var chosenSubStream = subtitleStreams
-                        .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
-                    var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
+                    audioEntry = new LanguageProfileEntry();
+                    profile.LanguageProfile[usedAudioLanguage] = audioEntry;
+                }
 
-                    if (!string.IsNullOrEmpty(usedSubLanguage))
-                    {
-                        var availableSubLanguages = subtitleStreams
-                            .Select(s => NormalizeLanguage(s.Language))
-                            .Where(l => !string.IsNullOrEmpty(l))
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .Count();
-
-                        if (availableSubLanguages > 0)
-                        {
-                            if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
-                            {
-                                subEntry = new LanguageProfileEntry();
-                                profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
-                            }
-
-                            if (availableSubLanguages > 1)
-                            {
-                                subEntry.ChosenCount++;
-                            }
-                            else
-                            {
-                                subEntry.ForcedCount++;
-                            }
-                        }
-                    }
+                if (availableAudioLanguages > 1)
+                {
+                    audioEntry.ChosenCount++;
+                }
+                else
+                {
+                    audioEntry.ForcedCount++;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    ///     Folds the subtitle language the user selected for an item into the profile's subtitle
+    ///     language profile, distinguishing "chosen" from "forced". Extracted verbatim from the
+    ///     subtitle-analysis block of <see cref="BuildLanguageProfiles"/>.
+    /// </summary>
+    /// <param name="profile">The user profile being populated.</param>
+    /// <param name="userData">The user data for the item.</param>
+    /// <param name="subtitleStreams">The item's subtitle streams.</param>
+    private static void AccumulateSubtitleLanguage(
+        UserWatchProfile profile,
+        UserItemData userData,
+        List<MediaStream> subtitleStreams)
+    {
+        if (!userData.SubtitleStreamIndex.HasValue || userData.SubtitleStreamIndex.Value < 0 || subtitleStreams.Count == 0)
+        {
+            return;
+        }
+
+        var chosenSubStream = subtitleStreams
+            .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
+        var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
+
+        if (string.IsNullOrEmpty(usedSubLanguage))
+        {
+            return;
+        }
+
+        var availableSubLanguages = subtitleStreams
+            .Select(s => NormalizeLanguage(s.Language))
+            .Where(l => !string.IsNullOrEmpty(l))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        if (availableSubLanguages <= 0)
+        {
+            return;
+        }
+
+        if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
+        {
+            subEntry = new LanguageProfileEntry();
+            profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
+        }
+
+        if (availableSubLanguages > 1)
+        {
+            subEntry.ChosenCount++;
+        }
+        else
+        {
+            subEntry.ForcedCount++;
         }
     }
 
@@ -587,12 +702,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     counting per-episode guest actors disproportionately.
     /// </summary>
     /// <param name="profile">The user profile to populate with people data.</param>
-    /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
     /// <param name="allSeries">Pre-loaded series items from the library.</param>
     private void BuildPeopleProfile(
         UserWatchProfile profile,
-        Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem> allItems,
         IReadOnlyList<BaseItem>? allSeries)
     {

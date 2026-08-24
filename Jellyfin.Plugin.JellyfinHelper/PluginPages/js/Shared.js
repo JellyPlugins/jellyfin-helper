@@ -39,7 +39,7 @@ function getCssVar(name, fallback) {
 var _translations = {};
 
 function T(key, fallback) {
-    return Object.prototype.hasOwnProperty.call(_translations, key)
+    return Object.hasOwn(_translations, key)
         ? _translations[key]
         : (fallback || key);
 }
@@ -163,7 +163,7 @@ function buildPathTree(paths, rootPaths) {
 function countTreeItems(node) {
     var count = node.items.length;
     for (var childName in node.children) {
-        if (Object.prototype.hasOwnProperty.call(node.children, childName)) {
+        if (Object.hasOwn(node.children, childName)) {
             count += countTreeItems(node.children[childName]);
         }
     }
@@ -172,7 +172,7 @@ function countTreeItems(node) {
 
 function renderTreeLevel(node, level, icon) {
     var html = '';
-    var sortedChildren = Object.keys(node.children).sort();
+    var sortedChildren = Object.keys(node.children).sort(function (a, b) { return a.localeCompare(b); });
 
     for (var i = 0; i < sortedChildren.length; i++) {
         var childName = sortedChildren[i];
@@ -330,7 +330,7 @@ function aggregateDict(libraries, prop) {
         var dict = libraries[i][prop];
         if (dict) {
             for (var key in dict) {
-                if (Object.prototype.hasOwnProperty.call(dict, key)) {
+                if (Object.hasOwn(dict, key)) {
                     result[key] = (result[key] || 0) + dict[key];
                 }
             }
@@ -358,7 +358,7 @@ function showAutoSaveIndicatorOverlay(element, success) {
     // Library multi-select toggle: replace chevron span content
     var chevronSpan = element.querySelector && element.querySelector('.library-multiselect-chevron');
     if (chevronSpan) {
-        var chevronGuard = (parseInt(chevronSpan.getAttribute('data-save-guard') || '0', 10)) + 1;
+        var chevronGuard = (Number.parseInt(chevronSpan.getAttribute('data-save-guard') || '0', 10)) + 1;
         chevronSpan.setAttribute('data-save-guard', String(chevronGuard));
         chevronSpan.innerHTML = '<span style="color:' + color + ';font-size:1em;">' + iconHtml + '</span>';
         (function (guardVal) {
@@ -375,7 +375,7 @@ function showAutoSaveIndicatorOverlay(element, success) {
         && !/^(checkbox|radio|file|range|color|submit|button|reset)$/i.test(element.type || 'text');
     if (element.tagName === 'SELECT' || isTextLikeInput) {
         // Increment a guard counter to prevent race conditions on rapid changes
-        var selectGuard = (parseInt(element.getAttribute('data-save-guard') || '0', 10)) + 1;
+        var selectGuard = (Number.parseInt(element.getAttribute('data-save-guard') || '0', 10)) + 1;
         element.setAttribute('data-save-guard', String(selectGuard));
 
         // Store true originals only on first invocation to prevent snapshot poisoning

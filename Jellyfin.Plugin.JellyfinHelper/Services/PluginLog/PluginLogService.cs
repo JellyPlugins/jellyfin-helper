@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Microsoft.Extensions.Logging;
 
@@ -23,6 +24,8 @@ public class PluginLogService : IPluginLogService
     ///     Maximum number of entries stored in the ring buffer.
     /// </summary>
     internal const int MaxEntries = 2000;
+
+    private const string LogTemplate = "[{Source}] {Message}";
 
     /// <summary>
     ///     Ordered log levels for comparison.
@@ -61,11 +64,14 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogDebug(string source, string message, ILogger? logger = null)
     {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(message);
+
         var safeSource = SanitizeForLog(source);
         var safeMessage = SanitizeForLog(message);
         if (logger is not null && logger.IsEnabled(LogLevel.Debug))
         {
-            logger.LogDebug("[{Source}] {Message}", safeSource, safeMessage);
+            logger.LogDebug(LogTemplate, safeSource, safeMessage);
         }
 
         AddEntry("DEBUG", safeSource, safeMessage, null);
@@ -79,11 +85,14 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogInfo(string source, string message, ILogger? logger = null)
     {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(message);
+
         var safeSource = SanitizeForLog(source);
         var safeMessage = SanitizeForLog(message);
         if (logger is not null && logger.IsEnabled(LogLevel.Information))
         {
-            logger.LogInformation("[{Source}] {Message}", safeSource, safeMessage);
+            logger.LogInformation(LogTemplate, safeSource, safeMessage);
         }
 
         AddEntry("INFO", safeSource, safeMessage, null);
@@ -98,6 +107,9 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogWarning(string source, string message, Exception? exception = null, ILogger? logger = null)
     {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(message);
+
         var safeSource = SanitizeForLog(source);
         var safeMessage = SanitizeForLog(message);
         // Guard the forwarding call for parity with LogDebug/LogInfo above (CA1873).
@@ -106,11 +118,11 @@ public class PluginLogService : IPluginLogService
         {
             if (exception != null)
             {
-                logger.LogWarning(exception, "[{Source}] {Message}", safeSource, safeMessage);
+                logger.LogWarning(exception, LogTemplate, safeSource, safeMessage);
             }
             else
             {
-                logger.LogWarning("[{Source}] {Message}", safeSource, safeMessage);
+                logger.LogWarning(LogTemplate, safeSource, safeMessage);
             }
         }
 
@@ -126,6 +138,9 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogError(string source, string message, Exception? exception = null, ILogger? logger = null)
     {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(message);
+
         var safeSource = SanitizeForLog(source);
         var safeMessage = SanitizeForLog(message);
         // Guard the forwarding call for parity with LogDebug/LogInfo above (CA1873).
@@ -134,11 +149,11 @@ public class PluginLogService : IPluginLogService
         {
             if (exception != null)
             {
-                logger.LogError(exception, "[{Source}] {Message}", safeSource, safeMessage);
+                logger.LogError(exception, LogTemplate, safeSource, safeMessage);
             }
             else
             {
-                logger.LogError("[{Source}] {Message}", safeSource, safeMessage);
+                logger.LogError(LogTemplate, safeSource, safeMessage);
             }
         }
 
@@ -253,7 +268,7 @@ public class PluginLogService : IPluginLogService
         {
             return _configService.GetConfiguration().PluginLogLevel;
         }
-        catch (Exception)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // Plugin not initialized yet - use default
         }

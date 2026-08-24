@@ -28,12 +28,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [ProducesResponseType(StatusCodes.Status403Forbidden)]
 public class RecommendationController : ControllerBase
 {
-    private static readonly SemaphoreSlim CacheFillLock = new(1, 1);
+    private const string RecommendationsDisabledMessage = "Smart Recommendations are disabled in plugin configuration.";
 
     private readonly IRecommendationCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
     private readonly IRecommendationEngine _engine;
     private readonly IWatchHistoryService _watchHistoryService;
+
+    private static readonly SemaphoreSlim CacheFillLock = new(1, 1);
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="RecommendationController" /> class.
@@ -77,7 +79,7 @@ public class RecommendationController : ControllerBase
         {
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
-                "Smart Recommendations are disabled in plugin configuration.");
+                RecommendationsDisabledMessage);
         }
 
         var configuredMax = Math.Clamp(config.MaxRecommendationsPerUser, 1, 100);
@@ -149,7 +151,7 @@ public class RecommendationController : ControllerBase
         {
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
-                "Smart Recommendations are disabled in plugin configuration.");
+                RecommendationsDisabledMessage);
         }
 
         if (userId == Guid.Empty)
@@ -211,7 +213,7 @@ public class RecommendationController : ControllerBase
         {
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
-                "Smart Recommendations are disabled in plugin configuration.");
+                RecommendationsDisabledMessage);
         }
 
         if (userId == Guid.Empty)
@@ -241,7 +243,7 @@ public class RecommendationController : ControllerBase
         {
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
-                "Smart Recommendations are disabled in plugin configuration.");
+                RecommendationsDisabledMessage);
         }
 
         var profiles = _watchHistoryService.GetAllUserWatchProfiles();

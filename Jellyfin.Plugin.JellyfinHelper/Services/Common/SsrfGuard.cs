@@ -18,11 +18,18 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 /// </summary>
 internal static class SsrfGuard
 {
+    // Well-known cloud instance-metadata IP literals. Named constants so the raw addresses
+    // live in one place (the whole point of this guard is to block precisely these endpoints).
+    private const string AwsImdsV4Address = "169.254.169.254";   // AWS & GCP share this IPv4 address
+    private const string AlibabaImdsAddress = "100.100.100.200";
+    private const string AwsImdsV6Address = "fd00:ec2::254";
+    private const string GcpImdsV6Address = "fd20:ce::254";       // GCP metadata IPv6
+
     // Blocked metadata IP addresses (resolved once for efficient comparison).
-    private static readonly IPAddress AwsImdsV4 = IPAddress.Parse("169.254.169.254");   // AWS & GCP share this IPv4 address
-    private static readonly IPAddress AlibabaImds = IPAddress.Parse("100.100.100.200");
-    private static readonly IPAddress AwsImdsV6 = IPAddress.Parse("fd00:ec2::254");
-    private static readonly IPAddress GcpImdsV6 = IPAddress.Parse("fd20:ce::254");      // GCP metadata IPv6
+    private static readonly IPAddress AwsImdsV4 = IPAddress.Parse(AwsImdsV4Address);
+    private static readonly IPAddress AlibabaImds = IPAddress.Parse(AlibabaImdsAddress);
+    private static readonly IPAddress AwsImdsV6 = IPAddress.Parse(AwsImdsV6Address);
+    private static readonly IPAddress GcpImdsV6 = IPAddress.Parse(GcpImdsV6Address);
 
     /// <summary>
     ///     Returns <see langword="true" /> if <paramref name="host" /> is a well-known cloud

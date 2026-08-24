@@ -14,6 +14,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// </summary>
 public class UserActivityUpdateTask
 {
+    private const string LogSource = "UserActivity";
+
     private readonly IUserActivityInsightsService _userActivityInsightsService;
     private readonly IUserActivityCacheService _userActivityCacheService;
     private readonly IPluginLogService _pluginLog;
@@ -52,12 +54,12 @@ public class UserActivityUpdateTask
         // Deactivate mode: true no-op - skip all expensive work
         if (taskMode == TaskMode.Deactivate)
         {
-            _pluginLog.LogInfo("UserActivity", "User activity update skipped (Deactivated).", _logger);
+            _pluginLog.LogInfo(LogSource, "User activity update skipped (Deactivated).", _logger);
             progress.Report(100);
             return Task.CompletedTask;
         }
 
-        _pluginLog.LogInfo("UserActivity", "Updating user watch activity data...", _logger);
+        _pluginLog.LogInfo(LogSource, "Updating user watch activity data...", _logger);
         progress.Report(10);
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -73,7 +75,7 @@ public class UserActivityUpdateTask
         {
             _userActivityCacheService.SaveResult(result);
             _pluginLog.LogInfo(
-                "UserActivity",
+                LogSource,
                 $"User activity update completed (Active): {result.TotalItemsWithActivity} items, " +
                 $"{result.TotalPlayCount} plays across {result.TotalUsersAnalyzed} users. Saved to cache.",
                 _logger);
@@ -82,7 +84,7 @@ public class UserActivityUpdateTask
         {
             // DryRun: do NOT save to cache - no side effects
             _pluginLog.LogInfo(
-                "UserActivity",
+                LogSource,
                 $"User activity update completed (Dry Run): {result.TotalItemsWithActivity} items, " +
                 $"{result.TotalPlayCount} plays across {result.TotalUsersAnalyzed} users. NOT saved.",
                 _logger);

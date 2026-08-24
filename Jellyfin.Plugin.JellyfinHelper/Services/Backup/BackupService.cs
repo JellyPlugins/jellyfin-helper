@@ -22,6 +22,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 /// </summary>
 public sealed class BackupService : IBackupService
 {
+    private const string LogSource = "Backup";
+
     /// <summary>
     ///     Maximum allowed size of a backup JSON payload in bytes (10 MB).
     ///     Per-directory baselines can be larger for media servers with many items.
@@ -54,6 +56,8 @@ public sealed class BackupService : IBackupService
         IPluginLogService pluginLog,
         ILogger<BackupService> logger)
     {
+        ArgumentNullException.ThrowIfNull(applicationPaths);
+
         _dataPath = applicationPaths.DataPath;
         _configService = configService;
         _pluginLog = pluginLog;
@@ -105,7 +109,7 @@ public sealed class BackupService : IBackupService
     /// <returns>The backup data object ready for serialization.</returns>
     public BackupData CreateBackup(bool includeSecrets = false)
     {
-        _pluginLog.LogInfo("Backup", "Creating plugin backup...", _logger);
+        _pluginLog.LogInfo(LogSource, "Creating plugin backup...", _logger);
 
         var config = _configService.GetConfiguration();
         var backup = new BackupData
@@ -205,7 +209,7 @@ public sealed class BackupService : IBackupService
             || backup.SonarrInstances.Any(i => !string.IsNullOrEmpty(i.ApiKey));
 
         _pluginLog.LogInfo(
-            "Backup",
+            LogSource,
             $"Backup created: timeline={backup.GrowthTimeline != null}, baseline={backup.GrowthBaseline != null}",
             _logger);
         return backup;
@@ -223,7 +227,7 @@ public sealed class BackupService : IBackupService
 
         var summary = new BackupRestoreSummary();
 
-        _pluginLog.LogInfo("Backup", "Starting backup restore...", _logger);
+        _pluginLog.LogInfo(LogSource, "Starting backup restore...", _logger);
 
         // Write data files FIRST so that if a file-write fails,
         // the live configuration has not yet been replaced.  Only after all
@@ -248,7 +252,7 @@ public sealed class BackupService : IBackupService
                 timelineWriteOk = true;
                 summary.TimelineRestored = true;
                 _pluginLog.LogInfo(
-                    "Backup",
+                    LogSource,
                     $"Restored growth timeline ({backup.GrowthTimeline.DataPoints.Count} data points)",
                     _logger);
             }
@@ -260,7 +264,7 @@ public sealed class BackupService : IBackupService
                 baselineWriteOk = true;
                 summary.BaselineRestored = true;
                 _pluginLog.LogInfo(
-                    "Backup",
+                    LogSource,
                     $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)",
                     _logger);
             }
@@ -275,7 +279,7 @@ public sealed class BackupService : IBackupService
             if (anyWriteSucceeded)
             {
                 _pluginLog.LogWarning(
-                    "Backup",
+                    LogSource,
                     $"Restore partially applied. Manual recovery may be required. Check [{timelinePath}] and [{baselinePath}] files.",
                     ex,
                     _logger);
@@ -285,7 +289,7 @@ public sealed class BackupService : IBackupService
         }
 
         _pluginLog.LogInfo(
-            "Backup",
+            LogSource,
             $"Backup restore complete. Config={summary.ConfigurationRestored}, Timeline={summary.TimelineRestored}, Baseline={summary.BaselineRestored}",
             _logger);
         return summary;
@@ -334,7 +338,7 @@ public sealed class BackupService : IBackupService
         if (!_configService.IsInitialized)
         {
             _pluginLog.LogWarning(
-                "Backup",
+                LogSource,
                 "Plugin instance not available, skipping configuration restore.",
                 logger: _logger);
             return;
@@ -376,7 +380,7 @@ public sealed class BackupService : IBackupService
                 else
                 {
                     _pluginLog.LogWarning(
-                        "Backup",
+                        LogSource,
                         $"Backup SeerrUrl '{truncatedUrl}' is not a valid http/https URL - skipping to avoid persisting an unsafe scheme.",
                         logger: _logger);
                 }
@@ -394,7 +398,7 @@ public sealed class BackupService : IBackupService
                 if (truncatedSeerrKey != truncatedStoredKey)
                 {
                     _pluginLog.LogWarning(
-                        "Backup",
+                        LogSource,
                         "Backup restore is replacing credentials: Seerr API key changed.",
                         logger: _logger);
                     summary.CredentialsChanged = true;
@@ -457,7 +461,7 @@ public sealed class BackupService : IBackupService
             summary.ConfigurationRestored = true;
         });
 
-        _pluginLog.LogInfo("Backup", "Configuration restored from backup.", _logger);
+        _pluginLog.LogInfo(LogSource, "Configuration restored from backup.", _logger);
     }
 
     /// <summary>
@@ -528,7 +532,7 @@ public sealed class BackupService : IBackupService
         if (silentWipes > 0)
         {
             _pluginLog.LogWarning(
-                "Backup",
+                LogSource,
                 $"{label}: {silentWipes} instance(s) had an empty backup API key with no matching live key to preserve. "
                 + "Their API key is now empty and must be re-entered.",
                 logger: _logger);
@@ -537,7 +541,7 @@ public sealed class BackupService : IBackupService
         if (keysChanged > 0)
         {
             _pluginLog.LogWarning(
-                "Backup",
+                LogSource,
                 $"Backup restore is replacing credentials: {keysChanged} {label} instance API key(s) changed.",
                 logger: _logger);
             summary.CredentialsChanged = true;
@@ -575,7 +579,7 @@ public sealed class BackupService : IBackupService
             {
                 oversized = true;
                 _pluginLog.LogWarning(
-                    "Backup",
+                    LogSource,
                     $"Skipping {filePath} for backup: file size {fileInfo.Length} bytes exceeds {MaxBackupSizeBytes} byte limit.",
                     logger: _logger);
                 return null;
@@ -586,7 +590,7 @@ public sealed class BackupService : IBackupService
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            _pluginLog.LogWarning("Backup", $"Could not load {filePath} for backup", ex, _logger);
+            _pluginLog.LogWarning(LogSource, $"Could not load {filePath} for backup", ex, _logger);
             return null;
         }
     }
@@ -612,7 +616,7 @@ public sealed class BackupService : IBackupService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
-            _pluginLog.LogError("Backup", $"Could not save {filePath} during restore", ex, _logger);
+            _pluginLog.LogError(LogSource, $"Could not save {filePath} during restore", ex, _logger);
             return false;
         }
     }

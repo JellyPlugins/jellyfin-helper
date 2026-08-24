@@ -362,7 +362,7 @@ public class PluginConfiguration : BasePluginConfiguration
         // (ensemble alpha blend, genre penalty). Coerce NaN to the lower bound so the value
         // is always finite. The raw NaN is still recorded in the report for diagnostics.
         var clamped = double.IsNaN(raw) ? min : Math.Clamp(raw, min, max);
-        if (clamped != raw || double.IsNaN(raw))
+        if (double.IsNaN(raw) || raw < min || raw > max)
         {
             _clampReports.Enqueue(new ClampReportEntry(
                 propertyName,

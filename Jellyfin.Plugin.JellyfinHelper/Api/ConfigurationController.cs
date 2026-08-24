@@ -134,7 +134,7 @@ public class ConfigurationController : ControllerBase
                 Name = f.Name ?? string.Empty,
                 CollectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
                     ? "unknown"
-                    : f.CollectionType!.ToString()!,
+                    : f.CollectionType!.ToString() ?? "unknown",
             })
             .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -409,7 +409,12 @@ public class ConfigurationController : ControllerBase
             return;
         }
 
-        for (var i = 0; i < instances.Count; i++)
+        // ConfigurationRequestValidator.Validate (run before this method) already rejects lists
+        // longer than the allowed maximum, so this cap is a runtime no-op; it makes the loop bound
+        // provably constant for taint analysis and guards against an unbounded test fan-out.
+        const int MaxInstances = 3;
+        var count = Math.Min(instances.Count, MaxInstances);
+        for (var i = 0; i < count; i++)
         {
             var instance = instances[i];
             if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))

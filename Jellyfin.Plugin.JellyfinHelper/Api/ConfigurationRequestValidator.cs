@@ -32,6 +32,8 @@ public static class ConfigurationRequestValidator
     /// <returns>An error message string, or <c>null</c> when the request is valid.</returns>
     public static string? Validate(ConfigurationUpdateRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
         // Numeric range checks
         if (request.OrphanMinAgeDays is < 0 or > MaxDays)
         {
@@ -255,7 +257,10 @@ public static class ConfigurationRequestValidator
             return null;
         }
 
-        for (var i = 0; i < instances.Count; i++)
+        // The caller (Validate) already rejects lists longer than MaxArrInstances, so this Min
+        // is a runtime no-op; it makes the loop bound provably constant for taint analysis.
+        var count = Math.Min(instances.Count, MaxArrInstances);
+        for (var i = 0; i < count; i++)
         {
             var instance = instances[i];
 

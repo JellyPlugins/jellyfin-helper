@@ -103,7 +103,7 @@ internal static class PathValidator
             return false;
         }
 
-        var segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var segments = path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.None);
         if (Array.Exists(segments, s => s == ".." || s == "."))
         {
             pluginLog?.LogWarning("PathValidator", $"Path validation failed: traversal segment detected in '{path}'.");
@@ -243,8 +243,14 @@ internal static class PathValidator
         // directory separator (on Linux '\' is legal but must not appear in a filename).
         // Directory separators are preserved here so Path.GetFileName can strip them next.
         var name = new string(fileName.Select(ch =>
-            ch == '\\' ? '/' :
-            InvalidFileNameChars.Contains(ch) ? '_' : ch).ToArray());
+        {
+            if (ch == '\\')
+            {
+                return '/';
+            }
+
+            return InvalidFileNameChars.Contains(ch) ? '_' : ch;
+        }).ToArray());
 
         // Strip any directory components left after the pass above.
         name = Path.GetFileName(name);

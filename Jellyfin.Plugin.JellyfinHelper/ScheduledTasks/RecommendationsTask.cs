@@ -24,6 +24,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// </summary>
 public class RecommendationsTask
 {
+    private const string LogSource = "Recommendations";
+
     private readonly IRecommendationEngine _recsEngine;
     private readonly IRecommendationCacheService _recsCacheService;
     private readonly IPluginLogService _pluginLog;
@@ -78,12 +80,15 @@ public class RecommendationsTask
     /// <returns>A completed task.</returns>
     public async Task ExecuteAsync(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(progress);
+
         // Deactivate mode: true no-op - skip all expensive work.
         // However, clean up any previously created recommendation playlists
         // so users who switch from Activate to Deactivate don't keep stale playlists.
         if (config.RecommendationsTaskMode == TaskMode.Deactivate)
         {
-            _pluginLog.LogInfo("Recommendations", "Task skipped (Deactivated).", _logger);
+            _pluginLog.LogInfo(LogSource, "Task skipped (Deactivated).", _logger);
 
             if (_playlistService != null)
             {
@@ -98,7 +103,7 @@ public class RecommendationsTask
         var isDryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogSource,
             isDryRun
                 ? "Task started (Dry Run). Recommendations will be generated but NOT saved to disk. No model training."
                 : "Task started (Active). Full training + generation + persistence.",
@@ -117,10 +122,10 @@ public class RecommendationsTask
                 var previousResults = _recsCacheService.LoadResults();
                 if (previousResults is { Count: > 0 })
                 {
-                    _pluginLog.LogInfo("Recommendations", $"Training scoring strategy from {previousResults.Count} cached user results (incremental=true)...", _logger);
+                    _pluginLog.LogInfo(LogSource, $"Training scoring strategy from {previousResults.Count} cached user results (incremental=true)...", _logger);
                     var trained = _recsEngine.TrainStrategy(previousResults, incremental: true, cancellationToken: cancellationToken);
                     _pluginLog.LogInfo(
-                        "Recommendations",
+                        LogSource,
                         trained
                             ? "Strategy training completed (incremental)."
                             : "Strategy training skipped (insufficient training data).",
@@ -133,12 +138,12 @@ public class RecommendationsTask
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
-                _pluginLog.LogWarning("Recommendations", "Strategy training failed - continuing with current weights.", ex, _logger);
+                _pluginLog.LogWarning(LogSource, "Strategy training failed - continuing with current weights.", ex, _logger);
             }
         }
         else
         {
-            _pluginLog.LogInfo("Recommendations", "Training skipped (DryRun mode - no model updates).", _logger);
+            _pluginLog.LogInfo(LogSource, "Training skipped (DryRun mode - no model updates).", _logger);
         }
 
         progress.Report(20);
@@ -163,7 +168,7 @@ public class RecommendationsTask
                 {
                     var syncResult = await _playlistService.UpdatePlaylistsForAllUsersAsync(results, cancellationToken).ConfigureAwait(false);
                     _pluginLog.LogInfo(
-                        "Recommendations",
+                        LogSource,
                         $"Playlist sync: {syncResult.PlaylistsCreated} created, {syncResult.TotalItemsAdded} items added, {syncResult.OldPlaylistsRemoved} old removed.",
                         _logger);
                 }
@@ -173,7 +178,7 @@ public class RecommendationsTask
                 }
                 catch (Exception ex) when (!ex.IsFatal())
                 {
-                    _pluginLog.LogWarning("Recommendations", "Playlist sync failed - recommendations were saved but playlists could not be updated.", ex, _logger);
+                    _pluginLog.LogWarning(LogSource, "Playlist sync failed - recommendations were saved but playlists could not be updated.", ex, _logger);
                 }
             }
             else if (_playlistService != null)
@@ -183,14 +188,14 @@ public class RecommendationsTask
             }
 
             _pluginLog.LogInfo(
-                "Recommendations",
+                LogSource,
                 $"Task finished (Active). Generated {totalRecs} recommendations for {results.Count} users. Saved to cache.",
                 _logger);
         }
         else
         {
             _pluginLog.LogInfo(
-                "Recommendations",
+                LogSource,
                 $"Task finished (Dry Run). Generated {totalRecs} recommendations for {results.Count} users. NOT saved to disk.",
                 _logger);
         }
@@ -211,7 +216,7 @@ public class RecommendationsTask
             var removed = await playlistService.RemoveAllRecommendationPlaylistsAsync(cancellationToken).ConfigureAwait(false);
             if (removed > 0)
             {
-                _pluginLog.LogInfo("Recommendations", $"Cleaned up {removed} old recommendation playlists (sync disabled).", _logger);
+                _pluginLog.LogInfo(LogSource, $"Cleaned up {removed} old recommendation playlists (sync disabled).", _logger);
             }
         }
         catch (OperationCanceledException)
@@ -220,7 +225,7 @@ public class RecommendationsTask
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            _pluginLog.LogWarning("Recommendations", "Failed to clean up old recommendation playlists.", ex, _logger);
+            _pluginLog.LogWarning(LogSource, "Failed to clean up old recommendation playlists.", ex, _logger);
         }
     }
 }

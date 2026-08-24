@@ -3,5 +3,7 @@
 FROM node:22-alpine
 WORKDIR /app
 COPY arr-server.js seerr-server.js ./
+# Drop root: the mocks are pure Node stdlib and need no privileged access.
+USER node
 # Default command is overridden per-service in compose.yml.
 CMD ["node", "arr-server.js"]

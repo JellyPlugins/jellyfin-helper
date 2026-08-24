@@ -337,13 +337,7 @@ internal static class DiversityReranker
             // Fall back to the MMR-pool leftovers when the widened band is exhausted so that
             // small libraries still get exploration signal (this preserves the previous behaviour
             // as a floor rather than as the only source).
-            foreach (var entry in remaining)
-            {
-                if (!mmrSelectedIds.Contains(entry.Item.Id))
-                {
-                    explorationPool.Add(entry);
-                }
-            }
+            explorationPool.AddRange(remaining.Where(entry => !mmrSelectedIds.Contains(entry.Item.Id)));
 
             if (explorationPool.Count > 0)
             {

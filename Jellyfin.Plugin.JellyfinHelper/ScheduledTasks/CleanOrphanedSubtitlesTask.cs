@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -94,66 +95,13 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Skip .trickplay folders - handled by CleanTrickplayTask
-                if (Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                // Skip the trash folder and everything inside it
-                var normalizedDir = Path.GetFullPath(dirPath)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-                if (normalizedDir.Equals(normalizedTrash, comparison)
-                    || normalizedDir.StartsWith(normalizedTrashSep, comparison)
-                    || normalizedDir.StartsWith(normalizedTrashAlt, comparison))
-                {
-                    continue;
-                }
-
-                // Symlink-traversal guard: FileInfo.LinkTarget below only inspects the FINAL
-                // subtitle file, so a symlinked ANCESTOR directory could still redirect our
-                // File.Delete into a real media tree. Skip any directory that is itself a reparse
-                // point (symlink/junction). We only ever clean subtitles inside real directories.
-                try
-                {
-                    if (IsReparsePoint(dirPath))
-                    {
-                        PluginLog.LogWarning(TaskName, $"Skipping symlinked directory (reparse point): {dirPath}", logger: Logger);
-                        continue;
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirPath}", ex, Logger);
-                    continue;
-                }
-
-                FileSystemMetadata[] files;
-                try
-                {
-                    files = FileSystem.GetFiles(dirPath).ToArray();
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    PluginLog.LogWarning(TaskName, $"Could not list files in: {dirPath}", ex, Logger);
-                    continue;
-                }
-
-                // Get all video base names in this directory
-                var videoBaseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var file in files)
-                {
-                    if (MediaExtensions.VideoExtensions.Contains(Path.GetExtension(file.FullName)))
-                    {
-                        videoBaseNames.Add(Path.GetFileNameWithoutExtension(file.FullName));
-                    }
-                }
-
-                // If there are no videos in this directory at all, skip - subtitles here
-                // are likely managed by the folder itself (season folder, etc.)
-                // The EmptyMediaFolder task handles entire orphaned folders.
-                if (videoBaseNames.Count == 0)
+                if (!TryPrepareDirectory(
+                        dirPath,
+                        normalizedTrash,
+                        normalizedTrashSep,
+                        normalizedTrashAlt,
+                        out var files,
+                        out var videoBaseNames))
                 {
                     continue;
                 }
@@ -163,103 +111,219 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    if (!MediaExtensions.SubtitleExtensions.Contains(Path.GetExtension(file.FullName)))
-                    {
-                        continue;
-                    }
-
-                    // Extract the base name of the subtitle, stripping language suffixes
-                    // e.g., "Movie.en.srt" -> "Movie", "Movie.en.forced.srt" -> "Movie"
-                    var subtitleBaseName = GetSubtitleBaseName(file.FullName, videoBaseNames);
-
-                    if (videoBaseNames.Contains(subtitleBaseName))
-                    {
-                        continue; // Video exists, subtitle is valid
-                    }
-
-                    // Check orphan age
-                    if (!ConfigHelper.IsFileOldEnoughForDeletion(file.FullName))
-                    {
-                        PluginLog.LogDebug(
-                            TaskName,
-                            $"Skipping too-new orphaned subtitle (min age {config.OrphanMinAgeDays}d): {file.FullName}",
-                            Logger);
-                        continue;
-                    }
-
-                    // Symlink guard for ALL modes (dry-run, trash, hard-delete): a subtitle that is
-                    // itself a reparse point (symlink/junction) is never counted, never trashed, and
-                    // never deleted. On NAS setups the subtitle may be a link whose target lives in a
-                    // foreign tree; deleting or trashing the link relocates/removes the reference while
-                    // the target stays behind. Hoisted above the mode branches (mutually exclusive per
-                    // iteration) so a single check covers all three and dry-run output matches the real
-                    // run. Uses IsReparsePointAnyType because a directory-typed link can surface as a
-                    // file entry on some mounts. A stat failure is treated as "skip" (fail closed) and
-                    // must not surface as a misleading delete error.
-                    bool subtitleIsReparsePoint;
-                    try
-                    {
-                        subtitleIsReparsePoint = IsReparsePointAnyType(file.FullName);
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        PluginLog.LogWarning(TaskName, $"Could not stat subtitle, skipping: {file.FullName}", ex, Logger);
-                        continue;
-                    }
-
-                    if (subtitleIsReparsePoint)
-                    {
-                        PluginLog.LogWarning(TaskName, $"Skipping symlinked subtitle file: {file.FullName}", logger: Logger);
-                        continue;
-                    }
-
-                    if (dryRun)
-                    {
-                        PluginLog.LogInfo(
-                            TaskName,
-                            $"[Dry Run] Would delete orphaned subtitle: {file.FullName}",
-                            Logger);
-                        deletedCount++;
-                    }
-                    else if (config.UseTrash)
-                    {
-                        PluginLog.LogInfo(TaskName, $"Moving orphaned subtitle to trash: {file.FullName}", Logger);
-                        var size = TrashService.MoveFileToTrash(file.FullName, trashFullPath, Logger);
-                        if (size <= 0)
-                        {
-                            continue;
-                        }
-
-                        bytesFreed += size;
-                        deletedCount++;
-                    }
-                    else
-                    {
-                        PluginLog.LogInfo(TaskName, $"Deleting orphaned subtitle: {file.FullName}", Logger);
-                        try
-                        {
-                            // Re-read file size from disk immediately before deletion to avoid
-                            // stale values from the earlier directory-listing snapshot (H-13).
-                            var subtitleInfo = new FileInfo(file.FullName);
-                            var freshSize = subtitleInfo.Exists ? subtitleInfo.Length : 0;
-                            File.Delete(file.FullName);
-                            bytesFreed += freshSize;
-                            deletedCount++;
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                        {
-                            PluginLog.LogError(TaskName, $"Failed to delete: {file.FullName}", ex, Logger);
-                        }
-                    }
+                    var (fileDeleted, fileBytes) = ProcessSubtitleFile(
+                        file,
+                        videoBaseNames,
+                        dryRun,
+                        config,
+                        trashFullPath);
+                    deletedCount += fileDeleted;
+                    bytesFreed += fileBytes;
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             PluginLog.LogError(TaskName, $"Error scanning directory: {libraryPath}", ex, Logger);
         }
 
         return (deletedCount, bytesFreed);
+    }
+
+    /// <summary>
+    ///     Applies the per-directory guards (trickplay skip, trash-tree skip, reparse-point skip),
+    ///     lists the files, and builds the video base-name set. Verbatim extraction of the head of the
+    ///     directory loop body in <see cref="ProcessLocation" />: each original <c>continue</c> becomes
+    ///     <c>return false</c> (skip this directory). No path/extension guard, ordering, or condition is changed.
+    /// </summary>
+    /// <param name="dirPath">The directory to prepare.</param>
+    /// <param name="normalizedTrash">The normalized trash path (no trailing separator).</param>
+    /// <param name="normalizedTrashSep">The normalized trash path with a trailing directory separator.</param>
+    /// <param name="normalizedTrashAlt">The normalized trash path with a trailing alt directory separator.</param>
+    /// <param name="files">On success, the files listed in the directory.</param>
+    /// <param name="videoBaseNames">On success, the set of video base names present in the directory.</param>
+    /// <returns><c>true</c> if the directory should be processed; <c>false</c> to skip it.</returns>
+    private bool TryPrepareDirectory(
+        string dirPath,
+        string normalizedTrash,
+        string normalizedTrashSep,
+        string normalizedTrashAlt,
+        out FileSystemMetadata[] files,
+        out HashSet<string> videoBaseNames)
+    {
+        files = Array.Empty<FileSystemMetadata>();
+        videoBaseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Skip .trickplay folders - handled by CleanTrickplayTask
+        if (Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Skip the trash folder and everything inside it
+        var normalizedDir = Path.GetFullPath(dirPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        if (normalizedDir.Equals(normalizedTrash, comparison)
+            || normalizedDir.StartsWith(normalizedTrashSep, comparison)
+            || normalizedDir.StartsWith(normalizedTrashAlt, comparison))
+        {
+            return false;
+        }
+
+        // Symlink-traversal guard: FileInfo.LinkTarget below only inspects the FINAL
+        // subtitle file, so a symlinked ANCESTOR directory could still redirect our
+        // File.Delete into a real media tree. Skip any directory that is itself a reparse
+        // point (symlink/junction). We only ever clean subtitles inside real directories.
+        try
+        {
+            if (IsReparsePoint(dirPath))
+            {
+                PluginLog.LogWarning(TaskName, $"Skipping symlinked directory (reparse point): {dirPath}", logger: Logger);
+                return false;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not stat directory, skipping: {dirPath}", ex, Logger);
+            return false;
+        }
+
+        try
+        {
+            files = FileSystem.GetFiles(dirPath).ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not list files in: {dirPath}", ex, Logger);
+            return false;
+        }
+
+        // Get all video base names in this directory
+        foreach (var file in files)
+        {
+            if (MediaExtensions.VideoExtensions.Contains(Path.GetExtension(file.FullName)))
+            {
+                videoBaseNames.Add(Path.GetFileNameWithoutExtension(file.FullName));
+            }
+        }
+
+        // If there are no videos in this directory at all, skip - subtitles here
+        // are likely managed by the folder itself (season folder, etc.)
+        // The EmptyMediaFolder task handles entire orphaned folders.
+        if (videoBaseNames.Count == 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    ///     Processes a single subtitle file: verbatim extraction of the per-file body of the
+    ///     subtitle loop in <see cref="ProcessLocation" />. Behaviour is identical — each original
+    ///     <c>continue</c> becomes a <c>return (0, 0)</c> (skip, nothing deleted). No TaskMode gate,
+    ///     orphan-detection condition, path/extension guard, delete/trash decision, or ordering is changed.
+    /// </summary>
+    /// <param name="file">The candidate file entry from the directory listing.</param>
+    /// <param name="videoBaseNames">The set of video base names present in the same directory.</param>
+    /// <param name="dryRun">Whether the task is running in dry-run mode.</param>
+    /// <param name="config">The plugin configuration.</param>
+    /// <param name="trashFullPath">The resolved trash path for this location.</param>
+    /// <returns>The number of files deleted (0 or 1) and the bytes freed by this file.</returns>
+    private (int Deleted, long BytesFreed) ProcessSubtitleFile(
+        FileSystemMetadata file,
+        HashSet<string> videoBaseNames,
+        bool dryRun,
+        PluginConfiguration config,
+        string trashFullPath)
+    {
+        if (!MediaExtensions.SubtitleExtensions.Contains(Path.GetExtension(file.FullName)))
+        {
+            return (0, 0);
+        }
+
+        // Extract the base name of the subtitle, stripping language suffixes
+        // e.g., "Movie.en.srt" -> "Movie", "Movie.en.forced.srt" -> "Movie"
+        var subtitleBaseName = GetSubtitleBaseName(file.FullName, videoBaseNames);
+
+        if (videoBaseNames.Contains(subtitleBaseName))
+        {
+            return (0, 0); // Video exists, subtitle is valid
+        }
+
+        // Check orphan age
+        if (!ConfigHelper.IsFileOldEnoughForDeletion(file.FullName))
+        {
+            PluginLog.LogDebug(
+                TaskName,
+                $"Skipping too-new orphaned subtitle (min age {config.OrphanMinAgeDays}d): {file.FullName}",
+                Logger);
+            return (0, 0);
+        }
+
+        // Symlink guard for ALL modes (dry-run, trash, hard-delete): a subtitle that is
+        // itself a reparse point (symlink/junction) is never counted, never trashed, and
+        // never deleted. On NAS setups the subtitle may be a link whose target lives in a
+        // foreign tree; deleting or trashing the link relocates/removes the reference while
+        // the target stays behind. Hoisted above the mode branches (mutually exclusive per
+        // iteration) so a single check covers all three and dry-run output matches the real
+        // run. Uses IsReparsePointAnyType because a directory-typed link can surface as a
+        // file entry on some mounts. A stat failure is treated as "skip" (fail closed) and
+        // must not surface as a misleading delete error.
+        bool subtitleIsReparsePoint;
+        try
+        {
+            subtitleIsReparsePoint = IsReparsePointAnyType(file.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not stat subtitle, skipping: {file.FullName}", ex, Logger);
+            return (0, 0);
+        }
+
+        if (subtitleIsReparsePoint)
+        {
+            PluginLog.LogWarning(TaskName, $"Skipping symlinked subtitle file: {file.FullName}", logger: Logger);
+            return (0, 0);
+        }
+
+        if (dryRun)
+        {
+            PluginLog.LogInfo(
+                TaskName,
+                $"[Dry Run] Would delete orphaned subtitle: {file.FullName}",
+                Logger);
+            return (1, 0);
+        }
+
+        if (config.UseTrash)
+        {
+            PluginLog.LogInfo(TaskName, $"Moving orphaned subtitle to trash: {file.FullName}", Logger);
+            var size = TrashService.MoveFileToTrash(file.FullName, trashFullPath, Logger);
+            if (size <= 0)
+            {
+                return (0, 0);
+            }
+
+            return (1, size);
+        }
+
+        PluginLog.LogInfo(TaskName, $"Deleting orphaned subtitle: {file.FullName}", Logger);
+        try
+        {
+            // Re-read file size from disk immediately before deletion to avoid
+            // stale values from the earlier directory-listing snapshot (H-13).
+            var subtitleInfo = new FileInfo(file.FullName);
+            var freshSize = subtitleInfo.Exists ? subtitleInfo.Length : 0;
+            File.Delete(file.FullName);
+            return (1, freshSize);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogError(TaskName, $"Failed to delete: {file.FullName}", ex, Logger);
+            return (0, 0);
+        }
     }
 
     /// <summary>

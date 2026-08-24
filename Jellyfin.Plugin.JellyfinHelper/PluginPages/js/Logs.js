@@ -353,7 +353,7 @@ function formatLogTimestamp(ts) {
     }
     try {
         var d = new Date(ts);
-        if (isNaN(d.getTime())) {
+        if (Number.isNaN(d.getTime())) {
             return '[invalid date]';
         }
         var pad = function (n) {

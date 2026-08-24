@@ -16,6 +16,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 /// </summary>
 public sealed class UserActivityCacheService : IUserActivityCacheService
 {
+    private const string LogSource = "UserActivityCache";
+
     private const string CacheFileName = "jellyfin-helper-useractivity-latest.json";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
@@ -35,6 +37,8 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
         IPluginLogService pluginLog,
         ILogger<UserActivityCacheService> logger)
     {
+        ArgumentNullException.ThrowIfNull(applicationPaths);
+
         _pluginLog = pluginLog;
         _logger = logger;
         _cacheFilePath = Path.Join(applicationPaths.DataPath, CacheFileName);
@@ -64,7 +68,7 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
                 AtomicFile.WriteAllText(_cacheFilePath, json);
 
                 _pluginLog.LogDebug(
-                    "UserActivityCache",
+                    LogSource,
                     $"Saved activity result with {result.TotalItemsWithActivity} items to {_cacheFilePath}",
                     _logger);
             }
@@ -76,7 +80,7 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
                                         or JsonException)
             {
                 _pluginLog.LogWarning(
-                    "UserActivityCache",
+                    LogSource,
                     $"Could not save activity result to {_cacheFilePath}",
                     ex,
                     _logger);
@@ -100,7 +104,7 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
                 var result = JsonSerializer.Deserialize<UserActivityResult>(json, JsonOptions);
                 if (result is null)
                 {
-                    _pluginLog.LogWarning("UserActivityCache", $"Cache file {_cacheFilePath} deserialized to null.", logger: _logger);
+                    _pluginLog.LogWarning(LogSource, $"Cache file {_cacheFilePath} deserialized to null.", logger: _logger);
                 }
 
                 return result;
@@ -113,7 +117,7 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
                                         or JsonException)
             {
                 _pluginLog.LogWarning(
-                    "UserActivityCache",
+                    LogSource,
                     $"Could not load activity result from {_cacheFilePath}",
                     ex,
                     _logger);

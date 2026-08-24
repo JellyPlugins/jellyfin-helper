@@ -17,6 +17,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 /// </summary>
 public class LinkRepairService : ILinkRepairService
 {
+    private const string LogSource = "LinkRepair";
+
     /// <summary>
     ///     Maximum number of directories to visit during recursive scanning.
     ///     Acts as a safety valve against unresolved symlink loops or extremely deep trees.
@@ -76,7 +78,7 @@ public class LinkRepairService : ILinkRepairService
         var paths = libraryPaths.ToList();
         var linkFiles = FindLinkFiles(paths, cancellationToken);
 
-        _pluginLog.LogInfo("LinkRepair", $"Found {linkFiles.Count} link files to check", _logger);
+        _pluginLog.LogInfo(LogSource, $"Found {linkFiles.Count} link files to check", _logger);
 
         var normalizedLibraryPaths = paths
             .Select(p =>
@@ -87,7 +89,7 @@ public class LinkRepairService : ILinkRepairService
                 }
                 catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
                 {
-                    _pluginLog.LogWarning("LinkRepair", $"Skipping malformed library path: {p}", logger: _logger);
+                    _pluginLog.LogWarning(LogSource, $"Skipping malformed library path: {p}", logger: _logger);
                     return null;
                 }
             })
@@ -103,7 +105,7 @@ public class LinkRepairService : ILinkRepairService
 
         var repairedLabel = dryRun ? "would repair" : "repaired";
         _pluginLog.LogInfo(
-            "LinkRepair",
+            LogSource,
             $"Link repair complete: {result.ValidCount} valid, {result.RepairedCount} {repairedLabel}, {result.BrokenCount} broken, {result.AmbiguousCount} ambiguous, {result.InvalidContentCount} invalid content",
             _logger);
 
@@ -130,14 +132,14 @@ public class LinkRepairService : ILinkRepairService
 
             if (!_fileSystem.Directory.Exists(libraryPath))
             {
-                _pluginLog.LogWarning("LinkRepair", $"Library path does not exist: {libraryPath}", logger: _logger);
+                _pluginLog.LogWarning(LogSource, $"Library path does not exist: {libraryPath}", logger: _logger);
                 continue;
             }
 
             FindLinkFilesRecursive(libraryPath, linkFiles, visitedDirectories, out var limitReached, cancellationToken);
             if (limitReached)
             {
-                _pluginLog.LogWarning("LinkRepair", $"Visited-directory cap reached while scanning '{libraryPath}'. Remaining library paths will be skipped.", logger: _logger);
+                _pluginLog.LogWarning(LogSource, $"Visited-directory cap reached while scanning '{libraryPath}'. Remaining library paths will be skipped.", logger: _logger);
                 break;
             }
         }
@@ -191,7 +193,7 @@ public class LinkRepairService : ILinkRepairService
             if (visited.Count > VisitedDirectoryCap)
             {
                 _pluginLog.LogWarning(
-                    "LinkRepair",
+                    LogSource,
                     $"Visited directory limit ({VisitedDirectoryCap}) reached - aborting deeper traversal at: {current}",
                     logger: _logger);
                 limitReached = true;
@@ -214,7 +216,7 @@ public class LinkRepairService : ILinkRepairService
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
                         _pluginLog.LogWarning(
-                            "LinkRepair",
+                            LogSource,
                             $"Cannot inspect file: {file} - {ex.Message}",
                             ex,
                             _logger);
@@ -232,7 +234,7 @@ public class LinkRepairService : ILinkRepairService
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
             {
-                _pluginLog.LogWarning("LinkRepair", $"Cannot access directory: {current} - {ex.Message}", ex, _logger);
+                _pluginLog.LogWarning(LogSource, $"Cannot access directory: {current} - {ex.Message}", ex, _logger);
             }
         }
     }
@@ -258,7 +260,7 @@ public class LinkRepairService : ILinkRepairService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _pluginLog.LogWarning(
-                "LinkRepair",
+                LogSource,
                 $"Failed to read link file {linkFilePath}: {ex.Message}",
                 ex,
                 _logger);
@@ -268,7 +270,7 @@ public class LinkRepairService : ILinkRepairService
 
         if (string.IsNullOrWhiteSpace(targetPath))
         {
-            _pluginLog.LogWarning("LinkRepair", $"Failed to read link file {linkFilePath}", logger: _logger);
+            _pluginLog.LogWarning(LogSource, $"Failed to read link file {linkFilePath}", logger: _logger);
             fileResult.Status = LinkFileStatus.InvalidContent;
             return fileResult;
         }
@@ -280,7 +282,7 @@ public class LinkRepairService : ILinkRepairService
             && Uri.TryCreate(targetPath, UriKind.Absolute, out var uri)
             && uri.Scheme != Uri.UriSchemeFile)
         {
-            _pluginLog.LogDebug("LinkRepair", $"Skipping URL-based link file: {linkFilePath}", _logger);
+            _pluginLog.LogDebug(LogSource, $"Skipping URL-based link file: {linkFilePath}", _logger);
             fileResult.OriginalTargetPath = targetPath;
             fileResult.Status = LinkFileStatus.Valid;
             return fileResult;
@@ -293,7 +295,7 @@ public class LinkRepairService : ILinkRepairService
         // explicitly. A NUL byte is a structural path-grammar violation -> InvalidContent.
         if (targetPath.Contains('\0', StringComparison.Ordinal))
         {
-            _pluginLog.LogWarning("LinkRepair", $"Target path contains null byte in link file {linkFilePath}", logger: _logger);
+            _pluginLog.LogWarning(LogSource, $"Target path contains null byte in link file {linkFilePath}", logger: _logger);
             fileResult.Status = LinkFileStatus.InvalidContent;
             return fileResult;
         }
@@ -342,7 +344,7 @@ public class LinkRepairService : ILinkRepairService
                 if (!isUnderLibrary)
                 {
                     _pluginLog.LogWarning(
-                        "LinkRepair",
+                        LogSource,
                         $"Relative target path in link file {linkFilePath} resolves outside all library roots: {normalizedTargetPath}",
                         logger: _logger);
                     fileResult.Status = LinkFileStatus.InvalidContent;
@@ -359,7 +361,7 @@ public class LinkRepairService : ILinkRepairService
             if (IsSensitiveSystemTarget(normalizedTargetPath))
             {
                 _pluginLog.LogWarning(
-                    "LinkRepair",
+                    LogSource,
                     $"Target path in link file {linkFilePath} points at a sensitive system directory: {normalizedTargetPath}",
                     logger: _logger);
                 fileResult.Status = LinkFileStatus.InvalidContent;
@@ -369,7 +371,7 @@ public class LinkRepairService : ILinkRepairService
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             _pluginLog.LogWarning(
-                "LinkRepair",
+                LogSource,
                 $"Invalid target path in link file {linkFilePath}: {targetPath}",
                 ex,
                 _logger);
@@ -380,13 +382,13 @@ public class LinkRepairService : ILinkRepairService
         // Keep OriginalTargetPath as-is (set above); use normalizedTargetPath for validation
         if (_fileSystem.File.Exists(normalizedTargetPath))
         {
-            _pluginLog.LogDebug("LinkRepair", $"Valid link file: {linkFilePath} -> {normalizedTargetPath}", _logger);
+            _pluginLog.LogDebug(LogSource, $"Valid link file: {linkFilePath} -> {normalizedTargetPath}", _logger);
             fileResult.Status = LinkFileStatus.Valid;
             return fileResult;
         }
 
         // Target path is broken - try to repair
-        _pluginLog.LogInfo("LinkRepair", $"Broken link file: {linkFilePath} -> {targetPath}", _logger);
+        _pluginLog.LogInfo(LogSource, $"Broken link file: {linkFilePath} -> {targetPath}", _logger);
 
         return TryRepairLinkFile(fileResult, handler, dryRun, normalizedTargetPath);
     }
@@ -407,7 +409,7 @@ public class LinkRepairService : ILinkRepairService
         if (string.IsNullOrEmpty(parentDir) || !_fileSystem.Directory.Exists(parentDir))
         {
             _pluginLog.LogWarning(
-                "LinkRepair",
+                LogSource,
                 $"Parent directory does not exist for broken link target: {fileResult.OriginalTargetPath} (parent: {parentDir ?? "null"})",
                 logger: _logger);
             fileResult.Status = LinkFileStatus.Broken;
@@ -431,7 +433,7 @@ public class LinkRepairService : ILinkRepairService
         {
             case 0:
                 _pluginLog.LogWarning(
-                    "LinkRepair",
+                    LogSource,
                     $"No media files found in parent directory {parentDir} for broken link: {fileResult.LinkFilePath}",
                     logger: _logger);
                 fileResult.Status = LinkFileStatus.Broken;
@@ -445,7 +447,7 @@ public class LinkRepairService : ILinkRepairService
                     if (dryRun)
                     {
                         _pluginLog.LogInfo(
-                            "LinkRepair",
+                            LogSource,
                             $"[Dry Run] Would repair link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
                             _logger);
                         // Mark as Repaired (not Broken) so dry-run summary correctly reports
@@ -456,7 +458,7 @@ public class LinkRepairService : ILinkRepairService
                     else
                     {
                         _pluginLog.LogInfo(
-                            "LinkRepair",
+                            LogSource,
                             $"Repairing link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
                             _logger);
 
@@ -468,7 +470,7 @@ public class LinkRepairService : ILinkRepairService
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException)
                         {
                             _pluginLog.LogError(
-                                "LinkRepair",
+                                LogSource,
                                 $"Failed to write repaired link file {fileResult.LinkFilePath}: {ex.Message}",
                                 ex,
                                 _logger);
@@ -484,7 +486,7 @@ public class LinkRepairService : ILinkRepairService
 
         // Multiple media files found - ambiguous
         _pluginLog.LogWarning(
-            "LinkRepair",
+            LogSource,
             $"Multiple media files ({mediaFiles.Count}) found in parent directory {parentDir} for broken link: {fileResult.LinkFilePath}. Candidates: {string.Join(", ", mediaFiles.Select(f => _fileSystem.Path.GetFileName(f)))}",
             logger: _logger);
         fileResult.Status = LinkFileStatus.Ambiguous;
@@ -517,7 +519,7 @@ public class LinkRepairService : ILinkRepairService
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
         {
-            _pluginLog.LogWarning("LinkRepair", $"Cannot access directory: {directory} - {ex.Message}", ex, _logger);
+            _pluginLog.LogWarning(LogSource, $"Cannot access directory: {directory} - {ex.Message}", ex, _logger);
         }
 
         return mediaFiles;

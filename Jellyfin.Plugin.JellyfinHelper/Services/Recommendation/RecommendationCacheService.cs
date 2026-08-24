@@ -16,6 +16,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 /// </summary>
 public sealed class RecommendationCacheService : IRecommendationCacheService
 {
+    private const string LogSource = "RecommendationCache";
+
     private const string CacheFileName = "jellyfin-helper-recommendations-latest.json";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
@@ -35,6 +37,8 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
         IPluginLogService pluginLog,
         ILogger<RecommendationCacheService> logger)
     {
+        ArgumentNullException.ThrowIfNull(applicationPaths);
+
         _pluginLog = pluginLog;
         _logger = logger;
         _cacheFilePath = Path.Join(applicationPaths.DataPath, CacheFileName);
@@ -53,7 +57,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
         catch (JsonException ex)
         {
             _pluginLog.LogWarning(
-                "RecommendationCache",
+                LogSource,
                 $"Could not serialize recommendation results for {_cacheFilePath}",
                 ex,
                 _logger);
@@ -76,7 +80,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                 AtomicFile.WriteAllText(_cacheFilePath, json);
 
                 _pluginLog.LogDebug(
-                    "RecommendationCache",
+                    LogSource,
                     $"Saved {results.Count} recommendation results to {_cacheFilePath}",
                     _logger);
             }
@@ -101,7 +105,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                                         or ArgumentException)
             {
                 _pluginLog.LogWarning(
-                    "RecommendationCache",
+                    LogSource,
                     $"Could not save recommendation results to {_cacheFilePath}",
                     ex,
                     _logger);
@@ -127,7 +131,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 _pluginLog.LogWarning(
-                    "RecommendationCache",
+                    LogSource,
                     $"Could not load recommendation results from {_cacheFilePath}",
                     ex,
                     _logger);
@@ -141,7 +145,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
             if (results is null)
             {
                 _pluginLog.LogWarning(
-                    "RecommendationCache",
+                    LogSource,
                     $"Cache file {_cacheFilePath} deserialized to null.",
                     logger: _logger);
             }
@@ -151,7 +155,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
         catch (JsonException ex)
         {
             _pluginLog.LogWarning(
-                "RecommendationCache",
+                LogSource,
                 $"Could not load recommendation results from {_cacheFilePath}",
                 ex,
                 _logger);

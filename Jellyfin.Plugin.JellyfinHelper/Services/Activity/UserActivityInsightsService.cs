@@ -19,6 +19,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 /// </summary>
 public class UserActivityInsightsService : IUserActivityInsightsService
 {
+    private const string LogSource = "UserActivity";
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<UserActivityInsightsService> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -52,7 +54,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     {
         var users = _userManager.GetUsers()?.ToList() ?? new List<Jellyfin.Database.Implementations.Entities.User>();
         _pluginLog.LogInfo(
-            "UserActivity",
+            LogSource,
             $"Building activity report for {users.Count} users",
             _logger);
 
@@ -64,7 +66,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
         });
 
         _pluginLog.LogDebug(
-            "UserActivity",
+            LogSource,
             $"Scanning {allItems.Count} items across {users.Count} users",
             _logger);
 
@@ -158,10 +160,10 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                         mostRecent = lastPlayedUtc;
                     }
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogWarning(
-                        "UserActivity",
+                        LogSource,
                         $"Failed to read user data for user '{user.Username}' on item '{item.Name}'",
                         ex,
                         _logger);
@@ -233,7 +235,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
         };
 
         _pluginLog.LogInfo(
-            "UserActivity",
+            LogSource,
             $"Activity report complete: {result.TotalItemsWithActivity} items with activity, " +
             $"{result.TotalPlayCount} total plays across {result.TotalUsersAnalyzed} users",
             _logger);
@@ -312,7 +314,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                 },
                 fallbackValue: null,
                 onFailure: ex => _pluginLog.LogWarning(
-                    "UserActivity",
+                    LogSource,
                     $"Batch user-data load failed for user '{perUser.Username}'; falling back to per-item lookup for this user.",
                     ex,
                     _logger));

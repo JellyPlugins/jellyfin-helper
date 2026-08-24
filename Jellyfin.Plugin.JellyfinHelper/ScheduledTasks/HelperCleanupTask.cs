@@ -31,6 +31,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// </summary>
 public class HelperCleanupTask : IScheduledTask
 {
+    private const string LogSource = "HelperCleanup";
+    private const string SeerrCleanupLogSource = "SeerrCleanup";
+
     private readonly IStatisticsCacheService _cacheService;
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IFileSystem _fileSystem;
@@ -117,7 +120,7 @@ public class HelperCleanupTask : IScheduledTask
     public string Name => "Helper Cleanup";
 
     /// <inheritdoc />
-    public string Key => "HelperCleanup";
+    public string Key => LogSource;
 
     /// <inheritdoc />
     public string Description =>
@@ -129,6 +132,8 @@ public class HelperCleanupTask : IScheduledTask
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(progress);
+
         var config = _configHelper.GetConfig();
 
         // RunOnDeactivate: most sub-tasks are true no-ops when Deactivated and are skipped.
@@ -158,7 +163,7 @@ public class HelperCleanupTask : IScheduledTask
 
             if (mode == TaskMode.Deactivate && !runOnDeactivate)
             {
-                _pluginLog.LogInfo("HelperCleanup", $"Skipping {name} (deactivated in settings).", _logger);
+                _pluginLog.LogInfo(LogSource, $"Skipping {name} (deactivated in settings).", _logger);
                 progress.Report((double)(i + 1) / totalTasks * 100);
                 continue;
             }
@@ -169,7 +174,7 @@ public class HelperCleanupTask : IScheduledTask
                 TaskMode.Deactivate => "Deactivated - cleanup only",
                 _ => "Active"
             };
-            _pluginLog.LogInfo("HelperCleanup", $"Starting {name} ({modeLabel})...", _logger);
+            _pluginLog.LogInfo(LogSource, $"Starting {name} ({modeLabel})...", _logger);
 
             var succeeded = true;
             try
@@ -182,16 +187,16 @@ public class HelperCleanupTask : IScheduledTask
             }
             catch (OperationCanceledException)
             {
-                _pluginLog.LogWarning("HelperCleanup", $"Helper Cleanup was cancelled during {name}.", logger: _logger);
+                _pluginLog.LogWarning(LogSource, $"Helper Cleanup was cancelled during {name}.", logger: _logger);
                 throw;
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
                 succeeded = false;
-                _pluginLog.LogError("HelperCleanup", $"Error executing {name}. Continuing with next task.", ex, _logger);
+                _pluginLog.LogError(LogSource, $"Error executing {name}. Continuing with next task.", ex, _logger);
             }
 
-            _pluginLog.LogInfo("HelperCleanup", succeeded ? $"Finished {name}." : $"Finished {name} (with errors).", _logger);
+            _pluginLog.LogInfo(LogSource, succeeded ? $"Finished {name}." : $"Finished {name} (with errors).", _logger);
             progress.Report((double)(i + 1) / totalTasks * 100);
         }
 
@@ -200,7 +205,7 @@ public class HelperCleanupTask : IScheduledTask
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                _pluginLog.LogInfo("HelperCleanup", $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
+                _pluginLog.LogInfo(LogSource, $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
                 // Purge only the trash of libraries the cleanup actually operates on:
                 // GetFilteredLibraryLocations honours ExcludedLibraries and skips
                 // music/boxset libraries, so an admin-excluded library's trash is left
@@ -232,7 +237,7 @@ public class HelperCleanupTask : IScheduledTask
                     // Defense in depth: never purge a library root even if GetTrashPath ever regressed.
                     if (libraryRoots.Contains(trashPathTrimmed))
                     {
-                        _pluginLog.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: resolved trash path {trashPath} is a library root.", logger: _logger);
+                        _pluginLog.LogWarning(LogSource, $"Trash purge skipped for {location}: resolved trash path {trashPath} is a library root.", logger: _logger);
                         continue;
                     }
 
@@ -248,7 +253,7 @@ public class HelperCleanupTask : IScheduledTask
                 }
 
                 _pluginLog.LogInfo(
-                    "HelperCleanup",
+                    LogSource,
                     totalItemsPurged > 0
                         ? $"Trash purge completed: {totalItemsPurged} items removed, {totalBytesFreed} bytes freed."
                         : "Trash purge completed: no expired items found.",
@@ -256,51 +261,51 @@ public class HelperCleanupTask : IScheduledTask
             }
             catch (OperationCanceledException)
             {
-                _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during trash purge.", logger: _logger);
+                _pluginLog.LogWarning(LogSource, "Helper Cleanup was cancelled during trash purge.", logger: _logger);
                 throw;
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
-                _pluginLog.LogError("HelperCleanup", "Error during trash purge. Continuing.", ex, _logger);
+                _pluginLog.LogError(LogSource, "Error during trash purge. Continuing.", ex, _logger);
             }
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            _pluginLog.LogInfo("HelperCleanup", "Running post-cleanup statistics scan...", _logger);
+            _pluginLog.LogInfo(LogSource, "Running post-cleanup statistics scan...", _logger);
             var result = _statisticsService.CalculateStatistics();
             _cacheService.SaveLatestResult(result);
-            _pluginLog.LogInfo("HelperCleanup", "Post-cleanup statistics scan completed and persisted.", _logger);
+            _pluginLog.LogInfo(LogSource, "Post-cleanup statistics scan completed and persisted.", _logger);
         }
         catch (OperationCanceledException)
         {
-            _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during post-cleanup statistics scan.", logger: _logger);
+            _pluginLog.LogWarning(LogSource, "Helper Cleanup was cancelled during post-cleanup statistics scan.", logger: _logger);
             throw;
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            _pluginLog.LogWarning("HelperCleanup", "Failed to run post-cleanup statistics scan.", ex, _logger);
+            _pluginLog.LogWarning(LogSource, "Failed to run post-cleanup statistics scan.", ex, _logger);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            _pluginLog.LogInfo("HelperCleanup", "Recomputing growth timeline...", _logger);
+            _pluginLog.LogInfo(LogSource, "Recomputing growth timeline...", _logger);
             await _growthService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);
-            _pluginLog.LogInfo("HelperCleanup", "Growth timeline recomputed and persisted.", _logger);
+            _pluginLog.LogInfo(LogSource, "Growth timeline recomputed and persisted.", _logger);
         }
         catch (OperationCanceledException)
         {
-            _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during growth timeline computation.", logger: _logger);
+            _pluginLog.LogWarning(LogSource, "Helper Cleanup was cancelled during growth timeline computation.", logger: _logger);
             throw;
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            _pluginLog.LogWarning("HelperCleanup", "Failed to recompute growth timeline.", ex, _logger);
+            _pluginLog.LogWarning(LogSource, "Failed to recompute growth timeline.", ex, _logger);
         }
 
-        _pluginLog.LogInfo("HelperCleanup", "Helper Cleanup finished.", _logger);
+        _pluginLog.LogInfo(LogSource, "Helper Cleanup finished.", _logger);
     }
 
     /// <inheritdoc />
@@ -360,24 +365,24 @@ public class HelperCleanupTask : IScheduledTask
     {
         if (string.IsNullOrWhiteSpace(config.SeerrUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {
-            _pluginLog.LogInfo("SeerrCleanup", "Seerr not configured. Skipping.", _logger);
+            _pluginLog.LogInfo(SeerrCleanupLogSource, "Seerr not configured. Skipping.", _logger);
             progress.Report(100);
             return;
         }
 
         if (config.SeerrCleanupAgeDays <= 0)
         {
-            _pluginLog.LogWarning("SeerrCleanup", $"Invalid Seerr cleanup age '{config.SeerrCleanupAgeDays}'. Skipping.", logger: _logger);
+            _pluginLog.LogWarning(SeerrCleanupLogSource, $"Invalid Seerr cleanup age '{config.SeerrCleanupAgeDays}'. Skipping.", logger: _logger);
             progress.Report(100);
             return;
         }
 
         var dryRun = config.SeerrCleanupTaskMode == TaskMode.DryRun;
         _pluginLog.LogInfo(
-            "SeerrCleanup",
+            SeerrCleanupLogSource,
             dryRun ? "Task started (Dry Run). No requests will be deleted." : "Task started.",
             _logger);
-        _pluginLog.LogInfo("SeerrCleanup", $"Max age: {config.SeerrCleanupAgeDays} days.", _logger);
+        _pluginLog.LogInfo(SeerrCleanupLogSource, $"Max age: {config.SeerrCleanupAgeDays} days.", _logger);
 
         var seerrResult = await _seerrService.CleanupExpiredRequestsAsync(
             config.SeerrUrl,
@@ -386,7 +391,7 @@ public class HelperCleanupTask : IScheduledTask
             dryRun,
             cancellationToken).ConfigureAwait(false);
         _pluginLog.LogInfo(
-            "SeerrCleanup",
+            SeerrCleanupLogSource,
             dryRun
                 ? $"Task finished (Dry Run). Checked: {seerrResult.TotalChecked}, Expired: {seerrResult.ExpiredFound}, Would delete: {seerrResult.ExpiredFound}"
                 : $"Task finished. Checked: {seerrResult.TotalChecked}, Expired: {seerrResult.ExpiredFound}, Deleted: {seerrResult.Deleted}, Failed: {seerrResult.Failed}",

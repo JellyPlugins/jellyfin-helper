@@ -73,7 +73,7 @@ public class FolderBrowserController : ControllerBase
         var virtualFolders = _libraryManager.GetVirtualFolders();
         var paths = virtualFolders
             .Where(f => !string.IsNullOrWhiteSpace(f.Name))
-            .SelectMany(f => (f.Locations ?? []).Select(loc => new LibraryPathEntry { Name = f.Name!, Path = loc }))
+            .SelectMany(f => (f.Locations ?? []).Select(loc => new LibraryPathEntry { Name = f.Name, Path = loc }))
             .Where(x => !string.IsNullOrWhiteSpace(x.Path))
             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
