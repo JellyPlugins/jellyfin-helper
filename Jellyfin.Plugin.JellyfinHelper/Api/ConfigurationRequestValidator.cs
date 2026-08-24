@@ -306,6 +306,29 @@ public static class ConfigurationRequestValidator
             return null;
         }
 
+        var nameError = ValidateArrInstanceName(instance, typeName, index);
+        if (nameError != null)
+        {
+            return nameError;
+        }
+
+        var urlError = ValidateArrInstanceUrl(instance, typeName, index);
+        if (urlError != null)
+        {
+            return urlError;
+        }
+
+        // If URL is set, API key must also be set
+        if (string.IsNullOrWhiteSpace(instance.Url) || !string.IsNullOrWhiteSpace(instance.ApiKey))
+        {
+            return null;
+        }
+
+        return $"{typeName} instance '{DescribeInstance(instance, index)}' has a URL but no API key.";
+    }
+
+    private static string? ValidateArrInstanceName(ArrInstanceConfig instance, string typeName, int index)
+    {
         // Validate instance Name length and content
         if (instance.Name?.Length > 100)
         {
@@ -317,29 +340,28 @@ public static class ConfigurationRequestValidator
             return $"{typeName} instance #{index + 1} name contains invalid characters.";
         }
 
+        return null;
+    }
+
+    private static string? ValidateArrInstanceUrl(ArrInstanceConfig instance, string typeName, int index)
+    {
         // If URL is provided, validate max length then format
         if (!string.IsNullOrWhiteSpace(instance.Url) && instance.Url.Length > 2048)
         {
-            var instanceName = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{index + 1}";
-            return $"{typeName} instance '{instanceName}' URL must be 2048 characters or fewer.";
+            return $"{typeName} instance '{DescribeInstance(instance, index)}' URL must be 2048 characters or fewer.";
         }
 
         if (!string.IsNullOrWhiteSpace(instance.Url) &&
             (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
              (uri.Scheme != "http" && uri.Scheme != "https")))
         {
-            var instanceName = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{index + 1}";
             return
-                $"{typeName} instance '{instanceName}' has an invalid URL. Only http:// and https:// URLs are allowed.";
+                $"{typeName} instance '{DescribeInstance(instance, index)}' has an invalid URL. Only http:// and https:// URLs are allowed.";
         }
 
-        // If URL is set, API key must also be set
-        if (string.IsNullOrWhiteSpace(instance.Url) || !string.IsNullOrWhiteSpace(instance.ApiKey))
-        {
-            return null;
-        }
-
-        var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{index + 1}";
-        return $"{typeName} instance '{label}' has a URL but no API key.";
+        return null;
     }
+
+    private static string DescribeInstance(ArrInstanceConfig instance, int index) =>
+        !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{index + 1}";
 }

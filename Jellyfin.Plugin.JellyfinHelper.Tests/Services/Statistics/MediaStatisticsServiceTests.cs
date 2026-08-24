@@ -344,6 +344,120 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_EbookFiles_CountedAsBooksNotOther()
+    {
+        var libraryPath = TestPath("media", "books");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Books",
+            CollectionType = CollectionTypeOptions.books,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var epub = new FileSystemMetadata { FullName = TestPath("media", "books", "novel.epub"), Name = "novel.epub", Length = 2_000, IsDirectory = false };
+        var pdf = new FileSystemMetadata { FullName = TestPath("media", "books", "manual.pdf"), Name = "manual.pdf", Length = 3_000, IsDirectory = false };
+        var cbz = new FileSystemMetadata { FullName = TestPath("media", "books", "comic.cbz"), Name = "comic.cbz", Length = 5_000, IsDirectory = false };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([epub, pdf, cbz]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        var lib = result.Libraries[0];
+        Assert.Equal(3, lib.BookFileCount);
+        Assert.Equal(10_000, lib.BookSize);
+        // eBooks must NOT land in the generic Other bucket.
+        Assert.Equal(0, lib.OtherFileCount);
+        Assert.Equal(0, lib.OtherSize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_EbookFiles_ProduceFormatBreakdown()
+    {
+        var libraryPath = TestPath("media", "books");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Books",
+            CollectionType = CollectionTypeOptions.books,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var epub1 = new FileSystemMetadata { FullName = TestPath("media", "books", "a.epub"), Name = "a.epub", Length = 1_000, IsDirectory = false };
+        var epub2 = new FileSystemMetadata { FullName = TestPath("media", "books", "b.epub"), Name = "b.epub", Length = 1_500, IsDirectory = false };
+        var pdf = new FileSystemMetadata { FullName = TestPath("media", "books", "c.pdf"), Name = "c.pdf", Length = 4_000, IsDirectory = false };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([epub1, epub2, pdf]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        var lib = result.Libraries[0];
+        Assert.Equal(2, lib.BookFormats["EPUB"]);
+        Assert.Equal(1, lib.BookFormats["PDF"]);
+        Assert.Equal(2_500, lib.BookFormatSizes["EPUB"]);
+        Assert.Equal(4_000, lib.BookFormatSizes["PDF"]);
+
+        // Aggregated result-level breakdown mirrors the per-library data.
+        Assert.Equal(2, result.TotalBookFormats["EPUB"]);
+        Assert.Equal(3, result.TotalBookFileCount);
+    }
+
+    [Fact]
+    public void CalculateStatistics_BookLibrary_PopulatesBooksCollection()
+    {
+        var libraryPath = TestPath("media", "books");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Books",
+            CollectionType = CollectionTypeOptions.books,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var epub = new FileSystemMetadata { FullName = TestPath("media", "books", "novel.epub"), Name = "novel.epub", Length = 2_000, IsDirectory = false };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([epub]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        // A Book library is routed to result.Books (so the UI can show a Books section) and NOT
+        // to Other/Movies/Music.
+        Assert.Single(result.Books);
+        Assert.Empty(result.Other);
+        Assert.Empty(result.Music);
+        Assert.Empty(result.Movies);
+    }
+
+    [Fact]
+    public void CalculateStatistics_NoBookLibrary_LeavesBooksCollectionEmpty()
+    {
+        // With no Book library, result.Books stays empty so the UI renders no Books section.
+        var libraryPath = TestPath("media", "movies");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var mkv = new FileSystemMetadata { FullName = TestPath("media", "movies", "film.mkv"), Name = "film.mkv", Length = 9_000, IsDirectory = false };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([mkv]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        Assert.Empty(result.Books);
+        Assert.Equal(0, result.TotalBookFileCount);
+    }
+
+    [Fact]
     public void CalculateStatistics_RecursiveDirectoryTraversal_AccumulatesSizes()
     {
         var libraryPath = TestPath("media", "movies");

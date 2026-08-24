@@ -383,5 +383,7 @@
   "trashPathDeleteSuccess": "Conteúdo antigo da lixeira excluído.",
   "trashPathCheckingAccess": "Verificando permissões…",
   "trashPathAccessDenied": "Permissão negada no novo caminho da lixeira.",
-  "trashPathMoveNothingMoved": "Nenhum item foi movido. A origem pode estar vazia ou inacessível devido a permissões."
+  "trashPathMoveNothingMoved": "Nenhum item foi movido. A origem pode estar vazia ou inacessível devido a permissões.",
+  "bookFormats": "Formatos de livro",
+  "books": "Livros"
 }

@@ -33,6 +33,12 @@ public class MediaStatisticsResult
     public Collection<LibraryStatistics> Music { get; } = new();
 
     /// <summary>
+    /// Gets the list of book (eBook) library statistics. Populated only when a Book library exists,
+    /// so the UI can render a Books section conditionally (mirroring the Music behaviour).
+    /// </summary>
+    public Collection<LibraryStatistics> Books { get; } = new();
+
+    /// <summary>
     /// Gets the list of other library statistics.
     /// </summary>
     public Collection<LibraryStatistics> Other { get; } = new();
@@ -88,6 +94,22 @@ public class MediaStatisticsResult
     /// Gets the total audio file count across all libraries.
     /// </summary>
     public int TotalAudioFileCount => Libraries.Sum(l => l.AudioFileCount);
+
+    /// <summary>
+    /// Gets the total size of eBook files across all libraries in bytes.
+    /// </summary>
+    public long TotalBookSize => Libraries.Sum(l => l.BookSize);
+
+    /// <summary>
+    /// Gets the total eBook file count across all libraries.
+    /// </summary>
+    public int TotalBookFileCount => Libraries.Sum(l => l.BookFileCount);
+
+    /// <summary>
+    /// Gets the eBook format breakdown (format label -> count) aggregated across all libraries.
+    /// Empty when no eBooks exist, so the UI can render the Books section only when present.
+    /// </summary>
+    public Dictionary<string, int> TotalBookFormats => AggregateDictionaries(Libraries.Select(l => l.BookFormats));
 
     /// <summary>
     /// Gets all video libraries (Movies + TV Shows + Other, excluding Music).

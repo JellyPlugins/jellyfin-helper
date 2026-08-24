@@ -1,6 +1,6 @@
 ﻿// Mock data for demo. ~9.2TB total.
 var MOCK_TRANSLATIONS = null;
-function _lib(n,t,o){var s=(o.VideoSize||0)+(o.AudioSize||0)+(o.SubtitleSize||0)+(o.ImageSize||0)+(o.NfoSize||0)+(o.TrickplaySize||0)+(o.OtherSize||0);return {LibraryName:n,CollectionType:t,RootPaths:o.RootPaths||[],VideoSize:0,AudioSize:0,SubtitleSize:0,ImageSize:0,NfoSize:0,TrickplaySize:0,OtherSize:0,VideoFileCount:0,AudioFileCount:0,SubtitleFileCount:0,ImageFileCount:0,NfoFileCount:0,TrickplayFileCount:0,TrickplayFolderCount:o.TrickplayFolderCount||0,OtherFileCount:0,TotalSize:s,VideoCodecs:{},VideoAudioCodecs:{},MusicAudioCodecs:{},ContainerFormats:{},Resolutions:{},VideoCodecPaths:{},VideoAudioCodecPaths:{},MusicAudioCodecPaths:{},ContainerFormatPaths:{},ResolutionPaths:{},VideoCodecSizes:{},VideoAudioCodecSizes:{},MusicAudioCodecSizes:{},ContainerSizes:{},ResolutionSizes:{},VideosWithoutSubtitles:0,VideosWithoutImages:0,VideosWithoutNfo:0,OrphanedMetadataDirectories:0,VideosWithoutSubtitlesPaths:[],VideosWithoutImagesPaths:[],VideosWithoutNfoPaths:[],OrphanedMetadataDirectoriesPaths:[],...o};}
+function _lib(n,t,o){var s=(o.VideoSize||0)+(o.AudioSize||0)+(o.SubtitleSize||0)+(o.ImageSize||0)+(o.NfoSize||0)+(o.TrickplaySize||0)+(o.BookSize||0)+(o.OtherSize||0);return {LibraryName:n,CollectionType:t,RootPaths:o.RootPaths||[],VideoSize:0,AudioSize:0,SubtitleSize:0,ImageSize:0,NfoSize:0,TrickplaySize:0,BookSize:0,OtherSize:0,VideoFileCount:0,AudioFileCount:0,SubtitleFileCount:0,ImageFileCount:0,NfoFileCount:0,TrickplayFileCount:0,TrickplayFolderCount:o.TrickplayFolderCount||0,BookFileCount:0,OtherFileCount:0,TotalSize:s,VideoCodecs:{},VideoAudioCodecs:{},MusicAudioCodecs:{},BookFormats:{},BookFormatSizes:{},ContainerFormats:{},Resolutions:{},VideoCodecPaths:{},VideoAudioCodecPaths:{},MusicAudioCodecPaths:{},BookFormatPaths:{},ContainerFormatPaths:{},ResolutionPaths:{},VideoCodecSizes:{},VideoAudioCodecSizes:{},MusicAudioCodecSizes:{},ContainerSizes:{},ResolutionSizes:{},VideosWithoutSubtitles:0,VideosWithoutImages:0,VideosWithoutNfo:0,OrphanedMetadataDirectories:0,VideosWithoutSubtitlesPaths:[],VideosWithoutImagesPaths:[],VideosWithoutNfoPaths:[],OrphanedMetadataDirectoriesPaths:[],...o};}
 
 var _moviesLib=_lib("Movies","movies",{
 RootPaths:["/data/movies"],
@@ -60,16 +60,27 @@ MusicAudioCodecSizes:{"FLAC":140000000000,"MP3":32000000000,"Opus":18000000000,"
 MusicAudioCodecPaths:{"FLAC":["/data/music/Pink Floyd/01.flac"],"MP3":["/data/music/Various/song.mp3"]}
 });
 
+var _booksLib=_lib("Books","books",{
+RootPaths:["/data/books"],BookSize:48318382080,ImageSize:268435456,
+BookFileCount:3120,ImageFileCount:850,
+BookFormats:{"EPUB":1840,"PDF":720,"CBZ":360,"MOBI":150,"AZW3":50},
+BookFormatSizes:{"EPUB":18253611008,"PDF":22548578304,"CBZ":5905580032,"MOBI":1181116006,"AZW3":429496730},
+BookFormatPaths:{"EPUB":["/data/books/Brandon Sanderson/Mistborn.epub"],"PDF":["/data/books/OReilly/Designing Data-Intensive Applications.pdf"],"CBZ":["/data/books/Comics/Saga Vol 1.cbz"]}
+});
+
 var MOCK_STATISTICS={
 ScanTimestamp:new Date(Date.now()-300000).toISOString(),
-Libraries:[_moviesLib,_tvLib,_musicLib],
-Movies:[_moviesLib],TvShows:[_tvLib],Music:[_musicLib],Other:[],
+Libraries:[_moviesLib,_tvLib,_musicLib,_booksLib],
+Movies:[_moviesLib],TvShows:[_tvLib],Music:[_musicLib],Books:[_booksLib],Other:[],
 TotalMovieVideoSize:_moviesLib.VideoSize,
 TotalTvShowVideoSize:_tvLib.VideoSize,
 TotalMusicAudioSize:_musicLib.AudioSize,
+TotalBookSize:_booksLib.BookSize,
+TotalBookFileCount:_booksLib.BookFileCount,
+TotalBookFormats:_booksLib.BookFormats,
 TotalTrickplaySize:_moviesLib.TrickplaySize+_tvLib.TrickplaySize,
 TotalSubtitleSize:_moviesLib.SubtitleSize+_tvLib.SubtitleSize,
-TotalImageSize:_moviesLib.ImageSize+_tvLib.ImageSize+_musicLib.ImageSize,
+TotalImageSize:_moviesLib.ImageSize+_tvLib.ImageSize+_musicLib.ImageSize+_booksLib.ImageSize,
 TotalNfoSize:_moviesLib.NfoSize+_tvLib.NfoSize,
 TotalVideoFileCount:_moviesLib.VideoFileCount+_tvLib.VideoFileCount,
 TotalAudioFileCount:_musicLib.AudioFileCount,

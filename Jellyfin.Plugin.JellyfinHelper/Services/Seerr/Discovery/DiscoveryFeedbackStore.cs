@@ -117,52 +117,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 var key = (item.TmdbId, normalizedType);
                 if (entryLookup.TryGetValue(key, out var existing))
                 {
-                    // Backfill metadata on existing placeholder entries (created by RecordDismissed/RecordRequested
-                    // before RecordShown ran) or entries missing enriched data (e.g., KnownPeople not available
-                    // on first generation but enriched on a subsequent run). Each field is merged individually
-                    // to avoid overwriting already-populated fields with empty/default values.
-                    if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(item.Title))
-                    {
-                        existing.Title = item.Title;
-                        modified = true;
-                    }
-
-                    if (existing.Year is null or 0 && item.Year is > 0)
-                    {
-                        existing.Year = item.Year;
-                        modified = true;
-                    }
-
-                    if ((existing.Genres == null || existing.Genres.Count == 0) && item.Genres is { Count: > 0 })
-                    {
-                        existing.Genres = item.Genres.ToArray();
-                        modified = true;
-                    }
-
-                    if (existing.TmdbRating == 0 && item.TmdbRating > 0)
-                    {
-                        existing.TmdbRating = item.TmdbRating;
-                        modified = true;
-                    }
-
-                    if (existing.Score == 0 && item.Score > 0)
-                    {
-                        existing.Score = item.Score;
-                        modified = true;
-                    }
-
-                    if (existing.Popularity == 0 && item.Popularity > 0)
-                    {
-                        existing.Popularity = item.Popularity;
-                        modified = true;
-                    }
-
-                    if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
-                    {
-                        existing.KnownPeople = item.KnownPeople.ToList();
-                        modified = true;
-                    }
-
+                    modified |= BackfillExistingEntry(existing, item);
                     continue;
                 }
 
@@ -189,6 +144,80 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 SaveInternal(data);
             }
         }
+    }
+
+    /// <summary>
+    ///     Backfills metadata on an existing placeholder entry (created by RecordDismissed/RecordRequested
+    ///     before RecordShown ran) or an entry missing enriched data (e.g., KnownPeople not available
+    ///     on first generation but enriched on a subsequent run). Each field is merged individually
+    ///     to avoid overwriting already-populated fields with empty/default values.
+    /// </summary>
+    /// <param name="existing">The existing feedback entry to backfill in place.</param>
+    /// <param name="item">The freshly shown recommendation providing candidate values.</param>
+    /// <returns><see langword="true"/> if any field was modified; otherwise <see langword="false"/>.</returns>
+    private static bool BackfillExistingEntry(DiscoveryFeedbackEntry existing, DiscoveryRecommendation item)
+    {
+        var modified = false;
+
+        if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(item.Title))
+        {
+            existing.Title = item.Title;
+            modified = true;
+        }
+
+        if (existing.Year is null or 0 && item.Year is > 0)
+        {
+            existing.Year = item.Year;
+            modified = true;
+        }
+
+        if ((existing.Genres == null || existing.Genres.Count == 0) && item.Genres is { Count: > 0 })
+        {
+            existing.Genres = item.Genres.ToArray();
+            modified = true;
+        }
+
+        if (existing.TmdbRating == 0 && item.TmdbRating > 0)
+        {
+            existing.TmdbRating = item.TmdbRating;
+            modified = true;
+        }
+
+        modified |= BackfillNumericAndPeople(existing, item);
+
+        return modified;
+    }
+
+    /// <summary>
+    ///     Backfills the score, popularity, and known-people fields of an existing entry. Extracted
+    ///     verbatim from <see cref="BackfillExistingEntry"/> to keep each merge routine focused.
+    /// </summary>
+    /// <param name="existing">The existing feedback entry to backfill in place.</param>
+    /// <param name="item">The freshly shown recommendation providing candidate values.</param>
+    /// <returns><see langword="true"/> if any field was modified; otherwise <see langword="false"/>.</returns>
+    private static bool BackfillNumericAndPeople(DiscoveryFeedbackEntry existing, DiscoveryRecommendation item)
+    {
+        var modified = false;
+
+        if (existing.Score == 0 && item.Score > 0)
+        {
+            existing.Score = item.Score;
+            modified = true;
+        }
+
+        if (existing.Popularity == 0 && item.Popularity > 0)
+        {
+            existing.Popularity = item.Popularity;
+            modified = true;
+        }
+
+        if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
+        {
+            existing.KnownPeople = item.KnownPeople.ToList();
+            modified = true;
+        }
+
+        return modified;
     }
 
     /// <inheritdoc />

@@ -72,7 +72,7 @@ public sealed class DiscoveryRequestDto : IValidatableObject
             yield break;
         }
 
-        if (path.Where(char.IsControl).Any())
+        if (path.Any(char.IsControl))
         {
             yield return new ValidationResult("Root folder path contains invalid characters.", [nameof(RootFolder)]);
             yield break;

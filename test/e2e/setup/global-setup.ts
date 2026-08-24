@@ -152,6 +152,9 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // --- 3. create libraries -------------------------------------------------
   await ensureLibrary(admin, 'Movies', 'movies', '/media/Movies');
   await ensureLibrary(admin, 'Shows', 'tvshows', '/media/Shows');
+  // Books library (CollectionType "books") — proves eBooks are TRACKED in stats
+  // yet NEVER deleted by cleanup (CleanupConfigHelper marks books ineligible).
+  await ensureLibrary(admin, 'Books', 'books', '/media/Books');
 
   // --- 4. scan and wait ----------------------------------------------------
   await runLibraryScan(admin);

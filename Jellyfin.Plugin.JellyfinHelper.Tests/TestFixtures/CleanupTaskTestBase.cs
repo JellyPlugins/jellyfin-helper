@@ -70,7 +70,7 @@ public abstract class CleanupTaskTestBase : IDisposable
             {
                 var virtualFolders = lm.GetVirtualFolders();
                 return virtualFolders
-                    .Where(f => f.CollectionType is not (CollectionTypeOptions.music or CollectionTypeOptions.boxsets))
+                    .Where(f => Jellyfin.Plugin.JellyfinHelper.Services.Cleanup.CleanupConfigHelper.IsCleanupEligibleCollectionType(f.CollectionType))
                     .Where(f => !(f.Name ?? string.Empty).Contains("collection", StringComparison.OrdinalIgnoreCase)
                              && !(f.Name ?? string.Empty).Contains("boxset", StringComparison.OrdinalIgnoreCase))
                     .SelectMany(f => f.Locations)

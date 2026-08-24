@@ -32,6 +32,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     // File name for the persisted batch-generation counter. Sits in the plugin data folder.
     private const string BatchGenerationFileName = "jellyfin-helper-batch-generation.txt";
 
+    private const string LogCategory = "Recommendations";
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Engine> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -343,7 +345,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             contentAffinityLookup));
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogCategory,
             $"Starting recommendation generation for {allProfiles.Count} users using strategy '{_strategy.Name}'...",
             _logger);
 
@@ -403,7 +405,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogWarning(
-                        "Recommendations",
+                        LogCategory,
                         $"Failed to generate recommendations for user '{profile.UserName}'",
                         ex,
                         _logger);
@@ -413,7 +415,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var results = new Collection<RecommendationResult>(concurrentResults.ToList());
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogCategory,
             $"Finished: {results.Count} users, {results.Sum(r => r.Recommendations.Count)} total recommendations.",
             _logger);
         return results;
@@ -500,38 +502,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 continue;
             }
 
-            // Cold-start rating term. ComputeCombinedCriticScore returns a NEUTRAL 0.5 for a fully
-            // unrated item - correct for the shared ML vector, wrong here: 0.5 would rank an
-            // unknown-quality title ABOVE one the community rated poorly (3/10 -> 0.30), a quality
-            // inversion for zero-history users. Cold-start does NOT use the ML vector, so substitute a
-            // conservative local unrated prior: high enough that a new unrated addition is not buried
-            // (recency still carries it), but below genuinely low-rated titles. ComputeCombinedCriticScore
-            // is untouched (no train/serve impact).
-            var isUnrated = !HasUsableRating(candidate.CommunityRating) && !HasUsableRating(candidate.CriticRating);
-            var ratingScore = isUnrated
-                ? EngineConstants.ColdStartUnratedRatingPrior
-                : ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);
-            var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
-
-            double score;
-            if (useCommunityPrior && maxLogPopularity > 0.0)
-            {
-                // Enhanced cold-start formula: 40% rating (quality), 30% recency (freshness),
-                // 30% community-popularity (social proof, log1p-compressed for the long tail).
-                var communityScore = 0.0;
-                if (communityPopularity!.TryGetValue(candidate.Id, out var watchCount) && watchCount > 0)
-                {
-                    communityScore = Math.Clamp(Math.Log(1.0 + watchCount) / maxLogPopularity, 0.0, 1.0);
-                }
-
-                score = (0.4 * ratingScore) + (0.3 * recencyScore) + (0.3 * communityScore);
-            }
-            else
-            {
-                // Classic formula (single-user deployments or on-demand path).
-                score = (0.6 * ratingScore) + (0.4 * recencyScore);
-            }
-
+            var score = ComputeColdStartScore(candidate, useCommunityPrior, maxLogPopularity, communityPopularity);
             scored.Add((candidate, score, "Popular and highly rated", "reasonPopular", null));
         }
 
@@ -569,7 +540,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             .ToList();
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogCategory,
             $"Generated {topItems.Count} cold-start recommendations for user '{userId}' (no watch history)",
             _logger);
 
@@ -583,6 +554,52 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ScoringStrategy = "Cold Start (Popular + Recent)",
             ScoringStrategyKey = "strategyColdStart"
         };
+    }
+
+    /// <summary>
+    ///     Computes the cold-start relevance score for a single candidate, blending a rating term,
+    ///     a recency term and (when community data is available) a log1p-compressed popularity term.
+    ///     Extracted verbatim from the cold-start scoring loop; scoring math is unchanged.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <param name="useCommunityPrior">Whether community-popularity data is available.</param>
+    /// <param name="maxLogPopularity">The pre-computed max log1p popularity used to normalize.</param>
+    /// <param name="communityPopularity">Per-item community watch counts, or <c>null</c>.</param>
+    /// <returns>The cold-start score for the candidate.</returns>
+    private static double ComputeColdStartScore(
+        BaseItem candidate,
+        bool useCommunityPrior,
+        double maxLogPopularity,
+        IReadOnlyDictionary<Guid, int>? communityPopularity)
+    {
+        // Cold-start rating term. ComputeCombinedCriticScore returns a NEUTRAL 0.5 for a fully
+        // unrated item - correct for the shared ML vector, wrong here: 0.5 would rank an
+        // unknown-quality title ABOVE one the community rated poorly (3/10 -> 0.30), a quality
+        // inversion for zero-history users. Cold-start does NOT use the ML vector, so substitute a
+        // conservative local unrated prior: high enough that a new unrated addition is not buried
+        // (recency still carries it), but below genuinely low-rated titles. ComputeCombinedCriticScore
+        // is untouched (no train/serve impact).
+        var isUnrated = !HasUsableRating(candidate.CommunityRating) && !HasUsableRating(candidate.CriticRating);
+        var ratingScore = isUnrated
+            ? EngineConstants.ColdStartUnratedRatingPrior
+            : ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);
+        var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
+
+        if (useCommunityPrior && maxLogPopularity > 0.0)
+        {
+            // Enhanced cold-start formula: 40% rating (quality), 30% recency (freshness),
+            // 30% community-popularity (social proof, log1p-compressed for the long tail).
+            var communityScore = 0.0;
+            if (communityPopularity!.TryGetValue(candidate.Id, out var watchCount) && watchCount > 0)
+            {
+                communityScore = Math.Clamp(Math.Log(1.0 + watchCount) / maxLogPopularity, 0.0, 1.0);
+            }
+
+            return (0.4 * ratingScore) + (0.3 * recencyScore) + (0.3 * communityScore);
+        }
+
+        // Classic formula (single-user deployments or on-demand path).
+        return (0.6 * ratingScore) + (0.4 * recencyScore);
     }
 
     /// <summary>
@@ -671,7 +688,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         if (skippedMovies > 0 || skippedSeries > 0)
         {
             _pluginLog.LogInfo(
-                "Recommendations",
+                LogCategory,
                 $"Filtered {skippedMovies} empty movies and {skippedSeries} empty series from candidate pool.",
                 _logger);
         }
@@ -679,7 +696,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         if (candidates.Count > EngineConstants.CandidateCountWarningThreshold)
         {
             _pluginLog.LogWarning(
-                "Recommendations",
+                LogCategory,
                 $"Large candidate set: {candidates.Count} items. Consider using the scheduled task.",
                 logger: _logger);
         }
@@ -854,9 +871,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // non-finite, which would poison all ComputeCollaborativeScore calls; skipping non-finite
         // values prevents a degenerate Jaccard edge case from collapsing the collaborative signal.
         var collaborativeMax = 0.0;
-        foreach (var v in coOccurrence.Values)
+        foreach (var v in coOccurrence.Values.Where(double.IsFinite))
         {
-            if (double.IsFinite(v) && v > collaborativeMax)
+            if (v > collaborativeMax)
             {
                 collaborativeMax = v;
             }
@@ -915,37 +932,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Pre-compute per-item genre, people, and studio sets for watched items.
         // Used by ContentNearestNeighborScore to find the most similar watched item for each candidate.
         // Built once per user, O(1) per-candidate lookup via parallel list indices.
-        var watchedGenreSets = new List<HashSet<string>>();
-        var watchedPeopleSets = new List<HashSet<string>>();
-        var watchedStudioSets = new List<HashSet<string>>();
-        foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
-        {
-            watchedGenreSets.Add(
-                w.Genres is { Count: > 0 }
-                    ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
-                    : []);
-
-            // People: resolve from peopleLookup (which maps item IDs to person name sets)
-            peopleLookup.TryGetValue(w.ItemId, out var wp);
-            if (wp == null && w.SeriesId.HasValue)
-            {
-                peopleLookup.TryGetValue(w.SeriesId.Value, out wp);
-            }
-
-            watchedPeopleSets.Add(wp != null ? new HashSet<string>(wp, StringComparer.OrdinalIgnoreCase) : []);
-
-            // Studios: resolve from candidateLookup (which maps item IDs to BaseItems with Studios)
-            candidateLookup.TryGetValue(w.ItemId, out var wi);
-            if (wi == null && w.SeriesId.HasValue)
-            {
-                candidateLookup.TryGetValue(w.SeriesId.Value, out wi);
-            }
-
-            watchedStudioSets.Add(
-                wi?.Studios is { Length: > 0 }
-                    ? new HashSet<string>(wi.Studios, StringComparer.OrdinalIgnoreCase)
-                    : []);
-        }
+        BuildWatchedNeighborSets(
+            userProfile,
+            peopleLookup,
+            candidateLookup,
+            out var watchedGenreSets,
+            out var watchedPeopleSets,
+            out var watchedStudioSets);
 
         // Score each unwatched candidate
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
@@ -959,24 +952,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 ct.ThrowIfCancellationRequested();
             }
 
-            // Parental rating filter - skip items the user is not allowed to see. Uses Jellyfin's
-            // InheritedParentalRatingValue which cascades from parents (a series rating applies to
-            // its episodes), so restricted profiles only get age-appropriate recommendations.
-            if (ExceedsMaxRating(candidate, userMaxRating))
-            {
-                continue;
-            }
-
-            if (watchedIds.Contains(candidate.Id))
-            {
-                continue;
-            }
-
-            // Skip series with any interaction (Played, IsFavorite, PlayCount > 0, or
-            // PlaybackPositionTicks > 0 on an episode, or the series favorited). Jellyfin natively
-            // shows "Next Up" / "Continue Watching" for these, so recommending them wastes a slot.
-            // Their signals still flow into preferences via PreferenceBuilder.
-            if (candidate is Series && watchedSeriesIds.Contains(candidate.Id))
+            if (ShouldSkipCandidate(candidate, userMaxRating, watchedIds, watchedSeriesIds))
             {
                 continue;
             }
@@ -992,7 +968,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     collaborativeMax,
                     averageYear,
                     watchedItemLookup,
-                    seriesEpisodeLookup,
                     preferredStudios,
                     preferredPeople,
                     preferredPeopleWeights,
@@ -1067,7 +1042,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             .ToList();
 
         _pluginLog.LogInfo(
-            "Recommendations",
+            LogCategory,
             $"Generated {topItems.Count} recommendations for user '{userProfile.UserName}' using strategy '{strategy.Name}'",
             _logger);
 
@@ -1082,6 +1057,94 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ScoringStrategyKey = strategy.NameKey,
             Cohort = _strategySelector.GetCohortName(userProfile.UserId)
         };
+    }
+
+    /// <summary>
+    ///     Determines whether a candidate should be skipped during per-user scoring: it exceeds the
+    ///     user's parental rating, is already watched, or is a series the user has interacted with.
+    ///     Extracted verbatim from the scoring loop's guard clauses.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <param name="userMaxRating">The user's max allowed parental rating, or <c>null</c>.</param>
+    /// <param name="watchedIds">Item ids the user has meaningfully interacted with.</param>
+    /// <param name="watchedSeriesIds">Series ids the user has interacted with or favorited.</param>
+    /// <returns><c>true</c> when the candidate must be excluded from recommendations.</returns>
+    private static bool ShouldSkipCandidate(
+        BaseItem candidate,
+        int? userMaxRating,
+        HashSet<Guid> watchedIds,
+        HashSet<Guid> watchedSeriesIds)
+    {
+        // Parental rating filter - skip items the user is not allowed to see. Uses Jellyfin's
+        // InheritedParentalRatingValue which cascades from parents (a series rating applies to
+        // its episodes), so restricted profiles only get age-appropriate recommendations.
+        if (ExceedsMaxRating(candidate, userMaxRating))
+        {
+            return true;
+        }
+
+        if (watchedIds.Contains(candidate.Id))
+        {
+            return true;
+        }
+
+        // Skip series with any interaction (Played, IsFavorite, PlayCount > 0, or
+        // PlaybackPositionTicks > 0 on an episode, or the series favorited). Jellyfin natively
+        // shows "Next Up" / "Continue Watching" for these, so recommending them wastes a slot.
+        // Their signals still flow into preferences via PreferenceBuilder.
+        return candidate is Series && watchedSeriesIds.Contains(candidate.Id);
+    }
+
+    /// <summary>
+    ///     Builds the parallel per-watched-item genre/people/studio sets used by
+    ///     <c>ContentNearestNeighborScore</c>. Extracted verbatim from the per-user setup so the
+    ///     nested resolution branches live outside the main generation method.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <param name="peopleLookup">Item id -> person name set lookup.</param>
+    /// <param name="candidateLookup">Item id -> candidate item lookup.</param>
+    /// <param name="watchedGenreSets">Receives the per-watched-item genre sets.</param>
+    /// <param name="watchedPeopleSets">Receives the per-watched-item people sets.</param>
+    /// <param name="watchedStudioSets">Receives the per-watched-item studio sets.</param>
+    private static void BuildWatchedNeighborSets(
+        UserWatchProfile userProfile,
+        Dictionary<Guid, HashSet<string>> peopleLookup,
+        Dictionary<Guid, BaseItem> candidateLookup,
+        out List<HashSet<string>> watchedGenreSets,
+        out List<HashSet<string>> watchedPeopleSets,
+        out List<HashSet<string>> watchedStudioSets)
+    {
+        watchedGenreSets = new List<HashSet<string>>();
+        watchedPeopleSets = new List<HashSet<string>>();
+        watchedStudioSets = new List<HashSet<string>>();
+        foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
+        {
+            watchedGenreSets.Add(
+                w.Genres is { Count: > 0 }
+                    ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
+                    : []);
+
+            // People: resolve from peopleLookup (which maps item IDs to person name sets)
+            peopleLookup.TryGetValue(w.ItemId, out var wp);
+            if (wp == null && w.SeriesId.HasValue)
+            {
+                peopleLookup.TryGetValue(w.SeriesId.Value, out wp);
+            }
+
+            watchedPeopleSets.Add(wp != null ? new HashSet<string>(wp, StringComparer.OrdinalIgnoreCase) : []);
+
+            // Studios: resolve from candidateLookup (which maps item IDs to BaseItems with Studios)
+            candidateLookup.TryGetValue(w.ItemId, out var wi);
+            if (wi == null && w.SeriesId.HasValue)
+            {
+                candidateLookup.TryGetValue(w.SeriesId.Value, out wi);
+            }
+
+            watchedStudioSets.Add(
+                wi?.Studios is { Length: > 0 }
+                    ? new HashSet<string>(wi.Studios, StringComparer.OrdinalIgnoreCase)
+                    : []);
+        }
     }
 
     /// <summary>
@@ -1100,7 +1163,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         double collaborativeMax,
         double averageYear,
         Dictionary<Guid, WatchedItemInfo> watchedItemLookup,
-        Dictionary<Guid, List<WatchedItemInfo>> seriesEpisodeLookup,
         HashSet<string> preferredStudios,
         HashSet<string> preferredPeople,
         IReadOnlyDictionary<string, double> preferredPeopleWeights,
@@ -1268,7 +1330,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
-            _pluginLog.LogDebug("Recommendations", $"Score for '{candidate.Name}': {explanation}", _logger);
+            _pluginLog.LogDebug(LogCategory, $"Score for '{candidate.Name}': {explanation}", _logger);
         }
 
         var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(
@@ -1398,7 +1460,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     streams = firstEpisode.GetMediaStreams();
                     if ((streams is null || streams.Count == 0) && _logger.IsEnabled(LogLevel.Debug))
                     {
-                        _pluginLog.LogDebug("Recommendations", $"Series '{series.Name}' (Id={series.Id}): fallback episode has no media streams.", _logger);
+                        _pluginLog.LogDebug(LogCategory, $"Series '{series.Name}' (Id={series.Id}): fallback episode has no media streams.", _logger);
                     }
                 }
             }
@@ -1751,7 +1813,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(
-                "Recommendations",
+                LogCategory,
                 $"Failed to build genre/studio IDF table; GenreStudioIdfPrior will be neutral. {ex.Message}",
                 logger: _logger);
             return new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -1982,11 +2044,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     <para>All writes serialise through <see cref="_snapshotRefreshLock"/>.</para>
     /// </summary>
     /// <param name="candidate">The snapshot the caller would like to publish.</param>
-    /// <returns>
-    ///     True when published; false when a strictly-newer snapshot was already cached (a rejected
-    ///     publish is silently correct). Callers ignore the value; the bool keeps the contract testable.
-    /// </returns>
-    private bool TryPublishSnapshot(CandidateSnapshot candidate)
+    private void TryPublishSnapshot(CandidateSnapshot candidate)
     {
         lock (_snapshotRefreshLock)
         {
@@ -1998,14 +2056,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var current = _cachedSnapshot;
             if (current is not null && current.PublicationSequence > candidate.ObservedSequence)
             {
-                return false;
+                return;
             }
 
             // Assign the sequence and write atomically under the lock so the batch path (which builds
             // outside the lock) cannot race a concurrent live-refresh into an out-of-order sequence.
             var seq = Interlocked.Increment(ref _publicationSequence);
             _cachedSnapshot = candidate with { PublicationSequence = seq };
-            return true;
         }
     }
 
@@ -2159,24 +2216,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             // Build Jellyfin ItemId -> TMDb ID and ItemId -> MediaType mappings from library items.
             // Only load movies + series (same as LoadCandidateItems) to avoid excessive queries.
-            var tmdbIdByItemId = new Dictionary<Guid, int>();
-            var mediaTypeByItemId = new Dictionary<Guid, string>();
             var libraryItems = _libraryManager.GetItemList(new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series]
             });
 
-            foreach (var item in libraryItems)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (item.TryGetProviderId("Tmdb", out var tmdbStr) &&
-                    int.TryParse(tmdbStr, out var tmdbId) && tmdbId > 0)
-                {
-                    tmdbIdByItemId.TryAdd(item.Id, tmdbId);
-                    mediaTypeByItemId.TryAdd(item.Id, item is Series ? "tv" : "movie");
-                }
-            }
+            BuildTmdbMappings(libraryItems, cancellationToken, out var tmdbIdByItemId, out var mediaTypeByItemId);
 
             if (tmdbIdByItemId.Count == 0)
             {
@@ -2184,61 +2229,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             }
 
             // For each user in the feedback store, resolve which (TmdbId, MediaType) they've watched
-            foreach (var userFeedback in allFeedback.Where(f => f.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched)))
+            foreach (var userId in allFeedback
+                         .Where(f => f.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched))
+                         .Select(userFeedback => userFeedback.UserId))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    // Find the user's watch profile via O(1) dictionary lookup
-                    if (!profileById.TryGetValue(userFeedback.UserId, out var userProfile))
-                    {
-                        continue;
-                    }
-
-                    // Collect composite (TmdbId, MediaType) keys of items this user has watched.
-                    // MediaType resolved from library item type (Movie -> "movie", Series -> "tv").
-                    var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
-                    foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
-                    {
-                        if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
-                        {
-                            var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : "movie";
-                            watchedItems.Add((tmdbId, mt));
-                        }
-
-                        // Also check series-level TMDb IDs (for TV shows)
-                        if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
-                        {
-                            watchedItems.Add((seriesTmdbId, "tv"));
-                        }
-                    }
-
-                    // Include series-level favorites (user favorited the series itself, not individual episodes)
-                    foreach (var favoriteSeriesId in userProfile.FavoriteSeriesIds)
-                    {
-                        if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
-                        {
-                            watchedItems.Add((favoriteSeriesTmdbId, "tv"));
-                        }
-                    }
-
-                    if (watchedItems.Count > 0)
-                    {
-                        _discoveryFeedbackStore.MarkWatched(userFeedback.UserId, watchedItems);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (!ex.IsFatal())
-                {
-                    _pluginLog.LogDebug(
-                        "Recommendations",
-                        $"Could not update discovery watched status for user '{userFeedback.UserId}': {ex.Message}",
-                        _logger);
-                }
+                UpdateWatchedStatusForUser(userId, profileById, tmdbIdByItemId, mediaTypeByItemId);
             }
         }
         catch (OperationCanceledException)
@@ -2248,10 +2244,121 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "Recommendations",
+                LogCategory,
                 $"Discovery watched-status update failed (non-critical): {ex.Message}",
                 _logger);
         }
+    }
+
+    /// <summary>
+    ///     Builds the Jellyfin ItemId -> TMDb ID and ItemId -> MediaType mappings from the loaded
+    ///     library items. Extracted verbatim from <see cref="UpdateDiscoveryWatchedStatus"/>.
+    /// </summary>
+    /// <param name="libraryItems">The movie + series library items.</param>
+    /// <param name="cancellationToken">Token for cooperative cancellation.</param>
+    /// <param name="tmdbIdByItemId">Receives the ItemId -> TMDb ID mapping.</param>
+    /// <param name="mediaTypeByItemId">Receives the ItemId -> media type ("tv"/"movie") mapping.</param>
+    private static void BuildTmdbMappings(
+        IReadOnlyList<BaseItem> libraryItems,
+        CancellationToken cancellationToken,
+        out Dictionary<Guid, int> tmdbIdByItemId,
+        out Dictionary<Guid, string> mediaTypeByItemId)
+    {
+        tmdbIdByItemId = new Dictionary<Guid, int>();
+        mediaTypeByItemId = new Dictionary<Guid, string>();
+        foreach (var item in libraryItems)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (item.TryGetProviderId("Tmdb", out var tmdbStr) &&
+                int.TryParse(tmdbStr, out var tmdbId) && tmdbId > 0)
+            {
+                tmdbIdByItemId.TryAdd(item.Id, tmdbId);
+                mediaTypeByItemId.TryAdd(item.Id, item is Series ? "tv" : "movie");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the (TmdbId, MediaType) set a single user has watched and marks matching discovery
+    ///     feedback entries as watched. Extracted verbatim from the per-user body of
+    ///     <see cref="UpdateDiscoveryWatchedStatus"/>; best-effort per user.
+    /// </summary>
+    /// <param name="userId">The user id to update.</param>
+    /// <param name="profileById">Watch profiles keyed by user id.</param>
+    /// <param name="tmdbIdByItemId">ItemId -> TMDb ID mapping.</param>
+    /// <param name="mediaTypeByItemId">ItemId -> media type mapping.</param>
+    private void UpdateWatchedStatusForUser(
+        Guid userId,
+        Dictionary<Guid, UserWatchProfile> profileById,
+        Dictionary<Guid, int> tmdbIdByItemId,
+        Dictionary<Guid, string> mediaTypeByItemId)
+    {
+        try
+        {
+            // Find the user's watch profile via O(1) dictionary lookup
+            if (!profileById.TryGetValue(userId, out var userProfile))
+            {
+                return;
+            }
+
+            // Collect composite (TmdbId, MediaType) keys of items this user has watched.
+            // MediaType resolved from library item type (Movie -> "movie", Series -> "tv").
+            var watchedItems = CollectWatchedTmdbKeys(userProfile, tmdbIdByItemId, mediaTypeByItemId);
+
+            if (watchedItems.Count > 0)
+            {
+                _discoveryFeedbackStore.MarkWatched(userId, watchedItems);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Could not update discovery watched status for user '{userId}': {ex.Message}",
+                _logger);
+        }
+    }
+
+    /// <summary>
+    ///     Builds the composite (TmdbId, MediaType) key set for a single user's watched items and
+    ///     series-level favorites. Extracted verbatim from <see cref="UpdateWatchedStatusForUser"/>.
+    /// </summary>
+    private static HashSet<(int TmdbId, string MediaType)> CollectWatchedTmdbKeys(
+        UserWatchProfile userProfile,
+        Dictionary<Guid, int> tmdbIdByItemId,
+        Dictionary<Guid, string> mediaTypeByItemId)
+    {
+        var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
+        foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
+        {
+            if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
+            {
+                var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : "movie";
+                watchedItems.Add((tmdbId, mt));
+            }
+
+            // Also check series-level TMDb IDs (for TV shows)
+            if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
+            {
+                watchedItems.Add((seriesTmdbId, "tv"));
+            }
+        }
+
+        // Include series-level favorites (user favorited the series itself, not individual episodes)
+        foreach (var favoriteSeriesId in userProfile.FavoriteSeriesIds)
+        {
+            if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
+            {
+                watchedItems.Add((favoriteSeriesTmdbId, "tv"));
+            }
+        }
+
+        return watchedItems;
     }
 
     /// <summary>
@@ -2384,7 +2491,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "Recommendations",
+                LogCategory,
                 $"Could not load persisted batch generation, starting at 0: {ex.Message}",
                 _logger);
             return 0;
@@ -2411,7 +2518,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
-                "Recommendations",
+                LogCategory,
                 $"Could not persist batch generation {value}: {ex.Message}",
                 _logger);
         }

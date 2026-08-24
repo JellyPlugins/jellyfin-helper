@@ -97,9 +97,30 @@ public class LibraryStatistics
     public int OtherFileCount { get; set; }
 
     /// <summary>
+    /// Gets or sets the total size of eBook files in bytes.
+    /// </summary>
+    public long BookSize { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of eBook files (PDF, EPUB, CBZ, …).
+    /// </summary>
+    public int BookFileCount { get; set; }
+
+    /// <summary>
+    /// Gets the eBook format breakdown (format label -> count), e.g. "EPUB" -> 42. Populated only
+    /// when the library actually contains eBooks, so the UI can show a Books section conditionally.
+    /// </summary>
+    public Dictionary<string, int> BookFormats { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the eBook format size breakdown (format label -> total bytes).
+    /// </summary>
+    public Dictionary<string, long> BookFormatSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Gets the total size of all files in this library in bytes.
     /// </summary>
-    public long TotalSize => VideoSize + SubtitleSize + ImageSize + NfoSize + AudioSize + TrickplaySize + OtherSize;
+    public long TotalSize => VideoSize + SubtitleSize + ImageSize + NfoSize + AudioSize + TrickplaySize + BookSize + OtherSize;
 
     // === Codec/Quality Breakdown ===
 

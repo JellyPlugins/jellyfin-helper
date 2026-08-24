@@ -946,9 +946,71 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         // Minimum recommendations per cohort to consider the signal statistically meaningful
         const int minRecsPerCohort = 5;
 
-        int controlWatched = 0, controlTotal = 0;
-        int highWatched = 0, highTotal = 0;
-        int lowWatched = 0, lowTotal = 0;
+        var tallies = TallyCohortOutcomes(previousResults, watchedItemLookup);
+
+        // Need sufficient data in control AND at least one exploration cohort
+        if (tallies.ControlTotal < minRecsPerCohort)
+        {
+            return;
+        }
+
+        var controlRate = (double)tallies.ControlWatched / tallies.ControlTotal;
+
+        // Check explore-high: if it outperforms control, shift midpoint down (trust ML sooner)
+        if (tallies.HighTotal >= minRecsPerCohort
+            && TryAdaptMidpoint(
+                tallies.HighWatched,
+                tallies.HighTotal,
+                controlRate,
+                -MidpointAdaptationStep,
+                "explore-high",
+                minRecsPerCohort))
+        {
+            return;
+        }
+
+        // Check explore-low: if it outperforms control, shift midpoint up (more conservative)
+        if (tallies.LowTotal >= minRecsPerCohort
+            && TryAdaptMidpoint(
+                tallies.LowWatched,
+                tallies.LowTotal,
+                controlRate,
+                MidpointAdaptationStep,
+                "explore-low",
+                minRecsPerCohort))
+        {
+            return;
+        }
+
+        // Reaching this point means either:
+        //   (a) at least one exploration cohort had enough samples AND lost to control, OR
+        //   (b) neither exploration cohort had enough samples to be evaluated at all.
+        //
+        // Case (a) is a genuine "control is optimal" signal and legitimately triggers anti-drift
+        // decay. Case (b) is NOT: we have no exploration outcome to compare against, so any
+        // decay would be based purely on control-only data - a shift in the midpoint driven by
+        // no evidence about the alternatives it's shifting away from. Guard against that by
+        // requiring at least one qualifying exploration cohort before decaying.
+        if (tallies.HighTotal < minRecsPerCohort && tallies.LowTotal < minRecsPerCohort)
+        {
+            return;
+        }
+
+        DecayMidpointOffset(controlRate);
+    }
+
+    /// <summary>
+    ///     Accumulates per-cohort watched/total counters over the previous recommendation results.
+    ///     Extracted verbatim from the tally loop in <see cref="ApplyCohortFeedback"/>.
+    /// </summary>
+    /// <param name="previousResults">The previous-run recommendation results.</param>
+    /// <param name="watchedItemLookup">Per-user set of item ids watched since generation.</param>
+    /// <returns>The per-cohort tallies.</returns>
+    private static CohortTallies TallyCohortOutcomes(
+        IReadOnlyList<RecommendationResult> previousResults,
+        Dictionary<Guid, HashSet<Guid>> watchedItemLookup)
+    {
+        var tallies = default(CohortTallies);
 
         foreach (var result in previousResults)
         {
@@ -963,115 +1025,110 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             foreach (var rec in result.Recommendations)
             {
                 var wasWatched = userWatched is not null && userWatched.Contains(rec.ItemId);
-
-                switch (cohort)
-                {
-                    case "explore-high":
-                        highTotal++;
-                        if (wasWatched)
-                        {
-                            highWatched++;
-                        }
-
-                        break;
-                    case "explore-low":
-                        lowTotal++;
-                        if (wasWatched)
-                        {
-                            lowWatched++;
-                        }
-
-                        break;
-                    default:
-                        controlTotal++;
-                        if (wasWatched)
-                        {
-                            controlWatched++;
-                        }
-
-                        break;
-                }
+                TallyRecommendation(ref tallies, cohort, wasWatched);
             }
         }
 
-        // Need sufficient data in control AND at least one exploration cohort
-        if (controlTotal < minRecsPerCohort)
-        {
-            return;
-        }
+        return tallies;
+    }
 
-        var controlRate = (double)controlWatched / controlTotal;
-
-        // Check explore-high: if it outperforms control, shift midpoint down (trust ML sooner)
-        if (highTotal >= minRecsPerCohort)
+    /// <summary>
+    ///     Applies a single recommendation's outcome to the per-cohort counters. Extracted verbatim
+    ///     from the switch body in <see cref="TallyCohortOutcomes"/>.
+    /// </summary>
+    /// <param name="tallies">The running per-cohort tallies, mutated in place.</param>
+    /// <param name="cohort">The cohort the recommendation belongs to.</param>
+    /// <param name="wasWatched">Whether the recommended item was subsequently watched.</param>
+    private static void TallyRecommendation(ref CohortTallies tallies, string cohort, bool wasWatched)
+    {
+        switch (cohort)
         {
-            var highRate = (double)highWatched / highTotal;
-            if (highRate > controlRate)
-            {
-                lock (_syncRoot)
+            case "explore-high":
+                tallies.HighTotal++;
+                if (wasWatched)
                 {
-                    _sigmoidMidpointOffset = Math.Clamp(
-                        _sigmoidMidpointOffset - MidpointAdaptationStep,
-                        -MaxMidpointShift,
-                        MaxMidpointShift);
+                    tallies.HighWatched++;
                 }
 
-                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+                break;
+            case "explore-low":
+                tallies.LowTotal++;
+                if (wasWatched)
                 {
-                    _logger.LogInformation(
-                        "Cohort feedback: explore-high ({HighRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
-                        highRate,
-                        controlRate,
-                        _sigmoidMidpointOffset);
+                    tallies.LowWatched++;
                 }
 
-                TrySaveState();
-                return;
-            }
-        }
+                break;
+            default:
+                tallies.ControlTotal++;
+                if (wasWatched)
+                {
+                    tallies.ControlWatched++;
+                }
 
-        // Check explore-low: if it outperforms control, shift midpoint up (more conservative)
-        if (lowTotal >= minRecsPerCohort)
+                break;
+        }
+    }
+
+    /// <summary>
+    ///     Applies a midpoint offset shift when an exploration cohort outperforms control. Extracted
+    ///     verbatim from the explore-high / explore-low branches of <see cref="ApplyCohortFeedback"/>.
+    /// </summary>
+    /// <param name="cohortWatched">Watched count for the exploration cohort.</param>
+    /// <param name="cohortTotal">Total recommendations for the exploration cohort.</param>
+    /// <param name="controlRate">The control cohort's watch rate.</param>
+    /// <param name="step">The signed midpoint adaptation step to apply.</param>
+    /// <param name="cohortName">The cohort name (for logging).</param>
+    /// <param name="minRecsPerCohort">Minimum samples for a meaningful signal.</param>
+    /// <returns><c>true</c> when the cohort won and the midpoint was adjusted.</returns>
+    private bool TryAdaptMidpoint(
+        int cohortWatched,
+        int cohortTotal,
+        double controlRate,
+        double step,
+        string cohortName,
+        int minRecsPerCohort)
+    {
+        if (cohortTotal < minRecsPerCohort)
         {
-            var lowRate = (double)lowWatched / lowTotal;
-            if (lowRate > controlRate)
-            {
-                lock (_syncRoot)
-                {
-                    _sigmoidMidpointOffset = Math.Clamp(
-                        _sigmoidMidpointOffset + MidpointAdaptationStep,
-                        -MaxMidpointShift,
-                        MaxMidpointShift);
-                }
-
-                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
-                {
-                    _logger.LogInformation(
-                        "Cohort feedback: explore-low ({LowRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
-                        lowRate,
-                        controlRate,
-                        _sigmoidMidpointOffset);
-                }
-
-                TrySaveState();
-                return;
-            }
+            return false;
         }
 
-        // Reaching this point means either:
-        //   (a) at least one exploration cohort had enough samples AND lost to control, OR
-        //   (b) neither exploration cohort had enough samples to be evaluated at all.
-        //
-        // Case (a) is a genuine "control is optimal" signal and legitimately triggers anti-drift
-        // decay. Case (b) is NOT: we have no exploration outcome to compare against, so any
-        // decay would be based purely on control-only data - a shift in the midpoint driven by
-        // no evidence about the alternatives it's shifting away from. Guard against that by
-        // requiring at least one qualifying exploration cohort before decaying.
-        if (highTotal < minRecsPerCohort && lowTotal < minRecsPerCohort)
+        var cohortRate = (double)cohortWatched / cohortTotal;
+        if (cohortRate <= controlRate)
         {
-            return;
+            return false;
         }
 
+        lock (_syncRoot)
+        {
+            _sigmoidMidpointOffset = Math.Clamp(
+                _sigmoidMidpointOffset + step,
+                -MaxMidpointShift,
+                MaxMidpointShift);
+        }
+
+        if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "Cohort feedback: {Cohort} ({CohortRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
+                cohortName,
+                cohortRate,
+                controlRate,
+                _sigmoidMidpointOffset);
+        }
+
+        TrySaveState();
+        return true;
+    }
+
+    /// <summary>
+    ///     Applies the mild anti-drift decay to the sigmoid midpoint offset when control is optimal.
+    ///     Extracted verbatim from the decay tail of <see cref="ApplyCohortFeedback"/>.
+    /// </summary>
+    /// <param name="controlRate">The control cohort's watch rate (for logging).</param>
+    private void DecayMidpointOffset(double controlRate)
+    {
         // Control is optimal - no cohort-driven adaptation, but apply a mild decay so a
         // saturated offset from earlier runs drifts back toward the default midpoint over
         // time. This acts as a slow anti-drift regulariser: if user behaviour has stabilised
@@ -1246,51 +1303,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 return;
             }
 
-            lock (_syncRoot)
-            {
-                _trainingExampleCount = data.TrainingExampleCount;
-                _qualityGateFrozen = data.QualityGateFrozen;
-
-                // Restore persisted alpha directly instead of recomputing via sigmoid,
-                // so that the quality-gate freeze state is preserved across restarts.
-                // Only recompute if the persisted alpha is outside the valid range.
-                _alpha = (data.Alpha >= _alphaMin && data.Alpha <= _alphaMax)
-                    ? data.Alpha
-                    : ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
-
-                // Restore neural beta so it survives server restarts.
-                // Only restore if a neural strategy is actually wired in - otherwise
-                // a stale persisted value would leak into CurrentNeuralBeta and logs.
-                if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
-                {
-                    _neuralBeta = data.NeuralBeta;
-                }
-                else if (_neural is not null && data.NeuralBeta > NeuralMaxBetaFraction &&
-                         _logger is not null && _logger.IsEnabled(LogLevel.Information))
-                {
-                    // A persisted NeuralBeta above the current ceiling usually means the ceiling
-                    // was lowered in an update. Keep _neuralBeta at its default (0) so the ramp
-                    // in Train() drives it back up from scratch, and log once so operators can
-                    // see this happened rather than silently discarding state. The IsEnabled
-                    // guard mirrors the rest of this class and keeps CA1873 happy for the
-                    // structured-log arguments.
-                    _logger.LogInformation(
-                        "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
-                        data.NeuralBeta,
-                        NeuralMaxBetaFraction);
-                }
-
-                // Restore adaptive sigmoid midpoint offset (clamped to valid range).
-                if (Math.Abs(data.SigmoidMidpointOffset) <= MaxMidpointShift)
-                {
-                    _sigmoidMidpointOffset = data.SigmoidMidpointOffset;
-                }
-
-                if (data.MetricsHistory is { Count: > 0 })
-                {
-                    _metricsHistory = new List<MetricsSnapshot>(data.MetricsHistory);
-                }
-            }
+            ApplyLoadedState(data);
         }
         catch (IOException ex)
         {
@@ -1306,6 +1319,60 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         {
             // Graceful fallback to defaults on parse error - log for diagnostics
             _logger?.LogWarning(ex, "EnsembleScoringStrategy: Failed to parse state");
+        }
+    }
+
+    /// <summary>
+    ///     Applies validated persisted state to the live fields under lock. Extracted verbatim from
+    ///     <see cref="TryLoadState"/>; the restore rules are unchanged.
+    /// </summary>
+    /// <param name="data">The validated persisted ensemble state.</param>
+    private void ApplyLoadedState(EnsembleStateData data)
+    {
+        lock (_syncRoot)
+        {
+            _trainingExampleCount = data.TrainingExampleCount;
+            _qualityGateFrozen = data.QualityGateFrozen;
+
+            // Restore persisted alpha directly instead of recomputing via sigmoid,
+            // so that the quality-gate freeze state is preserved across restarts.
+            // Only recompute if the persisted alpha is outside the valid range.
+            _alpha = (data.Alpha >= _alphaMin && data.Alpha <= _alphaMax)
+                ? data.Alpha
+                : ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
+
+            // Restore neural beta so it survives server restarts.
+            // Only restore if a neural strategy is actually wired in - otherwise
+            // a stale persisted value would leak into CurrentNeuralBeta and logs.
+            if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
+            {
+                _neuralBeta = data.NeuralBeta;
+            }
+            else if (_neural is not null && data.NeuralBeta > NeuralMaxBetaFraction &&
+                     _logger is not null && _logger.IsEnabled(LogLevel.Information))
+            {
+                // A persisted NeuralBeta above the current ceiling usually means the ceiling
+                // was lowered in an update. Keep _neuralBeta at its default (0) so the ramp
+                // in Train() drives it back up from scratch, and log once so operators can
+                // see this happened rather than silently discarding state. The IsEnabled
+                // guard mirrors the rest of this class and keeps CA1873 happy for the
+                // structured-log arguments.
+                _logger.LogInformation(
+                    "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
+                    data.NeuralBeta,
+                    NeuralMaxBetaFraction);
+            }
+
+            // Restore adaptive sigmoid midpoint offset (clamped to valid range).
+            if (Math.Abs(data.SigmoidMidpointOffset) <= MaxMidpointShift)
+            {
+                _sigmoidMidpointOffset = data.SigmoidMidpointOffset;
+            }
+
+            if (data.MetricsHistory is { Count: > 0 })
+            {
+                _metricsHistory = new List<MetricsSnapshot>(data.MetricsHistory);
+            }
         }
     }
 
@@ -1462,6 +1529,19 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     public void Dispose()
     {
         _neural?.Dispose();
+    }
+
+    /// <summary>
+    ///     Per-cohort watched/total counters used by <see cref="ApplyCohortFeedback"/>.
+    /// </summary>
+    private struct CohortTallies
+    {
+        public int ControlWatched;
+        public int ControlTotal;
+        public int HighWatched;
+        public int HighTotal;
+        public int LowWatched;
+        public int LowTotal;
     }
 
     /// <summary>

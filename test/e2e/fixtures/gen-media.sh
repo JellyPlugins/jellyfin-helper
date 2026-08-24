@@ -21,10 +21,11 @@ set -euo pipefail
 ROOT="${1:-/media}"
 MOVIES="$ROOT/Movies"
 SHOWS="$ROOT/Shows"
+BOOKS="$ROOT/Books"
 
 echo "[gen-media] target root: $ROOT"
-rm -rf "$MOVIES" "$SHOWS"
-mkdir -p "$MOVIES" "$SHOWS"
+rm -rf "$MOVIES" "$SHOWS" "$BOOKS"
+mkdir -p "$MOVIES" "$SHOWS" "$BOOKS"
 
 # ffmpeg lives in the Jellyfin image; fall back to jellyfin-ffmpeg path if needed.
 FFMPEG="$(command -v ffmpeg || echo /usr/lib/jellyfin-ffmpeg/ffmpeg)"
@@ -201,6 +202,28 @@ fi
 mkdir -p "$MOVIES/Broken Symlink (2020)"
 make_clip "$MOVIES/Broken Symlink (2020)/Renamed Actual (2020).mkv" 320 240 libx264
 ln -sf "Missing Original (2020).mkv" "$MOVIES/Broken Symlink (2020)/Broken Symlink (2020).mkv"
+
+# =============================================================================
+# Books (eBook) library — the DATA-LOSS regression fixture.
+#
+# A Book library's CollectionType is "books", which CleanupConfigHelper marks as
+# NOT cleanup-eligible: every cleanup stage (empty-folder, trickplay, subtitle,
+# link repair) must skip these locations entirely, so the eBook files below are
+# NEVER deleted — even in Activate mode with OrphanMinAgeDays=0. Yet the stats
+# scan must still TRACK them as first-class Books (TotalBookFileCount>0,
+# TotalBookFormats={EPUB,PDF,...}).
+#
+# These folders contain NO video/audio, so if the books guard ever regressed the
+# empty-folder stage would treat each as an orphan and delete it — which is
+# exactly what books-protection.api.spec.ts asserts must NOT happen.
+# =============================================================================
+mkdir -p "$BOOKS/Some Novel"
+printf 'EPUB fake bytes' > "$BOOKS/Some Novel/Some Novel.epub"
+mkdir -p "$BOOKS/A Manual"
+printf '%%PDF-1.4 fake bytes' > "$BOOKS/A Manual/A Manual.pdf"
+# A second EPUB so the EPUB format count is > 1 and the folder-count is plural.
+mkdir -p "$BOOKS/Another Story"
+printf 'EPUB fake bytes 2' > "$BOOKS/Another Story/Another Story.epub"
 
 echo "[gen-media] done. Library tree:"
 find "$ROOT" -maxdepth 3 -type f | sort | sed 's/^/[gen-media]   /'

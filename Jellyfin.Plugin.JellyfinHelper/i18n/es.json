@@ -383,5 +383,7 @@
   "trashPathDeleteSuccess": "Contenido antiguo de la papelera eliminado.",
   "trashPathCheckingAccess": "Verificando permisos…",
   "trashPathAccessDenied": "Permiso denegado en la nueva ruta de la papelera.",
-  "trashPathMoveNothingMoved": "No se movieron elementos. La fuente puede estar vacía o inaccesible debido a permisos."
+  "trashPathMoveNothingMoved": "No se movieron elementos. La fuente puede estar vacía o inaccesible debido a permisos.",
+  "bookFormats": "Formatos de libro",
+  "books": "Libros"
 }

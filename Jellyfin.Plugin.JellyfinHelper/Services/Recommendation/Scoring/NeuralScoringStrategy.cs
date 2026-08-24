@@ -870,39 +870,11 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _adamTimestep = 0;
             EnsureAdamState(inputSize);
 
-            var valCount = Math.Max(MinValidationExamples, (int)(examples.Count * ValidationSplitRatio));
-            valCount = Math.Min(valCount, examples.Count - MinTrainingExamples);
-            var useEarlyStopping = valCount >= MinValidationExamples
-                                   && examples.Count - valCount >= MinTrainingExamples;
-
             var gen = _trainingGeneration;
             _trainingGeneration++;
             var rng = new Random(42 + gen);
 
-            var indices = new int[examples.Count];
-            for (var j = 0; j < indices.Length; j++)
-            {
-                indices[j] = j;
-            }
-
-            for (var j = indices.Length - 1; j > 0; j--)
-            {
-                var k = rng.Next(j + 1);
-                (indices[j], indices[k]) = (indices[k], indices[j]);
-            }
-
-            int[] trainIdx;
-            int[] valIdx;
-            if (useEarlyStopping)
-            {
-                trainIdx = indices[..^valCount];
-                valIdx = indices[^valCount..];
-            }
-            else
-            {
-                trainIdx = indices;
-                valIdx = [];
-            }
+            var (trainIdx, valIdx, useEarlyStopping) = BuildTrainValSplit(examples.Count, rng);
 
             // Clone raw vectors into working copies so standardization doesn't mutate originals.
             // Compute stats from TRAINING split only to prevent validation data leakage.
@@ -1058,6 +1030,38 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // training set only when no held-out slice was passed or it is too small.
         var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
+        PublishTrainingMetrics(capturedUseEarlyStopping, capturedBestLoss, pAtK, rAtK, nAtK);
+
+        // Permutation importance (debug-only, expensive: O(features x sampleSize) forward passes)
+        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            var importance = NeuralFeatureImportance.ComputePermutationImportance(this, examples);
+            var sorted = importance.OrderByDescending(kv => Math.Abs(kv.Value));
+            _logger.LogDebug(
+                "NeuralScoringStrategy permutation importance: {Importance}",
+                string.Join(", ", sorted.Select(kv => $"{kv.Key}={kv.Value:F4}")));
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    ///     Publishes the validation loss and ranking metrics under <c>_syncRoot</c>. Extracted verbatim
+    ///     from the metrics tail of <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>;
+    ///     the three-case validation-loss mapping is unchanged.
+    /// </summary>
+    /// <param name="capturedUseEarlyStopping">Whether early stopping was active for the run.</param>
+    /// <param name="capturedBestLoss">The best validation loss observed.</param>
+    /// <param name="pAtK">Precision@K.</param>
+    /// <param name="rAtK">Recall@K.</param>
+    /// <param name="nAtK">NDCG@K.</param>
+    private void PublishTrainingMetrics(
+        bool capturedUseEarlyStopping,
+        double capturedBestLoss,
+        double pAtK,
+        double rAtK,
+        double nAtK)
+    {
         lock (_syncRoot)
         {
             if (!capturedUseEarlyStopping)
@@ -1077,18 +1081,43 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _lastRecallAtK = rAtK;
             _lastNdcgAtK = nAtK;
         }
+    }
 
-        // Permutation importance (debug-only, expensive: O(features x sampleSize) forward passes)
-        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+    /// <summary>
+    ///     Builds the shuffled train/validation index split for one training run. Extracted verbatim
+    ///     from <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>; the
+    ///     validation-count formula, Fisher-Yates shuffle, and early-stopping gate are unchanged.
+    /// </summary>
+    /// <param name="exampleCount">The total number of training examples.</param>
+    /// <param name="rng">The shuffle RNG (advanced in place).</param>
+    /// <returns>The training indices, validation indices, and whether early stopping is enabled.</returns>
+    private static (int[] TrainIdx, int[] ValIdx, bool UseEarlyStopping) BuildTrainValSplit(
+        int exampleCount,
+        Random rng)
+    {
+        var valCount = Math.Max(MinValidationExamples, (int)(exampleCount * ValidationSplitRatio));
+        valCount = Math.Min(valCount, exampleCount - MinTrainingExamples);
+        var useEarlyStopping = valCount >= MinValidationExamples
+                               && exampleCount - valCount >= MinTrainingExamples;
+
+        var indices = new int[exampleCount];
+        for (var j = 0; j < indices.Length; j++)
         {
-            var importance = NeuralFeatureImportance.ComputePermutationImportance(this, examples);
-            var sorted = importance.OrderByDescending(kv => Math.Abs(kv.Value));
-            _logger.LogDebug(
-                "NeuralScoringStrategy permutation importance: {Importance}",
-                string.Join(", ", sorted.Select(kv => $"{kv.Key}={kv.Value:F4}")));
+            indices[j] = j;
         }
 
-        return true;
+        for (var j = indices.Length - 1; j > 0; j--)
+        {
+            var k = rng.Next(j + 1);
+            (indices[j], indices[k]) = (indices[k], indices[j]);
+        }
+
+        if (useEarlyStopping)
+        {
+            return (indices[..^valCount], indices[^valCount..], true);
+        }
+
+        return (indices, [], false);
     }
 
     /// <summary>
@@ -1135,86 +1164,140 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             foreach (var idx in trainIdx)
             {
-                var sw = weights[idx];
-                if (sw < MinSampleWeight)
-                {
-                    continue;
-                }
-
-                var vec = vectors[idx];
-
-                // Dropout is applied by RE-RUNNING each hidden layer's activation through a
-                // Bernoulli mask, WITHOUT going through the (deterministic, dropout-free) ForwardPass.
-                // This keeps ForwardPass the single source of truth for inference and avoids a second
-                // code path that could drift. Masked+rescaled activations feed the next layer as if
-                // the neuron were absent for this step.
-                var pred = ForwardPassTraining(
-                    vec,
-                    _weightsIH,
-                    _biasH1,
-                    _weightsH1H2,
-                    _biasH2,
-                    _weightsH2H3,
-                    _biasH3,
-                    _weightsH3H4,
-                    _biasH4,
-                    _weightsH4O,
-                    _biasOutput,
-                    buffers.H1Pre,
-                    buffers.H1Act,
-                    buffers.H2Pre,
-                    buffers.H2Act,
-                    buffers.H3Pre,
-                    buffers.H3Act,
-                    buffers.H4Pre,
-                    buffers.H4Act,
-                    buffers.H1Mask,
-                    buffers.H2Mask,
-                    buffers.H3Mask,
-                    buffers.H4Mask,
-                    dropoutRng,
-                    config.DropoutKeepProbability,
-                    config.DropoutInvKeep);
-
-                var outErr = (pred - examples[idx].Label) * pred * (1.0 - pred) * sw;
-
-                _adamTimestep++;
-                var bc1 = 1.0 - Math.Pow(AdamBeta1, _adamTimestep);
-                var bc2 = 1.0 - Math.Pow(AdamBeta2, _adamTimestep);
-
-                // === Compute ALL error signals BEFORE updating any weights ===
-                // Correct backprop uses the forward-pass weights for error computation; updating
-                // weights first would skew gradients.
-                ComputeErrorSignals(outErr, config.DropoutInvKeep, buffers);
-
-                // === Now update all weights using the pre-computed error signals ===
-                ApplyAdamUpdates(outErr, bc1, bc2, config.InputSize, vec, buffers);
+                TrainOnExample(idx, config, examples, vectors, weights, buffers, dropoutRng);
             }
 
-            if (config.UseEarlyStopping && valIdx.Length > 0)
+            if (config.UseEarlyStopping && valIdx.Length > 0
+                && UpdateEarlyStopping(examples, vectors, weights, valIdx, bestWeights, ref bestLoss, ref patience, ref bestBO))
             {
-                var valLoss = ComputeMseLoss(examples, vectors, weights, valIdx);
-                if (valLoss < bestLoss - EarlyStoppingMinDelta)
-                {
-                    bestLoss = valLoss;
-                    patience = 0;
-                    SnapshotBestWeights(bestWeights);
-                    bestBO = _biasOutput;
-                }
-                else
-                {
-                    patience++;
-                    if (patience >= EarlyStoppingPatience)
-                    {
-                        RestoreBestWeights(bestWeights);
-                        _biasOutput = bestBO;
-                        break;
-                    }
-                }
+                break;
             }
         }
 
         return bestLoss;
+    }
+
+    /// <summary>
+    ///     Runs the forward (dropout) pass, error backprop, and Adam weight update for a single training
+    ///     example. Extracted verbatim from the per-example body of <see cref="RunTrainingEpochs"/>; the
+    ///     min-weight skip, error formula, Adam bias-correction, and update order are unchanged.
+    /// </summary>
+    /// <param name="idx">The example index into <paramref name="examples"/>/<paramref name="vectors"/>.</param>
+    /// <param name="config">Scalar epoch-loop configuration.</param>
+    /// <param name="examples">The training examples.</param>
+    /// <param name="vectors">The standardized feature vectors.</param>
+    /// <param name="weights">The per-example effective weights.</param>
+    /// <param name="buffers">Pre-allocated per-layer scratch buffers.</param>
+    /// <param name="dropoutRng">The dropout draw RNG.</param>
+    private void TrainOnExample(
+        int idx,
+        EpochLoopConfig config,
+        IReadOnlyList<TrainingExample> examples,
+        double[][] vectors,
+        double[] weights,
+        TrainingBuffers buffers,
+        Random dropoutRng)
+    {
+        var sw = weights[idx];
+        if (sw < MinSampleWeight)
+        {
+            return;
+        }
+
+        var vec = vectors[idx];
+
+        // Dropout is applied by RE-RUNNING each hidden layer's activation through a
+        // Bernoulli mask, WITHOUT going through the (deterministic, dropout-free) ForwardPass.
+        // This keeps ForwardPass the single source of truth for inference and avoids a second
+        // code path that could drift. Masked+rescaled activations feed the next layer as if
+        // the neuron were absent for this step.
+        var pred = ForwardPassTraining(
+            vec,
+            _weightsIH,
+            _biasH1,
+            _weightsH1H2,
+            _biasH2,
+            _weightsH2H3,
+            _biasH3,
+            _weightsH3H4,
+            _biasH4,
+            _weightsH4O,
+            _biasOutput,
+            buffers.H1Pre,
+            buffers.H1Act,
+            buffers.H2Pre,
+            buffers.H2Act,
+            buffers.H3Pre,
+            buffers.H3Act,
+            buffers.H4Pre,
+            buffers.H4Act,
+            buffers.H1Mask,
+            buffers.H2Mask,
+            buffers.H3Mask,
+            buffers.H4Mask,
+            dropoutRng,
+            config.KeepProbability,
+            config.DropoutInvKeep);
+
+        var outErr = (pred - examples[idx].Label) * pred * (1.0 - pred) * sw;
+
+        _adamTimestep++;
+        var bc1 = 1.0 - Math.Pow(AdamBeta1, _adamTimestep);
+        var bc2 = 1.0 - Math.Pow(AdamBeta2, _adamTimestep);
+
+        // === Compute ALL error signals BEFORE updating any weights ===
+        // Correct backprop uses the forward-pass weights for error computation; updating
+        // weights first would skew gradients.
+        ComputeErrorSignals(outErr, config.DropoutInvKeep, buffers);
+
+        // === Now update all weights using the pre-computed error signals ===
+        ApplyAdamUpdates(outErr, bc1, bc2, config.InputSize, vec, buffers);
+    }
+
+    /// <summary>
+    ///     Evaluates the validation loss for one epoch and updates early-stopping bookkeeping
+    ///     (best loss, patience, best-weight snapshot). Extracted verbatim from the early-stopping
+    ///     branch of <see cref="RunTrainingEpochs"/>; the improvement threshold and restore-on-stop
+    ///     behaviour are unchanged.
+    /// </summary>
+    /// <param name="examples">The training examples.</param>
+    /// <param name="vectors">The standardized feature vectors.</param>
+    /// <param name="weights">The per-example effective weights.</param>
+    /// <param name="valIdx">The validation-split indices.</param>
+    /// <param name="bestWeights">Best-so-far weight snapshot buffers.</param>
+    /// <param name="bestLoss">Best validation loss so far (updated in place).</param>
+    /// <param name="patience">Epochs without improvement (updated in place).</param>
+    /// <param name="bestBO">Best-so-far output bias (updated in place).</param>
+    /// <returns><c>true</c> when patience is exhausted and training should stop.</returns>
+    private bool UpdateEarlyStopping(
+        IReadOnlyList<TrainingExample> examples,
+        double[][] vectors,
+        double[] weights,
+        int[] valIdx,
+        WeightSnapshot bestWeights,
+        ref double bestLoss,
+        ref int patience,
+        ref double bestBO)
+    {
+        var valLoss = ComputeMseLoss(examples, vectors, weights, valIdx);
+        if (valLoss < bestLoss - EarlyStoppingMinDelta)
+        {
+            bestLoss = valLoss;
+            patience = 0;
+            SnapshotBestWeights(bestWeights);
+            bestBO = _biasOutput;
+            return false;
+        }
+
+        patience++;
+        if (patience >= EarlyStoppingPatience)
+        {
+            RestoreBestWeights(bestWeights);
+            _biasOutput = bestBO;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -2356,13 +2439,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <param name="MaxEpochs">Maximum number of epochs to run.</param>
     /// <param name="InputSize">Number of input features (row stride for the input weights).</param>
     /// <param name="UseEarlyStopping">Whether early stopping is active for this run.</param>
-    /// <param name="DropoutKeepProbability">Bernoulli keep probability (1.0 when dropout is inactive).</param>
+    /// <param name="KeepProbability">Bernoulli keep probability (1.0 when dropout is inactive).</param>
     /// <param name="DropoutInvKeep">Inverted-dropout scale (1 / keep, or 1.0 when dropout is inactive).</param>
     private readonly record struct EpochLoopConfig(
         int MaxEpochs,
         int InputSize,
         bool UseEarlyStopping,
-        double DropoutKeepProbability,
+        double KeepProbability,
         double DropoutInvKeep);
 
     /// <summary>

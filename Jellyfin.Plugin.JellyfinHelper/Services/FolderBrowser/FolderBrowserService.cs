@@ -14,6 +14,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 /// </summary>
 public class FolderBrowserService : IFolderBrowserService
 {
+    private const string ErrorDirectoryDoesNotExist = "Directory does not exist.";
+    private const string ErrorCannotAccessDirectory = "Cannot access this directory.";
+
     private static readonly string[] SafeHiddenPrefixes =
     [
         ".jellyfin-trash",
@@ -51,80 +54,7 @@ public class FolderBrowserService : IFolderBrowserService
     {
         try
         {
-            var entries = new List<FolderEntry>();
-
-            if (_isWindows)
-            {
-                // On Windows, list available drive letters.
-                // DriveInfo property access (IsReady, DriveType, Name) can throw for
-                // problematic drives, so all checks are inside the per-drive try/catch
-                // to ensure a single bad drive cannot abort the entire listing.
-                foreach (var drive in DriveInfo.GetDrives())
-                {
-                    try
-                    {
-                        if (!drive.IsReady || drive.DriveType is not (DriveType.Fixed or DriveType.Network
-                                or DriveType.Ram or DriveType.Removable))
-                        {
-                            continue;
-                        }
-
-                        var rootPath = drive.RootDirectory.FullName;
-                        var hasChildren = SafeHasSubdirectories(rootPath);
-
-                        var baseName = rootPath.TrimEnd(Path.DirectorySeparatorChar);
-                        string? volumeLabel = null;
-                        try
-                        {
-                            volumeLabel = drive.VolumeLabel;
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                                       or SecurityException)
-                        {
-                            if (_logger.IsEnabled(LogLevel.Debug))
-                            {
-                                _logger.LogDebug(ex, "Could not read volume label for drive {Drive}", baseName);
-                            }
-                        }
-
-                        var displayName = string.IsNullOrWhiteSpace(volumeLabel)
-                            ? baseName
-                            : $"{baseName} ({volumeLabel})";
-
-                        entries.Add(new FolderEntry
-                        {
-                            Name = displayName,
-                            Path = rootPath,
-                            HasChildren = hasChildren
-                        });
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                                   or SecurityException)
-                    {
-                        // Guard for consistency with the volume-label log above.
-                        // Both sites use constant messages today, but guarding uniformly
-                        // prevents a future maintainer from adding a parameterized argument
-                        // (e.g. drive letter) and silently regressing the pattern.
-                        if (_logger.IsEnabled(LogLevel.Debug))
-                        {
-                            _logger.LogDebug(ex, "Skipping inaccessible drive while enumerating roots");
-                        }
-                    }
-                }
-
-                entries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            }
-            else
-            {
-                // On Linux/macOS, root is always "/"
-                var hasChildren = SafeHasSubdirectories("/");
-                entries.Add(new FolderEntry
-                {
-                    Name = "/",
-                    Path = "/",
-                    HasChildren = hasChildren
-                });
-            }
+            var entries = _isWindows ? GetWindowsRootEntries() : GetUnixRootEntries();
 
             return new FolderBrowseResult
             {
@@ -144,6 +74,107 @@ public class FolderBrowserService : IFolderBrowserService
         }
     }
 
+    /// <summary>
+    ///     Enumerates ready fixed/network/RAM/removable drives as root entries (Windows branch).
+    /// </summary>
+    private List<FolderEntry> GetWindowsRootEntries()
+    {
+        var entries = new List<FolderEntry>();
+
+        // On Windows, list available drive letters.
+        // DriveInfo property access (IsReady, DriveType, Name) can throw for
+        // problematic drives, so all checks are inside the per-drive try/catch
+        // to ensure a single bad drive cannot abort the entire listing.
+        foreach (var drive in DriveInfo.GetDrives())
+        {
+            var entry = TryBuildDriveEntry(drive);
+            if (entry != null)
+            {
+                entries.Add(entry);
+            }
+        }
+
+        entries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        return entries;
+    }
+
+    /// <summary>
+    ///     Builds a root <see cref="FolderEntry"/> for a single drive, or returns <c>null</c> when the
+    ///     drive is not ready, is an unsupported type, or is inaccessible.
+    /// </summary>
+    private FolderEntry? TryBuildDriveEntry(DriveInfo drive)
+    {
+        try
+        {
+            if (!drive.IsReady || drive.DriveType is not (DriveType.Fixed or DriveType.Network
+                    or DriveType.Ram or DriveType.Removable))
+            {
+                return null;
+            }
+
+            var rootPath = drive.RootDirectory.FullName;
+            var hasChildren = SafeHasSubdirectories(rootPath);
+
+            var baseName = rootPath.TrimEnd(Path.DirectorySeparatorChar);
+            string? volumeLabel = null;
+            try
+            {
+                volumeLabel = drive.VolumeLabel;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                           or SecurityException)
+            {
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(ex, "Could not read volume label for drive {Drive}", baseName);
+                }
+            }
+
+            var displayName = string.IsNullOrWhiteSpace(volumeLabel)
+                ? baseName
+                : $"{baseName} ({volumeLabel})";
+
+            return new FolderEntry
+            {
+                Name = displayName,
+                Path = rootPath,
+                HasChildren = hasChildren
+            };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or SecurityException)
+        {
+            // Guard for consistency with the volume-label log above.
+            // Both sites use constant messages today, but guarding uniformly
+            // prevents a future maintainer from adding a parameterized argument
+            // (e.g. drive letter) and silently regressing the pattern.
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "Skipping inaccessible drive while enumerating roots");
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     Returns the single "/" root entry (Linux/macOS branch).
+    /// </summary>
+    private static List<FolderEntry> GetUnixRootEntries()
+    {
+        // On Linux/macOS, root is always "/"
+        var hasChildren = SafeHasSubdirectories("/");
+        return
+        [
+            new FolderEntry
+            {
+                Name = "/",
+                Path = "/",
+                HasChildren = hasChildren
+            }
+        ];
+    }
+
     /// <inheritdoc />
     public FolderBrowseResult GetChildren(string path)
     {
@@ -160,110 +191,128 @@ public class FolderBrowserService : IFolderBrowserService
 
             if (!dirInfo.Exists)
             {
-                // DirectoryInfo.Exists returns false for both missing AND permission-denied directories.
-                // Attempt to read attributes to distinguish the two cases.
-                try
-                {
-                    _ = dirInfo.Attributes;
-                    // If we get here without exception, the directory truly does not exist.
-                    return new FolderBrowseResult { Error = "Directory does not exist." };
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    return new FolderBrowseResult { Error = "Cannot access this directory." };
-                }
-                catch (SecurityException)
-                {
-                    return new FolderBrowseResult { Error = "Cannot access this directory." };
-                }
-                catch (DirectoryNotFoundException)
-                {
-                    return new FolderBrowseResult { Error = "Directory does not exist." };
-                }
-                catch (IOException)
-                {
-                    return new FolderBrowseResult { Error = "Cannot access this directory." };
-                }
-                catch (ArgumentException)
-                {
-                    return new FolderBrowseResult { Error = "Directory does not exist." };
-                }
+                return ResolveMissingDirectoryError(dirInfo);
             }
 
-            var entries = new List<FolderEntry>();
-
-            // Enumerate immediate subdirectories, skipping those we can't access.
-            // EnumerateDirectories() returns a lazy iterator - exceptions from MoveNext()
-            // (e.g. UnauthorizedAccessException when accessing Attributes inside the
-            // Where predicate) are thrown during foreach iteration, not at assignment time.
-            // Therefore all filtering is done inside the per-entry try/catch to ensure a
-            // single inaccessible directory cannot abort the entire listing.
-            try
-            {
-                foreach (var subdir in dirInfo.EnumerateDirectories())
-                {
-                    try
-                    {
-                        if (IsSystemOrHiddenCritical(subdir))
-                        {
-                            continue;
-                        }
-
-                        entries.Add(new FolderEntry
-                        {
-                            Name = subdir.Name,
-                            Path = subdir.FullName,
-                            HasChildren = SafeHasSubdirectories(subdir.FullName)
-                        });
-                    }
-                    catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
-                                                   or SecurityException)
-                    {
-                        // Skip individual directories we cannot access
-                        if (_logger.IsEnabled(LogLevel.Debug))
-                        {
-                            _logger.LogDebug(ex, "Skipping inaccessible directory {Dir}", SanitizeForLog(subdir.FullName));
-                        }
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
-                                           or SecurityException)
-            {
-                if (_logger.IsEnabled(LogLevel.Debug))
-                {
-                    _logger.LogDebug(ex, "Cannot enumerate children of {Path}", SanitizeForLog(normalizedPath));
-                }
-
-                var errorParentPath = GetParentPath(normalizedPath);
-                return new FolderBrowseResult
-                {
-                    CurrentPath = normalizedPath,
-                    ParentPath = errorParentPath,
-                    CanGoUp = errorParentPath != null,
-                    Directories = [],
-                    Error = "Cannot access this directory."
-                };
-            }
-
-            entries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-
-            var parentPath = GetParentPath(normalizedPath);
-
-            return new FolderBrowseResult
-            {
-                CurrentPath = normalizedPath,
-                ParentPath = parentPath,
-                CanGoUp = parentPath != null,
-                Directories = entries
-            };
+            return BuildChildrenListing(dirInfo, normalizedPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException
                                        or ArgumentException or NotSupportedException or PathTooLongException)
         {
             _logger.LogWarning(ex, "Error browsing directory {Path}", SanitizeForLog(path));
-            return new FolderBrowseResult { Error = "Cannot access this directory." };
+            return new FolderBrowseResult { Error = ErrorCannotAccessDirectory };
         }
+    }
+
+    /// <summary>
+    ///     Distinguishes a genuinely missing directory from a permission-denied one (both surface as
+    ///     <see cref="DirectoryInfo.Exists"/> == false) and returns the appropriate error result.
+    /// </summary>
+    private static FolderBrowseResult ResolveMissingDirectoryError(DirectoryInfo dirInfo)
+    {
+        // DirectoryInfo.Exists returns false for both missing AND permission-denied directories.
+        // Attempt to read attributes to distinguish the two cases.
+        try
+        {
+            _ = dirInfo.Attributes;
+            // If we get here without exception, the directory truly does not exist.
+            return new FolderBrowseResult { Error = ErrorDirectoryDoesNotExist };
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new FolderBrowseResult { Error = ErrorCannotAccessDirectory };
+        }
+        catch (SecurityException)
+        {
+            return new FolderBrowseResult { Error = ErrorCannotAccessDirectory };
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new FolderBrowseResult { Error = ErrorDirectoryDoesNotExist };
+        }
+        catch (IOException)
+        {
+            return new FolderBrowseResult { Error = ErrorCannotAccessDirectory };
+        }
+        catch (ArgumentException)
+        {
+            return new FolderBrowseResult { Error = ErrorDirectoryDoesNotExist };
+        }
+    }
+
+    /// <summary>
+    ///     Enumerates the accessible immediate subdirectories of an existing directory and builds the
+    ///     browse result, returning an error result when the directory itself cannot be enumerated.
+    /// </summary>
+    private FolderBrowseResult BuildChildrenListing(DirectoryInfo dirInfo, string normalizedPath)
+    {
+        var entries = new List<FolderEntry>();
+
+        // Enumerate immediate subdirectories, skipping those we can't access.
+        // EnumerateDirectories() returns a lazy iterator - exceptions from MoveNext()
+        // (e.g. UnauthorizedAccessException when accessing Attributes inside the
+        // Where predicate) are thrown during foreach iteration, not at assignment time.
+        // Therefore all filtering is done inside the per-entry try/catch to ensure a
+        // single inaccessible directory cannot abort the entire listing.
+        try
+        {
+            foreach (var subdir in dirInfo.EnumerateDirectories())
+            {
+                try
+                {
+                    if (IsSystemOrHiddenCritical(subdir))
+                    {
+                        continue;
+                    }
+
+                    entries.Add(new FolderEntry
+                    {
+                        Name = subdir.Name,
+                        Path = subdir.FullName,
+                        HasChildren = SafeHasSubdirectories(subdir.FullName)
+                    });
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
+                                               or SecurityException)
+                {
+                    // Skip individual directories we cannot access
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                    {
+                        _logger.LogDebug(ex, "Skipping inaccessible directory {Dir}", SanitizeForLog(subdir.FullName));
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
+                                       or SecurityException)
+        {
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "Cannot enumerate children of {Path}", SanitizeForLog(normalizedPath));
+            }
+
+            var errorParentPath = GetParentPath(normalizedPath);
+            return new FolderBrowseResult
+            {
+                CurrentPath = normalizedPath,
+                ParentPath = errorParentPath,
+                CanGoUp = errorParentPath != null,
+                Directories = [],
+                Error = ErrorCannotAccessDirectory
+            };
+        }
+
+        entries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+
+        var parentPath = GetParentPath(normalizedPath);
+
+        return new FolderBrowseResult
+        {
+            CurrentPath = normalizedPath,
+            ParentPath = parentPath,
+            CanGoUp = parentPath != null,
+            Directories = entries
+        };
     }
 
     /// <inheritdoc />
@@ -324,80 +373,7 @@ public class FolderBrowserService : IFolderBrowserService
             // File.Exists/Directory.Exists (which agree on the "does the path exist at all" question)
             // and only fall through to the Attributes path to distinguish access-denied when the
             // entry appears to be missing.
-            try
-            {
-                if (Directory.Exists(normalized))
-                {
-                    // Path exists AND is a directory - happy path.
-                    var attrs = new DirectoryInfo(normalized).Attributes;
-                    if (attrs != (FileAttributes)(-1) && !attrs.HasFlag(FileAttributes.Directory))
-                    {
-                        return "Path must point to a directory.";
-                    }
-
-                    // Symlink escape guard: the lexical IsSensitiveSystemPath check above cannot see
-                    // through a directory link whose own path is innocuous but which points at a
-                    // sensitive target (e.g. /media/movies/peek -> /etc). Path.GetFullPath does not
-                    // dereference symlinks on .NET, so resolve the final target and re-apply the guard,
-                    // refusing a browse INTO a link that lands on a protected directory. Guarded on a
-                    // valid, existing directory so it never runs against the (FileAttributes)(-1)
-                    // sentinel returned for missing paths.
-                    if (attrs != (FileAttributes)(-1) && (attrs & FileAttributes.ReparsePoint) != 0)
-                    {
-                        var resolved = new DirectoryInfo(normalized).ResolveLinkTarget(returnFinalTarget: true);
-                        if (resolved is not null && PathValidator.IsSensitiveSystemPath(resolved.FullName))
-                        {
-                            _logger.LogWarning(
-                                "Folder-browse request refused: {Path} is a link to a sensitive system path",
-                                SanitizeForLog(path));
-                            return "This is a protected system folder and cannot be browsed.";
-                        }
-                    }
-                }
-                else if (File.Exists(normalized))
-                {
-                    // Path exists but is a file, not a directory.
-                    return "Path must point to a directory.";
-                }
-                else
-                {
-                    // Path does not exist as file or directory - but Directory.Exists also returns
-                    // false when the caller lacks read permission on the parent. Probe Attributes
-                    // to distinguish the two cases: a permission-denied path will throw
-                    // UnauthorizedAccessException/SecurityException/IOException, while a truly
-                    // missing path returns (FileAttributes)(-1) (or throws DirectoryNotFoundException
-                    // on some runtimes).
-                    var attrs = new DirectoryInfo(normalized).Attributes;
-                    if (attrs == (FileAttributes)(-1))
-                    {
-                        return "Directory does not exist.";
-                    }
-
-                    // Attributes returned a real value but Directory.Exists said no - treat as
-                    // "not a directory" (e.g. concurrent modification, or a non-directory entry).
-                    return "Path must point to a directory.";
-                }
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return "Cannot access this directory.";
-            }
-            catch (SecurityException)
-            {
-                return "Cannot access this directory.";
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return "Directory does not exist.";
-            }
-            catch (FileNotFoundException)
-            {
-                return "Directory does not exist.";
-            }
-            catch (IOException)
-            {
-                return "Cannot access this directory.";
-            }
+            return ValidateDirectoryTarget(normalized, path);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException
                                        or PathTooLongException or SecurityException)
@@ -408,6 +384,98 @@ public class FolderBrowserService : IFolderBrowserService
             }
 
             return "Invalid path.";
+        }
+    }
+
+    /// <summary>
+    ///     Verifies that <paramref name="normalized"/> resolves to a browsable directory: it exists, is
+    ///     a directory (not a file), and — when it is a symlink — does not resolve to a sensitive system
+    ///     target. Returns an error message, or <c>null</c> when the target is valid.
+    /// </summary>
+    private string? ValidateDirectoryTarget(string normalized, string path)
+    {
+        try
+        {
+            if (Directory.Exists(normalized))
+            {
+                return ValidateExistingDirectory(normalized, path);
+            }
+
+            if (File.Exists(normalized))
+            {
+                // Path exists but is a file, not a directory.
+                return "Path must point to a directory.";
+            }
+
+            // Path does not exist as file or directory - but Directory.Exists also returns
+            // false when the caller lacks read permission on the parent. Probe Attributes
+            // to distinguish the two cases: a permission-denied path will throw
+            // UnauthorizedAccessException/SecurityException/IOException, while a truly
+            // missing path returns (FileAttributes)(-1) (or throws DirectoryNotFoundException
+            // on some runtimes).
+            var missingAttrs = new DirectoryInfo(normalized).Attributes;
+            if (missingAttrs == (FileAttributes)(-1))
+            {
+                return ErrorDirectoryDoesNotExist;
+            }
+
+            // Attributes returned a real value but Directory.Exists said no - treat as
+            // "not a directory" (e.g. concurrent modification, or a non-directory entry).
+            return "Path must point to a directory.";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return ErrorCannotAccessDirectory;
+        }
+        catch (SecurityException)
+        {
+            return ErrorCannotAccessDirectory;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return ErrorDirectoryDoesNotExist;
+        }
+        catch (FileNotFoundException)
+        {
+            return ErrorDirectoryDoesNotExist;
+        }
+        catch (IOException)
+        {
+            return ErrorCannotAccessDirectory;
+        }
+    }
+
+    /// <summary>
+    ///     Validates a path already confirmed to exist as a directory: rejects a non-directory entry and,
+    ///     for symlinks, refuses a browse into a link that resolves to a sensitive system target. Returns an
+    ///     error message, or <c>null</c> when the target is valid.
+    /// </summary>
+    private string? ValidateExistingDirectory(string normalized, string path)
+    {
+        // Path exists AND is a directory - happy path.
+        var attrs = new DirectoryInfo(normalized).Attributes;
+        if (attrs != (FileAttributes)(-1) && !attrs.HasFlag(FileAttributes.Directory))
+        {
+            return "Path must point to a directory.";
+        }
+
+        // Symlink escape guard: the lexical IsSensitiveSystemPath check above cannot see
+        // through a directory link whose own path is innocuous but which points at a
+        // sensitive target (e.g. /media/movies/peek -> /etc). Path.GetFullPath does not
+        // dereference symlinks on .NET, so resolve the final target and re-apply the guard,
+        // refusing a browse INTO a link that lands on a protected directory. Guarded on a
+        // valid, existing directory so it never runs against the (FileAttributes)(-1)
+        // sentinel returned for missing paths.
+        if (attrs != (FileAttributes)(-1) && (attrs & FileAttributes.ReparsePoint) != 0)
+        {
+            var resolved = new DirectoryInfo(normalized).ResolveLinkTarget(returnFinalTarget: true);
+            if (resolved is not null && PathValidator.IsSensitiveSystemPath(resolved.FullName))
+            {
+                _logger.LogWarning(
+                    "Folder-browse request refused: {Path} is a link to a sensitive system path",
+                    SanitizeForLog(path));
+                return "This is a protected system folder and cannot be browsed.";
+            }
         }
 
         return null;
@@ -521,12 +589,9 @@ public class FolderBrowserService : IFolderBrowserService
         // This prevents sensitive dirs like .ssh, .gnupg, .aws from being shown in the UI.
         if (dirInfo.Name.StartsWith('.'))
         {
-            foreach (var prefix in SafeHiddenPrefixes)
+            if (SafeHiddenPrefixes.Any(prefix => dirInfo.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
             {
-                if (dirInfo.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
+                return false;
             }
 
             return true;

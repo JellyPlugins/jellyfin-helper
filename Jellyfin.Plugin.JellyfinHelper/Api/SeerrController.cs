@@ -98,25 +98,10 @@ public class SeerrController : ControllerBase
         // when the request URL matches the persisted SeerrUrl, so a mask against an unknown URL cannot
         // borrow an unrelated credential.
         var apiKey = request.ApiKey;
-        if (ApiKeyMaskResolver.IsMask(apiKey))
+        var maskError = ResolveTestApiKey(request, ref apiKey);
+        if (maskError != null)
         {
-            var config = _configHelper.GetConfig();
-            var urlMatches = string.Equals(
-                config.SeerrUrl?.Trim(),
-                request.Url.Trim(),
-                StringComparison.OrdinalIgnoreCase);
-
-            if (urlMatches && !string.IsNullOrWhiteSpace(config.SeerrApiKey))
-            {
-                apiKey = config.SeerrApiKey;
-            }
-            else
-            {
-                // Mask sent but no matching stored key. Do NOT forward the mask upstream; return the
-                // same generic failure the live path uses so the client shows a truthful "not reachable".
-                _pluginLog.LogWarning("API", "Seerr connection test received the masked key sentinel but no stored key matched the URL; cannot resolve a real key.", logger: _logger);
-                return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
-            }
+            return maskError;
         }
 
         try
@@ -151,5 +136,34 @@ public class SeerrController : ControllerBase
             _pluginLog.LogWarning("API", "Connection test timed out for Seerr after 10 seconds.", logger: _logger);
             return StatusCode(StatusCodes.Status504GatewayTimeout, new ConnectionTestResponse { Success = false, Message = "Connection timed out after 10 seconds." });
         }
+    }
+
+    /// <summary>
+    ///     Resolves the masked-key sentinel to the real stored Seerr key when the request URL matches
+    ///     the persisted instance. Returns a non-null error result when the mask cannot be resolved.
+    /// </summary>
+    private ObjectResult? ResolveTestApiKey(SeerrTestRequest request, ref string apiKey)
+    {
+        if (!ApiKeyMaskResolver.IsMask(apiKey))
+        {
+            return null;
+        }
+
+        var config = _configHelper.GetConfig();
+        var urlMatches = string.Equals(
+            config.SeerrUrl?.Trim(),
+            request.Url.Trim(),
+            StringComparison.OrdinalIgnoreCase);
+
+        if (urlMatches && !string.IsNullOrWhiteSpace(config.SeerrApiKey))
+        {
+            apiKey = config.SeerrApiKey;
+            return null;
+        }
+
+        // Mask sent but no matching stored key. Do NOT forward the mask upstream; return the
+        // same generic failure the live path uses so the client shows a truthful "not reachable".
+        _pluginLog.LogWarning("API", "Seerr connection test received the masked key sentinel but no stored key matched the URL; cannot resolve a real key.", logger: _logger);
+        return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
     }
 }

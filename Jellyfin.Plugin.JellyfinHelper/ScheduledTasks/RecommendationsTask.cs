@@ -115,36 +115,7 @@ public class RecommendationsTask
         // Train the scoring strategy ONLY when TaskMode is Activate.
         // DryRun must NOT train because training writes ML weights to disk (side effect).
         // Incremental training is enabled only in Activate mode.
-        if (isActive)
-        {
-            try
-            {
-                var previousResults = _recsCacheService.LoadResults();
-                if (previousResults is { Count: > 0 })
-                {
-                    _pluginLog.LogInfo(LogSource, $"Training scoring strategy from {previousResults.Count} cached user results (incremental=true)...", _logger);
-                    var trained = _recsEngine.TrainStrategy(previousResults, incremental: true, cancellationToken: cancellationToken);
-                    _pluginLog.LogInfo(
-                        LogSource,
-                        trained
-                            ? "Strategy training completed (incremental)."
-                            : "Strategy training skipped (insufficient training data).",
-                        _logger);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                _pluginLog.LogWarning(LogSource, "Strategy training failed - continuing with current weights.", ex, _logger);
-            }
-        }
-        else
-        {
-            _pluginLog.LogInfo(LogSource, "Training skipped (DryRun mode - no model updates).", _logger);
-        }
+        TrainStrategyIfActive(isActive, cancellationToken);
 
         progress.Report(20);
         cancellationToken.ThrowIfCancellationRequested();
@@ -155,52 +126,101 @@ public class RecommendationsTask
         progress.Report(80);
         cancellationToken.ThrowIfCancellationRequested();
 
+        await SaveAndReportResultsAsync(config, results, isActive, cancellationToken).ConfigureAwait(false);
+
+        progress.Report(100);
+    }
+
+    /// <summary>
+    ///     Trains the scoring strategy incrementally from cached results when the task is in Activate
+    ///     mode. Training is a no-op (and logged) in DryRun mode. Failures are logged and swallowed.
+    /// </summary>
+    private void TrainStrategyIfActive(bool isActive, CancellationToken cancellationToken)
+    {
+        if (!isActive)
+        {
+            _pluginLog.LogInfo(LogSource, "Training skipped (DryRun mode - no model updates).", _logger);
+            return;
+        }
+
+        try
+        {
+            var previousResults = _recsCacheService.LoadResults();
+            if (previousResults is { Count: > 0 })
+            {
+                _pluginLog.LogInfo(LogSource, $"Training scoring strategy from {previousResults.Count} cached user results (incremental=true)...", _logger);
+                var trained = _recsEngine.TrainStrategy(previousResults, incremental: true, cancellationToken: cancellationToken);
+                _pluginLog.LogInfo(
+                    LogSource,
+                    trained
+                        ? "Strategy training completed (incremental)."
+                        : "Strategy training skipped (insufficient training data).",
+                    _logger);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogSource, "Strategy training failed - continuing with current weights.", ex, _logger);
+        }
+    }
+
+    /// <summary>
+    ///     Persists the generated recommendations (Activate only), optionally syncs them to Jellyfin
+    ///     playlists, and logs the task outcome. In DryRun mode nothing is written to disk.
+    /// </summary>
+    private async Task SaveAndReportResultsAsync(
+        PluginConfiguration config,
+        IReadOnlyList<RecommendationResult> results,
+        bool isActive,
+        CancellationToken cancellationToken)
+    {
         var totalRecs = results.Sum(r => r.Recommendations.Count);
 
-        if (isActive)
-        {
-            _recsCacheService.SaveResults(results);
-
-            // Sync recommendations to Jellyfin playlists if enabled
-            if (config.SyncRecommendationsToPlaylist && _playlistService != null)
-            {
-                try
-                {
-                    var syncResult = await _playlistService.UpdatePlaylistsForAllUsersAsync(results, cancellationToken).ConfigureAwait(false);
-                    _pluginLog.LogInfo(
-                        LogSource,
-                        $"Playlist sync: {syncResult.PlaylistsCreated} created, {syncResult.TotalItemsAdded} items added, {syncResult.OldPlaylistsRemoved} old removed.",
-                        _logger);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (!ex.IsFatal())
-                {
-                    _pluginLog.LogWarning(LogSource, "Playlist sync failed - recommendations were saved but playlists could not be updated.", ex, _logger);
-                }
-            }
-            else if (_playlistService != null)
-            {
-                // Playlist sync was disabled - clean up any existing playlists from previous runs
-                await CleanupOldPlaylistsAsync(_playlistService, cancellationToken).ConfigureAwait(false);
-            }
-
-            _pluginLog.LogInfo(
-                LogSource,
-                $"Task finished (Active). Generated {totalRecs} recommendations for {results.Count} users. Saved to cache.",
-                _logger);
-        }
-        else
+        if (!isActive)
         {
             _pluginLog.LogInfo(
                 LogSource,
                 $"Task finished (Dry Run). Generated {totalRecs} recommendations for {results.Count} users. NOT saved to disk.",
                 _logger);
+            return;
         }
 
-        progress.Report(100);
+        _recsCacheService.SaveResults(results);
+
+        // Sync recommendations to Jellyfin playlists if enabled
+        if (config.SyncRecommendationsToPlaylist && _playlistService != null)
+        {
+            try
+            {
+                var syncResult = await _playlistService.UpdatePlaylistsForAllUsersAsync(results, cancellationToken).ConfigureAwait(false);
+                _pluginLog.LogInfo(
+                    LogSource,
+                    $"Playlist sync: {syncResult.PlaylistsCreated} created, {syncResult.TotalItemsAdded} items added, {syncResult.OldPlaylistsRemoved} old removed.",
+                    _logger);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogWarning(LogSource, "Playlist sync failed - recommendations were saved but playlists could not be updated.", ex, _logger);
+            }
+        }
+        else if (_playlistService != null)
+        {
+            // Playlist sync was disabled - clean up any existing playlists from previous runs
+            await CleanupOldPlaylistsAsync(_playlistService, cancellationToken).ConfigureAwait(false);
+        }
+
+        _pluginLog.LogInfo(
+            LogSource,
+            $"Task finished (Active). Generated {totalRecs} recommendations for {results.Count} users. Saved to cache.",
+            _logger);
     }
 
     /// <summary>

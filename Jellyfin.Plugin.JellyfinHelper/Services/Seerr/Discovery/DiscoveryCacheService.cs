@@ -432,26 +432,7 @@ public sealed class DiscoveryCacheService : IDisposable
 
         // Determine which items need updating WITHOUT mutating the live cache yet.
         // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
-        var indicesToMark = new List<(int UserIdx, int RecIdx)>();
-        for (var u = 0; u < cache.Count; u++)
-        {
-            // When userId is specified, skip entries that belong to a different user.
-            if (userId.HasValue && cache[u].UserId != userId.Value)
-            {
-                continue;
-            }
-
-            var recs = cache[u].Recommendations;
-            for (var r = 0; r < recs.Count; r++)
-            {
-                if (recs[r].TmdbId == tmdbId
-                    && string.Equals(recs[r].MediaType, mediaType, StringComparison.OrdinalIgnoreCase)
-                    && !recs[r].AlreadyRequested)
-                {
-                    indicesToMark.Add((u, r));
-                }
-            }
-        }
+        var indicesToMark = CollectIndicesToMark(cache, tmdbId, mediaType, userId);
 
         if (indicesToMark.Count == 0)
         {
@@ -519,6 +500,47 @@ public sealed class DiscoveryCacheService : IDisposable
                 ex,
                 _logger);
         }
+    }
+
+    /// <summary>
+    ///     Scans the cache for recommendation entries matching <paramref name="tmdbId"/> and
+    ///     <paramref name="mediaType"/> that are not yet marked as requested, returning their
+    ///     (user index, recommendation index) coordinates WITHOUT mutating the cache. When
+    ///     <paramref name="userId"/> has a value, only that user's entries are considered.
+    /// </summary>
+    /// <param name="cache">The live memory cache to scan.</param>
+    /// <param name="tmdbId">The TMDb id to match.</param>
+    /// <param name="mediaType">The media type to match (case-insensitive).</param>
+    /// <param name="userId">When set, restricts the scan to the given user's entries.</param>
+    /// <returns>The list of (user index, recommendation index) pairs to mark.</returns>
+    private static List<(int UserIdx, int RecIdx)> CollectIndicesToMark(
+        List<DiscoveryResult> cache,
+        int tmdbId,
+        string mediaType,
+        Guid? userId)
+    {
+        var indicesToMark = new List<(int UserIdx, int RecIdx)>();
+        for (var u = 0; u < cache.Count; u++)
+        {
+            // When userId is specified, skip entries that belong to a different user.
+            if (userId.HasValue && cache[u].UserId != userId.Value)
+            {
+                continue;
+            }
+
+            var recs = cache[u].Recommendations;
+            for (var r = 0; r < recs.Count; r++)
+            {
+                if (recs[r].TmdbId == tmdbId
+                    && string.Equals(recs[r].MediaType, mediaType, StringComparison.OrdinalIgnoreCase)
+                    && !recs[r].AlreadyRequested)
+                {
+                    indicesToMark.Add((u, r));
+                }
+            }
+        }
+
+        return indicesToMark;
     }
 
     /// <summary>

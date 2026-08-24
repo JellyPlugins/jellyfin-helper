@@ -329,140 +329,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         try
         {
-            var fileTransformationAssembly = AssemblyLoadContext.All
-                .SelectMany(x => x.Assemblies)
-                .FirstOrDefault(x => IsFileTransformationAssembly(x));
-
-            if (fileTransformationAssembly == null)
+            if (!TryVerifyFileTransformationAssembly(out var fileTransformationAssembly))
             {
                 return false;
             }
 
-            // Defense-in-depth: verify the assembly is loaded from within Jellyfin's plugin
-            // directory. This does not replace strong-name/signature verification but prevents
-            // a rogue assembly placed outside the plugin directory from passing the name check.
-            var assemblyLocation = fileTransformationAssembly.Location;
-            if (_logger.IsEnabled(LogLevel.Information))
-            {
-                _logger.LogInformation("[Discovery Sidebar] FileTransformation assembly found at: {Location}", assemblyLocation);
-            }
-
-            // Fail CLOSED: if we cannot determine the assembly location or the plugins path, we
-            // cannot verify the origin, so we must NOT register (previously this skipped the check
-            // and registered anyway).
-            if (string.IsNullOrWhiteSpace(assemblyLocation) || string.IsNullOrWhiteSpace(_applicationPaths.PluginsPath))
-            {
-                _logger.LogWarning(
-                    "[Discovery Sidebar] Cannot verify the FileTransformation assembly origin "
-                    + "(assembly location or plugins path unavailable). Skipping registration as a security precaution.");
-                return false;
-            }
-
-            // Resolve BOTH paths to their canonical physical form before comparing. Assembly.Location
-            // (and PluginsPath) can contain symlink/junction components, and Path.GetFullPath does NOT
-            // resolve reparse points, so a symlinked assembly whose physical file lives OUTSIDE the
-            // plugins tree could otherwise pass the string prefix check. Resolving the real path closes
-            // that escape. If resolution fails we fail closed (do not register).
-            string normalizedLocation;
-            string normalizedPluginsPath;
-            try
-            {
-                normalizedLocation = ResolveRealPath(assemblyLocation);
-                normalizedPluginsPath = ResolveRealPath(_applicationPaths.PluginsPath);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "[Discovery Sidebar] Could not resolve the physical path of the FileTransformation "
-                    + "assembly or the plugins directory. Skipping registration as a security precaution.");
-                return false;
-            }
-
-            var pluginsPathWithSep = normalizedPluginsPath.TrimEnd(
-                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
-
-            // Path comparison must be OS-aware: Linux paths are case-sensitive, so an
-            // OrdinalIgnoreCase compare would treat /plugins and /PLUGINS as equal and could let a
-            // differently-cased outside path pass. Only Windows uses the case-insensitive compare;
-            // macOS is deliberately treated as case-sensitive here, which can only reject a
-            // differently-cased path (fail closed), never accept one.
-            var pathComparison = OperatingSystem.IsWindows()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal;
-
-            if (!normalizedLocation.StartsWith(pluginsPathWithSep, pathComparison))
-            {
-                _logger.LogWarning(
-                    "[Discovery Sidebar] FileTransformation assembly is NOT in the Jellyfin plugins " +
-                    "directory (expected under '{PluginsPath}', found at '{Location}'). " +
-                    "Skipping registration as a security precaution.",
-                    normalizedPluginsPath,
-                    normalizedLocation);
-                return false;
-            }
-
-            var pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
-            if (pluginInterfaceType == null)
-            {
-                _logger.LogWarning("[Discovery Sidebar] FileTransformation assembly found but PluginInterface type missing");
-                return false;
-            }
-
-            // The File Transformation plugin expects a Newtonsoft.Json JObject payload.
-            // We construct it via reflection to avoid adding a Newtonsoft.Json package dependency
-            // (it's available at runtime as a transitive dependency of Jellyfin).
-            var newtonsoftAssembly = AssemblyLoadContext.All
-                .SelectMany(x => x.Assemblies)
-                .FirstOrDefault(x => x.GetName().Name == "Newtonsoft.Json");
-
-            if (newtonsoftAssembly == null)
-            {
-                _logger.LogWarning("[Discovery Sidebar] Newtonsoft.Json not found at runtime");
-                return false;
-            }
-
-            var jObjectType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JObject");
-            if (jObjectType == null)
-            {
-                return false;
-            }
-
-            var payload = Activator.CreateInstance(jObjectType);
-            var jTokenType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JToken");
-            if (jTokenType == null)
-            {
-                _logger.LogWarning("JToken type not found in Newtonsoft.Json assembly");
-                return false;
-            }
-
-            var addMethod = jObjectType.GetMethod("Add", new Type[] { typeof(string), jTokenType });
-            var jValueType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JValue");
-
-            if (payload == null || addMethod == null || jValueType == null)
-            {
-                _logger.LogWarning("[Discovery Sidebar] FileTransformation reflection payload construction failed (payload={Payload}, addMethod={AddMethod}, jValueType={JValueType})", payload != null, addMethod != null, jValueType != null);
-                return false;
-            }
-
-            object CreateJValue(string val) => Activator.CreateInstance(jValueType, new object[] { val })!;
-
-            addMethod.Invoke(payload, new[] { "id", CreateJValue(Id.ToString()) });
-            addMethod.Invoke(payload, new[] { "fileNamePattern", CreateJValue("index.html") });
-            addMethod.Invoke(payload, new[] { "callbackAssembly", CreateJValue(GetType().Assembly.FullName ?? string.Empty) });
-            addMethod.Invoke(payload, new[] { "callbackClass", CreateJValue(typeof(TransformationPatches).FullName ?? string.Empty) });
-            addMethod.Invoke(payload, new[] { "callbackMethod", CreateJValue(nameof(TransformationPatches.IndexHtml)) });
-
-            var registerMethod = pluginInterfaceType.GetMethod("RegisterTransformation");
-            if (registerMethod == null)
-            {
-                _logger.LogWarning("[Discovery Sidebar] FileTransformation PluginInterface.RegisterTransformation method not found");
-                return false;
-            }
-
-            registerMethod.Invoke(null, new[] { payload });
-            return true;
+            return BuildAndRegisterTransformation(fileTransformationAssembly!);
         }
         catch (Exception ex) when (ex is IOException
                                    or UnauthorizedAccessException
@@ -481,6 +353,165 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning(ex, "[Discovery Sidebar] Failed to register with File Transformation plugin");
             return false;
         }
+    }
+
+    /// <summary>
+    ///     Locates the File Transformation assembly and verifies that it is loaded from within
+    ///     Jellyfin's plugins directory. Fails closed (returns <c>false</c>) whenever the origin
+    ///     cannot be verified.
+    /// </summary>
+    /// <param name="fileTransformationAssembly">The verified assembly, when the method returns true.</param>
+    /// <returns><c>true</c> if the assembly was found and its origin verified.</returns>
+    private bool TryVerifyFileTransformationAssembly(out Assembly? fileTransformationAssembly)
+    {
+        fileTransformationAssembly = AssemblyLoadContext.All
+            .SelectMany(x => x.Assemblies)
+            .FirstOrDefault(x => IsFileTransformationAssembly(x));
+
+        if (fileTransformationAssembly == null)
+        {
+            return false;
+        }
+
+        // Defense-in-depth: verify the assembly is loaded from within Jellyfin's plugin
+        // directory. This does not replace strong-name/signature verification but prevents
+        // a rogue assembly placed outside the plugin directory from passing the name check.
+        var assemblyLocation = fileTransformationAssembly.Location;
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation("[Discovery Sidebar] FileTransformation assembly found at: {Location}", assemblyLocation);
+        }
+
+        // Fail CLOSED: if we cannot determine the assembly location or the plugins path, we
+        // cannot verify the origin, so we must NOT register (previously this skipped the check
+        // and registered anyway).
+        if (string.IsNullOrWhiteSpace(assemblyLocation) || string.IsNullOrWhiteSpace(_applicationPaths.PluginsPath))
+        {
+            _logger.LogWarning(
+                "[Discovery Sidebar] Cannot verify the FileTransformation assembly origin "
+                + "(assembly location or plugins path unavailable). Skipping registration as a security precaution.");
+            fileTransformationAssembly = null;
+            return false;
+        }
+
+        // Resolve BOTH paths to their canonical physical form before comparing. Assembly.Location
+        // (and PluginsPath) can contain symlink/junction components, and Path.GetFullPath does NOT
+        // resolve reparse points, so a symlinked assembly whose physical file lives OUTSIDE the
+        // plugins tree could otherwise pass the string prefix check. Resolving the real path closes
+        // that escape. If resolution fails we fail closed (do not register).
+        string normalizedLocation;
+        string normalizedPluginsPath;
+        try
+        {
+            normalizedLocation = ResolveRealPath(assemblyLocation);
+            normalizedPluginsPath = ResolveRealPath(_applicationPaths.PluginsPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(
+                ex,
+                "[Discovery Sidebar] Could not resolve the physical path of the FileTransformation "
+                + "assembly or the plugins directory. Skipping registration as a security precaution.");
+            fileTransformationAssembly = null;
+            return false;
+        }
+
+        var pluginsPathWithSep = normalizedPluginsPath.TrimEnd(
+            Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
+        // Path comparison must be OS-aware: Linux paths are case-sensitive, so an
+        // OrdinalIgnoreCase compare would treat /plugins and /PLUGINS as equal and could let a
+        // differently-cased outside path pass. Only Windows uses the case-insensitive compare;
+        // macOS is deliberately treated as case-sensitive here, which can only reject a
+        // differently-cased path (fail closed), never accept one.
+        var pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (!normalizedLocation.StartsWith(pluginsPathWithSep, pathComparison))
+        {
+            _logger.LogWarning(
+                "[Discovery Sidebar] FileTransformation assembly is NOT in the Jellyfin plugins " +
+                "directory (expected under '{PluginsPath}', found at '{Location}'). " +
+                "Skipping registration as a security precaution.",
+                normalizedPluginsPath,
+                normalizedLocation);
+            fileTransformationAssembly = null;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    ///     Builds the Newtonsoft.Json transformation payload via reflection and registers it with the
+    ///     File Transformation plugin.
+    /// </summary>
+    /// <param name="fileTransformationAssembly">The verified File Transformation assembly.</param>
+    /// <returns><c>true</c> if the transformation was registered.</returns>
+    private bool BuildAndRegisterTransformation(Assembly fileTransformationAssembly)
+    {
+        var pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
+        if (pluginInterfaceType == null)
+        {
+            _logger.LogWarning("[Discovery Sidebar] FileTransformation assembly found but PluginInterface type missing");
+            return false;
+        }
+
+        // The File Transformation plugin expects a Newtonsoft.Json JObject payload.
+        // We construct it via reflection to avoid adding a Newtonsoft.Json package dependency
+        // (it's available at runtime as a transitive dependency of Jellyfin).
+        var newtonsoftAssembly = AssemblyLoadContext.All
+            .SelectMany(x => x.Assemblies)
+            .FirstOrDefault(x => x.GetName().Name == "Newtonsoft.Json");
+
+        if (newtonsoftAssembly == null)
+        {
+            _logger.LogWarning("[Discovery Sidebar] Newtonsoft.Json not found at runtime");
+            return false;
+        }
+
+        var jObjectType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JObject");
+        if (jObjectType == null)
+        {
+            return false;
+        }
+
+        var payload = Activator.CreateInstance(jObjectType);
+        var jTokenType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JToken");
+        if (jTokenType == null)
+        {
+            _logger.LogWarning("JToken type not found in Newtonsoft.Json assembly");
+            return false;
+        }
+
+        var addMethod = jObjectType.GetMethod("Add", new Type[] { typeof(string), jTokenType });
+        var jValueType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JValue");
+
+        if (payload == null || addMethod == null || jValueType == null)
+        {
+            _logger.LogWarning("[Discovery Sidebar] FileTransformation reflection payload construction failed (payload={Payload}, addMethod={AddMethod}, jValueType={JValueType})", payload != null, addMethod != null, jValueType != null);
+            return false;
+        }
+
+        object CreateJValue(string val) => Activator.CreateInstance(jValueType, new object[] { val })!;
+
+        addMethod.Invoke(payload, new[] { "id", CreateJValue(Id.ToString()) });
+        addMethod.Invoke(payload, new[] { "fileNamePattern", CreateJValue("index.html") });
+        addMethod.Invoke(payload, new[] { "callbackAssembly", CreateJValue(GetType().Assembly.FullName ?? string.Empty) });
+        addMethod.Invoke(payload, new[] { "callbackClass", CreateJValue(typeof(TransformationPatches).FullName ?? string.Empty) });
+        addMethod.Invoke(payload, new[] { "callbackMethod", CreateJValue(nameof(TransformationPatches.IndexHtml)) });
+
+        var registerMethod = pluginInterfaceType.GetMethod("RegisterTransformation");
+        if (registerMethod == null)
+        {
+            _logger.LogWarning("[Discovery Sidebar] FileTransformation PluginInterface.RegisterTransformation method not found");
+            return false;
+        }
+
+        registerMethod.Invoke(null, new[] { payload });
+        return true;
     }
 
     /// <summary>
@@ -639,35 +670,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
 
                 var originalContent = File.ReadAllText(indexPath);
-                var content = originalContent;
-                var scriptTag = DiscoveryScriptTag.Build(Version.ToString());
-
-                // Remove any old versions of the script tag first
-                content = DiscoveryScriptTag.RemovalRegex.Replace(content, string.Empty);
-
-                if (inject)
+                if (!TryBuildUpdatedIndexContent(originalContent, inject, out var content))
                 {
-                    var closingBodyTag = "</body>";
-                    var htmlCloseIndex = content.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
-                    var searchBound = htmlCloseIndex > 0 ? htmlCloseIndex - 1 : content.Length - 1;
-                    var closingBodyIndex = content.LastIndexOf(closingBodyTag, searchBound, StringComparison.OrdinalIgnoreCase);
-                    if (closingBodyIndex >= 0)
-                    {
-                        content = content.Insert(closingBodyIndex, scriptTag + "\n");
-                        if (_logger.IsEnabled(LogLevel.Debug))
-                        {
-                            _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogWarning("[Discovery Sidebar] Could not find </body> tag in index.html");
-                        return IndexHtmlUpdateResult.NotApplicable;
-                    }
-                }
-                else if (_logger.IsEnabled(LogLevel.Debug))
-                {
-                    _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
+                    return IndexHtmlUpdateResult.NotApplicable;
                 }
 
                 if (!string.Equals(content, originalContent, StringComparison.Ordinal))
@@ -702,6 +707,50 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return IndexHtmlUpdateResult.WriteFailed;
             }
         }
+    }
+
+    /// <summary>
+    ///     Strips any prior discovery script tag and, when <paramref name="inject"/> is <c>true</c>,
+    ///     inserts the current tag before the closing <c>&lt;/body&gt;</c>.
+    /// </summary>
+    /// <param name="originalContent">The current index.html content.</param>
+    /// <param name="inject">Whether to inject the script tag (as opposed to removing it).</param>
+    /// <param name="content">The transformed content, when the method returns <c>true</c>.</param>
+    /// <returns><c>false</c> when injecting and no <c>&lt;/body&gt;</c> tag was found; otherwise <c>true</c>.</returns>
+    private bool TryBuildUpdatedIndexContent(string originalContent, bool inject, out string content)
+    {
+        content = originalContent;
+        var scriptTag = DiscoveryScriptTag.Build(Version.ToString());
+
+        // Remove any old versions of the script tag first
+        content = DiscoveryScriptTag.RemovalRegex.Replace(content, string.Empty);
+
+        if (inject)
+        {
+            var closingBodyTag = "</body>";
+            var htmlCloseIndex = content.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
+            var searchBound = htmlCloseIndex > 0 ? htmlCloseIndex - 1 : content.Length - 1;
+            var closingBodyIndex = content.LastIndexOf(closingBodyTag, searchBound, StringComparison.OrdinalIgnoreCase);
+            if (closingBodyIndex >= 0)
+            {
+                content = content.Insert(closingBodyIndex, scriptTag + "\n");
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
+                }
+            }
+            else
+            {
+                _logger.LogWarning("[Discovery Sidebar] Could not find </body> tag in index.html");
+                return false;
+            }
+        }
+        else if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
+        }
+
+        return true;
     }
 
     /// <summary>

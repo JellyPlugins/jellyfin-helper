@@ -154,6 +154,32 @@ public class HelperCleanupTask : IScheduledTask
             ("Seerr Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunSeerrDiscovery(config, p, ct))
         };
 
+        await RunSubTasksAsync(subTasks, progress, cancellationToken).ConfigureAwait(false);
+
+        if (config is { UseTrash: true, TrashRetentionDays: > 0 })
+        {
+            RunTrashPurge(config, cancellationToken);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        RunPostCleanupStatistics();
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await RunGrowthTimelineAsync(cancellationToken).ConfigureAwait(false);
+
+        _pluginLog.LogInfo(LogSource, "Helper Cleanup finished.", _logger);
+    }
+
+    /// <summary>
+    ///     Runs each configured sub-task sequentially, honouring Deactivate/RunOnDeactivate semantics
+    ///     and reporting incremental progress. Individual sub-task failures are logged and the loop
+    ///     continues; cancellation is propagated.
+    /// </summary>
+    private async Task RunSubTasksAsync(
+        (string Name, TaskMode Mode, bool RunOnDeactivate, Func<IProgress<double>, CancellationToken, Task> Execute)[] subTasks,
+        IProgress<double> progress,
+        CancellationToken cancellationToken)
+    {
         var totalTasks = subTasks.Length;
 
         for (var i = 0; i < totalTasks; i++)
@@ -199,78 +225,86 @@ public class HelperCleanupTask : IScheduledTask
             _pluginLog.LogInfo(LogSource, succeeded ? $"Finished {name}." : $"Finished {name} (with errors).", _logger);
             progress.Report((double)(i + 1) / totalTasks * 100);
         }
+    }
 
-        if (config is { UseTrash: true, TrashRetentionDays: > 0 })
+    /// <summary>
+    ///     Purges expired trash across the DISTINCT resolved trash paths of the filtered libraries.
+    /// </summary>
+    private void RunTrashPurge(PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        try
         {
-            try
+            cancellationToken.ThrowIfCancellationRequested();
+            _pluginLog.LogInfo(LogSource, $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
+            // Purge only the trash of libraries the cleanup actually operates on:
+            // GetFilteredLibraryLocations honours ExcludedLibraries and skips
+            // music/boxset libraries, so an admin-excluded library's trash is left
+            // untouched (matching the contract the cleanup stages themselves follow).
+            var libraryLocations = _configHelper.GetFilteredLibraryLocations(_libraryManager);
+            long totalBytesFreed = 0;
+            var totalItemsPurged = 0;
+
+            // Resolve each library's trash path, then purge the DISTINCT set so a shared absolute
+            // TrashFolderPath is purged once. Reject only a path resolving to a library root itself
+            // (never valid trash); an absolute path OUTSIDE every root is supported and MUST be
+            // purged, else TrashRetentionDays is silently defeated. Bounded regardless:
+            // PurgeExpiredTrash removes only entries matching the strict "yyyyMMdd-HHmmss_" prefix,
+            // so even a misconfigured path loses nothing that is not a real trash entry.
+            var pathComparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+
+            var libraryRoots = new HashSet<string>(pathComparer);
+            foreach (var location in libraryLocations)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                _pluginLog.LogInfo(LogSource, $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
-                // Purge only the trash of libraries the cleanup actually operates on:
-                // GetFilteredLibraryLocations honours ExcludedLibraries and skips
-                // music/boxset libraries, so an admin-excluded library's trash is left
-                // untouched (matching the contract the cleanup stages themselves follow).
-                var libraryLocations = _configHelper.GetFilteredLibraryLocations(_libraryManager);
-                long totalBytesFreed = 0;
-                var totalItemsPurged = 0;
+                libraryRoots.Add(Path.GetFullPath(location).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
 
-                // Resolve each library's trash path, then purge the DISTINCT set so a shared absolute
-                // TrashFolderPath is purged once. Reject only a path resolving to a library root itself
-                // (never valid trash); an absolute path OUTSIDE every root is supported and MUST be
-                // purged, else TrashRetentionDays is silently defeated. Bounded regardless:
-                // PurgeExpiredTrash removes only entries matching the strict "yyyyMMdd-HHmmss_" prefix,
-                // so even a misconfigured path loses nothing that is not a real trash entry.
-                var pathComparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+            var purgedPaths = new HashSet<string>(pathComparer);
+            foreach (var location in libraryLocations)
+            {
+                var trashPath = Path.GetFullPath(_configHelper.GetTrashPath(location));
+                var trashPathTrimmed = trashPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-                var libraryRoots = new HashSet<string>(pathComparer);
-                foreach (var location in libraryLocations)
+                // Defense in depth: never purge a library root even if GetTrashPath ever regressed.
+                if (libraryRoots.Contains(trashPathTrimmed))
                 {
-                    libraryRoots.Add(Path.GetFullPath(location).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    _pluginLog.LogWarning(LogSource, $"Trash purge skipped for {location}: resolved trash path {trashPath} is a library root.", logger: _logger);
+                    continue;
                 }
 
-                var purgedPaths = new HashSet<string>(pathComparer);
-                foreach (var location in libraryLocations)
+                // Dedup a shared absolute trash path so it is purged only once.
+                if (!purgedPaths.Add(trashPathTrimmed))
                 {
-                    var trashPath = Path.GetFullPath(_configHelper.GetTrashPath(location));
-                    var trashPathTrimmed = trashPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-                    // Defense in depth: never purge a library root even if GetTrashPath ever regressed.
-                    if (libraryRoots.Contains(trashPathTrimmed))
-                    {
-                        _pluginLog.LogWarning(LogSource, $"Trash purge skipped for {location}: resolved trash path {trashPath} is a library root.", logger: _logger);
-                        continue;
-                    }
-
-                    // Dedup a shared absolute trash path so it is purged only once.
-                    if (!purgedPaths.Add(trashPathTrimmed))
-                    {
-                        continue;
-                    }
-
-                    var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, config.TrashRetentionDays, _logger);
-                    totalBytesFreed += bytesFreed;
-                    totalItemsPurged += itemsPurged;
+                    continue;
                 }
 
-                _pluginLog.LogInfo(
-                    LogSource,
-                    totalItemsPurged > 0
-                        ? $"Trash purge completed: {totalItemsPurged} items removed, {totalBytesFreed} bytes freed."
-                        : "Trash purge completed: no expired items found.",
-                    _logger);
+                var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, config.TrashRetentionDays, _logger);
+                totalBytesFreed += bytesFreed;
+                totalItemsPurged += itemsPurged;
             }
-            catch (OperationCanceledException)
-            {
-                _pluginLog.LogWarning(LogSource, "Helper Cleanup was cancelled during trash purge.", logger: _logger);
-                throw;
-            }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                _pluginLog.LogError(LogSource, "Error during trash purge. Continuing.", ex, _logger);
-            }
+
+            _pluginLog.LogInfo(
+                LogSource,
+                totalItemsPurged > 0
+                    ? $"Trash purge completed: {totalItemsPurged} items removed, {totalBytesFreed} bytes freed."
+                    : "Trash purge completed: no expired items found.",
+                _logger);
         }
+        catch (OperationCanceledException)
+        {
+            _pluginLog.LogWarning(LogSource, "Helper Cleanup was cancelled during trash purge.", logger: _logger);
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogError(LogSource, "Error during trash purge. Continuing.", ex, _logger);
+        }
+    }
 
-        cancellationToken.ThrowIfCancellationRequested();
+    /// <summary>
+    ///     Runs the post-cleanup statistics scan and persists the latest result. Failures are logged.
+    /// </summary>
+    private void RunPostCleanupStatistics()
+    {
         try
         {
             _pluginLog.LogInfo(LogSource, "Running post-cleanup statistics scan...", _logger);
@@ -287,8 +321,13 @@ public class HelperCleanupTask : IScheduledTask
         {
             _pluginLog.LogWarning(LogSource, "Failed to run post-cleanup statistics scan.", ex, _logger);
         }
+    }
 
-        cancellationToken.ThrowIfCancellationRequested();
+    /// <summary>
+    ///     Recomputes and persists the library growth timeline. Failures are logged.
+    /// </summary>
+    private async Task RunGrowthTimelineAsync(CancellationToken cancellationToken)
+    {
         try
         {
             _pluginLog.LogInfo(LogSource, "Recomputing growth timeline...", _logger);
@@ -304,8 +343,6 @@ public class HelperCleanupTask : IScheduledTask
         {
             _pluginLog.LogWarning(LogSource, "Failed to recompute growth timeline.", ex, _logger);
         }
-
-        _pluginLog.LogInfo(LogSource, "Helper Cleanup finished.", _logger);
     }
 
     /// <inheritdoc />

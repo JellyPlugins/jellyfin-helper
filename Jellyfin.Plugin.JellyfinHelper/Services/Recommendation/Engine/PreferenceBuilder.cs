@@ -138,49 +138,7 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            // Temporal weight: exponential decay with ~180-day half-life. Unplayed favorites
-            // represent current intent, so they are not age-penalized. Played items without a
-            // timestamp are rare and default to ~1 year as a conservative fallback.
-            double temporalWeight;
-            if (item.LastPlayedDate.HasValue)
-            {
-                var ageDays = Math.Max(0, (now - item.LastPlayedDate.Value).TotalDays);
-                temporalWeight = Math.Exp(-GenreDecayConstant * ageDays);
-            }
-            else if (item.IsFavorite)
-            {
-                temporalWeight = 1.0;
-            }
-            else
-            {
-                temporalWeight = Math.Exp(-GenreDecayConstant * 365.0);
-            }
-
-            // PlayCount boost: re-watched items signal stronger preference. Uses log1p (not the pre-v3
-            // linear min(PlayCount,5)×0.2 cap) so a 30×-rewatched item does not linearly dominate;
-            // ceiling raised to 2.0 so the signal survives the +3.0 favorite additive (contribution
-            // table in PlayCountLog1pScale's doc). Clamp at 100 prevents pathological metadata from
-            // producing unbounded weights.
-            var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
-            var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
-
-            // Progression multiplier: for episode rows, dampen or amplify the (temporal+playCount)
-            // signal by how much of the series the user consumed. The FAVORITE additive stays
-            // independent (an explicit favorite must not be diluted by an abandoned series) and is
-            // added after multiplication. Formula: clamp(0.3 + rawRatio * 1.2, 0.3, 1.5); see
-            // ComputeProgressionMultiplier.
-            var progressionMultiplier = ComputeProgressionMultiplier(
-                item,
-                seriesEpisodeCounts,
-                watchedEpisodesPerSeries);
-            var weight = (temporalWeight + playCountBoost) * progressionMultiplier;
-
-            // Favorite boost - additive, never touched by the progression multiplier so an
-            // explicit favorite click always outweighs a mediocre re-watch pattern.
-            if (item.IsFavorite)
-            {
-                weight += EngineConstants.FavoriteGenreBoostFactor;
-            }
+            var weight = ComputeGenreItemWeight(item, now, seriesEpisodeCounts, watchedEpisodesPerSeries);
 
             foreach (var genre in item.Genres.Where(static g => !string.IsNullOrWhiteSpace(g)))
             {
@@ -236,6 +194,69 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
+    ///     Computes the per-item genre weight (temporal decay + play-count boost, scaled by the series
+    ///     progression multiplier, plus an additive favorite boost). Extracted verbatim from
+    ///     <see cref="BuildGenrePreferenceVector"/>; the weight formula is unchanged.
+    /// </summary>
+    /// <param name="item">The watched item row.</param>
+    /// <param name="now">The reference timestamp for temporal decay.</param>
+    /// <param name="seriesEpisodeCounts">Optional series episode-count map.</param>
+    /// <param name="watchedEpisodesPerSeries">Precomputed per-series watched-episode counter.</param>
+    /// <returns>The genre weight contributed by this item.</returns>
+    private static double ComputeGenreItemWeight(
+        WatchedItemInfo item,
+        DateTime now,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        Dictionary<Guid, int>? watchedEpisodesPerSeries)
+    {
+        // Temporal weight: exponential decay with ~180-day half-life. Unplayed favorites
+        // represent current intent, so they are not age-penalized. Played items without a
+        // timestamp are rare and default to ~1 year as a conservative fallback.
+        double temporalWeight;
+        if (item.LastPlayedDate.HasValue)
+        {
+            var ageDays = Math.Max(0, (now - item.LastPlayedDate.Value).TotalDays);
+            temporalWeight = Math.Exp(-GenreDecayConstant * ageDays);
+        }
+        else if (item.IsFavorite)
+        {
+            temporalWeight = 1.0;
+        }
+        else
+        {
+            temporalWeight = Math.Exp(-GenreDecayConstant * 365.0);
+        }
+
+        // PlayCount boost: re-watched items signal stronger preference. Uses log1p (not the pre-v3
+        // linear min(PlayCount,5)×0.2 cap) so a 30×-rewatched item does not linearly dominate;
+        // ceiling raised to 2.0 so the signal survives the +3.0 favorite additive (contribution
+        // table in PlayCountLog1pScale's doc). Clamp at 100 prevents pathological metadata from
+        // producing unbounded weights.
+        var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
+        var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
+
+        // Progression multiplier: for episode rows, dampen or amplify the (temporal+playCount)
+        // signal by how much of the series the user consumed. The FAVORITE additive stays
+        // independent (an explicit favorite must not be diluted by an abandoned series) and is
+        // added after multiplication. Formula: clamp(0.3 + rawRatio * 1.2, 0.3, 1.5); see
+        // ComputeProgressionMultiplier.
+        var progressionMultiplier = ComputeProgressionMultiplier(
+            item,
+            seriesEpisodeCounts,
+            watchedEpisodesPerSeries);
+        var weight = (temporalWeight + playCountBoost) * progressionMultiplier;
+
+        // Favorite boost - additive, never touched by the progression multiplier so an
+        // explicit favorite click always outweighs a mediocre re-watch pattern.
+        if (item.IsFavorite)
+        {
+            weight += EngineConstants.FavoriteGenreBoostFactor;
+        }
+
+        return weight;
+    }
+
+    /// <summary>
     ///     Expands genre preferences with co-occurrence proximity weights. Genres frequently appearing
     ///     together reinforce each other: an existing entry gets an additive boost proportional to the
     ///     strongest incoming co-occurrence path, and absent genres that co-occur with known ones are
@@ -260,59 +281,7 @@ internal static class PreferenceBuilder
             return;
         }
 
-        var cooccurrence = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in profile.WatchedItems)
-        {
-            if (item is { Played: false, IsFavorite: false })
-            {
-                continue;
-            }
-
-            if (item.Genres is not { Count: > 0 })
-            {
-                continue;
-            }
-
-            // De-duplicate genres to prevent malformed metadata like ["Action", "Action", "Comedy"]
-            // from inflating co-occurrence counts (Action↔Comedy would be counted twice otherwise).
-            var distinctGenres = item.Genres
-                .Where(static g => !string.IsNullOrWhiteSpace(g))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
-            if (distinctGenres.Length < 2)
-            {
-                continue;
-            }
-
-            for (var i = 0; i < distinctGenres.Length; i++)
-            {
-                var g1 = distinctGenres[i];
-
-                if (!cooccurrence.TryGetValue(g1, out var neighbors))
-                {
-                    neighbors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                    cooccurrence[g1] = neighbors;
-                }
-
-                for (var j = i + 1; j < distinctGenres.Length; j++)
-                {
-                    var g2 = distinctGenres[j];
-
-                    neighbors.TryGetValue(g2, out var cnt);
-                    neighbors[g2] = cnt + 1;
-
-                    if (!cooccurrence.TryGetValue(g2, out var neighbors2))
-                    {
-                        neighbors2 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                        cooccurrence[g2] = neighbors2;
-                    }
-
-                    neighbors2.TryGetValue(g1, out var cnt2);
-                    neighbors2[g1] = cnt2 + 1;
-                }
-            }
-        }
+        var cooccurrence = BuildGenreCooccurrence(profile);
 
         // proximityFactor caps every derived boost at 15% of the source genre's own weight,
         // so a co-occurrence link can never lift a neighbour above the source itself.
@@ -330,6 +299,132 @@ internal static class PreferenceBuilder
         // (Math.Max) rather than "sum": a genre co-occurring with three known peers should not be
         // triple-boosted, which would inflate hubs like "Drama"/"Action" purely from appearing on
         // many multi-genre items. The strongest path captures reinforcement without double-counting.
+        var proximityContributions = AggregateProximityContributions(
+            baseWeights,
+            cooccurrence,
+            proximityFactor,
+            minCooccurrences);
+
+        // Apply contributions.
+        //   * Genres already in the vector (direct-watch): ADD the derived contribution. proximityFactor
+        //     (0.15) caps it at 15% of the source peer's weight, whose max is the direct-watch peak, so a
+        //     reinforced genre can never overtake one with a strictly stronger direct-watch signal.
+        //   * Genres NOT in the vector (pure inference): INSERT with the derived weight so soft-related
+        //     genres surface for candidates never explicitly watched (the "expand into unseen genres"
+        //     behaviour the original ContainsKey skip never applied).
+        // Applied last (after the read snapshot) so baseWeights iteration order does not influence the
+        // result - an invariant for train/serve parity, since Dictionary enumeration order is not part
+        // of the .NET contract.
+        foreach (var (targetGenre, derivedWeight) in proximityContributions)
+        {
+            if (vector.TryGetValue(targetGenre, out var existingWeight))
+            {
+                vector[targetGenre] = existingWeight + derivedWeight;
+            }
+            else
+            {
+                vector[targetGenre] = derivedWeight;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Builds the symmetric genre co-occurrence counts from eligible watched items. Extracted
+    ///     verbatim from <see cref="ExpandGenreProximity"/>.
+    /// </summary>
+    /// <param name="profile">The user watch profile.</param>
+    /// <returns>A map genre -> (neighbour genre -> co-occurrence count).</returns>
+    private static Dictionary<string, Dictionary<string, int>> BuildGenreCooccurrence(UserWatchProfile profile)
+    {
+        var cooccurrence = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in profile.WatchedItems)
+        {
+            var distinctGenres = GetEligibleDistinctGenres(item);
+            if (distinctGenres.Length < 2)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < distinctGenres.Length; i++)
+            {
+                for (var j = i + 1; j < distinctGenres.Length; j++)
+                {
+                    RecordCooccurrencePair(cooccurrence, distinctGenres[i], distinctGenres[j]);
+                }
+            }
+        }
+
+        return cooccurrence;
+    }
+
+    /// <summary>
+    ///     Returns the de-duplicated, non-blank genres of a watched item that qualifies for
+    ///     co-occurrence (played or favorited with genre metadata), or an empty array otherwise.
+    ///     Extracted verbatim from <see cref="BuildGenreCooccurrence"/>.
+    /// </summary>
+    private static string[] GetEligibleDistinctGenres(WatchedItemInfo item)
+    {
+        if (item is { Played: false, IsFavorite: false })
+        {
+            return [];
+        }
+
+        if (item.Genres is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        // De-duplicate genres to prevent malformed metadata like ["Action", "Action", "Comedy"]
+        // from inflating co-occurrence counts (Action↔Comedy would be counted twice otherwise).
+        return item.Genres
+            .Where(static g => !string.IsNullOrWhiteSpace(g))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
+    ///     Records a symmetric +1 co-occurrence between two genres in the map. Extracted verbatim
+    ///     from <see cref="BuildGenreCooccurrence"/>.
+    /// </summary>
+    private static void RecordCooccurrencePair(
+        Dictionary<string, Dictionary<string, int>> cooccurrence,
+        string g1,
+        string g2)
+    {
+        if (!cooccurrence.TryGetValue(g1, out var neighbors))
+        {
+            neighbors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            cooccurrence[g1] = neighbors;
+        }
+
+        neighbors.TryGetValue(g2, out var cnt);
+        neighbors[g2] = cnt + 1;
+
+        if (!cooccurrence.TryGetValue(g2, out var neighbors2))
+        {
+            neighbors2 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            cooccurrence[g2] = neighbors2;
+        }
+
+        neighbors2.TryGetValue(g1, out var cnt2);
+        neighbors2[g1] = cnt2 + 1;
+    }
+
+    /// <summary>
+    ///     Aggregates the strongest incoming proximity contribution per target genre. Extracted
+    ///     verbatim from <see cref="ExpandGenreProximity"/>; the derivation formula is unchanged.
+    /// </summary>
+    /// <param name="baseWeights">Pre-expansion direct-watch genre weights.</param>
+    /// <param name="cooccurrence">The genre co-occurrence map.</param>
+    /// <param name="proximityFactor">Cap on the derived boost relative to the source weight.</param>
+    /// <param name="minCooccurrences">Minimum co-occurrence count for a pair to contribute.</param>
+    /// <returns>A map target genre -> strongest derived proximity contribution.</returns>
+    private static Dictionary<string, double> AggregateProximityContributions(
+        Dictionary<string, double> baseWeights,
+        Dictionary<string, Dictionary<string, int>> cooccurrence,
+        double proximityFactor,
+        int minCooccurrences)
+    {
         var proximityContributions = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (knownGenre, weight) in baseWeights)
@@ -355,27 +450,7 @@ internal static class PreferenceBuilder
             }
         }
 
-        // Apply contributions.
-        //   * Genres already in the vector (direct-watch): ADD the derived contribution. proximityFactor
-        //     (0.15) caps it at 15% of the source peer's weight, whose max is the direct-watch peak, so a
-        //     reinforced genre can never overtake one with a strictly stronger direct-watch signal.
-        //   * Genres NOT in the vector (pure inference): INSERT with the derived weight so soft-related
-        //     genres surface for candidates never explicitly watched (the "expand into unseen genres"
-        //     behaviour the original ContainsKey skip never applied).
-        // Applied last (after the read snapshot) so baseWeights iteration order does not influence the
-        // result - an invariant for train/serve parity, since Dictionary enumeration order is not part
-        // of the .NET contract.
-        foreach (var (targetGenre, derivedWeight) in proximityContributions)
-        {
-            if (vector.TryGetValue(targetGenre, out var existingWeight))
-            {
-                vector[targetGenre] = existingWeight + derivedWeight;
-            }
-            else
-            {
-                vector[targetGenre] = derivedWeight;
-            }
-        }
+        return proximityContributions;
     }
 
     /// <summary>
@@ -586,25 +661,7 @@ internal static class PreferenceBuilder
             // Merge people from the item itself AND its parent series (episodes -> series).
             // De-duplicate per watched row so the same person on the same item is not
             // double-counted just because both item-level and series-level lookups return them.
-            HashSet<string>? perRowPeople = null;
-
-            if (peopleLookup.TryGetValue(w.ItemId, out var itemPeople) && itemPeople.Count > 0)
-            {
-                perRowPeople = new HashSet<string>(
-                    itemPeople.Where(static p => !string.IsNullOrWhiteSpace(p)),
-                    StringComparer.OrdinalIgnoreCase);
-            }
-
-            if (w.SeriesId.HasValue
-                && peopleLookup.TryGetValue(w.SeriesId.Value, out var seriesPeople)
-                && seriesPeople.Count > 0)
-            {
-                perRowPeople ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var name in seriesPeople.Where(static p => !string.IsNullOrWhiteSpace(p)))
-                {
-                    perRowPeople.Add(name);
-                }
-            }
+            var perRowPeople = BuildPerRowPeople(w, peopleLookup);
 
             if (perRowPeople is null || perRowPeople.Count == 0)
             {
@@ -627,6 +684,40 @@ internal static class PreferenceBuilder
         }
 
         return weights;
+    }
+
+    /// <summary>
+    ///     Merges the de-duplicated person names for a single watched row from both the item-level and
+    ///     parent-series people lookups. Extracted verbatim from <see cref="BuildPeoplePreferenceWeights"/>.
+    /// </summary>
+    /// <param name="w">The watched item row.</param>
+    /// <param name="peopleLookup">Item id -> person name set lookup.</param>
+    /// <returns>The de-duplicated person names for the row, or <c>null</c> when none apply.</returns>
+    private static HashSet<string>? BuildPerRowPeople(
+        WatchedItemInfo w,
+        Dictionary<Guid, HashSet<string>> peopleLookup)
+    {
+        HashSet<string>? perRowPeople = null;
+
+        if (peopleLookup.TryGetValue(w.ItemId, out var itemPeople) && itemPeople.Count > 0)
+        {
+            perRowPeople = new HashSet<string>(
+                itemPeople.Where(static p => !string.IsNullOrWhiteSpace(p)),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (w.SeriesId.HasValue
+            && peopleLookup.TryGetValue(w.SeriesId.Value, out var seriesPeople)
+            && seriesPeople.Count > 0)
+        {
+            perRowPeople ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in seriesPeople.Where(static p => !string.IsNullOrWhiteSpace(p)))
+            {
+                perRowPeople.Add(name);
+            }
+        }
+
+        return perRowPeople;
     }
 
     /// <summary>

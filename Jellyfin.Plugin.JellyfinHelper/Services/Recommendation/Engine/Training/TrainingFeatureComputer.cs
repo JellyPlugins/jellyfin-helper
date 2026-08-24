@@ -145,6 +145,34 @@ internal static class TrainingFeatureComputer
 
         var watchDate = watchedItem.LastPlayedDate.Value;
 
+        var (matchCount, totalInBucket) = CountBucketMatches(watchedItem, candidateGenreSet, userProfile, watchDate, isDay);
+
+        if (totalInBucket < 3)
+        {
+            return 0.5;
+        }
+
+        return Math.Clamp((double)matchCount / totalInBucket, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Counts, among the user's watch history in the same temporal bucket as <paramref name="watchDate"/>,
+    ///     how many items share a genre with the candidate. Extracted verbatim from
+    ///     <see cref="ComputeTrainingTemporalAffinity(WatchedItemInfo?, HashSet{string}, UserWatchProfile, bool)"/>; the bucket/genre predicates are unchanged.
+    /// </summary>
+    /// <param name="watchedItem">The target watched item (excluded to avoid label leakage).</param>
+    /// <param name="candidateGenreSet">The candidate's genre set.</param>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <param name="watchDate">The reference watch timestamp defining the bucket.</param>
+    /// <param name="isDay">Whether to bucket by day-of-week (else by hour bucket).</param>
+    /// <returns>The genre-match count and the total items in the bucket.</returns>
+    private static (int MatchCount, int TotalInBucket) CountBucketMatches(
+        WatchedItemInfo watchedItem,
+        HashSet<string> candidateGenreSet,
+        UserWatchProfile userProfile,
+        DateTime watchDate,
+        bool isDay)
+    {
         var matchCount = 0;
         var totalInBucket = 0;
 
@@ -184,12 +212,7 @@ internal static class TrainingFeatureComputer
             }
         }
 
-        if (totalInBucket < 3)
-        {
-            return 0.5;
-        }
-
-        return Math.Clamp((double)matchCount / totalInBucket, 0.0, 1.0);
+        return (matchCount, totalInBucket);
     }
 
     /// <summary>
@@ -270,15 +293,7 @@ internal static class TrainingFeatureComputer
         }
 
         // Collect all unique genres across episodes for genre similarity
-        var allGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int? representativeYear = null;
-        foreach (var ep in episodes)
-        {
-            allGenres.UnionWith((ep.Genres ?? Array.Empty<string>()).Where(g => !string.IsNullOrWhiteSpace(g)));
-
-            // Use the first available production year as representative
-            representativeYear ??= ep.Year;
-        }
+        var allGenres = AggregateSeriesGenres(episodes, out var representativeYear);
 
         var genreList = allGenres.ToList();
 
@@ -286,32 +301,12 @@ internal static class TrainingFeatureComputer
         // writers; first non-empty franchise name). Series lifecycle comes from the representative
         // episode row. Billing is neutralized (no per-item people/billing cached on WatchedItemInfo),
         // mirroring the organic branch. All reads are null-safe (setters coalesce null -> []).
-        string? seriesFranchise = null;
-        var seriesCountries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var seriesInheritedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var seriesWriters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ep in episodes)
-        {
-            if (seriesFranchise is null && !string.IsNullOrWhiteSpace(ep.TmdbCollectionName))
-            {
-                seriesFranchise = ep.TmdbCollectionName;
-            }
-
-            foreach (var c in ep.ProductionCountries.Where(static c => !string.IsNullOrWhiteSpace(c)))
-            {
-                seriesCountries.Add(c);
-            }
-
-            foreach (var t in ep.InheritedTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
-            {
-                seriesInheritedTags.Add(t);
-            }
-
-            foreach (var wn in ep.WriterNames.Where(static w => !string.IsNullOrWhiteSpace(w)))
-            {
-                seriesWriters.Add(wn);
-            }
-        }
+        AggregateSeriesContentFields(
+            episodes,
+            out var seriesFranchise,
+            out var seriesCountries,
+            out var seriesInheritedTags,
+            out var seriesWriters);
 
         var features = new CandidateFeatures
         {
@@ -404,6 +399,73 @@ internal static class TrainingFeatureComputer
                 GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
                 SampleWeight = 0.7 // Slightly lower weight than recommended items to avoid overwhelming
             });
+    }
+
+    /// <summary>
+    ///     Collects the union of non-blank genres across all episodes and the first available production
+    ///     year. Extracted verbatim from <see cref="AddAggregatedSeriesExample"/>.
+    /// </summary>
+    /// <param name="episodes">The series' episodes.</param>
+    /// <param name="representativeYear">Receives the first available episode production year.</param>
+    /// <returns>The case-insensitive union of episode genres.</returns>
+    private static HashSet<string> AggregateSeriesGenres(List<WatchedItemInfo> episodes, out int? representativeYear)
+    {
+        var allGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        representativeYear = null;
+        foreach (var ep in episodes)
+        {
+            allGenres.UnionWith((ep.Genres ?? Array.Empty<string>()).Where(g => !string.IsNullOrWhiteSpace(g)));
+
+            // Use the first available production year as representative
+            representativeYear ??= ep.Year;
+        }
+
+        return allGenres;
+    }
+
+    /// <summary>
+    ///     Aggregates the content-affinity fields (first non-empty franchise; union of countries,
+    ///     inherited tags, writers) across a series' episodes. Extracted verbatim from
+    ///     <see cref="AddAggregatedSeriesExample"/>.
+    /// </summary>
+    /// <param name="episodes">The series' episodes.</param>
+    /// <param name="seriesFranchise">Receives the first non-empty TMDb collection name.</param>
+    /// <param name="seriesCountries">Receives the union of production countries.</param>
+    /// <param name="seriesInheritedTags">Receives the union of inherited tags.</param>
+    /// <param name="seriesWriters">Receives the union of writer names.</param>
+    private static void AggregateSeriesContentFields(
+        List<WatchedItemInfo> episodes,
+        out string? seriesFranchise,
+        out HashSet<string> seriesCountries,
+        out HashSet<string> seriesInheritedTags,
+        out HashSet<string> seriesWriters)
+    {
+        seriesFranchise = null;
+        seriesCountries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        seriesInheritedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        seriesWriters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ep in episodes)
+        {
+            if (seriesFranchise is null && !string.IsNullOrWhiteSpace(ep.TmdbCollectionName))
+            {
+                seriesFranchise = ep.TmdbCollectionName;
+            }
+
+            foreach (var c in ep.ProductionCountries.Where(static c => !string.IsNullOrWhiteSpace(c)))
+            {
+                seriesCountries.Add(c);
+            }
+
+            foreach (var t in ep.InheritedTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
+            {
+                seriesInheritedTags.Add(t);
+            }
+
+            foreach (var wn in ep.WriterNames.Where(static w => !string.IsNullOrWhiteSpace(w)))
+            {
+                seriesWriters.Add(wn);
+            }
+        }
     }
 
     /// <summary>
