@@ -121,64 +121,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     // before RecordShown ran) or entries missing enriched data (e.g., KnownPeople not available
                     // on first generation but enriched on a subsequent run). Each field is merged individually
                     // to avoid overwriting already-populated fields with empty/default values.
-                    if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(item.Title))
-                    {
-                        existing.Title = item.Title;
-                        modified = true;
-                    }
-
-                    if (existing.Year is null or 0 && item.Year is > 0)
-                    {
-                        existing.Year = item.Year;
-                        modified = true;
-                    }
-
-                    if ((existing.Genres == null || existing.Genres.Count == 0) && item.Genres is { Count: > 0 })
-                    {
-                        existing.Genres = item.Genres.ToArray();
-                        modified = true;
-                    }
-
-                    if (existing.TmdbRating == 0 && item.TmdbRating > 0)
-                    {
-                        existing.TmdbRating = item.TmdbRating;
-                        modified = true;
-                    }
-
-                    if (existing.Score == 0 && item.Score > 0)
-                    {
-                        existing.Score = item.Score;
-                        modified = true;
-                    }
-
-                    if (existing.Popularity == 0 && item.Popularity > 0)
-                    {
-                        existing.Popularity = item.Popularity;
-                        modified = true;
-                    }
-
-                    if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
-                    {
-                        existing.KnownPeople = item.KnownPeople.ToList();
-                        modified = true;
-                    }
-
+                    modified |= BackfillEntry(existing, item);
                     continue;
                 }
 
-                var newEntry = new DiscoveryFeedbackEntry
-                {
-                    TmdbId = item.TmdbId,
-                    MediaType = normalizedType,
-                    Title = item.Title,
-                    Year = item.Year,
-                    Genres = item.Genres?.ToArray() ?? [],
-                    TmdbRating = item.TmdbRating,
-                    Popularity = item.Popularity,
-                    Score = item.Score,
-                    ShownAtUtc = now,
-                    KnownPeople = item.KnownPeople?.ToList() ?? []
-                };
+                var newEntry = CreateShownEntry(item, normalizedType, now);
                 userResult.Entries.Add(newEntry);
                 entryLookup.TryAdd(key, newEntry);
                 modified = true;
@@ -189,6 +136,90 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 SaveInternal(data);
             }
         }
+    }
+
+    /// <summary>
+    ///     Merges enriched metadata from a freshly-shown item onto an existing feedback entry.
+    ///     Each field is merged individually to avoid overwriting already-populated fields with
+    ///     empty/default values.
+    /// </summary>
+    /// <param name="existing">The existing entry to backfill.</param>
+    /// <param name="item">The freshly-shown recommendation carrying the source metadata.</param>
+    /// <returns>True if any field on the entry was modified, false otherwise.</returns>
+    private static bool BackfillEntry(DiscoveryFeedbackEntry existing, DiscoveryRecommendation item)
+    {
+        var modified = false;
+
+        if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(item.Title))
+        {
+            existing.Title = item.Title;
+            modified = true;
+        }
+
+        if (existing.Year is null or 0 && item.Year is > 0)
+        {
+            existing.Year = item.Year;
+            modified = true;
+        }
+
+        if ((existing.Genres == null || existing.Genres.Count == 0) && item.Genres is { Count: > 0 })
+        {
+            existing.Genres = item.Genres.ToArray();
+            modified = true;
+        }
+
+        if (existing.TmdbRating == 0 && item.TmdbRating > 0)
+        {
+            existing.TmdbRating = item.TmdbRating;
+            modified = true;
+        }
+
+        if (existing.Score == 0 && item.Score > 0)
+        {
+            existing.Score = item.Score;
+            modified = true;
+        }
+
+        if (existing.Popularity == 0 && item.Popularity > 0)
+        {
+            existing.Popularity = item.Popularity;
+            modified = true;
+        }
+
+        if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
+        {
+            existing.KnownPeople = item.KnownPeople.ToList();
+            modified = true;
+        }
+
+        return modified;
+    }
+
+    /// <summary>
+    ///     Builds a new feedback entry for a freshly-shown recommendation.
+    /// </summary>
+    /// <param name="item">The recommendation being recorded.</param>
+    /// <param name="normalizedType">The normalized media type for the entry.</param>
+    /// <param name="now">The timestamp to record as the shown time.</param>
+    /// <returns>A populated <see cref="DiscoveryFeedbackEntry"/>.</returns>
+    private static DiscoveryFeedbackEntry CreateShownEntry(
+        DiscoveryRecommendation item,
+        string normalizedType,
+        DateTime now)
+    {
+        return new DiscoveryFeedbackEntry
+        {
+            TmdbId = item.TmdbId,
+            MediaType = normalizedType,
+            Title = item.Title,
+            Year = item.Year,
+            Genres = item.Genres?.ToArray() ?? [],
+            TmdbRating = item.TmdbRating,
+            Popularity = item.Popularity,
+            Score = item.Score,
+            ShownAtUtc = now,
+            KnownPeople = item.KnownPeople?.ToList() ?? []
+        };
     }
 
     /// <inheritdoc />
