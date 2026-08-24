@@ -343,38 +343,7 @@ public sealed class UserDiscoveryController : ControllerBase
         // Per-user rate limit: prevent a single user from flooding Seerr with requests.
         // IMemoryCache auto-evicts entries after RequestRateLimit, so no manual sweep is needed
         // and the dictionary cannot grow unbounded across plugin restarts.
-        var now = DateTime.UtcNow;
-        var rateLimitExceeded = false;
-        var retryAfterSeconds = 0;
-
-        // Atomic check-and-update: without the lock, concurrent requests for the same user could
-        // all observe a cache miss (or a stale timestamp) and each write `now`, all passing the
-        // limit and submitting duplicate upstream requests. Serializing the read+write closes that
-        // race so only the first request in a window proceeds. The key includes the current
-        // generation so a ClearRateLimitState() bump invalidates all prior-load entries at once.
-        lock (RateLimitGate)
-        {
-            var rateLimitKey = BuildRateLimitKey(currentJellyfinUserId);
-
-            if (_memoryCache.TryGetValue<DateTime>(rateLimitKey, out var lastRequest))
-            {
-                var elapsed = now - lastRequest;
-                if (elapsed < RequestRateLimit)
-                {
-                    rateLimitExceeded = true;
-                    retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
-                }
-            }
-
-            // Only claim the window when the request is actually allowed through; refreshing the
-            // timestamp on a rejected request would extend the block indefinitely under load.
-            if (!rateLimitExceeded)
-            {
-                _memoryCache.Set(rateLimitKey, now, RequestRateLimit);
-            }
-        }
-
-        if (rateLimitExceeded)
+        if (CheckRateLimit(currentJellyfinUserId, out var retryAfterSeconds))
         {
             Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
             return StatusCode(StatusCodes.Status429TooManyRequests, new RequestResult
@@ -415,46 +384,10 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
-        if (dto.ServerId.HasValue || dto.ProfileId.HasValue || rootFolder != null)
+        var overrideError = ValidateProfileOverride(dto, permissions, rootFolder);
+        if (overrideError != null)
         {
-            if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue)
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "ServerId and ProfileId must be specified together." });
-            }
-
-            var serverId = dto.ServerId.Value;
-            var profileId = dto.ProfileId.Value;
-
-            if (permissions.Profiles.Count == 0)
-            {
-                return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to override the default quality profile." });
-            }
-
-            var matchedProfile = permissions.Profiles.FirstOrDefault(profile =>
-                profile.ServerId == serverId && profile.ProfileId == profileId);
-            if (matchedProfile == null)
-            {
-                return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
-            }
-
-            // Validate root folder against the matched profile.
-            // When the profile has no specific root folder (empty/null), accept both null and empty
-            // from the client - the request will use Seerr's server default.
-            // When the profile HAS a root folder, the client must provide an exact match.
-            var profileHasRootFolder = !string.IsNullOrEmpty(matchedProfile.RootFolder);
-            if (profileHasRootFolder)
-            {
-                if (rootFolder == null || !string.Equals(rootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
-                {
-                    return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
-                }
-            }
-            else if (rootFolder != null)
-            {
-                // Profile has no root folder constraint - reject if client sends a non-empty
-                // root folder (trying to override to an arbitrary path when none is configured).
-                return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
-            }
+            return overrideError;
         }
 
         var (success, message) = await _discovery.SubmitRequestAsync(
@@ -471,6 +404,112 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
+        await PersistRequestBookkeepingAsync(dto, mediaType, currentJellyfinUserId).ConfigureAwait(false);
+
+        return StatusCode(StatusCodes.Status201Created, new RequestResult { Success = true, Message = message });
+    }
+
+    /// <summary>
+    ///     Atomically checks and claims the current user's per-user rate-limit window.
+    /// </summary>
+    /// <param name="userId">The current Jellyfin user id.</param>
+    /// <param name="retryAfterSeconds">The number of seconds to wait when the limit is exceeded.</param>
+    /// <returns><c>true</c> when the request must be rejected as rate limited.</returns>
+    private bool CheckRateLimit(Guid userId, out int retryAfterSeconds)
+    {
+        var now = DateTime.UtcNow;
+        var rateLimitExceeded = false;
+        retryAfterSeconds = 0;
+
+        // Atomic check-and-update: without the lock, concurrent requests for the same user could
+        // all observe a cache miss (or a stale timestamp) and each write `now`, all passing the
+        // limit and submitting duplicate upstream requests. Serializing the read+write closes that
+        // race so only the first request in a window proceeds. The key includes the current
+        // generation so a ClearRateLimitState() bump invalidates all prior-load entries at once.
+        lock (RateLimitGate)
+        {
+            var rateLimitKey = BuildRateLimitKey(userId);
+
+            if (_memoryCache.TryGetValue<DateTime>(rateLimitKey, out var lastRequest))
+            {
+                var elapsed = now - lastRequest;
+                if (elapsed < RequestRateLimit)
+                {
+                    rateLimitExceeded = true;
+                    retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
+                }
+            }
+
+            // Only claim the window when the request is actually allowed through; refreshing the
+            // timestamp on a rejected request would extend the block indefinitely under load.
+            if (!rateLimitExceeded)
+            {
+                _memoryCache.Set(rateLimitKey, now, RequestRateLimit);
+            }
+        }
+
+        return rateLimitExceeded;
+    }
+
+    /// <summary>
+    ///     Validates a client-supplied server/profile/root-folder override against the permissions the
+    ///     user is actually allowed to use. Returns a non-null error result when the override is invalid.
+    /// </summary>
+    private ObjectResult? ValidateProfileOverride(DiscoveryRequestDto dto, UserRequestPermissionResult permissions, string? rootFolder)
+    {
+        if (!dto.ServerId.HasValue && !dto.ProfileId.HasValue && rootFolder == null)
+        {
+            return null;
+        }
+
+        if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue)
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "ServerId and ProfileId must be specified together." });
+        }
+
+        var serverId = dto.ServerId.Value;
+        var profileId = dto.ProfileId.Value;
+
+        if (permissions.Profiles.Count == 0)
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to override the default quality profile." });
+        }
+
+        var matchedProfile = permissions.Profiles.FirstOrDefault(profile =>
+            profile.ServerId == serverId && profile.ProfileId == profileId);
+        if (matchedProfile == null)
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
+        }
+
+        // Validate root folder against the matched profile.
+        // When the profile has no specific root folder (empty/null), accept both null and empty
+        // from the client - the request will use Seerr's server default.
+        // When the profile HAS a root folder, the client must provide an exact match.
+        var profileHasRootFolder = !string.IsNullOrEmpty(matchedProfile.RootFolder);
+        if (profileHasRootFolder)
+        {
+            if (rootFolder == null || !string.Equals(rootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
+            {
+                return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
+            }
+        }
+        else if (rootFolder != null)
+        {
+            // Profile has no root folder constraint - reject if client sends a non-empty
+            // root folder (trying to override to an arbitrary path when none is configured).
+            return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Performs the best-effort local bookkeeping (cache + feedback store) after Seerr has accepted
+    ///     a request. Failures are logged but never surfaced to the caller.
+    /// </summary>
+    private async Task PersistRequestBookkeepingAsync(DiscoveryRequestDto dto, string mediaType, Guid currentJellyfinUserId)
+    {
         // CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store
         // updates below. Once Seerr has accepted the request above, the local bookkeeping
         // MUST run regardless of whether the HTTP client has disconnected - otherwise:
@@ -503,8 +542,6 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             _logger.LogWarning(ex, "[Discovery] Failed to record requested item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentJellyfinUserId);
         }
-
-        return StatusCode(StatusCodes.Status201Created, new RequestResult { Success = true, Message = message });
     }
 
     /// <summary>
