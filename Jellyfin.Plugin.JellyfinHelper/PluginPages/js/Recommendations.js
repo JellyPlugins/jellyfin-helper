@@ -76,7 +76,7 @@ function renderRecommendations(container, results) {
         recsSelect.addEventListener('change', function () {
             var idx = Number.parseInt(recsSelect.value, 10);
             // Persist selected user in browser storage so it survives page refresh
-            try { var uid = results[idx] && results[idx].UserId; if (uid) localStorage.setItem('jh_recsSelectedUser', uid); } catch (e) { /* localStorage unavailable */ }
+            try { var uid = results[idx]?.UserId; if (uid) localStorage.setItem('jh_recsSelectedUser', uid); } catch (e) { /* localStorage unavailable */ }
             onUserChanged(idx);
         });
     }
@@ -158,7 +158,7 @@ function renderRecommendationCard(rec, rank) {
     var html = '<div class="recs-item"><div class="recs-item-rank">#' + rank + '</div><div class="recs-item-body">';
     html += '<div class="recs-item-title">' + escHtml(rec.Name || T('recsUnknownTitle', 'Unknown')) + '</div><div class="recs-item-meta">';
     if (rec.ItemType) { html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.ItemType) + '</span>'; }
-    if (rec.Genres && rec.Genres.length > 0) { for (var g = 0; g < Math.min(rec.Genres.length, 3); g++) { html += '<span class="recs-tag">' + escHtml(rec.Genres[g]) + '</span>'; } }
+    if (rec.Genres?.length > 0) { for (var g = 0; g < Math.min(rec.Genres.length, 3); g++) { html += '<span class="recs-tag">' + escHtml(rec.Genres[g]) + '</span>'; } }
     if (typeof rec.Year === 'number' && rec.Year > 0) { html += '<span class="recs-tag recs-tag-year">' + rec.Year + '</span>'; }
     html += '</div>';
     html += '<div class="recs-item-reason"><span class="recs-reason-label">' + T('recsReason', 'Why') + ':</span> ';
@@ -281,7 +281,7 @@ function renderCompactActivityTable(container, items) {
 function getTopGenresFromDistribution(genreDistribution, maxGenres) {
     if (!genreDistribution || typeof genreDistribution !== 'object') return [];
     var entries = [];
-    for (var genre in genreDistribution) { if (Object.prototype.hasOwnProperty.call(genreDistribution, genre)) { entries.push({ name: genre, count: genreDistribution[genre] || 0 }); } }
+    for (var genre in genreDistribution) { if (Object.hasOwn(genreDistribution, genre)) { entries.push({ name: genre, count: genreDistribution[genre] || 0 }); } }
     entries.sort(function (a, b) { return b.count - a.count; });
     var result = [];
     for (var i = 0; i < Math.min(entries.length, maxGenres); i++) { result.push(entries[i].name); }
@@ -314,7 +314,7 @@ function renderDiscoverySection(container) {
 }
 
 // Global cache for the full /Discovery API response (all users in one call)
-var _discoveryAllUsersCache = undefined;
+var _discoveryAllUsersCache;
 var _discoveryAllUsersCacheTimestamp = 0;
 // Discovery cache TTL: 5 minutes (same as recommendations results cache)
 var _discoveryCacheTtlMs = 5 * 60 * 1000;
@@ -445,7 +445,7 @@ function renderDiscoveryCard(rec, index) {
     if (mediaType) {
         html += '<span class="recs-tag recs-tag-type">' + escHtml(mediaType === 'tv' ? T('tvShows', 'Series') : T('movies', 'Movie')) + '</span>';
     }
-    if (rec.Genres && rec.Genres.length > 0) {
+    if (rec.Genres?.length > 0) {
         for (var g = 0; g < Math.min(rec.Genres.length, 3); g++) {
             html += '<span class="recs-tag">' + escHtml(rec.Genres[g]) + '</span>';
         }
@@ -770,7 +770,7 @@ function markDiscoveryItemRequested(tmdbId, mediaType) {
     var results = _recsResults;
     if (results) {
         for (var i = 0; i < results.length; i++) {
-            markInDiscovery(results[i] && results[i]._cachedDiscovery);
+            markInDiscovery(results[i]?._cachedDiscovery);
         }
     }
 

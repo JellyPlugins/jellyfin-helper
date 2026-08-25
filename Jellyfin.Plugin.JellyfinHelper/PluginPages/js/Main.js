@@ -81,7 +81,7 @@ function updateLastScanBadge(utcTimestamp) {
 // Load the latest persisted statistics (no new scan) and populate tabs if available
 function loadLatestStatistics() {
     apiGetOptional('JellyfinHelper/MediaStatistics/Latest', function (data) {
-        if (data && data.Libraries) {
+        if (data?.Libraries) {
             fillScanData(data);
             updateLastScanBadge(data.ScanTimestamp);
         }

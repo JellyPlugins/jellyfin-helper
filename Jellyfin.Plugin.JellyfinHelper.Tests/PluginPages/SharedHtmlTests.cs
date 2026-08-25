@@ -81,7 +81,7 @@ public class SharedHtmlTests : ConfigPageTestBase
     public void Html_TranslationHelper_UsesHasOwnPropertyGuard()
     {
         Assert.Matches(
-            new Regex(@"function\s+T\s*\([^)]*\)\s*\{[\s\S]*?hasOwnProperty\.call"),
+            new Regex(@"function\s+T\s*\([^)]*\)\s*\{[\s\S]*?(hasOwnProperty\.call|Object\.hasOwn)"),
             HtmlContent);
     }
 
@@ -262,7 +262,7 @@ public class SharedHtmlTests : ConfigPageTestBase
     public void Html_AggregateDict_UsesHasOwnPropertyGuard()
     {
         Assert.Matches(
-            new Regex(@"function\s+aggregateDict[\s\S]*?hasOwnProperty\.call"),
+            new Regex(@"function\s+aggregateDict[\s\S]*?(hasOwnProperty\.call|Object\.hasOwn)"),
             HtmlContent);
     }
 

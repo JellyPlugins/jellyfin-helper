@@ -243,7 +243,7 @@ function loadLogs() {
             var ts = formatLogTimestamp(entry.Timestamp);
             var safeLevels = ['debug', 'info', 'warn', 'error'];
             var rawLevel = (entry.Level || 'info').toLowerCase();
-            var safeLevel = safeLevels.indexOf(rawLevel) !== -1 ? rawLevel : 'info';
+            var safeLevel = safeLevels.includes(rawLevel) ? rawLevel : 'info';
             var levelClass = 'log-level-' + safeLevel;
 
             h += '<tr>';
@@ -300,7 +300,7 @@ function downloadLogs() {
         a.download = 'jellyfin-helper-logs.txt';
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
+        a.remove();
         setTimeout(function () { URL.revokeObjectURL(objUrl); }, 100);
         if (btn) {
             btn.disabled = false;

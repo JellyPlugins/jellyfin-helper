@@ -127,7 +127,7 @@ function loadTrashHealthSection() {
             // Remove the entire previously rendered trash section
             var existingTrash = container.querySelector('#trashHealthSection');
             if (existingTrash) {
-                existingTrash.parentNode.removeChild(existingTrash);
+                existingTrash.remove();
             }
 
             var totalItems = 0;
