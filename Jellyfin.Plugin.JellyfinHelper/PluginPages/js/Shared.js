@@ -993,7 +993,7 @@ function attachTogglePanelHandlers(opts) {
             panel.classList.add('file-tree-panel-visible');
 
             // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel)
-            var forceScroll = _forceScrollOnPanelOpen !== undefined && _forceScrollOnPanelOpen;
+            var forceScroll = !!_forceScrollOnPanelOpen;
             if (forceScroll) {
                 _forceScrollOnPanelOpen = false;
             }
