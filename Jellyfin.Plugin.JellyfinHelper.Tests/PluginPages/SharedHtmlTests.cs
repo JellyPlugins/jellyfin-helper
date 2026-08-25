@@ -185,7 +185,7 @@ public class SharedHtmlTests : ConfigPageTestBase
     public void Html_GetPathSegments_NormalizesBackslashes()
     {
         Assert.Matches(
-            new Regex(@"function\s+getPathSegments[\s\S]*?replaceAll\(/\\\\/g"),
+            new Regex(@"function\s+getPathSegments[\s\S]*?replaceAll\('\\\\'"),
             HtmlContent);
     }
 

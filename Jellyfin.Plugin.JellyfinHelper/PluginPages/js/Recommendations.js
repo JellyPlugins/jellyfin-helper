@@ -274,7 +274,7 @@ function renderCompactActivityTable(container, items) {
         html += '<span class="activity-completion-text">' + pct + '%</span></div></td></tr>';
     }
     html += '</tbody></table>';
-    if (items.length > maxRows) { html += '<div class="activity-more">' + escHtml(T('recsAndMore', 'and {0} more\u2026').replaceAll(/\{0\}/g, items.length - maxRows)) + '</div>'; }
+    if (items.length > maxRows) { html += '<div class="activity-more">' + escHtml(T('recsAndMore', 'and {0} more\u2026').replaceAll('{0}', items.length - maxRows)) + '</div>'; }
     container.innerHTML = html;
 }
 
@@ -464,7 +464,7 @@ function renderDiscoveryCard(rec, index) {
     if (rec.RelatedInfo) {
         // Use function form to prevent $& / $' / $` substitution patterns in RelatedInfo
         // from being interpreted as replacement directives.
-        reasonText = reasonText.replaceAll(/\{0\}/g, function () { return rec.RelatedInfo; });
+        reasonText = reasonText.replaceAll('{0}', function () { return rec.RelatedInfo; });
     }
     if (reasonText) {
         html += '<div class="discovery-card-reason">' + escHtml(reasonText) + '</div>';

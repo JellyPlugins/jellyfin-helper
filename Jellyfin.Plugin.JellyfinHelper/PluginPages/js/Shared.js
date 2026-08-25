@@ -87,11 +87,11 @@ function formatBytes(bytes) {
 }
 
 function escAttr(s) {
-    return (s || '').replaceAll(/&/g, '&amp;').replaceAll(/"/g, '&quot;').replaceAll(/</g, '&lt;').replaceAll(/'/g, '&#39;');
+    return (s || '').replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll("'", '&#39;');
 }
 
 function escHtml(s) {
-    return String(s || '').replaceAll(/&/g, '&amp;').replaceAll(/</g, '&lt;').replaceAll(/>/g, '&gt;').replaceAll(/"/g, '&quot;').replaceAll(/'/g, '&#39;');
+    return String(s || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
 /**
@@ -109,18 +109,18 @@ function allowSafeHtml(s) {
     var escaped = escHtml(String(s || ''));
     // 2. Restore the specific tags we trust: <strong>, </strong>, <br>, <br/>, <br />.
     return escaped
-        .replaceAll(/&lt;strong&gt;/g, '<strong>')
-        .replaceAll(/&lt;\/strong&gt;/g, '</strong>')
+        .replaceAll('&lt;strong&gt;', '<strong>')
+        .replaceAll('&lt;/strong&gt;', '</strong>')
         .replaceAll(/&lt;br\s*\/?&gt;/g, '<br>');
 }
 
 function getPathSegments(fullPath, rootPaths) {
     if (!fullPath) return [];
-    var normalized = fullPath.replaceAll(/\\/g, '/');
+    var normalized = fullPath.replaceAll('\\', '/');
 
     var bestRoot = '';
     for (var i = 0; i < rootPaths.length; i++) {
-        var root = rootPaths[i].replaceAll(/\\/g, '/').replace(/\/+$/, '');
+        var root = rootPaths[i].replaceAll('\\', '/').replace(/\/+$/, '');
         var matchesRoot = normalized === root || normalized.startsWith(root + '/');
         if (matchesRoot && root.length > bestRoot.length) {
             bestRoot = root;
