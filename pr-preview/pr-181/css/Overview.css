@@ -22,6 +22,12 @@
 .stat-card:hover {
     border-color: var(--color-primary);
 }
+/* When the number of stat cards is odd (e.g. a Book library adds a 7th card),
+   the Total Files card spans the full grid width so the last row has no gap.
+   In the single-column mobile layout this is a harmless no-op. */
+.stat-card.stat-card-full {
+    grid-column: 1 / -1;
+}
 
 .stat-card h3 {
     display: flex;
