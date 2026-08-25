@@ -340,13 +340,13 @@ function attachTrendInteraction(container, pointData) {
 
     if (!pointData || pointData.length === 0) return;
 
-    var padL = parseFloat(chart.dataset.trendPadl);
-    var padT = parseFloat(chart.dataset.trendPadt);
-    var chartW = parseFloat(chart.dataset.trendChartw);
-    var chartH = parseFloat(chart.dataset.trendCharth);
-    var vbWidth = parseFloat(chart.dataset.trendWidth);
-    var vbHeight = parseFloat(chart.dataset.trendHeight);
-    var yMax = parseFloat(chart.dataset.trendYmax);
+    var padL = Number.parseFloat(chart.dataset.trendPadl);
+    var padT = Number.parseFloat(chart.dataset.trendPadt);
+    var chartW = Number.parseFloat(chart.dataset.trendChartw);
+    var chartH = Number.parseFloat(chart.dataset.trendCharth);
+    var vbWidth = Number.parseFloat(chart.dataset.trendWidth);
+    var vbHeight = Number.parseFloat(chart.dataset.trendHeight);
+    var yMax = Number.parseFloat(chart.dataset.trendYmax);
     var granularity = chart.dataset.trendGranularity;
     var count = pointData.length;
     var step = count > 1 ? chartW / (count - 1) : 0;
@@ -464,7 +464,7 @@ function attachTrendInteraction(container, pointData) {
         var sSign = deltaSize > 0 ? '+' : (deltaSize < 0 ? '' : '\u00B1');
         var pctLabel = '';
         if (deltaSize !== 0 && pctRaw !== 0) {
-            var pctDisplay = parseFloat(pctRaw.toFixed(2));
+            var pctDisplay = Number.parseFloat(pctRaw.toFixed(2));
             pctLabel = ' (' + (pctDisplay > 0 ? '+' : '') + pctDisplay + '%)';
         }
         diffSize.textContent = sSign + formatBytes(deltaSize) + pctLabel;
