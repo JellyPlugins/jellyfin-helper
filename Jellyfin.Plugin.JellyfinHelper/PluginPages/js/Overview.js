@@ -15,9 +15,9 @@ function buildBarSegments(data) {
         data.TotalNfoSize + data.TotalMusicAudioSize + data.TotalBookSize;
 
     var otherSize = 0;
-    for (var i = 0; i < data.Libraries.length; i++) {
-        otherSize += data.Libraries[i].OtherSize;
-        total += data.Libraries[i].OtherSize;
+    for (const lib of data.Libraries) {
+        otherSize += lib.OtherSize;
+        total += lib.OtherSize;
     }
 
     if (total === 0) return '';
@@ -39,18 +39,18 @@ function buildBarSegments(data) {
     }
 
     var barHtml = '<div class="total-bar">';
-    for (var s = 0; s < categories.length; s++) {
-        var pct = categories[s].bytes / total * 100;
+    for (const cat of categories) {
+        var pct = cat.bytes / total * 100;
         if (pct > 0) {
-            barHtml += '<div class="bar-segment ' + categories[s].cls + '" style="width:' + pct.toFixed(2) + '%" title="' + escAttr(T(categories[s].labelKey, categories[s].labelFallback)) + '"></div>';
+            barHtml += '<div class="bar-segment ' + cat.cls + '" style="width:' + pct.toFixed(2) + '%" title="' + escAttr(T(cat.labelKey, cat.labelFallback)) + '"></div>';
         }
     }
     barHtml += '</div>';
 
     barHtml += '<div class="legend">';
-    for (var l = 0; l < categories.length; l++) {
-        var label = T(categories[l].labelKey, categories[l].labelFallback) + ' (' + formatBytes(categories[l].bytes) + ')';
-        barHtml += '<div class="legend-item"><div class="legend-dot ' + categories[l].cls + '"></div>' + label + '</div>';
+    for (const cat of categories) {
+        var label = T(cat.labelKey, cat.labelFallback) + ' (' + formatBytes(cat.bytes) + ')';
+        barHtml += '<div class="legend-item"><div class="legend-dot ' + cat.cls + '"></div>' + label + '</div>';
     }
     barHtml += '</div>';
 
@@ -96,14 +96,14 @@ function fillOverviewData(data) {
     overviewHtml += '<div class="stat-card"><h3>' + mi('movie') + escHtml(T('movieVideoData', 'Video Data - Movies')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMovieVideoSize) + '</p>';
     var movieFiles = 0;
-    for (var m = 0; m < movies.length; m++) movieFiles += movies[m].VideoFileCount;
+    for (const movie of movies) movieFiles += movie.VideoFileCount;
     overviewHtml += '<p class="stat-detail">' + movieFiles + ' ' + (movieFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + ' ' + escHtml(T('across', 'across')) + ' ' + movies.length + ' ' + escHtml(T('libraries', 'libraries')) + '</p>';
     overviewHtml += '</div>';
 
     overviewHtml += '<div class="stat-card"><h3>' + mi('tv') + escHtml(T('tvVideoData', 'Video Data - TV Shows')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTvShowVideoSize) + '</p>';
     var tvFiles = 0;
-    for (var t = 0; t < tvShows.length; t++) tvFiles += tvShows[t].VideoFileCount;
+    for (const show of tvShows) tvFiles += show.VideoFileCount;
     overviewHtml += '<p class="stat-detail">' + tvFiles + ' ' + (tvFiles === 1 ? escHtml(T('episode', 'episode')) : escHtml(T('episodes', 'episodes'))) + ' ' + escHtml(T('across', 'across')) + ' ' + tvShows.length + ' ' + escHtml(T('libraries', 'libraries')) + '</p>';
     overviewHtml += '</div>';
 
@@ -124,14 +124,14 @@ function fillOverviewData(data) {
     overviewHtml += '<div class="stat-card"><h3>' + mi('image') + escHtml(T('trickplayData', 'Trickplay Data')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTrickplaySize) + '</p>';
     var trickplayFolders = 0;
-    for (var tp = 0; tp < libraries.length; tp++) trickplayFolders += libraries[tp].TrickplayFolderCount;
+    for (const lib of libraries) trickplayFolders += lib.TrickplayFolderCount;
     overviewHtml += '<p class="stat-detail">' + trickplayFolders + ' ' + (trickplayFolders === 1 ? escHtml(T('folder', 'folder')) : escHtml(T('folders', 'folders'))) + '</p>';
     overviewHtml += '</div>';
 
     overviewHtml += '<div class="stat-card"><h3>' + mi('edit_note') + escHtml(T('subtitleData', 'Subtitles')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalSubtitleSize) + '</p>';
     var subFiles = 0;
-    for (var sb = 0; sb < libraries.length; sb++) subFiles += libraries[sb].SubtitleFileCount;
+    for (const lib of libraries) subFiles += lib.SubtitleFileCount;
     overviewHtml += '<p class="stat-detail">' + subFiles + ' ' + (subFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
     overviewHtml += '</div>';
 
@@ -148,7 +148,7 @@ function fillOverviewData(data) {
     overviewHtml += '</div>';
 
     var grandTotal = 0;
-    for (var gt = 0; gt < libraries.length; gt++) grandTotal += libraries[gt].TotalSize;
+    for (const lib of libraries) grandTotal += lib.TotalSize;
     overviewHtml += '<div class="section-title">' + mi('storage') + escHtml(T('storageDistribution', 'Storage Distribution')) + ' - <span class="color-primary">' + formatBytes(grandTotal) + ' ' + escHtml(T('total', 'Total')) + '</span></div>';
     overviewHtml += buildBarSegments(data);
 
@@ -158,8 +158,7 @@ function fillOverviewData(data) {
     overviewHtml += '<th>' + escHtml(T('library', 'Library')) + '</th><th>' + escHtml(T('type', 'Type')) + '</th><th>' + escHtml(T('video', 'Video')) + '</th><th>' + escHtml(T('audio', 'Audio')) + '</th><th>' + escHtml(T('subtitles', 'Subtitles')) + '</th><th>' + escHtml(T('images', 'Images')) + '</th><th>' + escHtml(T('trickplay', 'Trickplay')) + '</th><th>' + escHtml(T('total', 'Total')) + '</th>';
     overviewHtml += '</tr></thead><tbody>';
 
-    for (var i = 0; i < libraries.length; i++) {
-        var lib = libraries[i];
+    for (const lib of libraries) {
         overviewHtml += '<tr>';
         overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
         overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';

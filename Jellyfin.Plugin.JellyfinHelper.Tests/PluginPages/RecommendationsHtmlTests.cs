@@ -371,7 +371,7 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     public void Html_GetTopGenres_UsesHasOwnPropertyGuard()
     {
         Assert.Matches(
-            new Regex(@"function\s+getTopGenresFromDistribution[\s\S]*?hasOwnProperty\.call"),
+            new Regex(@"function\s+getTopGenresFromDistribution[\s\S]*?(hasOwnProperty\.call|Object\.hasOwn)"),
             HtmlContent);
     }
 

@@ -164,8 +164,8 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
     public void Html_FolderBrowser_ChoosesPathSeparatorFromCurrentPath()
     {
         // Windows vs. Unix separator inferred from existing path
-        Assert.Matches(new Regex(@"selectedPath\.indexOf\(\s*['""]/['""]"), HtmlContent);
-        Assert.Matches(new Regex(@"selectedPath\.indexOf\(\s*['""]\\\\['""]"), HtmlContent);
+        Assert.Matches(new Regex(@"selectedPath\.(indexOf|includes)\(\s*['""]/['""]"), HtmlContent);
+        Assert.Matches(new Regex(@"selectedPath\.(indexOf|includes)\(\s*['""]\\\\['""]"), HtmlContent);
     }
 
     [Fact]

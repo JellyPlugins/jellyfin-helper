@@ -188,13 +188,13 @@
      */
     function getUserFriendlyErrorMessage(serverMessage) {
         var msg = (serverMessage || '').toLowerCase();
-        if (msg.indexOf('http 403') !== -1 || msg.indexOf('not linked') !== -1 || msg.indexOf('no permission') !== -1) {
+        if (msg.includes('http 403') || msg.includes('not linked') || msg.includes('no permission')) {
             return t('discoveryErrNoPermission', 'No permission. Contact your admin.');
         }
-        if (msg.indexOf('http 5') !== -1 || msg.indexOf('unreachable') !== -1) {
+        if (msg.includes('http 5') || msg.includes('unreachable')) {
             return t('discoveryErrServerUnavailable', 'Server unreachable. Try again later.');
         }
-        if (msg.indexOf('timed out') !== -1 || msg.indexOf('timeout') !== -1) {
+        if (msg.includes('timed out') || msg.includes('timeout')) {
             return t('discoveryErrTimeout', 'Timed out. Try again later.');
         }
         return t('discoveryErrGeneric', 'Request failed. Try again later.');
@@ -382,7 +382,7 @@
             var year = r.Year ? '<span class="jfh-discovery-tag">' + esc(String(r.Year)) + '</span>' : '';
             var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(mediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV')) + '</span>' : '';
             var ratingNum = Number(r.TmdbRating);
-            var rating = (!isNaN(ratingNum) && ratingNum > 0) ? '<span class="jfh-discovery-tag">\u2B50 ' + ratingNum.toFixed(1) + '</span>' : '';
+            var rating = (!Number.isNaN(ratingNum) && ratingNum > 0) ? '<span class="jfh-discovery-tag">\u2B50 ' + ratingNum.toFixed(1) + '</span>' : '';
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
             var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
             var scoreClass = scorePercent >= 80 ? 'jfh-discovery-score-high' : scorePercent >= 50 ? 'jfh-discovery-score-mid' : 'jfh-discovery-score-low';
@@ -843,7 +843,7 @@
             return relatedInfo ? val.replace('{0}', relatedInfo) : val;
         }
         // Fallback: if reason looks like a raw key (starts with "reason"), hide it
-        if (reason && reason.indexOf('reason') === 0) {
+        if (reason && reason.startsWith('reason')) {
             var parts = reason.split(': ');
             if (parts.length === 2) {
                 return formatReason(parts[0], null, parts[1]);
@@ -883,7 +883,7 @@
             section.innerHTML = '<h3 class="sidebarHeader">Jellyfin Helper</h3>';
             var mediaSection = sidebar.querySelector('.libraryMenuOptions');
             if (mediaSection) {
-                sidebar.insertBefore(section, mediaSection);
+                mediaSection.before(section);
             } else {
                 sidebar.appendChild(section);
             }
@@ -905,7 +905,7 @@
                 var tabContent = container.closest('[data-index]');
                 if (tabContent) {
                     var index = Number.parseInt(tabContent.dataset.index, 10);
-                    if (!isNaN(index) && tabs[index]) {
+                    if (!Number.isNaN(index) && tabs[index]) {
                         tabs[index].click();
                         return;
                     }
@@ -930,7 +930,7 @@
                         if (retryTabContent) {
                             var retryIndex = Number.parseInt(retryTabContent.dataset.index, 10);
                             var retryTabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
-                            if (!isNaN(retryIndex) && retryTabs[retryIndex]) {
+                            if (!Number.isNaN(retryIndex) && retryTabs[retryIndex]) {
                                 retryTabs[retryIndex].click();
                             }
                         }

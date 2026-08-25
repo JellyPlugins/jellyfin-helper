@@ -23,11 +23,11 @@ function collectHealthPaths(data, prop) {
 function renderHealthChecks(data) {
     _lastScanResult = data;
     var totalNoSubs = 0, totalNoImages = 0, totalNoNfo = 0, totalOrphaned = 0;
-    for (var i = 0; i < data.Libraries.length; i++) {
-        totalNoSubs += data.Libraries[i].VideosWithoutSubtitles || 0;
-        totalNoImages += data.Libraries[i].VideosWithoutImages || 0;
-        totalNoNfo += data.Libraries[i].VideosWithoutNfo || 0;
-        totalOrphaned += data.Libraries[i].OrphanedMetadataDirectories || 0;
+    for (const lib of data.Libraries) {
+        totalNoSubs += lib.VideosWithoutSubtitles || 0;
+        totalNoImages += lib.VideosWithoutImages || 0;
+        totalNoNfo += lib.VideosWithoutNfo || 0;
+        totalOrphaned += lib.OrphanedMetadataDirectories || 0;
     }
 
     var html = '<div class="health-grid">';
@@ -127,16 +127,15 @@ function loadTrashHealthSection() {
             // Remove the entire previously rendered trash section
             var existingTrash = container.querySelector('#trashHealthSection');
             if (existingTrash) {
-                existingTrash.parentNode.removeChild(existingTrash);
+                existingTrash.remove();
             }
 
             var totalItems = 0;
             var totalSize = 0;
-            for (var i = 0; i < data.Libraries.length; i++) {
-                var lib = data.Libraries[i];
+            for (const lib of data.Libraries) {
                 totalItems += lib.Items.length;
-                for (var j = 0; j < lib.Items.length; j++) {
-                    totalSize += lib.Items[j].Size || 0;
+                for (const trashItem of lib.Items) {
+                    totalSize += trashItem.Size || 0;
                 }
             }
 
@@ -162,8 +161,7 @@ function loadTrashHealthSection() {
 
             if (data.Libraries.length > 0) {
                 html += '<div id="trashDetailContainer">';
-                for (var li = 0; li < data.Libraries.length; li++) {
-                    var trashLib = data.Libraries[li];
+                for (const trashLib of data.Libraries) {
                     html += '<div class="trash-library-block">';
                     html += '<h4 class="trash-library-heading">' + mi('folder') + escHtml(
                             trashLib.LibraryName)
@@ -171,8 +169,7 @@ function loadTrashHealthSection() {
                         + trashLib.Items.length + ' ' + escHtml(T('items', 'items'))
                         + ')</span></h4>';
                     html += '<div class="health-detail-list"><ul>';
-                    for (var ti = 0; ti < trashLib.Items.length; ti++) {
-                        var item = trashLib.Items[ti];
+                    for (const item of trashLib.Items) {
                         var purgeInfo = item.PurgeDate ? ' - ' + escHtml(T('purgesOn', 'purges'))
                             + ' ' + new Date(item.PurgeDate).toLocaleDateString() : '';
                         html += '<li>' + escHtml(item.OriginalName || item.Name)

@@ -79,7 +79,7 @@ function interpolateDataPoints(dataPoints, granularity) {
  * Advances a date by one bucket interval based on the granularity.
  */
 function advanceBucketDate(date, granularity) {
-    var d = new Date(date.getTime());
+    var d = new Date(date);
     switch (granularity) {
         case 'daily':
             d.setUTCDate(d.getUTCDate() + 1);
@@ -113,7 +113,7 @@ function renderTrendChart(timeline) {
     var validGranularities = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly'];
     var rawGranularity = timeline.granularity || 'monthly';
     var granularity = String(rawGranularity).toLowerCase();
-    if (validGranularities.indexOf(granularity) === -1) {
+    if (!validGranularities.includes(granularity)) {
         console.warn('[JellyfinHelper] Unknown granularity "' + rawGranularity + '", falling back to "monthly".');
         granularity = 'monthly';
     }
@@ -192,7 +192,7 @@ function renderTrendChart(timeline) {
         yTicks.push(Math.round(t));
     }
     // Ensure yMax is included
-    if (yTicks[yTicks.length - 1] < Math.round(yMax)) {
+    if (yTicks.at(-1) < Math.round(yMax)) {
         yTicks.push(Math.round(yMax));
     }
 
@@ -268,7 +268,7 @@ function renderTrendChart(timeline) {
     var meta = '<div class="trend-meta" style="text-align:center;color:rgba(255,255,255,0.35);font-size:11px;margin-top:4px;">';
     meta += escHtml(T('trendGranularity', 'Granularity')) + ': ' + escHtml(granularity);
     var safeFileCount = Number(timeline.totalDirectoriesScanned);
-    if (!isFinite(safeFileCount) || safeFileCount < 0) safeFileCount = 0;
+    if (!Number.isFinite(safeFileCount) || safeFileCount < 0) safeFileCount = 0;
     meta += ' &middot; ' + safeFileCount + ' ' + escHtml(T('trendFiles', 'media files'));
     if (timeline.earliestFileDate) {
         meta += ' &middot; ' + escHtml(T('trendEarliest', 'Earliest')) + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString(undefined, {timeZone: 'UTC'});
@@ -635,7 +635,7 @@ function buildLargestTree(data) {
         var libSize = 0;
         for (var s = 0; s < items.length; s++) {
             var _sz = Number(items[s].Size);
-            if (isFinite(_sz) && _sz > 0) libSize += _sz;
+            if (Number.isFinite(_sz) && _sz > 0) libSize += _sz;
         }
 
         html += '<div class="insight-tree-lib">';
@@ -650,7 +650,7 @@ function buildLargestTree(data) {
             html += '<span class="insight-tree-badge">' + badge + '</span>';
             html += '<span class="insight-tree-name">' + escHtml(e.Name) + '</span>';
             var _itemSize = Number(e.Size);
-            var safeSize = (isFinite(_itemSize) && _itemSize > 0) ? _itemSize : 0;
+            var safeSize = (Number.isFinite(_itemSize) && _itemSize > 0) ? _itemSize : 0;
             html += '<span class="insight-tree-size">' + formatBytes(safeSize) + '</span>';
         }
 
@@ -682,7 +682,7 @@ function buildRecentTree(data) {
         var libSize = 0;
         for (var s = 0; s < items.length; s++) {
             var _sz = Number(items[s].Size);
-            if (isFinite(_sz) && _sz > 0) libSize += _sz;
+            if (Number.isFinite(_sz) && _sz > 0) libSize += _sz;
         }
 
         html += '<div class="insight-tree-lib">';
@@ -703,7 +703,7 @@ function buildRecentTree(data) {
             html += changeBadge;
             html += '<span class="insight-tree-name">' + escHtml(e.Name) + '</span>';
             var _itemSize2 = Number(e.Size);
-            var safeSize = (isFinite(_itemSize2) && _itemSize2 > 0) ? _itemSize2 : 0;
+            var safeSize = (Number.isFinite(_itemSize2) && _itemSize2 > 0) ? _itemSize2 : 0;
             html += '<span class="insight-tree-meta">' + formatBytes(safeSize) + ' · ' + dateStr + '</span>';
         }
 

@@ -146,7 +146,7 @@ function addArrInstance(type) {
 function removeArrInstance(type, index) {
     // Clear all pending test timers for this type to prevent stale callbacks after reindexing
     for (var key in _testTimers) {
-        if (key.indexOf(type + '_') === 0 && _testTimers[key]) {
+        if (key.startsWith(type + '_') && _testTimers[key]) {
             clearTimeout(_testTimers[key]);
             delete _testTimers[key];
         }
@@ -542,7 +542,7 @@ function _wireArrCompareControls(type, instances) {
             if (Number.isNaN(idx) || idx < 0) {
                 idx = 0;
             }
-            var opt = idxSel && idxSel.options[idxSel.selectedIndex];
+            var opt = idxSel?.options[idxSel.selectedIndex];
             var label = opt ? opt.textContent : type;
             compareArr(type, idx, label);
         };
@@ -579,7 +579,7 @@ function compareArr(type, index, label) {
         return;
     }
     var allowedTypes = ['Radarr', 'Sonarr'];
-    if (allowedTypes.indexOf(type) === -1) {
+    if (!allowedTypes.includes(type)) {
         resultDiv.innerHTML = '<div class="error-msg">' + mi('error') + ' '
             + escHtml(T('arrInvalidType', 'Invalid Arr type.')) + '</div>';
         return;
