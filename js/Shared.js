@@ -356,7 +356,7 @@ function showAutoSaveIndicatorOverlay(element, success) {
     var iconHtml = mi(ok ? 'check_circle' : 'error');
 
     // Library multi-select toggle: replace chevron span content
-    var chevronSpan = element.querySelector && element.querySelector('.library-multiselect-chevron');
+    var chevronSpan = element.querySelector?.('.library-multiselect-chevron');
     if (chevronSpan) {
         var chevronGuard = (Number.parseInt(chevronSpan.dataset.saveGuard || '0', 10)) + 1;
         chevronSpan.dataset.saveGuard = String(chevronGuard);
@@ -851,7 +851,7 @@ function collectDictPaths(libraries, prop, key) {
     if (libraries) {
         for (var i = 0; i < libraries.length; i++) {
             var dict = libraries[i][prop];
-            if (dict && dict[key]) {
+            if (dict?.[key]) {
                 for (var j = 0; j < dict[key].length; j++) {
                     paths.push(dict[key][j]);
                 }
@@ -993,7 +993,7 @@ function attachTogglePanelHandlers(opts) {
             panel.classList.add('file-tree-panel-visible');
 
             // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel)
-            var forceScroll = typeof _forceScrollOnPanelOpen !== 'undefined' && _forceScrollOnPanelOpen;
+            var forceScroll = !!_forceScrollOnPanelOpen;
             if (forceScroll) {
                 _forceScrollOnPanelOpen = false;
             }

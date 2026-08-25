@@ -3,8 +3,8 @@
 
 function initTabs() {
     var tabBtns = document.querySelectorAll('.tab-btn');
-    for (var i = 0; i < tabBtns.length; i++) {
-        tabBtns[i].addEventListener('click', function () {
+    for (const tabBtn of tabBtns) {
+        tabBtn.addEventListener('click', function () {
             var clickedBtn = this;
             var tabId = clickedBtn.dataset.tab;
 
@@ -36,12 +36,12 @@ function doTabSwitch(clickedBtn, tabId) {
     // Deactivate all
     var allBtns = document.querySelectorAll('.tab-btn');
     var allContent = document.querySelectorAll('.tab-content');
-    for (var j = 0; j < allBtns.length; j++) {
-        allBtns[j].classList.remove(
+    for (const btn of allBtns) {
+        btn.classList.remove(
             'active');
     }
-    for (var k = 0; k < allContent.length; k++) {
-        allContent[k].classList.remove(
+    for (const content of allContent) {
+        content.classList.remove(
             'active');
     }
 
@@ -81,7 +81,7 @@ function updateLastScanBadge(utcTimestamp) {
 // Load the latest persisted statistics (no new scan) and populate tabs if available
 function loadLatestStatistics() {
     apiGetOptional('JellyfinHelper/MediaStatistics/Latest', function (data) {
-        if (data && data.Libraries) {
+        if (data?.Libraries) {
             fillScanData(data);
             updateLastScanBadge(data.ScanTimestamp);
         }

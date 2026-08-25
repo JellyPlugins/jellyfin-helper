@@ -152,7 +152,7 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
     var entries = [];
     var total = 0;
     for (var key in data) {
-        if (Object.prototype.hasOwnProperty.call(data, key) && data[key] > 0) {
+        if (Object.hasOwn(data, key) && data[key] > 0) {
             entries.push({label: key, value: data[key]});
             total += data[key];
         }
@@ -190,7 +190,7 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
             for (var l = 0; l < libraries.length; l++) {
                 var lib = libraries[l];
                 var libPropertyValue = lib[libraryProperty];
-                var libCount = libPropertyValue && libPropertyValue[entries[i].label]
+                var libCount = libPropertyValue?.[entries[i].label]
                     ? libPropertyValue[entries[i].label]
                     : 0;
                 if (libCount > 0) {
@@ -234,8 +234,8 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
     var entries = [];
     var total = 0;
     for (var key in countDict) {
-        if (Object.prototype.hasOwnProperty.call(countDict, key) && countDict[key] > 0) {
-            var size = (sizeDict && sizeDict[key]) ? sizeDict[key] : 0;
+        if (Object.hasOwn(countDict, key) && countDict[key] > 0) {
+            var size = (sizeDict?.[key]) ? sizeDict[key] : 0;
             entries.push({label: key, count: countDict[key], size: size});
             total += countDict[key];
         }
@@ -416,7 +416,7 @@ function attachDonutHoverTooltips() {
                         }
                         seg.classList.add('donut-segment-hover');
                         // Create a synthetic position from touch coordinates
-                        var touch = evt.changedTouches && evt.changedTouches[0];
+                        var touch = evt.changedTouches?.[0];
                         var syntheticEvt = touch
                             ? {clientX: touch.clientX, clientY: touch.clientY}
                             : evt;

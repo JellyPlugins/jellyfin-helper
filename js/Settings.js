@@ -858,7 +858,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
                 || (typeof err.responseText === 'string' && err.responseText.length > 0
                     ? JSON.parse(err.responseText)
                     : null));
-            if (errData && errData.message) errorMsg = String(errData.message);
+            if (errData?.message) errorMsg = String(errData.message);
         } catch (_e) { /* body was not JSON (e.g. HTML from a proxy) - fall through */ }
 
         // Emit a rich console log so users copy/pasting into a GitHub issue give us
@@ -1103,7 +1103,7 @@ function triggerBackupExport() {
     }, function (err) {
         var errorText = escHtml(T('backupExportError', 'Failed to export backup.'));
         var response = err && (err.responseJSON || err);
-        if (response && response.message) {
+        if (response?.message) {
             errorText = escHtml(response.message);
         }
 
@@ -1237,10 +1237,10 @@ function doBackupImport(file) {
             var errorText = escHtml(T('backupImportError', 'Failed to import backup.'));
             try {
                 var response = err && (err.responseJSON || (typeof err.responseText === 'string' ? JSON.parse(err.responseText) : null));
-                if (response && response.message) {
+                if (response?.message) {
                     errorText = escHtml(response.message);
                 }
-            } catch (ignored) { /* use default error text */
+            } catch (error_) { /* use default error text */
             }
             msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + errorText + '</div>';
         });
@@ -1818,7 +1818,7 @@ function attachTrashDaysInputHandler() {
 var SENSITIVE_SYSTEM_ROOTS = [
     '/config', '/cache', '/data', '/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64',
     '/boot', '/proc', '/sys', '/dev', '/var', '/root', '/run',
-    'C:\\Windows', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\ProgramData'
+    String.raw`C:\Windows`, String.raw`C:\Program Files`, String.raw`C:\Program Files (x86)`, String.raw`C:\ProgramData`
 ];
 
 function isSensitiveSystemPath(path) {
@@ -2022,8 +2022,8 @@ function showTrashPathChangeDialog(payload, options) {
                         _trashPathChangeHandled = false;
                         _previousTrashPath = newPath;
                         apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
-                            var moved = result && result.Moved || 0;
-                            var failed = result && result.Failed || 0;
+                            var moved = result?.Moved || 0;
+                            var failed = result?.Failed || 0;
                             if (failed === 0 && moved > 0) {
                                 if (msg) {
                                     msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('trashPathMoveSuccess', 'Trash content moved successfully.')) + '</div>';
