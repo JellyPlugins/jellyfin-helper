@@ -238,8 +238,7 @@ function loadLogs() {
         h += '<th class="col-message">' + escHtml(T('logsMessage', 'Message')) + '</th>';
         h += '</tr></thead><tbody>';
 
-        for (var i = 0; i < entries.length; i++) {
-            var entry = entries[i];
+        for (const entry of entries) {
             var ts = formatLogTimestamp(entry.Timestamp);
             var safeLevels = ['debug', 'info', 'warn', 'error'];
             var rawLevel = (entry.Level || 'info').toLowerCase();
