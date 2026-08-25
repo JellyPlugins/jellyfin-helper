@@ -391,6 +391,37 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var client = GetSeerrClient();
+        return await SendSubmitRequestAsync(client, baseUri, apiKey, tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Serializes and POSTs the Seerr request payload, then maps the HTTP outcome to a result.
+    ///     Extracted verbatim from <see cref="SubmitRequestAsync"/>; payload construction, request
+    ///     building, success/failure branching, and the catch filters are unchanged.
+    /// </summary>
+    /// <param name="client">The Seerr HTTP client.</param>
+    /// <param name="baseUri">The validated Seerr base URI.</param>
+    /// <param name="apiKey">The validated Seerr API key.</param>
+    /// <param name="tmdbId">The TMDb ID being requested.</param>
+    /// <param name="mediaType">The normalized media type ('movie' or 'tv').</param>
+    /// <param name="seerrUserId">Optional Seerr user id to request as.</param>
+    /// <param name="serverId">Optional target server id.</param>
+    /// <param name="profileId">Optional quality profile id.</param>
+    /// <param name="rootFolder">Optional root folder path.</param>
+    /// <param name="cancellationToken">Cooperative cancellation token.</param>
+    /// <returns>A success flag and a client-safe message.</returns>
+    private async Task<(bool Success, string Message)> SendSubmitRequestAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        int tmdbId,
+        string mediaType,
+        int? seerrUserId,
+        int? serverId,
+        int? profileId,
+        string? rootFolder,
+        CancellationToken cancellationToken)
+    {
         try
         {
             var payloadDict = BuildRequestPayload(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
@@ -581,55 +612,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var client = GetSeerrClient();
         try
         {
-            var allUsers = new List<SeerrUser>();
-            var skip = 0;
-            const int take = 50;
-            const int maxPages = 20; // Safety limit to prevent infinite loops
-            var fetchComplete = true;
-
-            for (var page = 0; page < maxPages; page++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var (ok, pageResult) = await FetchUserPageAsync(
-                    client, baseUri, apiKey, take, skip, allUsers.Count, cancellationToken).ConfigureAwait(false);
-
-                if (!ok)
-                {
-                    fetchComplete = false;
-                    break;
-                }
-
-                if (pageResult?.Results == null || pageResult.Results.Count == 0)
-                {
-                    break;
-                }
-
-                allUsers.AddRange(pageResult.Results);
-
-                // Stop if we've fetched all pages or no more results
-                var totalPages = pageResult.PageInfo?.Pages ?? 1;
-                var currentPage = (skip / take) + 1;
-                if (currentPage >= totalPages || pageResult.Results.Count < take)
-                {
-                    break;
-                }
-
-                skip += take;
-
-                // Safety: if this is the last allowed iteration, mark as incomplete
-                if (page == maxPages - 1)
-                {
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"User list pagination hit the {maxPages}-page safety cap ({allUsers.Count} users fetched). Returning partial result.",
-                        null,
-                        _logger);
-                    fetchComplete = false;
-                }
-            }
-
-            return (allUsers, fetchComplete);
+            return await FetchAllUserPagesAsync(client, baseUri, apiKey, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -644,6 +627,73 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
             return ([], false);
         }
+    }
+
+    /// <summary>
+    ///     Fetches every page of the Seerr user roster up to the safety cap. Extracted verbatim from
+    ///     <see cref="FetchSeerrUsersInternalAsync"/>; the pagination bounds, break conditions, and
+    ///     completeness flagging are unchanged.
+    /// </summary>
+    /// <param name="client">The Seerr HTTP client.</param>
+    /// <param name="baseUri">The validated Seerr base URI.</param>
+    /// <param name="apiKey">The validated Seerr API key.</param>
+    /// <param name="cancellationToken">Cooperative cancellation token.</param>
+    /// <returns>The accumulated users and whether all pages were fetched.</returns>
+    private async Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> FetchAllUserPagesAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        CancellationToken cancellationToken)
+    {
+        var allUsers = new List<SeerrUser>();
+        var skip = 0;
+        const int take = 50;
+        const int maxPages = 20; // Safety limit to prevent infinite loops
+        var fetchComplete = true;
+
+        for (var page = 0; page < maxPages; page++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var (ok, pageResult) = await FetchUserPageAsync(
+                client, baseUri, apiKey, take, skip, allUsers.Count, cancellationToken).ConfigureAwait(false);
+
+            if (!ok)
+            {
+                fetchComplete = false;
+                break;
+            }
+
+            if (pageResult?.Results == null || pageResult.Results.Count == 0)
+            {
+                break;
+            }
+
+            allUsers.AddRange(pageResult.Results);
+
+            // Stop if we've fetched all pages or no more results
+            var totalPages = pageResult.PageInfo?.Pages ?? 1;
+            var currentPage = (skip / take) + 1;
+            if (currentPage >= totalPages || pageResult.Results.Count < take)
+            {
+                break;
+            }
+
+            skip += take;
+
+            // Safety: if this is the last allowed iteration, mark as incomplete
+            if (page == maxPages - 1)
+            {
+                _pluginLog.LogWarning(
+                    LogCategory,
+                    $"User list pagination hit the {maxPages}-page safety cap ({allUsers.Count} users fetched). Returning partial result.",
+                    null,
+                    _logger);
+                fetchComplete = false;
+            }
+        }
+
+        return (allUsers, fetchComplete);
     }
 
     /// <summary>
@@ -1637,6 +1687,28 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var excluded = new HashSet<(int TmdbId, string MediaType)>();
 
         // Exclude movies already in Radarr
+        await AddRadarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);
+
+        // Exclude TV series already in Sonarr (Sonarr v4+ provides tmdbId; v3 entries are skipped via TmdbId > 0 guard)
+        await AddSonarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);
+
+        return excluded;
+    }
+
+    /// <summary>
+    ///     Adds TMDb IDs of movies already present in the configured Radarr instances to the exclusion
+    ///     set. Extracted verbatim from <see cref="BuildExclusionSetAsync"/>; per-instance iteration,
+    ///     the <c>TmdbId &gt; 0</c> guard, and the catch filters are unchanged.
+    /// </summary>
+    /// <param name="config">The plugin configuration providing Radarr instances.</param>
+    /// <param name="excluded">The exclusion set to add movie entries into.</param>
+    /// <param name="cancellationToken">Cooperative cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private async Task AddRadarrExclusionsAsync(
+        PluginConfiguration config,
+        HashSet<(int TmdbId, string MediaType)> excluded,
+        CancellationToken cancellationToken)
+    {
         foreach (var instance in config.GetEffectiveRadarrInstances())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1665,8 +1737,22 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     _logger);
             }
         }
+    }
 
-        // Exclude TV series already in Sonarr (Sonarr v4+ provides tmdbId; v3 entries are skipped via TmdbId > 0 guard)
+    /// <summary>
+    ///     Adds TMDb IDs of series already present in the configured Sonarr instances to the exclusion
+    ///     set. Extracted verbatim from <see cref="BuildExclusionSetAsync"/>; per-instance iteration,
+    ///     the <c>TmdbId &gt; 0</c> guard, and the catch filters are unchanged.
+    /// </summary>
+    /// <param name="config">The plugin configuration providing Sonarr instances.</param>
+    /// <param name="excluded">The exclusion set to add series entries into.</param>
+    /// <param name="cancellationToken">Cooperative cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private async Task AddSonarrExclusionsAsync(
+        PluginConfiguration config,
+        HashSet<(int TmdbId, string MediaType)> excluded,
+        CancellationToken cancellationToken)
+    {
         foreach (var instance in config.GetEffectiveSonarrInstances())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1695,8 +1781,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     _logger);
             }
         }
-
-        return excluded;
     }
 
     /// <summary>

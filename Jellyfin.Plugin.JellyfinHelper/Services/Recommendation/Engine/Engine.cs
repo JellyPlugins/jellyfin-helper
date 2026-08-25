@@ -811,22 +811,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         // Build a lookup of watched episodes grouped by series ID for series-level aggregation
-        var seriesEpisodeLookup = new Dictionary<Guid, List<WatchedItemInfo>>();
-        foreach (var w in userProfile.WatchedItems)
-        {
-            if (!w.SeriesId.HasValue)
-            {
-                continue;
-            }
-
-            if (!seriesEpisodeLookup.TryGetValue(w.SeriesId.Value, out var list))
-            {
-                list = [];
-                seriesEpisodeLookup[w.SeriesId.Value] = list;
-            }
-
-            list.Add(w);
-        }
+        var seriesEpisodeLookup = BuildSeriesEpisodeLookup(userProfile);
 
         // Exclude played, favorited, AND started items - the user already knows them. Started items
         // (PlayCount > 0 or PlaybackPositionTicks > 0) appear in Jellyfin's "Continue Watching" and
@@ -870,14 +855,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // NaN-safe collaborative-score ceiling. LINQ Max() propagates NaN (IEEE 754) if any entry is
         // non-finite, which would poison all ComputeCollaborativeScore calls; skipping non-finite
         // values prevents a degenerate Jaccard edge case from collapsing the collaborative signal.
-        var collaborativeMax = 0.0;
-        foreach (var v in coOccurrence.Values.Where(double.IsFinite))
-        {
-            if (v > collaborativeMax)
-            {
-                collaborativeMax = v;
-            }
-        }
+        var collaborativeMax = ComputeCollaborativeMax(coOccurrence);
 
         var averageYear = ContentScoring.ComputeAverageYear(userProfile);
         var preferredStudios = PreferenceBuilder.BuildStudioPreferenceSet(userProfile, candidateLookup);
@@ -915,11 +893,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // 0.0 rather than crash.
         var genreStudioIdf = _genreStudioIdf;
 
-        var userGenreNormSq = 0.0;
-        foreach (var w in genrePreferences.Values)
-        {
-            userGenreNormSq += w * w;
-        }
+        var userGenreNormSq = ComputeUserGenreNormSq(genrePreferences);
 
         // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost at
         // inference. Maps BoxSet ID -> count of watched items in that BoxSet, using the pre-resolved
@@ -994,51 +968,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         scored = DiversityReranker.DeduplicateSeries(scored);
 
         var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
-            .Select(s =>
-            {
-                // Resolve the candidate's content-affinity source data ONCE from the per-snapshot
-                // precompute (fallback to a live resolve only for a just-added candidate), then reuse
-                // it for all seven cached DTO fields below - no per-field GetPeople/GetInheritedTags.
-                var content = contentAffinityLookup.TryGetValue(s.Item.Id, out var cachedContent)
-                    ? cachedContent
-                    : ResolveContentAffinity(s.Item);
-                return new RecommendedItem
-                {
-                    ItemId = s.Item.Id,
-                    Name = s.Item.Name ?? string.Empty,
-                    ItemType = s.Item.GetType().Name,
-                    Score = Math.Round(s.Score, 4),
-                    Reason = s.Reason,
-                    ReasonKey = s.ReasonKey,
-                    RelatedItemName = s.RelatedItem,
-                    Genres = s.Item.Genres ?? [],
-                    Year = s.Item.ProductionYear,
-                    CommunityRating = s.Item.CommunityRating,
-                    CriticRating = s.Item.CriticRating,
-                    OfficialRating = s.Item.OfficialRating,
-                    PremiereDate = s.Item.PremiereDate,
-                    PrimaryImageTag = s.Item.HasImage(ImageType.Primary) ? s.Item.Id.ToString("N") : null,
-                    PeopleNames = peopleLookup.TryGetValue(s.Item.Id, out var people) ? [.. people] : [],
-                    Studios = s.Item.Studios ?? [],
-                    Tags = s.Item.Tags ?? [],
-                    AudioLanguages = ResolveAudioLanguages(s.Item),
-                    SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
-                    BoxSetIds = candidateBoxSetLookup.TryGetValue(s.Item.Id, out var bsIds) ? bsIds : [],
-                    DateCreated = s.Item.DateCreated,
-                    // Content-affinity fields for the top-N result DTO come from the per-snapshot precompute
-                    // (resolved once into `content` above) rather than a fresh GetInheritedTags()/GetPeople
-                    // per top-N item per user.
-                    TmdbCollectionName = content.TmdbCollectionName,
-                    ProductionCountries = content.ProductionCountries,
-                    InheritedTags = content.InheritedTags,
-                    SeriesStatus = content.SeriesStatus,
-                    EndDate = content.SeriesEndDate,
-                    WriterNames = content.Writers,
-                    PeopleWeights = AlignBillingToNames(
-                        content.Billing,
-                        peopleLookup.TryGetValue(s.Item.Id, out var pw) ? pw : null)
-                };
-            })
+            .Select(s => BuildRecommendedItem(s, contentAffinityLookup, peopleLookup, candidateBoxSetLookup))
             .ToList();
 
         _pluginLog.LogInfo(
@@ -1056,6 +986,131 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ScoringStrategy = strategy.Name,
             ScoringStrategyKey = strategy.NameKey,
             Cohort = _strategySelector.GetCohortName(userProfile.UserId)
+        };
+    }
+
+    /// <summary>
+    ///     Groups the profile's watched episodes by series ID for series-level aggregation. Extracted
+    ///     verbatim from <see cref="GenerateForUser"/>; grouping order and skip conditions are unchanged.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <returns>A map of series ID to the list of watched episode rows for that series.</returns>
+    private static Dictionary<Guid, List<WatchedItemInfo>> BuildSeriesEpisodeLookup(UserWatchProfile userProfile)
+    {
+        var seriesEpisodeLookup = new Dictionary<Guid, List<WatchedItemInfo>>();
+        foreach (var w in userProfile.WatchedItems)
+        {
+            if (!w.SeriesId.HasValue)
+            {
+                continue;
+            }
+
+            if (!seriesEpisodeLookup.TryGetValue(w.SeriesId.Value, out var list))
+            {
+                list = [];
+                seriesEpisodeLookup[w.SeriesId.Value] = list;
+            }
+
+            list.Add(w);
+        }
+
+        return seriesEpisodeLookup;
+    }
+
+    /// <summary>
+    ///     Computes the NaN-safe maximum of the collaborative co-occurrence values. Extracted verbatim
+    ///     from <see cref="GenerateForUser"/>; the finite-only filtering and comparison are unchanged.
+    /// </summary>
+    /// <param name="coOccurrence">The collaborative co-occurrence map.</param>
+    /// <returns>The largest finite value, or 0.0 when none exceed it.</returns>
+    private static double ComputeCollaborativeMax(IReadOnlyDictionary<Guid, double> coOccurrence)
+    {
+        var collaborativeMax = 0.0;
+        foreach (var v in coOccurrence.Values.Where(double.IsFinite))
+        {
+            if (v > collaborativeMax)
+            {
+                collaborativeMax = v;
+            }
+        }
+
+        return collaborativeMax;
+    }
+
+    /// <summary>
+    ///     Computes the squared L2 norm of the user's genre-preference weights. Extracted verbatim from
+    ///     <see cref="GenerateForUser"/>; the accumulation order and arithmetic are unchanged.
+    /// </summary>
+    /// <param name="genrePreferences">The user's genre-preference vector.</param>
+    /// <returns>The sum of squared genre weights.</returns>
+    private static double ComputeUserGenreNormSq(IReadOnlyDictionary<string, double> genrePreferences)
+    {
+        var userGenreNormSq = 0.0;
+        foreach (var w in genrePreferences.Values)
+        {
+            userGenreNormSq += w * w;
+        }
+
+        return userGenreNormSq;
+    }
+
+    /// <summary>
+    ///     Projects a scored candidate tuple into a <see cref="RecommendedItem"/> DTO. Extracted verbatim
+    ///     from the top-N projection in <see cref="GenerateForUser"/>; field resolution and the
+    ///     content-affinity fallback are unchanged.
+    /// </summary>
+    /// <param name="s">The scored candidate tuple.</param>
+    /// <param name="contentAffinityLookup">Per-snapshot content-affinity precompute.</param>
+    /// <param name="peopleLookup">Item id -> person name set lookup.</param>
+    /// <param name="candidateBoxSetLookup">Item id -> containing BoxSet ids lookup.</param>
+    /// <returns>The populated recommendation DTO.</returns>
+    private RecommendedItem BuildRecommendedItem(
+        (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) s,
+        Dictionary<Guid, CandidateContentAffinity> contentAffinityLookup,
+        Dictionary<Guid, HashSet<string>> peopleLookup,
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup)
+    {
+        // Resolve the candidate's content-affinity source data ONCE from the per-snapshot
+        // precompute (fallback to a live resolve only for a just-added candidate), then reuse
+        // it for all seven cached DTO fields below - no per-field GetPeople/GetInheritedTags.
+        var content = contentAffinityLookup.TryGetValue(s.Item.Id, out var cachedContent)
+            ? cachedContent
+            : ResolveContentAffinity(s.Item);
+        return new RecommendedItem
+        {
+            ItemId = s.Item.Id,
+            Name = s.Item.Name ?? string.Empty,
+            ItemType = s.Item.GetType().Name,
+            Score = Math.Round(s.Score, 4),
+            Reason = s.Reason,
+            ReasonKey = s.ReasonKey,
+            RelatedItemName = s.RelatedItem,
+            Genres = s.Item.Genres ?? [],
+            Year = s.Item.ProductionYear,
+            CommunityRating = s.Item.CommunityRating,
+            CriticRating = s.Item.CriticRating,
+            OfficialRating = s.Item.OfficialRating,
+            PremiereDate = s.Item.PremiereDate,
+            PrimaryImageTag = s.Item.HasImage(ImageType.Primary) ? s.Item.Id.ToString("N") : null,
+            PeopleNames = peopleLookup.TryGetValue(s.Item.Id, out var people) ? [.. people] : [],
+            Studios = s.Item.Studios ?? [],
+            Tags = s.Item.Tags ?? [],
+            AudioLanguages = ResolveAudioLanguages(s.Item),
+            SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
+            BoxSetIds = candidateBoxSetLookup.TryGetValue(s.Item.Id, out var bsIds) ? bsIds : [],
+            DateCreated = s.Item.DateCreated,
+            // Content-affinity fields for the top-N result DTO come from the per-snapshot precompute
+            // (resolved once into `content` above) rather than a fresh GetInheritedTags()/GetPeople
+            // per top-N item per user.
+            TmdbCollectionName = content.TmdbCollectionName,
+            ProductionCountries = content.ProductionCountries,
+            InheritedTags = content.InheritedTags,
+            SeriesStatus = content.SeriesStatus,
+            EndDate = content.SeriesEndDate,
+            WriterNames = content.Writers,
+            PeopleWeights = AlignBillingToNames(
+                content.Billing,
+                peopleLookup.TryGetValue(s.Item.Id, out var pw) ? pw : null)
         };
     }
 
