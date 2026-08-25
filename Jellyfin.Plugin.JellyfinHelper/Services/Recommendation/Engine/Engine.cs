@@ -810,9 +810,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             watchedItemLookup.TryAdd(w.ItemId, w);
         }
 
-        // Build a lookup of watched episodes grouped by series ID for series-level aggregation
-        var seriesEpisodeLookup = BuildSeriesEpisodeLookup(userProfile);
-
         // Exclude played, favorited, AND started items - the user already knows them. Started items
         // (PlayCount > 0 or PlaybackPositionTicks > 0) appear in Jellyfin's "Continue Watching" and
         // should not waste a slot. Their genre/studio/tag/people signals still flow into preferences
@@ -987,34 +984,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ScoringStrategyKey = strategy.NameKey,
             Cohort = _strategySelector.GetCohortName(userProfile.UserId)
         };
-    }
-
-    /// <summary>
-    ///     Groups the profile's watched episodes by series ID for series-level aggregation. Extracted
-    ///     verbatim from <see cref="GenerateForUser"/>; grouping order and skip conditions are unchanged.
-    /// </summary>
-    /// <param name="userProfile">The user's watch profile.</param>
-    /// <returns>A map of series ID to the list of watched episode rows for that series.</returns>
-    private static Dictionary<Guid, List<WatchedItemInfo>> BuildSeriesEpisodeLookup(UserWatchProfile userProfile)
-    {
-        var seriesEpisodeLookup = new Dictionary<Guid, List<WatchedItemInfo>>();
-        foreach (var w in userProfile.WatchedItems)
-        {
-            if (!w.SeriesId.HasValue)
-            {
-                continue;
-            }
-
-            if (!seriesEpisodeLookup.TryGetValue(w.SeriesId.Value, out var list))
-            {
-                list = [];
-                seriesEpisodeLookup[w.SeriesId.Value] = list;
-            }
-
-            list.Add(w);
-        }
-
-        return seriesEpisodeLookup;
     }
 
     /// <summary>

@@ -391,7 +391,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var client = GetSeerrClient();
-        return await SendSubmitRequestAsync(client, baseUri, apiKey, tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder, cancellationToken).ConfigureAwait(false);
+        var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
+        return await SendSubmitRequestAsync(client, baseUri, apiKey, requestParams, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -402,29 +403,22 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="client">The Seerr HTTP client.</param>
     /// <param name="baseUri">The validated Seerr base URI.</param>
     /// <param name="apiKey">The validated Seerr API key.</param>
-    /// <param name="tmdbId">The TMDb ID being requested.</param>
-    /// <param name="mediaType">The normalized media type ('movie' or 'tv').</param>
-    /// <param name="seerrUserId">Optional Seerr user id to request as.</param>
-    /// <param name="serverId">Optional target server id.</param>
-    /// <param name="profileId">Optional quality profile id.</param>
-    /// <param name="rootFolder">Optional root folder path.</param>
+    /// <param name="p">The cohesive Seerr request field group (TMDb ID, media type, and optional targeting).</param>
     /// <param name="cancellationToken">Cooperative cancellation token.</param>
     /// <returns>A success flag and a client-safe message.</returns>
     private async Task<(bool Success, string Message)> SendSubmitRequestAsync(
         HttpClient client,
         Uri baseUri,
         string apiKey,
-        int tmdbId,
-        string mediaType,
-        int? seerrUserId,
-        int? serverId,
-        int? profileId,
-        string? rootFolder,
+        SeerrRequestParams p,
         CancellationToken cancellationToken)
     {
+        var tmdbId = p.TmdbId;
+        var mediaType = p.MediaType;
+        var seerrUserId = p.SeerrUserId;
         try
         {
-            var payloadDict = BuildRequestPayload(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
+            var payloadDict = BuildRequestPayload(tmdbId, mediaType, seerrUserId, p.ServerId, p.ProfileId, p.RootFolder);
 
             using var content = new StringContent(
                 JsonSerializer.Serialize(payloadDict, JsonOptions),
@@ -1709,34 +1703,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         HashSet<(int TmdbId, string MediaType)> excluded,
         CancellationToken cancellationToken)
     {
-        foreach (var instance in config.GetEffectiveRadarrInstances())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                var movies = await _arrIntegration.GetRadarrMoviesAsync(
-                    instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
-                if (movies != null)
-                {
-                    foreach (var movie in movies.Where(m => m.TmdbId > 0))
-                    {
-                        excluded.Add((movie.TmdbId, MediaTypeMovie));
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException)
-            {
-                _pluginLog.LogWarning(
-                    LogCategory,
-                    $"Failed to fetch Radarr exclusion data from {instance.Url}: {ex.Message}. Continuing with remaining instances.",
-                    ex,
-                    _logger);
-            }
-        }
+        await AddArrExclusionsAsync(
+            config.GetEffectiveRadarrInstances(),
+            _arrIntegration.GetRadarrMoviesAsync,
+            static m => m.TmdbId,
+            MediaTypeMovie,
+            "Radarr",
+            excluded,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1753,18 +1727,57 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         HashSet<(int TmdbId, string MediaType)> excluded,
         CancellationToken cancellationToken)
     {
-        foreach (var instance in config.GetEffectiveSonarrInstances())
+        await AddArrExclusionsAsync(
+            config.GetEffectiveSonarrInstances(),
+            _arrIntegration.GetSonarrSeriesAsync,
+            static s => s.TmdbId,
+            "tv",
+            "Sonarr",
+            excluded,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Shared exclusion-set builder for Radarr and Sonarr. Iterates the given Arr instances,
+    ///     fetches each instance's items, and adds the TMDb IDs (filtered by <c>TmdbId &gt; 0</c>)
+    ///     under the supplied media type. Behavior — per-instance iteration, the cancellation
+    ///     check, the guard, the log text, and the catch filters — is identical to the two callers
+    ///     it was extracted from.
+    /// </summary>
+    /// <typeparam name="T">The Arr item type (movie or series).</typeparam>
+    /// <param name="instances">The effective Arr instances to query.</param>
+    /// <param name="fetch">Delegate fetching the items for an instance (URL, API key, token).</param>
+    /// <param name="tmdbSelector">Selects the TMDb ID from an item.</param>
+    /// <param name="mediaType">The media type recorded in the exclusion set.</param>
+    /// <param name="arrName">The Arr display name used in log messages (Radarr/Sonarr).</param>
+    /// <param name="excluded">The exclusion set to add entries into.</param>
+    /// <param name="cancellationToken">Cooperative cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private async Task AddArrExclusionsAsync<T>(
+        IEnumerable<ArrInstanceConfig> instances,
+        Func<string, string, CancellationToken, Task<List<T>?>> fetch,
+        Func<T, int> tmdbSelector,
+        string mediaType,
+        string arrName,
+        HashSet<(int TmdbId, string MediaType)> excluded,
+        CancellationToken cancellationToken)
+    {
+        foreach (var instance in instances)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var series = await _arrIntegration.GetSonarrSeriesAsync(
+                var items = await fetch(
                     instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
-                if (series != null)
+                if (items != null)
                 {
-                    foreach (var show in series.Where(s => s.TmdbId > 0))
+                    foreach (var item in items)
                     {
-                        excluded.Add((show.TmdbId, "tv"));
+                        var tmdbId = tmdbSelector(item);
+                        if (tmdbId > 0)
+                        {
+                            excluded.Add((tmdbId, mediaType));
+                        }
                     }
                 }
             }
@@ -1776,7 +1789,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 _pluginLog.LogWarning(
                     LogCategory,
-                    $"Failed to fetch Sonarr exclusion data from {instance.Url}: {ex.Message}. Continuing with remaining instances.",
+                    $"Failed to fetch {arrName} exclusion data from {instance.Url}: {ex.Message}. Continuing with remaining instances.",
                     ex,
                     _logger);
             }
@@ -2187,4 +2200,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
         }
     }
+
+    /// <summary>
+    ///     Cohesive group of Seerr request fields passed together through the submit pipeline.
+    ///     Bundles the six fields that <see cref="BuildRequestPayload"/> consumes so they travel
+    ///     as one parameter rather than a long positional list.
+    /// </summary>
+    /// <param name="TmdbId">The TMDb ID being requested.</param>
+    /// <param name="MediaType">The normalized media type ('movie' or 'tv').</param>
+    /// <param name="SeerrUserId">Optional Seerr user id to request as.</param>
+    /// <param name="ServerId">Optional target server id.</param>
+    /// <param name="ProfileId">Optional quality profile id.</param>
+    /// <param name="RootFolder">Optional root folder path.</param>
+    private readonly record struct SeerrRequestParams(
+        int TmdbId,
+        string MediaType,
+        int? SeerrUserId,
+        int? ServerId,
+        int? ProfileId,
+        string? RootFolder);
 }
