@@ -30,4 +30,19 @@ public class OverviewHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("scanPlaceholder", HtmlContent);
     }
+
+    [Fact]
+    public void Html_BooksCard_RendersOnlyWhenBookLibraryExists()
+    {
+        // The Books stat card is gated on a Book library actually contributing files.
+        Assert.Contains("data.TotalBookFileCount > 0", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TotalFilesCard_SpansFullWidthWhenBooksPresent()
+    {
+        // Odd card count (Book library adds a 7th card) => Total Files spans both columns
+        // via the stat-card-full class, so the last grid row has no gap.
+        Assert.Contains("stat-card-full", HtmlContent);
+    }
 }

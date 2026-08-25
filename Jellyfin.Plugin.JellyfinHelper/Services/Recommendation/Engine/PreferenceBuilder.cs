@@ -116,6 +116,56 @@ internal static class PreferenceBuilder
 
         // Build genre preferences with temporal decay - recent watches count more
         var now = DateTime.UtcNow;
+        AccumulateWatchedGenreWeights(vector, profile, seriesEpisodeCounts, watchedEpisodesPerSeries, now);
+
+        // Merge GenreDistribution as base weights for genres not in WatchedItems (backward compat;
+        // catches genres from items whose WatchedItemInfo has no Genres array, e.g. episodes
+        // inheriting parent series genres). Counts are scaled into the same 0-1 range as
+        // watch-derived weights so they supplement rather than dominate after normalization.
+        MergeGenreDistributionWeights(vector, profile);
+
+        if (vector.Count == 0)
+        {
+            return vector;
+        }
+
+        // Expand first, normalize afterwards so proximity-derived weights participate in
+        // the same max-normalization pass as the base entries. Doing it in the other order
+        // would leave secondary genres in `[0, 0.15]` while primary genres are in `[0, 1]`,
+        // producing a non-normalized vector that drifts SimilarityComputer's `userNorm`.
+        ExpandGenreProximity(vector, profile);
+
+        var maxWeight = vector.Values.Max();
+        if (maxWeight <= 0)
+        {
+            return vector;
+        }
+
+        foreach (var genre in vector.Keys.ToList())
+        {
+            vector[genre] /= maxWeight;
+        }
+
+        return vector;
+    }
+
+    /// <summary>
+    ///     Accumulates temporal-decay genre weights from the profile's watched items into
+    ///     <paramref name="vector"/>. Extracted verbatim from <see cref="BuildGenrePreferenceVector"/>;
+    ///     eligibility guards, phantom-series guard, and per-genre accumulation order are unchanged.
+    /// </summary>
+    /// <param name="vector">The genre weight accumulator to add into.</param>
+    /// <param name="profile">The user's watch profile.</param>
+    /// <param name="seriesEpisodeCounts">Optional series episode-count map.</param>
+    /// <param name="watchedEpisodesPerSeries">Precomputed per-series watched-episode counter.</param>
+    /// <param name="now">The reference timestamp for temporal decay.</param>
+    private static void AccumulateWatchedGenreWeights(
+        Dictionary<string, double> vector,
+        UserWatchProfile profile,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        Dictionary<Guid, int>? watchedEpisodesPerSeries,
+        DateTime now)
+    {
         foreach (var item in profile.WatchedItems)
         {
             // Eligibility must include PlayCount > 0 so the SAME rows contributing to
@@ -146,11 +196,17 @@ internal static class PreferenceBuilder
                 vector[genre] = current + weight;
             }
         }
+    }
 
-        // Merge GenreDistribution as base weights for genres not in WatchedItems (backward compat;
-        // catches genres from items whose WatchedItemInfo has no Genres array, e.g. episodes
-        // inheriting parent series genres). Counts are scaled into the same 0-1 range as
-        // watch-derived weights so they supplement rather than dominate after normalization.
+    /// <summary>
+    ///     Merges the profile's <c>GenreDistribution</c> counts as base weights for genres not already
+    ///     present in <paramref name="vector"/>. Extracted verbatim from
+    ///     <see cref="BuildGenrePreferenceVector"/>; scaling and skip conditions are unchanged.
+    /// </summary>
+    /// <param name="vector">The genre weight accumulator to supplement.</param>
+    /// <param name="profile">The user's watch profile.</param>
+    private static void MergeGenreDistributionWeights(Dictionary<string, double> vector, UserWatchProfile profile)
+    {
         if (profile.GenreDistribution.Count > 0)
         {
             var maxCount = profile.GenreDistribution.Values.Max();
@@ -167,30 +223,6 @@ internal static class PreferenceBuilder
                 }
             }
         }
-
-        if (vector.Count == 0)
-        {
-            return vector;
-        }
-
-        // Expand first, normalize afterwards so proximity-derived weights participate in
-        // the same max-normalization pass as the base entries. Doing it in the other order
-        // would leave secondary genres in `[0, 0.15]` while primary genres are in `[0, 1]`,
-        // producing a non-normalized vector that drifts SimilarityComputer's `userNorm`.
-        ExpandGenreProximity(vector, profile);
-
-        var maxWeight = vector.Values.Max();
-        if (maxWeight <= 0)
-        {
-            return vector;
-        }
-
-        foreach (var genre in vector.Keys.ToList())
-        {
-            vector[genre] /= maxWeight;
-        }
-
-        return vector;
     }
 
     /// <summary>

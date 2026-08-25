@@ -93,8 +93,11 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
 
             var collectionType = vf.CollectionType;
 
-            // Skip music and boxset libraries - not relevant for size/recency insights
-            if (collectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets)
+            // Skip music, boxset and book libraries - not relevant for size/recency insights
+            // (music/books are many small files, boxsets are logical groupings). These still
+            // count toward the storage growth timeline, which scans raw directory sizes.
+            if (collectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets
+                or CollectionTypeOptions.books)
             {
                 continue;
             }

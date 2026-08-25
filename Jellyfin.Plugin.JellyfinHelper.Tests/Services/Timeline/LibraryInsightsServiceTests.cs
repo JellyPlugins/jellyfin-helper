@@ -375,6 +375,23 @@ public class LibraryInsightsServiceTests
     }
 
     [Fact]
+    public async Task ComputeInsightsAsync_SkipsBookLibraries()
+    {
+        // Book libraries (eBooks: PDF/CBZ/EPUB…) are many small files, so like music/boxsets
+        // they are not surfaced in the largest-directory / recency insights. They still count
+        // toward the storage growth timeline, which is a separate raw-size scan.
+        using var tempDir = new TempDirectory();
+        tempDir.CreateSubDirectory("Novel");
+        tempDir.CreateFile("Novel/book.epub", 50_000);
+
+        var service = CreateServiceWithSingleLibrary(tempDir.Path, "Books", CollectionTypeOptions.books);
+
+        var result = await service.ComputeInsightsAsync(CancellationToken.None);
+
+        Assert.Empty(result.Largest);
+    }
+
+    [Fact]
     public async Task ComputeInsightsAsync_HandlesIOException_Gracefully()
     {
         // Arrange - set up a location that triggers IOException on GetDirectories

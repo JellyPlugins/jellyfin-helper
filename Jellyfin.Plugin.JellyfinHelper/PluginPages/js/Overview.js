@@ -135,7 +135,12 @@ function fillOverviewData(data) {
     overviewHtml += '<p class="stat-detail">' + subFiles + ' ' + (subFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
     overviewHtml += '</div>';
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('bar_chart') + escHtml(T('totalFiles', 'Total Files')) + '</h3>';
+    // The stat grid has 2 columns. The always-present cards are Movies, TV, Music, Trickplay,
+    // Subtitles and Total Files (6 = even). A Book library adds a 7th card, making the count odd
+    // and leaving Total Files alone in the last row with a gap. In that case span Total Files
+    // across both columns so the row fills cleanly.
+    var totalFilesFull = (data.TotalBookFileCount > 0) ? ' stat-card-full' : '';
+    overviewHtml += '<div class="stat-card' + totalFilesFull + '"><h3>' + mi('bar_chart') + escHtml(T('totalFiles', 'Total Files')) + '</h3>';
     var totalMediaFiles = totalVideoFileCount + totalAudioFileCount;
     overviewHtml += '<p class="stat-value">' + totalMediaFiles + ' ' + (totalMediaFiles === 1 ? escHtml(T('mediaFile', 'media file')) : escHtml(T('mediaFiles', 'media files'))) + '</p>';
     overviewHtml += '<p class="stat-detail">' + totalVideoFileCount + ' ' + escHtml(T('video', 'video')) + ', ' + totalAudioFileCount + ' ' + escHtml(T('audio', 'audio')) + '</p>';

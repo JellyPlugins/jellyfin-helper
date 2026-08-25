@@ -342,40 +342,17 @@ public class TrashController : ControllerBase
             return BadRequest("Path traversal not allowed");
         }
 
-        string resolvedOld;
-        string resolvedNew;
-        try
+        var resolveError = ResolveRelocatePaths(oldPath, newPath, out var resolvedOld, out var resolvedNew);
+        if (resolveError != null)
         {
-            resolvedOld = Path.IsPathFullyQualified(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
-            resolvedNew = Path.IsPathFullyQualified(newPath) ? Path.GetFullPath(newPath) : newPath;
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return BadRequest(new { Error = "One or both trash paths are invalid." });
+            return resolveError;
         }
 
         var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
         var totalMoved = 0;
         var totalFailed = 0;
 
-        ActionResult? error;
-        if (Path.IsPathFullyQualified(oldPath) && Path.IsPathFullyQualified(newPath))
-        {
-            error = RelocateAbsoluteToAbsolute(resolvedOld, resolvedNew, libraryFolders, ref totalMoved, ref totalFailed);
-        }
-        else if (!Path.IsPathFullyQualified(oldPath) && !Path.IsPathFullyQualified(newPath))
-        {
-            error = RelocateRelativeToRelative(oldPath, newPath, libraryFolders, ref totalMoved, ref totalFailed);
-        }
-        else if (Path.IsPathFullyQualified(oldPath) && !Path.IsPathFullyQualified(newPath))
-        {
-            error = RelocateAbsoluteToRelative(resolvedOld, newPath, libraryFolders, ref totalMoved, ref totalFailed);
-        }
-        else
-        {
-            error = RelocateRelativeToAbsolute(oldPath, resolvedNew, libraryFolders, ref totalMoved, ref totalFailed);
-        }
-
+        var error = DispatchRelocate(oldPath, newPath, resolvedOld, resolvedNew, libraryFolders, ref totalMoved, ref totalFailed);
         if (error != null)
         {
             return error;
@@ -384,6 +361,58 @@ public class TrashController : ControllerBase
         _pluginLog.LogInfo("API", $"Trash relocation complete: {totalMoved} moved, {totalFailed} failed.", _logger);
 
         return Ok(new TrashRelocateResponse { Moved = totalMoved, Failed = totalFailed });
+    }
+
+    /// <summary>Resolves the raw old/new trash paths to full paths when absolute, returning a BadRequest on invalid input.</summary>
+    /// <param name="oldPath">The trimmed old trash path.</param>
+    /// <param name="newPath">The trimmed new trash path.</param>
+    /// <param name="resolvedOld">The resolved old path when successful.</param>
+    /// <param name="resolvedNew">The resolved new path when successful.</param>
+    /// <returns>A BadRequest result when a path is invalid; otherwise <see langword="null"/>.</returns>
+    private BadRequestObjectResult? ResolveRelocatePaths(string oldPath, string newPath, out string resolvedOld, out string resolvedNew)
+    {
+        try
+        {
+            resolvedOld = Path.IsPathFullyQualified(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
+            resolvedNew = Path.IsPathFullyQualified(newPath) ? Path.GetFullPath(newPath) : newPath;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            resolvedOld = oldPath;
+            resolvedNew = newPath;
+            return BadRequest(new { Error = "One or both trash paths are invalid." });
+        }
+
+        return null;
+    }
+
+    /// <summary>Dispatches to the correct relocation helper based on whether the old/new paths are absolute or relative.</summary>
+    /// <param name="oldPath">The trimmed old trash path.</param>
+    /// <param name="newPath">The trimmed new trash path.</param>
+    /// <param name="resolvedOld">The resolved old path.</param>
+    /// <param name="resolvedNew">The resolved new path.</param>
+    /// <param name="libraryFolders">The filtered library locations.</param>
+    /// <param name="totalMoved">Accumulator for moved item count.</param>
+    /// <param name="totalFailed">Accumulator for failed item count.</param>
+    /// <returns>An error result when relocation fails validation; otherwise <see langword="null"/>.</returns>
+    private ActionResult? DispatchRelocate(string oldPath, string newPath, string resolvedOld, string resolvedNew, IReadOnlyList<string> libraryFolders, ref int totalMoved, ref int totalFailed)
+    {
+        if (Path.IsPathFullyQualified(oldPath) && Path.IsPathFullyQualified(newPath))
+        {
+            return RelocateAbsoluteToAbsolute(resolvedOld, resolvedNew, libraryFolders, ref totalMoved, ref totalFailed);
+        }
+
+        if (!Path.IsPathFullyQualified(oldPath) && !Path.IsPathFullyQualified(newPath))
+        {
+            return RelocateRelativeToRelative(oldPath, newPath, libraryFolders, ref totalMoved, ref totalFailed);
+        }
+
+        if (Path.IsPathFullyQualified(oldPath) && !Path.IsPathFullyQualified(newPath))
+        {
+            return RelocateAbsoluteToRelative(resolvedOld, newPath, libraryFolders, ref totalMoved, ref totalFailed);
+        }
+
+        return RelocateRelativeToAbsolute(oldPath, resolvedNew, libraryFolders, ref totalMoved, ref totalFailed);
     }
 
     /// <summary>Relocates a single absolute source into a single absolute destination.</summary>

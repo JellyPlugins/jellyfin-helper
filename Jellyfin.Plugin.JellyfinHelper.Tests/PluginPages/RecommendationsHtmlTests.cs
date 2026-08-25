@@ -169,7 +169,7 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     {
         // Prevents $& / $' / $` from being interpreted as replacement directives.
         Assert.Matches(
-            new Regex(@"function\s+renderDiscoveryCard[\s\S]*?replace\s*\(\s*/\\\{0\\\}/g\s*,\s*function\s*\(\s*\)\s*\{[\s\S]*?rec\.RelatedInfo"),
+            new Regex(@"function\s+renderDiscoveryCard[\s\S]*?replaceAll\s*\(\s*'\{0\}'\s*,\s*function\s*\(\s*\)\s*\{[\s\S]*?rec\.RelatedInfo"),
             HtmlContent);
     }
 

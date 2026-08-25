@@ -359,12 +359,12 @@
             // Uses <span> with data-href + JS click handler instead of <a> to prevent
             // the poster flip from triggering and for consistent cross-platform behavior.
             var tmdbPath = mediaType === 'tv' ? 'tv' : 'movie';
-            var tmdbExtUrl = 'https://www.themoviedb.org/' + tmdbPath + '/' + (parseInt(r.TmdbId, 10) || 0);
+            var tmdbExtUrl = 'https://www.themoviedb.org/' + tmdbPath + '/' + (Number.parseInt(r.TmdbId, 10) || 0);
             var extLinksHtml = '<div class="jfh-discovery-flip-links">' +
                 '<span class="jfh-discovery-flip-link" data-href="' + esc(tmdbExtUrl) + '">' +
                 '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> TMDB</span>';
             if (_seerrBaseUrl) {
-                var seerrExtUrl = _seerrBaseUrl + '/' + tmdbPath + '/' + (parseInt(r.TmdbId, 10) || 0);
+                var seerrExtUrl = _seerrBaseUrl + '/' + tmdbPath + '/' + (Number.parseInt(r.TmdbId, 10) || 0);
                 extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
                     '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
             }
@@ -392,7 +392,7 @@
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
             var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
-            var dismissBtnHtml = r.AlreadyRequested ? '' : '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
+            var dismissBtnHtml = r.AlreadyRequested ? '' : '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
             var genresHtml = genres ? '<div class="jfh-discovery-card-genres">' + genres + '</div>' : '';
             html += '<div class="jfh-discovery-card">' + poster +
                 '<div class="jfh-discovery-card-body">' +
@@ -401,7 +401,7 @@
                 genresHtml +
                 scoreHtml + reason +
                 '<div class="jfh-discovery-btn-row">' +
-                '<button class="' + btnClass + '" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
+                '<button class="' + btnClass + '" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
                 dismissBtnHtml +
                 '</div>' +
                 '</div></div>';
@@ -443,7 +443,7 @@
     function handleRequest(e) {
         var btn = e.currentTarget;
         if (btn.disabled) return;
-        var tmdbId = parseInt(btn.dataset.tmdb, 10);
+        var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
         var mediaType = btn.dataset.type;
         if (!tmdbId || !mediaType) return;
         fetchPermissionsAndRequest(tmdbId, mediaType, btn);
@@ -703,7 +703,7 @@
     function handleDismissClick(e) {
         var btn = e.currentTarget;
         if (btn.disabled) return;
-        var tmdbId = parseInt(btn.dataset.tmdb, 10);
+        var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
         var mediaType = btn.dataset.type;
         var title = btn.dataset.title || '';
         if (!tmdbId || !mediaType) return;
@@ -855,7 +855,7 @@
 
     function esc(str) {
         if (!str) return '';
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        return str.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
 
     // ===== SIDEBAR =====
@@ -904,7 +904,7 @@
             if (container) {
                 var tabContent = container.closest('[data-index]');
                 if (tabContent) {
-                    var index = parseInt(tabContent.dataset.index, 10);
+                    var index = Number.parseInt(tabContent.dataset.index, 10);
                     if (!isNaN(index) && tabs[index]) {
                         tabs[index].click();
                         return;
@@ -928,7 +928,7 @@
                     if (retryContainer) {
                         var retryTabContent = retryContainer.closest('[data-index]');
                         if (retryTabContent) {
-                            var retryIndex = parseInt(retryTabContent.dataset.index, 10);
+                            var retryIndex = Number.parseInt(retryTabContent.dataset.index, 10);
                             var retryTabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
                             if (!isNaN(retryIndex) && retryTabs[retryIndex]) {
                                 retryTabs[retryIndex].click();
