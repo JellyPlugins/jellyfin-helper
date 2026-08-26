@@ -32,7 +32,7 @@ var SVG = {
  */
 function getCssVar(name, fallback) {
     var v = getComputedStyle(document.documentElement).getPropertyValue(name);
-    return (v && v.trim()) || fallback || '';
+    return v?.trim() || fallback || '';
 }
 
 // Translation helper - loaded async from /JellyfinHelper/Translations
@@ -348,7 +348,7 @@ function aggregateDict(libraries, prop) {
  * @param {boolean} [success=true] - true = green check_circle icon, false = red error icon
  */
 function showAutoSaveIndicatorOverlay(element, success) {
-    if (!element || !element.parentNode) return;
+    if (!element?.parentNode) return;
 
     var ok = success !== false;
     var fadeDelay = ok ? 2000 : 3000;
@@ -498,7 +498,7 @@ function addFadingDelay(element, fadeDelay) {
     element.style.opacity = '1';
 
     // Force reflow then fade in
-    void element.offsetWidth;
+    element.offsetWidth; // eslint-disable-line no-unused-expressions
     element.classList.add('fade-element');
 
     element._fadeTimer = setTimeout(() => element.style.opacity = '0', fadeDelay);
@@ -602,7 +602,7 @@ function describeApiError(err) {
     else if (status >= 400) {
         // 4xx with HTML body typically means proxy/WAF; JSON body means our own server.
         var trimmed = snippet.trim();
-        var looksLikeHtml = trimmed.length > 0 && trimmed.charAt(0) === '<';
+        var looksLikeHtml = trimmed.startsWith('<');
         kind = looksLikeHtml ? 'proxy' : 'server';
     }
 

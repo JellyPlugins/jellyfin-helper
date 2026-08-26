@@ -42,8 +42,7 @@ function showDonutTooltip(container, evt, segment) {
     if (info.libraries.length > 0) {
         html += '<div class="donut-tooltip-divider"></div>';
         html += '<table class="donut-tooltip-table"><tbody>';
-        for (var i = 0; i < info.libraries.length; i++) {
-            var lib = info.libraries[i];
+        for (const lib of info.libraries) {
             html += '<tr>';
             html += '<td class="donut-tooltip-lib">' + escHtml(lib.name) + '</td>';
             html += '<td class="donut-tooltip-count">' + lib.count + ' ' + (lib.count === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</td>';
@@ -102,11 +101,11 @@ function triggerCodecRowForSegment(segment) {
         return;
     }
     var rows = chartBox.querySelectorAll('.codec-clickable');
-    for (var i = 0; i < rows.length; i++) {
-        if (rows[i].dataset.codec === codecName) {
+    for (const row of rows) {
+        if (row.dataset.codec === codecName) {
             // Force scroll when triggered from donut (user clicked far above the panel)
             _forceScrollOnPanelOpen = true;
-            rows[i].click();
+            row.click();
             return;
         }
     }

@@ -5,8 +5,7 @@ function initTabs() {
     var tabBtns = document.querySelectorAll('.tab-btn');
     for (const tabBtn of tabBtns) {
         tabBtn.addEventListener('click', function () {
-            var clickedBtn = this;
-            var tabId = clickedBtn.dataset.tab;
+            var tabId = tabBtn.dataset.tab;
 
             // Check if we're leaving the settings tab with unsaved changes
             var currentActive = document.querySelector('.tab-btn.active');
@@ -15,12 +14,12 @@ function initTabs() {
             if (currentTab === 'settings' && tabId !== 'settings'
                 && typeof checkUnsavedAndProceed === 'function') {
                 checkUnsavedAndProceed(function () {
-                    doTabSwitch(clickedBtn, tabId);
+                    doTabSwitch(tabBtn, tabId);
                 });
                 return;
             }
 
-            doTabSwitch(clickedBtn, tabId);
+            doTabSwitch(tabBtn, tabId);
         });
     }
 }
@@ -28,8 +27,7 @@ function initTabs() {
 function doTabSwitch(clickedBtn, tabId) {
     // Cleanup previous tab (e.g. stop auto-refresh timers) - only if leaving the logs tab
     var previousTab = document.querySelector('.tab-content.active');
-    if (previousTab && previousTab.id === 'tab-logs' && typeof destroyLogsTab
-        === 'function') {
+    if (previousTab?.id === 'tab-logs' && typeof destroyLogsTab === 'function') {
         destroyLogsTab();
     }
 

@@ -154,7 +154,10 @@ function renderUserRecommendations(index) {
 
 function renderRecommendationCard(rec, rank) {
     var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
-    var scoreClass = scorePercent >= 80 ? 'recs-score-high' : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
+    var scoreClass;
+    if (scorePercent >= 80) { scoreClass = 'recs-score-high'; }
+    else if (scorePercent >= 50) { scoreClass = 'recs-score-mid'; }
+    else { scoreClass = 'recs-score-low'; }
     var html = '<div class="recs-item"><div class="recs-item-rank">#' + rank + '</div><div class="recs-item-body">';
     html += '<div class="recs-item-title">' + escHtml(rec.Name || T('recsUnknownTitle', 'Unknown')) + '</div><div class="recs-item-meta">';
     if (rec.ItemType) { html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.ItemType) + '</span>'; }

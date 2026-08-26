@@ -127,7 +127,8 @@
         document.body.appendChild(toast);
 
         // Trigger reflow before adding the visible class to ensure CSS transition fires
-        void toast.offsetWidth;
+        // eslint-disable-next-line no-unused-expressions
+        toast.offsetWidth;
         toast.classList.add('jfh-discovery-toast-visible');
 
         var dismissTimeout = setTimeout(function () { dismissToast(toast); }, duration);
@@ -149,7 +150,7 @@
         toast.classList.add('jfh-discovery-toast-hidden');
         // Remove from DOM after the CSS transition completes
         setTimeout(function () {
-            if (toast.parentNode) toast.parentNode.removeChild(toast);
+            toast.remove();
         }, 300);
     }
 
@@ -603,6 +604,21 @@
             // Restore focus to the triggering button
             if (btn && btn.focus) btn.focus();
         }
+    }
+
+    /**
+     * Shared helper that tears down the discovery popup overlay.
+     * Removes the Escape keydown listener, removes the overlay element from the DOM,
+     * and restores focus to the triggering button.
+     *
+     * @param {Function} onEscHandler - The keydown listener that was registered for this popup.
+     * @param {HTMLElement} triggerBtn - The button that opened the popup (receives focus back).
+     */
+    function closeDiscoveryPopup(onEscHandler, triggerBtn) {
+        document.removeEventListener('keydown', onEscHandler);
+        var el = document.getElementById('jfhDiscoveryPopup');
+        if (el) el.remove();
+        triggerBtn?.focus();
     }
 
     function injectPopupStyles() {

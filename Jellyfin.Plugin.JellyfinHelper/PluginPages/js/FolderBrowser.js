@@ -17,13 +17,20 @@ function initFolderBrowser() {
 }
 
 /**
+ * Closes the folder browser dialog by removing the overlay from the DOM.
+ */
+function closeDialog() {
+    removeDialogById('folderBrowserOverlay');
+}
+
+/**
  * Opens the folder browser dialog modal.
  * Starts browsing at the current trash path if it's absolute, otherwise shows library roots.
  */
 function openFolderBrowserDialog() {
     removeDialogById('folderBrowserOverlay');
 
-    var currentPath = (document.getElementById('cfgTrashPath') || {}).value || '';
+    var currentPath = document.getElementById('cfgTrashPath')?.value || '';
 
     // Build the dialog shell
     var overlay = document.createElement('div');
@@ -83,11 +90,6 @@ function openFolderBrowserDialog() {
     // Store state
     var state = { currentPath: null };
 
-    // Close handler shared across all dismiss paths
-    function closeDialog() {
-        removeDialogById('folderBrowserOverlay');
-    }
-
     // Event handlers
     document.getElementById('folderBrowserClose').addEventListener('click', closeDialog);
     document.getElementById('folderBrowserCancel').addEventListener('click', closeDialog);
@@ -108,7 +110,7 @@ function openFolderBrowserDialog() {
     overlay.focus();
 
     document.getElementById('folderBrowserSelect').addEventListener('click', function () {
-        var newName = (document.getElementById('folderBrowserNewName') || {}).value || '';
+        var newName = document.getElementById('folderBrowserNewName')?.value || '';
         var selectedPath = state.currentPath || '';
         if (newName.trim()) {
             // Append the new folder name to the current path

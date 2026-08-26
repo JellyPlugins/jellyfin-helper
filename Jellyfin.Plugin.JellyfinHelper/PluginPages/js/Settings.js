@@ -304,6 +304,11 @@ var _dirtyTrackingController = null;
 var _dirtyTrackingHandler = null;
 var _dirtyTrackingForm = null;
 
+function dirtyTrackingHandler() {
+    if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
+    _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
+}
+
 function attachDirtyTracking() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
@@ -325,23 +330,18 @@ function attachDirtyTracking() {
         _dirtyTrackingForm = null;
     }
 
-    var handler = function () {
-        if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
-        _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
-    };
-
     if (typeof AbortController === 'function') {
         _dirtyTrackingController = new AbortController();
         var opts = { signal: _dirtyTrackingController.signal };
-        form.addEventListener('input', handler, opts);
-        form.addEventListener('change', handler, opts);
+        form.addEventListener('input', dirtyTrackingHandler, opts);
+        form.addEventListener('change', dirtyTrackingHandler, opts);
     } else {
         // Legacy fallback: no AbortController -> track the handler + form so the
         // next attachDirtyTracking() call can removeEventListener() it, keeping
         // the "one active listener pair per form" invariant intact.
-        form.addEventListener('input', handler);
-        form.addEventListener('change', handler);
-        _dirtyTrackingHandler = handler;
+        form.addEventListener('input', dirtyTrackingHandler);
+        form.addEventListener('change', dirtyTrackingHandler);
+        _dirtyTrackingHandler = dirtyTrackingHandler;
         _dirtyTrackingForm = form;
     }
 }
