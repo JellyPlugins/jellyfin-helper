@@ -1,44 +1,20 @@
-/**
- * Shared UI helpers: authenticate the Jellyfin web client in the browser and
- * open the Jellyfin Helper config dashboard, which is rendered entirely by JS.
- *
- * The dashboard injects its shell into #statsResult and switches tabs via
- * `.tab-btn[data-tab="..."]` -> `#tab-{name}.active`. We assert on stable IDs /
- * data-attributes / classes, NEVER on localized text.
- */
 import { type Page, expect } from '@playwright/test';
 import { loadAuth } from '../setup/api-client.ts';
 
+interface SeedArgs {
+  base: string;
+  token: string;
+  userId: string;
+  serverId: string;
+}
+
 /**
- * Log into the Jellyfin web UI by injecting credentials the way the web client
- * stores them, then navigate to the plugin config page.
- *
- * Jellyfin's web client keeps the server + token in localStorage under
- * "jellyfin_credentials". We seed that so the SPA treats us as logged in.
+ * Seeds auth state into localStorage before page scripts execute.
+ * Using LastConnectionMode = 2 (Manual) ensures the web client connects
+ * directly via ManualAddress.
  */
-export async function openDashboard(page: Page): Promise<void> {
-  const auth = loadAuth();
-  const base = auth.baseUrl.replace(/\/$/, '');
-
-  // The JF web client matches Servers[].Id against the live server's Id from
-  // /System/Info/Public. A hardcoded Id makes it treat the stored token as
-  // belonging to an unknown server, so it drops to the login page.
-  const infoRes = await page.request.get(`${base}/System/Info/Public`);
-  const serverId = ((await infoRes.json()) as { Id: string }).Id;
-
-  // Field layout verified against jellyfin-apiclient as bundled in the 12.0-rc6
-  // web client. The credentialProvider reads Servers[] on construction and
-  // resolves to "SignedIn" when AccessToken is present and enableAutoLogin is
-  // set. Required fields beyond the token itself: Name, ManualAddress,
-  // LocalAddress, RemoteAddress (used for reconnect), DateLastAccessed (must be
-  // a recent timestamp or the entry is treated as stale), LastConnectionMode
-  // (2 = Manual), and IsLocalServer (skips the remote-connectivity probe).
-  //
-  // This runs in the BROWSER, so it must be a pure function of its argument.
-  // It cannot close over Node-scope variables.
-  const seedArg = { base, token: auth.token, userId: auth.userId, serverId };
-  const seedCreds = (a: { base: string; token: string; userId: string; serverId: string }) => {
-    localStorage.setItem(
+function seedCredentials(a: SeedArgs): void {
+  localStorage.setItem(
       'jellyfin_credentials',
       JSON.stringify({
         Servers: [
@@ -56,59 +32,62 @@ export async function openDashboard(page: Page): Promise<void> {
           },
         ],
       }),
-    );
-    localStorage.setItem('enableAutoLogin', 'true');
+  );
+  localStorage.setItem('enableAutoLogin', 'true');
+}
+
+/**
+ * Pre-authenticates the session and opens the plugin configuration page.
+ */
+export async function openDashboard(page: Page): Promise<void> {
+  const auth = loadAuth();
+  const base = auth.baseUrl.replace(/\/$/, '');
+
+  const infoRes = await page.request.get(`${base}/System/Info/Public`);
+  const { Id: serverId } = (await infoRes.json()) as { Id: string };
+
+  const seedArg: SeedArgs = {
+    base,
+    token: auth.token,
+    userId: auth.userId,
+    serverId,
   };
 
-  // Re-seed on EVERY document load (runs before any page script) so the value
-  // is present the instant the credentialProvider constructor reads it. This
-  // covers the initial load and the config-page load below without a race.
-  await page.addInitScript(seedCreds, seedArg);
+  await page.addInitScript(seedCredentials, seedArg);
 
-  // First load establishes the origin + runs the init script. Also seed
-  // explicitly in case init-script timing differs across browsers.
-  await page.goto(`${base}/web/index.html`);
-  await page.evaluate(seedCreds, seedArg);
-
-  // Navigate to the plugin config page as a FULL document load so
-  // ServerConnections is constructed fresh against the (now seeded) store and
-  // resolves to SignedIn instead of redirecting to /session/login. The page is
-  // registered under the plugin's Name ("Jellyfin Helper", with a space). The
-  // un-encoded "JellyfinHelper" 404s and the shell never mounts.
   const configUrl = `${base}/web/index.html#!/configurationpage?name=${encodeURIComponent('Jellyfin Helper')}`;
-  // A plain goto to a URL that differs only in the hash from the current one
-  // is treated as a same-document nav and won't re-boot the SPA. We're coming
-  // from #/ (home) here, but force a reload afterwards to be certain the app
-  // re-initializes from the seeded credentials and lands on the config route.
   await page.goto(configUrl);
-  await page.reload();
 
-  // If the app briefly lands on the dashboard home after auto-login instead of
-  // the deep-linked config route, nudge it back to the config page (a hash nav
-  // is enough here since the SPA is already booted and signed in).
   const tabBar = page.locator('.tab-bar');
+
   try {
-    await expect(tabBar).toBeVisible({ timeout: 20_000 });
+    await expect(tabBar).toBeVisible({ timeout: 12_000 });
   } catch {
     await page.evaluate((url) => {
       window.location.hash = new URL(url).hash;
     }, configUrl);
-    // The shell is injected asynchronously; wait for the tab bar to exist.
+
     await expect(tabBar).toBeVisible({ timeout: 15_000 });
   }
 }
 
-/** Switch to a tab by its data-tab value and assert the panel becomes active. */
+/**
+ * Switches to the target tab and waits for its panel to become active.
+ */
 export async function switchTab(page: Page, tab: string): Promise<void> {
   await page.locator(`.tab-btn[data-tab="${tab}"]`).click();
   await expect(page.locator(`#tab-${tab}`)).toHaveClass(/active/, { timeout: 15_000 });
 }
 
-/** Collect uncaught console errors so a test can fail if the UI throws. */
+/**
+ * Captures uncaught browser errors and page exceptions.
+ */
 export function trackConsoleErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('console', (msg) => {
-    if (msg.type() === 'error') errors.push(msg.text());
+    if (msg.type() === 'error') {
+      errors.push(msg.text());
+    }
   });
   page.on('pageerror', (err) => errors.push(err.message));
   return errors;
