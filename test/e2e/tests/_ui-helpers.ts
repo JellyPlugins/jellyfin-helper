@@ -9,12 +9,23 @@
 import { type Page, expect } from '@playwright/test';
 import { loadAuth } from '../setup/api-client.ts';
 
+/** Admin credentials for the UI login fallback (same as global-setup). */
+const ADMIN_USER = process.env.JELLYFIN_ADMIN_USER ?? 'e2eadmin';
+const ADMIN_PASS = process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
+
 /**
- * Log into the Jellyfin web UI by injecting credentials the way the web client
- * stores them, then navigate to the plugin config page.
+ * Log into the Jellyfin web UI and open the Jellyfin Helper config dashboard.
  *
- * Jellyfin's web client keeps the server + token in localStorage under
- * "jellyfin_credentials". We seed that so the SPA treats us as logged in.
+ * Strategy (resilient across JF web-client versions):
+ *   1. Seed localStorage with jellyfin_credentials (fast path — avoids the
+ *      login form entirely if the web client recognises the format).
+ *   2. Navigate to the plugin config page and wait for `.tab-bar`.
+ *   3. If `.tab-bar` doesn't appear within a short window, detect whether
+ *      the browser is showing a login screen and fall back to a real UI login.
+ *   4. After login, navigate to the config page and wait again.
+ *
+ * The fallback makes the suite survive localStorage format changes across
+ * Jellyfin RC releases without requiring immediate test patches.
  */
 export async function openDashboard(page: Page): Promise<void> {
   const auth = loadAuth();
@@ -25,7 +36,8 @@ export async function openDashboard(page: Page): Promise<void> {
   // belonging to an unknown server, so it drops to the login page - fetch the
   // real Id and use it.
   const infoRes = await page.request.get(`${base}/System/Info/Public`);
-  const serverId = ((await infoRes.json()) as { Id: string }).Id;
+  const info = (await infoRes.json()) as { Id: string; ServerName?: string };
+  const serverId = info.Id;
 
   // Field names + the sign-in gate are taken from jellyfin-apiclient
   // (connectToServer): State = AccessToken && enableAutoLogin !== false
@@ -43,12 +55,15 @@ export async function openDashboard(page: Page): Promise<void> {
         Servers: [
           {
             Id: a.serverId,
+            Name: 'jfh-e2e',
             ManualAddress: a.base,
             LocalAddress: a.base,
+            RemoteAddress: a.base,
             AccessToken: a.token,
             UserId: a.userId,
-            DateLastAccessed: 1,
-            LastConnectionMode: 1,
+            DateLastAccessed: Date.now(),
+            LastConnectionMode: 2,
+            IsLocalServer: true,
           },
         ],
       }),
@@ -83,14 +98,82 @@ export async function openDashboard(page: Page): Promise<void> {
   // the deep-linked config route, nudge it back to the config page (a hash nav
   // is enough here - the SPA is already booted + signed in).
   const tabBar = page.locator('.tab-bar');
-  try {
+  const tabBarVisible = await tabBar.isVisible().catch(() => false);
+
+  if (!tabBarVisible) {
+    // Give the SPA a moment to boot and settle before checking further.
+    try {
+      await expect(tabBar).toBeVisible({ timeout: 12_000 });
+      return; // Fast path succeeded.
+    } catch {
+      // Fall through to diagnostics + fallback login.
+    }
+
+    // ─── DIAGNOSTIC: log current state so CI output reveals what went wrong ───
+    const currentUrl = page.url();
+    // eslint-disable-next-line no-console
+    console.log(`[openDashboard] tab-bar not visible. URL: ${currentUrl}`);
+    const lsState = await page.evaluate(() => {
+      const o: Record<string, string> = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)!;
+        o[k] = localStorage.getItem(k)!.slice(0, 200);
+      }
+      return JSON.stringify(o);
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[openDashboard] localStorage snapshot: ${lsState.slice(0, 600)}`);
+    await page.screenshot({ path: 'test-results/debug-openDashboard-fallback.png', fullPage: true });
+
+    // ─── FALLBACK: detect login screen and authenticate via the UI ───
+    const loginIndicator = page.locator(
+      '#loginPage, [data-testid="login"], #manualLoginForm, input#txtManualName, ' +
+        'button#btnManualLogin, .inputContainer input[type="text"]',
+    );
+    const onLoginScreen = await loginIndicator.first().isVisible({ timeout: 5_000 }).catch(() => false);
+
+    if (onLoginScreen) {
+      // eslint-disable-next-line no-console
+      console.log('[openDashboard] Login screen detected — performing UI login as fallback');
+
+      // Fill credentials. The selectors cover known Jellyfin web-client variants.
+      const userInput = page.locator('input#txtManualName, #loginPage input[type="text"]').first();
+      const passInput = page.locator('input#txtManualPassword, #loginPage input[type="password"]').first();
+      const submitBtn = page.locator(
+        'button#btnManualLogin, #loginPage .raised.submit, #loginPage button.raised',
+      ).first();
+
+      await userInput.fill(ADMIN_USER);
+      await passInput.fill(ADMIN_PASS);
+      await submitBtn.click();
+
+      // Wait until we leave the login page (URL changes away from login/session).
+      await page.waitForFunction(
+        () => !window.location.hash.includes('login') && !window.location.pathname.includes('login'),
+        { timeout: 20_000 },
+      );
+      // eslint-disable-next-line no-console
+      console.log(`[openDashboard] Logged in. Now at: ${page.url()}`);
+
+      // Navigate to the config page.
+      await page.evaluate((url) => {
+        window.location.hash = new URL(url).hash;
+      }, configUrl);
+    } else {
+      // Not on login, not showing tab-bar — maybe we're on the dashboard home
+      // and just need a hash nudge, or the route format changed.
+      // eslint-disable-next-line no-console
+      console.log('[openDashboard] Not on login screen — trying alternative route formats');
+
+      // Try without the hashbang (#!/ -> #/)
+      const altUrl = configUrl.replace('#!/', '#/');
+      await page.evaluate((url) => {
+        window.location.hash = new URL(url).hash;
+      }, altUrl);
+    }
+
+    // Final wait for the plugin shell to mount.
     await expect(tabBar).toBeVisible({ timeout: 20_000 });
-  } catch {
-    await page.evaluate((url) => {
-      window.location.hash = new URL(url).hash;
-    }, configUrl);
-    // The shell is injected asynchronously; wait for the tab bar to exist.
-    await expect(tabBar).toBeVisible({ timeout: 15_000 });
   }
 }
 
