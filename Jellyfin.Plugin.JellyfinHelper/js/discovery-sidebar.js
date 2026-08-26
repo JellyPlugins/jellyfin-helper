@@ -517,13 +517,7 @@
     }
 
     function showProfilePopup(tmdbId, mediaType, btn, profiles) {
-        var existing = document.getElementById('jfhDiscoveryPopup');
-        if (existing) {
-            if (existing._onEsc) {
-                document.removeEventListener('keydown', existing._onEsc);
-            }
-            existing.remove();
-        }
+        closeDiscoveryPopup();
         injectPopupStyles();
 
         var serverIds = {};
@@ -533,6 +527,8 @@
         var overlay = document.createElement('div');
         overlay.id = 'jfhDiscoveryPopup';
         overlay.className = 'jfh-discovery-popup-overlay';
+        overlay._triggerBtn = btn;
+
         var popup = document.createElement('div');
         popup.className = 'jfh-discovery-popup';
         popup.setAttribute('role', 'dialog');
@@ -585,7 +581,7 @@
         var cancelBtn = document.createElement('button');
         cancelBtn.className = 'jfh-discovery-popup-cancel';
         cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', closeDiscoveryPopup);
+        cancelBtn.addEventListener('click', function () { closeDiscoveryPopup(); });
         popup.appendChild(cancelBtn);
 
         overlay.appendChild(popup);
@@ -603,14 +599,20 @@
      * Removes the Escape keydown listener, removes the overlay element from the DOM,
      * and restores focus to the triggering button.
      *
-     * @param {Function} onEscHandler - The keydown listener that was registered for this popup.
-     * @param {HTMLElement} triggerBtn - The button that opened the popup (receives focus back).
+     * @param {HTMLElement} [triggerBtn] - Optional triggering button to restore focus to.
      */
-    function closeDiscoveryPopup(onEscHandler, triggerBtn) {
-        document.removeEventListener('keydown', onEscHandler);
+    function closeDiscoveryPopup(triggerBtn) {
         var el = document.getElementById('jfhDiscoveryPopup');
-        if (el) el.remove();
-        triggerBtn?.focus();
+        if (el) {
+            if (el._onEsc) {
+                document.removeEventListener('keydown', el._onEsc);
+            }
+            var btnToFocus = triggerBtn || el._triggerBtn;
+            el.remove();
+            if (btnToFocus && typeof btnToFocus.focus === 'function') {
+                btnToFocus.focus();
+            }
+        }
     }
 
     function injectPopupStyles() {
@@ -723,16 +725,14 @@
      * Reuses the same popup overlay pattern as the profile selector.
      */
     function showDismissConfirmation(tmdbId, mediaType, title, btn) {
-        var existing = document.getElementById('jfhDiscoveryPopup');
-        if (existing) {
-            if (existing._onEsc) document.removeEventListener('keydown', existing._onEsc);
-            existing.remove();
-        }
+        closeDiscoveryPopup();
         injectPopupStyles();
 
         var overlay = document.createElement('div');
         overlay.id = 'jfhDiscoveryPopup';
         overlay.className = 'jfh-discovery-popup-overlay';
+        overlay._triggerBtn = btn;
+
         var popup = document.createElement('div');
         popup.className = 'jfh-discovery-popup';
         popup.setAttribute('role', 'dialog');
@@ -771,7 +771,7 @@
         var cancelBtn = document.createElement('button');
         cancelBtn.className = 'jfh-discovery-popup-cancel';
         cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', closeDiscoveryPopup);
+        cancelBtn.addEventListener('click', function () { closeDiscoveryPopup(); });
         popup.appendChild(cancelBtn);
 
         overlay.appendChild(popup);
