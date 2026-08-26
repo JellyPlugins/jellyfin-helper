@@ -149,7 +149,7 @@ if [[ "$(uname -s)" = "Linux" ]]; then
 fi
 
 # --- 4. bring up the stack --------------------------------------------------
-log "Starting stack (Jellyfin 12.0-rc5 + mock Arr/Seerr)"
+log "Starting stack (Jellyfin 12.0-rc6 + mock Arr/Seerr)"
 "${COMPOSE[@]}" up -d --build
 
 log "Waiting for Jellyfin to become healthy"

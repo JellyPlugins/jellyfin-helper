@@ -2,7 +2,7 @@
  * Playwright global setup - runs once before any test, after scripts/run.sh has
  * brought the stack up and generated the fake media.
  *
- * Steps (all via Jellyfin's HTTP API, verified against the 12.0-rc source):
+ * Steps (all via Jellyfin's HTTP API, verified against the 12.0 source):
  *   1. Complete the first-run startup wizard (Configuration -> User -> RemoteAccess -> Complete).
  *   2. Authenticate as the new admin -> capture AccessToken + userId.
  *   3. Create Movies + Shows libraries pointing at the mounted fake media.
