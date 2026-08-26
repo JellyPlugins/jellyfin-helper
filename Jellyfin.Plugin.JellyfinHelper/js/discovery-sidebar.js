@@ -576,7 +576,7 @@
                 item.appendChild(defaultSpan);
             }
             item.addEventListener('click', (function (sid, pid, rf) {
-                return function () { closePopup(); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
+                return function () { closeDiscoveryPopup(); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
             })(prof.ServerId, prof.ProfileId, prof.RootFolder));
             list.appendChild(item);
         }
@@ -585,25 +585,17 @@
         var cancelBtn = document.createElement('button');
         cancelBtn.className = 'jfh-discovery-popup-cancel';
         cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', closePopup);
+        cancelBtn.addEventListener('click', closeDiscoveryPopup);
         popup.appendChild(cancelBtn);
 
         overlay.appendChild(popup);
         document.body.appendChild(overlay);
         // Move focus into the dialog for keyboard accessibility
         cancelBtn.focus();
-        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
-        function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
+        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeDiscoveryPopup(); });
+        function onEsc(ev) { if (ev.key === 'Escape') closeDiscoveryPopup(); }
         document.addEventListener('keydown', onEsc);
         overlay._onEsc = onEsc;
-
-        function closePopup() {
-            document.removeEventListener('keydown', onEsc);
-            var el = document.getElementById('jfhDiscoveryPopup');
-            if (el) el.remove();
-            // Restore focus to the triggering button
-            if (btn && btn.focus) btn.focus();
-        }
     }
 
     /**
@@ -770,7 +762,7 @@
         confirmBtn.style.color = '#e74c3c';
         confirmBtn.textContent = t('discoveryDismissConfirm', 'Yes, dismiss');
         confirmBtn.addEventListener('click', function () {
-            closePopup();
+            closeDiscoveryPopup();
             executeDismiss(tmdbId, mediaType, btn);
         });
         list.appendChild(confirmBtn);
@@ -779,25 +771,17 @@
         var cancelBtn = document.createElement('button');
         cancelBtn.className = 'jfh-discovery-popup-cancel';
         cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', closePopup);
+        cancelBtn.addEventListener('click', closeDiscoveryPopup);
         popup.appendChild(cancelBtn);
 
         overlay.appendChild(popup);
         document.body.appendChild(overlay);
         // Move focus into the dialog for keyboard accessibility
         cancelBtn.focus();
-        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
-        function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
+        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeDiscoveryPopup(); });
+        function onEsc(ev) { if (ev.key === 'Escape') closeDiscoveryPopup(); }
         document.addEventListener('keydown', onEsc);
         overlay._onEsc = onEsc;
-
-        function closePopup() {
-            document.removeEventListener('keydown', onEsc);
-            var el = document.getElementById('jfhDiscoveryPopup');
-            if (el) el.remove();
-            // Restore focus to the triggering button
-            if (btn && btn.focus) btn.focus();
-        }
     }
 
     /**
