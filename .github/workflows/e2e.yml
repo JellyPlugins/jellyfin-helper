@@ -25,10 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # Bumped from 30 to 45 while diagnosing rc-6 UI test timeouts — ensures
-    # Playwright can finish reporting + upload traces even when tests time out.
-    # TODO: revert to 30 once the openDashboard fallback is confirmed working.
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
