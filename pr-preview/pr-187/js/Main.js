@@ -1,56 +1,53 @@
-// --- Main / Page Initialization ---
 'use strict';
 
 function initTabs() {
     var tabBtns = document.querySelectorAll('.tab-btn');
     for (const tabBtn of tabBtns) {
         tabBtn.addEventListener('click', function () {
-            var tabId = tabBtn.dataset.tab;
+            var clickedBtn = this;
+            var tabId = clickedBtn.dataset.tab;
 
-            // Check if we're leaving the settings tab with unsaved changes
             var currentActive = document.querySelector('.tab-btn.active');
-            var currentTab = currentActive ? currentActive.dataset.tab
-                : '';
+            var currentTab = currentActive ? currentActive.dataset.tab : null;
+
             if (currentTab === 'settings' && tabId !== 'settings'
                 && typeof checkUnsavedAndProceed === 'function') {
                 checkUnsavedAndProceed(function () {
-                    doTabSwitch(tabBtn, tabId);
+
+                    var refreshedBtn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]') || clickedBtn;
+                    doTabSwitch(refreshedBtn, tabId);
                 });
                 return;
             }
 
-            doTabSwitch(tabBtn, tabId);
+            doTabSwitch(clickedBtn, tabId);
         });
     }
 }
 
 function doTabSwitch(clickedBtn, tabId) {
-    // Cleanup previous tab (e.g. stop auto-refresh timers) - only if leaving the logs tab
     var previousTab = document.querySelector('.tab-content.active');
     if (previousTab?.id === 'tab-logs' && typeof destroyLogsTab === 'function') {
         destroyLogsTab();
     }
 
-    // Deactivate all
     var allBtns = document.querySelectorAll('.tab-btn');
     var allContent = document.querySelectorAll('.tab-content');
     for (const btn of allBtns) {
-        btn.classList.remove(
-            'active');
+        btn.classList.remove('active');
     }
     for (const content of allContent) {
-        content.classList.remove(
-            'active');
+        content.classList.remove('active');
     }
 
-    // Activate selected
-    clickedBtn.classList.add('active');
+    if (clickedBtn) {
+        clickedBtn.classList.add('active');
+    }
     var target = document.getElementById('tab-' + tabId);
     if (target) {
         target.classList.add('active');
     }
 
-    // Initialize tab-specific logic
     if (tabId === 'recommendations' && typeof initRecommendationsTab === 'function') {
         initRecommendationsTab();
     }
@@ -58,8 +55,6 @@ function doTabSwitch(clickedBtn, tabId) {
         initLogsTab();
     }
 }
-
-// formatTimeAgo is now in Shared.js
 
 // Update the "Last Scan" badge in the header
 function updateLastScanBadge(utcTimestamp) {
