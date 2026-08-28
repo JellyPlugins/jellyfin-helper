@@ -8,11 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Training;
 
 /// <summary>
-///     Tests for the Phase-2 organic-watch path of <see cref="TrainingDataBuilder.BuildExamples"/>.
-///     Organic examples are items the user found and watched on their own (never recommended),
-///     which supply positive signal the recommendation-feedback path misses. These tests pin the
-///     per-series aggregation, the standalone-item feature computation from cross-user cached
-///     metadata, and the favorite/abandoned label split.
+///     Tests for the Phase-2 organic-watch path of BuildExamples. Organic examples are items the user found and watched on their own (never recommended), which supply positive signal the recommendation-feedback path misses.
 /// </summary>
 public sealed class TrainingDataBuilderOrganicTests
 {
@@ -21,9 +17,7 @@ public sealed class TrainingDataBuilderOrganicTests
     [Fact]
     public void BuildExamples_OrganicUserWithoutPriorResults_EmitsOrganicExample()
     {
-        // User B has organic watches but no prior RecommendationResult, so the per-user
-        // recommended-set lookup misses and falls back to empty - letting B's watched item
-        // through as an organic discovery. User A carries the only prior result.
+        // User B has organic watches but no prior RecommendationResult, so the per-user recommended-set lookup misses and falls back to empty - letting B's watched item through as an organic discovery.
         var userA = Guid.NewGuid();
         var userB = Guid.NewGuid();
         var itemA = Guid.NewGuid();
@@ -73,9 +67,7 @@ public sealed class TrainingDataBuilderOrganicTests
     [Fact]
     public void BuildExamples_OrganicSeriesEpisodes_EmitOneAggregatedExample()
     {
-        // Several organically watched episodes of a never-recommended series must collapse into a
-        // single aggregated example (not one per episode), so OrganicCount is 1 and exactly one
-        // organic example (weight 0.7) is emitted for the series.
+        // Several organically watched episodes of a never-recommended series must collapse into a single aggregated example (not one per episode), so OrganicCount is 1 and exactly one organic example (weight 0.7) is emitted for the series.
         var user = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
 
@@ -113,9 +105,7 @@ public sealed class TrainingDataBuilderOrganicTests
     [Fact]
     public void BuildExamples_OrganicStandaloneMovie_ComputesStudioTagAndBoxSetFeatures()
     {
-        // User B organically watches a standalone movie whose metadata (studios/tags/BoxSet) is
-        // only known because the SAME item was recommended to user A. Those cross-user cached
-        // lookups must resolve real feature values for B's organic example.
+        // User B organically watches a standalone movie whose metadata (studios/tags/BoxSet) is only known because the SAME item was recommended to user A.
         var userA = Guid.NewGuid();
         var userB = Guid.NewGuid();
         var movieId = Guid.NewGuid();
@@ -198,10 +188,7 @@ public sealed class TrainingDataBuilderOrganicTests
     [Fact]
     public void BuildExamples_OrganicFavoriteAndAbandoned_LabelledDistinctly()
     {
-        // Two standalone organic items exercise both non-default arms of the organic label switch:
-        // a favorite-only item (not played, no playback progress) is explicit interest (0.65),
-        // while a started-but-abandoned item (playback below the abandoned threshold) is active
-        // rejection (AbandonedLabel).
+        // Two standalone organic items exercise both non-default arms of the organic label switch: a favorite-only item (not played, no playback progress) is explicit interest (0.65), while a started-but-abandoned item (playback below the abandoned threshold) is active rejection.
         var user = Guid.NewGuid();
         var favoriteId = Guid.NewGuid();
         var abandonedId = Guid.NewGuid();

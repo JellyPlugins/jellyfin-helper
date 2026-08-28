@@ -130,9 +130,7 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void Sanitize_MaxSizeTimeline_5000Points_NoTrimming_CompletesWithin500ms()
     {
-        // Arrange: BackupData with exactly MaxTimelineDataPoints (5,000) - no trimming expected
-        // Threshold: 500ms accounts for validation overhead (path sanitization, Arr instance checks)
-        // and CI runner variance. No trimming occurs at this size, so the budget is generous.
+        // Arrange: BackupData with exactly MaxTimelineDataPoints (5,000) - no trimming expected Threshold: 500ms accounts for validation overhead (path sanitization, Arr instance checks) and CI runner variance.
         var backup = CreateLargeBackup(timelinePoints: 5_000, baselineDirs: 100, arrInstances: 2);
 
         // Act

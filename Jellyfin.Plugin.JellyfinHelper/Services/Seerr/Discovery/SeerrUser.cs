@@ -39,9 +39,7 @@ public sealed class SeerrUser
     public string? JellyfinUserId { get; set; }
 
     /// <summary>
-    ///     Gets or sets the permission bitmask for this user.
-    ///     Encodes capabilities such as REQUEST, MANAGE_REQUESTS, ADMIN, etc.
-    ///     See <see cref="SeerrPermissions"/> for flag definitions.
+    ///     Gets or sets the permission bitmask for this user. Encodes capabilities such as REQUEST, MANAGE_REQUESTS, ADMIN, etc.
     /// </summary>
     [JsonPropertyName("permissions")]
     public long Permissions { get; set; }

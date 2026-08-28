@@ -96,13 +96,10 @@ public class ArrIntegrationControllerTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(payload.Message));
     }
 
-    // ===== Masked-key sentinel resolution =====
-
     private const string ApiKeyMask = "********";
 
     /// <summary>
-    ///     Builds a mock handler that captures the outgoing <c>X-Api-Key</c> header so a test can
-    ///     assert which key was actually sent upstream (real key vs the mask sentinel).
+    ///     Builds a mock handler that captures the outgoing X-Api-Key header so a test can assert which key was actually sent upstream (real key vs the mask sentinel).
     /// </summary>
     private static (Mock<HttpMessageHandler> Handler, Func<string?> GetSentKey) CreateKeyCapturingHandler(
         HttpStatusCode statusCode,
@@ -280,8 +277,6 @@ public class ArrIntegrationControllerTests : IDisposable
         Assert.Single(data.InBoth);
         Assert.Equal("Movie1", data.InBoth[0]);
     }
-
-    // ===== T1: SSRF scheme validation =====
 
     [Theory]
     [InlineData("ftp://internal-server/api")]

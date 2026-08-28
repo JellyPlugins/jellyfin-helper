@@ -5,14 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 
 /// <summary>
-///     Tests for the internal <see cref="AtomicFile" /> helper. The core contract is:
-///     <list type="bullet">
-///         <item>Successful writes replace the file with a UTF-8 (no BOM) payload.</item>
-///         <item>Temporary files created during the write are cleaned up on failure and success.</item>
-///         <item>Retry backoff triggers on transient IO errors but the final error still surfaces.</item>
-///         <item>The async overload honours <see cref="CancellationToken"/> without leaving orphans.</item>
-///     </list>
-///     Filesystem-based tests use per-test temp directories so parallel runs cannot collide.
+///     Tests for the internal AtomicFile helper. The core contract is: Successful writes replace the file with a UTF-8 (no BOM) payload.
 /// </summary>
 public sealed class AtomicFileTests : IDisposable
 {
@@ -38,8 +31,6 @@ public sealed class AtomicFileTests : IDisposable
             // Best effort - test cleanup is non-critical
         }
     }
-
-    // === WriteAllText (synchronous) ===
 
     [Fact]
     public void WriteAllText_CreatesFile_WithExactContents()
@@ -174,8 +165,6 @@ public sealed class AtomicFileTests : IDisposable
         Assert.Equal("clamped-neg", File.ReadAllText(path));
     }
 
-    // === WriteAllTextAsync ===
-
     [Fact]
     public async Task WriteAllTextAsync_CreatesFile_WithExactContents()
     {
@@ -297,18 +286,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public async Task WriteAllTextAsync_CancelledMidWrite_LeavesNoOrphansAndTargetUntouched()
     {
-        // Race-based mid-write cancellation coverage. Every iteration must respect:
-        //   Invariant #1: no *.tmp orphans left behind in the directory afterwards.
-        //   Invariant #2: target either holds OLD (cancellation won) or the new payload
-        //                 (write won); never partial content, never missing.
-        //
-        // Additionally, we require that at LEAST ONE iteration observes cancellation.
-        // Without that observation the "cleanup on cancel" branch is never exercised -
-        // exactly the code path the review flagged as untested. To make this reliable:
-        //   * enough iterations (16) to overcome scheduler jitter on fast disks,
-        //   * a very large payload (32 MB) to make the write take real wall-clock time,
-        //   * a pre-cancelled token on the LAST iteration as a deterministic fallback
-        //     so the assertion cannot flake on unusually fast hardware.
+        // Race-based mid-write cancellation coverage. Every iteration must respect: Invariant #1: no *.tmp orphans left behind in the directory afterwards.
         var path = Path.Join(_tempDir, "cancel-mid.txt");
         File.WriteAllText(path, "OLD");
 
@@ -323,9 +301,7 @@ public sealed class AtomicFileTests : IDisposable
         {
             using var cts = new CancellationTokenSource();
 
-            // Deterministic fallback: the final iteration pre-cancels the token so we
-            // guarantee at least one OperationCanceledException observation across the
-            // whole test run, independent of disk speed.
+            // Deterministic fallback: the final iteration pre-cancels the token so we guarantee at least one OperationCanceledException observation across the whole test run, independent of disk speed.
             if (iteration == iterations - 1)
             {
                 cts.Cancel();
@@ -365,9 +341,7 @@ public sealed class AtomicFileTests : IDisposable
                 $"target must never contain partial content (iteration {iteration}, length {final.Length})");
         }
 
-        // Observation contract: the pre-cancelled last iteration guarantees at least one
-        // OperationCanceledException, proving the cancellation cleanup branch was really
-        // exercised at least once during this run.
+        // Observation contract: the pre-cancelled last iteration guarantees at least one OperationCanceledException, proving the cancellation cleanup branch was really exercised at least once during this run.
         Assert.True(
             cancellationsObserved >= 1,
             $"expected at least one iteration to observe cancellation; got {cancellationsObserved} of {iterations}");
@@ -376,9 +350,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public async Task WriteAllTextAsync_CancelledBeforeStart_LeavesNoOrphans()
     {
-        // Pure pre-start cancellation. Complement to the mid-write test above so both
-        // control paths (early ThrowIfCancellationRequested vs File.WriteAllTextAsync
-        // propagating the token) are covered independently.
+        // Pure pre-start cancellation. Complement to the mid-write test above so both control paths (early ThrowIfCancellationRequested vs File.WriteAllTextAsync propagating the token) are covered independently.
         var path = Path.Join(_tempDir, "cancel-pre.txt");
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -394,9 +366,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public async Task WriteAllTextAsync_DirectoryDoesNotExist_CreatesDirectoryAndWrites()
     {
-        // Write to a path inside a non-existent subdirectory that is a direct child of
-        // Path.GetTempPath() - deliberately outside _tempDir so the directory is guaranteed
-        // not to exist before the call.
+        // Write to a path inside a non-existent subdirectory that is a direct child of Path.GetTempPath() - deliberately outside _tempDir so the directory is guaranteed not to exist before the call.
         var subdir = Path.Combine(Path.GetTempPath(), "AtomicFileTests_NewDir_" + Guid.NewGuid().ToString("N"));
         var path = Path.Combine(subdir, "output.txt");
         const string expectedContent = "directory created automatically";
@@ -436,18 +406,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public async Task WriteAllTextAsync_TransientLockOnEveryAttempt_RetriesThenPropagatesLastError()
     {
-        // Force the move-into-place step to fail on every attempt in a platform-neutral way.
-        // A FileShare.None lock only blocks writes on Windows - POSIX advisory locks do not
-        // stop File.Delete/Move/Replace on Linux, so that trick would pass on Windows and fail
-        // in CI. Instead we make the destination an existing DIRECTORY: File.Exists(path) is
-        // false for a directory on both OSes (so the code takes the File.Move branch), and
-        // moving a file onto an existing directory name throws IOException on both Windows and
-        // Linux. The temp write itself (a sibling ".tmp" file) still succeeds, so we genuinely
-        // exercise the write-then-move failure path.
-        //
-        // With maxAttempts:2 the first failure takes the transient-retry path (temp cleanup +
-        // backoff) and the second the final path (temp cleanup + rethrow). The contract is that
-        // the pre-existing destination entry is never clobbered and no temp files are left behind.
+        // Force the move-into-place step to fail on every attempt in a platform-neutral way. A FileShare.None lock only blocks writes on Windows - POSIX advisory locks do not stop File.Delete/Move/Replace on Linux, so that trick would pass on Windows and fail in CI.
         var path = Path.Join(_tempDir, "locked-retry");
         Directory.CreateDirectory(path);
 
@@ -466,15 +425,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public async Task WriteAllTextAsync_SingleAttemptLocked_PropagatesImmediatelyWithoutRetry()
     {
-        // With maxAttempts:1 the transient guard (attempt < maxAttempts) is false, so the first
-        // move/replace failure goes straight to the final catch: clean up and rethrow, no backoff.
-        //
-        // We force that failure by pointing the destination at an existing *directory*. This is
-        // cross-platform on purpose: a FileShare.None lock only blocks File.Move/Replace on Windows
-        // (POSIX advisory locks don't stop the rename on Linux), whereas moving a temp file onto an
-        // existing directory name throws IOException on both Windows and Linux. Since the target is
-        // a directory, File.Exists(path) is false and the code takes the File.Move branch - which
-        // is exactly where the single-attempt final catch lives.
+        // With maxAttempts:1 the transient guard (attempt < maxAttempts) is false, so the first move/replace failure goes straight to the final catch: clean up and rethrow, no backoff.
         var path = Path.Join(_tempDir, "locked-single");
         Directory.CreateDirectory(path);
 
@@ -491,14 +442,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public async Task WriteAllTextAsync_CancelledDuringRetry_PropagatesAndLeavesNoOrphans()
     {
-        // Exercises cancellation on the transient-retry path. Setup: the destination is an existing
-        // *directory*, so every File.Move attempt throws IOException (cross-platform) and the code
-        // enters the retry branch with maxAttempts > 1. The token is cancelled shortly after the
-        // call starts; the retry loop observes it, either at the loop-top ThrowIfCancellationRequested
-        // or in the inter-attempt Task.Delay(BaseBackoff * attempt, token). Both are valid
-        // cancellation checkpoints on this path; the test asserts the observable contract regardless
-        // of which one fires: an OperationCanceledException propagates (no silent success) and no
-        // temp files are left behind.
+        // Exercises cancellation on the transient-retry path. Setup: the destination is an existing *directory*, so every File.Move attempt throws IOException (cross-platform) and the code enters the retry branch with maxAttempts > 1.
         var path = Path.Join(_tempDir, "cancel-retry");
         Directory.CreateDirectory(path); // destination is a directory -> File.Move always throws IOException
 

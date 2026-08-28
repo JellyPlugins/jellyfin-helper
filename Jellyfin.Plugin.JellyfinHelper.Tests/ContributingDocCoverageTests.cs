@@ -7,24 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 
 /// <summary>
-///     Documentation drift guard: every tracked source/test file under the two
-///     project directories must be listed in the CONTRIBUTING.md project-structure
-///     tree. CONTRIBUTING.md is the human-facing map of the codebase; it silently
-///     rots the moment a file is added without a matching tree entry.
-///     <para>
-///         Scope: <c>.cs</c>, <c>.html</c>, <c>.css</c>, and <c>.js</c> files under
-///         <c>Jellyfin.Plugin.JellyfinHelper/</c> and
-///         <c>Jellyfin.Plugin.JellyfinHelper.Tests/</c>. Build output (<c>bin/</c>,
-///         <c>obj/</c>) and the generated <c>PluginPages/configPage.html</c> (git-ignored,
-///         composed at build time) are excluded - they are not source and must not be
-///         documented.
-///     </para>
-///     <para>
-///         To satisfy this when adding a file: add its filename to the appropriate
-///         tree in CONTRIBUTING.md (Project Structure or Test Structure). A bare
-///         <c>│   ├── Foo.cs</c> line is enough - the guard only checks the filename
-///         is present, not that it carries a description.
-///     </para>
+///     Documentation drift guard: every tracked source/test file under the two project directories must be listed in the CONTRIBUTING.md project-structure tree.
 /// </summary>
 public sealed class ContributingDocCoverageTests
 {

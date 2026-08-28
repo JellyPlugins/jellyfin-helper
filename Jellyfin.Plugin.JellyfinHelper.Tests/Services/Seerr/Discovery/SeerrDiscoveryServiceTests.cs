@@ -118,9 +118,7 @@ public class SeerrDiscoveryServiceTests
     [Fact]
     public async Task SubmitRequestAsync_NegativeTmdbId_ReturnsFalse()
     {
-        // BUG GUARD: the guard is `tmdbId <= 0`, so -1 must be rejected just like 0.
-        // A regression to `tmdbId == 0` would silently accept negative IDs and attempt
-        // to submit a structurally invalid request to Seerr.
+        // BUG GUARD: the guard is `tmdbId <= 0`, so -1 must be rejected just like 0. A regression to `tmdbId == 0` would silently accept negative IDs and attempt to submit a structurally invalid request to Seerr.
         var service = CreateService();
         var (success, message) = await service.SubmitRequestAsync(-1, "movie", null, null, null, null, CancellationToken.None);
         Assert.False(success);
@@ -130,9 +128,7 @@ public class SeerrDiscoveryServiceTests
     [Fact]
     public async Task SubmitRequestAsync_TvMediaType_SeerrNotConfigured_ReturnsFalse()
     {
-        // Symmetric counterpart to the "movie" not-configured test. The media-type gate
-        // ("movie" or "tv") must pass before the config check is reached - this verifies
-        // that "tv" is accepted as a valid type and the pipeline continues to the config check.
+        // Symmetric counterpart to the "movie" not-configured test. The media-type gate ("movie" or "tv") must pass before the config check is reached - this verifies that "tv" is accepted as a valid type and the pipeline continues to the config check.
         var prevUrl = Plugin.Instance?.Configuration?.SeerrUrl;
         var prevKey = Plugin.Instance?.Configuration?.SeerrApiKey;
         try
@@ -194,9 +190,7 @@ public class SeerrDiscoveryServiceTests
     [Fact]
     public async Task SubmitRequestAsync_NullMediaType_ReturnsFalse()
     {
-        // Null mediaType must be treated the same as an invalid type string - the
-        // null-coalescing in `mediaType?.Trim().ToLowerInvariant() ?? string.Empty` turns it
-        // into "", which is neither "movie" nor "tv".
+        // Null mediaType must be treated the same as an invalid type string - the null-coalescing in `mediaType?.Trim().ToLowerInvariant() ?? string.Empty` turns it into "", which is neither "movie" nor "tv".
         var service = CreateService();
         var (success, message) = await service.SubmitRequestAsync(123, null!, null, null, null, null, CancellationToken.None);
         Assert.False(success);

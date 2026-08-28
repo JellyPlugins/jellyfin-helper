@@ -6,9 +6,7 @@ using Xunit.Abstractions;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 
 /// <summary>
-///     Performance tests for GrowthTimelineService pure methods.
-///     These tests verify that timeline computation stays within acceptable time bounds
-///     even with large datasets. Run with: dotnet test --filter "Category=Performance"
+///     Performance tests for GrowthTimelineService pure methods. These tests verify that timeline computation stays within acceptable time bounds even with large datasets.
 /// </summary>
 public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
 {

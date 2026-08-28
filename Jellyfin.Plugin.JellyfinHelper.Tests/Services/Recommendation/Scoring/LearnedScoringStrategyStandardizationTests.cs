@@ -4,10 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Exercises the internal Z-score helpers of <see cref="LearnedScoringStrategy"/>:
-///     <see cref="LearnedScoringStrategy.ComputeFeatureStatistics"/> (mean / Bessel-corrected
-///     std-dev, empty-input guard, malformed-vector guard) and
-///     <see cref="LearnedScoringStrategy.StandardizeSingleVector"/> (near-zero-std-dev passthrough).
+///     Exercises the internal Z-score helpers of LearnedScoringStrategy: ComputeFeatureStatistics (mean / Bessel-corrected std-dev, empty-input guard, malformed-vector guard) and StandardizeSingleVector (near-zero-std-dev passthrough).
 /// </summary>
 public sealed class LearnedScoringStrategyStandardizationTests
 {
@@ -43,9 +40,7 @@ public sealed class LearnedScoringStrategyStandardizationTests
     [Fact]
     public void ComputeFeatureStatistics_KnownValues_ComputesMeanAndBesselCorrectedStdDev()
     {
-        // Two vectors differing only in GenreSimilarity (0.0 and 1.0). Mean = 0.5 and the
-        // sample std-dev uses the n-1 denominator: sqrt(((0-.5)^2 + (1-.5)^2)/1) = sqrt(0.5).
-        // A population (n) denominator would instead give 0.5, so this pins the Bessel path.
+        // Two vectors differing only in GenreSimilarity (0.0 and 1.0). Mean = 0.5 and the sample std-dev uses the n-1 denominator: sqrt(((0-.5)^2 + (1-.5)^2)/1) = sqrt(0.5).
         var genreIdx = (int)FeatureIndex.GenreSimilarity;
         var a = new double[CandidateFeatures.FeatureCount];
         var b = new double[CandidateFeatures.FeatureCount];

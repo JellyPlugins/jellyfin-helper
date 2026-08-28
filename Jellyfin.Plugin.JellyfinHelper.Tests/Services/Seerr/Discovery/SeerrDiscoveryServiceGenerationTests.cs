@@ -21,14 +21,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests the full <c>GenerateDiscoveryRecommendationsAsync</c> pipeline of
-///     <see cref="SeerrDiscoveryService"/>: the guard ladder (null config, not-configured,
-///     task-mode gates, no active profiles), the per-user generate->dedup->pre-score->enrich->score
-///     ->persist path, the child-account genre routing, language queries, per-user exclusion
-///     merging, credits enrichment, and the Radarr/Sonarr library exclusion set.
-///     Belongs to <c>ConfigOverride</c> because it mutates <c>Plugin.Instance.Configuration</c>.
-///     Reuses the <see cref="ScriptedHttpHandler"/> defined alongside
-///     <see cref="SeerrDiscoveryServiceHttpTests"/>.
+///     Tests the full GenerateDiscoveryRecommendationsAsync pipeline of SeerrDiscoveryService: the guard ladder (null config, not-configured, task-mode gates, no active profiles), the per-user generate->dedup->pre-score->enrich->score ->persist path, the child-account genre routing, language queries,.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
@@ -113,9 +106,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         ControllerTestFactory.ResetPluginConfiguration();
     }
 
-    // ============================================================
     // Guard ladder
-    // ============================================================
 
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_PluginInstanceNull_LogsWarningAndReturns()
@@ -180,9 +171,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         Assert.False(File.Exists(_cacheFilePath));
     }
 
-    // ============================================================
     // Full generate -> persist path
-    // ============================================================
 
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_ActivateMode_PersistsResultsAndRecordsShown()
@@ -415,9 +404,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         Assert.DoesNotContain(recorded!, r => r.TmdbId == 1000);
     }
 
-    // ============================================================
     // Arr library exclusion set
-    // ============================================================
 
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_ExcludesRadarrLibraryMovies()
@@ -494,16 +481,12 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             Times.Once);
     }
 
-    // ============================================================
     // Per-user error / best-effort branches inside the full pipeline
-    // ============================================================
 
     [Fact]
     public async Task GenerateForUser_MalformedSeerrUrl_SkipsUserWithoutRecordingShown()
     {
-        // Non-empty but unparseable URL passes GenerateDiscovery's whitespace guard, then the
-        // per-user ValidateSeerrConfig throws UriFormatException. That user's generation returns
-        // null (caught per-user) and the run completes without recording feedback for them.
+        // Non-empty but unparseable URL passes GenerateDiscovery's whitespace guard, then the per-user ValidateSeerrConfig throws UriFormatException.
         Plugin.Instance!.Configuration.SeerrUrl = "not-a-url";
         var profile = NewProfile();
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
@@ -541,9 +524,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscovery_DiscoverQueryTimesOut_SkipsThoseCandidatesAndContinues()
     {
-        // Two top genres: the first query times out (TaskCanceledException with a NON-cancelled
-        // token = upstream timeout), the second succeeds. The timeout catch returns [] for that
-        // query instead of aborting the whole run.
+        // Two top genres: the first query times out (TaskCanceledException with a NON-cancelled token = upstream timeout), the second succeeds.
         var profile = NewProfile();
         profile.GenreDistribution = new Dictionary<string, int> { ["Action"] = 10, ["Comedy"] = 8 };
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
@@ -658,9 +639,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscovery_CreditsDetailMalformedJson_LeavesKnownPeopleNullAndContinues()
     {
-        // Detail returns HTTP 200 with invalid JSON -> JsonException inside the per-candidate
-        // enrichment task, which is caught. Generation still persists the candidate with
-        // KnownPeople unpopulated.
+        // Detail returns HTTP 200 with invalid JSON -> JsonException inside the per-candidate enrichment task, which is caught.
         var profile = NewProfile();
         profile.PeopleProfile["Christopher Nolan"] = 5;
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
@@ -679,9 +658,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         Assert.True(rec.KnownPeople is null or { Count: 0 });
     }
 
-    // ============================================================
     // Helpers
-    // ============================================================
 
     private static Collection<UserWatchProfile> Profiles(params UserWatchProfile[] profiles)
     {

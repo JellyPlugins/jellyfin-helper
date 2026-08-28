@@ -170,9 +170,7 @@ public class MediaStatisticsServiceTvShowTests
     [Fact]
     public void CalculateStatistics_SpecialsWithoutEpisodes_ShouldNotBeOrphanedIfMetadataExists()
     {
-        // Specials folder often contains its own metadata (images) even if no episodes are currently there
-        // Actually, if it has metadata but no episodes, it might be seen as orphaned by current logic.
-        // But if it's named "Specials" or "Season 00", it should probably be ignored in TV libraries.
+        // Specials folder often contains its own metadata (images) even if no episodes are currently there Actually, if it has metadata but no episodes, it might be seen as orphaned by current logic.
 
         var libraryPath = TestPath("media", "tv");
         var seriesPath = TestPath("media", "tv", "Series 1");

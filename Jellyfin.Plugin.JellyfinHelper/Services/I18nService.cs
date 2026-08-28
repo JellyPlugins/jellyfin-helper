@@ -11,9 +11,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
-///     Provides internationalization (i18n) support for the plugin dashboard.
-///     Loads translations from embedded JSON resource files in the i18n folder.
-///     Supports: en, de, fr, es, pt, zh, tr, sv.
+///     Provides internationalization (i18n) support for the plugin dashboard. Loads translations from embedded JSON resource files in the i18n folder.
 /// </summary>
 public static class I18NService
 {
@@ -31,9 +29,7 @@ public static class I18NService
     }.AsReadOnly();
 
     /// <summary>
-    ///     Gets all translation strings for the specified language.
-    ///     Falls back to English for unknown languages.
-    ///     Returns a new dictionary instance on every call.
+    ///     Gets all translation strings for the specified language. Falls back to English for unknown languages.
     /// </summary>
     /// <param name="languageCode">The ISO 639-1 language code.</param>
     /// <param name="pluginLog">Optional plugin log service for diagnostics.</param>

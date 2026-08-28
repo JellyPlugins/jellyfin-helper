@@ -256,8 +256,6 @@ public class MediaStatisticsResultTests
         Assert.Equal(8000L, result.TotalMusicAudioCodecSizes["flac"]);
     }
 
-    // ===== Health Checks =====
-
     [Fact]
     public void TotalVideosWithoutSubtitles_SumsAcrossLibraries()
     {
@@ -293,8 +291,6 @@ public class MediaStatisticsResultTests
         result.Libraries.Add(new LibraryStatistics { OrphanedMetadataDirectories = 20 });
         Assert.Equal(30, result.TotalOrphanedMetadataDirectories);
     }
-
-    // ===== Detail Paths =====
 
     [Fact]
     public void TotalVideosWithoutSubtitlesPaths_AggregatesPaths()
@@ -342,8 +338,6 @@ public class MediaStatisticsResultTests
         Assert.Single(result.TotalOrphanedMetadataDirectoriesPaths);
     }
 
-    // ===== Root Paths =====
-
     [Fact]
     public void MovieRootPaths_AggregatesFromMovies()
     {
@@ -383,8 +377,6 @@ public class MediaStatisticsResultTests
         result.Other.Add(lib);
         Assert.Contains("/media/other", result.OtherRootPaths);
     }
-
-    // ===== Empty Collections =====
 
     [Fact]
     public void AllTotals_ReturnZero_WhenEmpty()

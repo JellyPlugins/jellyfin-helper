@@ -107,8 +107,7 @@ public class LibraryStatistics
     public int BookFileCount { get; set; }
 
     /// <summary>
-    /// Gets the eBook format breakdown (format label -> count), e.g. "EPUB" -> 42. Populated only
-    /// when the library actually contains eBooks, so the UI can show a Books section conditionally.
+    ///     Gets the eBook format breakdown (format label -> count), e.g. "EPUB" -> 42.
     /// </summary>
     public Dictionary<string, int> BookFormats { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -121,8 +120,6 @@ public class LibraryStatistics
     /// Gets the total size of all files in this library in bytes.
     /// </summary>
     public long TotalSize => VideoSize + SubtitleSize + ImageSize + NfoSize + AudioSize + TrickplaySize + BookSize + OtherSize;
-
-    // === Codec/Quality Breakdown ===
 
     /// <summary>
     /// Gets the container format breakdown (extension -> count), e.g. "MKV" -> 150.
@@ -140,14 +137,12 @@ public class LibraryStatistics
     public Dictionary<string, int> VideoCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the audio codec breakdown for video files (codec -> count), e.g. "DTS-HD MA" -> 40, "AAC" -> 30.
-    /// Extracted from Jellyfin MediaStream metadata with filename-based fallback.
+    ///     Gets the audio codec breakdown for video files (codec -> count), e.g. "DTS-HD MA" -> 40, "AAC" -> 30.
     /// </summary>
     public Dictionary<string, int> VideoAudioCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the audio codec breakdown for music files (codec -> count), e.g. "FLAC" -> 100, "MP3" -> 50.
-    /// Extracted from Jellyfin MediaStream metadata with extension-based fallback.
+    ///     Gets the audio codec breakdown for music files (codec -> count), e.g. "FLAC" -> 100, "MP3" -> 50.
     /// </summary>
     public Dictionary<string, int> MusicAudioCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -187,8 +182,6 @@ public class LibraryStatistics
     /// </summary>
     public Dictionary<string, long> DynamicRangeSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    // === Codec File Path Tracking ===
-
     /// <summary>
     /// Gets the video codec file paths (codec -> list of file paths).
     /// </summary>
@@ -219,8 +212,6 @@ public class LibraryStatistics
     /// </summary>
     public Dictionary<string, Collection<string>> DynamicRangePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    // === Health Check Counters ===
-
     /// <summary>
     /// Gets or sets the number of video files without any subtitle file in the same directory.
     /// </summary>
@@ -240,8 +231,6 @@ public class LibraryStatistics
     /// Gets or sets the number of directories with only metadata but no video (orphaned metadata).
     /// </summary>
     public int OrphanedMetadataDirectories { get; set; }
-
-    // === Health Check Detail Paths ===
 
     /// <summary>
     /// Gets the list of video file paths that have no subtitle file in the same directory.

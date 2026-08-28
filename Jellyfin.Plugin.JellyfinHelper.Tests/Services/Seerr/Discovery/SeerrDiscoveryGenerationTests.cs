@@ -18,24 +18,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests <see cref="SeerrDiscoveryService.GenerateDiscoveryRecommendationsAsync"/> -
-///     the largest previously-uncovered method in the discovery module.
-///     <para>
-///         The HTTP happy paths are covered by <see cref="SeerrDiscoveryServiceHttpTests"/>,
-///         but the outer task-mode orchestration (Deactivate short-circuit, "no configured
-///         Seerr" guard, "no active users" guard, cancellation propagation) was untested.
-///         Those branches made up the bulk of the class's ~53% uncovered surface.
-///     </para>
-///     <para>
-///         BUG SURFACES pinned:
-///         <list type="bullet">
-///             <item>Deactivate short-circuits BEFORE touching the watch-history service.</item>
-///             <item>Missing SeerrUrl/ApiKey short-circuits before profile fetch.</item>
-///             <item>No active users -> no HTTP calls, no cache writes, no feedback recording.</item>
-///             <item>Cancellation propagates out of the per-user loop.</item>
-///             <item>DryRun mode never persists cache or feedback (preview semantics).</item>
-///         </list>
-///     </para>
+///     Tests GenerateDiscoveryRecommendationsAsync - the largest previously-uncovered method in the discovery module.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryGenerationTests : IDisposable
@@ -97,9 +80,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_ConfigMissing_ReturnsWithoutError()
     {
-        // BUG GUARD: empty SeerrUrl/ApiKey must short-circuit BEFORE fetching profiles.
-        // A regression that fetched anyway would spike the DB on every scheduled tick
-        // for admins who never configured Seerr.
+        // BUG GUARD: empty SeerrUrl/ApiKey must short-circuit BEFORE fetching profiles. A regression that fetched anyway would spike the DB on every scheduled tick for admins who never configured Seerr.
         Plugin.Instance!.Configuration.SeerrUrl = string.Empty;
         Plugin.Instance!.Configuration.SeerrApiKey = string.Empty;
 
@@ -111,9 +92,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_TaskModeDeactivate_ShortCircuits()
     {
-        // BUG GUARD: TaskMode.Deactivate MUST short-circuit BEFORE any HTTP or DB work,
-        // even with a fully-configured Seerr. Otherwise the task fires a full discovery
-        // batch every 6h for opted-out admins.
+        // BUG GUARD: TaskMode.Deactivate MUST short-circuit BEFORE any HTTP or DB work, even with a fully-configured Seerr.
         Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.com";
         Plugin.Instance!.Configuration.SeerrApiKey = "test-key";
         Plugin.Instance!.Configuration.RecommendationsTaskMode = TaskMode.Deactivate;
@@ -189,10 +168,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        // The outer cancellation check at the top of the per-user loop (or during
-        // `BuildExclusionSetAsync`) MUST fire before any real HTTP work happens.
-        // If a regression removed the token check entirely the test would still fail
-        // because the scripted handler propagates cancellation from SendAsync.
+        // The outer cancellation check at the top of the per-user loop (or during `BuildExclusionSetAsync`) MUST fire before any real HTTP work happens.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
             await _sut.GenerateDiscoveryRecommendationsAsync(cts.Token));
     }
@@ -201,9 +177,6 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
     public async Task GenerateDiscoveryRecommendationsAsync_DryRunMode_DoesNotCallFeedbackRecord()
     {
         // BUG GUARD: DryRun mode must NEVER persist to disk or record shown feedback.
-        // A regression treating DryRun as "same as Activate but skip only the cache write"
-        // would still populate the feedback store - leaving stale training data from a
-        // preview run that never surfaced recommendations to users.
         Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.com";
         Plugin.Instance!.Configuration.SeerrApiKey = "test-key";
         Plugin.Instance!.Configuration.RecommendationsTaskMode = TaskMode.DryRun;

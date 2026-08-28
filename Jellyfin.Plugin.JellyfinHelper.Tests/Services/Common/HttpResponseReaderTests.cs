@@ -10,16 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 
 /// <summary>
-///     Tests for <see cref="HttpResponseReader.ReadLimitedAsync" /> and its internal size-bounded
-///     stream. Contract:
-///     <list type="bullet">
-///         <item>A body under the limit is returned verbatim.</item>
-///         <item>A body of EXACTLY the limit is returned (the reader's final EOF probe must not throw).</item>
-///         <item>A body over the limit throws <see cref="ResponseTooLargeException" />, whether detected
-///               via the declared <c>Content-Length</c> (fast reject) or the streaming byte counter
-///               (chunked / lying-length responses).</item>
-///         <item>Null content and a cancelled token are surfaced as the expected exception types.</item>
-///     </list>
+///     Tests for ReadLimitedAsync and its internal size-bounded stream. Contract: A body under the limit is returned verbatim.
 /// </summary>
 public sealed class HttpResponseReaderTests
 {
@@ -151,9 +142,7 @@ public sealed class HttpResponseReaderTests
     [Fact]
     public async Task ReadLimitedAsync_NonBomUtf16Charset_DecodesUsingDeclaredCharset()
     {
-        // Regression guard: a UTF-16 response with NO byte-order mark would decode as garbage under
-        // the StreamReader UTF-8 default. When the Content-Type declares charset=utf-16, the reader
-        // must honor it. Encoding.Unicode.GetBytes emits no BOM, so only the header carries the hint.
+        // Regression guard: a UTF-16 response with NO byte-order mark would decode as garbage under the StreamReader UTF-8 default.
         const string body = "{\"title\":\"Ünïcödé ✓\"}";
         var payload = Encoding.Unicode.GetBytes(body);
         using var content = new ByteArrayContent(payload);

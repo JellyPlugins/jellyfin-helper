@@ -4,21 +4,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Training;
 
 /// <summary>
-///     Tests for <see cref="TrainingDataBuilder.ComputeCollectionProgressionBoostWithCounts"/>.
-///     <para>
-///         The legacy <c>ComputeCollectionProgressionBoostFromCache</c> was
-///         removed and the surviving method has been promoted to <c>internal</c> so these tests
-///         can call it directly (no more reflection). They lock in the diminishing-returns
-///         scale <c>0.3 + (n-1) × 0.2, clamped [0,1]</c> that is shared with the inference-time
-///         <c>Engine.ComputeCollectionProgressionBoostLive</c>, protecting the ML feature's
-///         train/serve parity should either copy drift in the future.
-///     </para>
+///     Tests for ComputeCollectionProgressionBoostWithCounts. The legacy ComputeCollectionProgressionBoostFromCache was removed and the surviving method has been promoted to internal so these tests can call it directly (no more reflection).
 /// </summary>
 public sealed class CollectionProgressionBoostTests
 {
-    // ============================================================
     // Empty / zero-input guards
-    // ============================================================
 
     [Fact]
     public void WithCounts_NullBoxSetIds_ReturnsZero()
@@ -73,10 +63,8 @@ public sealed class CollectionProgressionBoostTests
         Assert.Equal(0.0, result, 10);
     }
 
-    // ============================================================
     // Diminishing-returns scale contract (must stay in lockstep with
     // Engine.ComputeCollectionProgressionBoostLive to preserve train/serve parity)
-    // ============================================================
 
     [Fact]
     public void WithCounts_OneWatchedSibling_ReturnsBaseBoost()
@@ -163,10 +151,8 @@ public sealed class CollectionProgressionBoostTests
         Assert.Equal(1.0, result, 10);
     }
 
-    // ============================================================
     // Multi-BoxSet candidate selection: the method must pick the
     // BEST (highest progression) BoxSet a candidate belongs to
-    // ============================================================
 
     [Fact]
     public void WithCounts_MultipleBoxSets_UsesHighestProgression()
@@ -209,9 +195,7 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_MultipleBoxSets_OnlyOneWatched_UsesThatOne()
     {
-        // Only one of the candidate's BoxSets has any watched siblings.
-        // The un-watched BoxSet (missing from counts) must not contribute; the
-        // method must fall back to the watched one and NOT return 0.
+        // Only one of the candidate's BoxSets has any watched siblings. The un-watched BoxSet (missing from counts) must not contribute; the method must fall back to the watched one and NOT return 0.
         var watched = Guid.NewGuid();
         var unwatched = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { watched, 3 } };
@@ -226,9 +210,7 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_ZeroWatchedCountInMap_IsTreatedAsAbsent()
     {
-        // Defensive edge case: a BoxSet ID is present in the counts map but its
-        // count is zero (should not happen in practice, but the method must not
-        // emit a 0.3 boost for it - the "n > 0" guard in the code must hold).
+        // Defensive edge case: a BoxSet ID is present in the counts map but its count is zero (should not happen in practice, but the method must not emit a 0.3 boost for it - the "n > 0" guard in the code must hold).
         var boxSetId = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { boxSetId, 0 } };
 

@@ -13,12 +13,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
-    // Records raw-vs-clamped setter deltas so Plugin startup can surface them as a single
-    // warning instead of silently swallowing hand-edited out-of-range XML values.
-    // Private field: XmlSerializer only touches public settable properties, so no XmlIgnore needed.
+    // Records raw-vs-clamped setter deltas so Plugin startup can surface them as a single warning instead of silently swallowing hand-edited out-of-range XML values.
     private readonly ConcurrentQueue<ClampReportEntry> _clampReports = new();
 
-    // ===== Backing fields for clamped properties =====
     private int _orphanMinAgeDays;
     private int _maxRecommendationsPerUser = 20;
     private double _ensembleAlphaMin = 0.3;
@@ -30,25 +27,18 @@ public class PluginConfiguration : BasePluginConfiguration
     private List<ArrInstanceConfig> _sonarrInstances = [];
 
     /// <summary>
-    ///     Gets or sets the library names to exclude (exclude list).
-    ///     Comma-separated list of library names.
-    ///     Libraries in this list will be skipped by all cleanup tasks.
-    ///     Empty means no libraries are excluded (all are scanned).
+    ///     Gets or sets the library names to exclude (exclude list). Comma-separated list of library names.
     /// </summary>
     public string ExcludedLibraries { get; set; } = string.Empty;
 
     /// <summary>
     ///     Gets or sets the minimum age in days an orphaned item must have before it is eligible for deletion.
-    ///     This protects against race conditions with active downloads. Default is 0 (immediate).
-    ///     Valid range: 0-3650. Out-of-range values are clamped.
     /// </summary>
     public int OrphanMinAgeDays
     {
         get => _orphanMinAgeDays;
         set => _orphanMinAgeDays = ClampAndReport(nameof(OrphanMinAgeDays), value, 0, 3650);
     }
-
-    // ===== New TaskMode properties (replace old booleans) =====
 
     /// <summary>
     ///     Gets or sets the execution mode for the Trickplay Folder Cleaner task.
@@ -75,15 +65,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public TaskMode LinkRepairTaskMode { get; set; } = TaskMode.DryRun;
 
     /// <summary>
-    ///     Gets or sets the execution mode for the Seerr Cleanup task.
-    ///     Default is <see cref="TaskMode.Deactivate" /> because this task interacts with an external service.
+    ///     Gets or sets the execution mode for the Seerr Cleanup task. Default is Deactivate because this task interacts with an external service.
     /// </summary>
     public TaskMode SeerrCleanupTaskMode { get; set; } = TaskMode.Deactivate;
 
     /// <summary>
     ///     Gets or sets the maximum age in days for Seerr requests before they are cleaned up.
-    ///     Default is 365 days (1 year). Valid range: 1-3650 when Seerr is enabled; 0 means disabled.
-    ///     Out-of-range values are clamped.
     /// </summary>
     public int SeerrCleanupAgeDays
     {
@@ -102,14 +89,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SeerrApiKey { get; set; } = string.Empty;
 
     /// <summary>
-    ///     Gets or sets a value indicating whether non-admin users can access
-    ///     the Seerr Discovery page and submit media requests.
-    ///     Default is false (admin-only). When enabled, any authenticated Jellyfin user
-    ///     can see their personalized discovery recommendations and request downloads.
+    ///     Gets or sets a value indicating whether non-admin users can access the Seerr Discovery page and submit media requests.
     /// </summary>
     public bool DiscoveryUserAccessEnabled { get; set; }
-
-    // ===== Config version for migration =====
 
     /// <summary>
     ///     Gets or sets the configuration version for migration tracking.
@@ -128,7 +110,6 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the number of days to keep items in the trash before permanent deletion.
-    ///     Default is 30 days. Valid range: 0-3650. Out-of-range values are clamped.
     /// </summary>
     public int TrashRetentionDays
     {
@@ -138,11 +119,6 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the list of Radarr instances (max 3).
-    ///     Using <see cref="List{T}" /> instead of <c>Collection&lt;T&gt;</c> because
-    ///     <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
-    ///     (items are lost on deserialization when the property has a default initializer).
-    ///     Null-safety is enforced by the setter: a null assignment is replaced with an empty list
-    ///     so <see cref="GetEffectiveRadarrInstances"/> never encounters a null reference.
     /// </summary>
     [SuppressMessage(
         "Usage",
@@ -156,11 +132,6 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the list of Sonarr instances (max 3).
-    ///     Using <see cref="List{T}" /> instead of <c>Collection&lt;T&gt;</c> because
-    ///     <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
-    ///     (items are lost on deserialization when the property has a default initializer).
-    ///     Null-safety is enforced by the setter: a null assignment is replaced with an empty list
-    ///     so <see cref="GetEffectiveSonarrInstances"/> never encounters a null reference.
     /// </summary>
     [SuppressMessage(
         "Usage",
@@ -178,11 +149,8 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string Language { get; set; } = "en";
 
-    // ===== Smart Recommendations =====
-
     /// <summary>
-    ///     Gets or sets the execution mode for the Smart Recommendations task.
-    ///     Default is <see cref="TaskMode.DryRun" /> (safe mode - generates but does not persist).
+    ///     Gets or sets the execution mode for the Smart Recommendations task. Default is DryRun (safe mode - generates but does not persist).
     /// </summary>
     public TaskMode RecommendationsTaskMode { get; set; } = TaskMode.DryRun;
 
@@ -197,22 +165,14 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    ///     Gets or sets a value indicating whether recommendation results should be synced
-    ///     to per-user Jellyfin playlists visible in the native UI.
-    ///     Only effective when <see cref="RecommendationsTaskMode"/> is <see cref="TaskMode.Activate"/>.
-    ///     Default is false (opt-in feature).
+    ///     Gets or sets a value indicating whether recommendation results should be synced to per-user Jellyfin playlists visible in the native UI.
     /// </summary>
     public bool SyncRecommendationsToPlaylist { get; set; }
 
-    // RecommendationStrategy removed - Ensemble is always used (combines all methods).
-    // XmlSerializer silently ignores unknown XML elements during deserialization,
-    // so previously saved "RecommendationStrategy" values are harmlessly discarded.
+    // RecommendationStrategy removed - Ensemble is always used (combines all methods). XmlSerializer silently ignores unknown XML elements during deserialization, so previously saved "RecommendationStrategy" values are harmlessly discarded.
 
     /// <summary>
-    ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
-    ///     Controls the lower bound of learned model blending (0-1). Default is 0.3.
-    ///     Out-of-range values are clamped to [0, 1].
-    ///     The min &lt;= max invariant is enforced automatically by the <see cref="EnsembleAlphaMax"/> setter.
+    ///     Gets or sets the minimum alpha value for the ensemble scoring strategy. Controls the lower bound of learned model blending (0-1).
     /// </summary>
     public double EnsembleAlphaMin
     {
@@ -225,11 +185,7 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
-    ///     Controls the upper bound of learned model blending (0-1). Default is 0.75.
-    ///     Out-of-range values are clamped to [0, 1].
-    ///     Setting this property automatically enforces the min &lt;= max invariant via
-    ///     <see cref="NormalizeAlphaRange"/> so all code paths see a consistent range.
+    ///     Gets or sets the maximum alpha value for the ensemble scoring strategy. Controls the upper bound of learned model blending (0-1).
     /// </summary>
     public double EnsembleAlphaMax
     {
@@ -242,9 +198,7 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    ///     Gets or sets the genre penalty floor for the ensemble scoring strategy.
-    ///     Items with zero genre overlap are penalized down to this floor value. Default is 0.10.
-    ///     Out-of-range values are clamped to [0, 1].
+    ///     Gets or sets the genre penalty floor for the ensemble scoring strategy. Items with zero genre overlap are penalized down to this floor value.
     /// </summary>
     public double EnsembleGenrePenaltyFloor
     {
@@ -276,11 +230,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
 
     /// <summary>
-    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> &lt;= <see cref="EnsembleAlphaMax"/>
-    ///     regardless of property setter invocation order during XML deserialization.
-    ///     <see cref="System.Xml.Serialization.XmlSerializer"/> does not guarantee property order,
-    ///     so a persisted config with Min=0.8 and Max=0.6 could produce different final values
-    ///     depending on which setter runs first. This method should be called after deserialization.
+    ///     Normalizes the alpha range to ensure EnsembleAlphaMin &lt;= EnsembleAlphaMax regardless of property setter invocation order during XML deserialization.
     /// </summary>
     public void NormalizeAlphaRange()
     {
@@ -324,9 +274,7 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    ///     Returns any raw-vs-clamped setter deltas recorded since the last call and clears the
-    ///     internal buffer. Callers (Plugin startup) surface these as a single warning so admins
-    ///     who hand-edited the XML find out immediately that their value was silently narrowed.
+    ///     Returns any raw-vs-clamped setter deltas recorded since the last call and clears the internal buffer.
     /// </summary>
     /// <returns>The recorded clamp reports; empty when nothing was clamped.</returns>
     public IReadOnlyList<ClampReportEntry> DrainClampReports()
@@ -358,9 +306,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     private double ClampAndReport(string propertyName, double raw, double min, double max)
     {
-        // Math.Clamp passes NaN through unchanged, which would poison downstream consumers
-        // (ensemble alpha blend, genre penalty). Coerce NaN to the lower bound so the value
-        // is always finite. The raw NaN is still recorded in the report for diagnostics.
+        // Math.Clamp passes NaN through unchanged, which would poison downstream consumers (ensemble alpha blend, genre penalty).
         var clamped = double.IsNaN(raw) ? min : Math.Clamp(raw, min, max);
         if (double.IsNaN(raw) || raw < min || raw > max)
         {

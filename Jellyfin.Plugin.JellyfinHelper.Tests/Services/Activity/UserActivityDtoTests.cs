@@ -5,17 +5,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Activity;
 
 /// <summary>
-///     Tests for the activity DTOs <see cref="UserItemActivity" />, <see cref="UserActivitySummary" />,
-///     and <see cref="UserActivityResult" />.
-///     Covers default values, mutability, UTC-normalization of DateTime properties, and
-///     collection initialisation so that regressions (e.g. accidentally switching to a record,
-///     removing the UTC guard, or nulling a collection default) surface here before they ship.
+///     Tests for the activity DTOs UserItemActivity, UserActivitySummary, and UserActivityResult.
 /// </summary>
 public class UserActivityDtoTests
 {
-    // =========================================================================
     // UserItemActivity
-    // =========================================================================
 
     [Fact]
     public void UserItemActivity_Defaults_AreZeroEmptyAndFalse()
@@ -124,9 +118,7 @@ public class UserActivityDtoTests
         Assert.True(a.Equals(a));
     }
 
-    // =========================================================================
     // UserActivitySummary
-    // =========================================================================
 
     [Fact]
     public void UserActivitySummary_Defaults_AreZeroEmptyAndEmptyCollections()
@@ -274,9 +266,7 @@ public class UserActivityDtoTests
         Assert.True(a.Equals(a));
     }
 
-    // =========================================================================
     // UserActivityResult
-    // =========================================================================
 
     [Fact]
     public void UserActivityResult_Defaults_AreZeroAndEmptyCollection()

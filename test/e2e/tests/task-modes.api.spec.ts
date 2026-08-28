@@ -1,31 +1,4 @@
-/**
- * Per-stage TaskMode BEHAVIOUR proof: does each mode value actually DO what it
- * promises, at STAGE granularity?
- *
- *   Deactivate -> stage is skipped entirely (no work, no dry-run log); orphan survives.
- *   DryRun     -> stage RUNS and logs what it WOULD do, but changes nothing on disk.
- *   Activate   -> stage performs the real delete / trash move.
- *
- * The existing cleanup-fs spec proves Activate's on-disk effect and that an
- * ALL-DryRun pass deletes nothing. It cannot distinguish Deactivate from DryRun
- * (both leave files on disk) nor prove the modes are honoured INDEPENDENTLY per
- * stage in a single mixed pass. That is this file's job:
- *
- *   - Deactivate vs DryRun differ in the plugin LOG (skip line vs dry-run line),
- *     which is the only observable that tells the two "nothing changed on disk"
- *     modes apart. Asserted via GET /JellyfinHelper/Logs?source=HelperCleanup.
- *   - A mixed Activate+DryRun+Deactivate pass proves modes apply per-stage, not
- *     globally: only the Activated stage's orphan disappears.
- *   - DryRun with UseTrash:true creates NO trash (the cleanup-fs DryRun test used
- *     UseTrash:false, so it never proved the trash move is suppressed); Activate
- *     with UseTrash:true DOES route the orphan into trash.
- *   - Seerr stage: DryRun logs "would delete" and deletes nothing; Activate logs
- *     the real delete. (seerr-cleanup proves the COUNT; here we prove the mode
- *     WORDING contract the operator relies on to trust a dry run.)
- *
- * FS assertions require the container (docker exec) and skip LOUDLY without it.
- * The log/Seerr assertions need no container.
- */
+/** * Per-stage TaskMode BEHAVIOUR proof: does each mode value actually DO what it * promises, at STAGE granularity? * * Deactivate -> stage is skipped entirely (no work, no dry-run log); orphan survives. */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
 import {
@@ -133,10 +106,7 @@ async function seerrCount(): Promise<number> {
   return body.count;
 }
 
-// ---------------------------------------------------------------------------
-// Log-observable behaviour (no container needed). The plugin log is the ONLY
-// place Deactivate and DryRun are distinguishable when both leave disk untouched.
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------- Log-observable behaviour (no container needed).
 test.describe.serial('TaskMode is observable in the plugin log', () => {
   test('Deactivate emits a skip line; DryRun emits a dry-run start line - never mixed up', async () => {
     // Trickplay Deactivated, Empty-folder DryRun, in the SAME pass.
@@ -173,10 +143,7 @@ test.describe.serial('TaskMode is observable in the plugin log', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// On-disk behaviour (container required). Proves each mode's real effect and
-// that modes are honoured PER STAGE in a single pass.
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------- On-disk behaviour (container required).
 test.describe.serial('TaskMode drives the real on-disk outcome, per stage', () => {
   test.beforeEach(() => {
     ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
@@ -226,11 +193,7 @@ test.describe.serial('TaskMode drives the real on-disk outcome, per stage', () =
   });
 });
 
-// ---------------------------------------------------------------------------
-// Seerr stage mode wording - the "it only logged, it didn't touch anything"
-// contract an operator reads to trust a dry run. Count is proven in
-// seerr-cleanup.api.spec.ts; here we prove the LOG says the right thing.
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------- Seerr stage mode wording - the "it only logged, it didn't touch anything" contract an operator reads to trust a dry run.
 test.describe.serial('Seerr cleanup mode wording matches its behaviour', () => {
   test.beforeEach(async () => {
     await resetSeerrMock();

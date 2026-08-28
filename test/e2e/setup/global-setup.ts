@@ -1,18 +1,4 @@
-/**
- * Playwright global setup - runs once before any test, after scripts/run.sh has
- * brought the stack up and generated the fake media.
- *
- * Steps (all via Jellyfin's HTTP API, verified against the 12.0 source):
- *   1. Complete the first-run startup wizard (Configuration -> User -> RemoteAccess -> Complete).
- *   2. Authenticate as the new admin -> capture AccessToken + userId.
- *   3. Create Movies + Shows libraries pointing at the mounted fake media.
- *   4. Trigger a library scan (RefreshLibrary task) and wait for it to finish.
- *   5. Seed the mock-seerr user with the real Jellyfin admin GUID (so Discovery links up).
- *   6. Persist { baseUrl, token, userId, userName } to setup/auth.json for the tests.
- *
- * Idempotent-ish: if the wizard was already completed (re-run with --keep), the
- * startup POSTs will 4xx harmlessly and we fall through to authentication.
- */
+/** * Playwright global setup - runs once before any test, after scripts/run.sh has * brought the stack up and generated the fake media. */
 import { request as pwRequest, type FullConfig } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -31,9 +17,7 @@ const NORMAL_PASS = process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!';
 async function globalSetup(_config: FullConfig): Promise<void> {
   const ctx = await pwRequest.newContext({ baseURL: BASE_URL });
 
-  // Small helper: run a startup step, log its status, and don't hard-fail on a
-  // 4xx (a re-used server returns those) - but DO surface the status so a real
-  // wizard failure is visible in CI instead of silently swallowed.
+  // Small helper: run a startup step, log its status, and don't hard-fail on a 4xx (a re-used server returns those) - but DO surface the status so a real wizard failure is visible in CI instead of silently swallowed.
   const step = async (label: string, fn: () => Promise<{ status: () => number; text: () => Promise<string> }>) => {
     try {
       const res = await fn();
@@ -52,12 +36,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
     }
   };
 
-  // --- 1. startup wizard ---------------------------------------------------
-  // Source-verified JF12 flow: POST /Startup/User does NOT create a user - it
-  // configures the pre-existing default admin (renames it + sets its password).
-  // If that user already has a password it returns 403 and does nothing, so we
-  // must NOT swallow the response. Order: GET user (forces init) -> Configuration
-  // -> User (hard-checked) -> RemoteAccess -> Complete (finish user BEFORE Complete).
+  // --- 1. startup wizard --------------------------------------------------- Source-verified JF12 flow: POST /Startup/User does NOT create a user - it configures the pre-existing default admin (renames it + sets its password).
 
   // GET forces _userManager.InitializeAsync() so the default user exists, and
   // tells us its current name.
@@ -78,14 +57,6 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   );
 
   // Configure the first user. 204 = success on a fresh container.
-  //
-  // Reused container (iterating with --keep, or a CI re-run against a warm
-  // volume): the wizard is already complete, so the anon Startup/* endpoints
-  // are closed and this returns 401 (endpoint locked) or 403 (user already has
-  // a password). Both mean "already provisioned" - we skip wizard setup and go
-  // straight to authenticating with the admin creds we expect. If those creds
-  // don't match what the container was set up with, the auth step below fails
-  // loudly with a diagnostic, so treating 401/403 as recoverable is safe.
   const userRes = await ctx.post('/Startup/User', {
     headers: { 'Content-Type': 'application/json' },
     data: { Name: ADMIN_USER, Password: ADMIN_PASS },
@@ -152,8 +123,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // --- 3. create libraries -------------------------------------------------
   await ensureLibrary(admin, 'Movies', 'movies', '/media/Movies');
   await ensureLibrary(admin, 'Shows', 'tvshows', '/media/Shows');
-  // Books library (CollectionType "books") — proves eBooks are TRACKED in stats
-  // yet NEVER deleted by cleanup (CleanupConfigHelper marks books ineligible).
+  // Books library (CollectionType "books"), proves eBooks are TRACKED in stats yet NEVER deleted by cleanup (CleanupConfigHelper marks books ineligible).
   await ensureLibrary(admin, 'Books', 'books', '/media/Books');
 
   // --- 4. scan and wait ----------------------------------------------------
@@ -163,15 +133,10 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // Uses the mock's test hook so Discovery user-matching resolves.
   await seedSeerr('/seed-user', { jellyfinUserId: userId });
 
-  // --- 5b. create a non-admin user for the Discovery/My (user-facing) tests -
-  // These endpoints require a NON-elevated authenticated user + the
-  // DiscoveryUserAccessEnabled toggle. We provision one and capture its token.
+  // --- 5b. create a non-admin user for the Discovery/My (user-facing) tests - These endpoints require a NON-elevated authenticated user + the DiscoveryUserAccessEnabled toggle.
   const normalUser = await provisionNormalUser(admin, ctx);
 
-  // In CI we require the non-admin fixture so the authorization / user-facing
-  // tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1). Fail the whole run
-  // here - at setup - with a clear message rather than letting each dependent
-  // test skip and hide a broken provisioning path.
+  // In CI we require the non-admin fixture so the authorization / user-facing tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1).
   if (!normalUser && process.env.E2E_REQUIRE_NORMAL_USER === '1') {
     throw new Error(
       'E2E_REQUIRE_NORMAL_USER=1 but the non-admin user could not be provisioned - ' +
@@ -193,10 +158,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`[global-setup] ready: admin=${ADMIN_USER} userId=${userId}`);
 
-  // --- 7. plant canary files outside the media library --------------------
-  // Adversarial FS tests assert these survive every destructive case, proving
-  // no misuse deletes/moves data outside /media. Best-effort: skipped cleanly
-  // when Docker isn't reachable from the test host (FS tests then skip too).
+  // --- 7. plant canary files outside the media library -------------------- Adversarial FS tests assert these survive every destructive case, proving no misuse deletes/moves data outside /media.
   if (hasDocker()) {
     plantCanaries();
     // eslint-disable-next-line no-console
@@ -226,12 +188,7 @@ async function provisionNormalUser(
       headers: { 'Content-Type': 'application/json' },
       data: { Name: NORMAL_USER, Password: NORMAL_PASS },
     });
-    // On a warm/reused container the user already exists and Users/New returns a
-    // 4xx (e.g. 400 "user already exists"). That is NOT a provisioning failure -
-    // we can still authenticate as the existing user. So authenticate whenever the
-    // create succeeded OR the user plausibly already exists; only a 5xx (or a
-    // network throw) is a hard failure. This keeps provisioning idempotent across
-    // re-runs against a persistent volume.
+    // On a warm/reused container the user already exists and Users/New returns a 4xx (e.g. 400 "user already exists").
     const createdOk = created.ok();
     const alreadyExists = !createdOk && created.status() >= 400 && created.status() < 500;
     if (!createdOk && !alreadyExists) {
@@ -246,10 +203,7 @@ async function provisionNormalUser(
       data: { Username: NORMAL_USER, Pw: NORMAL_PASS },
     });
     if (!nAuth.ok()) {
-      // Could not authenticate - do NOT report success silently. Log the
-      // rejection so a broken provisioning path is visible; dependent tests skip
-      // (return null) rather than run against a half-provisioned user.
-      // eslint-disable-next-line no-console
+      // Could not authenticate - do NOT report success silently. Log the rejection so a broken provisioning path is visible; dependent tests skip (return null) rather than run against a half-provisioned user.
       console.log(
         `[global-setup] non-admin auth failed (Users/New was ${created.status()}): ` +
           `${nAuth.status()} ${(await nAuth.text()).slice(0, 200)} (Discovery/My tests will skip)`,
@@ -260,11 +214,7 @@ async function provisionNormalUser(
     // eslint-disable-next-line no-console
     console.log(`[global-setup] non-admin user ${NORMAL_USER} ready (${nj.User.Id})`);
 
-    // Link this non-admin user to the mock's SECOND Seerr user (Bob) and grant
-    // the Request permission (bit 32) so the user-facing Discovery/My/Request
-    // authorization branches are actually reachable. Seeded here - before any
-    // spec runs and before the plugin populates its 5-min Seerr-user cache -
-    // so the linkage is deterministic and not defeated by cache staleness.
+    // Link this non-admin user to the mock's SECOND Seerr user (Bob) and grant the Request permission (bit 32) so the user-facing Discovery/My/Request authorization branches are actually reachable.
     await seedSeerr('/seed-user2', { jellyfinUserId: nj.User.Id, permissions: 32 });
     return { token: nj.AccessToken, userId: nj.User.Id, userName: NORMAL_USER };
   } catch (e) {
@@ -279,12 +229,7 @@ function publicSeerrUrl(): string {
   return process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
 }
 
-/**
- * Best-effort POST to a mock-Seerr test hook, always disposing the throwaway
- * request context. Seeding must never fail global-setup (the mock link is a
- * convenience for Discovery tests), so all errors are swallowed - but the socket
- * pool is released in finally rather than leaked for the whole run.
- */
+/** * Best-effort POST to a mock-Seerr test hook, always disposing the throwaway * request context. */
 async function seedSeerr(path: string, data: unknown): Promise<void> {
   let c: Awaited<ReturnType<typeof pwRequest.newContext>> | undefined;
   try {

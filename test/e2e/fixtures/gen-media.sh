@@ -1,21 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Generate a fake media library for the E2E tests.
-#
-# Runs INSIDE the Jellyfin container (which ships ffmpeg) so no host ffmpeg is
-# required - works identically locally and in CI. Invoked by scripts/run.sh via
-# `docker compose exec jellyfin bash /media/.gen/gen-media.sh`.
-#
-# Produces tiny (~1s) real clips with varied codecs / resolutions / dynamic
-# range so the Codecs/Health/Overview statistics get REAL data, plus fixtures
-# that the cleanup tasks are meant to act on:
-#   - orphaned .trickplay folder (no matching video)     -> Trickplay cleanup
-#   - orphaned subtitle (.srt with no matching video)    -> Subtitle cleanup
-#   - broken .strm file (points at a missing target)     -> Link repair
-#   - empty-ish media folder (subtitle but no video)     -> Empty folder cleanup
-#
-# Idempotent: wipes and recreates the library roots each run.
-# =============================================================================
+# Generate a fake media library for the E2E tests. Runs INSIDE the Jellyfin container (which ships ffmpeg) so no host ffmpeg is required - works identically locally and in CI.
 set -euo pipefail
 
 ROOT="${1:-/media}"
@@ -90,14 +75,10 @@ make_clip "$MOVIES/Repairable Link (2020)/Actual File (2020).mkv" 640 480 libx26
 printf '%s\n' "$ROOT/Movies/Repairable Link (2020)/Old Name (2020).mkv" \
   > "$MOVIES/Repairable Link (2020)/Repairable Link (2020).strm"
 
-# =============================================================================
-# Behavioral / adversarial fixtures (added for the hardened E2E suite). These
-# exercise the discrimination logic - right thing removed/repaired, wrong thing
-# kept - and the safety guards, so the tests can assert real filesystem effects.
-# =============================================================================
+# ============================================================================= Behavioral / adversarial fixtures (added for the hardened E2E suite).
 
 # ---- Trickplay discrimination --------------------------------------------
-# VALID: a .trickplay WITH a matching video → must SURVIVE cleanup.
+# VALID: a .trickplay WITH a matching video to must SURVIVE cleanup.
 make_clip "$MOVIES/Valid Trick (2020)/Valid Trick (2020).mkv" 640 480 libx264
 mkdir -p "$MOVIES/Valid Trick (2020)/Valid Trick (2020).trickplay"
 printf 'valid tile' > "$MOVIES/Valid Trick (2020)/Valid Trick (2020).trickplay/tile_0.jpg"
@@ -109,16 +90,13 @@ mkdir -p "$MOVIES/Nested (2020)/Nested (2020).trickplay/inner.trickplay"
 printf 'inner tile' > "$MOVIES/Nested (2020)/Nested (2020).trickplay/inner.trickplay/tile_0.jpg"
 
 # NON-VIDEO companion must NOT save a .trickplay (extension-aware match): a
-# same-basename .srt but no video → orphan .trickplay must be removed.
+# same-basename .srt but no video to orphan .trickplay must be removed.
 mkdir -p "$MOVIES/Sub Only (2020)/Sub Only (2020).trickplay"
 printf 'orphan tile' > "$MOVIES/Sub Only (2020)/Sub Only (2020).trickplay/tile_0.jpg"
 printf '1\n00:00:00,000 --> 00:00:01,000\nX\n' > "$MOVIES/Sub Only (2020)/Sub Only (2020).en.srt"
 
 # ---- Subtitle discrimination ---------------------------------------------
-# GENUINE ORPHAN in a dir that ALSO contains a video (the branch the subtitle
-# stage actually deletes; the existing "Lonely Sub" fixture is video-less and
-# gets SKIPPED by the subtitle stage). The orphan .srt must be removed; the
-# video and its own matching sub must survive.
+# GENUINE ORPHAN in a dir that ALSO contains a video (the branch the subtitle stage actually deletes; the existing "Lonely Sub" fixture is video-less and gets SKIPPED by the subtitle stage).
 make_clip "$MOVIES/Mixed Bag (2018)/Mixed Bag (2018).mkv" 1280 720 libx264
 printf '1\n00:00:00,000 --> 00:00:01,000\nkeep\n' > "$MOVIES/Mixed Bag (2018)/Mixed Bag (2018).en.srt"
 printf '1\n00:00:00,000 --> 00:00:01,000\norphan\n' > "$MOVIES/Mixed Bag (2018)/Ghost Subtitle (2001).en.srt"
@@ -130,53 +108,49 @@ for suf in en "es.forced" "de.sdh" "zh-Hans"; do
     > "$MOVIES/Polyglot (2016)/Polyglot (2016).$suf.srt"
 done
 printf 'sub' > "$MOVIES/Polyglot (2016)/Polyglot (2016).pt-BR.ass"
-# ".DTS" is NOT a language/flag → treated as orphan and removed.
+# ".DTS" is NOT a language/flag to treated as orphan and removed.
 printf '1\n00:00:00,000 --> 00:00:01,000\ndts\n' > "$MOVIES/Polyglot (2016)/Polyglot (2016).DTS.srt"
 
 # FALSE-ORPHAN fallback: a title literally ending in a language token; naive
-# stripping would mis-base it, the fallback keeps it valid → must survive.
+# stripping would mis-base it, the fallback keeps it valid to must survive.
 make_clip "$MOVIES/Interview with the en (2004)/Interview with the en (2004).mkv" 640 480 libx264
 printf '1\n00:00:00,000 --> 00:00:01,000\nkeep\n' \
   > "$MOVIES/Interview with the en (2004)/Interview with the en (2004).srt"
 
-# ---- Empty-folder discrimination -----------------------------------------
-# Nested video protects the whole top-level folder (extras/notes.txt present but
-# a video lives deeper) → entire folder must SURVIVE.
+# ---- Empty-folder discrimination ----------------------------------------- Nested video protects the whole top-level folder (extras/notes.txt present but a video lives deeper) to entire folder must SURVIVE.
 mkdir -p "$MOVIES/Mixed Keep (2016)/extras"
 printf 'notes' > "$MOVIES/Mixed Keep (2016)/extras/notes.txt"
 make_clip "$MOVIES/Mixed Keep (2016)/Season 01/Mixed Keep S01E01.mkv" 640 480 libx264
 
-# Metadata-only folder (poster + nfo, no media) → wanted-placeholder, SURVIVES.
+# Metadata-only folder (poster + nfo, no media) to wanted-placeholder, SURVIVES.
 mkdir -p "$MOVIES/Wanted Placeholder (2027)"
 printf 'jpg' > "$MOVIES/Wanted Placeholder (2027)/poster.jpg"
 printf '<movie/>' > "$MOVIES/Wanted Placeholder (2027)/movie.nfo"
 
-# Audio-only folder inside a video library → music guard, SURVIVES.
+# Audio-only folder inside a video library to music guard, SURVIVES.
 mkdir -p "$MOVIES/Soundtrack Only (2016)"
 printf 'ID3' > "$MOVIES/Soundtrack Only (2016)/track.mp3"
 
-# ---- Unlisted-codec false-orphan probe -----------------------------------
-# A real movie whose container is NOT in the video allowlist (.mxf). Documents
-# whether its sibling .trickplay / folder is wrongly treated as orphaned.
+# ---- Unlisted-codec false-orphan probe ----------------------------------- A real movie whose container is NOT in the video allowlist (.mxf).
 mkdir -p "$MOVIES/Odd Codec (2003)"
 printf 'MXF' > "$MOVIES/Odd Codec (2003)/Odd Codec (2003).mxf"
 mkdir -p "$MOVIES/Odd Codec (2003)/Odd Codec (2003).trickplay"
 printf 'tile' > "$MOVIES/Odd Codec (2003)/Odd Codec (2003).trickplay/tile_0.jpg"
 
 # ---- Link-repair adversarial fixtures ------------------------------------
-# AMBIGUOUS: 2+ candidate videos in the broken target's dir → must NOT guess.
+# AMBIGUOUS: 2+ candidate videos in the broken target's dir to must NOT guess.
 mkdir -p "$MOVIES/Ambiguous Link (2020)"
 make_clip "$MOVIES/Ambiguous Link (2020)/Candidate A (2020).mkv" 320 240 libx264
 make_clip "$MOVIES/Ambiguous Link (2020)/Candidate B (2020).mkv" 320 240 libx264
 printf '%s\n' "$ROOT/Movies/Ambiguous Link (2020)/Old (2020).mkv" \
   > "$MOVIES/Ambiguous Link (2020)/Ambiguous Link (2020).strm"
 
-# ESCAPE: a relative .strm target that climbs out of the library → InvalidContent.
+# ESCAPE: a relative .strm target that climbs out of the library to InvalidContent.
 mkdir -p "$MOVIES/Escape Link (2020)"
 printf '%s\n' "../../../../../../etc/passwd" \
   > "$MOVIES/Escape Link (2020)/Escape Link (2020).strm"
 
-# ABSOLUTE-ESCAPE: an absolute .strm target outside every library → InvalidContent.
+# ABSOLUTE-ESCAPE: an absolute .strm target outside every library to InvalidContent.
 mkdir -p "$MOVIES/Abs Escape (2020)"
 printf '%s\n' "/etc/passwd" \
   > "$MOVIES/Abs Escape (2020)/Abs Escape (2020).strm"
@@ -187,10 +161,7 @@ printf '%s\n' "http://example.com/stream.m3u8" \
   > "$MOVIES/Stream Link (2020)/Stream Link (2020).strm"
 
 # ---- Symlink fixtures (Linux container supports ln -s) --------------------
-# VALID symlink → existing sibling (must stay untouched). BROKEN symlink →
-# missing target with exactly one lone renamed sibling (must be repaired).
-# Guard loudly: if symlink creation fails (unsupported FS), fail generation
-# rather than silently skipping the coverage.
+# VALID symlink to existing sibling (must stay untouched). BROKEN symlink to missing target with exactly one lone renamed sibling (must be repaired).
 mkdir -p "$MOVIES/Valid Symlink (2020)"
 make_clip "$MOVIES/Valid Symlink (2020)/Real Target (2020).mkv" 320 240 libx264
 if ln -sf "Real Target (2020).mkv" "$MOVIES/Valid Symlink (2020)/Valid Symlink (2020).mkv"; then
@@ -204,19 +175,7 @@ make_clip "$MOVIES/Broken Symlink (2020)/Renamed Actual (2020).mkv" 320 240 libx
 ln -sf "Missing Original (2020).mkv" "$MOVIES/Broken Symlink (2020)/Broken Symlink (2020).mkv"
 
 # =============================================================================
-# Books (eBook) library — the DATA-LOSS regression fixture.
-#
-# A Book library's CollectionType is "books", which CleanupConfigHelper marks as
-# NOT cleanup-eligible: every cleanup stage (empty-folder, trickplay, subtitle,
-# link repair) must skip these locations entirely, so the eBook files below are
-# NEVER deleted — even in Activate mode with OrphanMinAgeDays=0. Yet the stats
-# scan must still TRACK them as first-class Books (TotalBookFileCount>0,
-# TotalBookFormats={EPUB,PDF,...}).
-#
-# These folders contain NO video/audio, so if the books guard ever regressed the
-# empty-folder stage would treat each as an orphan and delete it — which is
-# exactly what books-protection.api.spec.ts asserts must NOT happen.
-# =============================================================================
+# Books (eBook) library , the DATA-LOSS regression fixture.
 mkdir -p "$BOOKS/Some Novel"
 printf 'EPUB fake bytes' > "$BOOKS/Some Novel/Some Novel.epub"
 mkdir -p "$BOOKS/A Manual"

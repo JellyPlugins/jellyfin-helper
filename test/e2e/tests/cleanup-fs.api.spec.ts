@@ -1,16 +1,4 @@
-/**
- * Behavioural filesystem tests for the cleanup stages - the "does it delete the
- * RIGHT thing and keep the WRONG thing" proof the counter-only tests can't give.
- *
- * Every current cleanup assertion elsewhere leans on the shared
- * CleanupStatistics.TotalItemsDeleted counter (which any stage can bump) or a
- * task-Completed status. Here we ISOLATE one stage (Activate it, Deactivate the
- * rest) and assert the actual on-disk outcome via `docker exec`, so a regression
- * that deletes everything - or nothing - is caught.
- *
- * Requires the container FS (docker exec). When Docker is unreachable from the
- * test host these skip LOUDLY rather than pass vacuously.
- */
+/** * Behavioural filesystem tests for the cleanup stages - the "does it delete the * RIGHT thing and keep the WRONG thing" proof the counter-only tests can't give. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
 import {

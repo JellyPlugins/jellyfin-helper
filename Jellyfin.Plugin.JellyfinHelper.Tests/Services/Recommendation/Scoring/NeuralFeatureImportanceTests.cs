@@ -5,17 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Tests for <see cref="NeuralFeatureImportance"/> - the permutation-importance analyzer
-///     used to inspect which features drive the neural scoring model's predictions.
-///     The class is internal, but the test assembly has <c>InternalsVisibleTo</c> access.
-///     Focus areas:
-///     <list type="bullet">
-///         <item>Argument validation (ThrowIfNull / ThrowIfNegativeOrZero).</item>
-///         <item>Edge cases: too-few samples -> empty result (no divide-by-zero).</item>
-///         <item>Sample cap: sampleSize > examples.Count must be clamped.</item>
-///         <item>Determinism: seeded RNG produces stable importance values across runs.</item>
-///         <item>Result shape: keys are FeatureIndex enum names, size == FeatureCount.</item>
-///     </list>
+///     Tests for NeuralFeatureImportance - the permutation-importance analyzer used to inspect which features drive the neural scoring model's predictions.
 /// </summary>
 public class NeuralFeatureImportanceTests
 {
@@ -55,9 +45,7 @@ public class NeuralFeatureImportanceTests
         return list;
     }
 
-    // -----------------------------------------------------------------------
     // Argument validation
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputePermutationImportance_NullStrategy_Throws()
@@ -83,9 +71,7 @@ public class NeuralFeatureImportanceTests
             NeuralFeatureImportance.ComputePermutationImportance(CreateStrategy(), BuildExamples(5), sampleSize));
     }
 
-    // -----------------------------------------------------------------------
     // Edge case: insufficient data
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputePermutationImportance_EmptyExamples_ReturnsEmptyDictionary()
@@ -120,9 +106,7 @@ public class NeuralFeatureImportanceTests
         Assert.Empty(result);
     }
 
-    // -----------------------------------------------------------------------
     // Sample cap
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputePermutationImportance_SampleSizeExceedsExamplesCount_ClampsToExamplesCount()
@@ -135,9 +119,7 @@ public class NeuralFeatureImportanceTests
         Assert.Equal(CandidateFeatures.FeatureCount, result.Count);
     }
 
-    // -----------------------------------------------------------------------
     // Result shape
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputePermutationImportance_ReturnsOneEntryPerFeature()
@@ -174,16 +156,12 @@ public class NeuralFeatureImportanceTests
             $"Importance value {v} is not finite"));
     }
 
-    // -----------------------------------------------------------------------
     // Determinism - seeded RNG must produce identical results on repeat calls.
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputePermutationImportance_IsDeterministic_AcrossRepeatedCalls()
     {
-        // The class uses a fixed seed (Random(42)) so repeated calls with the same
-        // input MUST produce byte-identical importance dictionaries. Any drift here
-        // means someone accidentally introduced ambient state.
+        // The class uses a fixed seed (Random(42)) so repeated calls with the same input MUST produce byte-identical importance dictionaries.
         var strategy = CreateStrategy();
         var examples = BuildExamples(30);
 
@@ -201,12 +179,7 @@ public class NeuralFeatureImportanceTests
     [Fact]
     public void ComputePermutationImportance_DifferentSampleSize_YieldsDifferentImportanceValues()
     {
-        // Sanity: different sampleSize must be able to affect the outcome, otherwise
-        // the sampling is a no-op. Merely comparing dictionary sizes proves nothing
-        // (both are always FeatureCount) - we assert that AT LEAST ONE feature
-        // importance value differs between the two runs. If the sampling ever became
-        // a no-op (e.g. sampleSize ignored), every feature would produce identical
-        // scores and this test would fail.
+        // Sanity: different sampleSize must be able to affect the outcome, otherwise the sampling is a no-op.
         var strategy = CreateStrategy();
         var examples = BuildExamples(50);
         var small = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, sampleSize: 5);
@@ -218,20 +191,14 @@ public class NeuralFeatureImportanceTests
         // Feature keys must be identical (deterministic layout across runs).
         Assert.Equal(small.Keys.OrderBy(k => k), full.Keys.OrderBy(k => k));
 
-        // Assert that at least one importance value differs. With sampleSize=5 vs 50
-        // over a permutation-based algorithm, statistical variance across even the
-        // most stable feature is essentially guaranteed. We use a tiny epsilon so
-        // pure floating-point noise on identical inputs would still not count as a
-        // difference - only a real distributional shift does.
+        // Assert that at least one importance value differs. With sampleSize=5 vs 50 over a permutation-based algorithm, statistical variance across even the most stable feature is essentially guaranteed.
         var anyDifferent = small.Any(kv => Math.Abs(kv.Value - full[kv.Key]) > 1e-9);
         Assert.True(
             anyDifferent,
             "sampleSize must influence permutation importance results; every value matched exactly, suggesting the sampling was a no-op.");
     }
 
-    // -----------------------------------------------------------------------
     // Default sample size constant
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void DefaultSampleSize_IsPositive_AndMatchesDocumentation()

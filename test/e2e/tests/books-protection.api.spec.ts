@@ -1,29 +1,4 @@
-/**
- * Behavioral proof for the eBook data-loss fix + Books statistics category.
- *
- * Two guarantees, verified end-to-end against a live Jellyfin 12 + the real
- * container filesystem:
- *
- *   1. TRACKED — a Book library (CollectionType "books") is reported as a
- *      first-class Books category by MediaStatistics: `Books` is non-empty,
- *      `TotalBookFileCount > 0`, and `TotalBookFormats` carries the fixture's
- *      format keys (EPUB/PDF). It is tracking-only — books are analyzed, not
- *      cleaned.
- *
- *   2. NEVER DELETED — CleanupConfigHelper.IsCleanupEligibleCollectionType
- *      excludes "books", so every cleanup stage skips a Book library's
- *      locations. We Activate the empty-folder stage (with OrphanMinAgeDays=0,
- *      UseTrash=false — the most aggressive, permanent-delete config) and prove
- *      the eBook files/folders still exist on disk afterwards. The book folders
- *      contain NO video/audio, so if the guard regressed the empty-folder stage
- *      WOULD delete them — this test is the regression tripwire.
- *
- * The fixture (gen-media.sh) writes /media/Books/{Some Novel/*.epub,
- * A Manual/*.pdf, Another Story/*.epub}; global-setup registers it as a "books"
- * library. Stats read what Jellyfin knows (scanned in global-setup); the
- * 204/429/ScanLibraries dance mirrors media-stats-fs. FS assertions need
- * `docker exec` and skip LOUDLY (not vacuously) when it is unreachable.
- */
+/** * Behavioral proof for the eBook data-loss fix + Books statistics category. * * Two guarantees, verified end-to-end against a live Jellyfin 12 + the real * container filesystem: * * 1. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, sleep, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
 import { hasDocker, containerDirExists, containerFileExists } from '../setup/fs-assert.ts';
@@ -98,10 +73,7 @@ test.describe('Book libraries are tracked in statistics but never deleted by cle
   test('TRACKING: a Book library is reported as a first-class Books category with format keys', async () => {
     const stats = await getStats();
 
-    // Conditional presence: Books is populated ONLY when a Book library exists.
-    // The fixture provisions one, so it must be non-empty here. If a future
-    // fixture ever drops the Book library this asserts the empty-array contract
-    // instead (proving the category is conditional, not always emitted).
+    // Conditional presence: Books is populated ONLY when a Book library exists. The fixture provisions one, so it must be non-empty here.
     if (stats.Books.length === 0) {
       // No Book library in this fixture -> conditional-presence contract holds.
       expect(stats.TotalBookFileCount, 'no books -> zero count').toBe(0);
@@ -147,10 +119,7 @@ test.describe('Book libraries are tracked in statistics but never deleted by cle
       return;
     }
 
-    // Most aggressive config: Activate the empty-folder stage (the one that would
-    // delete a video-less folder), permanent delete (UseTrash=false), no age gate
-    // (OrphanMinAgeDays=0). The Books folders contain NO video/audio, so ONLY the
-    // "books" collection-type guard stands between them and deletion.
+    // Most aggressive config: Activate the empty-folder stage (the one that would delete a video-less folder), permanent delete (UseTrash=false), no age gate (OrphanMinAgeDays=0).
     await putConfig({
       TrickplayTaskMode: 'Deactivate',
       EmptyMediaFolderTaskMode: 'Activate',
@@ -165,8 +134,7 @@ test.describe('Book libraries are tracked in statistics but never deleted by cle
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
 
-    // Every eBook file AND its containing folder must still exist — the books
-    // library was skipped entirely, not swept as orphaned empty folders.
+    // Every eBook file AND its containing folder must still exist, the books library was skipped entirely, not swept as orphaned empty folders.
     expect(containerDirExists(`${B}/Some Novel`), 'eBook folder survives cleanup').toBe(true);
     expect(containerFileExists(novel), '.epub survives cleanup').toBe(true);
     expect(containerDirExists(`${B}/A Manual`), 'eBook folder survives cleanup').toBe(true);

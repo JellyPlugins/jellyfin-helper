@@ -6,18 +6,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Behavioral tests for the six shared content-affinity similarity helpers added to
-///     <see cref="SimilarityComputer"/> (Franchise, ProductionLocation, InheritedTag, Writer,
-///     BillingWeightedPeople, GenreStudioIdf). These helpers are the SINGLE source of truth for
-///     both live scoring and training, so their empty/null fallback behavior is the contract that
-///     keeps the pipeline crash-free and NaN-free for items that lack the underlying metadata
-///     (e.g. a movie with no TMDb collection).
+///     Behavioral tests for the six shared content-affinity similarity helpers added to SimilarityComputer (Franchise, ProductionLocation, InheritedTag, Writer, BillingWeightedPeople, GenreStudioIdf).
 /// </summary>
 public sealed class FeatureAffinityComputerTests
 {
     private static readonly StringComparer Ci = StringComparer.OrdinalIgnoreCase;
-
-    // ===================== FranchiseAffinity =====================
 
     [Fact]
     public void FranchiseAffinity_NullCandidateFranchise_ReturnsZero()
@@ -52,8 +45,6 @@ public sealed class FeatureAffinityComputerTests
         var prefs = new Dictionary<string, double>(Ci) { ["Marvel"] = 0.8 };
         Assert.Equal(0.8, SimilarityComputer.ComputeFranchiseAffinity("marvel", prefs));
     }
-
-    // ===================== ProductionLocationAffinity =====================
 
     [Fact]
     public void ProductionLocationAffinity_NullOrEmptyCandidate_ReturnsZero()
@@ -91,8 +82,6 @@ public sealed class FeatureAffinityComputerTests
         Assert.Equal(0.5, SimilarityComputer.ComputeProductionLocationAffinity(["Japan", "USA"], prefs));
     }
 
-    // ===================== InheritedTagSimilarity =====================
-
     [Fact]
     public void InheritedTagSimilarity_NullOrEmptyInputs_ReturnZero()
     {
@@ -110,8 +99,6 @@ public sealed class FeatureAffinityComputerTests
         var result = SimilarityComputer.ComputeInheritedTagSimilarity(["christmas", "action"], prefs);
         Assert.Equal(1.0 / 3.0, result, 10);
     }
-
-    // ===================== WriterAffinity =====================
 
     [Fact]
     public void WriterAffinity_NullOrEmptyInputs_ReturnZero()
@@ -137,8 +124,6 @@ public sealed class FeatureAffinityComputerTests
         Assert.True(result > 0.0, $"Expected positive writer affinity, got {result}");
         Assert.InRange(result, 0.0, 1.0);
     }
-
-    // ===================== BillingWeightedPeople =====================
 
     [Fact]
     public void BillingWeightedPeople_EmptyInputs_ReturnZero()
@@ -173,8 +158,6 @@ public sealed class FeatureAffinityComputerTests
         Assert.InRange(top, 0.0, 1.0);
         Assert.InRange(deep, 0.0, 1.0);
     }
-
-    // ===================== GenreStudioIdfPrior =====================
 
     [Fact]
     public void GenreStudioIdfPrior_NullOrEmptyTable_ReturnsZero()

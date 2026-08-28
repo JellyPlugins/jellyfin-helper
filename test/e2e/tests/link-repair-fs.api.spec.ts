@@ -1,15 +1,4 @@
-/**
- * Behavioural filesystem tests for link repair (.strm + symlinks). Link repair
- * never touches the deletion counter, so the current suite says NOTHING about
- * whether a link was actually rewritten. These read the real files via
- * `docker exec` to prove the repair happened / didn't / was refused.
- *
- * Also exercises the containment fix: absolute / traversal .strm targets that
- * point outside the library are classified InvalidContent and left byte-for-byte
- * unchanged (never rewritten toward a host-FS file).
- *
- * Requires the container FS; skips loudly when Docker is unreachable.
- */
+/** * Behavioural filesystem tests for link repair (.strm + symlinks). Link repair * never touches the deletion counter, so the current suite says NOTHING about * whether a link was actually rewritten. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask } from '../setup/api-client.ts';
 import {

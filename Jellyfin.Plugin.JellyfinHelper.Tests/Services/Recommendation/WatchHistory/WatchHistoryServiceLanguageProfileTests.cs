@@ -10,10 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.WatchHistory;
 
 /// <summary>
-///     Exercises <see cref="WatchHistoryService"/>'s audio/subtitle language derivation:
-///     the chosen-vs-forced distinction, the "subtitles off" sentinel guard, and the
-///     GetMediaStreams cancellation/error contract. A raw <see cref="Mock{BaseItem}"/> is
-///     required because GetMediaStreams is virtual only on BaseItem.
+///     Exercises WatchHistoryService's audio/subtitle language derivation: the chosen-vs-forced distinction, the "subtitles off" sentinel guard, and the GetMediaStreams cancellation/error contract.
 /// </summary>
 public sealed class WatchHistoryServiceLanguageProfileTests
 {

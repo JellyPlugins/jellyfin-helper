@@ -8,25 +8,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 ///     parameters for content filtering in discovery queries.
 /// </summary>
 /// <remarks>
-///     Jellyfin uses numeric parental rating values that correspond to various regional
-///     rating systems. This helper maps those values to TMDb's certification system
-///     which uses country-specific certification strings.
-///     <para>
-///     Jellyfin numeric values (approximate mapping):
-///     <list type="bullet">
-///         <item>0-60: FSK 0 / FSK 6 / G / PG (child-safe)</item>
-///         <item>61-100: FSK 12 / PG-13 (young teens)</item>
-///         <item>101-140: FSK 16 / R (older teens)</item>
-///         <item>141+: FSK 18 / NC-17 (adults)</item>
-///     </list>
-///     </para>
+///     Jellyfin uses numeric parental rating values that correspond to various regional rating systems.
 /// </remarks>
 internal static class ParentalRatingHelper
 {
     /// <summary>
     ///     TMDb genre IDs that are inappropriate for young teen accounts (MaxParentalRating 61-100 / FSK-12).
-    ///     These genres are excluded from discovery queries for restricted users even when
-    ///     the TMDb certification filter might not catch all edge cases.
     /// </summary>
     private static readonly HashSet<int> TeenRestrictedGenreIds = new()
     {
@@ -39,9 +26,6 @@ internal static class ParentalRatingHelper
 
     /// <summary>
     ///     TMDb genre IDs that are explicitly allowed for strict child accounts (MaxParentalRating 60 or lower, FSK-6).
-    ///     Only items containing at least one of these genres will be shown to young children.
-    ///     This whitelist approach is more restrictive than the blacklist and ensures that
-    ///     only genuinely child-appropriate content is recommended.
     /// </summary>
     private static readonly HashSet<int> ChildAllowedGenreIds = new()
     {
@@ -73,9 +57,7 @@ internal static class ParentalRatingHelper
             return true;
         }
 
-        // For strict child accounts (FSK-6 and below): STRICT WHITELIST approach
-        // Animation alone is NOT enough (American Dad, Family Guy, Archer are all "Animation")
-        // Must have Family (10751) or Kids (10762) or Music (10402) genre
+        // For strict child accounts (FSK-6 and below): STRICT WHITELIST approach Animation alone is NOT enough (American Dad, Family Guy, Archer are all "Animation") Must have Family (10751) or Kids (10762) or Music (10402) genre.
         if (maxParentalRating.Value <= 60)
         {
             return ShouldExcludeForStrictChild(candidate);
@@ -92,9 +74,7 @@ internal static class ParentalRatingHelper
     }
 
     /// <summary>
-    ///     Applies the strict-whitelist rule for FSK-6-and-below child accounts: the item must
-    ///     contain at least one primary child-safe genre (Family, Kids, Music) and must not
-    ///     contain any teen-restricted genre.
+    ///     Applies the strict-whitelist rule for FSK-6-and-below child accounts: the item must contain at least one primary child-safe genre (Family, Kids, Music) and must not contain any teen-restricted genre.
     /// </summary>
     /// <param name="candidate">The TMDb discover item to check.</param>
     /// <returns>True if the item should be excluded, false if it passes the filter.</returns>
@@ -116,9 +96,7 @@ internal static class ParentalRatingHelper
             }
         }
 
-        // Must have at least one primary child-safe genre (Family, Kids, Music).
-        // Conditional genres (Animation/Comedy/Adventure/Fantasy) alone are NOT safe
-        // because of adult animation (Family Guy, Archer) and adult comedies.
+        // Must have at least one primary child-safe genre (Family, Kids, Music). Conditional genres (Animation/Comedy/Adventure/Fantasy) alone are NOT safe because of adult animation (Family Guy, Archer) and adult comedies.
         if (!hasPrimaryChildGenre)
         {
             return true;

@@ -1,9 +1,7 @@
 namespace Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 
 /// <summary>
-///     Service interface for browsing server-side directories.
-///     Used by the settings UI folder picker to allow admins to navigate
-///     the server filesystem and select a valid trash folder path.
+///     Service interface for browsing server-side directories. Used by the settings UI folder picker to allow admins to navigate the server filesystem and select a valid trash folder path.
 /// </summary>
 public interface IFolderBrowserService
 {

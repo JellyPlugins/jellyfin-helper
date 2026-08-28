@@ -12,7 +12,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
 ///     API controller for library insights (largest directories, recently added/changed media).
-///     Results are cached in-memory to avoid repeated filesystem scans on page refresh.
 /// </summary>
 [ApiController]
 [Authorize(Policy = "RequiresElevation")]
@@ -40,9 +39,6 @@ public class LibraryInsightsController : ControllerBase
 
     /// <summary>
     ///     Gets library insights including the largest media directories and recently added/changed items.
-    ///     Results are cached for 15 minutes to avoid repeated filesystem scans.
-    ///     Uses double-check locking to prevent concurrent cache misses from triggering
-    ///     duplicate expensive filesystem scans.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The library insights result.</returns>

@@ -5,22 +5,16 @@ using MediaBrowser.Model.IO;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 
 /// <summary>
-/// Central generator for test data objects used across the test suite.
-/// Provides factory methods for VirtualFolderInfo, FileSystemMetadata,
-/// LibraryStatistics, MediaStatisticsResult, and other commonly needed test entities.
+///     Central generator for test data objects used across the test suite. Provides factory methods for VirtualFolderInfo, FileSystemMetadata, LibraryStatistics, MediaStatisticsResult, and other commonly needed test entities.
 /// </summary>
 public static class TestDataGenerator
 {
-    // ===== Paths =====
-
     /// <summary>
     /// Builds an OS-appropriate absolute path from segments.
     /// E.g. TestPath("media", "movies") => "/media/movies" or "\media\movies".
     /// </summary>
     public static string TestPath(params string[] segments)
         => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
-
-    // ===== VirtualFolderInfo =====
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a movie library.</summary>
     public static VirtualFolderInfo CreateMovieLibrary(string name = "Movies", params string[] locations)
@@ -42,8 +36,6 @@ public static class TestDataGenerator
             CollectionType = collectionType,
             Locations = locations,
         };
-
-    // ===== FileSystemMetadata =====
 
     /// <summary>Creates a <see cref="FileSystemMetadata"/> representing a file.</summary>
     public static FileSystemMetadata CreateFile(string fullName, long length = 0)
@@ -87,8 +79,6 @@ public static class TestDataGenerator
     /// <summary>Creates an audio file metadata.</summary>
     public static FileSystemMetadata CreateAudioFile(string directory, string fileName = "track.flac", long length = 30_000_000)
         => CreateFile(CombineWithFileName(directory, fileName), length);
-
-    // ===== LibraryStatistics =====
 
     /// <summary>
     /// Creates a fully populated <see cref="LibraryStatistics"/> with realistic sample data.
@@ -153,8 +143,6 @@ public static class TestDataGenerator
 
         return lib;
     }
-
-    // ===== MediaStatisticsResult =====
 
     /// <summary>
     /// Creates a <see cref="MediaStatisticsResult"/> with a single movie library.
@@ -245,8 +233,6 @@ public static class TestDataGenerator
 
         return result;
     }
-
-    // ===== Temporary Directory Helper =====
 
     /// <summary>
     /// Creates a uniquely named temporary directory and returns its path.

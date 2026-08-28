@@ -38,8 +38,6 @@ public class ArrIntegrationServiceTests
         return TestMockFactory.CreateHttpMessageHandler(statusCode, content);
     }
 
-    // === TestConnectionAsync ===
-
     [Fact]
     public async Task TestConnection_EmptyUrl_ReturnsFalse()
     {
@@ -89,9 +87,7 @@ public class ArrIntegrationServiceTests
     [Fact]
     public async Task TestConnection_CloudMetadataHost_IsBlockedBeforeAnyRequest()
     {
-        // SSRF guard: the service (not just the controller) must refuse cloud metadata endpoints,
-        // so the configuration-save path that calls the service directly cannot reach them. The
-        // block must happen before any HTTP request is dispatched.
+        // SSRF guard: the service (not just the controller) must refuse cloud metadata endpoints, so the configuration-save path that calls the service directly cannot reach them.
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
@@ -283,8 +279,6 @@ public class ArrIntegrationServiceTests
             service.TestConnectionAsync("http://localhost:7878", "testapikey", cts.Token));
     }
 
-    // === GetRadarrMoviesAsync ===
-
     [Fact]
     public async Task GetRadarrMovies_EmptyUrl_ReturnsEmptyList()
     {
@@ -342,8 +336,6 @@ public class ArrIntegrationServiceTests
 
         Assert.Null(movies);
     }
-
-    // === GetSonarrSeriesAsync ===
 
     [Fact]
     public async Task GetSonarrSeries_EmptyUrl_ReturnsEmptyList()
@@ -446,8 +438,6 @@ public class ArrIntegrationServiceTests
 
     }
 
-    // === CompareRadarrWithJellyfin ===
-
     [Fact]
     public void CompareRadarr_MoviesInBoth_AreDetected()
     {
@@ -509,8 +499,6 @@ public class ArrIntegrationServiceTests
         Assert.Single(result.InJellyfinOnly);
         Assert.Contains("Old Movie (2000)", result.InJellyfinOnly);
     }
-
-    // === CompareSonarrWithJellyfin ===
 
     [Fact]
     public void CompareSonarr_SeriesInBoth_AreDetected()
@@ -597,10 +585,7 @@ public class ArrIntegrationServiceTests
             Times.Once);
     }
 
-    // (Tested here via ArrIntegrationService which uses request.Headers.Add() directly on
-    //  per-request HttpRequestMessage - this is safe and does not need the fix.
-    //  The SeerrIntegrationService-specific test lives in SeerrIntegrationServiceTests.cs
-    //  via the existing TestConnection_SetsApiKeyHeader test that validates the header is set.)
+    // (Tested here via ArrIntegrationService which uses request.Headers.Add() directly on per-request HttpRequestMessage - this is safe and does not need the fix.
 
     [Fact]
     public async Task TestConnectionAsync_ApiKeyWithCrlf_ThrowsArgumentException()
@@ -632,14 +617,10 @@ public class ArrIntegrationServiceTests
         Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    // === HttpClient not disposed (IHttpClientFactory contract) ===
-
     [Fact]
     public async Task TestConnection_HttpClientNotDisposed_FactoryClientCanBeReused()
     {
         // IHttpClientFactory clients must NOT be disposed by callers - the factory manages handler lifetime.
-        // This test ensures the client returned by the factory is still usable after TestConnectionAsync returns,
-        // which would throw ObjectDisposedException if the service had incorrectly called client.Dispose().
         var json = "{\"appName\":\"Radarr\",\"version\":\"5.0\"}";
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var httpClient = new HttpClient(handler.Object);
@@ -730,8 +711,6 @@ public class ArrIntegrationServiceTests
         Assert.Null(result);
     }
 
-    // === 100 MB response body guard (#28) ===
-
     [Fact]
     public async Task TestConnection_ResponseExceeds100MB_ReturnsFalse()
     {
@@ -805,10 +784,7 @@ public class ArrIntegrationServiceTests
         Assert.Null(result);
     }
 
-    // === Chunked response guard: null ContentLength must not bypass the 100 MB limit ===
-    // A chunked transfer-encoded response has ContentLength == null. The previous guard
-    // (`ContentLength > limit`) silently passed null through. ReadLimitedAsync now enforces
-    // the limit via a stream-based byte counter regardless of ContentLength.
+    // A chunked transfer-encoded response has ContentLength == null. The previous guard (`ContentLength > limit`) silently passed null through.
 
     private static HttpContent MakeChunkedContent(int sizeBytes)
     {
@@ -885,14 +861,10 @@ public class ArrIntegrationServiceTests
         Assert.Null(result);
     }
 
-    // === Comparer identity fix: ReferenceEquals correctly skips defensive copy ===
-
     [Fact]
     public void CompareRadarr_OrdinalIgnoreCaseComparer_IsNotCopied()
     {
-        // Jellyfin folder in LOWERCASE, Arr path in MixedCase - only OrdinalIgnoreCase matches.
-        // This ensures the ReferenceEquals fast-path actually exercises case-insensitive lookup,
-        // not just a same-case coincidental match that would pass under any comparer.
+        // Jellyfin folder in LOWERCASE, Arr path in MixedCase - only OrdinalIgnoreCase matches. This covers the ReferenceEquals fast-path actually exercises case-insensitive lookup, not just a same-case coincidental match that would pass under any comparer.
         var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "movie a (2020)" };
         var movies = new[] { new ArrMovie { Title = "Movie A", Year = 2020, HasFile = true, Path = "/m/Movie A (2020)" } };
 
@@ -926,8 +898,6 @@ public class ArrIntegrationServiceTests
         // OrdinalIgnoreCase copy must match "Movie A (2020)" against "movie a (2020)"
         Assert.Single(result.InBoth);
     }
-
-    // ===== Connection test must not leak internal network details =====
 
     [Fact]
     public async Task TestConnection_HttpRequestException_DoesNotLeakHostDetails()
@@ -967,10 +937,7 @@ public class ArrIntegrationServiceTests
         Assert.Contains("Check", message, StringComparison.OrdinalIgnoreCase);
     }
 
-    // === User-initiated cancellation must propagate, not collapse into the null timeout branch ===
-    // TaskCanceledException derives from OperationCanceledException, so with an already-canceled
-    // token the `when (cancellationToken.IsCancellationRequested)` filter rethrows instead of
-    // returning null (which is reserved for HttpClient.Timeout).
+    // TaskCanceledException derives from OperationCanceledException, so with an already-canceled token the `when (cancellationToken.IsCancellationRequested)` filter rethrows instead of returning null (which is reserved for HttpClient.Timeout).
 
     [Fact]
     public async Task GetRadarrMovies_UserCancellation_RethrowsOperationCanceled()

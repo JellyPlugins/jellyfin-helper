@@ -14,10 +14,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 internal static class ReasonResolver
 {
     /// <summary>
-    ///     Determines the most relevant human-readable reason for a recommendation
-    ///     based on the dominant signal from the score explanation.
-    ///     Supports combination reasons when multiple signals are strong, and includes
-    ///     concrete entity names (genre, person, studio) when available.
+    ///     Determines the most relevant human-readable reason for a recommendation based on the dominant signal from the score explanation.
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <param name="explanation">The score explanation from the strategy.</param>
@@ -47,7 +44,6 @@ internal static class ReasonResolver
         var matchedPerson = ResolveMatchedPerson(candidate, preferredPeople, peopleLookup, preferredPeopleWeights);
         var matchedStudio = ResolveMatchedStudio(candidate, preferredStudios);
 
-        // === Combination reasons (two strong signals) ===
         // These provide more specific "why" than single-signal reasons.
         var combination = ResolveCombinationReason(explanation, topGenre, matchedPerson);
         if (combination is not null)
@@ -55,13 +51,11 @@ internal static class ReasonResolver
             return combination.Value;
         }
 
-        // === Single dominant signal reasons ===
         return ResolveDominantSignalReason(explanation, dominant, topGenre, matchedPerson, matchedStudio);
     }
 
     /// <summary>
-    ///     Resolves a two-signal combination reason (genre+people, genre+collaborative, recency+rating),
-    ///     or <c>null</c> when no combination applies. Extracted verbatim from <see cref="DetermineReason"/>.
+    ///     Resolves a two-signal combination reason (genre+people, genre+collaborative, recency+rating), or null when no combination applies.
     /// </summary>
     /// <param name="explanation">The score explanation.</param>
     /// <param name="topGenre">The resolved top matching genre, if any.</param>
@@ -135,9 +129,7 @@ internal static class ReasonResolver
     }
 
     /// <summary>
-    ///     Resolves the single-condition dominant-signal reasons (collaborative, genre, rating,
-    ///     user-rating, recency, year-proximity, interaction), or <c>null</c> when none apply.
-    ///     Extracted verbatim from <see cref="ResolveDominantSignalReason"/>.
+    ///     Resolves the single-condition dominant-signal reasons (collaborative, genre, rating, user-rating, recency, year-proximity, interaction), or null when none apply.
     /// </summary>
     private static (string Reason, string ReasonKey, string? RelatedItem)? ResolveSimpleDominantReason(
         ScoreExplanation explanation,
@@ -191,9 +183,7 @@ internal static class ReasonResolver
     }
 
     /// <summary>
-    ///     Resolves the people/studio dominant-signal reasons (which may surface a concrete matched
-    ///     name), falling back to the generic default. Extracted verbatim from
-    ///     <see cref="ResolveDominantSignalReason"/>.
+    ///     Resolves the people/studio dominant-signal reasons (which may surface a concrete matched name), falling back to the generic default.
     /// </summary>
     private static (string Reason, string ReasonKey, string? RelatedItem) ResolvePeopleOrStudioReason(
         ScoreExplanation explanation,
@@ -246,11 +236,6 @@ internal static class ReasonResolver
 
     /// <summary>
     ///     Resolves a concrete person name from the candidate that matches the user's preferred people.
-    ///     Uses the pre-built <paramref name="peopleLookup"/> (item ID to person names) to avoid
-    ///     library-manager queries during scoring. Requires both <paramref name="preferredPeople"/>
-    ///     and <paramref name="peopleLookup"/> to be non-null to return a match.
-    ///     When <paramref name="preferredPeopleWeights"/> is supplied, the highest-weighted match
-    ///     wins so the surfaced name aligns with the driver of the PeopleSimilarity feature.
     /// </summary>
     private static string? ResolveMatchedPerson(
         BaseItem candidate,
@@ -283,9 +268,7 @@ internal static class ReasonResolver
     }
 
     /// <summary>
-    ///     Returns the highest-weighted preferred person present on the candidate, or <c>null</c> when
-    ///     none of the candidate's people are preferred. Extracted verbatim from
-    ///     <see cref="ResolveMatchedPerson"/>.
+    ///     Returns the highest-weighted preferred person present on the candidate, or null when none of the candidate's people are preferred.
     /// </summary>
     /// <param name="candidatePeople">The candidate's person names.</param>
     /// <param name="preferredPeople">The user's preferred people set.</param>
@@ -318,7 +301,6 @@ internal static class ReasonResolver
 
     /// <summary>
     ///     Resolves a concrete studio name from the candidate that matches the user's preferred studios.
-    ///     Returns the first matching studio name, or null if no match or data unavailable.
     /// </summary>
     private static string? ResolveMatchedStudio(BaseItem candidate, HashSet<string>? preferredStudios)
     {
@@ -352,10 +334,7 @@ internal static class ReasonResolver
             GenreDistribution = new Dictionary<string, int>(
                 profile.GenreDistribution,
                 profile.GenreDistribution.Comparer),
-            // Language / subtitle / people profiles are aggregated stats too (like GenreDistribution),
-            // so they belong in the stripped response for consistency - omitting them made the API
-            // report empty language/subtitle/people aggregates while GenreDistribution was correct.
-            // Their setters already defensive-copy with OrdinalIgnoreCase, so a direct assign is safe.
+            // Language / subtitle / people profiles are aggregated stats too (like GenreDistribution), so they belong in the stripped response for consistency - omitting them made the API report empty language/subtitle/people aggregates while GenreDistribution was correct.
             LanguageProfile = profile.LanguageProfile,
             SubtitleLanguageProfile = profile.SubtitleLanguageProfile,
             PeopleProfile = profile.PeopleProfile,

@@ -16,24 +16,12 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Regression tests for the watched people/studio set construction in
-///     <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine"/>
-///     when the user's watch history contains episodes.
-///     <para>
-///         The engine's <c>allCandidates</c> list contains Movies and Series only - never
-///         Episodes. When watch-history rows represent episodes, their <c>ItemId</c> has no
-///         entry in <c>peopleLookup</c> or <c>candidateLookup</c>. The SeriesId fallback
-///         resolves people and studios from the parent Series, ensuring that episode watch
-///         history contributes the same people/studio signals as movie watch history.
-///     </para>
+///     Regression tests for the watched people/studio set construction in Engine when the user's watch history contains episodes.
 /// </summary>
 public sealed class EngineEpisodicWatchHistoryTests
 {
     /// <summary>
-    ///     Constructs a <see cref="Series"/> that survives <c>LoadCandidateItems</c>.
-    ///     A Series is only included in candidates when the episode query returns at
-    ///     least one Episode whose <c>SeriesId</c> matches; an Episode item is wired
-    ///     in <see cref="WireLibraryWithSeriesAndMovie"/> for exactly this purpose.
+    ///     Constructs a Series that survives LoadCandidateItems. A Series is only included in candidates when the episode query returns at least one Episode whose SeriesId matches; an Episode item is wired in WireLibraryWithSeriesAndMovie for exactly this purpose.
     /// </summary>
     private static Series MakeSeries(Guid id, string name, string[] genres)
     {
@@ -77,19 +65,7 @@ public sealed class EngineEpisodicWatchHistoryTests
     }
 
     /// <summary>
-    ///     Wires the library manager mock so that:
-    ///     <list type="bullet">
-    ///         <item>The Movie query returns <paramref name="movie"/>.</item>
-    ///         <item>The Series query returns <paramref name="series"/>.</item>
-    ///         <item>The Episode query returns a synthetic episode whose <c>SeriesId</c>
-    ///               equals <paramref name="series"/>.Id, letting the series survive
-    ///               the <c>LoadCandidateItems</c> episode-presence filter.</item>
-    ///         <item><c>GetPeopleNamesByItems</c> returns null (simulating a pre-12 host),
-    ///               so the per-item <c>GetPeople</c> fallback is exercised.</item>
-    ///         <item><c>GetPeople</c> for <paramref name="series"/> returns the shared actor.</item>
-    ///         <item><c>GetPeople</c> for <paramref name="movie"/> returns the same actor,
-    ///               creating a people-overlap between the watched series and the candidate movie.</item>
-    ///     </list>
+    ///     Wires the library manager mock so that: The Movie query returns movie. The Series query returns series.
     /// </summary>
     private static void WireLibraryWithSeriesAndMovie(
         EngineTestFactory.EngineHarness harness,
@@ -114,9 +90,7 @@ public sealed class EngineEpisodicWatchHistoryTests
                 q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Episode)))
             .Returns(new List<BaseItem> { syntheticEpisode });
 
-        // Throw from the batch API to force the per-item GetPeople fallback path.
-        // BatchFallbackHelper.TryRunBatch catches any non-cancellation exception and
-        // returns null, which causes SimilarityComputer to fall back to BuildPeopleLookupPerItem.
+        // Throw from the batch API to force the per-item GetPeople fallback path. BatchFallbackHelper.TryRunBatch catches any non-cancellation exception and returns null, which causes SimilarityComputer to fall back to BuildPeopleLookupPerItem.
         harness.LibraryManager
             .Setup(lm => lm.GetPeopleNamesByItems(
                 It.IsAny<IReadOnlyList<Guid>>(),
@@ -137,11 +111,7 @@ public sealed class EngineEpisodicWatchHistoryTests
     [Fact]
     public void GetRecommendations_WatchedEpisode_SeriesIdFallback_ProducesRecommendations()
     {
-        // A user who has only watched TV episodes (not movies) must still receive
-        // recommendations. The watched-people and watched-studio sets are built from
-        // SeriesId when the episode's own ItemId is absent from the candidate lookup,
-        // so the people-overlap signal between the watched series and candidate movies
-        // is preserved and the scoring pipeline produces a non-empty result.
+        // A user who has only watched TV episodes (not movies) must still receive recommendations.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
 
@@ -189,10 +159,7 @@ public sealed class EngineEpisodicWatchHistoryTests
     [Fact]
     public void GetRecommendations_WatchedEpisode_WithNoSeriesId_DoesNotThrow()
     {
-        // A watched episode with no SeriesId (e.g. a standalone special) must not
-        // cause any exception. The fallback is simply skipped and an empty set is
-        // used, which is identical to the pre-fix behavior for non-episode items
-        // that have no people entry in the lookup.
+        // A watched episode with no SeriesId (e.g. a standalone special) must not cause any exception.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
 
@@ -239,11 +206,7 @@ public sealed class EngineEpisodicWatchHistoryTests
     [Fact]
     public void GetRecommendations_WarmUser_SeriesCandidateWithEpisodeStreams_ResolvesLanguageAffinityViaFallback()
     {
-        // A Series candidate has no direct media streams, so ResolveMediaLanguages must fall back
-        // to the first child episode (ParentId query) to compute LanguageAffinity. This drives the
-        // series-child stream fallback and the ParseLanguagesFromStreams pass that the no-stream
-        // tests never reach. GetMediaStreams is virtual, so the child episode can surface real
-        // audio+subtitle language tracks that match the user's language profile.
+        // A Series candidate has no direct media streams, so ResolveMediaLanguages must fall back to the first child episode (ParentId query) to compute LanguageAffinity.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
 
@@ -251,9 +214,7 @@ public sealed class EngineEpisodicWatchHistoryTests
         var movieId = Guid.NewGuid();
         var watchedMovieId = Guid.NewGuid();
 
-        // The Series candidate reports an EMPTY (not throwing) media-stream list so ResolveMediaLanguages
-        // takes the series-child fallback branch rather than the graceful catch. GetMediaStreams is
-        // virtual, so the mock returns [] while every other BaseItem member behaves like a real Series.
+        // The Series candidate reports an EMPTY (not throwing) media-stream list so ResolveMediaLanguages takes the series-child fallback branch rather than the graceful catch.
         var seriesMock = new Mock<Series> { CallBase = true };
         seriesMock.Object.Id = seriesId;
         seriesMock.Object.Name = "Streamless Show";

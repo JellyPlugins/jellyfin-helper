@@ -1,9 +1,7 @@
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     Arr instance view model used inside <see cref="ConfigurationResponse"/>.
-///     The <c>ApiKey</c> field contains <see cref="ConfigurationResponse.ApiKeyMask"/>
-///     whenever a real key is stored; empty string when no key has been configured.
+///     Arr instance view model used inside ConfigurationResponse. The ApiKey field contains ApiKeyMask whenever a real key is stored; empty string when no key has been configured.
 /// </summary>
 public sealed class MaskedArrInstanceConfig
 {

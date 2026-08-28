@@ -1,17 +1,9 @@
-# Codecov configuration.
-# Without this file Codecov uses `target: auto`, which pins the patch requirement to the
-# project's current (very high) coverage.
-#   - project (whole-codebase / "head" coverage): must stay >= 90%
-#   - patch   (only the lines changed in the PR):  must be   >= 85%
-# `threshold` allows a small drop without flipping the check red (avoids flakiness from
-# coverage rounding across the Unit/Security/Performance report merge).
+# Codecov configuration. Without this file Codecov uses `target: auto`, which pins the patch requirement to the project's current (very high) coverage.
 
 codecov:
   require_ci_to_pass: true
   notify:
-    # All three buckets (Unit, Security, Performance) upload separately and Codecov merges
-    # them by commit. Wait for all of them before evaluating status so the check isn't
-    # computed on a partial report.
+    # All three buckets (Unit, Security, Performance) upload separately and Codecov merges them by commit.
     after_n_builds: 3
     wait_for_ci: true
 
@@ -38,9 +30,7 @@ comment:
   behavior: default
   require_changes: false
 
-# Coverage instrumentation counts test code and generated/build assets as "uncovered",
-# which drags the number down and makes the patch target meaningless for PRs that only
-# touch those. Exclude them from coverage math.
+# Coverage instrumentation counts test code and generated/build assets as "uncovered", which drags the number down and makes the patch target meaningless for PRs that only touch those.
 ignore:
   - "Jellyfin.Plugin.JellyfinHelper.Tests/**"
   - "BuildTasks/**"

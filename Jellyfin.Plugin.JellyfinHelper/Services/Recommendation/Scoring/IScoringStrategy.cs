@@ -3,8 +3,7 @@ using System.Collections.Generic;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Defines a pluggable scoring strategy for ranking recommendation candidates.
-///     Implementations receive pre-computed feature signals and return a final score.
+///     Defines a pluggable scoring strategy for ranking recommendation candidates. Implementations receive pre-computed feature signals and return a final score.
 /// </summary>
 public interface IScoringStrategy
 {
@@ -26,8 +25,7 @@ public interface IScoringStrategy
     double Score(CandidateFeatures features);
 
     /// <summary>
-    ///     Computes the recommendation score with a detailed explanation of how each
-    ///     feature contributed to the final score. Useful for debugging and transparency.
+    ///     Computes the recommendation score with a detailed explanation of how each feature contributed to the final score.
     /// </summary>
     /// <param name="features">The pre-computed feature signals for the candidate.</param>
     /// <returns>A detailed score explanation including per-feature contributions.</returns>
@@ -36,7 +34,6 @@ public interface IScoringStrategy
 
 /// <summary>
 ///     Optional interface for scoring strategies that support learning from labelled examples.
-///     Separates the training concern from the scoring concern (Interface Segregation Principle).
 /// </summary>
 public interface ITrainableStrategy
 {
@@ -48,11 +45,7 @@ public interface ITrainableStrategy
     bool Train(IReadOnlyList<TrainingExample> examples);
 
     /// <summary>
-    ///     Train the strategy on <paramref name="examples"/> and publish ranking metrics computed
-    ///     on <paramref name="heldOutForMetrics"/>. This lets the caller (TrainingService) reserve
-    ///     a genuine out-of-sample slice once and have every strategy report P@K/R@K/NDCG on the
-    ///     same set the caller uses for its own log line, so the ensemble's quality snapshot and
-    ///     the outer training log never disagree.
+    ///     Train the strategy on examples and publish ranking metrics computed on heldOutForMetrics.
     /// </summary>
     /// <param name="examples">Training examples the strategy is free to fit on.</param>
     /// <param name="heldOutForMetrics">

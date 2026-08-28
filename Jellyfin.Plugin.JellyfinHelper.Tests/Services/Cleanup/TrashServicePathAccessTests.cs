@@ -11,13 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Exercises the permission-denied branches of <see cref="TrashService.CheckPathAccess"/>,
-///     <see cref="TrashService.GetTrashSummary"/>, and <see cref="TrashService.GetTrashContents"/>
-///     that only run when the process cannot read or write a real directory. These require a genuine
-///     OS permission denial: on Windows a deny ACL, on Unix a mode with the relevant bit stripped.
-///     Because a privileged user (e.g. root in CI Docker) bypasses those restrictions, each test first
-///     probes whether the denial actually bites and no-ops if it does not, so the branch is asserted
-///     only when it is truly reachable, never falsely passed.
+///     Exercises the permission-denied branches of CheckPathAccess, GetTrashSummary, and GetTrashContents that only run when the process cannot read or write a real directory.
 /// </summary>
 public sealed class TrashServicePathAccessTests : IDisposable
 {
@@ -103,9 +97,7 @@ public sealed class TrashServicePathAccessTests : IDisposable
     [Fact]
     public void CheckPathAccess_NonExistentPath_ParentNotWritable_ReportsCannotCreate()
     {
-        // When the target does not exist, CheckPathAccess walks up to the nearest existing parent.
-        // If that parent is not writable, the result must be Exists=false / CanRead=true /
-        // CanWrite=false with a "no write permission on parent" message, the "cannot create" case.
+        // When the target does not exist, CheckPathAccess walks up to the nearest existing parent. If that parent is not writable, the result must be Exists=false / CanRead=true / CanWrite=false with a "no write permission on parent" message, the "cannot create" case.
         var parent = Path.Join(_testRoot, "locked-parent");
         Directory.CreateDirectory(parent);
         DenyWrite(parent);
@@ -137,9 +129,7 @@ public sealed class TrashServicePathAccessTests : IDisposable
     [Fact]
     public void GetTrashSummary_UnreadableTrashFolder_ReturnsPartialAndLogsWarning()
     {
-        // If the trash folder exists but its contents cannot be enumerated, GetTrashSummary must
-        // swallow the access error, return the partial (here: zero) totals rather than throwing,
-        // and log a "Partial trash summary" warning.
+        // If the trash folder exists but its contents cannot be enumerated, GetTrashSummary must swallow the access error, return the partial (here: zero) totals rather than throwing, and log a "Partial trash summary" warning.
         var trash = Path.Join(_testRoot, "unreadable-summary");
         Directory.CreateDirectory(trash);
         DenyRead(trash);
@@ -242,9 +232,7 @@ public sealed class TrashServicePathAccessTests : IDisposable
     }
 
     /// <summary>
-    ///     Probes whether writing into <paramref name="dir"/> is actually blocked. A privileged
-    ///     user bypasses the deny ACL / mode, in which case the target branch is unreachable and the
-    ///     caller must no-op instead of asserting a branch that will not run.
+    ///     Probes whether writing into is actually blocked. A privileged user bypasses the deny ACL / mode, in which case the target branch is unreachable and the caller must no-op instead of asserting a branch that will not run.
     /// </summary>
     private static bool WriteIsActuallyDenied(string dir)
     {

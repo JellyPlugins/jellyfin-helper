@@ -4,34 +4,16 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 
 /// <summary>
-///     Tests for <see cref="TransformationPatches.IndexHtml"/> - the callback the File
-///     Transformation plugin invokes when serving index.html. The method must:
-///     <list type="bullet">
-///         <item>Tolerate <c>null</c> payload / <c>null</c> / empty <c>Contents</c> without throwing.</item>
-///         <item>Not append a script tag when there is no <c>&lt;/body&gt;</c> anchor.</item>
-///         <item>Insert the script tag exactly once, right before the last (real) <c>&lt;/body&gt;</c>
-///               (LastIndexOf is used so a stray literal <c>&lt;/body&gt;</c> inside an HTML comment
-///               or CDATA block does not steal the injection target).</item>
-///         <item>Remove old versions of the plugin script tag before re-inserting the current one
-///               (idempotent re-serving).</item>
-///         <item>Handle case-insensitive <c>&lt;/body&gt;</c> variants (some HTML minifiers uppercase tags).</item>
-///     </list>
-///     Note: <see cref="Plugin.Instance"/> may be null during these tests - the code path guards
-///     with <c>?.Version.ToString() ?? "unknown"</c>, so the resulting script tag will contain
-///     <c>version="unknown"</c>. Assertions target invariants, not the specific version string.
+///     Tests for IndexHtml - the callback the File Transformation plugin invokes when serving index.html.
 /// </summary>
 public class TransformationPatchesTests
 {
-    // -----------------------------------------------------------------------
     // Null / empty guards
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void IndexHtml_NullPayload_ReturnsEmptyString_DoesNotThrow()
     {
-        // Reflection into the File Transformation plugin could still pass null in
-        // pathological cases (e.g., a Newtonsoft deserialization producing default(T)).
-        // The transformation callback must not tear the pipeline down.
+        // Reflection into the File Transformation plugin could still pass null in pathological cases (e.g., a Newtonsoft deserialization producing default(T)).
         var result = TransformationPatches.IndexHtml(null!);
         Assert.Equal(string.Empty, result);
     }
@@ -50,9 +32,7 @@ public class TransformationPatchesTests
         Assert.Equal(string.Empty, result);
     }
 
-    // -----------------------------------------------------------------------
     // No </body> anchor
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void IndexHtml_NoBodyTag_ReturnsContentUnchanged_NoInjection()
@@ -65,9 +45,7 @@ public class TransformationPatchesTests
         Assert.DoesNotContain("<script", result, StringComparison.OrdinalIgnoreCase);
     }
 
-    // -----------------------------------------------------------------------
     // Standard injection
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void IndexHtml_WithBodyTag_InjectsScriptExactlyOnce_BeforeClosingBody()
@@ -95,16 +73,12 @@ public class TransformationPatchesTests
         Assert.Contains("plugin=\"Jellyfin Helper\"", result, StringComparison.Ordinal);
     }
 
-    // -----------------------------------------------------------------------
     // Idempotence: repeated calls must not stack copies of the script tag
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void IndexHtml_CalledTwice_ProducesExactlyOneScriptTag()
     {
-        // File Transformation may re-invoke the callback whenever a client
-        // reloads. Every invocation must produce a document with exactly one instance
-        // of the plugin script tag, not two, not three.
+        // File Transformation may re-invoke the callback whenever a client reloads. Every invocation must produce a document with exactly one instance of the plugin script tag, not two, not three.
         const string html = "<html><body></body></html>";
         var first = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
         var second = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = first });
@@ -127,9 +101,7 @@ public class TransformationPatchesTests
         Assert.Equal(1, CountOccurrences(result, "plugin=\"Jellyfin Helper\""));
     }
 
-    // -----------------------------------------------------------------------
     // The transformation must not clobber unrelated content
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void IndexHtml_PreservesUnrelatedScriptTagsAndBodyContent()
@@ -150,11 +122,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_WithLiteralBodyInsideComment_InjectsBeforeRealClosingBody()
     {
-        // Contract: the injection target is the real closing </body>, the last one.
-        // A stray literal `</body>` inside an HTML comment must NOT trap the injection
-        // inside a non-executing region. This fixture places a literal `</body>` inside
-        // an HTML comment BEFORE the real closing tag; the implementation must skip
-        // past the comment occurrence and use the last one.
+        // Contract: the injection target is the real closing </body>, the last one. A stray literal `</body>` inside an HTML comment must NOT trap the injection inside a non-executing region.
         const string html =
             "<html>" +
             "<body>" +
@@ -184,10 +152,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_LiteralBodyStringAfterRealClosingTag_InjectsBeforeRealBody()
     {
-        // Contract: the </body> search is bounded to content before </html>, so a stray
-        // literal `</body>` that appears AFTER </html> (e.g. inside a trailing <script> tag)
-        // must NOT be chosen as the injection point. The script must land before the REAL
-        // </body> that precedes </html>.
+        // Contract: the </body> search is bounded to content before </html>, so a stray literal `</body>` that appears AFTER </html> (e.g.
         const string html =
             "<html>" +
             "<body>" +
@@ -206,9 +171,7 @@ public class TransformationPatchesTests
             $"script must be injected before </html>, not after it; script={scriptIndex}, htmlClose={htmlCloseIndex}");
     }
 
-    // -----------------------------------------------------------------------
     // Helpers
-    // -----------------------------------------------------------------------
 
     private static int CountOccurrences(string haystack, string needle)
     {
@@ -241,17 +204,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_OnDiskFallbackTagThenCallback_ProducesExactlyOneTag()
     {
-        // For the "always run the disk fallback" design: when File
-        // Transformation IS installed AND the disk fallback has ALSO already written the tag to
-        // index.html, the File Transformation callback runs on that already-tagged on-disk content.
-        // It must de-duplicate to exactly one tag and never stack a second copy.
-        //
-        // The tag is built by DiscoveryScriptTag.Build(version) in BOTH paths, and the version is
-        // NOT hard-coded here on purpose, because the plugin version changes every release and the
-        // de-duplication must never depend on it. We deliberately use a DIFFERENT (older) version
-        // for the pre-existing on-disk tag than the callback will emit, to prove the RemovalRegex
-        // matches our tag regardless of the version attribute (the real upgrade scenario), not just
-        // when the versions happen to be identical.
+        // For the "always run the disk fallback" design: when File Transformation IS installed AND the disk fallback has ALSO already written the tag to index.html, the File Transformation callback runs on that already-tagged on-disk content.
         var onDiskOldVersionTag = DiscoveryScriptTag.Build("0.0.1-old");
         var diskInjected = "<html><body><div>app</div>\n" + onDiskOldVersionTag + "\n</body></html>";
 
@@ -265,9 +218,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_ClosingBodyAfterHtmlClose_NotChosenAsAnchor_ReturnsContentWithoutInjection()
     {
-        // The </body> search is bounded to text BEFORE </html>. Here the only literal
-        // </body> sits after </html> (inside a trailing script string), so nothing is
-        // found in-bounds: bodyIndex is -1 and the content must come back untouched.
+        // The </body> search is bounded to text BEFORE </html>. Here the only literal </body> sits after </html> (inside a trailing script string), so nothing is found in-bounds: bodyIndex is -1 and the content must come back untouched.
         const string html =
             "<html>" +
             "<head></head>" +
@@ -283,9 +234,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_NoHtmlAndNoBodyAnchor_ReturnsContentVerbatim()
     {
-        // A bare fragment with neither </html> nor </body>: searchEnd falls back to the
-        // full length and LastIndexOf(</body>) returns -1, so the method reaches its final
-        // return with no injection and hands the content straight back.
+        // A bare fragment with neither </html> nor </body>: searchEnd falls back to the full length and LastIndexOf(</body>) returns -1, so the method reaches its final return with no injection and hands the content straight back.
         const string html = "<div>just a fragment, no closing body or html here</div>";
 
         var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
@@ -297,9 +246,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_LiteralBodyInsideHeadScript_NotChosenAsAnchor_InjectsBeforeRealBody()
     {
-        // A literal "</body>" sits inside a script string in the head, before the real body.
-        // LastIndexOf (bounded to before </html>) must skip it and pick the real </body>,
-        // otherwise the tag lands inside a non-executing JS string in the head.
+        // A literal "</body>" sits inside a script string in the head, before the real body. LastIndexOf (bounded to before </html>) must skip it and pick the real </body>, otherwise the tag lands inside a non-executing JS string in the head.
         const string html =
             "<html><head><script>var x=\"</body>\";</script></head><body><div>real</div></body></html>";
 

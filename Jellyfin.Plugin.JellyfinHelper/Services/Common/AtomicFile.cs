@@ -7,21 +7,7 @@ using System.Threading.Tasks;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
-///     Writes text via write-to-temp then <c>File.Replace</c> (atomic <c>ReplaceFileW</c> when the
-///     destination exists) or <c>File.Move</c> (when new), with bounded retry on transient I/O.
-///     Replace is preferred because Move-with-overwrite is not atomic on Windows (delete then rename).
-///     <para>
-///         <b>Threading:</b> two entry points share the retry contract. <see cref="WriteAllText"/> is
-///         synchronous (<see cref="Thread.Sleep(int)"/> backoff of 20 + 40 + 60 + 80 ms - up to
-///         ~200 ms over the default 5 attempts, the final attempt propagating without sleeping) for
-///         background tasks; <see cref="WriteAllTextAsync"/> uses
-///         <see cref="Task.Delay(int, CancellationToken)"/> so ASP.NET request threads are released
-///         during backoff and a cancelled <see cref="CancellationToken"/> stops retrying.
-///     </para>
-///     <para>
-///         <b>Encoding:</b> UTF-8 without BOM, matching <c>System.Text.Json</c> and avoiding a leading
-///         BOM that some log/JSON tooling rejects.
-///     </para>
+///     Writes text via write-to-temp then File.Replace (atomic ReplaceFileW when the destination exists) or File.Move (when new), with bounded retry on transient I/O.
 /// </summary>
 internal static class AtomicFile
 {
@@ -32,20 +18,12 @@ internal static class AtomicFile
     private const int BaseBackoffMilliseconds = 20;
 
     /// <summary>
-    ///     UTF-8 encoding without a byte-order mark. Cached to avoid re-instantiating the encoder
-    ///     per write; .NET's default <c>File.WriteAllText</c> emits a BOM that some downstream tools
-    ///     (JSON validators, log parsers) reject.
+    ///     UTF-8 encoding without a byte-order mark. Cached to avoid re-instantiating the encoder per write; .NET's default File.WriteAllText emits a BOM that some downstream tools (JSON validators, log parsers) reject.
     /// </summary>
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
-    ///     Atomically writes <paramref name="contents"/> to <paramref name="path"/>.
-    ///     Retries the temp-write-then-move on transient <see cref="IOException"/> /
-    ///     <see cref="UnauthorizedAccessException"/> up to <paramref name="maxAttempts"/> times; if all
-    ///     fail, the last transient error propagates so the caller's best-effort <c>try/catch</c> can log it.
-    ///     <para>
-    ///         Blocks the calling thread up to ~200 ms across all retries at the default attempt count.
-    ///     </para>
+    ///     Atomically writes contents to path. Retries the temp-write-then-move on transient IOException / UnauthorizedAccessException up to maxAttempts times; if all fail, the last transient error propagates so the caller's best-effort try/catch can log it.
     /// </summary>
     /// <param name="path">The destination file path.</param>
     /// <param name="contents">The text to write.</param>
@@ -86,18 +64,7 @@ internal static class AtomicFile
     }
 
     /// <summary>
-    ///     Asynchronous counterpart of <see cref="WriteAllText"/> for request-driven callers. Uses
-    ///     <see cref="Task.Delay(int, CancellationToken)"/> for backoff so the caller's thread is released.
-    ///     <para>
-    ///         <b>Cancellation:</b> a signalled <paramref name="cancellationToken"/> stops further retries
-    ///         and propagates <see cref="OperationCanceledException"/>, cleaning up any orphaned temp file
-    ///         first (same "no orphans on disk" invariant as the sync overload).
-    ///     </para>
-    ///     <para>
-    ///         <b>Semantic parity:</b> retry count, backoff schedule (20 / 40 / 60 / 80 ms across 5 attempts),
-    ///         UTF-8 no-BOM encoding, and the temp-then-move atomicity rule are identical to
-    ///         <see cref="WriteAllText"/>; the only difference is the yield point during backoff.
-    ///     </para>
+    ///     Asynchronous counterpart of WriteAllText for request-driven callers. Uses Delay(int, CancellationToken) for backoff so the caller's thread is released.
     /// </summary>
     /// <param name="path">The destination file path.</param>
     /// <param name="contents">The text to write.</param>
@@ -159,8 +126,7 @@ internal static class AtomicFile
     }
 
     /// <summary>
-    ///     Clamps <paramref name="maxAttempts"/> to at least 1 and ensures the destination directory
-    ///     exists before the temp file is written (<c>CreateDirectory</c> is idempotent).
+    ///     Clamps to at least 1 and ensures the destination directory exists before the temp file is written (CreateDirectory is idempotent).
     /// </summary>
     /// <param name="path">The destination file path.</param>
     /// <param name="maxAttempts">The requested maximum attempts.</param>
@@ -182,9 +148,7 @@ internal static class AtomicFile
     }
 
     /// <summary>
-    ///     Moves the freshly written temp file into place: <c>File.Replace</c> (atomic) when the
-    ///     destination already exists, otherwise <c>File.Move</c>. The replace/move has no async overload
-    ///     but is a fast same-directory metadata rename, so both overloads share this synchronous step.
+    ///     Moves the freshly written temp file into place: File.Replace (atomic) when the destination already exists, otherwise File.Move.
     /// </summary>
     /// <param name="tempPath">The temp file that was just written.</param>
     /// <param name="path">The final destination path.</param>

@@ -6,24 +6,12 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     Shared resolution logic for the masked API-key sentinel
-///     (<see cref="ConfigurationResponse.ApiKeyMask"/>).
-///     <para>
-///         The GET <c>/Configuration</c> response never returns a real API key: every stored key is
-///         replaced with a fixed-length mask so secrets never leave the server in plain text. When a
-///         client later submits a request whose key field still holds that mask, it means "the key was
-///         not changed, use the one already stored". This helper centralises the "is this the mask?"
-///         check and the stored-key lookup so the save path (<see cref="ConfigurationController"/>) and
-///         the stateless Test-Connection endpoints (<see cref="ArrIntegrationController"/>,
-///         <see cref="SeerrController"/>) all behave identically and never forward the mask upstream.
-///     </para>
+///     Shared resolution logic for the masked API-key sentinel (ApiKeyMask). The GET /Configuration response never returns a real API key: every stored key is replaced with a fixed-length mask so secrets never leave the server in plain text.
 /// </summary>
 internal static class ApiKeyMaskResolver
 {
     /// <summary>
-    ///     Determines whether the supplied value is the masked-key sentinel. The comparison is ordinal
-    ///     and trims surrounding whitespace first, so a padded copy (e.g. <c>" ******** "</c>) is still
-    ///     recognised and can never be mistaken for a real key that happens to be forwarded upstream.
+    ///     Determines whether the supplied value is the masked-key sentinel. The comparison is ordinal and trims surrounding whitespace first, so a padded copy (e.g.
     /// </summary>
     /// <param name="candidate">The incoming API key value (may be null).</param>
     /// <returns><see langword="true"/> if the value is the mask sentinel; otherwise <see langword="false"/>.</returns>
@@ -33,11 +21,7 @@ internal static class ApiKeyMaskResolver
     }
 
     /// <summary>
-    ///     Resolves the effective API key for an incoming Arr instance value against a set of stored
-    ///     instances. When the incoming value is a real (non-mask) key it is returned as-is (this is how
-    ///     an admin changes a key: any value other than the mask is a new key). When it is the mask
-    ///     sentinel, the stored key is recovered by matching on Name+URL first (handles two instances
-    ///     that share the same URL), then URL only (handles a rename where the admin kept the key).
+    ///     Resolves the effective API key for an incoming Arr instance value against a set of stored instances.
     /// </summary>
     /// <param name="incomingKey">The API key from the request (mask sentinel or a real key).</param>
     /// <param name="url">The URL of the incoming instance, used to match a stored instance.</param>

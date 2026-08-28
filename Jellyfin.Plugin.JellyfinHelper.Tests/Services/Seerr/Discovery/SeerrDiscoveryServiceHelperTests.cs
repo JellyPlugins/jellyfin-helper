@@ -8,27 +8,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for the pure-static internal helpers on <see cref="SeerrDiscoveryService"/>:
-///     <c>StampMediaType</c>, <c>BuildGenreIdList</c>, <c>GetPrimaryLanguageForDiscovery</c>,
-///     <c>BuildPreferredPeopleSet</c>, <c>DeduplicateAndFilter</c>.
-///     <para>
-///         These helpers encode the "how do we sort/filter/normalise candidate items before we score
-///         them?" rules of the discovery pipeline. They are exercised only indirectly by the
-///         <c>SeerrDiscoveryServiceHttpTests</c> (which pump a scripted <see cref="System.Net.Http.HttpClient"/>
-///         through the full generation flow) - so a subtle behaviour change in one of these helpers
-///         silently changes what the frontend sees without any HTTP-level test failing.
-///     </para>
-///     <para>
-///         All helpers are <c>private static</c> on a <c>sealed</c> class so we reach them via reflection.
-///         The alternative - making them internal purely for testing - would leak implementation details
-///         into <c>InternalsVisibleTo</c> consumers.
-///     </para>
+///     Tests for the pure-static internal helpers on SeerrDiscoveryService: StampMediaType, BuildGenreIdList, GetPrimaryLanguageForDiscovery, BuildPreferredPeopleSet, DeduplicateAndFilter.
 /// </summary>
 public sealed class SeerrDiscoveryServiceHelperTests
 {
-    // ============================================================================
     // StampMediaType - defensive normalisation of items from typed TMDb endpoints.
-    // ============================================================================
 
     [Fact]
     public void StampMediaType_EmptyList_DoesNotThrow()
@@ -55,11 +39,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void StampMediaType_OverwritesExistingMediaType()
     {
-        // BUG GUARD: the helper explicitly OVERWRITES rather than filling in only when missing.
-        // The design is defensive - even when TMDb correctly emits mediaType, we must stamp our
-        // known type. If a maintainer refactored this to "only fill when null/empty", cross-media
-        // items (e.g. an anime series returned by a TV endpoint but tagged mediaType="movie" by
-        // TMDb) would end up in the wrong bucket.
+        // BUG GUARD: the helper explicitly OVERWRITES rather than filling in only when missing. The design is defensive - even when TMDb correctly emits mediaType, we must stamp our known type.
         var items = new List<TmdbDiscoverItem>
         {
             new() { Id = 1, MediaType = "movie" }
@@ -70,9 +50,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
         Assert.Equal("tv", items[0].MediaType);
     }
 
-    // ============================================================================
     // BuildGenreIdList - genre-name -> TMDb-int -> invariant-culture string.
-    // ============================================================================
 
     [Fact]
     public void BuildGenreIdList_EmptyInput_ReturnsEmpty()
@@ -105,9 +83,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void BuildGenreIdList_UsesInvariantCulture()
     {
-        // BUG GUARD: on some locales integer.ToString() would add thousands separators or use non-Arabic
-        // digits. That would produce invalid URL segments like "1,000" for genre id 1000 and break Seerr.
-        // We force the mapper to return a big number and verify no separators appear.
+        // BUG GUARD: on some locales integer.ToString() would add thousands separators or use non-Arabic digits.
         var result = InvokeBuildGenreIdList(["G"], _ => 12345);
         Assert.Single(result);
         Assert.Equal("12345", result[0]);
@@ -125,10 +101,8 @@ public sealed class SeerrDiscoveryServiceHelperTests
         Assert.Equal(["1", "2", "3"], result);
     }
 
-    // ============================================================================
     // GetPrimaryLanguageForDiscovery - user's primary language for /discover/xxx/language/{lang}
     // Requires ChosenCount >= 3 to filter out "forced by only option available".
-    // ============================================================================
 
     [Fact]
     public void GetPrimaryLanguageForDiscovery_NoLanguageProfile_ReturnsNull()
@@ -142,9 +116,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void GetPrimaryLanguageForDiscovery_ChosenCountBelowThreshold_ReturnsNull()
     {
-        // 2 < 3 -> below threshold -> treat as "forced by lack of options" -> null.
-        // We seed a single-entry LanguageProfile so PrimaryLanguage resolves to "de";
-        // the helper then reads its ChosenCount and rejects.
+        // 2 < 3 -> below threshold -> treat as "forced by lack of options" -> null. We seed a single-entry LanguageProfile so PrimaryLanguage resolves to "de"; the helper then reads its ChosenCount and rejects.
         var profile = new UserWatchProfile();
         profile.LanguageProfile["de"] = new LanguageProfileEntry { ChosenCount = 2 };
 
@@ -183,9 +155,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
         Assert.Equal("en", InvokeGetPrimaryLanguageForDiscovery(profile));
     }
 
-    // ============================================================================
     // BuildPreferredPeopleSet - top-N people with case-insensitive comparer.
-    // ============================================================================
 
     [Fact]
     public void BuildPreferredPeopleSet_EmptyPeopleProfile_ReturnsEmptyCaseInsensitiveSet()
@@ -226,11 +196,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
         Assert.Contains("Zendaya", set);
     }
 
-    // ============================================================================
-    // DeduplicateAndFilter - the discovery pipeline's core filter.
-    // Signature: (List<TmdbDiscoverItem>, HashSet<(int, string)>, int? maxParentalRating,
-    //            double minVoteAverage, double avgYear, bool isChildAccount)
-    // ============================================================================
+    // DeduplicateAndFilter - the discovery pipeline's core filter. Signature: (List<TmdbDiscoverItem>, HashSet<(int, string)>, int? maxParentalRating, double minVoteAverage, double avgYear, bool isChildAccount).
 
     [Fact]
     public void DeduplicateAndFilter_EmptyCandidates_ReturnsEmpty()
@@ -412,9 +378,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void DeduplicateAndFilter_MidEraViewer_AppliesWideYearWindow()
     {
-        // Non-child viewer whose avgYear is 2005 (>= 2000 but older than currentYear-6) gets
-        // the wide window: minYear = 2005 - 15 = 1990. A 1985 film falls below and is dropped;
-        // a 2000 film survives. Distinct from the modern 12-year window branch.
+        // Non-child viewer whose avgYear is 2005 (>= 2000 but older than currentYear-6) gets the wide window: minYear = 2005 - 15 = 1990.
         var oldFilm = new TmdbDiscoverItem
         {
             Id = 1,
@@ -455,9 +419,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
         Assert.Contains("API key is required", inner.Message, StringComparison.Ordinal);
     }
 
-    // ============================================================================
     // Reflection glue
-    // ============================================================================
 
     private static void InvokeValidateSeerrConfig(string baseUrl, string apiKey)
     {
@@ -517,9 +479,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
             BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
-        // The production signature is HashSet<(int TmdbId, string MediaType)> - tuple element names
-        // are metadata only, so a plain HashSet<(int, string)> is castable. Reflection.Invoke doesn't
-        // care about the names either. We box everything into object? for the parameter array.
+        // The production signature is HashSet<(int TmdbId, string MediaType)> - tuple element names are metadata only, so a plain HashSet<(int, string)> is castable.
         return (List<TmdbDiscoverItem>)method!.Invoke(null,
             [candidates, excluded, maxParentalRating, minVoteAverage, avgYear, isChildAccount])!;
     }

@@ -8,10 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Construction-time contract for <see cref="DiscoveryCacheService"/>: the public two-arg
-///     constructor resolves its file path from <c>Plugin.Instance.DataFolderPath</c>, so it must
-///     fail fast when the singleton is not initialised rather than silently constructing a service
-///     that writes to a bogus path.
+///     Construction-time contract for DiscoveryCacheService: the public two-arg constructor resolves its file path from Plugin.Instance.DataFolderPath, so it must fail fast when the singleton is not initialised rather than silently constructing a service that writes to a bogus path.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class DiscoveryCacheServiceConstructionTests

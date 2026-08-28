@@ -12,23 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 
 /// <summary>
-///     Tests for <see cref="Plugin"/> - the plugin bootstrap that handles index.html script
-///     injection (fallback path), on-disk data-file cleanup during uninstall, and recommendation
-///     playlist directory purge.
-///     <para>
-///         All tests here operate on a real temp filesystem: the code under test writes
-///         index.html, deletes <c>jellyfin-helper-*.json</c> data files, and shells out to
-///         <c>Directory.GetDirectories</c> on the playlists path - pure filesystem operations
-///         with no viable mock path. Each test uses a unique <see cref="Path.GetTempPath"/>
-///         subdirectory that is cleaned up in <see cref="IDisposable.Dispose"/>.
-///     </para>
-///     <para>
-///         Static-state hazard: <see cref="Plugin.Instance"/> is set in the constructor of every
-///         Plugin. This class deliberately builds a fresh Plugin per test to exercise the
-///         constructor code paths. The <c>Instance</c> pointer is overwritten, but since each
-///         test only asserts against the local plugin reference it constructs, cross-test
-///         pollution is contained.
-///     </para>
+///     Tests for Plugin - the plugin bootstrap that handles index.html script injection (fallback path), on-disk data-file cleanup during uninstall, and recommendation playlist directory purge.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class PluginTests : IDisposable
@@ -63,10 +47,7 @@ public sealed class PluginTests : IDisposable
 
     private Plugin CreatePlugin()
     {
-        // TestMockFactory sets DataPath, PluginConfigurationsPath, PluginsPath, LogDirectoryPath
-        // and ConfigurationDirectoryPath. BasePlugin<T>..ctor calls Path.Combine on some of these
-        // so we must ensure each is non-null. We then add WebPath on top, because Plugin
-        // (not BasePlugin) reads it via IndexHtmlPath.
+        // TestMockFactory sets DataPath, PluginConfigurationsPath, PluginsPath, LogDirectoryPath and ConfigurationDirectoryPath.
         var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: _dataPath, configPath: _dataPath);
         appPathsMock.Setup(p => p.WebPath).Returns(_webPath);
 
@@ -109,21 +90,12 @@ public sealed class PluginTests : IDisposable
         Assert.EndsWith(".PluginPages.configPage.html", page.EmbeddedResourcePath, StringComparison.Ordinal);
     }
 
-    // ================================================================================================
     // ReportClampedConfigValues - the "clamped hand-edited XML" warning path
-    // ================================================================================================
 
     [Fact]
     public void Ctor_WithClampedConfigValues_LogsWarningPerReport()
     {
-        // An operator who hand-edits the XML config to an out-of-range value
-        // (e.g. MaxRecommendationsPerUser=999) gets that value silently narrowed by the
-        // property setter. ReportClampedConfigValues is the ONLY visible feedback loop -
-        // without it, the operator sees the UI display "100" and has no idea why.
-        // This test asserts the warning IS logged when a clamp happened.
-        // Pre-materialise a PluginConfiguration with two clamped values, then inject it
-        // into the Configuration property (BasePlugin<T>.Configuration is set-able via the
-        // MediaBrowser.Common test-visible surface used by ControllerTestFactory).
+        // An operator who hand-edits the XML config to an out-of-range value (e.g. MaxRecommendationsPerUser=999) gets that value silently narrowed by the property setter.
         var config = new global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration
         {
             MaxRecommendationsPerUser = 999, // clamped down to 100
@@ -147,17 +119,7 @@ public sealed class PluginTests : IDisposable
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
             .Callback(() => warningCount++);
 
-        // Trick: build the plugin, then set Configuration via reflection, then re-run
-        // ReportClampedConfigValues indirectly by pulling the private method.
-        // Simpler path: reset Configuration BEFORE ReportClampedConfigValues runs.
-        //
-        // The ctor calls ReportClampedConfigValues() -> DrainClampReports() reads whatever
-        // is on Configuration at that moment. In production BasePlugin<T> materialises
-        // Configuration via the XmlSerializer BEFORE the ctor body runs; in tests we don't
-        // wire the serializer up, so Configuration is null when the ctor's report call runs.
-        // To exercise the warning path we build the plugin with the wired-up config manually
-        // via the same reflection trick ControllerTestFactory uses, then invoke
-        // ReportClampedConfigValues via reflection.
+        // Trick: build the plugin, then set Configuration via reflection, then re-run ReportClampedConfigValues indirectly by pulling the private method.
         var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
         var configProperty = typeof(MediaBrowser.Common.Plugins.BasePlugin<global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration>)
             .GetProperty("Configuration");
@@ -180,9 +142,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void Ctor_WithNoClampedValues_DoesNotLogClampWarning()
     {
-        // The fast-return path when DrainClampReports returns an empty list must
-        // not log ANY clamp warnings. Regressions to "always log" would spam the log on
-        // every startup and hide real problems.
+        // The fast-return path when DrainClampReports returns an empty list must not log ANY clamp warnings. Regressions to "always log" would spam the log on every startup and hide real problems.
         var config = new global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration
         {
             MaxRecommendationsPerUser = 20,   // within range, no clamp
@@ -334,13 +294,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void UpdateIndexHtml_Remove_WhenNoScriptExists_IsNoOp()
     {
-        // Unconditional rewrite would churn AtomicFile temp files on every call.
-        // The plugin constructor ALWAYS invokes UpdateIndexHtml (via InjectScript's fallback
-        // path) as part of its normal bootstrap. Under test the FileTransformation plugin is
-        // never present, so the ctor's UpdateIndexHtml(true) writes a fresh script tag on our
-        // behalf. To exercise the "no matching script -> skip write" fast path we must first
-        // strip that tag with UpdateIndexHtml(false), THEN snapshot the mtime, THEN invoke
-        // UpdateIndexHtml(false) once more - the second call is the real assertion target.
+        // Unconditional rewrite would churn AtomicFile temp files on every call. The plugin constructor ALWAYS invokes UpdateIndexHtml (via InjectScript's fallback path) as part of its normal bootstrap.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body>clean</body></html>");
 
@@ -424,10 +378,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void UpdateIndexHtml_Inject_WhenFileCannotBeModified_ReturnsWriteFailed()
     {
-        // If index.html cannot be modified - here simulated
-        // by holding an exclusive OS handle so both the read and the atomic replace fail - the
-        // fallback must swallow the IOException and report WriteFailed (never throw, never
-        // half-write). This is the signal InjectScript turns into an actionable warning.
+        // If index.html cannot be modified - here simulated by holding an exclusive OS handle so both the read and the atomic replace fail - the fallback must swallow the IOException and report WriteFailed (never throw, never half-write).
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
 
@@ -448,9 +399,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void InjectScript_WhenFallbackWriteFails_LogsActionableFileTransformationWarning()
     {
-        // With File Transformation absent AND the web dir unwritable, the plugin
-        // must emit exactly one actionable warning naming "File Transformation" so the admin knows
-        // how to fix the missing sidebar - instead of a silent failure or a raw stack trace.
+        // With File Transformation absent AND the web dir unwritable, the plugin must emit exactly one actionable warning naming "File Transformation" so the admin knows how to fix the missing sidebar - instead of a silent failure or a raw stack trace.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
 
@@ -482,10 +431,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void InjectScript_RepeatedFallbackFailure_WarnsOnlyOncePerStart()
     {
-        // The constructor injects once and the startup hosted service
-        // re-runs InjectScript, so on a persistently read-only web dir the fallback fails more than
-        // once per process. The actionable "install File Transformation" warning must fire only
-        // ONCE per plugin instance (server start) - never spam the log on each re-injection.
+        // The constructor injects once and the startup hosted service re-runs InjectScript, so on a persistently read-only web dir the fallback fails more than once per process.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
 
@@ -520,10 +466,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void CleanupWebPathTempFiles_RemovesOrphanedAtomicTempFiles_KeepsRealIndex()
     {
-        // AtomicFile writes index.html.<guid>.tmp then renames it
-        // over index.html. A hard process kill between write and rename orphans the uniquely-named
-        // temp file; since the name is never reused, such orphans would accumulate forever and are
-        // never touched by CleanupDataFiles (which only sweeps DataPath). This sweep reclaims them.
+        // AtomicFile writes index.html.<guid>.tmp then renames it over index.html.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
         var orphan1 = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
@@ -593,12 +536,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void OnUninstalling_DeletesUnprefixedMlAndStateArtifacts()
     {
-        // Regression: CleanupDataFiles' "jellyfin-helper-*" + .json/.tmp glob does NOT match the
-        // recommendation ML/state artifacts, which are written to DataPath either without the
-        // prefix (ml_weights.json, neural_weights.json, ensemble_state.json - see
-        // PluginServiceRegistrator) or with the prefix but a .txt extension the glob excludes
-        // (jellyfin-helper-batch-generation.txt - see Engine). Before the fix all four survived
-        // uninstall, orphaning trained model state on disk. Assert every plugin artifact is gone.
+        // Regression: CleanupDataFiles' "jellyfin-helper-*" + .json/.tmp glob does NOT match the recommendation ML/state artifacts, which are written to DataPath either without the prefix (ml_weights.json, neural_weights.json, ensemble_state.json - see PluginServiceRegistrator) or with.
         var mlWeights = Path.Combine(_dataPath, "ml_weights.json");
         var neuralWeights = Path.Combine(_dataPath, "neural_weights.json");
         var ensembleState = Path.Combine(_dataPath, "ensemble_state.json");
@@ -699,10 +637,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void OnUninstalling_WithoutFileTransformationPlugin_DoesNotThrow()
     {
-        // OnUninstalling reflects into the File Transformation plugin to call
-        // RemoveTransformation(Guid). Under test that plugin is never loaded, so the reflection
-        // must degrade to a best-effort no-op. This guards the RemoveTransformation/Guid binding
-        // against a typo that would otherwise surface as an unhandled exception on uninstall.
+        // OnUninstalling reflects into the File Transformation plugin to call RemoveTransformation(Guid). Under test that plugin is never loaded, so the reflection must degrade to a best-effort no-op.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
 
@@ -712,16 +647,12 @@ public sealed class PluginTests : IDisposable
         Assert.Null(ex);
     }
 
-    // ================================================================================================
     // IsFileTransformationAssembly - precise, positive identity check for the File Transformation plugin
-    // ================================================================================================
 
     [Fact]
     public void IsFileTransformationAssembly_MatchesExactSimpleName()
     {
-        // The File Transformation plugin's assembly simple name is
-        // "Jellyfin.Plugin.FileTransformation" (its csproj has no explicit <AssemblyName>, so the
-        // simple name is the project file name). This is the exact string the detection must match.
+        // The File Transformation plugin's assembly simple name is "Jellyfin.Plugin.FileTransformation" (its csproj has no explicit <AssemblyName>, so the simple name is the project file name).
         var name = new System.Reflection.AssemblyName("Jellyfin.Plugin.FileTransformation");
         var dynamicAsm = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(
             name,
@@ -735,11 +666,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void IsFileTransformationAssembly_DoesNotMatchOurOwnAssembly()
     {
-        // BUG GUARD: our own assembly is "Jellyfin.Plugin.JellyfinHelper" and it CONTAINS a
-        // ".FileTransformation" *namespace* (Services.FileTransformation). The old loose
-        // FullName.Contains(".FileTransformation") check would have false-positived here; the
-        // precise simple-name check must NOT - otherwise the plugin would try to register a
-        // transformation against ITSELF.
+        // BUG GUARD: our own assembly is "Jellyfin.Plugin.JellyfinHelper" and it CONTAINS a ".FileTransformation" *namespace* (Services.FileTransformation).
         Assert.False(
             Plugin.IsFileTransformationAssembly(typeof(Plugin).Assembly),
             "our own assembly (with a Services.FileTransformation namespace) must NOT be mistaken for the plugin");
@@ -770,10 +697,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void Logger_ExposesTheInjectedLoggerInstance()
     {
-        // Internal helpers (InjectScript, cleanup, etc.) log through Plugin.Logger and must share
-        // the plugin's ILogger<Plugin> category. A getter that fabricated a new/null logger would
-        // silently split the logging category, so the property must hand back the SAME reference
-        // the constructor received.
+        // Internal helpers (InjectScript, cleanup, etc.) log through Plugin.Logger and must share the plugin's ILogger<Plugin> category.
         var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: _dataPath, configPath: _dataPath);
         appPathsMock.Setup(p => p.WebPath).Returns(_webPath);
         var xmlSerializerMock = new Mock<IXmlSerializer>();
@@ -788,11 +712,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void UpdateConfiguration_PluginConfiguration_NormalizesAlphaRangeBeforePersisting()
     {
-        // UpdateConfiguration is the override Jellyfin invokes when the operator saves the config
-        // page. A PluginConfiguration whose Min > Max must be normalized (swapped) before base
-        // persistence so downstream ensemble scoring never sees an inverted range. The property
-        // setters self-normalize, so force the invariant violation directly on the backing fields
-        // to prove UpdateConfiguration's own NormalizeAlphaRange call (line 122) does the work.
+        // UpdateConfiguration is the override Jellyfin invokes when the operator saves the config page. A PluginConfiguration whose Min > Max must be normalized (swapped) before base persistence so downstream ensemble scoring never sees an inverted range.
         var config = new global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration();
         var configType = typeof(global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration);
         var minField = configType.GetField("_ensembleAlphaMin", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
@@ -815,11 +735,6 @@ public sealed class PluginTests : IDisposable
     public void CleanupWebPathTempFiles_LockedTempFile_SkipsItAndPreservesOthers()
     {
         // A hard-killed prior run can leave several orphaned index.html.<guid>.tmp files behind.
-        // If one is still locked (AV scanner / handle held), File.Delete throws IOException; the
-        // per-file catch must swallow it and keep sweeping, so the unlocked orphans are reclaimed
-        // and the real index.html is never touched.
-        // Construct the plugin first: its constructor already sweeps the web dir once, so the orphans
-        // we want to test against must be created afterwards.
         var plugin = CreatePlugin();
 
         var indexPath = Path.Combine(_webPath, "index.html");
@@ -829,10 +744,7 @@ public sealed class PluginTests : IDisposable
         File.WriteAllText(lockedOrphan, "leftover");
         File.WriteAllText(freeOrphan, "leftover");
 
-        // A FileShare.None handle only blocks File.Delete on Windows; POSIX unlink ignores the
-        // open handle, so on Linux the "locked" orphan would just be deleted. The skip-and-continue
-        // contract is therefore only observable on Windows - gate that branch and still assert the
-        // full sweep (both orphans gone, index preserved) on the platforms where nothing is locked.
+        // A FileShare.None handle only blocks File.Delete on Windows; POSIX unlink ignores the open handle, so on Linux the "locked" orphan would just be deleted.
         if (OperatingSystem.IsWindows())
         {
             using var handle = new FileStream(lockedOrphan, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
@@ -858,10 +770,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void OnUninstalling_LockedRecommendationPlaylistFolder_SkipsItWithoutThrowing()
     {
-        // Uninstall purges every managed recommendation playlist folder. If one folder holds a
-        // locked file, Directory.Delete(recursive) throws IOException; the per-folder catch must
-        // swallow it and continue so the other managed folders are still removed and uninstall
-        // never surfaces an exception to Jellyfin.
+        // Uninstall purges every managed recommendation playlist folder.
         var playlistsRoot = Path.Combine(_dataPath, "playlists");
         Directory.CreateDirectory(playlistsRoot);
         var lockedManaged = Path.Combine(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Bob");
@@ -874,11 +783,7 @@ public sealed class PluginTests : IDisposable
 
         var plugin = CreatePlugin();
 
-        // A FileShare.None handle only makes Directory.Delete(recursive) throw on Windows. On
-        // POSIX (Linux CI, Docker) an open exclusive handle does NOT block unlink, so the folder
-        // is deleted regardless and the per-folder catch is never reached. Mirror the repo's
-        // sibling failure tests and assert the "skip the locked folder, keep going" contract only
-        // where the OS can actually produce the lock; on Linux assert the clean-sweep contract.
+        // A FileShare.None handle only makes Directory.Delete(recursive) throw on Windows. On POSIX (Linux CI, Docker) an open exclusive handle does NOT block unlink, so the folder is deleted regardless and the per-folder catch is never reached.
         if (OperatingSystem.IsWindows())
         {
             using (new FileStream(lockedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
@@ -903,17 +808,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void OnUninstalling_LockedDataFile_SkipsItAndDeletesOthers()
     {
-        // Uninstall sweeps every jellyfin-helper-*.json data file. If one is undeletable, File.Delete
-        // throws (IOException/UnauthorizedAccessException); the per-file catch must swallow it and keep
-        // going so the other data files are still removed and uninstall never surfaces an exception.
-        //
-        // Forcing a real File.Delete failure is inherently OS-specific here: the SUT enumerates plain
-        // files via Directory.GetFiles, and the only portable way to make a regular file undeletable is
-        // an exclusive handle - which POSIX does not honour (Linux happily deletes an open file), and a
-        // read-only chmod is ignored when CI runs as root. So we exercise the per-file catch on Windows
-        // (holding a FileShare.None handle makes File.Delete throw), and on Linux assert the same
-        // observable contract the catch guarantees: uninstall deletes matching files, never throws, and
-        // leaves the data directory intact.
+        // Uninstall sweeps every jellyfin-helper-*.json data file.
         var lockedFile = Path.Combine(_dataPath, "jellyfin-helper-statistics-latest.json");
         var freeFile = Path.Combine(_dataPath, "jellyfin-helper-recommendations-latest.json");
         File.WriteAllText(lockedFile, "{}");

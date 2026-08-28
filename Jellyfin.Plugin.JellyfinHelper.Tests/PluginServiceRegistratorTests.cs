@@ -27,17 +27,13 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 
 /// <summary>
-///     Tests for <see cref="PluginServiceRegistrator"/> to make sure every service the plugin
-///     depends on is registered against the DI container. A regression in this file typically
-///     surfaces as an unresolved-service <see cref="InvalidOperationException"/> at controller
-///     construction time in production - a nasty runtime-only failure. Catching it here is
-///     cheap and catches accidental removal or rename of a registration.
+///     Tests for PluginServiceRegistrator to make sure every service the plugin depends on is registered against the DI container.
 /// </summary>
 public class PluginServiceRegistratorTests
 {
-    /// <summary>Registers all services against a fresh collection. Plugin.Instance may or may
-    /// not exist depending on test ordering - the registrator uses the null-conditional so it
-    /// tolerates either state.</summary>
+    /// <summary>
+    ///     Registers all services against a fresh collection. Plugin.Instance may or may not exist depending on test ordering - the registrator uses the null-conditional so it tolerates either state.
+    /// </summary>
     private static IServiceCollection Register()
     {
         var sc = new ServiceCollection();
@@ -50,9 +46,7 @@ public class PluginServiceRegistratorTests
     private static bool ContainsSingleton<TService>(IServiceCollection sc)
         => sc.Any(d => d.ServiceType == typeof(TService) && d.Lifetime == ServiceLifetime.Singleton);
 
-    // -----------------------------------------------------------------------
     // Contract: RegisterServices does not throw regardless of Plugin.Instance state
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void RegisterServices_WithNullApplicationHost_ThrowsNothing_WhenAppHostProvided()
@@ -63,9 +57,7 @@ public class PluginServiceRegistratorTests
         Assert.Null(ex);
     }
 
-    // -----------------------------------------------------------------------
     // HttpClients - three named clients with specific timeouts must be present
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void RegisterServices_RegistersIHttpClientFactory()
@@ -74,9 +66,7 @@ public class PluginServiceRegistratorTests
         Assert.Contains(sc, d => d.ServiceType == typeof(System.Net.Http.IHttpClientFactory));
     }
 
-    // -----------------------------------------------------------------------
     // Every interface the controllers depend on must be registered as Singleton.
-    // -----------------------------------------------------------------------
 
     [Theory]
     [InlineData(typeof(ICleanupConfigHelper))]
@@ -111,9 +101,7 @@ public class PluginServiceRegistratorTests
         Assert.Contains(sc, d => d.ServiceType == serviceType && d.Lifetime == ServiceLifetime.Singleton);
     }
 
-    // -----------------------------------------------------------------------
     // ILinkHandler is registered TWICE (Strm and Symlink) - must expose both.
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void RegisterServices_LinkHandler_RegistersBothStrmAndSymlinkImplementations()
@@ -125,10 +113,8 @@ public class PluginServiceRegistratorTests
         Assert.All(handlers, d => Assert.Equal(ServiceLifetime.Singleton, d.Lifetime));
     }
 
-    // -----------------------------------------------------------------------
     // The scoring strategies must all be reachable (Heuristic, Learned, Neural,
     // Ensemble) so the ensemble can compose them.
-    // -----------------------------------------------------------------------
 
     [Theory]
     [InlineData(typeof(HeuristicScoringStrategy))]
@@ -145,10 +131,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_IScoringStrategy_DelegatesToEnsemble()
     {
-        // The IScoringStrategy binding must resolve to the Ensemble, not
-        // Heuristic/Learned/Neural alone. If someone re-orders the AddSingleton calls
-        // and forgets to redirect the interface, recommendation ranking silently switches
-        // strategies.
+        // The IScoringStrategy binding must resolve to the Ensemble, not Heuristic/Learned/Neural alone. If someone re-orders the AddSingleton calls and forgets to redirect the interface, recommendation ranking silently switches strategies.
         var sc = Register();
         var provider = sc.BuildServiceProvider();
         var strategy = provider.GetService<IScoringStrategy>();
@@ -159,9 +142,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_ResolvesFullDependencyGraphWithoutError()
     {
-        // Smoke test: build the container and try to resolve every registered service.
-        // Any missing dependency (e.g. a required ILogger<T>) surfaces as an
-        // InvalidOperationException here rather than at runtime in Jellyfin.
+        // Smoke test: build the container and try to resolve every registered service. Any missing dependency (e.g.
         var sc = Register();
         // Provide the loggers that the concrete registrations request. Without these,
         // ILogger<T> resolution would fail on the first strategy factory.
@@ -182,11 +163,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_ResolvesRecommendationPlaylistService_WhenJellyfinDepsRegistered()
     {
-        // BUG GUARD: RecommendationPlaylistService requires IPlaylistManager, IUserManager,
-        // and ILibraryManager - all Jellyfin-host interfaces not present in the plugin's own
-        // RegisterServices call. Jellyfin injects them via its own DI container at runtime.
-        // This test simulates that: register mocks for the three Jellyfin deps, then verify
-        // the full factory chain resolves without InvalidOperationException.
+        // BUG GUARD: RecommendationPlaylistService requires IPlaylistManager, IUserManager, and ILibraryManager - all Jellyfin-host interfaces not present in the plugin's own RegisterServices call.
         var sc = Register();
         sc.AddLogging();
         sc.AddSingleton(new Mock<IPlaylistManager>().Object);
@@ -203,9 +180,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_HttpClientFactory_ProducesConfiguredClients()
     {
-        // The three named HttpClient registrations set specific timeouts. If someone
-        // accidentally removes a name, the factory silently returns a default client
-        // with a 100-second timeout - dangerous for calls to Radarr/Sonarr/Seerr.
+        // The three named HttpClient registrations set specific timeouts. If someone accidentally removes a name, the factory silently returns a default client with a 100-second timeout - dangerous for calls to Radarr/Sonarr/Seerr.
         var sc = Register();
         sc.AddLogging();
         var provider = sc.BuildServiceProvider();
@@ -224,9 +199,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_UnknownClientName_FallsBackToDefaultTimeout()
     {
-        // Negative sanity check: a typo'd name doesn't accidentally match one of our
-        // registrations. Confirms our named-client registrations are actually keyed
-        // on the exact names controllers use.
+        // Negative sanity check: a typo'd name doesn't accidentally match one of our registrations. Confirms our named-client registrations are actually keyed on the exact names controllers use.
         var sc = Register();
         sc.AddLogging();
         var provider = sc.BuildServiceProvider();
@@ -241,9 +214,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_TwoInvocationsOnFreshCollections_ProduceIdenticalCounts()
     {
-        // Determinism guard: two fresh registrations must yield the same number of
-        // descriptors. If a registration ever became non-deterministic (e.g. driven by
-        // Random / DateTime.UtcNow / environmental state), this catches it early.
+        // Determinism guard: two fresh registrations must yield the same number of descriptors. If a registration ever became non-deterministic (e.g.
         var sc1 = Register();
         var sc2 = Register();
         Assert.Equal(sc1.Count, sc2.Count);
@@ -252,14 +223,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_RegistersModelBindingLogFilter_AsScoped()
     {
-        // Filter is consumed via [ServiceFilter(typeof(ModelBindingLogFilter))] on the
-        // ConfigurationController action. That attribute needs the CONCRETE type resolvable
-        // from DI - a rename or accidental removal here would surface as a runtime
-        // InvalidOperationException on the first Settings save. Also pins Scoped lifetime:
-        // Singleton would prevent request-scoped dependencies from being injected later,
-        // Transient would spawn a fresh filter per invocation (fine functionally but wastes
-        // allocations on a filter that has no per-request state today). Scoped matches the
-        // documented convention for [ServiceFilter]-resolved filters.
+        // Filter is consumed via [ServiceFilter(typeof(ModelBindingLogFilter))] on the ConfigurationController action.
         var sc = Register();
         Assert.Contains(sc, d => d.ServiceType == typeof(ModelBindingLogFilter)
                                  && d.Lifetime == ServiceLifetime.Scoped);
@@ -268,15 +232,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_CalledTwiceOnSameCollection_DoublesTheRegistrationsAsExpected()
     {
-        // Real re-entrancy guard: calling RegisterServices twice against the SAME
-        // ServiceCollection is expected to append descriptors (Add* semantics, not
-        // TryAdd*). If any registration silently switched to TryAdd, the second call
-        // would be a no-op and this test would fail - surfacing the subtle behaviour
-        // change instead of shipping it.
-        //
-        // Note: the registrator is called by Jellyfin exactly once, so this is a
-        // regression net for future refactors, not a claim that double-registration
-        // is a supported production scenario.
+        // Real re-entrancy guard: calling RegisterServices twice against the SAME ServiceCollection is expected to append descriptors (Add* semantics, not TryAdd*).
         var sc = new ServiceCollection();
         var host = new Mock<IServerApplicationHost>();
         var sut = new PluginServiceRegistrator();
@@ -288,10 +244,7 @@ public class PluginServiceRegistratorTests
         sut.RegisterServices(sc, host.Object);
         var countAfterSecond = sc.Count;
 
-        // Every Add* registration is duplicated by the second call. Named HttpClient
-        // registrations use Configure<HttpClientFactoryOptions> which multiply on repeat
-        // invocation, so the exact ratio is not necessarily 2:1 - we assert only strict
-        // monotonic growth to keep this test resilient against future changes.
+        // Every Add* registration is duplicated by the second call.
         Assert.True(
             countAfterSecond > countAfterFirst,
             $"Registration count must grow when RegisterServices is invoked twice on the same collection (was {countAfterFirst}, now {countAfterSecond}).");

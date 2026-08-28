@@ -46,11 +46,7 @@ public class LibraryInsightsServiceTests
     [Fact]
     public void DetermineChangeType_ModifiedBeforeCreated_IsAdded()
     {
-        // A modified time EARLIER than created is a stale/preserved mtime (e.g. media copied with
-        // -p, or restored from backup), NOT a real change. It must classify as "added" so the
-        // recency date is driven by the newer created time - otherwise GetRelevantDate would return
-        // the stale older mtime and the recent-filter would hide genuinely new media. (Previously
-        // this used Math.Abs and wrongly returned "changed".)
+        // A modified time EARLIER than created is a stale/preserved mtime (e.g. media copied with -p, or restored from backup), NOT a real change.
         var created = new DateTime(2025, 6, 5, 12, 0, 0, DateTimeKind.Utc);
         var modified = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
         Assert.Equal("added", LibraryInsightsService.DetermineChangeType(created, modified));
@@ -377,9 +373,7 @@ public class LibraryInsightsServiceTests
     [Fact]
     public async Task ComputeInsightsAsync_SkipsBookLibraries()
     {
-        // Book libraries (eBooks: PDF/CBZ/EPUB…) are many small files, so like music/boxsets
-        // they are not surfaced in the largest-directory / recency insights. They still count
-        // toward the storage growth timeline, which is a separate raw-size scan.
+        // Book libraries (eBooks: PDF/CBZ/EPUB…) are many small files, so like music/boxsets they are not surfaced in the largest-directory / recency insights.
         using var tempDir = new TempDirectory();
         tempDir.CreateSubDirectory("Novel");
         tempDir.CreateFile("Novel/book.epub", 50_000);

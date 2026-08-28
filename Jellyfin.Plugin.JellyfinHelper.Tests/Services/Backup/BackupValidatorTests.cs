@@ -119,9 +119,7 @@ public class BackupValidatorTests
     [Fact]
     public void Validate_CreatedAt_UnspecifiedKind_StillValidatesTimestamp()
     {
-        // Even with Unspecified kind the timestamp comparison must still run (treated as UTC).
-        // A clearly-future Unspecified timestamp should produce the future warning in addition
-        // to the timezone warning.
+        // Even with Unspecified kind the timestamp comparison must still run (treated as UTC). A clearly-future Unspecified timestamp should produce the future warning in addition to the timezone warning.
         var backup = CreateValidBackup();
         backup.CreatedAt = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(10), DateTimeKind.Unspecified);
 

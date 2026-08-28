@@ -11,9 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 /// <summary>
-///     Tests for <see cref="CleanOrphanedSubtitlesTask"/>'s direct on-disk delete path
-///     (Activate mode, <c>UseTrash = false</c>), exercising the real <c>File.Delete</c> branch
-///     against actual temp files rather than mocks.
+///     Tests for CleanOrphanedSubtitlesTask's direct on-disk delete path (Activate mode, UseTrash = false), exercising the real File.Delete branch against actual temp files rather than mocks.
 /// </summary>
 public sealed class CleanOrphanedSubtitlesTaskDirectDeleteTests : CleanupTaskTestBase, IDisposable
 {
@@ -73,9 +71,7 @@ public sealed class CleanOrphanedSubtitlesTaskDirectDeleteTests : CleanupTaskTes
     [Fact]
     public async Task Execute_Activate_NoTrash_DeleteFails_LogsErrorAndSkips()
     {
-        // The orphan "path" is actually a directory on disk, so File.Delete throws
-        // (UnauthorizedAccessException) and is caught by the IO/Unauthorized filter:
-        // the run must log the failure and count zero successful deletions.
+        // The orphan "path" is actually a directory on disk, so File.Delete throws (UnauthorizedAccessException) and is caught by the IO/Unauthorized filter: the run must log the failure and count zero successful deletions.
         var dir = Path.Join(_root, "Movie (2021)");
         Directory.CreateDirectory(dir);
         var videoPath = Path.Join(dir, "MovieA.mkv");
@@ -148,8 +144,7 @@ public sealed class CleanOrphanedSubtitlesTaskDirectDeleteTests : CleanupTaskTes
     }
 
     /// <summary>
-    ///     Wires GetFiles to return metadata whose FullName points at real on-disk paths,
-    ///     with Length reflecting the actual file size so the freed-bytes accounting is genuine.
+    ///     Wires GetFiles to return metadata whose FullName points at real on-disk paths, with Length reflecting the actual file size so the freed-bytes accounting is genuine.
     /// </summary>
     private void SetupFilesOnDisk(string dirPath, params (string FullName, string Name)[] entries)
     {

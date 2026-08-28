@@ -265,13 +265,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_EmptyAfterHavingData_ReturnsWithoutThrowing()
     {
-        // Sequence: first scan with data -> second scan with no libraries.
-        // The second call must (a) return an empty transient result, AND (b) actually
-        // PERSIST that empty state to disk so LoadTimelineAsync reflects reality.
-        // A test that only inspects the transient return value could pass even if
-        // SaveTimelineAsync was silently skipped - leaving stale non-zero data on disk.
-        // We therefore reload from a fresh instance below to prove the persisted point
-        // is the zero snapshot.
+        // Sequence: first scan with data -> second scan with no libraries. The second call must (a) return an empty transient result, AND (b) actually PERSIST that empty state to disk so LoadTimelineAsync reflects reality.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
@@ -307,9 +301,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_LegacyGroupedBaselineOnDisk_IsDiscardedAndRebuiltPerDirectory()
     {
-        // Legacy baselines keyed with a '|' separator (grouped by library+letter) are
-        // incompatible with the per-directory format and would produce wrong diffs, so the
-        // service must throw them away and rebuild a fresh per-directory baseline.
+        // Legacy baselines keyed with a '|' separator (grouped by library+letter) are incompatible with the per-directory format and would produce wrong diffs, so the service must throw them away and rebuild a fresh per-directory baseline.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
@@ -349,9 +341,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_BaselineExistsButNoTimeline_ReconstructsFromBaseline()
     {
-        // A valid baseline with no timeline file (post-migration / data loss) must take the
-        // historical-reconstruction branch instead of a fresh first scan, preserving the
-        // originally recorded FirstScanTimestamp.
+        // A valid baseline with no timeline file (post-migration / data loss) must take the historical-reconstruction branch instead of a fresh first scan, preserving the originally recorded FirstScanTimestamp.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
@@ -384,9 +374,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_NoDirectoriesButPriorHistoryOnDisk_PersistsZeroSnapshotPreservingHistory()
     {
-        // A prior non-zero point on disk plus zero libraries now: the empty-library branch must
-        // merge a zero snapshot onto the surviving historical point and persist that, so the
-        // chart shows a drop-to-zero rather than losing the history or keeping stale data.
+        // A prior non-zero point on disk plus zero libraries now: the empty-library branch must merge a zero snapshot onto the surviving historical point and persist that, so the chart shows a drop-to-zero rather than losing the history or keeping stale data.
         var oldDate = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
         await File.WriteAllTextAsync(
@@ -437,10 +425,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_DirectoryCreationTimePre1990_FallsBackToLastWriteTime()
     {
-        // Filesystems that don't track creation time report a pre-1990 sentinel; the scan must
-        // fall back to last-write time so the directory is still counted with a sane date. The
-        // service reads these timestamps via a live stat (Directory.Get*TimeUtc), so we set them on
-        // the real directory rather than injecting them into the mock metadata.
+        // Filesystems that don't track creation time report a pre-1990 sentinel; the scan must fall back to last-write time so the directory is still counted with a sane date.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
@@ -470,9 +455,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_LooseFileCreationTimePre1990_FallsBackToLastWriteTime()
     {
-        // Same creation-time fallback as directories, but for a loose media file in the library
-        // root. The service reads timestamps via a live stat (File.Get*TimeUtc), so we set them on
-        // the real file rather than injecting them into the mock metadata.
+        // Same creation-time fallback as directories, but for a loose media file in the library root. The service reads timestamps via a live stat (File.Get*TimeUtc), so we set them on the real file rather than injecting them into the mock metadata.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var mkv = Path.Join(libRoot, "movie.mkv");
@@ -573,15 +556,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_DirectoryEnumerationMetadataHasNoTimestamps_LiveStatStillCountsIt()
     {
-        // REGRESSION GUARD (E2E growth-timeline-fs failure): the scan must derive the "added" date
-        // from a LIVE stat of the real path, never from the timestamps carried by the
-        // FileSystemMetadata the enumeration returned. Jellyfin's IFileSystem does not reliably
-        // populate CreationTimeUtc/LastWriteTimeUtc on every platform - they can arrive as the
-        // DateTime.MinValue (year 1) default. If the service trusted those, ResolveEntryDateUtc
-        // would return null for every entry and the whole timeline would come back empty (exactly
-        // what broke on the real Jellyfin server). Here the mock metadata is left at its default
-        // (no timestamps), but the real directory on disk has a valid current date, so the entry
-        // MUST still be counted.
+        // REGRESSION GUARD (E2E growth-timeline-fs failure): the scan must derive the "added" date from a LIVE stat of the real path, never from the timestamps carried by the FileSystemMetadata the enumeration returned.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie (2020)");
@@ -611,9 +586,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_LooseFileEnumerationMetadataHasNoTimestamps_LiveStatStillCountsIt()
     {
-        // Same regression guard as the directory case, for a loose media file in the library root:
-        // empty enumeration-metadata timestamps must NOT cause the file to be skipped, because the
-        // service reads the date from a live File.Get*TimeUtc stat of the real file.
+        // Same regression guard as the directory case, for a loose media file in the library root: empty enumeration-metadata timestamps must NOT cause the file to be skipped, because the service reads the date from a live File.Get*TimeUtc stat of the real file.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var mkv = Path.Join(libRoot, "movie.mkv");
@@ -636,10 +609,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_DirectoryBothCreationAndWriteTimePre1990_IsSkipped()
     {
-        // When BOTH the creation and last-write timestamps are pre-1990 sentinels (a filesystem
-        // that tracks neither), there is no sane date to attribute the directory to, so it must be
-        // skipped entirely rather than plotted at a bogus year. Timestamps are read via a live stat,
-        // so set them on the real directory.
+        // When BOTH the creation and last-write timestamps are pre-1990 sentinels (a filesystem that tracks neither), there is no sane date to attribute the directory to, so it must be skipped entirely rather than plotted at a bogus year.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
@@ -719,8 +689,6 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         // Only the real episode file is counted; the trickplay child was skipped.
         Assert.Equal(100, size);
     }
-
-    // === Atomic save: crash-safe writes use temp-then-move ===
 
     [Fact]
     public async Task SaveBaselineAsync_WritesToDisk_FileIsValidJson()
@@ -807,9 +775,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_LibraryRootNotStattable_IsSkippedAndNotScanned()
     {
-        // The sole library root cannot be stat'd: new DirectoryInfo(location).Attributes returns
-        // all-bits (-1) on a non-existent path, so the ReparsePoint guard fires and the root is
-        // skipped before any enumeration - a symlink/junction root must never be scanned.
+        // The sole library root cannot be stat'd: new DirectoryInfo(location).Attributes returns all-bits (-1) on a non-existent path, so the ReparsePoint guard fires and the root is skipped before any enumeration - a symlink/junction root must never be scanned.
         var location = Path.Join(_dataPath, "ghost-library");
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
@@ -824,9 +790,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_TopLevelSubdirNotStattable_IsSkipped()
     {
-        // A real library root yields one top-level subdir whose path cannot be stat'd; its
-        // Attributes return all-bits (-1) so the top-level ReparsePoint guard skips it before
-        // any size measurement - its files must never be enumerated.
+        // A real library root yields one top-level subdir whose path cannot be stat'd; its Attributes return all-bits (-1) so the top-level ReparsePoint guard skips it before any size measurement - its files must never be enumerated.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var subDir = Path.Join(libRoot, "ghost-movie");

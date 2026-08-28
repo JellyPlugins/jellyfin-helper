@@ -6,31 +6,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Branch-coverage extensions for <see cref="ExternalCandidateFeatureBuilder"/> covering
-///     paths that <see cref="ExternalCandidateFeatureBuilderTests"/> deliberately left
-///     uncovered:
-///     <list type="bullet">
-///         <item><c>ArgumentNullException.ThrowIfNull</c> guards for all four required inputs.</item>
-///         <item>The "preferredPeople uses non-OrdinalIgnoreCase comparer" defensive rebuild
-///               branch that keeps TMDb's mixed-case names from silently missing a match.</item>
-///         <item>The <c>EffectiveReleaseDate == null</c> path where <c>RecencyScore</c> falls
-///               back to neutral <c>0.5</c> and <c>YearProximityScore</c> receives <c>null</c>.</item>
-///         <item>The TV branch where <c>IsSeries=true</c> and <c>ReleaseDate=null</c> so
-///               <c>EffectiveReleaseDate</c> is derived from <c>FirstAirDate</c>.</item>
-///         <item><c>ComputePeopleSimilarity</c> guard branches: empty preferredPeople,
-///               <c>candidate.KnownPeople==null</c>, and empty <c>KnownPeople</c>.</item>
-///         <item><c>ComputePeopleSimilarityFromNames</c> whitespace-name filter and
-///               duplicate name de-dup (director + writer both credit the same person).</item>
-///     </list>
+///     Branch-coverage extensions for ExternalCandidateFeatureBuilder covering paths that ExternalCandidateFeatureBuilderTests deliberately left uncovered: ArgumentNullException.ThrowIfNull guards for all four required inputs.
 /// </summary>
 public sealed class ExternalCandidateFeatureBuilderExtendedTests
 {
     private const int ActionTmdbGenreId = 28;
     private const string ActionGenre = "Action";
 
-    // -----------------------------------------------------------------------
     // Argument guards
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Build_NullCandidate_Throws()
@@ -94,18 +77,12 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
                 genreExposure: null!));
     }
 
-    // -----------------------------------------------------------------------
     // Defensive comparer rebuild
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Build_PreferredPeopleWithCaseSensitiveComparer_RebuildsAsIgnoreCase()
     {
-        // BUG GUARD: TMDb returns names like "leonardo dicaprio" while the profile stores
-        // "Leonardo DiCaprio". Without the defensive rebuild the case-sensitive HashSet
-        // silently yields zero overlap and drops PeopleSimilarity to 0.0 - invisibly
-        // corrupting the score. This test forces the rebuild branch by passing a
-        // case-sensitive Ordinal comparer with a populated set.
+        // BUG GUARD: TMDb returns names like "leonardo dicaprio" while the profile stores "Leonardo DiCaprio".
         var profile = BuildProfile();
         var prefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(prefs, profile);
@@ -129,9 +106,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
         Assert.Equal(1.0, features.PeopleSimilarity, 6);
     }
 
-    // -----------------------------------------------------------------------
     // EffectiveReleaseDate handling
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Build_CandidateWithoutReleaseDate_UsesNeutralRecencyAndNullYearProximity()
@@ -168,24 +143,12 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
     [Fact]
     public void Build_TvCandidateUsesFirstAirDateForRecency()
     {
-        // BUG GUARD: TV items typically have FirstAirDate populated while ReleaseDate is
-        // empty. The TmdbDiscoverItem.EffectiveReleaseDate property falls back to
-        // FirstAirDate - this test locks the contract that a TV item DOES receive a
-        // non-neutral recency signal (i.e. RecencyScore differs from the "no date at all"
-        // fallback of exactly 0.5), proving that the fallback chain fired.
-        //
-        // NOTE: The exact recency curve shape is intentionally not asserted here - the
-        // ContentScoring.ComputeRecencyScore behaviour is covered by
-        // ContentScoringTests. What matters for THIS test is that the FirstAirDate is
-        // actually used (i.e. the code took the non-null branch) rather than falling
-        // through to the neutral-0.5 branch that the no-date test above pins.
+        // BUG GUARD: TV items typically have FirstAirDate populated while ReleaseDate is empty. The TmdbDiscoverItem.EffectiveReleaseDate property falls back to FirstAirDate - this test locks the contract that a TV item DOES receive a non-neutral recency signal (i.e.
         var profile = BuildProfile();
         var prefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(prefs, profile);
 
-        // Two candidates with different FirstAirDate values so we can prove the score
-        // varies with the date - that alone forces the non-null branch through and rules
-        // out "always returns 0.5" regressions.
+        // Two candidates with different FirstAirDate values so we can prove the score varies with the date - that alone forces the non-null branch through and rules out "always returns 0.5" regressions.
         var recent = new TmdbDiscoverItem
         {
             Id = 701,
@@ -252,9 +215,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
         Assert.True(features.IsSeries);
     }
 
-    // -----------------------------------------------------------------------
     // ComputePeopleSimilarity guard branches
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Build_EmptyPreferredPeople_YieldsZeroPeopleSimilarity()
@@ -316,9 +277,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
         Assert.Equal(0.0, features.PeopleSimilarity, 6);
     }
 
-    // -----------------------------------------------------------------------
     // ComputePeopleSimilarityFromNames branch coverage
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputePeopleSimilarityFromNames_NullNames_ReturnsZero()
@@ -341,9 +300,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
     [Fact]
     public void ComputePeopleSimilarityFromNames_FiltersWhitespaceAndDedupes()
     {
-        // "Alice" appears three times (director credit, writer credit, executive-producer
-        // credit) - a naive Count() would double-boost the score. Plus one whitespace
-        // entry which must be filtered out.
+        // "Alice" appears three times (director credit, writer credit, executive-producer credit) - a naive Count() would double-boost the score.
         var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob", "Carol", "Dan", "Eve" };
         string[] known = ["Alice", "alice", "ALICE", "   ", "", "Bob"];
 
@@ -366,9 +323,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
         Assert.Equal(1.0, result, 6);
     }
 
-    // -----------------------------------------------------------------------
     // Test helpers
-    // -----------------------------------------------------------------------
 
     private static TmdbDiscoverItem MinimalCandidate() =>
         new()

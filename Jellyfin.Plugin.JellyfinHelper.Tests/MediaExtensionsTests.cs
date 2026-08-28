@@ -109,8 +109,6 @@ public class MediaExtensionsTests
         Assert.Contains("ENG", MediaExtensions.KnownLanguageCodes);
     }
 
-    // ===== Negative tests =====
-
     [Theory]
     [InlineData(".srt")]
     [InlineData(".ass")]
@@ -138,10 +136,7 @@ public class MediaExtensionsTests
     [Fact]
     public void VideoExtensions_ContainsStrm()
     {
-        // .strm is intentionally included so cleanup tasks (trickplay, orphaned subtitles,
-        // empty-folder detection) correctly recognise .strm-based libraries as having video content.
-        // LinkRepairService.FindMediaFilesInDirectory excludes .strm separately so that a link file
-        // is never treated as a repair candidate for another link file.
+        // .strm is intentionally included so cleanup tasks (trickplay, orphaned subtitles, empty-folder detection) correctly recognise .strm-based libraries as having video content.
         Assert.Contains(MediaExtensions.StrmExtension, MediaExtensions.VideoExtensions);
     }
 

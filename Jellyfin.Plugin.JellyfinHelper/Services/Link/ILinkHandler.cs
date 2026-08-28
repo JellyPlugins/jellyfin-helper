@@ -1,17 +1,12 @@
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
 /// <summary>
-///     Strategy interface for handling a specific type of link file.
-///     Each implementation encapsulates the logic for one link type
-///     (e.g. .strm files, symbolic links), making it easy to add or
-///     remove link type support independently.
+///     Strategy interface for handling a specific type of link file. Each implementation encapsulates the logic for one link type (e.g.
 /// </summary>
 public interface ILinkHandler
 {
     /// <summary>
-    ///     Gets a value indicating whether this link type can legitimately
-    ///     contain URL targets (e.g. <c>http://</c>). When true, URL-based
-    ///     targets are treated as valid and skipped during repair.
+    ///     Gets a value indicating whether this link type can legitimately contain URL targets (e.g. http://).
     /// </summary>
     bool SupportsUrlTargets { get; }
 

@@ -7,22 +7,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for the BoxSet-related pure-static helpers on <see cref="Engine"/>:
-///     <c>BuildWatchedBoxSetCounts</c> and <c>ComputeCollectionProgressionBoostLive</c>.
-///     <para>
-///         These helpers implement the "you already watched half of this trilogy" boost signal
-///         that surfaces the next installment of a collection to the user. The formula is shared
-///         with the training-time <c>ComputeCollectionProgressionBoostWithCounts</c> in
-///         <c>TrainingDataBuilder</c>, but both call into the same <see cref="EngineConstants.ComputeCollectionProgressionBoost"/>
-///         helper - so the golden vectors below (which pin the formula shape at inference time)
-///         also protect train/serve parity by construction.
-///     </para>
+///     Tests for the BoxSet-related pure-static helpers on Engine: BuildWatchedBoxSetCounts and ComputeCollectionProgressionBoostLive.
 /// </summary>
 public sealed class EngineBoxSetTests
 {
-    // ============================================================================
     // BuildWatchedBoxSetCounts - inverts (item -> boxSets) into (boxSet -> watchedCount).
-    // ============================================================================
 
     [Fact]
     public void BuildWatchedBoxSetCounts_EmptyWatched_ReturnsEmpty()
@@ -131,10 +120,8 @@ public sealed class EngineBoxSetTests
         Assert.Equal(1, result[trilogyB]);
     }
 
-    // ============================================================================
     // ComputeCollectionProgressionBoostLive - reads the counts and produces a boost.
     // Delegates the FORMULA to EngineConstants.ComputeCollectionProgressionBoost.
-    // ============================================================================
 
     [Fact]
     public void ComputeCollectionProgressionBoostLive_EmptyWatchedBoxSetCounts_ReturnsZero()
@@ -172,9 +159,7 @@ public sealed class EngineBoxSetTests
     [Fact]
     public void ComputeCollectionProgressionBoostLive_SingleWatched_MatchesFormula()
     {
-        // The wrapper must forward to EngineConstants.ComputeCollectionProgressionBoost for
-        // count=1. Any inline duplication of the formula (that would break train/serve parity)
-        // is caught here by comparing the wrapper output against the direct formula call.
+        // The wrapper must forward to EngineConstants.ComputeCollectionProgressionBoost for count=1. Any inline duplication of the formula (that would break train/serve parity) is caught here by comparing the wrapper output against the direct formula call.
         var boxSet = Guid.NewGuid();
         var expected = EngineConstants.ComputeCollectionProgressionBoost(1);
 
@@ -225,24 +210,16 @@ public sealed class EngineBoxSetTests
     [Fact]
     public void ComputeCollectionProgressionBoostLive_ClampedAtOne_ForVeryHighCounts()
     {
-        // BUG GUARD: the underlying formula clamps to 1.0. If a maintainer removed the clamp
-        // in a refactor, a user with 100 watched items in a mega-BoxSet would produce a
-        // boost > 1.0 and dominate every other feature - the ensemble would then always
-        // recommend the same tail-end of the collection. The clamp is what keeps the boost
-        // a "signal", not a "verdict".
+        // BUG GUARD: the underlying formula clamps to 1.0.
         var boxSet = Guid.NewGuid();
         var boost = InvokeComputeCollectionProgressionBoostLive(
             [boxSet],
             new Dictionary<Guid, int> { [boxSet] = 100 });
-        // The clamp is the actual contract - not "somewhere in [0,1]" but "exactly 1.0"
-        // for saturating inputs. A range check would still pass if the clamp got weaker
-        // (e.g. saturated at 0.9), and we would silently lose the signal ceiling.
+        // The clamp is the actual contract - not "somewhere in [0,1]" but "exactly 1.0" for saturating inputs.
         Assert.Equal(1.0, boost);
     }
 
-    // ============================================================================
     // Reflection glue
-    // ============================================================================
 
     private static Dictionary<Guid, int> InvokeBuildWatchedBoxSetCounts(
         HashSet<Guid> watchedIds,

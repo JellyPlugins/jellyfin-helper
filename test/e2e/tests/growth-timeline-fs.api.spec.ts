@@ -1,23 +1,4 @@
-/**
- * Behavioral coverage for GrowthTimeline - the storage-growth chart. The existing
- * trends spec only checks for garbage (no negative/future values). Here we prove
- * the timeline reflects the REAL scanned library with correct, coherent data.
- *
- * Why not "add a file and watch it grow": the timeline is append-only and buckets
- * by scan date, and its size/count come from a media-extension scan of what was
- * already captured - a file added mid-run does not deterministically produce a
- * fresh delta within one recompute. So we assert the invariants that DO hold:
- *   - The series is non-empty and its cumulative file count is monotonically
- *     non-decreasing (the defining property of a cumulative growth curve).
- *   - The latest cumulative totals are positive and consistent with a library
- *     that has media (bytes > 0, file count > 0).
- *   - totalDirectoriesScanned is positive and no point is future-dated.
- *
- * GrowthTimeline serializes camelCase (dataPoints/cumulativeSize/cumulativeFileCount,
- * the last a long) and rate-limits the compute path to once/30s (429 + Retry-After);
- * without forceRefresh it serves the disk cache. We read the cached timeline and
- * back off once if a compute happens to be throttled.
- */
+/** * Behavioral coverage for GrowthTimeline - the storage-growth chart. The existing * trends spec only checks for garbage (no negative/future values). */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, sleep } from '../setup/api-client.ts';
 import {
@@ -87,22 +68,7 @@ test.describe('GrowthTimeline reflects the scanned library', () => {
   });
 });
 
-/**
- * Behavioral proof that the cumulative totals are computed from the REAL scanned
- * filesystem, not served as a placeholder. This is the system-level regression
- * guard for the bug where the scan read timestamps off the enumeration metadata
- * (which came back empty on the real server) instead of a live stat, skipping
- * every entry and returning an empty timeline.
- *
- * We add a media file of a KNOWN byte size to the library, force a recompute, and
- * assert the latest cumulative size grew by at least that many bytes and the file
- * count grew by at least one. If the scan ever silently produced zero entries
- * again, "grew by >= N bytes" fails hard where a bare ">0" might not.
- *
- * The GrowthTimeline scans the raw filesystem directly (not Jellyfin's item
- * model), so no library scan is needed - just the file on disk + a forceRefresh.
- * forceRefresh is rate-limited to once/30s (429 + Retry-After); we back off once.
- */
+/** * Behavioral proof that the cumulative totals are computed from the REAL scanned * filesystem, not served as a placeholder. */
 test.describe.serial('GrowthTimeline cumulative totals track real filesystem growth', () => {
   const NEW_DIR = '/media/Movies/Timeline Growth Probe (2024)';
   const NEW_FILE = `${NEW_DIR}/Timeline Growth Probe (2024).mkv`;

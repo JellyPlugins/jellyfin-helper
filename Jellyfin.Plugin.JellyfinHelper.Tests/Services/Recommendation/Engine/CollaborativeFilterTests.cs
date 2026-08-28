@@ -11,8 +11,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public class CollaborativeFilterTests
 {
-    // === PrecomputeUserWatchSets ===
-
     [Fact]
     public void PrecomputeUserWatchSets_IncludesPlayedItems()
     {
@@ -61,11 +59,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void PrecomputeUserWatchSets_IncludesInProgressItems()
     {
-        // REGRESSION GUARD (audit finding collaborative-filter-1): the combined watch set MUST use
-        // the same HasMeaningfulInteraction predicate as the engine's routing gate. An item with only
-        // playback progress (Played=false, IsFavorite=false, PlayCount=0, PlaybackPositionTicks>0) is
-        // routed into the collaborative path, so it must also appear in the collaborative watch set -
-        // otherwise such a user gets an empty set (zero collaborative signal) AND is denied cold-start.
+        // REGRESSION GUARD (audit finding collaborative-filter-1): the combined watch set MUST use the same HasMeaningfulInteraction predicate as the engine's routing gate.
         var inProgress = Guid.NewGuid();
         var rewatched = Guid.NewGuid();
         var profile = new UserWatchProfile
@@ -115,8 +109,6 @@ public class CollaborativeFilterTests
         Assert.Equal(2, sets.Count);
     }
 
-    // === BuildCollaborativeMap with precomputed sets (IDF path) ===
-
     [Fact]
     public void BuildCollaborativeMap_WithPrecomputed_ReturnsCoOccurrences()
     {
@@ -159,12 +151,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_IdfBoost_NicheItemsScoreHigher()
     {
-        // Setup: both nicheItem and mainstreamItem are recommended via the SAME single
-        // similar user (otherUser), so they receive identical Jaccard base weights.
-        // The only difference is item popularity:
-        //   - nicheItem is watched by 1 user (otherUser) -> IDF not applied (userCount=1)
-        //   - mainstreamItem is watched by 3 users -> IDF = 1/log2(1+3) = 0.5
-        // Therefore nicheItem should score higher than mainstreamItem.
+        // Setup: both nicheItem and mainstreamItem are recommended via the SAME single similar user (otherUser), so they receive identical Jaccard base weights.
         var shared1 = Guid.NewGuid();
         var shared2 = Guid.NewGuid();
         var shared3 = Guid.NewGuid();
@@ -196,9 +183,7 @@ public class CollaborativeFilterTests
             ]
         };
 
-        // popularUser1 and popularUser2 also watched mainstreamItem (inflating its popularity)
-        // but do NOT share enough overlap with user to contribute Jaccard scores.
-        // They only affect the itemPopularity count used by IDF.
+        // popularUser1 and popularUser2 also watched mainstreamItem (inflating its popularity) but do NOT share enough overlap with user to contribute Jaccard scores.
         var popularUser1 = new UserWatchProfile
         {
             UserId = Guid.NewGuid(),
@@ -233,9 +218,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_SingleUserMode_AppliesIdfForNicheItems()
     {
-        // Without a precomputed dictionary the single-user (on-demand) path used to
-        // skip IDF entirely, so mainstream items outranked niche items even though the training
-        // and batch paths damped them. Both branches must now produce the same ordering.
+        // Without a precomputed dictionary the single-user (on-demand) path used to skip IDF entirely, so mainstream items outranked niche items even though the training and batch paths damped them.
         WatchedItemInfo P(Guid id) => new() { ItemId = id, Played = true };
         var shared1 = Guid.NewGuid();
         var shared2 = Guid.NewGuid();
@@ -355,11 +338,7 @@ public class CollaborativeFilterTests
             "Favorited items should count as overlap for collaborative filtering");
     }
 
-    // === Neighbour trust weighting ===
-    // A neighbour with very small watch history reaches high Jaccard trivially,
-    // but the signal is statistically fragile. BuildCollaborativeMap applies a
-    // trust weight (min(1, otherWatchCount / 20)) so sparse neighbours contribute
-    // proportionally less. A neighbour with >= 20 watches is unaffected.
+    // A neighbour with very small watch history reaches high Jaccard trivially, but the signal is statistically fragile.
 
     [Fact]
     public void BuildCollaborativeMap_TrustWeight_HighHistoryNeighbourStillContributes()
@@ -399,9 +378,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_TrustWeight_LowHistoryNeighbourStillContributes()
     {
-        // A sparse-history neighbour (4 watches, below the 20-watch trust ceiling) is
-        // down-weighted but must still produce a positive score
-        // - we do not want to silently drop legitimate signal, only to attenuate it.
+        // A sparse-history neighbour (4 watches, below the 20-watch trust ceiling) is down-weighted but must still produce a positive score - we do not want to silently drop legitimate signal, only to attenuate it.
         var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
         var unique = Guid.NewGuid();
 
@@ -433,12 +410,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_TrustWeight_SparseVsFullTrust_AttenuatesSignal()
     {
-        // Approach: hold the neighbour identity constant (same watched IDs, same Jaccard) and
-        // toggle the trust gate on/off by swapping the gatekeeper profile. When the gate is
-        // OFF (all-sparse deployment) trust=1.0. When the gate is ON (at least one rich profile
-        // exists) trust=1-exp(-4/CollaborativeTrustScale) - a large attenuation for a 4-watch
-        // neighbour. Anything else (score identical, or gated >= ungated) means the trust factor
-        // is broken.
+        // Approach: hold the neighbour identity constant (same watched IDs, same Jaccard) and toggle the trust gate on/off by swapping the gatekeeper profile.
         var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
         var recommendedItem = Guid.NewGuid();
 
@@ -449,17 +421,13 @@ public class CollaborativeFilterTests
                 .Select(id => new WatchedItemInfo { ItemId = id, Played = true })
                 .ToList());
 
-        // Identical sparse neighbour in both scenarios - same watched IDs, same total count (4).
-        // This means the Jaccard, overlap, and popularity contributions are byte-for-byte equal
-        // across the two BuildCollaborativeMap invocations; only the trust factor differs.
+        // Identical sparse neighbour in both scenarios - same watched IDs, same total count (4). This means the Jaccard, overlap, and popularity contributions are byte-for-byte equal across the two BuildCollaborativeMap invocations; only the trust factor differs.
         var sparseNeighbourIds = shared.Append(recommendedItem).ToArray();
 
         var anchorUserId = Guid.NewGuid();
         var sparseNeighbourUserId = Guid.NewGuid();
 
-        // Scenario A: cold-start gate RELEASED (no power users -> gate is off -> trust bypassed = 1.0).
-        // All profiles are sparse: no one has crossed CollaborativeTrustWatchCeiling, so the
-        // gate stays open and every sparse neighbour gets full trust.
+        // Scenario A: cold-start gate RELEASED (no power users -> gate is off -> trust bypassed = 1.0). All profiles are sparse: no one has crossed CollaborativeTrustWatchCeiling, so the gate stays open and every sparse neighbour gets full trust.
         var userA = new UserWatchProfile { UserId = anchorUserId, WatchedItems = userWatchedItems };
         var sparseNeighbourA = new UserWatchProfile
         {
@@ -471,8 +439,6 @@ public class CollaborativeFilterTests
             userA, profilesA, CollaborativeFilter.PrecomputeUserWatchSets(profilesA));
 
         // Scenario B: cold-start gate ENGAGED (a power user exists -> gate is on -> trust applies).
-        // Adding a rich gatekeeper who has crossed CollaborativeTrustWatchCeiling flips the gate
-        // on; the sparse neighbour's trust is now attenuated, reducing their recommendation score.
         var userB = new UserWatchProfile { UserId = anchorUserId, WatchedItems = userWatchedItems };
         var sparseNeighbourB = new UserWatchProfile
         {
@@ -505,10 +471,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_GeometricMean_MainstreamItemGetsMoreSignalThanProductStacking()
     {
-        // The test locks the qualitative property (score ~2.4x larger under the geometric
-        // mean) rather than a rigid absolute value, so future re-tuning of the trust curve
-        // won't cause a flake. The lower bound of 0.20 is well above the old product's
-        // 0.1271 while giving headroom below the theoretical geometric-mean value.
+        // The test locks the qualitative property (score ~2.4x larger under the geometric mean) rather than a rigid absolute value, so future re-tuning of the trust curve won't cause a flake.
         WatchedItemInfo P(Guid id) => new() { ItemId = id, Played = true };
 
         var shared1 = Guid.NewGuid();
@@ -572,9 +535,7 @@ public class CollaborativeFilterTests
 
         Assert.True(map.TryGetValue(mainstreamItem, out var score));
 
-        // Old product-stacking upper bound would have been ~0.13. The geometric mean must
-        // exceed that comfortably (~0.31 in this construction). The 0.20 threshold sits
-        // safely between the two so accidental reversion to the old formula would fail here.
+        // Old product-stacking upper bound would have been ~0.13. The geometric mean must exceed that comfortably (~0.31 in this construction).
         Assert.True(score > 0.20,
             $"Geometric-mean modifier should keep the collaborative signal well above the old " +
             $"product-stacking ceiling for sparse-deployment / mainstream-item pairs, got {score:F4}");
@@ -588,17 +549,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_ColdStartGate_ReleasesTrustWhenAllNeighboursSparse()
     {
-        // Deployment scenario: five users, each with 5-6 watches. Without the cold-start gate
-        // the trust factor would multiply the collaborative signal by ~0.4 and, combined with
-        // IDF, collapse it to a few percent. The gate detects that no neighbour reaches the
-        // trust ceiling and releases the trust factor to 1.0, so recommendations still form.
-        //
-        // The test compares two runs of the same graph:
-        //   1) The natural cold-start run (all sparse neighbours, gate open).
-        //   2) A "control" run where a single power user is added (gate active, trust damps sparse
-        //      contributions).
-        // The unique-item score in the cold-start run must exceed the score in the control run,
-        // proving the gate is doing real work rather than being a no-op.
+        // Deployment scenario: five users, each with 5-6 watches. Without the cold-start gate the trust factor would multiply the collaborative signal by ~0.4 and, combined with IDF, collapse it to a few percent.
         var overlapA = Guid.NewGuid();
         var overlapB = Guid.NewGuid();
         var overlapC = Guid.NewGuid();

@@ -5,15 +5,10 @@ using System.Linq;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Computes permutation-based feature importance for the neural scoring strategy.
-///     Permutation importance measures the actual score impact of each feature by
-///     shuffling its values across samples and measuring the resulting score degradation.
-///     More reliable than weight-norm proxies for non-linear models with correlated features.
+///     Computes permutation-based feature importance for the neural scoring strategy. Permutation importance measures the actual score impact of each feature by shuffling its values across samples and measuring the resulting score degradation.
 /// </summary>
 /// <remarks>
-///     Complexity: O(FeatureCount × SampleSize) forward passes.
-///     At 38 features × 200 samples = 7,600 forward passes on a 4-layer MLP.
-///     Only invoked at Debug log level after training completes.
+///     Complexity: O(FeatureCount × SampleSize) forward passes. At 38 features × 200 samples = 7,600 forward passes on a 4-layer MLP.
 /// </remarks>
 internal static class NeuralFeatureImportance
 {
@@ -21,11 +16,7 @@ internal static class NeuralFeatureImportance
     internal const int DefaultSampleSize = 200;
 
     /// <summary>
-    ///     Computes permutation importance for all features of the neural strategy.
-    ///     For each feature, shuffles its values across the sample set and measures
-    ///     the mean score drop compared to baseline (unshuffled) scores.
-    ///     A positive importance value means the feature contributes positively to scores;
-    ///     a negative value means shuffling that feature actually improved scores (potential noise feature).
+    ///     Computes permutation importance for all features of the neural strategy. For each feature, shuffles its values across the sample set and measures the mean score drop compared to baseline (unshuffled) scores.
     /// </summary>
     /// <param name="strategy">The trained neural scoring strategy to evaluate.</param>
     /// <param name="examples">Training examples providing realistic feature distributions.</param>
@@ -91,9 +82,7 @@ internal static class NeuralFeatureImportance
     }
 
     /// <summary>
-    ///     Computes the mean baseline score over the sample set. Extracted verbatim from the
-    ///     baseline-score block of <see cref="ComputePermutationImportance"/>; each vector is cloned
-    ///     before scoring because ScoreVector mutates its input via standardization.
+    ///     Computes the mean baseline score over the sample set. Extracted verbatim from the baseline-score block of ComputePermutationImportance; each vector is cloned before scoring because ScoreVector mutates its input via standardization.
     /// </summary>
     /// <param name="strategy">The trained neural scoring strategy to evaluate.</param>
     /// <param name="vectors">The pre-computed sample feature vectors.</param>
@@ -116,8 +105,6 @@ internal static class NeuralFeatureImportance
 
     /// <summary>
     ///     Shuffles a single feature column across the sample set and returns the resulting mean score.
-    ///     Extracted verbatim from the per-feature body of <see cref="ComputePermutationImportance"/>;
-    ///     the Fisher-Yates shuffle, per-sample substitution, and per-sample cloning are unchanged.
     /// </summary>
     /// <param name="strategy">The trained neural scoring strategy to evaluate.</param>
     /// <param name="vectors">The pre-computed sample feature vectors (left intact).</param>

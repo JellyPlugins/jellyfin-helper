@@ -3,9 +3,7 @@ using System;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
-///     Thrown by <see cref="HttpResponseReader" /> when a response body exceeds the configured size
-///     limit. A dedicated type (instead of a bare <see cref="InvalidOperationException" />) lets call
-///     sites catch the oversize condition precisely without masking unrelated invalid-operation bugs.
+///     Thrown by HttpResponseReader when a response body exceeds the configured size limit.
 /// </summary>
 public sealed class ResponseTooLargeException : Exception
 {

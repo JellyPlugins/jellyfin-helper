@@ -15,10 +15,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 
 /// <summary>
-///     Service for creating and restoring plugin backups.
-///     Handles export of configuration, historical data, and Arr settings.
-///     Validation is provided by <see cref="BackupValidator" /> and
-///     sanitization by <see cref="BackupSanitizer" />.
+///     Service for creating and restoring plugin backups. Handles export of configuration, historical data, and Arr settings.
 /// </summary>
 public sealed class BackupService : IBackupService
 {
@@ -84,8 +81,7 @@ public sealed class BackupService : IBackupService
     }
 
     /// <summary>
-    ///     Returns <c>true</c> if any source data file exceeds <see cref="MaxBackupSizeBytes"/>.
-    ///     Call before <see cref="CreateBackup"/> to reject oversized exports early.
+    ///     Returns true if any source data file exceeds MaxBackupSizeBytes. Call before CreateBackup to reject oversized exports early.
     /// </summary>
     /// <returns><c>true</c> when at least one source file exceeds the size limit.</returns>
     public bool AnySourceFileOversized()
@@ -183,10 +179,7 @@ public sealed class BackupService : IBackupService
             Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"),
             out _);
 
-        // When the caller opts out of secrets, redact all API key values so the exported
-        // file cannot be used to harvest plaintext credentials.  The empty-string convention
-        // is intentional: during a subsequent restore an empty backup key means "preserve
-        // the live key", so a redacted backup will not wipe existing credentials.
+        // When the caller opts out of secrets, redact all API key values so the exported file cannot be used to harvest plaintext credentials.
         if (!includeSecrets)
         {
             backup.SeerrApiKey = string.Empty;
@@ -216,8 +209,7 @@ public sealed class BackupService : IBackupService
     }
 
     /// <summary>
-    ///     Restores backup data into the plugin configuration and data files.
-    ///     Must be called only after <see cref="BackupValidator.Validate" /> returns a valid result.
+    ///     Restores backup data into the plugin configuration and data files. Must be called only after Validate returns a valid result.
     /// </summary>
     /// <param name="backup">The validated backup data.</param>
     /// <returns>A summary of what was restored.</returns>
@@ -233,11 +225,7 @@ public sealed class BackupService : IBackupService
         // the live configuration has not yet been replaced.  Only after all
         // I/O completes do we commit the new configuration to disk.
 
-        // Snapshot the paths of files that will be overwritten so that, if the
-        // restore only partially succeeds, an operator can identify which files
-        // may be in an inconsistent state.  Full content rollback is not
-        // implemented here because it would require reading each file before
-        // overwrite; a warning on partial failure is the pragmatic mitigation.
+        // Snapshot the paths of files that will be overwritten so that, if the restore only partially succeeds, an operator can identify which files may be in an inconsistent state.
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
 
@@ -331,8 +319,6 @@ public sealed class BackupService : IBackupService
         }
     }
 
-    // === Private helpers ===
-
     private void RestoreConfiguration(BackupData backup, BackupRestoreSummary summary)
     {
         if (!_configService.IsInitialized)
@@ -344,9 +330,7 @@ public sealed class BackupService : IBackupService
             return;
         }
 
-        // Use ReadAndMutate so the entire read-mutate-save sequence runs
-        // under a lock, preventing a concurrent UpdateConfigurationAsync or
-        // UpdateLogLevel call from interleaving mutations on the same config object.
+        // Use ReadAndMutate so the entire read-mutate-save sequence runs under a lock, preventing a concurrent UpdateConfigurationAsync or UpdateLogLevel call from interleaving mutations on the same config object.
         _configService.ReadAndMutate(config =>
         {
             // Restore preferences
@@ -394,20 +378,14 @@ public sealed class BackupService : IBackupService
     }
 
     /// <summary>
-    ///     Restores the Seerr URL and API key from the backup into the live config. An empty backup URL
-    ///     or key means "leave the existing value in place"; a non-empty URL is only applied when it is a
-    ///     valid http/https absolute URL, and a differing API key sets
-    ///     <see cref="BackupRestoreSummary.CredentialsChanged"/> after an audit warning.
+    ///     Restores the Seerr URL and API key from the backup into the live config.
     /// </summary>
     /// <param name="config">The live configuration being mutated.</param>
     /// <param name="backup">The backup data being restored.</param>
     /// <param name="summary">The restore summary to flag credential changes on.</param>
     private void RestoreSeerrSettings(PluginConfiguration config, BackupData backup, BackupRestoreSummary summary)
     {
-        // An empty backup URL means "leave the existing URL in place", mirroring the API key
-        // guard below - a backup created without Seerr must not silently wipe a working URL.
-        // Also validate the URL scheme so a crafted backup cannot persist a non-http(s)
-        // URL (e.g. "file:///etc/passwd") into the live configuration.
+        // An empty backup URL means "leave the existing URL in place", mirroring the API key guard below - a backup created without Seerr must not silently wipe a working URL.
         if (!string.IsNullOrEmpty(backup.SeerrUrl))
         {
             var truncatedUrl = BackupSanitizer.TruncateString(backup.SeerrUrl, BackupValidator.MaxUrlLength);
@@ -425,11 +403,7 @@ public sealed class BackupService : IBackupService
             }
         }
 
-        // API keys: an empty backup value means "leave the existing key in place"; a
-        // non-empty value is applied after the same length-truncation as other fields.
-        // When the incoming value actually differs from the current stored value, emit an
-        // audit warning and set the CredentialsChanged flag so callers can surface a
-        // notification to the operator.
+        // API keys: an empty backup value means "leave the existing key in place"; a non-empty value is applied after the same length-truncation as other fields.
         if (!string.IsNullOrEmpty(backup.SeerrApiKey))
         {
             var truncatedSeerrKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
@@ -446,9 +420,7 @@ public sealed class BackupService : IBackupService
             config.SeerrApiKey = truncatedSeerrKey;
         }
 
-        // Null means "absent in backup" (older plugin version or
-        // field omitted), so leave the live value unchanged. A non-null value - including
-        // 0 ("immediate cleanup") - is always applied after clamping.
+        // Null means "absent in backup" (older plugin version or field omitted), so leave the live value unchanged.
         if (backup.SeerrCleanupAgeDays.HasValue)
         {
             config.SeerrCleanupAgeDays = Math.Clamp(
@@ -459,24 +431,15 @@ public sealed class BackupService : IBackupService
     }
 
     /// <summary>
-    ///     Restores the trash toggle, folder path, and retention days from the backup into the live
-    ///     config, defanging an unsafe trash path (traversal or sensitive system path) to the default.
+    ///     Restores the trash toggle, folder path, and retention days from the backup into the live config, defanging an unsafe trash path (traversal or sensitive system path) to the default.
     /// </summary>
     /// <param name="config">The live configuration being mutated.</param>
     /// <param name="backup">The backup data being restored.</param>
     private static void RestoreTrashSettings(PluginConfiguration config, BackupData backup)
     {
         config.UseTrash = backup.UseTrash;
-        // Defang an unsafe trash path from a crafted backup to the default, rather than hard-failing
-        // the whole restore (a restore must always succeed; validation only hard-errors when the
-        // operator actively enables trash via the live save API). Two dangers are neutralised:
-        //   * traversal ("..", ".") that could escape the library root, and
-        //   * a sensitive absolute system path (/etc, C:\Windows, the Jellyfin /config, ...) that
-        //     must never land in live config even with UseTrash=false.
-        // Split on the LITERAL ['/', '\\'] (not Path.DirectorySeparatorChar/AltDirectorySeparatorChar,
-        // which both collapse to '/' on Unix and would let a Windows-style "foo\..\bar" slip through
-        // on a Linux host). IsSensitiveSystemPath is lexical, so feed it the raw path (a legitimate
-        // RELATIVE custom path like ".custom-trash" is neither traversal nor sensitive and survives).
+        // Defang unsafe trash path to default instead of failing restore. Split on literal slash and
+        // backslash so Windows traversal is not missed on Linux.
         var rawTrashPath = backup.TrashFolderPath;
         var hasTraversal = !string.IsNullOrWhiteSpace(rawTrashPath) &&
             rawTrashPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
@@ -491,10 +454,6 @@ public sealed class BackupService : IBackupService
 
     /// <summary>
     ///     Restores a single Arr instance list (Radarr or Sonarr) from backup into the live config list.
-    ///     Preserves the live API key when the backup omits it (empty string), and emits an audit
-    ///     warning plus sets <see cref="BackupRestoreSummary.CredentialsChanged"/> when a non-empty
-    ///     backup key differs from the previously stored value.
-    ///     ToLookup is used so duplicate instance names do not cause false credential-change warnings.
     /// </summary>
     private void RestoreArrInstances(
         IReadOnlyList<BackupArrInstance> backupInstances,
@@ -502,11 +461,7 @@ public sealed class BackupService : IBackupService
         string label,
         BackupRestoreSummary summary)
     {
-        // Snapshot existing keys (truncated to MaxApiKeyLength for apples-to-apples comparison).
-        // Case-INSENSITIVE name lookup: the "empty backup key means preserve the live key" rule keys
-        // off the instance Name, so a case-only rename between export and import (e.g. "Radarr" ->
-        // "radarr") would miss the lookup and silently wipe the live key. Ordinal-ignore-case keeps
-        // the preserve rule working across such renames.
+        // Snapshot existing keys (truncated to MaxApiKeyLength for apples-to-apples comparison). Case-INSENSITIVE name lookup: the "empty backup key means preserve the live key" rule keys off the instance Name, so a case-only rename between export and import (e.g.
         var previousKeys = liveInstances
             .ToLookup(
                 i => i.Name,
@@ -526,17 +481,13 @@ public sealed class BackupService : IBackupService
                 ? (previousKeys[instance.Name].FirstOrDefault() ?? string.Empty)
                 : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
 
-            // "Preserve the live key" that matched nothing -> the instance ends up with an empty key.
-            // Surface it instead of letting the wipe pass silently (the keysChanged audit below is
-            // gated on a NON-empty key, so it never reports this case).
+            // "Preserve the live key" that matched nothing -> the instance ends up with an empty key. Surface it instead of letting the wipe pass silently (the keysChanged audit below is gated on a NON-empty key, so it never reports this case).
             if (backupKeyEmpty && string.IsNullOrEmpty(apiKey))
             {
                 silentWipes++;
             }
 
-            // Detect credential change: non-empty incoming key not found in any prior entry
-            // for this name. Both sides are truncated to the same length so a key that was
-            // stored full-length but backed up at MaxApiKeyLength is not a false positive.
+            // Detect credential change: non-empty incoming key not found in any prior entry for this name. Both sides are truncated to the same length so a key that was stored full-length but backed up at MaxApiKeyLength is not a false positive.
             if (!string.IsNullOrEmpty(apiKey) && !previousKeys[instance.Name].Any(k => k == apiKey))
             {
                 keysChanged++;
@@ -632,10 +583,7 @@ public sealed class BackupService : IBackupService
 
             var json = JsonSerializer.Serialize(data, JsonOptions);
 
-            // Use AtomicFile so a transient sharing violation on the final File.Move
-            // (typical when an AV scanner or the Search indexer briefly holds the file
-            // handle) gets a bounded retry with backoff. AtomicFile also handles
-            // temp-file cleanup internally.
+            // Use AtomicFile so a transient sharing violation on the final File.Move (typical when an AV scanner or the Search indexer briefly holds the file handle) gets a bounded retry with backoff.
             AtomicFile.WriteAllText(filePath, json);
             return true;
         }

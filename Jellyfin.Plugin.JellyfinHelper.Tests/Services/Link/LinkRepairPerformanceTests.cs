@@ -11,14 +11,10 @@ using Xunit.Abstractions;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 
 /// <summary>
-///     Performance tests for LinkRepairService with large directory trees.
-///     Tests both .strm and symlink scenarios, including mixed-mode.
-///     Run with: dotnet test --filter "Category=Performance"
+///     Performance tests for LinkRepairService with large directory trees. Tests both .strm and symlink scenarios, including mixed-mode.
 /// </summary>
 public class LinkRepairPerformanceTests(ITestOutputHelper output)
 {
-    // ===== .strm Performance =====
-
     [Fact]
     [Trait("Category", "Performance")]
     public void FindLinkFiles_Strm_5000Files_CompletesWithin8Seconds()
@@ -128,8 +124,6 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         AssertPerfLimit(sw, 8000);
     }
 
-    // ===== Symlink Performance =====
-
     [Fact]
     [Trait("Category", "Performance")]
     public void FindLinkFiles_Symlink_5000Files_CompletesWithin8Seconds()
@@ -210,8 +204,6 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         AssertPerfLimit(sw, 15_000);
     }
 
-    // ===== Mixed Mode Performance =====
-
     [Fact]
     [Trait("Category", "Performance")]
     public void FindLinkFiles_MixedStrmAndSymlinks_3000Files_CompletesWithin8Seconds()
@@ -271,8 +263,6 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         AssertPerfLimit(sw, 8000);
     }
 
-    // ===== Shared: FindMediaFilesInDirectory =====
-
     [Fact]
     [Trait("Category", "Performance")]
     public void FindMediaFilesInDirectory_LargeDirectory_1000Files_CompletesWithin5Seconds()
@@ -310,8 +300,6 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         Assert.Equal(expectedMediaCount, result.Count);
         AssertPerfLimit(sw, 5000);
     }
-
-    // ===== Helpers =====
 
     private static LinkRepairService CreateService(MockFileSystem fs, ILinkHandler handler)
     {

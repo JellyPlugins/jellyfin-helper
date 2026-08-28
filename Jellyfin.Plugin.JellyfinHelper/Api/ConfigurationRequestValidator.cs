@@ -8,8 +8,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services;
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     Validates <see cref="ConfigurationUpdateRequest" /> fields before they are applied.
-///     Extracted from <see cref="ConfigurationController" /> to keep the controller focused on HTTP concerns.
+///     Validates ConfigurationUpdateRequest fields before they are applied. Extracted from ConfigurationController to keep the controller focused on HTTP concerns.
 /// </summary>
 public static class ConfigurationRequestValidator
 {
@@ -79,8 +78,7 @@ public static class ConfigurationRequestValidator
     }
 
     /// <summary>
-    ///     Validates the Seerr-related fields (cleanup age, URL length/format, and the API-key requirement),
-    ///     enforcing the range checks only when a Seerr URL is actually configured.
+    ///     Validates the Seerr-related fields (cleanup age, URL length/format, and the API-key requirement), enforcing the range checks only when a Seerr URL is actually configured.
     /// </summary>
     /// <param name="request">The configuration update request to validate.</param>
     /// <returns>An error message string, or <c>null</c> when the Seerr settings are valid.</returns>
@@ -116,9 +114,7 @@ public static class ConfigurationRequestValidator
     }
 
     /// <summary>
-    ///     Performs strict validation of the trash folder path and returns an error message for obviously
-    ///     invalid paths (invalid characters, traversal patterns, only-slashes, etc.).
-    ///     This validation BLOCKS the save - the configuration will NOT be persisted.
+    ///     Performs strict validation of the trash folder path and returns an error message for obviously invalid paths (invalid characters, traversal patterns, only-slashes, etc.).
     /// </summary>
     /// <param name="trashFolderPath">The path value from the configuration update request.</param>
     /// <param name="useTrash">Whether the trash feature is enabled.</param>
@@ -145,18 +141,14 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path '{trashFolderPath}' contains only invalid characters.";
         }
 
-        // Reject control characters (U+0000 to U+001F) - these are never valid in folder names
-        // on any platform. This keeps the server-side filter in sync with the UI-side validation
-        // which also blocks the full \x00-\x1F range.
+        // Reject control characters (U+0000 to U+001F) - these are never valid in folder names on any platform.
         var firstControlChar = trashFolderPath.FirstOrDefault(static c => c < '\x20');
         if (firstControlChar != default || trashFolderPath.Contains('\0', StringComparison.Ordinal))
         {
             return "Trash folder path contains invalid control characters.";
         }
 
-        // Reject individual invalid characters that are never valid in folder names.
-        // Note: Cast to char? is required because the array contains characters that could
-        // match default(char), making a plain FirstOrDefault unable to distinguish "not found".
+        // Reject individual invalid characters that are never valid in folder names. Note: Cast to char? is required because the array contains characters that could match default(char), making a plain FirstOrDefault unable to distinguish "not found".
         char[] invalidChars = ['*', '?', '<', '>', '|', '"'];
         var firstInvalidChar = invalidChars.Cast<char?>().FirstOrDefault(c => trashFolderPath.Contains(c!.Value, StringComparison.Ordinal));
         if (firstInvalidChar != null)
@@ -164,9 +156,7 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path contains invalid character '{firstInvalidChar}'.";
         }
 
-        // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder")
-        // Block both "." (current dir) and ".." (parent dir) as segments - these are navigation markers.
-        // Note: literal folder names like "..." or "...." are valid on Linux and are intentionally allowed.
+        // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder") Block both "." (current dir) and ".." (parent dir) as segments - these are navigation markers.
         var segments = trashFolderPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(s => s is "." or ".."))
         {
@@ -186,12 +176,7 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path '{trashFolderPath}' is invalid or too long.";
         }
 
-        // Reject an ABSOLUTE trash path that points at a sensitive system / application
-        // directory (Jellyfin's own /config, /data, OS roots like /etc, C:\Windows). A
-        // relative path (the common ".jellyfin-trash") is resolved under each library at
-        // runtime and is unaffected. This is the same shared guard the folder picker,
-        // link-repair and trash-deletion use - so a value the picker refuses can't be
-        // slipped in via a hand-typed absolute path either.
+        // Reject an ABSOLUTE trash path that points at a sensitive system / application directory (Jellyfin's own /config, /data, OS roots like /etc, C:\Windows).
         if (Path.IsPathRooted(trashFolderPath)
             && PathValidator.IsSensitiveSystemPath(Path.GetFullPath(trashFolderPath)))
         {
@@ -202,14 +187,10 @@ public static class ConfigurationRequestValidator
     }
 
     /// <summary>
-    ///     Checks whether <paramref name="trashFolderPath" /> is a relative path that escapes upward via
-    ///     <c>..</c> segments. Returns a warning message when suspicious, or <c>null</c> when the path is
-    ///     fine. Absolute paths and empty/whitespace values are always considered valid here.
+    ///     Checks whether trashFolderPath is a relative path that escapes upward via .. segments.
     /// </summary>
     /// <remarks>
-    ///     The check is intentionally a warning, not a hard error: <c>ICleanupConfigHelper.GetTrashPath</c>
-    ///     already falls back to <c>.jellyfin-trash</c> at runtime, so the system stays safe. The warning
-    ///     surfaces the problem to the admin without blocking the save.
+    ///     The check is intentionally a warning, not a hard error: ICleanupConfigHelper.GetTrashPath already falls back to .jellyfin-trash at runtime, so the system stays safe.
     /// </remarks>
     /// <param name="trashFolderPath">The path value from the configuration update request.</param>
     /// <returns>A warning message string, or <c>null</c> when no issue is detected.</returns>
@@ -223,11 +204,7 @@ public static class ConfigurationRequestValidator
             return null;
         }
 
-        // Resolve against a dummy root to detect whether ".." sequences escape upward.
-        // We cannot use a real library root here - it is runtime state unknown at config-save time.
-        // Use Path.GetTempPath() as a guaranteed-absolute, platform-correct anchor.
-        // Path.GetFullPath(path, basePath) is used instead of Path.GetFullPath(Path.Combine(...))
-        // to avoid the silent dropped-prefix pitfall when path is rooted (CA2249 / S4347).
+        // Resolve against a dummy root to detect whether ".." sequences escape upward. We cannot use a real library root here - it is runtime state unknown at config-save time.
         var dummyRoot = Path.TrimEndingDirectorySeparator(Path.GetTempPath());
 
         string resolved;

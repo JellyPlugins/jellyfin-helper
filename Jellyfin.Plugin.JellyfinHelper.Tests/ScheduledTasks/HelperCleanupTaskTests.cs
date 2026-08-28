@@ -36,9 +36,7 @@ public class HelperCleanupTaskTests
         var loggerFactoryMock = new Mock<ILoggerFactory>();
         _loggerMock = TestMockFactory.CreateLogger<HelperCleanupTask>();
 
-        // Setup logger factory to return loggers for all required types.
-        // Fallback loggers use TestMockFactory.CreateLogger() so IsEnabled(...) returns true -
-        // matching production behavior and ensuring guarded Log(...) calls still execute in tests.
+        // Setup logger factory to return loggers for all required types. Fallback loggers use TestMockFactory.CreateLogger() so IsEnabled(...) returns true - matching production behavior and ensuring guarded Log(...) calls still execute in tests.
         loggerFactoryMock
             .Setup(f => f.CreateLogger(It.IsAny<string>()))
             .Returns((string categoryName) =>
@@ -186,9 +184,7 @@ public class HelperCleanupTaskTests
         VerifyLogContains("Skipping Link Repair (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping User Watch Activity (deactivated in settings)", LogLevel.Information);
-        // Smart Recommendations is NOT skipped on Deactivate - it runs cleanup-only so it can
-        // purge previously-created recommendation playlists (switching Activate->Deactivate
-        // must not leave stale managed playlists behind). It must NOT be logged as skipped.
+        // Smart Recommendations is NOT skipped on Deactivate - it runs cleanup-only so it can purge previously-created recommendation playlists (switching Activate->Deactivate must not leave stale managed playlists behind).
         VerifyLogNeverContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Discovery (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
@@ -391,8 +387,6 @@ public class HelperCleanupTaskTests
 
         VerifyLogNeverContains("Running trash purge", LogLevel.Information);
     }
-
-    // ===== Seerr-specific tests =====
 
     [Fact]
     public async Task ExecuteAsync_SeerrActivated_NotConfigured_LogsSkipped()

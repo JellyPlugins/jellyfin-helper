@@ -10,9 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 
 /// <summary>
-///     Persists user activity results to disk (JSON) following the same pattern
-///     as <see cref="Recommendation.RecommendationCacheService" />.
-///     Cache is refreshed each time the scheduled task runs.
+///     Persists user activity results to disk (JSON) following the same pattern as RecommendationCacheService.
 /// </summary>
 public sealed class UserActivityCacheService : IUserActivityCacheService
 {
@@ -61,10 +59,7 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
 
                 var json = JsonSerializer.Serialize(result, JsonOptions);
 
-                // Use AtomicFile so a transient sharing violation on the final File.Move
-                // (typical when an AV scanner or the Search indexer briefly holds the file
-                // handle) gets a bounded retry with backoff. AtomicFile also handles
-                // temp-file cleanup internally.
+                // Use AtomicFile so a transient sharing violation on the final File.Move (typical when an AV scanner or the Search indexer briefly holds the file handle) gets a bounded retry with backoff.
                 AtomicFile.WriteAllText(_cacheFilePath, json);
 
                 _pluginLog.LogDebug(

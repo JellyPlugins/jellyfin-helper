@@ -6,10 +6,7 @@ using System.Threading.Tasks;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
-///     A read-only, forward-only <see cref="Stream" /> wrapper that throws
-///     <see cref="ResponseTooLargeException" /> once more than a fixed number of bytes have been
-///     read from the inner stream. Used by <see cref="HttpResponseReader" /> to cap HTTP response
-///     bodies.
+///     A read-only, forward-only Stream wrapper that throws ResponseTooLargeException once more than a fixed number of bytes have been read from the inner stream.
 /// </summary>
 internal sealed class LimitedStream : Stream
 {
@@ -64,9 +61,7 @@ internal sealed class LimitedStream : Stream
 
         var remaining = _maxBytes - _bytesRead;
 
-        // At the limit we must still allow the reader's final EOF probe: a response of EXACTLY
-        // _maxBytes bytes is valid. Read a single byte: if it returns data the response is
-        // genuinely over the limit; if it returns 0 (EOF) the read is fine.
+        // At the limit we must still allow the reader's final EOF probe: a response of EXACTLY _maxBytes bytes is valid.
         var toRead = remaining <= 0 ? 1 : (int)Math.Min(count, remaining);
         var n = _inner.Read(buffer, offset, toRead);
         if (remaining <= 0 && n > 0)
@@ -122,9 +117,7 @@ internal sealed class LimitedStream : Stream
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
-        // Satisfies CA2213 without suppression: the inner disposable field IS disposed here,
-        // unless the caller opted to retain ownership via leaveOpen (mirroring StreamReader /
-        // CryptoStream / GZipStream semantics), which avoids a double-dispose.
+        // Satisfies CA2213 without suppression: the inner disposable field IS disposed here, unless the caller opted to retain ownership via leaveOpen (mirroring StreamReader / CryptoStream / GZipStream semantics), which avoids a double-dispose.
         if (disposing && !_leaveOpen)
         {
             _inner.Dispose();

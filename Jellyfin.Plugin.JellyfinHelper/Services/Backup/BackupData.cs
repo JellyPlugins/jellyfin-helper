@@ -7,9 +7,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 
 /// <summary>
-///     The complete backup payload for export and import.
-///     Contains configuration preferences, historical trend data, and Arr integration settings.
-///     Cleanup statistics are intentionally excluded (reset on fresh install).
+///     The complete backup payload for export and import. Contains configuration preferences, historical trend data, and Arr integration settings.
 /// </summary>
 public class BackupData
 {
@@ -23,8 +21,6 @@ public class BackupData
 
     /// <summary>
     ///     Gets or sets a value indicating whether this backup contains plaintext API keys.
-    ///     When <c>true</c> the caller/UI should warn the user that the exported file
-    ///     contains credentials and must be stored securely.
     /// </summary>
     [JsonPropertyName("containsSecrets")]
     public bool ContainsSecrets { get; set; }
@@ -40,8 +36,6 @@ public class BackupData
     /// </summary>
     [JsonPropertyName("pluginVersion")]
     public string PluginVersion { get; init; } = string.Empty;
-
-    // === Configuration Preferences ===
 
     /// <summary>
     ///     Gets or sets the UI language code (e.g. "en", "de").
@@ -67,8 +61,6 @@ public class BackupData
     [JsonPropertyName("pluginLogLevel")]
     public string PluginLogLevel { get; set; } = "INFO";
 
-    // === Task Mode Preferences ===
-
     /// <summary>
     ///     Gets or sets the Trickplay task mode.
     /// </summary>
@@ -93,8 +85,6 @@ public class BackupData
     [JsonPropertyName("linkRepairTaskMode")]
     public string LinkRepairTaskMode { get; set; } = DefaultTaskMode;
 
-    // === Trash Settings ===
-
     /// <summary>
     ///     Gets a value indicating whether trash is enabled.
     /// </summary>
@@ -112,8 +102,6 @@ public class BackupData
     /// </summary>
     [JsonPropertyName("trashRetentionDays")]
     public int TrashRetentionDays { get; set; } = 30;
-
-    // === Seerr Settings ===
 
     /// <summary>
     ///     Gets or sets the Seerr Cleanup task mode.
@@ -134,15 +122,10 @@ public class BackupData
     public string SeerrApiKey { get; set; } = string.Empty;
 
     /// <summary>
-    ///     Gets or sets the Seerr cleanup age threshold in days.
-    ///     <c>null</c> means the field was absent in the backup (e.g. exported by an older
-    ///     plugin version) and the live value should be left unchanged on restore.
-    ///     A value of <c>0</c> is a legitimate "immediate cleanup" setting.
+    ///     Gets or sets the Seerr cleanup age threshold in days. null means the field was absent in the backup (e.g.
     /// </summary>
     [JsonPropertyName("seerrCleanupAgeDays")]
     public int? SeerrCleanupAgeDays { get; set; }
-
-    // === Arr Integration ===
 
     /// <summary>
     ///     Gets the Radarr instances.
@@ -164,8 +147,6 @@ public class BackupData
         Justification = "Required for JSON deserialization")]
     public List<BackupArrInstance> SonarrInstances { get; init; } = [];
 
-    // === Smart Recommendations ===
-
     /// <summary>
     ///     Gets or sets the Recommendations task mode.
     /// </summary>
@@ -180,14 +161,10 @@ public class BackupData
     public bool SyncRecommendationsToPlaylist { get; set; }
 
     /// <summary>
-    ///     Gets or sets a value indicating whether non-admin users can access
-    ///     the Seerr Discovery page and submit media requests.
-    ///     Default is false. When absent in older backups, deserialization yields false (safe default).
+    ///     Gets or sets a value indicating whether non-admin users can access the Seerr Discovery page and submit media requests.
     /// </summary>
     [JsonPropertyName("discoveryUserAccessEnabled")]
     public bool DiscoveryUserAccessEnabled { get; set; }
-
-    // === Historical Data ===
 
     /// <summary>
     ///     Gets or sets the growth timeline result (trend graph data).

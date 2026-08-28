@@ -182,7 +182,7 @@
     font-weight: 600;
 }
 
-/* ========== Collapsible Activity Section ========== */
+/* Collapsible activity section */
 
 .recs-collapsible {
     margin-top: 1.5em;
@@ -291,7 +291,7 @@
     opacity: 0.8;
 }
 
-/* ========== Activity Table ========== */
+/* Activity table */
 
 .activity-table {
     width: 100%;
@@ -508,7 +508,7 @@
     }
 }
 
-/* ========== Discovery Section (inside Discover tab) ========== */
+/* Discovery section */
 
 .discovery-hint {
     padding: 1em;
@@ -663,7 +663,7 @@
     transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-/* ========== Seerr User Selection Popup ========== */
+/* Seerr user selection popup */
 
 .discovery-popup-overlay {
     position: fixed;

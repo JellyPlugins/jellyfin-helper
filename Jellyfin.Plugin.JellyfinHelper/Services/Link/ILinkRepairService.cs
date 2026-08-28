@@ -10,8 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 public interface ILinkRepairService
 {
     /// <summary>
-    ///     Scans the given library paths for links (.strm files and symlinks), validates their target paths,
-    ///     and repairs broken references by searching the parent directory for a media file.
+    ///     Scans the given library paths for links (.strm files and symlinks), validates their target paths, and repairs broken references by searching the parent directory for a media file.
     /// </summary>
     /// <param name="libraryPaths">The library paths to scan for links (.strm files and symlinks).</param>
     /// <param name="dryRun">If true, no files will be modified.</param>

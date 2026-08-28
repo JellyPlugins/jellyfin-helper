@@ -20,9 +20,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 /// <summary>
-///     Generates personalized content discovery recommendations by querying the configured
-///     Overseerr/Jellyseerr instance, scoring candidates against user watch profiles,
-///     and persisting results for frontend consumption.
+///     Generates personalized content discovery recommendations by querying the configured Overseerr/Jellyseerr instance, scoring candidates against user watch profiles, and persisting results for frontend consumption.
 /// </summary>
 public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 {
@@ -44,15 +42,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Total number of discovery recommendations generated and persisted per user (backfill pool).
-    ///     Items beyond <see cref="MaxVisiblePerUser"/> serve as replacements when visible items
-    ///     are dismissed or requested by the user.
     /// </summary>
     private const int MaxPoolPerUser = 20;
 
     /// <summary>
-    ///     Number of top candidates (by pre-score) to enrich with credits data.
-    ///     Credits calls are expensive (1 API call per item), so we only
-    ///     enrich the most promising candidates after an initial genre/rating-based pre-score.
+    ///     Number of top candidates (by pre-score) to enrich with credits data. Credits calls are expensive (1 API call per item), so we only enrich the most promising candidates after an initial genre/rating-based pre-score.
     /// </summary>
     private const int CreditsEnrichmentBudget = 20;
 
@@ -76,8 +70,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Maximum Jellyfin parental rating value that triggers the child-account discovery path.
-    ///     Corresponds to FSK-6 / G / PG - users with this rating or below receive only
-    ///     Family/Kids/Animation content from discovery queries.
     /// </summary>
     private const int ChildAccountMaxParentalRating = 60;
 
@@ -104,8 +96,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private static readonly TimeSpan InterQueryDelay = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
-    ///     TTL for the cached Seerr user list used by <see cref="ResolveSeerrUserIdAsync"/>.
-    ///     Avoids re-fetching the full paginated user roster on every request submission.
+    ///     TTL for the cached Seerr user list used by ResolveSeerrUserIdAsync. Avoids re-fetching the full paginated user roster on every request submission.
     /// </summary>
     private static readonly TimeSpan SeerrUserCacheTtl = TimeSpan.FromMinutes(5);
 
@@ -119,8 +110,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly ILogger<SeerrDiscoveryService> _logger;
 
     /// <summary>
-    ///     Cached Seerr user list to avoid re-fetching the full paginated roster
-    ///     on every <see cref="ResolveSeerrUserIdAsync"/> call (e.g., every frontend request).
+    ///     Cached Seerr user list to avoid re-fetching the full paginated roster on every ResolveSeerrUserIdAsync call (e.g., every frontend request).
     /// </summary>
     private readonly Lock _userCacheLock = new();
     private IReadOnlyList<SeerrUser>? _cachedSeerrUsers;
@@ -200,10 +190,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 : $"Starting discovery generation (pool={MaxPoolPerUser}, visible={MaxVisiblePerUser} per user).",
             _logger);
 
-        // Step 1: Load user profiles.
-        // Include users who have either played content OR have enough favorites to build
-        // genre preferences from. BuildGenrePreferenceVector treats favorites as valid
-        // preference signals (explicit interest without requiring playback).
+        // Step 1: Load user profiles. Include users who have either played content OR have enough favorites to build genre preferences from.
         var profiles = _watchHistoryService.GetAllUserWatchProfiles();
         var activeProfiles = profiles
             .Where(p => p.WatchedMovieCount + p.WatchedEpisodeCount > 0 || p.FavoriteCount >= 3)
@@ -222,12 +209,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library only - per-user dismissed/requested merged later).",
             _logger);
 
-        // Per-series total-episode-count map, built ONCE per discovery run and shared across all
-        // users. Threaded into BuildGenrePreferenceVector below so the discovery genre preference
-        // vector is progression-weighted identically to the engine's training pipeline
-        // (DiscoveryFeedbackExampleBuilder passes the same map). Without it, discovery inference
-        // computed genre preferences without progression weighting while the model was trained
-        // with it - a train/serve skew on GenreSimilarity, topGenres and genreExposure.
+        // Per-series total-episode-count map, built ONCE per discovery run and shared across all users.
         var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
 
         // Step 2: Process each user
@@ -261,9 +243,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Generates discovery recommendations for a single user, converting any non-fatal,
-    ///     non-cancellation failure into a logged warning and a <c>null</c> result so one user's
-    ///     failure does not abort the whole run.
+    ///     Generates discovery recommendations for a single user, converting any non-fatal, non-cancellation failure into a logged warning and a null result so one user's failure does not abort the whole run.
     /// </summary>
     private async Task<DiscoveryResult?> TryGenerateForUserAsync(
         UserWatchProfile profile,
@@ -314,10 +294,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
             _logger);
 
-        // Step 4: Record shown items in the feedback store for training data collection.
-        // Only record after successful persistence to prevent feedback/training state
-        // from referencing recommendations that never actually reached disk.
-        // Best-effort: feedback persistence must not break the discovery task.
+        // Step 4: Record shown items in the feedback store for training data collection. Only record after successful persistence to prevent feedback/training state from referencing recommendations that never actually reached disk.
         foreach (var result in allResults)
         {
             try
@@ -397,8 +374,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Serializes and POSTs the Seerr request payload, then maps the HTTP outcome to a result.
-    ///     Extracted verbatim from <see cref="SubmitRequestAsync"/>; payload construction, request
-    ///     building, success/failure branching, and the catch filters are unchanged.
     /// </summary>
     /// <param name="client">The Seerr HTTP client.</param>
     /// <param name="baseUri">The validated Seerr base URI.</param>
@@ -445,9 +420,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 null,
                 _logger);
 
-            // The full error body is already logged above for admin diagnostics.
-            // Only return a generic status code to the client to avoid leaking
-            // internal Seerr server details (hostnames, config paths, stack traces).
+            // The full error body is already logged above for admin diagnostics. Only return a generic status code to the client to avoid leaking internal Seerr server details (hostnames, config paths, stack traces).
             return (false, $"Seerr returned HTTP {(int)response.StatusCode}. Check the plugin log for details.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -475,16 +448,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Validates the numeric and path boundary constraints for a submit request.
-    ///     Returns an error message for a rejected numeric ID, or <c>null</c> when valid.
-    ///     Throws <see cref="ArgumentException"/> if <paramref name="rootFolder"/> contains
-    ///     invalid path content.
+    ///     Validates the numeric and path boundary constraints for a submit request. Returns an error message for a rejected numeric ID, or null when valid.
     /// </summary>
     private static string? ValidateSubmitBoundaries(int? serverId, int? profileId, string? rootFolder)
     {
-        // Defensive boundary guard: reject negative IDs at the service boundary.
-        // DTO validation covers the controller path, but this method is public and
-        // may be called from other contexts (e.g., admin controller, future internal callers).
+        // Defensive boundary guard: reject negative IDs at the service boundary. DTO validation covers the controller path, but this method is public and may be called from other contexts (e.g., admin controller, future internal callers).
         if (serverId.HasValue && serverId.Value < 0)
         {
             return "serverId must be 0 or greater.";
@@ -508,8 +476,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Builds the Overseerr/Jellyseerr request payload dictionary, including only the
-    ///     optional fields (seasons, userId, serverId, profileId, rootFolder) that apply.
+    ///     Builds the Overseerr/Jellyseerr request payload dictionary, including only the optional fields (seasons, userId, serverId, profileId, rootFolder) that apply.
     /// </summary>
     private static Dictionary<string, object> BuildRequestPayload(
         int tmdbId,
@@ -527,10 +494,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         };
 
         // For TV requests, include "seasons": "all" to request all available seasons.
-        // Jellyseerr/Overseerr requires the seasons field to be present for TV requests;
-        // omitting it causes a server-side crash ("Cannot read properties of undefined
-        // (reading 'filter')") because the backend assumes seasons is always defined.
-        // The string "all" is the canonical way to request all seasons in Overseerr API v1.
         if (mediaType == "tv")
         {
             payloadDict["seasons"] = "all";
@@ -566,10 +529,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Fetches the paginated Seerr user list and returns both the user roster
-    ///     and a flag indicating whether all pages were fetched successfully.
-    ///     The completeness flag is coupled to the result to prevent race conditions
-    ///     when multiple threads refresh the cache concurrently.
+    ///     Fetches the paginated Seerr user list and returns both the user roster and a flag indicating whether all pages were fetched successfully.
     /// </summary>
     private async Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> FetchSeerrUsersInternalAsync(
         CancellationToken cancellationToken)
@@ -624,9 +584,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Fetches every page of the Seerr user roster up to the safety cap. Extracted verbatim from
-    ///     <see cref="FetchSeerrUsersInternalAsync"/>; the pagination bounds, break conditions, and
-    ///     completeness flagging are unchanged.
+    ///     Fetches every page of the Seerr user roster up to the safety cap. Extracted verbatim from FetchSeerrUsersInternalAsync; the pagination bounds, break conditions, and completeness flagging are unchanged.
     /// </summary>
     /// <param name="client">The Seerr HTTP client.</param>
     /// <param name="baseUri">The validated Seerr base URI.</param>
@@ -691,8 +649,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Fetches a single page of the Seerr user roster. Returns <c>Ok = false</c> on a non-success
-    ///     HTTP status (logged as a partial-result warning); otherwise returns the deserialized page.
+    ///     Fetches a single page of the Seerr user roster. Returns Ok = false on a non-success HTTP status (logged as a partial-result warning); otherwise returns the deserialized page.
     /// </summary>
     private async Task<(bool Ok, SeerrUserPage? Page)> FetchUserPageAsync(
         HttpClient client,
@@ -742,10 +699,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Internal variant of <see cref="GetServiceInfoAsync"/> that also returns a success flag
-    ///     indicating whether the fetch completed without errors.
-    ///     Used by <see cref="GetUserRequestPermissionsAsync"/> to distinguish between
-    ///     "no services configured" (success=true, empty list) and "lookup failed" (success=false, empty list).
+    ///     Internal variant of GetServiceInfoAsync that also returns a success flag indicating whether the fetch completed without errors.
     /// </summary>
     private async Task<(IReadOnlyList<SeerrServiceInfo> Services, bool Success)> GetServiceInfoWithStatusAsync(
         string serviceType,
@@ -837,9 +791,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Fetches the detail payload for a single Seerr service server and merges the
-    ///     profiles, root folders and active selections into <paramref name="server"/>.
-    ///     Best-effort: transient failures are logged and leave the server unenriched.
+    ///     Fetches the detail payload for a single Seerr service server and merges the profiles, root folders and active selections into .
     /// </summary>
     private async Task EnrichServerDetailAsync(
         HttpClient client,
@@ -901,11 +853,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var seerrUsers = await GetCachedSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
             if (seerrUsers.Count == 0)
             {
-                // Empty list means either Seerr is unavailable or a partial fetch occurred.
-                // Return null - callers on the admin request path (DiscoveryController) treat this
-                // as "omit userId" which falls back to the API-key owner. This is acceptable
-                // for admin-initiated requests but NOT for user-scoped requests (UserDiscoveryController),
-                // which should use GetUserRequestPermissionsAsync for proper tri-state handling.
+                // Empty list means either Seerr is unavailable or a partial fetch occurred. Return null - callers on the admin request path (DiscoveryController) treat this as "omit userId" which falls back to the API-key owner.
                 return null;
             }
 
@@ -1010,12 +958,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 3: Determine which quality profiles to expose.
-        // Distinguish between "no services configured" (empty result from a successful lookup)
-        // and "service lookup failed" (transient error). On transient failure, still allow the
-        // request but without profile selection - Seerr's own server defaults will apply.
-        // This prevents a temporary Seerr outage from incorrectly routing requests to a wrong
-        // server/profile while still allowing the request to proceed (Seerr validates internally).
+        // Step 3: Determine which quality profiles to expose. Distinguish between "no services configured" (empty result from a successful lookup) and "service lookup failed" (transient error).
         var (services, servicesFetchSucceeded) = await GetServiceInfoWithStatusAsync(serviceType, cancellationToken).ConfigureAwait(false);
 
         if (services.Count == 0)
@@ -1072,9 +1015,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 continue;
             }
 
-            // Fast path: if the Seerr ID is already 32 chars (no hyphens), compare directly
-            // without allocating a new string. Seerr stores Jellyfin IDs inconsistently -
-            // some have hyphens (36 chars), some don't (32 chars).
+            // Fast path: if the Seerr ID is already 32 chars (no hyphens), compare directly without allocating a new string.
             var seerrId = user.JellyfinUserId;
             if (seerrId.Length == 32)
             {
@@ -1098,9 +1039,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Builds the list of <see cref="AllowedQualityProfile"/> entries from the service info.
-    ///     When <paramref name="filterToDefault"/> is <c>true</c>, only the server's active (default)
-    ///     profile is included per server - this is the path for normal users without advanced permissions.
+    ///     Builds the list of AllowedQualityProfile entries from the service info. When is true, only the server's active (default) profile is included per server - this is the path for normal users without advanced permissions.
     /// </summary>
     private static List<AllowedQualityProfile> BuildAllowedProfileList(
         IReadOnlyList<SeerrServiceInfo> services,
@@ -1124,9 +1063,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Adds only the server's active/default quality profile to <paramref name="result"/>.
-    ///     If Seerr does not report a resolvable active/default profile, nothing is added and the
-    ///     request path falls back to Seerr's own server defaults.
+    ///     Adds only the server's active/default quality profile to . If Seerr does not report a resolvable active/default profile, nothing is added and the request path falls back to Seerr's own server defaults.
     /// </summary>
     private static void AddDefaultProfileForServer(List<AllowedQualityProfile> result, SeerrServiceInfo server)
     {
@@ -1145,22 +1082,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             });
         }
 
-        // If Seerr does not report a resolvable active/default profile for this server,
-        // do not synthesize one from Profiles[0]. The request path will fall back to
-        // Seerr's own server defaults, which is safer than over-granting a random profile.
+        // If Seerr does not report a resolvable active/default profile for this server, do not synthesize one from Profiles[0].
     }
 
     /// <summary>
-    ///     Adds every profile on the server to <paramref name="result"/>, emitting one entry per
-    ///     allowed root folder so the controller's exact-match (ServerId, ProfileId, RootFolder)
-    ///     triple validation can accept any valid combination.
+    ///     Adds every profile on the server to , emitting one entry per allowed root folder so the controller's exact-match (ServerId, ProfileId, RootFolder) triple validation can accept any valid combination.
     /// </summary>
     private static void AddAllProfilesForServer(List<AllowedQualityProfile> result, SeerrServiceInfo server)
     {
-        // Advanced users: all profiles on all servers.
-        // Expose each available root folder per profile so the user can select any valid
-        // combination. The controller's SubmitMyRequest validates (ServerId, ProfileId, RootFolder)
-        // as an exact-match triple - so we must emit a separate entry for each allowed path.
+        // Advanced users: all profiles on all servers. Expose each available root folder per profile so the user can select any valid combination.
         var rootFolderPaths = server.RootFolders
             .Where(rf => !string.IsNullOrEmpty(rf.Path))
             .Select(rf => rf.Path)
@@ -1194,9 +1124,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
             else
             {
-                // No root folders at all - emit with empty RootFolder.
-                // SubmitMyRequest will reject any client-specified rootFolder for this profile,
-                // and the request falls back to Seerr's server-configured default.
+                // No root folders at all - emit with empty RootFolder. SubmitMyRequest will reject any client-specified rootFolder for this profile, and the request falls back to Seerr's server-configured default.
                 result.Add(new AllowedQualityProfile
                 {
                     ServerId = server.Id,
@@ -1211,10 +1139,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Returns the Seerr user list from the in-memory TTL cache, refreshing it
-    ///     from the Seerr API if the cache is expired or empty.
-    ///     This avoids re-fetching the full paginated user roster on every
-    ///     <see cref="ResolveSeerrUserIdAsync"/> call (triggered per frontend request).
+    ///     Returns the Seerr user list from the in-memory TTL cache, refreshing it from the Seerr API if the cache is expired or empty.
     /// </summary>
     private async Task<IReadOnlyList<SeerrUser>> GetCachedSeerrUsersAsync(CancellationToken cancellationToken)
     {
@@ -1229,16 +1154,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         // Slow path: refresh from Seerr API (outside lock to avoid blocking during I/O).
-        // Uses the internal tuple helper so that the completeness flag is coupled
-        // to THIS call's result - eliminates the race condition where a concurrent
-        // partial fetch could overwrite _lastFetchWasComplete before we read it.
         var (freshUsers, complete) = await FetchSeerrUsersInternalAsync(cancellationToken).ConfigureAwait(false);
 
-        // Only cache complete, non-empty results to allow retry on next call
-        // when Seerr is temporarily unavailable or returns partial data.
-        // A partial result (mid-pagination failure) must NOT be cached because
-        // users on unfetched pages would incorrectly get "not linked to Seerr"
-        // for the full TTL instead of the retriable "temporarily unavailable" message.
+        // Only cache complete, non-empty results to allow retry on next call when Seerr is temporarily unavailable or returns partial data.
         if (freshUsers.Count > 0 && complete)
         {
             lock (_userCacheLock)
@@ -1258,9 +1176,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        // Return empty list for incomplete fetches so callers stay on the retriable
-        // "temporarily unavailable" path instead of consuming truncated data that would
-        // incorrectly mark users on unfetched pages as "not linked to Seerr".
+        // Return empty list for incomplete fetches so callers stay on the retriable "temporarily unavailable" path instead of consuming truncated data that would incorrectly mark users on unfetched pages as "not linked to Seerr".
         if (!complete)
         {
             return [];
@@ -1294,12 +1210,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var avgYear = ContentScoring.ComputeAverageYear(profile);
         var preferredPeople = BuildPreferredPeopleSet(profile);
 
-        // Pre-build the genre exposure analysis ONCE per user. It is passed into every
-        // ExternalCandidateFeatureBuilder.Build call below so the GenreUnderexposure /
-        // GenreDominanceRatio / GenreAffinityGap features are computed identically to the
-        // discovery TRAINING pipeline (DiscoveryFeedbackExampleBuilder). Without this, those
-        // three features stayed at 0.0 during inference while the model was trained on their
-        // real values - a train/serve skew that suppressed the intended core-taste boost.
+        // Pre-build the genre exposure analysis ONCE per user.
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, profile);
 
         var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= ChildAccountMaxParentalRating;
@@ -1326,10 +1237,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var client = GetSeerrClient();
         var allCandidates = new List<TmdbDiscoverItem>();
 
-        // === Seerr API uses PATH-based endpoints, NOT query parameters ===
-        // Correct: /api/v1/discover/movies/genre/{genreId}?page=1
-        // Correct: /api/v1/discover/movies/language/{language}?page=1
-        // WRONG:   /api/v1/discover/movies?genre=16&sortBy=... (causes HTTP 400!)
+        // Correct: /api/v1/discover/movies/genre/{genreId}?page=1 Correct: /api/v1/discover/movies/language/{language}?page=1 WRONG: /api/v1/discover/movies?genre=16&sortBy=...
 
         // Query A: Top genres (use all top-3 genres for movies + TV)
         if (topGenres.Count > 0)
@@ -1368,9 +1276,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
             _logger);
 
-        // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb)
-        // This uses genre similarity, rating, recency, year proximity, and popularity
-        // but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
+        // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(uniqueCandidates.Count);
         foreach (var candidate in uniqueCandidates)
         {
@@ -1458,10 +1364,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             RelatedInfo = relatedInfo,
             Genres = genres,
             TmdbRating = item.VoteAverage,
-            // Raw TMDb popularity carried through so RecordShown can persist it for
-            // training. This lets DiscoveryFeedbackExampleBuilder reconstruct the exact
-            // PopularityScore used at inference (NormalizePopularity) instead of the
-            // previous entry.Score proxy, which was a train/serve skew + target leak.
+            // Raw TMDb popularity carried through so RecordShown can persist it for training.
             Popularity = item.Popularity,
             PosterPath = item.PosterPath,
             Overview = item.Overview,
@@ -1471,8 +1374,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Runs the child-account discovery queries (Family/Animation/Kids genres for
-    ///     movies and TV) and appends the results to <paramref name="allCandidates"/>.
+    ///     Runs the child-account discovery queries (Family/Animation/Kids genres for movies and TV) and appends the results to .
     /// </summary>
     private async Task GatherChildCandidatesAsync(
         HttpClient client,
@@ -1514,9 +1416,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Runs the standard discovery queries (top-3 preferred genres, page-2 variety,
-    ///     and optional language-based discovery) and appends the results to
-    ///     <paramref name="allCandidates"/>.
+    ///     Runs the standard discovery queries (top-3 preferred genres, page-2 variety, and optional language-based discovery) and appends the results to .
     /// </summary>
     private async Task GatherNormalCandidatesAsync(
         HttpClient client,
@@ -1577,8 +1477,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Builds the per-user exclusion set by merging the shared library exclusions with the
-    ///     user's dismissed and previously requested items (best-effort; failures are logged).
+    ///     Builds the per-user exclusion set by merging the shared library exclusions with the user's dismissed and previously requested items (best-effort; failures are logged).
     /// </summary>
     private HashSet<(int TmdbId, string MediaType)> BuildUserExclusionSet(
         UserWatchProfile profile,
@@ -1690,9 +1589,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Adds TMDb IDs of movies already present in the configured Radarr instances to the exclusion
-    ///     set. Extracted verbatim from <see cref="BuildExclusionSetAsync"/>; per-instance iteration,
-    ///     the <c>TmdbId &gt; 0</c> guard, and the catch filters are unchanged.
+    ///     Adds TMDb IDs of movies already present in the configured Radarr instances to the exclusion set.
     /// </summary>
     /// <param name="config">The plugin configuration providing Radarr instances.</param>
     /// <param name="excluded">The exclusion set to add movie entries into.</param>
@@ -1714,9 +1611,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Adds TMDb IDs of series already present in the configured Sonarr instances to the exclusion
-    ///     set. Extracted verbatim from <see cref="BuildExclusionSetAsync"/>; per-instance iteration,
-    ///     the <c>TmdbId &gt; 0</c> guard, and the catch filters are unchanged.
+    ///     Adds TMDb IDs of series already present in the configured Sonarr instances to the exclusion set.
     /// </summary>
     /// <param name="config">The plugin configuration providing Sonarr instances.</param>
     /// <param name="excluded">The exclusion set to add series entries into.</param>
@@ -1738,11 +1633,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Shared exclusion-set builder for Radarr and Sonarr. Iterates the given Arr instances,
-    ///     fetches each instance's items, and adds the TMDb IDs (filtered by <c>TmdbId &gt; 0</c>)
-    ///     under the supplied media type. Behavior — per-instance iteration, the cancellation
-    ///     check, the guard, the log text, and the catch filters — is identical to the two callers
-    ///     it was extracted from.
+    ///     Shared exclusion-set builder for Radarr and Sonarr. Iterates the given Arr instances, fetches each instance's items, and adds the TMDb IDs (filtered by TmdbId &gt; 0) under the supplied media type.
     /// </summary>
     /// <typeparam name="T">The Arr item type (movie or series).</typeparam>
     /// <param name="instances">The effective Arr instances to query.</param>
@@ -1797,8 +1688,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Deduplicates candidates against the exclusion set, removes low-rated items,
-    ///     applies parental rating filtering, and optionally filters by year relevance.
+    ///     Deduplicates candidates against the exclusion set, removes low-rated items, applies parental rating filtering, and optionally filters by year relevance.
     /// </summary>
     private static List<TmdbDiscoverItem> DeduplicateAndFilter(
         List<TmdbDiscoverItem> candidates,
@@ -1860,8 +1750,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Computes the minimum acceptable release year for year-based post-filtering,
-    ///     or 0 when no year filtering applies (child accounts or no average year signal).
+    ///     Computes the minimum acceptable release year for year-based post-filtering, or 0 when no year filtering applies (child accounts or no average year signal).
     /// </summary>
     private static int ComputeMinYear(double avgYear, bool isChildAccount)
     {
@@ -1895,10 +1784,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Defensively stamps the <see cref="TmdbDiscoverItem.MediaType"/> on items fetched from
-    ///     typed discover endpoints. Seerr typed endpoints (e.g. /discover/tv/...) normally include
-    ///     mediaType in the response, but this guard ensures correct classification even if the
-    ///     field is missing or defaults to "movie".
+    ///     Defensively stamps the MediaType on items fetched from typed discover endpoints. Seerr typed endpoints (e.g.
     /// </summary>
     private static void StampMediaType(List<TmdbDiscoverItem> items, string mediaType)
     {
@@ -1909,9 +1795,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Gets the primary language code for Seerr language-based discovery endpoints.
-    ///     Returns a 2-letter ISO 639-1 code (e.g. "de", "en") if the user has a clear preference,
-    ///     or null if no clear preference is detected.
+    ///     Gets the primary language code for Seerr language-based discovery endpoints. Returns a 2-letter ISO 639-1 code (e.g.
     /// </summary>
     private static string? GetPrimaryLanguageForDiscovery(UserWatchProfile profile)
     {
@@ -1936,9 +1820,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Builds the set of preferred people (actors/directors) from the user's watch history.
-    ///     Uses the PeopleProfile aggregated by WatchHistoryService from BaseItem.People metadata.
-    ///     Returns the top-20 most-watched people (appearing in at least 2 distinct items)
-    ///     to filter out noise from single-watch appearances.
     /// </summary>
     private static HashSet<string> BuildPreferredPeopleSet(UserWatchProfile profile)
     {
@@ -1952,12 +1833,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Enriches the top candidates with credits (cast/director) data from Seerr.
-    ///     Fetches /api/v1/movie/{id} or /api/v1/tv/{id} for each candidate and populates
-    ///     the <see cref="TmdbDiscoverItem.KnownPeople"/> list with top-billed actors and directors.
-    ///     Runs up to <see cref="CreditsEnrichmentParallelism"/> fetches concurrently, each
-    ///     bounded by <see cref="CreditsEnrichmentTimeoutMs"/> so a single slow response
-    ///     cannot stall the whole enrichment pass.
+    ///     Enriches the top candidates with credits (cast/director) data from Seerr. Fetches /api/v1/movie/{id} or /api/v1/tv/{id} for each candidate and populates the KnownPeople list with top-billed actors and directors.
     /// </summary>
     private async Task EnrichTopCandidatesWithCreditsAsync(
         HttpClient client,
@@ -1993,9 +1869,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Fetches credits for a single candidate and populates its
-    ///     <see cref="TmdbDiscoverItem.KnownPeople"/> list, bounded by
-    ///     <see cref="CreditsEnrichmentTimeoutMs"/>.
+    ///     Fetches credits for a single candidate and populates its KnownPeople list, bounded by CreditsEnrichmentTimeoutMs.
     /// </summary>
     private async Task EnrichCandidateWithCreditsAsync(
         HttpClient client,
@@ -2124,11 +1998,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Validates the Seerr base URL and API key and returns a pre-computed base
-    ///     <see cref="Uri"/> and the sanitised key.  Does NOT retrieve or mutate an
-    ///     <see cref="HttpClient"/> - callers obtain the client separately via
-    ///     <see cref="GetSeerrClient"/> and attach headers per-request with
-    ///     <see cref="BuildRequest"/>.
+    ///     Validates the Seerr base URL and API key and returns a pre-computed base Uri and the sanitised key.
     /// </summary>
     /// <returns>A tuple of (normalised base URI, apiKey).</returns>
     /// <exception cref="UriFormatException">Thrown when the URL is not a valid http/https URI.</exception>
@@ -2153,18 +2023,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Returns a non-owning <see cref="HttpClient"/> from the factory.
-    ///     The client must NOT be disposed - its lifetime is managed by
-    ///     <see cref="IHttpClientFactory"/>.
+    ///     Returns a non-owning HttpClient from the factory. The client must NOT be disposed - its lifetime is managed by IHttpClientFactory.
     /// </summary>
     private HttpClient GetSeerrClient() =>
         _httpClientFactory.CreateClient("SeerrDiscovery");
 
     /// <summary>
-    ///     Builds an <see cref="HttpRequestMessage"/> with per-request authentication headers.
-    ///     Headers are set on the message, never on <c>HttpClient.DefaultRequestHeaders</c>,
-    ///     so concurrent callers sharing the same pooled handler cannot observe each other's
-    ///     headers and duplicate-header accumulation is eliminated.
+    ///     Builds an HttpRequestMessage with per-request authentication headers.
     /// </summary>
     private static HttpRequestMessage BuildRequest(
         HttpMethod method,
@@ -2186,9 +2051,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Throws <see cref="ArgumentException"/> if <paramref name="apiKey"/> contains CR or LF.
-    ///     <c>HttpRequestHeaders.TryAddWithoutValidation</c> tolerates non-ASCII keys but does
-    ///     not strip CRLF sequences, which would allow HTTP header injection.
+    ///     Throws ArgumentException if contains CR or LF. HttpRequestHeaders.TryAddWithoutValidation tolerates non-ASCII keys but does not strip CRLF sequences, which would allow HTTP header injection.
     /// </summary>
     private static void EnsureApiKeyHeaderSafe(string apiKey)
     {
@@ -2203,8 +2066,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Cohesive group of Seerr request fields passed together through the submit pipeline.
-    ///     Bundles the six fields that <see cref="BuildRequestPayload"/> consumes so they travel
-    ///     as one parameter rather than a long positional list.
     /// </summary>
     /// <param name="TmdbId">The TMDb ID being requested.</param>
     /// <param name="MediaType">The normalized media type ('movie' or 'tv').</param>

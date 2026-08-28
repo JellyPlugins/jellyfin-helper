@@ -109,8 +109,7 @@
     margin-top: 0.4em;
 }
 
-/* Inside a card, the section-title acts as the card header - kill the
-   large default top margin the section-title uses. */
+/* Card header: remove default top margin. */
 /* noinspection CssUnusedSymbol */
 .health-card > .section-title:first-child {
     margin-top: 0;
@@ -166,8 +165,7 @@
     font-size: 0.9em;
 }
 
-/* Mobile tuning. Match the Settings tab breakpoint (500 px) so both
-   pages collapse to the same tighter padding at the same screen size. */
+/* Mobile: use same breakpoint as Settings tab. */
 @media (max-width: 500px) {
     /* noinspection CssUnusedSymbol */
     .health-card {
@@ -180,12 +178,7 @@
     }
 }
 
-/* Extra-narrow phones: allow the health-grid tiles to shrink instead
-   of forcing a horizontal scrollbar. The existing `.health-grid` rule
-   uses minmax(180px, 1fr); on ~360 px viewports (Galaxy S8 etc.) that
-   leaves ~20 px of chrome. Lowering the minimum to 140 px on very
-   narrow screens keeps two tiles per row where sensible and falls
-   back to one column cleanly below that. */
+/* Extra-narrow phones: shrink health-grid tiles to avoid horizontal scrolling. */
 @media (max-width: 400px) {
     .health-grid {
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

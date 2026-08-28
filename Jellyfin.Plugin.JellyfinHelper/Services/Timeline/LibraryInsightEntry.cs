@@ -3,9 +3,7 @@ using System;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 /// <summary>
-///     Represents a single media directory entry for the library insights feature.
-///     Each entry corresponds to a top-level subdirectory (movie folder or TV show folder)
-///     within a library location.
+///     Represents a single media directory entry for the library insights feature. Each entry corresponds to a top-level subdirectory (movie folder or TV show folder) within a library location.
 /// </summary>
 public sealed class LibraryInsightEntry
 {

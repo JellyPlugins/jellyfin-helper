@@ -1,17 +1,4 @@
-/**
- * Behavioral coverage for MediaStatistics codec / resolution / health breakdowns.
- * Today only integrity (no-negative) and shape are checked. Here we prove the DATA
- * matches the KNOWN fixtures: gen-media.sh writes libx264 (H.264), libx265 (HEVC),
- * and mpeg4 (MPEG-4) clips at specific resolutions, so the breakdown dictionaries
- * must contain those exact codec keys with positive counts, and the health counts
- * (videos without subtitles) must reflect the sub-less fixtures.
- *
- * MediaStatistics analyzes what Jellyfin knows; the library was scanned in
- * global-setup. ScanLibraries is rate-limited to once/30s (429 + Retry-After) and
- * always recomputes; /Latest is never rate-limited and returns 204 before the
- * first scan. Responses are PascalCase; codec dictionary KEYS are display names
- * ("H.264","HEVC","MPEG-4","MKV","MP4","STRM", resolution tiers "1080p" etc.).
- */
+/** * Behavioral coverage for MediaStatistics codec / resolution / health breakdowns. * Today only integrity (no-negative) and shape are checked. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, sleep } from '../setup/api-client.ts';
 

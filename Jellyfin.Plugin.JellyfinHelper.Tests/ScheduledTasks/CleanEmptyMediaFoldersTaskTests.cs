@@ -104,10 +104,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     [Fact]
     public async Task ExecuteInternalAsync_TopLevelFolderWithOnlyStrmFile_IsKept()
     {
-        // A .strm file is a Jellyfin stream-link pointing at remote/relocated video. It is classified
-        // as a video file (MediaExtensions.VideoExtensions), so a folder whose only real content is a
-        // .strm must be treated as an active media folder and NEVER deleted - even though the .strm
-        // itself is a tiny text file that looks like a non-media file to a naive extension check.
+        // A .strm file is a Jellyfin stream-link pointing at remote/relocated video.
         Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
 
         const string libraryPath = "/media/movies";
@@ -500,11 +497,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath), Times.Never);
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Regression tests for the eBook data-loss bug (GitHub issue): a Book library (PDF/CBZ/EPUB)
-    // must NEVER be scanned or have its folders deleted by the empty-media-folder cleanup, because
-    // eBooks are not video/audio and would otherwise be classified as "orphaned media" and deleted.
-    // ---------------------------------------------------------------------------------------------
+    // Regression tests for the eBook data-loss bug (GitHub issue): a Book library (PDF/CBZ/EPUB) must NEVER be scanned or have its folders deleted by the empty-media-folder cleanup, because eBooks are not video/audio and would otherwise be classified as "orphaned media" and deleted.
 
     [Fact]
     public async Task ExecuteInternalAsync_BookLibrary_IsCompletelySkipped()
@@ -528,9 +521,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     [Fact]
     public async Task ExecuteInternalAsync_BookLibraryWithEbooksInActivateMode_DeletesNothing()
     {
-        // The reported scenario: cleanup is ACTIVE (not dry-run) and the Book library contains
-        // eBook folders whose files are pure non-A/V content. Without the collection-type guard
-        // these folders match the orphan verdict and the whole collection is deleted.
+        // The reported scenario: cleanup is ACTIVE (not dry-run) and the Book library contains eBook folders whose files are pure non-A/V content.
         Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
 
         const string booksPath = "/media/books";
@@ -561,9 +552,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     [Fact]
     public async Task ExecuteInternalAsync_NullCollectionTypeLibrary_IsStillScanned()
     {
-        // A mixed/manually-created library legitimately reports no collection type. The guard must
-        // NOT over-reach: such libraries stay eligible for cleanup (only books/music/boxsets are
-        // excluded by type), preserving the pre-fix behavior for untyped AV libraries.
+        // A mixed/manually-created library legitimately reports no collection type. The guard must NOT over-reach: such libraries stay eligible for cleanup (only books/music/boxsets are excluded by type), preserving the pre-fix behavior for untyped AV libraries.
         const string mediaPath = "/media/misc";
 
         var untyped = new VirtualFolderInfo
@@ -589,10 +578,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     [InlineData("raw.dng")]
     public async Task ExecuteInternalAsync_PhotoFolderWithRawOrHeicOnly_IsNotDeleted(string photoFile)
     {
-        // Photo libraries are exposed by Jellyfin as homevideos/mixed (there is no dedicated photos
-        // type), so they ARE scanned. Modern photos (HEIC, RAW) have no web-format copy, so before
-        // adding them to ImageExtensions such a folder had no video/audio/image → looked orphaned →
-        // was deleted. They must now be recognised as image content and kept, even in Activate mode.
+        // Photo libraries are exposed by Jellyfin as homevideos/mixed (there is no dedicated photos type), so they ARE scanned.
         Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
 
         const string libraryPath = "/media/photos";
@@ -729,10 +715,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     [Fact]
     public async Task ExecuteInternalAsync_BoxsetFolder_IsSkipped()
     {
-        // Use a regular library path (not containing "collections") so the library is not
-        // filtered out at the base-class level. Include a non-metadata file (.srt) so the
-        // folder would otherwise be flagged as orphaned. The [boxset] name guard is the
-        // ONLY reason this folder is skipped.
+        // Use a regular library path (not containing "collections") so the library is not filtered out at the base-class level.
         const string libraryPath = "/media/movies";
         const string boxsetDir = "/media/movies/Star Wars Filmreihe [boxset]";
 
@@ -751,9 +734,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     [Fact]
     public async Task ExecuteInternalAsync_CollectionFolder_IsSkipped()
     {
-        // Use a regular library path and include a non-metadata file (.srt) so the folder
-        // would otherwise be flagged as orphaned. The [collection] name guard is the
-        // ONLY reason this folder is skipped.
+        // Use a regular library path and include a non-metadata file (.srt) so the folder would otherwise be flagged as orphaned.
         const string libraryPath = "/media/movies";
         const string collectionDir = "/media/movies/My Favorites [collection]";
 
@@ -813,18 +794,13 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath), Times.Never);
     }
 
-    // ========== New metadata-only / placeholder tests ==========
-
     [Theory]
     [InlineData("movie.nfo")]
     [InlineData("poster.jpg", "fanart.png", "banner.webp")]
     [InlineData("movie.nfo", "poster.jpg", "fanart.png")]
     public async Task ExecuteInternalAsync_MetadataOnlyFiles_FolderIsSkipped(params string[] files)
     {
-        // A folder containing ONLY metadata/artwork files (NFO + images, no video/audio/subtitle)
-        // is treated as a wanted-list placeholder and must never be reported for deletion.
-        // Coverage: single NFO, images-only, and NFO+images combos all hit the same
-        // !hasNonMetadataFiles guard in AnalyzeDirectoryRecursive.
+        // A folder containing ONLY metadata/artwork files (NFO + images, no video/audio/subtitle) is treated as a wanted-list placeholder and must never be reported for deletion.
         const string libraryPath = "/media/movies";
         const string movieDir = "/media/movies/Wanted (2026)";
 
@@ -921,12 +897,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
-    // AnalyzeDirectoryRecursive returns (HasVideoFiles=true, TotalBytes=0) on early
-    // video-found exit. We verify the observable contract end-to-end:
-    //   - Run with TWO top-level folders: one with video (must be kept) and one orphan (must be deleted).
-    //   - UseTrash=true so MoveToTrash is called; the mock returns a known byte count for the orphan.
-    //   - RecordCleanup must be called exactly once with bytesFreed == orphanBytes (not orphanBytes + videoBytes),
-    //     proving the video folder contributed zero bytes to the accounting.
+    // AnalyzeDirectoryRecursive returns (HasVideoFiles=true, TotalBytes=0) on early video-found exit. We verify the observable contract end-to-end: - Run with TWO top-level folders: one with video (must be kept) and one orphan (must be deleted).
     [Fact]
     public async Task ExecuteInternalAsync_VideoFolderContributesZeroBytesToRecordCleanup()
     {
@@ -979,10 +950,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             Times.Never);
     }
 
-    // VideoExtensions uses OrdinalIgnoreCase, so uppercase extensions are matched
-    // without any normalisation step. This test verifies the full task pipeline with an
-    // uppercase extension by pairing the video folder with an orphan folder in the same run,
-    // confirming the video folder is kept (RecordCleanup only fires for the orphan).
+    // VideoExtensions uses OrdinalIgnoreCase, so uppercase extensions are matched without any normalisation step.
     [Fact]
     public async Task ExecuteInternalAsync_UppercaseVideoExtension_FolderKeptOrphanStillDeleted()
     {
@@ -1048,9 +1016,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
 
-    // Hard-delete path (non-dry-run, no trash). Directory.Delete is a real static I/O call, so a
-    // real temp dir must back the mocked analysis; treeBytes (from the mocked file Length) and the
-    // deleted count must both flow into RecordCleanup.
+    // Hard-delete path (non-dry-run, no trash). Directory.Delete is a real static I/O call, so a real temp dir must back the mocked analysis; treeBytes (from the mocked file Length) and the deleted count must both flow into RecordCleanup.
     [Fact]
     public async Task ExecuteInternalAsync_HardDeleteOrphan_RemovesFolderAndRecordsTreeBytes()
     {
@@ -1121,9 +1087,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
 
-    // Fail-closed: an unreadable subdirectory listing leaves the subtree unanalyzed, so the orphan
-    // verdict is unproven - a video could live behind the directory we failed to enumerate. Even
-    // though a subtitle was already found at the top, the folder must NOT be flagged for deletion.
+    // Fail-closed: an unreadable subdirectory listing leaves the subtree unanalyzed, so the orphan verdict is unproven - a video could live behind the directory we failed to enumerate.
     [Fact]
     public async Task ExecuteInternalAsync_GetSubdirectoriesThrows_LogsWarningAndSkipsFolder()
     {
@@ -1144,10 +1108,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
-    // Deactivate mode short-circuits ExecuteAsync before any scan: it must report 100 once and
-    // never touch the library manager or file system. A regression that fell through to RunCleanup
-    // would emit "Task started" and enumerate directories; one that skipped the report would leave
-    // the scheduler stuck below 100%.
+    // Deactivate mode short-circuits ExecuteAsync before any scan: it must report 100 once and never touch the library manager or file system.
     [Fact]
     public async Task ExecuteInternalAsync_DeactivateMode_ReportsFullProgressAndSkipsScan()
     {
@@ -1173,8 +1134,6 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         _fileSystemMock.Verify(f => f.GetDirectories(It.IsAny<string>()), Times.Never);
         VerifyLogNeverContains("Task started", LogLevel.Information);
     }
-
-    // ========== Helper methods ==========
 
     private void SetupLibrary(string libraryPath)
     {

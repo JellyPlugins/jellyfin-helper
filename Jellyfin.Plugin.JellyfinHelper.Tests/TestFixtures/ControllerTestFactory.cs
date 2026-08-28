@@ -91,8 +91,7 @@ public static class ControllerTestFactory
     }
 
     /// <summary>
-    /// Initializes the <see cref="Plugin.Instance"/> with mocked dependencies for testing.
-    /// This is necessary because many controllers and services rely on the static instance.
+    ///     Initializes the Instance with mocked dependencies for testing. This is necessary because many controllers and services rely on the static instance.
     /// </summary>
     public static void InitializePluginInstance()
     {
@@ -119,9 +118,7 @@ public static class ControllerTestFactory
     }
 
     /// <summary>
-    /// Resets the <see cref="Plugin.Instance"/> configuration to a fresh default.
-    /// Use this in test classes that depend on default configuration values and might
-    /// be affected by state pollution from other test classes that modify the config.
+    ///     Resets the Instance configuration to a fresh default. Use this in test classes that depend on default configuration values and might be affected by state pollution from other test classes that modify the config.
     /// </summary>
     public static void ResetPluginConfiguration()
     {
@@ -136,9 +133,7 @@ public static class ControllerTestFactory
     }
 
     /// <summary>
-    /// Tears down the <see cref="Plugin.Instance"/> singleton by nulling it via reflection.
-    /// Call this in <c>Dispose()</c> of test fixtures that set up the singleton to prevent
-    /// cross-test-class contamination.
+    ///     Tears down the Instance singleton by nulling it via reflection. Call this in Dispose() of test fixtures that set up the singleton to prevent cross-test-class contamination.
     /// </summary>
     public static void TeardownPluginInstance()
     {

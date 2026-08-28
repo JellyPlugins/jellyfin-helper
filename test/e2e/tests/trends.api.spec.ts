@@ -1,12 +1,4 @@
-/**
- * Trends + statistics integrity - the "is there garbage in there?" check.
- *
- * After the library scan (global-setup) the growth timeline, media statistics,
- * and library insights should contain coherent, non-garbage data:
- *   - no negative sizes / counts
- *   - timestamps not in the future
- *   - stats reflect the fake library (video files exist, codecs populated)
- */
+/** * Trends + statistics integrity - the "is there garbage in there?" check. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, sleep } from '../setup/api-client.ts';
 

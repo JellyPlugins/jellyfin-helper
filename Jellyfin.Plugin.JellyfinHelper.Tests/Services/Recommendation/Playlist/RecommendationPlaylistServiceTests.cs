@@ -53,11 +53,7 @@ public class RecommendationPlaylistServiceTests
     }
 
     /// <summary>
-    ///     Convenience wrapper: sets up the playlist-lookup query to return an empty list.
-    ///     Equivalent to <c>SetupPlaylistLookup(Array.Empty&lt;BaseItem&gt;())</c>. Kept as a
-    ///     named helper because "no pre-existing managed playlists" is the far more common
-    ///     setup across tests, and reading <c>SetupPlaylistQuery()</c> at the call site is
-    ///     clearer than the empty-array variant.
+    ///     Convenience wrapper: sets up the playlist-lookup query to return an empty list. Equivalent to SetupPlaylistLookup(Array.Empty&lt;BaseItem&gt;()).
     /// </summary>
     private void SetupPlaylistQuery() => SetupPlaylistLookup(Array.Empty<BaseItem>());
 
@@ -467,10 +463,7 @@ public class RecommendationPlaylistServiceTests
     [Fact]
     public async Task RemoveAllRecommendationPlaylists_NameThatIsPrefixOfExpected_IsPreserved()
     {
-        // Critical defense: a playlist named for another user whose username is a prefix
-        // of the current user's must NOT be deleted (this is the case the "AllDigit" check
-        // was explicitly introduced to prevent - see the guard comment in the SUT).
-        // Setup: current user is "Alice"; playlist name uses "Al" prefix instead of "Alice".
+        // Critical defense: a playlist named for another user whose username is a prefix of the current user's must NOT be deleted (this is the case the "AllDigit" check was explicitly introduced to prevent - see the guard comment in the SUT).
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
         var otherUsersPlaylist = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Al"));
@@ -599,9 +592,7 @@ public class RecommendationPlaylistServiceTests
     [Fact]
     public async Task UpdatePlaylists_DoesNotDeleteFreshlyCreatedPlaylist()
     {
-        // The cleanup pass runs against ALL managed-named playlists including the one
-        // we just created. The SUT must exclude the freshly created ID; otherwise it
-        // would delete its own new playlist.
+        // The cleanup pass runs against ALL managed-named playlists including the one we just created. The SUT must exclude the freshly created ID; otherwise it would delete its own new playlist.
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
 
@@ -658,9 +649,7 @@ public class RecommendationPlaylistServiceTests
     [Fact]
     public async Task UpdatePlaylists_NoResolvableItems_StillRemovesStalePlaylists()
     {
-        // A recommendation list of only unresolvable series (no episodes on disk)
-        // yields zero playable items. The SUT must skip creation but still remove stale
-        // playlists so the user isn't stuck with outdated recommendations.
+        // A recommendation list of only unresolvable series (no episodes on disk) yields zero playable items. The SUT must skip creation but still remove stale playlists so the user isn't stuck with outdated recommendations.
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
 
@@ -704,9 +693,7 @@ public class RecommendationPlaylistServiceTests
     [Fact]
     public async Task UpdatePlaylists_CreationReturnsEmptyId_CountsAsFailureAndPreservesOldPlaylists()
     {
-        // Jellyfin's CreatePlaylist can return an empty ID under edge conditions
-        // (e.g. permission failure). This must count as a failure - and critically,
-        // old playlists must be PRESERVED so we don't leave the user without anything.
+        // Jellyfin's CreatePlaylist can return an empty ID under edge conditions (e.g. permission failure).
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
 
@@ -924,9 +911,7 @@ public class RecommendationPlaylistServiceTests
     [InlineData("SeRiEs")]
     public void ResolvePlaylistItemIds_SeriesTypeMatch_IsCaseInsensitive(string itemType)
     {
-        // The ItemType string arrives from serialized recommendation payloads and may
-        // vary in casing across engine versions. The resolver contract compares it with
-        // OrdinalIgnoreCase, so every casing must trigger series resolution.
+        // The ItemType string arrives from serialized recommendation payloads and may vary in casing across engine versions.
         var seriesId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();
         SetupEpisodeResolution(new Dictionary<Guid, Guid> { { seriesId, episodeId } });

@@ -8,10 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Exercises the filesystem-error catch paths in <see cref="TrashService"/> by holding a real
-///     exclusive Windows lock (<see cref="FileShare.None"/>) on an entry so the delete/move throws
-///     <see cref="IOException"/>. The service must log the failure and keep processing the rest.
-///     These locks only behave exclusively on Windows, so each test no-ops on other platforms.
+///     Exercises the filesystem-error catch paths in TrashService by holding a real exclusive Windows lock (None) on an entry so the delete/move throws IOException.
 /// </summary>
 public sealed class TrashServiceFailureTests : IDisposable
 {

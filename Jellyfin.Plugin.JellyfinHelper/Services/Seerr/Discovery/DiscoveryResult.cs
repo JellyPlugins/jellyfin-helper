@@ -16,9 +16,7 @@ public sealed class DiscoveryResult
     public Guid UserId { get; set; }
 
     /// <summary>
-    ///     Gets or sets the user's display name.
-    ///     Excluded from JSON serialization to avoid persisting PII in cache payloads.
-    ///     Display names are resolved at runtime from the Jellyfin user database via <see cref="UserId"/>.
+    ///     Gets or sets the user's display name. Excluded from JSON serialization to avoid persisting PII in cache payloads.
     /// </summary>
     [JsonIgnore]
     public string UserName { get; set; } = string.Empty;
@@ -35,10 +33,7 @@ public sealed class DiscoveryResult
     public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    ///     Returns a deep copy of this result with a new, independent
-    ///     <see cref="Recommendations"/> list. Each <see cref="DiscoveryRecommendation"/>
-    ///     inside the list is also cloned, so mutations on the returned object cannot
-    ///     propagate back to the original (or vice-versa).
+    ///     Returns a deep copy of this result with a new, independent Recommendations list.
     /// </summary>
     /// <returns>A fully detached deep copy of this <see cref="DiscoveryResult"/>.</returns>
     public DiscoveryResult Clone()

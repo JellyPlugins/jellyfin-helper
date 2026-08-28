@@ -1,4 +1,3 @@
-// --- Codecs Tab ---
 'use strict';
 
 // Store last scan data for codec detail clicks
@@ -315,11 +314,7 @@ var CODEC_PATH_MAP = {
     'dynamicRanges': 'DynamicRangePaths'
 };
 
-// Map chart IDs to which media categories should be included
-// Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges -> only Movies + TV Shows + Other
-// Music Audio Codecs -> only Music
-// Book Formats -> only Books
-// Container Formats -> all libraries (Movies + TV Shows + Music + Other)
+// Map chart IDs to which media categories should be included Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges -> only Movies + TV Shows + Other Music Audio Codecs -> only Music Book Formats -> only Books Container Formats -> all libraries (Movies + TV Shows + Music +.
 var CODEC_CATEGORY_MAP = {
     'videoCodecs': {movies: true, tvShows: true, music: false, other: true},
     'videoAudioCodecs': {movies: true, tvShows: true, music: false, other: true},
@@ -359,9 +354,7 @@ function attachDonutHoverTooltips() {
     var charts = document.querySelectorAll('.donut-container');
     for (var c = 0; c < charts.length; c++) {
         (function (container) {
-            // Bind events directly on <path> elements (not <g>) because
-            // mouseenter/mouseleave are non-bubbling and <g> with pointer-events:none
-            // would never receive them. We use .closest() to reach the parent <g> data attributes.
+            // Bind events directly on <path> elements (not <g>) because mouseenter/mouseleave are non-bubbling and <g> with pointer-events:none would never receive them.
             var paths = container.querySelectorAll('.donut-segment path');
 
             for (var i = 0; i < paths.length; i++) {

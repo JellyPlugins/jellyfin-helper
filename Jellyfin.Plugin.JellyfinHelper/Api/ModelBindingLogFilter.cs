@@ -9,26 +9,10 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-/// Action filter that surfaces ASP.NET Core model-binding failures into the plugin log
-/// <em>before</em> <c>[ApiController]</c>'s automatic 400 short-circuits the request.
+///     Action filter that surfaces ASP.NET Core model-binding failures into the plugin log <em>before</em> [ApiController]'s automatic 400 short-circuits the request.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <c>[ApiController]</c>'s <c>ModelStateInvalidFilter</c> auto-returns 400 for invalid
-/// <c>ModelState</c> (or null body) <em>before</em> the action runs, so a hand-written
-/// <c>if (!ModelState.IsValid)</c> in the action is dead code: the 400 goes out but no
-/// <see cref="IPluginLogService"/> entry is written.
-/// </para>
-/// <para>
-/// This filter closes the gap as an <see cref="IAsyncActionFilter"/> firing after model binding but
-/// before the auto-400 filter (explicit action filters run before the built-in one). On invalid
-/// <c>ModelState</c> it logs a WARNING and short-circuits with a body mirroring the field-level
-/// errors the frontend used to parse.
-/// </para>
-/// <para>
-/// Scoped so it attaches via <c>[ServiceFilter(typeof(...))]</c> per action. Do NOT register
-/// globally - other Jellyfin controllers have their own error contracts and must not be rewritten.
-/// </para>
+///     [ApiController]'s ModelStateInvalidFilter auto-returns 400 for invalid ModelState (or null body) <em>before</em> the action runs, so a hand-written if (!ModelState.IsValid) in the action is dead code: the 400 goes out but no IPluginLogService entry is written.
 /// </remarks>
 public sealed class ModelBindingLogFilter : IAsyncActionFilter, IOrderedFilter
 {
@@ -47,11 +31,7 @@ public sealed class ModelBindingLogFilter : IAsyncActionFilter, IOrderedFilter
     }
 
     /// <summary>
-    /// Gets the filter execution order. Set to <see cref="int.MinValue"/> so we run before the
-    /// built-in <c>ModelStateInvalidFilter</c> registered by <c>[ApiController]</c>. That filter uses
-    /// <c>Order = int.MinValue + 100</c>, so any value strictly smaller wins and gets the chance to
-    /// short-circuit the response ourselves (which is what we need to log the diagnostic before the
-    /// generic 400 goes out).
+    ///     Gets the filter execution order. Set to MinValue so we run before the built-in ModelStateInvalidFilter registered by [ApiController].
     /// </summary>
     public int Order => int.MinValue;
 
@@ -80,10 +60,7 @@ public sealed class ModelBindingLogFilter : IAsyncActionFilter, IOrderedFilter
             return;
         }
 
-        // ASP.NET Core normally rejects null-body 400s before the action is invoked, but the
-        // deserialiser can also hand us a null argument when the body is present but shaped
-        // like the top-level `null` JSON literal. Guarding here keeps the log entry consistent
-        // with the ModelState path above.
+        // ASP.NET Core normally rejects null-body 400s before the action is invoked, but the deserialiser can also hand us a null argument when the body is present but shaped like the top-level `null` JSON literal.
         if (context.ActionArguments.Values.Any(v => v is null))
         {
             _pluginLog.LogWarning(

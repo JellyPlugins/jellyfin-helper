@@ -21,9 +21,7 @@ public class GrowthTimelineControllerTests
     }
 
     /// <summary>
-    /// Resets the private static _lastRefreshTime field to DateTime.MinValue so that
-    /// the rate-limit window is clear before the test begins.  This is necessary because
-    /// the field is shared across all instances and test runs inside the same process.
+    ///     Resets the private static _lastRefreshTime field to DateTime.MinValue so that the rate-limit window is clear before the test begins.
     /// </summary>
     private static void ResetRateLimitState()
     {

@@ -52,8 +52,6 @@ public class HealthHtmlTests : ConfigPageTestBase
         Assert.Contains("loadTrashHealthSection()", HtmlContent);
     }
 
-    // === New tests: Health paths split by Movies/TvShows, no Music ===
-
     [Fact]
     public void Html_ContainsCollectHealthPathsFunction()
     {

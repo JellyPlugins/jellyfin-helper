@@ -9,8 +9,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr;
 /// </summary>
 public class SeerrMediaDetailsTests
 {
-    // ===== DisplayTitle Logic =====
-
     [Fact]
     public void DisplayTitle_OnlyTitle_ReturnsTitle()
     {
@@ -81,8 +79,6 @@ public class SeerrMediaDetailsTests
         Assert.Null(details.DisplayTitle);
     }
 
-    // ===== Default Property Values =====
-
     [Fact]
     public void DefaultValues_TitleIsNull()
     {
@@ -103,8 +99,6 @@ public class SeerrMediaDetailsTests
         var details = new SeerrMediaDetails();
         Assert.Null(details.DisplayTitle);
     }
-
-    // ===== JSON Deserialization =====
 
     [Fact]
     public void Deserialize_MovieResponse_ParsesTitleCorrectly()
@@ -184,8 +178,6 @@ public class SeerrMediaDetailsTests
         Assert.NotNull(details);
         Assert.Equal("Spider-Man: No Way Home (2021)", details!.DisplayTitle);
     }
-
-    // ===== DisplayTitle is not serialized =====
 
     [Fact]
     public void Serialize_DisplayTitle_NotIncludedInJson()

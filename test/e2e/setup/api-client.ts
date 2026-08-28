@@ -1,12 +1,4 @@
-/**
- * Shared helpers for the E2E tests: a thin Jellyfin API client that knows how
- * to authenticate, drive scheduled tasks, and reach the plugin's own endpoints
- * (everything under the `JellyfinHelper/` route prefix).
- *
- * The admin token and base URL are produced by setup/global-setup.ts and
- * handed to tests via environment variables (JELLYFIN_URL, JELLYFIN_TOKEN)
- * and the persisted setup/auth.json.
- */
+/** * Shared helpers for the E2E tests: a thin Jellyfin API client that knows how * to authenticate, drive scheduled tasks, and reach the plugin's own endpoints * (everything under the `JellyfinHelper/` route prefix). */
 import { APIRequestContext, request as pwRequest, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -17,12 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PLUGIN_GUID = '0c737645-5cbb-4bd8-80c7-d377b560aaa4';
 export const CLEANUP_TASK_KEY = 'HelperCleanup';
 
-/**
- * The fixed-length API-key mask sentinel emitted by GET /Configuration in place of any stored
- * key (Seerr + every Radarr/Sonarr instance), and treated as "keep the stored key" on save.
- * MUST equal ConfigurationResponse.ApiKeyMask on the server; keep the two in sync. Kept here as
- * the single source of truth for the e2e layer so a change to the star count is a one-line edit.
- */
+/** * The fixed-length API-key mask sentinel emitted by GET /Configuration in place of any stored * key (Seerr + every Radarr/Sonarr instance), and treated as "keep the stored key" on save. */
 export const API_KEY_MASK = '********';
 
 export interface NormalUser {
@@ -58,17 +45,7 @@ export async function normalUserContext(auth: AuthInfo): Promise<APIRequestConte
   });
 }
 
-/**
- * Guard for tests that require the provisioned non-admin user. Without one these
- * assertions cannot run - but silently skipping would let the most important
- * authorization / user-facing checks vanish green if the fixture ever breaks.
- *
- * In CI we set E2E_REQUIRE_NORMAL_USER=1 so a missing user FAILS loudly; locally
- * (unset) it still skips so a dev without the fixture isn't blocked. Call at the
- * top of any test that dereferences the normal user:
- *
- *   test('...', async () => { requireNormalUser(user); ... user!.get(...) ... });
- */
+/** * Guard for tests that require the provisioned non-admin user. Without one these * assertions cannot run - but silently skipping would let the most important * authorization / user-facing checks vanish green if the fixture ever breaks. */
 export function requireNormalUser(user: APIRequestContext | null): void {
   if (user) return;
   if (process.env.E2E_REQUIRE_NORMAL_USER === '1') {
@@ -151,10 +128,7 @@ export async function runTaskToCompletion(
   }
 
   const deadline = Date.now() + timeoutMs;
-  // Accept Idle as "completed" only once we've EITHER observed a Running state
-  // OR seen a fresh LastExecutionResult.EndTimeUtc (newer than before we
-  // started). This avoids two races: reading the stale pre-start Idle, and
-  // missing a task that ran and finished between two polls.
+  // Accept Idle as "completed" only once we've EITHER observed a Running state OR seen a fresh LastExecutionResult.EndTimeUtc (newer than before we started).
   await sleep(500);
   let sawRunning = false;
   while (Date.now() < deadline) {
@@ -177,18 +151,7 @@ export async function runCleanupTask(ctx: APIRequestContext, timeoutMs = 90_000)
   return runTaskToCompletion(ctx, id, { timeoutMs });
 }
 
-/**
- * Run Jellyfin's built-in "Scan All Libraries" (RefreshLibrary) task to completion
- * so that files freshly written to disk become visible in Jellyfin's item model -
- * which is what the plugin's statistics / insights / growth-timeline read from
- * (they analyze what Jellyfin already knows, NOT the raw disk). global-setup does
- * this once at startup; behavioral specs that seed a new media file mid-run must
- * re-run it themselves before asserting the file shows up in stats.
- *
- * Falls back to POST /Library/Refresh (fire-and-forget) if the scheduled task
- * isn't present, mirroring global-setup. The trailing settle gives Jellyfin a beat
- * to persist scanned items before the caller queries.
- */
+/** * Run Jellyfin's built-in "Scan All Libraries" (RefreshLibrary) task to completion * so that files freshly written to disk become visible in Jellyfin's item model - * which is what the plugin's statistics / insights / growth-timeline read from * (they analyze what Jellyfin. */
 export async function runLibraryScan(ctx: APIRequestContext, timeoutMs = 120_000): Promise<void> {
   const res = await ctx.get('/ScheduledTasks');
   if (res.ok()) {

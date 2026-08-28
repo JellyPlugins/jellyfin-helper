@@ -78,35 +78,22 @@ public class ArrIntegrationController : ControllerBase
 
         var url = request.Url ?? string.Empty;
 
-        // Scheme guard only: reject non-HTTP(S) schemes (file://, ftp://, ...). We deliberately do
-        // NOT block loopback/private/link-local hosts here: Radarr/Sonarr almost always run on the
-        // same host or LAN as Jellyfin (localhost:7878, 192.168.x.y), so an internal-IP block would
-        // break the plugin's primary legitimate configuration. The endpoint is admin-only, does not
-        // follow redirects, caps the response size, and never reflects the response body, so the
-        // residual "internal reachability oracle" risk is low and accepted for a LAN-integration tool.
+        // Scheme guard only. Loopback/private hosts not blocked: Arr typically runs on LAN and
+        // the endpoint is admin-only without redirects, so the residual oracle risk is accepted.
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl) ||
             (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
         {
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
-        // Block well-known cloud metadata endpoints (AWS/Azure IMDS, GCP, Alibaba). Internal LAN
-        // addresses are intentionally NOT blocked (see the scheme-guard rationale above), but the
-        // instance-metadata endpoints are never a legitimate Arr target and are a classic SSRF sink.
+        // Block well-known cloud metadata endpoints (AWS/Azure IMDS, GCP, Alibaba).
         if (SsrfGuard.IsCloudMetadataHost(parsedUrl.Host))
         {
             _pluginLog.LogWarning("API", $"Blocked connection test to cloud metadata endpoint: {parsedUrl.Host}", logger: _logger);
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
-        // Resolve the masked-key sentinel to the real stored key BEFORE the live call. When the admin
-        // opens Settings after a reload, the API-key input is pre-filled with the fixed-length mask
-        // (the real key never leaves the server). Testing that instance must probe the upstream with
-        // the REAL stored key so the result reflects true reachability - not send the mask, which would
-        // always 401 and show a misleading failure even for a healthy, correctly-configured instance.
-        // Any non-mask value is treated as a new key the admin is entering, and is tested as-is.
-        // The endpoint is type-agnostic (a single instance is identified by URL, disambiguated by Name),
-        // so we search both Radarr and Sonarr stored instances.
+        // Resolve the masked-key sentinel to the real stored key BEFORE the live call. When the admin opens Settings after a reload, the API-key input is pre-filled with the fixed-length mask (the real key never leaves the server).
         var apiKey = request.ApiKey ?? string.Empty;
         if (ApiKeyMaskResolver.IsMask(apiKey))
         {
@@ -115,9 +102,7 @@ public class ArrIntegrationController : ControllerBase
                 .Concat(config.SonarrInstances ?? []);
             apiKey = ApiKeyMaskResolver.ResolveArrKey(request.ApiKey, request.Url, request.Name, storedInstances);
 
-            // Mask sent but no stored instance matches this URL/Name. Do NOT forward the mask upstream
-            // (it would always fail with a misleading 401). Return the same generic failure the live
-            // path uses, so the client shows a truthful "not reachable" without a credential probe.
+            // Mask sent but no stored instance matches this URL/Name. Do NOT forward the mask upstream (it would always fail with a misleading 401).
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 _pluginLog.LogWarning("API", "Arr connection test received the masked key sentinel but no stored instance matched the URL/Name; cannot resolve a real key.", logger: _logger);
@@ -132,9 +117,7 @@ public class ArrIntegrationController : ControllerBase
 
         if (!success)
         {
-            // Log the detailed upstream message server-side but return a GENERIC one to the client,
-            // so the endpoint cannot be used to distinguish internal host/port states (reachability
-            // oracle). The generic string matches the Seerr connection-test for consistency.
+            // Log the detailed upstream message server-side but return a GENERIC one to the client, so the endpoint cannot be used to distinguish internal host/port states (reachability oracle).
             _pluginLog.LogWarning("API", $"Arr connection test failed: {message}", logger: _logger);
             return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
         }
@@ -282,15 +265,8 @@ public class ArrIntegrationController : ControllerBase
         return Ok(result);
     }
 
-    // === Private helpers ===
-
     /// <summary>
     ///     Gets the set of top-level folder names for a given collection type from Jellyfin libraries.
-    ///     Deduplication is by folder name only (not full path), using a case-insensitive HashSet.
-    ///     Known limitation: if two library locations contain different directories that share the same
-    ///     name (e.g. "/movies/Action" and "/archive/Action"), only one entry is kept. This is intentional
-    ///     for matching against Arr titles, which are also name-based, but may cause missed matches when
-    ///     the same folder name appears across different library types or root paths.
     /// </summary>
     private HashSet<string> GetJellyfinFolderNames(string collectionType)
     {

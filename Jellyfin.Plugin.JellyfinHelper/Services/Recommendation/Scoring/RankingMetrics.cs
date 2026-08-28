@@ -5,13 +5,7 @@ using System.Linq;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Ranking-based evaluation metrics for recommendation quality.
-///     Unlike MSE which penalizes inexact score predictions, these metrics measure
-///     what actually matters: whether the items the user likes appear in the top K results.
-///     <para>
-///     Standard practice: train with MSE/BCE (differentiable), evaluate with ranking metrics
-///     (non-differentiable but directly measure recommendation quality).
-///     </para>
+///     Ranking-based evaluation metrics for recommendation quality. Unlike MSE which penalizes inexact score predictions, these metrics measure what actually matters: whether the items the user likes appear in the top K results.
 /// </summary>
 internal static class RankingMetrics
 {
@@ -23,13 +17,6 @@ internal static class RankingMetrics
 
     /// <summary>
     ///     Computes Precision@K: the fraction of the top-K predicted items that are actually relevant.
-    ///     <para>
-    ///     Formula: |{relevant items in top K}| / K.
-    ///     </para>
-    ///     <para>
-    ///     Interpretation: "Of the K items we'd recommend, how many does the user actually like?"
-    ///     A P@10 of 0.8 means 8 out of 10 top-ranked items are relevant.
-    ///     </para>
     /// </summary>
     /// <param name="predictedScores">Model-predicted scores for each example.</param>
     /// <param name="labels">Ground-truth labels for each example.</param>
@@ -66,13 +53,6 @@ internal static class RankingMetrics
 
     /// <summary>
     ///     Computes Recall@K: the fraction of all relevant items that appear in the top-K predictions.
-    ///     <para>
-    ///     Formula: |{relevant items in top K}| / |{all relevant items}|.
-    ///     </para>
-    ///     <para>
-    ///     Interpretation: "Of all the items the user likes, how many did we surface in the top K?"
-    ///     A R@10 of 0.65 means 65% of all relevant items appeared in the top 10.
-    ///     </para>
     /// </summary>
     /// <param name="predictedScores">Model-predicted scores for each example.</param>
     /// <param name="labels">Ground-truth labels for each example.</param>
@@ -122,15 +102,7 @@ internal static class RankingMetrics
     }
 
     /// <summary>
-    ///     Computes NDCG@K (Normalized Discounted Cumulative Gain): measures ranking quality
-    ///     by rewarding relevant items that appear earlier in the list.
-    ///     <para>
-    ///     Uses the label value directly as gain (not binary), so items with label 0.85
-    ///     (fully watched) contribute more than items with label 0.5 (barely started).
-    ///     </para>
-    ///     <para>
-    ///     Formula: DCG@K / IDCG@K where DCG = Σ (2^label - 1) / log₂(rank + 1).
-    ///     </para>
+    ///     Computes NDCG@K (Normalized Discounted Cumulative Gain): measures ranking quality by rewarding relevant items that appear earlier in the list.
     /// </summary>
     /// <param name="predictedScores">Model-predicted scores for each example.</param>
     /// <param name="labels">Ground-truth labels (gains) for each example.</param>
@@ -176,7 +148,6 @@ internal static class RankingMetrics
 
     /// <summary>
     ///     Computes all ranking metrics at once for a set of training examples scored by a strategy.
-    ///     Convenience method that avoids recomputing predictions multiple times.
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <param name="strategy">The scoring strategy to evaluate.</param>
@@ -244,10 +215,7 @@ internal static class RankingMetrics
     }
 
     /// <summary>
-    ///     Returns the indices of the top-K elements by descending value.
-    ///     Uses a full sort of all indices (O(N log N)); sufficient for typical
-    ///     training set sizes. For very large N with K &lt;&lt; N, a min-heap
-    ///     of size K would be more efficient.
+    ///     Returns the indices of the top-K elements by descending value. Uses a full sort of all indices (O(N log N)); sufficient for typical training set sizes.
     /// </summary>
     /// <param name="scores">The scores to rank.</param>
     /// <param name="k">Number of top indices to return.</param>

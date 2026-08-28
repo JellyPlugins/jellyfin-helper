@@ -1,20 +1,4 @@
-/**
- * Scheduled task behaviour across all modes.
- *
- * Architecture reminder (from the source map): there is ONE Jellyfin scheduled
- * task - `HelperCleanup` - that orchestrates 8 stages. Each stage's mode is
- * chosen from config (Deactivate/DryRun/Activate), NOT by triggering stages
- * individually. So the pattern is: set config -> run HelperCleanup -> assert.
- *
- * We verify:
- *   - The task runs to Completed (never Failed) in every mode combination.
- *   - DryRun does not delete the orphaned fixtures; Activate does.
- *   - UseTrash routes deletions to the trash folder instead of removing them.
- *   - CleanupStatistics reflects real deletions after an Activate run.
- *
- * The fake library (fixtures/gen-media.sh) contains deliberately orphaned
- * items: an orphaned .trickplay folder, an orphaned subtitle, a broken .strm.
- */
+/** * Scheduled task behaviour across all modes. * * Architecture reminder (from the source map): there is ONE Jellyfin scheduled * task - `HelperCleanup` - that orchestrates 8 stages. */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
 
@@ -145,9 +129,7 @@ test.describe.serial('HelperCleanup across modes', () => {
   });
 
   test('Seerr cleanup Activate against mock → completes, deletes expired requests', async () => {
-    // Reset the mock to a known set, then read the starting count. The mock is a
-    // hard dependency of this test - if it's unreachable we must fail loudly, not
-    // skip the deletion assertions and let the test pass vacuously.
+    // Reset the mock to a known set, then read the starting count. The mock is a hard dependency of this test - if it's unreachable we must fail loudly, not skip the deletion assertions and let the test pass vacuously.
     const mock = await pwRequest.newContext();
     try {
       const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);
@@ -169,9 +151,7 @@ test.describe.serial('HelperCleanup across modes', () => {
       const result = await runCleanupTask(ctx);
       expect(result.LastExecutionResult?.Status).toBe('Completed');
 
-      // Verify the expired requests were actually deleted from the mock:
-      // ids 101 (old/pending) and 102 (old/declined) should be gone; 103
-      // (available, protected) and 104 (recent) should remain.
+      // Verify the expired requests were actually deleted from the mock: ids 101 (old/pending) and 102 (old/declined) should be gone; 103 (available, protected) and 104 (recent) should remain.
       const afterRes = await mock.get(`${MOCK_SEERR_PUBLIC}/count`);
       expect(afterRes.ok(), `mock Seerr /count failed: ${afterRes.status()}`).toBeTruthy();
       const after = (await afterRes.json()) as { count: number; ids: number[] };

@@ -19,10 +19,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 /// <summary>
-///     Tests for <see cref="HelperCleanupTask" /> failure handling: how the orchestrator reacts
-///     when an individual stage (a sub-task, trash purge, statistics scan, or growth timeline)
-///     throws. Non-fatal failures must be logged and swallowed so the remaining stages still run,
-///     while cancellation must always propagate.
+///     Tests for HelperCleanupTask failure handling: how the orchestrator reacts when an individual stage (a sub-task, trash purge, statistics scan, or growth timeline) throws.
 /// </summary>
 public sealed class HelperCleanupTaskErrorHandlingTests
 {

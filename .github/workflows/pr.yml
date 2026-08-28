@@ -48,123 +48,10 @@ jobs:
     - name: Create test package
       run: |
         mkdir package
-        cp publish/*.dll package/
-        cp publish/*.pdb package/ 2>/dev/null || true
-        cd package
-        zip ../${PLUGIN_NAME}_test-build.zip ./*
-
-    - name: Upload build artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: ${{ env.PLUGIN_NAME }}_test-build
-        path: ${{ env.PLUGIN_NAME }}_test-build.zip
-        retention-days: 14
-
-  security-audit:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v6
-      with:
-        dotnet-version: 10.0.x
-
-    - name: Restore
-      run: dotnet restore
-
-    - name: Check for vulnerable packages
-      run: |
-        set -euo pipefail
-        echo "## Dependency Vulnerability Scan" >> $GITHUB_STEP_SUMMARY
-        dotnet list package --vulnerable --include-transitive --format json > vuln-report.json
-        cat vuln-report.json
-        # Parse JSON output to detect vulnerabilities (SDK-independent, fail-closed)
-        VULN_COUNT=$(python3 -c "
-        import json
-        with open('vuln-report.json', 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        count = sum(
-            len(pkg.get('vulnerabilities') or [])
-            for proj in data.get('projects', [])
-            for fw in proj.get('frameworks', [])
-            for pkg in (fw.get('topLevelPackages') or []) + (fw.get('transitivePackages') or [])
-        )
-        print(count)
-        ")
-        if [ "$VULN_COUNT" -gt 0 ]; then
-          echo "::error::Vulnerable NuGet packages detected! ($VULN_COUNT vulnerabilities)"
-          echo "[FAIL] **Vulnerable packages found! ($VULN_COUNT vulnerabilities)**" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          cat vuln-report.json >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          exit 1
-        else
-          echo "[PASS] **No vulnerable packages detected.**" >> $GITHUB_STEP_SUMMARY
-        fi
-
-  test:
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-      pull-requests: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        bucket:
-          - name: Unit
-            filter: "Category!=Performance&Category!=Security"
-          - name: Security
-            filter: "Category=Security"
-          - name: Performance
-            filter: "Category=Performance"
-            continue-on-error: true
-
-    name: "Tests (${{ matrix.bucket.name }})"
-    continue-on-error: ${{ matrix.bucket.continue-on-error == true }}
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v6
-      with:
-        dotnet-version: 10.0.x
-
-    - name: Restore
-      run: dotnet restore
-
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
-
-    - name: "Run ${{ matrix.bucket.name }} tests"
-      env:
-        TEST_FILTER: ${{ matrix.bucket.filter }}
-      run: |
-        dotnet test --configuration Release --no-build --verbosity normal \
-          --filter "$TEST_FILTER" \
-          --logger "trx;LogFileName=${{ matrix.bucket.name }}.trx" \
-          --collect:"XPlat Code Coverage" \
-          --results-directory "./TestResults/${{ matrix.bucket.name }}"
-
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v7
-      with:
-        name: test-results-${{ matrix.bucket.name }}
-        path: "**/TestResults/**/*.trx"
+        cp publish/* .dll package/ cp publish/*.pdb package/ 2>/dev/null || true cd package zip ../${PLUGIN_NAME}_test-build.zip ./* - name: Upload build artifact uses: actions/upload-artifact@v7 with: name: ${{ env.PLUGIN_NAME }}_test-build path: ${{ env.PLUGIN_NAME }}_test-build.zip. */TestResults/**/*.trx"
         retention-days: 7
 
-    # `--collect:"XPlat Code Coverage"` writes to a GUID subfolder we can't name
-    # ahead of time. Flatten it to a fixed path so Codecov gets an exact file and
-    # we don't depend on glob expansion behaviour in the action.
+    # `--collect:"XPlat Code Coverage"` writes to a GUID subfolder we can't name ahead of time. Flatten it to a fixed path so Codecov gets an exact file and we don't depend on glob expansion behaviour in the action.
     - name: Collect coverage report
       if: always()
       run: |
@@ -177,10 +64,7 @@ jobs:
           echo "::warning::No coverage report found for the ${{ matrix.bucket.name }} bucket."
         fi
 
-    # Codecov merges reports that share a repo/commit, so all three buckets (Unit,
-    # Security, Performance) roll up into one figure; the flag keeps per-bucket
-    # breakdowns available on the Codecov UI. Skipped when the collect step found
-    # no report (e.g. the Performance bucket soft-failed before producing one).
+    # Codecov merges reports that share a repo/commit, so all three buckets (Unit, Security, Performance) roll up into one figure; the flag keeps per-bucket breakdowns available on the Codecov UI.
     - name: Upload coverage to Codecov
       if: always() && env.COVERAGE_FILE != ''
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -192,11 +76,7 @@ jobs:
         disable_search: true
         fail_ci_if_error: false
 
-  # Dedicated SonarCloud analysis with coverage import. SonarScanner for .NET requires a
-  # single begin -> build -> test -> end sequence in ONE job, so this cannot ride the `test`
-  # matrix above (which runs three parallel buckets). It builds once, runs the full unit-test
-  # suite with Cobertura coverage, and feeds that report to SonarCloud via
-  # sonar.cs.cobertura.reportsPaths.
+  # Dedicated SonarCloud analysis with coverage import. SonarScanner for .NET requires a single begin -> build -> test -> end sequence in ONE job, so this cannot ride the `test` matrix above (which runs three parallel buckets).
   sonar:
     name: SonarCloud
     runs-on: ubuntu-latest
@@ -235,19 +115,7 @@ jobs:
       if: ${{ env.SONAR_TOKEN != '' }}
       run: |
         set -euo pipefail
-        # Coverage is imported from the C# unit-test run only. The E2E harness, the browser-side
-        # PluginPages JS, the injected discovery-sidebar script, and the GitHub Pages demo have no
-        # coverage instrumentation, so without these exclusions SonarCloud would score them as 0%
-        # and drag the overall coverage number down to something meaningless. They stay in the
-        # normal analysis (code smells etc.) — they are only removed from the coverage denominator.
-        # The generated configPage.html and the docs/ demo copy are dropped from analysis entirely,
-        # since configPage.html is a build artifact rebuilt from the css/js sources and docs/ is a
-        # duplicate of those sources.
-        #
-        # sonar.tests marks the xUnit project and the E2E harness as TEST sources rather than
-        # production code, so SonarCloud applies its (much lighter) test rule set to them instead
-        # of production rules like CA2000/CA5394/CA1861 — analysing test code with production rules
-        # is noise. Real test-quality issues (missing asserts, Thread.Sleep) still surface.
+        # Coverage is imported from the C# unit-test run only.
         dotnet sonarscanner begin \
           /k:"$SONAR_PROJECT_KEY" \
           /o:"$SONAR_ORG" \
@@ -263,9 +131,7 @@ jobs:
           --results-directory "./TestResults/Sonar"
         dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
 
-  # Keeps the README test-count badge in sync automatically: counts the tests actually
-  # executed in CI (from the .trx artifacts the `test` job already produced) and commits the
-  # updated badge straight back onto the open PR branch — so contributors never hand-edit it.
+  # Keeps the README test-count badge in sync automatically: counts the tests actually executed in CI (from the .trx artifacts the `test` job already produced) and commits the updated badge straight back onto the open PR branch , so contributors never hand-edit it.
   test-badge:
     # Same-repo PRs only: fork PRs get a read-only GITHUB_TOKEN and cannot push, so the guard
     # skips them cleanly rather than failing. Never runs on push:main.
@@ -295,9 +161,7 @@ jobs:
     - name: Count executed tests and update badge
       run: |
         set -euo pipefail
-        # Each bucket's .trx carries a <Counters passed="N" .../> in its <ResultSummary>.
-        # The three buckets use disjoint --filter expressions, so summing their passed
-        # counts yields the total number of tests that passed in this CI run.
+        # Each bucket's .trx carries a <Counters passed="N" .../> in its <ResultSummary>. The three buckets use disjoint --filter expressions, so summing their passed counts yields the total number of tests that passed in this CI run.
         count=0
         while IFS= read -r n; do
           count=$((count + n))
@@ -344,9 +208,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # The preview publisher (rossjrw/pr-preview-action) uses ${{ secrets.GITHUB_TOKEN }}
-          # explicitly; do not persist the token in local git config to reduce blast radius
-          # of the repo-controlled PowerShell demo-site prep step.
+          # The preview publisher (rossjrw/pr-preview-action) uses ${{ secrets.GITHUB_TOKEN }} explicitly; do not persist the token in local git config to reduce blast radius of the repo-controlled PowerShell demo-site prep step.
           persist-credentials: false
 
       - name: Prepare demo site

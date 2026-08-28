@@ -16,31 +16,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for <c>Engine.BuildCommunityPopularityMap</c> - the shared cold-start
-///     community-popularity computation used by both the batch path and the live
-///     cold-start path.
-///     <para>
-///         This helper is the single source of truth for the "two-user gate" that
-///         prevents a single-user deployment from turning its own watch history
-///         into "the community" (which would degenerate cold-start into a
-///         self-fulfilling prophecy). Historically these two loops were duplicated
-///         inline and drifted at least once during refactoring, so pinning the
-///         behaviour with a golden set of test cases is a proper bug-guard against
-///         re-duplication.
-///     </para>
-///     <para>
-///         The helper is <c>private static</c> so we reach it via reflection - the
-///         test project already has <c>InternalsVisibleTo</c> but private members
-///         still need reflection. The alternative (making it internal) would leak
-///         an implementation detail; keeping the surface tight and testing via
-///         reflection is the right trade-off here.
-///     </para>
+///     Tests for Engine.BuildCommunityPopularityMap - the shared cold-start community-popularity computation used by both the batch path and the live cold-start path.
 /// </summary>
 public sealed class EngineCommunityPopularityTests
 {
-    // ================================================================================================
     // Two-user gate
-    // ================================================================================================
 
     [Fact]
     public void BuildCommunityPopularityMap_EmptyDictionary_ReturnsNull()
@@ -67,9 +47,6 @@ public sealed class EngineCommunityPopularityTests
     public void BuildCommunityPopularityMap_SingleUserWithHistory_ReturnsNull()
     {
         // BUG GUARD: one user with real watch data must NOT be treated as "the community".
-        // The two-user gate is the whole point - if we return a map here, cold-start
-        // recommendations degenerate into "the only user's own preferences" and defeat
-        // the "wisdom of the crowd" premise.
         var input = new Dictionary<Guid, HashSet<Guid>>
         {
             [Guid.NewGuid()] = [Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()]
@@ -108,9 +85,7 @@ public sealed class EngineCommunityPopularityTests
         Assert.Equal(2, result![item]);
     }
 
-    // ================================================================================================
     // Counting semantics
-    // ================================================================================================
 
     [Fact]
     public void BuildCommunityPopularityMap_ItemCountsReflectPerUserWatches()
@@ -137,9 +112,7 @@ public sealed class EngineCommunityPopularityTests
     [Fact]
     public void BuildCommunityPopularityMap_UsersWithDisjointHistories_YieldsSingleCounts()
     {
-        // Users with entirely disjoint watch lists -> every item has count 1.
-        // BUG GUARD: if the counting logic ever gets an off-by-one that doubles counts
-        // across users, this test detects it via the strict equality assertion.
+        // Users with entirely disjoint watch lists -> every item has count 1. BUG GUARD: if the counting logic ever gets an off-by-one that doubles counts across users, this test detects it via the strict equality assertion.
         var input = new Dictionary<Guid, HashSet<Guid>>
         {
             [Guid.NewGuid()] = [Guid.NewGuid(), Guid.NewGuid()],
@@ -210,9 +183,7 @@ public sealed class EngineCommunityPopularityTests
         }
     }
 
-    // ================================================================================================
     // Live cold-start path: community-popularity build + computed-flag reuse
-    // ================================================================================================
 
     private static Movie MakeMovie(string name)
         => new()
@@ -246,12 +217,7 @@ public sealed class EngineCommunityPopularityTests
     [Fact]
     public void GetRecommendations_ColdStartUser_LiveSnapshot_CrowdFavoriteOutranksUnseen()
     {
-        // On the LIVE cold-start path, GetOrRefreshLiveSnapshot publishes a snapshot with
-        // CommunityPopularityComputed=false, so GetOrBuildCommunityPopularity must run
-        // BuildCommunityPopularityForColdStart. With two OTHER users sharing one candidate the
-        // >=2-user gate passes and the 40/30/30 blend applies, so the crowd-watched candidate must
-        // strictly outrank an otherwise-identical crowd-unseen candidate. This isolates the 30%
-        // community term on the live path (distinct from the batch path already covered).
+        // On the LIVE cold-start path, GetOrRefreshLiveSnapshot publishes a snapshot with CommunityPopularityComputed=false, so GetOrBuildCommunityPopularity must run BuildCommunityPopularityForColdStart.
         var harness = EngineTestFactory.Create();
 
         var coldUser = Guid.NewGuid();
@@ -308,11 +274,7 @@ public sealed class EngineCommunityPopularityTests
     [Fact]
     public void GetRecommendations_ColdStartAfterBatch_ReusesComputedCommunityMap_WithoutRecompute()
     {
-        // GetAllRecommendations publishes a snapshot with CommunityPopularityComputed=true and a
-        // non-null map. A subsequent live GetRecommendations for the cold user must hit the
-        // already-computed short-circuit in GetOrBuildCommunityPopularity (return the snapshot map
-        // verbatim) rather than recomputing. We prove the reused map still fed the blend by asserting
-        // the crowd favorite outranks the unseen candidate on the live result.
+        // GetAllRecommendations publishes a snapshot with CommunityPopularityComputed=true and a non-null map.
         var harness = EngineTestFactory.Create();
 
         var coldUser = Guid.NewGuid();
@@ -372,9 +334,7 @@ public sealed class EngineCommunityPopularityTests
             $"the unseen candidate (score={unseenRec.Score}).");
     }
 
-    // ================================================================================================
     // Reflection glue
-    // ================================================================================================
 
     private static Dictionary<Guid, int>? Invoke(IReadOnlyDictionary<Guid, HashSet<Guid>> userSets)
     {

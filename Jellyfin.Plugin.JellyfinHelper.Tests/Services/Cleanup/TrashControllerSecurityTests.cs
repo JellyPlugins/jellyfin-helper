@@ -9,9 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Security tests for <see cref="TrashController" />.
-///     Verifies that the DeleteTrashFolders endpoint rejects unsafe paths
-///     and does not allow deletion outside expected directories.
+///     Security tests for TrashController. Verifies that the DeleteTrashFolders endpoint rejects unsafe paths and does not allow deletion outside expected directories.
 /// </summary>
 public class TrashControllerSecurityTests : IDisposable
 {
@@ -46,8 +44,6 @@ public class TrashControllerSecurityTests : IDisposable
             configHelper.Object,
             trashService.Object);
     }
-
-    // ===== DeleteTrashFolders: Absolute path safety =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -98,20 +94,13 @@ public class TrashControllerSecurityTests : IDisposable
     }
 
     /// <summary>
-    ///     Regression (FS-escape bug): an absolute trash path that is OUTSIDE every
-    ///     library and is a sensitive system directory (e.g. Jellyfin's own /config)
-    ///     must be rejected - previously it slipped through because the guard only
-    ///     rejected the filesystem root and exact/parent library roots, so
-    ///     DeleteTrashFolders would have recursively deleted the config directory.
+    ///     Regression (FS-escape bug): an absolute trash path that is OUTSIDE every library and is a sensitive system directory (e.g.
     /// </summary>
     [Fact]
     [Trait("Category", "Security")]
     public void DeleteTrashFolders_AbsolutePathIsSensitiveSystemDir_ReturnsBadRequest()
     {
-        // Use a hardcoded sensitive-root string (a config/system dir, per OS) as the trash
-        // path while the only library lives elsewhere. No directory is created - the guard
-        // must refuse any absolute path that is IsSensitiveSystemPath and not strictly inside
-        // a library, regardless of whether it exists on disk.
+        // Use a hardcoded sensitive-root string (a config/system dir, per OS) as the trash path while the only library lives elsewhere.
         var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-x" : "/config/jfh-x";
         var config = new PluginConfiguration { TrashFolderPath = sensitive };
         var libraryFolders = new List<string> { Path.Join(_testRoot, "movies") };
@@ -121,8 +110,6 @@ public class TrashControllerSecurityTests : IDisposable
 
         Assert.IsType<BadRequestObjectResult>(result);
     }
-
-    // ===== DeleteTrashFolders: Relative path safety =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -150,8 +137,6 @@ public class TrashControllerSecurityTests : IDisposable
         Assert.True(Directory.Exists(outsideDir), "Directory outside library should not be deleted");
     }
 
-    // ===== DeleteTrashFolders: Non-existent paths =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void DeleteTrashFolders_NonExistentTrashFolder_ReturnsEmptyResult()
@@ -168,8 +153,6 @@ public class TrashControllerSecurityTests : IDisposable
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.NotNull(okResult.Value);
     }
-
-    // ===== DeleteTrashFolders: Valid relative path inside library =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -190,8 +173,6 @@ public class TrashControllerSecurityTests : IDisposable
         Assert.NotNull(okResult.Value);
         Assert.False(Directory.Exists(trashDir), "Trash directory should be deleted");
     }
-
-    // ===== T2: PathValidator child-of-library check =====
 
     /// <summary>
     ///     T2a: A path that IS a library root must be rejected.
@@ -219,9 +200,7 @@ public class TrashControllerSecurityTests : IDisposable
     }
 
     /// <summary>
-    ///     T2b: A trash folder that is a child of a library root (the normal happy path)
-    ///     must NOT be blocked by the parent-of-library check.
-    ///     Example: /media/movies/.jellyfin-trash where /media/movies is the library root.
+    ///     T2b: A trash folder that is a child of a library root (the normal happy path) must NOT be blocked by the parent-of-library check.
     /// </summary>
     [Fact]
     [Trait("Category", "Security")]

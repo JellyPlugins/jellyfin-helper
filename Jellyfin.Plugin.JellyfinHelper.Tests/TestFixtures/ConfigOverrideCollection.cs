@@ -3,9 +3,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 
 /// <summary>
-/// xUnit collection definition for tests that modify shared plugin configuration.
-/// Tests in this collection are serialized (run sequentially) to avoid race conditions
-/// when reading/writing <c>Plugin.Instance</c> configuration.
+///     xUnit collection definition for tests that modify shared plugin configuration. Tests in this collection are serialized (run sequentially) to avoid race conditions when reading/writing Plugin.Instance configuration.
 /// </summary>
 /// <remarks>
 /// Used by: I18NServiceTests, BackupControllerTests, PathValidatorTests,

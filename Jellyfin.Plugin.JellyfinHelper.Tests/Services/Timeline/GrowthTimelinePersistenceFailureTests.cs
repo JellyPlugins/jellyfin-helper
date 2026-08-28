@@ -12,9 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 
 /// <summary>
-///     Persistence is best-effort: an I/O failure while saving the baseline or timeline must be
-///     logged and swallowed so the computed result is still returned to the caller. The scan's
-///     value comes from its in-memory computation, not from the write succeeding.
+///     Persistence is best-effort: an I/O failure while saving the baseline or timeline must be logged and swallowed so the computed result is still returned to the caller.
 /// </summary>
 public sealed class GrowthTimelinePersistenceFailureTests : IDisposable
 {
@@ -88,9 +86,7 @@ public sealed class GrowthTimelinePersistenceFailureTests : IDisposable
     [Fact]
     public async Task ComputeTimelineAsync_BaselinePathUnwritable_LogsAndReturnsResultWithoutThrowing()
     {
-        // The baseline JSON path already exists as a DIRECTORY, so AtomicFile's File.Move fails
-        // with IOException after every retry. SaveBaselineAsync must swallow it and the scan must
-        // still hand back its computed result.
+        // The baseline JSON path already exists as a DIRECTORY, so AtomicFile's File.Move fails with IOException after every retry.
         SetupSingleMovieLibrary();
         Directory.CreateDirectory(Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"));
 

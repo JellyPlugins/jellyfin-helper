@@ -8,9 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 /// Interface for the service that integrates with Radarr and Sonarr APIs.
 /// </summary>
 /// <remarks>
-/// Static comparison methods (<c>CompareRadarrWithJellyfin</c>, <c>CompareSonarrWithJellyfin</c>)
-/// remain on the concrete <see cref="ArrIntegrationService"/> class because they are
-/// pure functions with no instance state.
+///     Static comparison methods (CompareRadarrWithJellyfin, CompareSonarrWithJellyfin) remain on the concrete ArrIntegrationService class because they are pure functions with no instance state.
 /// </remarks>
 public interface IArrIntegrationService
 {

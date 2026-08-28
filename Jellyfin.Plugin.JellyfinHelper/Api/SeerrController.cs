@@ -69,34 +69,22 @@ public class SeerrController : ControllerBase
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "URL and API Key are required." });
         }
 
-        // Scheme guard only: reject non-HTTP(S) schemes. We deliberately do NOT block loopback/
-        // private/link-local hosts: Seerr/Jellyseerr typically runs on the same host or LAN as
-        // Jellyfin, so an internal-IP block would break the plugin's normal configuration. The
-        // endpoint is admin-only, does not follow redirects, caps response size, and (below) returns
-        // a generic failure message rather than reflecting upstream status, keeping the residual
-        // internal-reachability-oracle risk low and accepted for a LAN-integration tool.
+        // Scheme guard only. Loopback/private hosts not blocked: Seerr typically runs on LAN and
+        // the endpoint is admin-only without redirects, so the residual oracle risk is accepted.
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var parsedUrl) ||
             (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
         {
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
-        // Block well-known cloud metadata endpoints (AWS/Azure IMDS, GCP, Alibaba).
-        // Internal LAN addresses are intentionally NOT blocked since Seerr typically runs
-        // on the same host or LAN as Jellyfin.
+        // Block well-known cloud metadata endpoints (AWS/Azure IMDS, GCP, Alibaba). Internal LAN addresses are intentionally NOT blocked since Seerr typically runs on the same host or LAN as Jellyfin.
         if (SsrfGuard.IsCloudMetadataHost(parsedUrl.Host))
         {
             _pluginLog.LogWarning("API", $"Blocked connection test to cloud metadata endpoint: {parsedUrl.Host}", logger: _logger);
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
-        // Resolve the masked-key sentinel to the real stored Seerr key BEFORE the live call. After a
-        // reload the API-key input holds the fixed-length mask (the real key never leaves the server),
-        // so testing the stored instance must probe Seerr with the REAL key to report true reachability
-        // - not send the mask, which would always 401 and show a misleading failure. Any non-mask value
-        // is a new key the admin is entering and is tested as-is. The stored key is only substituted
-        // when the request URL matches the persisted SeerrUrl, so a mask against an unknown URL cannot
-        // borrow an unrelated credential.
+        // Resolve the masked-key sentinel to the real stored Seerr key BEFORE the live call.
         var apiKey = request.ApiKey;
         var maskError = ResolveTestApiKey(request, ref apiKey);
         if (maskError != null)
@@ -119,9 +107,7 @@ public class SeerrController : ControllerBase
             }
             else
             {
-                // Log the detailed upstream message server-side, but return a GENERIC message to the
-                // client. Reflecting the raw upstream status/reason (e.g. "HTTP 401" vs "connection
-                // refused" vs "no such host") turns this endpoint into an internal-reachability oracle.
+                // Log the detailed upstream message server-side, but return a GENERIC message to the client. Reflecting the raw upstream status/reason (e.g.
                 _pluginLog.LogWarning("API", $"Connection test failed for Seerr: {message}", logger: _logger);
                 return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
             }
@@ -139,8 +125,7 @@ public class SeerrController : ControllerBase
     }
 
     /// <summary>
-    ///     Resolves the masked-key sentinel to the real stored Seerr key when the request URL matches
-    ///     the persisted instance. Returns a non-null error result when the mask cannot be resolved.
+    ///     Resolves the masked-key sentinel to the real stored Seerr key when the request URL matches the persisted instance.
     /// </summary>
     private ObjectResult? ResolveTestApiKey(SeerrTestRequest request, ref string apiKey)
     {

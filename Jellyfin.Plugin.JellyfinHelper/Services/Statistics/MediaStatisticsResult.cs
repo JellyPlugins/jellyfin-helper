@@ -33,8 +33,7 @@ public class MediaStatisticsResult
     public Collection<LibraryStatistics> Music { get; } = new();
 
     /// <summary>
-    /// Gets the list of book (eBook) library statistics. Populated only when a Book library exists,
-    /// so the UI can render a Books section conditionally (mirroring the Music behaviour).
+    ///     Gets the list of book (eBook) library statistics. Populated only when a Book library exists, so the UI can render a Books section conditionally (mirroring the Music behaviour).
     /// </summary>
     public Collection<LibraryStatistics> Books { get; } = new();
 
@@ -47,8 +46,6 @@ public class MediaStatisticsResult
     /// Gets or sets the UTC timestamp when this scan was performed.
     /// </summary>
     public DateTime ScanTimestamp { get; set; } = DateTime.MinValue;
-
-    // === Size Totals ===
 
     /// <summary>
     /// Gets the total video size across all movie libraries in bytes.
@@ -106,20 +103,15 @@ public class MediaStatisticsResult
     public int TotalBookFileCount => Libraries.Sum(l => l.BookFileCount);
 
     /// <summary>
-    /// Gets the eBook format breakdown (format label -> count) aggregated across all libraries.
-    /// Empty when no eBooks exist, so the UI can render the Books section only when present.
+    ///     Gets the eBook format breakdown (format label -> count) aggregated across all libraries.
     /// </summary>
     public Dictionary<string, int> TotalBookFormats => AggregateDictionaries(Libraries.Select(l => l.BookFormats));
 
     /// <summary>
-    /// Gets all video libraries (Movies + TV Shows + Other, excluding Music).
-    /// Used for aggregations that only apply to video content.
-    /// Computed fresh on each access to avoid stale results if the underlying collections change.
+    ///     Gets all video libraries (Movies + TV Shows + Other, excluding Music). Used for aggregations that only apply to video content.
     /// </summary>
     private IEnumerable<LibraryStatistics> VideoLibraries =>
         Movies.Concat(TvShows).Concat(Other);
-
-    // === Aggregated Codec/Quality ===
 
     /// <summary>
     /// Gets the aggregated container format breakdown across all libraries.
@@ -181,8 +173,6 @@ public class MediaStatisticsResult
     /// </summary>
     public Dictionary<string, long> TotalDynamicRangeSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.DynamicRangeSizes));
 
-    // === Aggregated Health Checks ===
-
     /// <summary>
     /// Gets the total number of video files without subtitles.
     /// </summary>
@@ -202,8 +192,6 @@ public class MediaStatisticsResult
     /// Gets the total number of orphaned metadata directories.
     /// </summary>
     public int TotalOrphanedMetadataDirectories => Libraries.Sum(l => l.OrphanedMetadataDirectories);
-
-    // === Aggregated Health Check Detail Paths ===
 
     /// <summary>
     /// Gets the aggregated list of video file paths that have no subtitle file in the same directory.
@@ -228,8 +216,6 @@ public class MediaStatisticsResult
     /// </summary>
     public Collection<string> TotalOrphanedMetadataDirectoriesPaths =>
         new(Libraries.SelectMany(l => l.OrphanedMetadataDirectoriesPaths).ToList());
-
-    // === Root Path Aggregation ===
 
     /// <summary>
     /// Gets the set of root paths for all movie libraries.

@@ -13,11 +13,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 /// <summary>
-///     Covers the reparse-point (symlink/junction) guards in the concrete cleanup tasks. These guards
-///     read real reparse-point attributes, which the mocked <see cref="IFileSystem"/> model can never
-///     trigger, and creating real symlinks needs elevated privileges (unavailable in CI). Each test
-///     subclasses its task and overrides the shared <c>IsReparsePoint</c> seam so the guard branch
-///     runs deterministically.
+///     Covers the reparse-point (symlink/junction) guards in the concrete cleanup tasks.
 /// </summary>
 public sealed class CleanupTaskReparseGuardTests
 {
@@ -39,10 +35,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task TopLevelReparsePoint_IsSkippedNeverDeleted()
         {
-            // Policy: a top-level symlink/junction is NEVER deleted, its target may hold live media
-            // (Radarr/Sonarr place symlinked media folders under the library root) and the task has
-            // no orphan evidence for an entry it did not analyze. It must be skipped with a warning,
-            // never traversed, and never counted as a cleanup.
+            // Policy: a top-level symlink/junction is NEVER deleted, its target may hold live media (Radarr/Sonarr place symlinked media folders under the library root) and the task has no orphan evidence for an entry it did not analyze.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -79,9 +72,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task FolderWithReparsePointSubdir_IsNotDeleted_OrphanVerdictUnproven()
         {
-            // Data-loss guard: a real folder whose only "orphan" signal is a stray non-video file,
-            // but which ALSO contains a symlinked subdirectory, must NOT be deleted, video files
-            // could live behind that link, so the orphan verdict is unproven.
+            // Data-loss guard: a real folder whose only "orphan" signal is a stray non-video file, but which ALSO contains a symlinked subdirectory, must NOT be deleted, video files could live behind that link, so the orphan verdict is unproven.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -155,9 +146,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task TopLevelStatFailure_IsSkippedNeverDeleted_FailClosed()
         {
-            // Fail-closed guard: if the reparse-point stat on a top-level entry throws (I/O or an
-            // access denial), the verdict is unknown, so the entry must be skipped with a warning,
-            // never traversed, deleted, trashed, or counted.
+            // Fail-closed guard: if the reparse-point stat on a top-level entry throws (I/O or an access denial), the verdict is unknown, so the entry must be skipped with a warning, never traversed, deleted, trashed, or counted.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -195,10 +184,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task SubdirStatFailure_EnclosingFolderSurvives_OrphanVerdictUnproven()
         {
-            // Fail-closed guard: a real folder that looks like an orphan (a stray non-video file) but
-            // whose subdirectory cannot be stat'd must NOT be deleted, a video could live in the
-            // subtree we failed to inspect. The stat-failure branch must set the unresolved-link flag
-            // so the enclosing folder is kept.
+            // Fail-closed guard: a real folder that looks like an orphan (a stray non-video file) but whose subdirectory cannot be stat'd must NOT be deleted, a video could live in the subtree we failed to inspect.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -241,11 +227,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task FileEntryStatFailure_EnclosingFolderSurvives_OrphanVerdictUnproven()
         {
-            // Fail-closed guard (file-entry classification): a directory symlink can surface as a
-            // FILE entry on some mounts. If reading that entry's attributes throws (I/O or access
-            // denial), the entry is unclassified and hides a subtree we never analyzed, so the
-            // enclosing folder must be flagged unresolved and kept, never deleted. Proves the new
-            // try/catch around IsReparsePointAnyType in AnalyzeDirectoryRecursive.
+            // Fail-closed guard (file-entry classification): a directory symlink can surface as a FILE entry on some mounts.
             Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -347,9 +329,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task TrickplayIsReparsePoint_IsSkippedNeverDeletedOrTrashed()
         {
-            // Policy (matching CleanEmptyMediaFoldersTask): a reparse-point .trickplay dir is never
-            // trashed and never recursively deleted, Directory.Delete/MoveToTrash could otherwise be
-            // redirected into the link's real target. It is skipped with a warning, counting nothing.
+            // Policy (matching CleanEmptyMediaFoldersTask): a reparse-point .trickplay dir is never trashed and never recursively deleted, Directory.Delete/MoveToTrash could otherwise be redirected into the link's real target.
             Config.TrickplayTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -442,9 +422,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task TrickplayStatFailure_IsSkippedNeverDeletedOrTrashed_FailClosed()
         {
-            // Fail-closed guard: if the reparse-point stat on an orphaned .trickplay dir throws, the
-            // verdict is unknown, so the dir must be skipped with a warning, never trashed, deleted,
-            // or counted. The hoisted guard covers this before any mode branch runs.
+            // Fail-closed guard: if the reparse-point stat on an orphaned .trickplay dir throws, the verdict is unknown, so the dir must be skipped with a warning, never trashed, deleted, or counted.
             Config.TrickplayTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -587,9 +565,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task DirectoryStatFailure_IsSkippedBeforeListingFiles_FailClosed()
         {
-            // Fail-closed guard (ProcessLocation): if the reparse-point stat on a directory throws
-            // (I/O or an access denial), the verdict is unknown, so the directory must be skipped
-            // with a warning before its files are ever listed, never deleted or trashed.
+            // Fail-closed guard (ProcessLocation): if the reparse-point stat on a directory throws (I/O or an access denial), the verdict is unknown, so the directory must be skipped with a warning before its files are ever listed, never deleted or trashed.
             Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -625,9 +601,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task SubdirectoryStatFailure_ChildrenNeverEnumerated_FailClosed()
         {
-            // Fail-closed guard (TryGetSubdirectories): if the reparse-point stat on a subdirectory
-            // throws, it must be treated as "do not traverse" so a symlinked/unreadable subtree is
-            // never descended into. Its children must never be enumerated.
+            // Fail-closed guard (TryGetSubdirectories): if the reparse-point stat on a subdirectory throws, it must be treated as "do not traverse" so a symlinked/unreadable subtree is never descended into.
             Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
 
             const string libraryPath = "/media/tv";
@@ -665,10 +639,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task SymlinkedLibraryRoot_ChildrenNeverEnumerated_NoDeletion()
         {
-            // Critical guard (TryGetSubdirectories seed phase): when the library ROOT itself is a
-            // reparse point, its children are ordinary paths that would otherwise be traversed and
-            // cleaned inside a foreign tree. The root check must short-circuit before seeding, so the
-            // root's children are never enumerated and an external orphan subtitle is never deleted.
+            // Critical guard (TryGetSubdirectories seed phase): when the library ROOT itself is a reparse point, its children are ordinary paths that would otherwise be traversed and cleaned inside a foreign tree.
             Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -739,9 +710,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task SymlinkedSubtitle_Activate_UseTrash_IsSkippedNotTrashed()
         {
-            // A subtitle that is itself a reparse point must be skipped in ALL modes. With UseTrash
-            // enabled the hoisted guard must run before the trash branch: the link is never relocated
-            // and never counted.
+            // A subtitle that is itself a reparse point must be skipped in ALL modes. With UseTrash enabled the hoisted guard must run before the trash branch: the link is never relocated and never counted.
             Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
             Config.UseTrash = true;
 
@@ -821,10 +790,7 @@ public sealed class CleanupTaskReparseGuardTests
         [Fact]
         public async Task SubtitleStatFailure_IsSkippedNeverDeleted_FailClosed()
         {
-            // Fail-closed guard: if the reparse-point stat on a subtitle FILE entry throws (I/O or an
-            // access denial), the verdict is unknown, so the subtitle must be skipped with a warning,
-            // never counted, trashed, or deleted. Proves the try/catch around the hoisted
-            // IsReparsePointAnyType guard in the per-file loop.
+            // Fail-closed guard: if the reparse-point stat on a subtitle FILE entry throws (I/O or an access denial), the verdict is unknown, so the subtitle must be skipped with a warning, never counted, trashed, or deleted.
             Config.OrphanedSubtitleTaskMode = TaskMode.Activate;
             Config.UseTrash = false;
 
@@ -912,4 +878,3 @@ public sealed class CleanupTaskReparseGuardTests
         }
     }
 }
-

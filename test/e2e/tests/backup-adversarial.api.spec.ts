@@ -85,16 +85,7 @@ test('mixed [valid, null] instances: null dropped, valid kept, never 500', async
 test('absolute /config trashFolderPath in a backup does not let cleanup escape', async () => {
   ensureCanariesPlanted(); // plants + asserts a canary exists (skips loudly w/o docker)
 
-  // Drive the ENTIRE hostile setup through the backup IMPORT, not a PUT. The import
-  // guard (BackupService.RestoreConfiguration) only strips `..` traversal - it does
-  // NOT reject an absolute sensitive path - so it persists trashFolderPath='/config'
-  // verbatim AND applies the task modes from the backup. A PUT /Configuration with
-  // a sensitive absolute TrashFolderPath + UseTrash:true is (correctly) rejected 400
-  // by ValidateTrashPathStrict, so it can't be used to arm this test. This asymmetry
-  // - weaker import guard vs stricter PUT guard - is exactly what the test proves:
-  // even when /config slips in via import with the destructive FS stages ACTIVE,
-  // cleanup must still refuse to touch anything under /config.
-  // (Task-mode keys are camelCase so System.Text.Json binds them onto BackupData.)
+  // Drive the ENTIRE hostile setup through the backup IMPORT, not a PUT.
   const backup = await exportBackup();
   Object.assign(backup, {
     useTrash: true,
@@ -118,9 +109,7 @@ test('absolute /config trashFolderPath in a backup does not let cleanup escape',
     expect(containerFileExists('/config/jfh-canary/marker.txt')).toBe(true);
     expect(verifyCanaries()).toEqual([]);
   } finally {
-    // ALWAYS restore a SAFE, relative trash path and re-deactivate the destructive
-    // stages - even if an assertion threw. A relative path ('.jellyfin-trash') is not
-    // sensitive, so this PUT is accepted (never 400) by ValidateTrashPathStrict.
+    // ALWAYS restore a SAFE, relative trash path and re-deactivate the destructive stages - even if an assertion threw.
     await ctx
       .put(p('Configuration'), {
         headers: { 'Content-Type': 'application/json' },
@@ -131,11 +120,7 @@ test('absolute /config trashFolderPath in a backup does not let cleanup escape',
         },
       })
       .catch(() => undefined);
-    // This is the first spec that runs the destructive FS stages GENUINELY active
-    // against /media (the old PUT-based version 400'd and never truly activated them).
-    // Those stages consume the shared /media fixtures, so rebuild them and re-scan -
-    // otherwise later FS specs that DON'T regenerate (growth-timeline-fs, insights-fs,
-    // media-stats-fs) would see a depleted library.
+    // This is the first spec that runs the destructive FS stages GENUINELY active against /media (the old PUT-based version 400'd and never truly activated them).
     regenFixtures();
     await runLibraryScan(ctx).catch(() => undefined);
   }

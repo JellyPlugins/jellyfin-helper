@@ -7,14 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for <see cref="DiversityReranker"/>: contract of <c>ApplyDiversityReranking</c>
-///     on edge cases (empty input, zero count).
-///     <para>
-///         Full MMR behaviour with the multi-dimensional similarity blend
-///         (genre 50% + studio 30% + era 20%) is exercised through integration tests
-///         that construct real <see cref="BaseItem"/> derivatives; here we only lock down
-///         the public contract for degenerate inputs and the new seed/pool guarantees.
-///     </para>
+///     Tests for DiversityReranker: contract of ApplyDiversityReranking on edge cases (empty input, zero count).
 /// </summary>
 public class DiversityRerankerTests
 {
@@ -30,10 +23,7 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_ZeroCount_ReturnsEmpty()
     {
-        // Use a non-empty candidate list so we actually exercise the count <= 0 guard.
-        // With an empty list the method would return empty regardless of the guard, which
-        // means removing the guard could regress silently. Access to (BaseItem)null! is
-        // safe here because the guard returns before any Item field is dereferenced.
+        // Use a non-empty candidate list so we actually exercise the count <= 0 guard. With an empty list the method would return empty regardless of the guard, which means removing the guard could regress silently.
         var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
         {
             (null!, 1.0, string.Empty, string.Empty, null)
@@ -47,9 +37,7 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_SameSeed_ProducesIdenticalSelection()
     {
-        // Build a large candidate list so exploration slots are actually filled from the
-        // widened pool. With 400 candidates and count=20 the exploration band spans
-        // ranks 100..400, which is more than enough for the seeded RNG to matter.
+        // Build a large candidate list so exploration slots are actually filled from the widened pool. With 400 candidates and count=20 the exploration band spans ranks 100..400, which is more than enough for the seeded RNG to matter.
         var candidates = BuildLinearlyDecreasingCandidates(400);
         const int count = 20;
         const int seed = 12345;
@@ -67,9 +55,7 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_DifferentSeeds_ProduceDifferentTails()
     {
-        // Two distinct seeds should sample different exploration picks even though the MMR
-        // head is deterministic. We only assert the tail differs (last EngineConstants.ExplorationSlotCount
-        // slots) because MMR itself is deterministic.
+        // Two distinct seeds should sample different exploration picks even though the MMR head is deterministic.
         var candidates = BuildLinearlyDecreasingCandidates(400);
         const int count = 20;
 
@@ -86,10 +72,7 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_ExplorationCanSelectFromWidenedBand()
     {
-        // Build 400 candidates; MMR pool = top 100 (count*5), exploration band = ranks 100..400.
-        // Run enough deterministic seeds to statistically hit the widened band.
-        // The regression this locks down: previously exploration only ever picked from ranks 0..100,
-        // so a rank >= 100 pick was impossible.
+        // Build 400 candidates; MMR pool = top 100 (count*5), exploration band = ranks 100..400. Run enough deterministic seeds to statistically hit the widened band.
         var candidates = BuildLinearlyDecreasingCandidates(400);
         const int count = 20;
         // Reference the shared constant so any future retune touches a single line.
@@ -117,13 +100,7 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_NullSeed_UsesRandomSharedFallback()
     {
-        // Locks in the documented "opt-in to non-deterministic exploration" fallback: when the
-        // caller passes seed=null (the default), the method must still return a valid, complete
-        // recommendation list rather than throwing. Two runs are almost certain to differ in the
-        // tail because Random.Shared is not deterministic across invocations. We only assert the
-        // fallback is reachable and produces valid output - the "does the shape differ" check
-        // is intentionally loose because process-wide entropy could theoretically produce a
-        // collision (extremely unlikely with 320-element pools).
+        // Locks in the documented "opt-in to non-deterministic exploration" fallback: when the caller passes seed=null (the default), the method must still return a valid, complete recommendation list rather than throwing.
         var candidates = BuildLinearlyDecreasingCandidates(400);
         const int count = 20;
 
@@ -139,9 +116,7 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_ExplorationPoolExcludesMmrPicks()
     {
-        // Distinct-Item invariant: no BaseItem may appear twice in the result. Previously the MMR
-        // leftover fallback could theoretically re-pick an already selected item; the guard uses
-        // an explicit mmrSelectedIds set.
+        // Distinct-Item invariant: no BaseItem may appear twice in the result. Previously the MMR leftover fallback could theoretically re-pick an already selected item; the guard uses an explicit mmrSelectedIds set.
         var candidates = BuildLinearlyDecreasingCandidates(400);
         const int count = 20;
 
@@ -153,15 +128,10 @@ public class DiversityRerankerTests
         }
     }
 
-    // === Contract: fewer candidates than count returns fully sorted list ===
-
     [Fact]
     public void ApplyDiversityReranking_CandidatesLessThanOrEqualToCount_ReturnsAllSortedByScore()
     {
-        // When there are fewer candidates than requested, the method must skip MMR entirely
-        // and just return everything sorted by score DESC. An early implementation
-        // reused the MMR path with count=candidates.Count which could still reshuffle by MMR
-        // penalties, changing the returned order in unpredictable ways.
+        // When there are fewer candidates than requested, the method must skip MMR entirely and just return everything sorted by score DESC.
         var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
         {
             (new Movie { Id = Guid.NewGuid(), Name = "A" }, 0.3, string.Empty, string.Empty, null),
@@ -194,8 +164,6 @@ public class DiversityRerankerTests
         Assert.Equal(0.1, result[1].Score);
     }
 
-    // === Contract: negative count returns empty ===
-
     [Fact]
     public void ApplyDiversityReranking_NegativeCount_ReturnsEmpty()
     {
@@ -203,8 +171,6 @@ public class DiversityRerankerTests
         Assert.Empty(DiversityReranker.ApplyDiversityReranking(candidates, -3));
         Assert.Empty(DiversityReranker.ApplyDiversityReranking(candidates, int.MinValue));
     }
-
-    // === DeduplicateSeries ===
 
     [Fact]
     public void DeduplicateSeries_EmptyInput_ReturnsEmpty()
@@ -277,9 +243,7 @@ public class DiversityRerankerTests
     [Fact]
     public void DeduplicateSeries_TieOnScore_KeepsFirstOccurrence()
     {
-        // On tie, the "strictly greater" comparison must not overwrite the first
-        // occurrence. This locks the tie-break to be "first wins", which is what the
-        // implementation currently does (uses `>` not `>=`).
+        // On tie, the "strictly greater" comparison must not overwrite the first occurrence. This locks the tie-break to be "first wins", which is what the implementation currently does (uses `>` not `>=`).
         var seriesId = Guid.NewGuid();
         var first = new Episode { Id = Guid.NewGuid(), SeriesId = seriesId };
         var second = new Episode { Id = Guid.NewGuid(), SeriesId = seriesId };
@@ -415,9 +379,7 @@ public class DiversityRerankerTests
     [Fact]
     public void DeduplicateSeries_PreservesReasonAndRelatedItemOfWinner()
     {
-        // When replacing the loser with the winner, ALL tuple fields must be
-        // carried over (Reason, ReasonKey, RelatedItem) - not just the Score. Otherwise the
-        // UI could show the loser's reason attached to the winner's score.
+        // When replacing the loser with the winner, ALL tuple fields must be carried over (Reason, ReasonKey, RelatedItem) - not just the Score.
         var seriesId = Guid.NewGuid();
         var lowEp = new Episode { Id = Guid.NewGuid(), SeriesId = seriesId };
         var highEp = new Episode { Id = Guid.NewGuid(), SeriesId = seriesId };
@@ -435,16 +397,10 @@ public class DiversityRerankerTests
         Assert.Equal("winnerRelated", result[0].RelatedItem);
     }
 
-    // === MMR multi-dimensional similarity blend (ComputeItemSimilarity) ===
-
     [Fact]
     public void ApplyDiversityReranking_GenreDuplicatesAreDiversifiedAgainstEachOther()
     {
-        // Two genre clusters, cluster A ({Action,SciFi}) scoring highest. Pure relevance would
-        // stack the two top A items back-to-back; MMR must instead demote the near-duplicate
-        // A item so a disjoint-genre B item ({Comedy}) surfaces second. Genres only (no studio/
-        // year) so ComputeItemSimilarity fires the genre branch and renormalises by 0.5 -> a
-        // same-genre pair scores similarity 1.0, the strongest possible diversity penalty.
+        // Two genre clusters, cluster A ({Action,SciFi}) scoring highest. Pure relevance would stack the two top A items back-to-back; MMR must instead demote the near-duplicate A item so a disjoint-genre B item ({Comedy}) surfaces second.
         var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var score = 1.0;
         var clusterAGenres = new[] { "Action", "SciFi" };
@@ -479,10 +435,7 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_StudioIsAnIndependentDiversityAxis()
     {
-        // Identical genre everywhere ({Action}) so genre similarity is constant; the only thing
-        // MMR can vary is studio. Highest-relevance items are studio A. With genre+studio both
-        // present ComputeItemSimilarity renormalises by 0.8, so a same-studio pair scores 1.0
-        // and a cross-studio pair scores 0.625 - enough to pull studio B into the MMR head.
+        // Identical genre everywhere ({Action}) so genre similarity is constant; the only thing MMR can vary is studio.
         var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var score = 1.0;
         var sharedGenre = new[] { "Action" };
@@ -522,11 +475,7 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_YearOnlyMetadataIsAWeakDiversitySignal()
     {
-        // No genres, no studios, only ProductionYear. Two tight year clusters (1995 vs 2020) with
-        // the highest relevance in 1995. Year alone is the weak dimension: ComputeItemSimilarity
-        // skips renormalisation and returns the raw 0.2*yearSim, capped at 0.2 for same-year pairs.
-        // 0.7*relevance ordering therefore dominates and two high-relevance same-year items are NOT
-        // treated as duplicates - unlike the aggressive eviction the genre branch produces.
+        // No genres, no studios, only ProductionYear. Two tight year clusters (1995 vs 2020) with the highest relevance in 1995.
         var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var score = 1.0;
 
@@ -544,18 +493,13 @@ public class DiversityRerankerTests
 
         var result = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
 
-        // The two highest-relevance items are both 1995; the weak year-only penalty (0.06 for a
-        // same-year pair) cannot overcome the 0.7*0.01 relevance gap to a 2020 item, so year did
-        // not reorder them. If year were (wrongly) renormalised to 1.0 it would evict the second
-        // 1995 item and a 2020 item would take slot two.
+        // The two highest-relevance items are both 1995; the weak year-only penalty (0.06 for a same-year pair) cannot overcome the 0.7*0.01 relevance gap to a 2020 item, so year did not reorder them.
         Assert.Equal(1995, result[0].Item.ProductionYear);
         Assert.Equal(1995, result[1].Item.ProductionYear);
     }
 
     /// <summary>
-    ///     Builds a single <see cref="Movie"/> candidate carrying the given genre/studio/year
-    ///     metadata. The <paramref name="idSeed"/> only needs to be unique per item; it is unused
-    ///     beyond guaranteeing a fresh <see cref="Guid"/>, so callers pass the score for readability.
+    ///     Builds a single Movie candidate carrying the given genre/studio/year metadata. The only needs to be unique per item; it is unused beyond guaranteeing a fresh Guid, so callers pass the score for readability.
     /// </summary>
     private static Movie BuildItem(string[] genres, string[] studios, int? year, double idSeed)
     {
@@ -570,9 +514,7 @@ public class DiversityRerankerTests
     }
 
     /// <summary>
-    ///     Builds a linearly decreasing candidate list of the requested length. Each item is a
-    ///     <see cref="Movie"/> with a unique <see cref="Guid"/> and a distinct decreasing score,
-    ///     which keeps the MMR ordering deterministic and stable across test runs.
+    ///     Builds a linearly decreasing candidate list of the requested length. Each item is a Movie with a unique Guid and a distinct decreasing score, which keeps the MMR ordering deterministic and stable across test runs.
     /// </summary>
     private static List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
         BuildLinearlyDecreasingCandidates(int size)

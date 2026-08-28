@@ -23,12 +23,7 @@ public interface IWatchHistoryService
     Collection<UserWatchProfile> GetAllUserWatchProfiles();
 
     /// <summary>
-    ///     Builds the library-wide per-series playable-episode count map
-    ///     (<c>seriesId -> totalEpisodeCount</c>). This is the same signal the recommendation
-    ///     engine derives in its candidate load, exposed here so subsystems that build genre
-    ///     preferences outside the engine (e.g. Seerr discovery) can feed the identical
-    ///     progression-weighting into <c>PreferenceBuilder.BuildGenrePreferenceVector</c> and
-    ///     thereby avoid a train/serve skew against the engine's training pipeline.
+    ///     Builds the library-wide per-series playable-episode count map (seriesId -> totalEpisodeCount).
     /// </summary>
     /// <returns>
     ///     A map of series ID to playable-episode count. Only series with at least one playable

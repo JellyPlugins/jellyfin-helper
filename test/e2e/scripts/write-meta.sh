@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Write a minimal meta.json into the staged plugin folder so Jellyfin shows a
-# clean plugin entry (name/version/guid) matching the release pipeline.
-# Values mirror generate-meta.ps1 / build.yaml.
-#
-# Usage: write-meta.sh <plugin-stage-dir> [version]
+# Write a minimal meta.json into the staged plugin folder so Jellyfin shows a clean plugin entry (name/version/guid) matching the release pipeline.
 set -euo pipefail
 OUT_DIR="${1:?usage: write-meta.sh <plugin-stage-dir> [version]}"
 VERSION="${2:-3.0.0.0}"

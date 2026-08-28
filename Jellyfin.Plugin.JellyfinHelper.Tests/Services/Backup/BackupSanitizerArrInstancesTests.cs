@@ -4,18 +4,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 
 /// <summary>
-///     Tests for <see cref="BackupSanitizer" /> targeting the Arr-instance path
-///     (Radarr/Sonarr): the null-list guard reached before validation, and the
-///     null-entry drop, count cap, and field truncation applied to real instances.
+///     Tests for BackupSanitizer targeting the Arr-instance path (Radarr/Sonarr): the null-list guard reached before validation, and the null-entry drop, count cap, and field truncation applied to real instances.
 /// </summary>
 public class BackupSanitizerArrInstancesTests
 {
     [Fact]
     public void Sanitize_NullRadarrInstances_ReturnsWithoutThrowing()
     {
-        // A deserialized backup can carry an explicit JSON null for the array; the init
-        // accessor + System.Text.Json bypass the =[] default. Sanitize runs BEFORE
-        // validation, so it must tolerate the null rather than NRE.
+        // A deserialized backup can carry an explicit JSON null for the array; the init accessor + System.Text.Json bypass the =[] default.
         var data = new BackupData { RadarrInstances = null! };
 
         BackupSanitizer.Sanitize(data);

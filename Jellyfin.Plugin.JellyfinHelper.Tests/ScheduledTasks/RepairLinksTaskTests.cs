@@ -14,10 +14,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 /// <summary>
-///     Focused tests for <see cref="RepairLinksTask"/> - every branch of its
-///     <c>ExecuteAsync</c> orchestration. The task itself is thin (delegates to
-///     <see cref="ILinkRepairService"/>) so we assert on behaviour + progress reporting
-///     without touching the filesystem.
+///     Focused tests for RepairLinksTask - every branch of its ExecuteAsync orchestration.
 /// </summary>
 public sealed class RepairLinksTaskTests
 {
@@ -49,9 +46,7 @@ public sealed class RepairLinksTaskTests
     [Fact]
     public async Task ExecuteAsync_NoLibraryPaths_SkipsRepairAndReports100Percent()
     {
-        // BUG GUARD: when no library paths are configured, the task must NOT invoke the
-        // repair service (would waste a full library scan on an empty path list) AND must
-        // still report progress=100 so the scheduler UI doesn't hang on 0%.
+        // BUG GUARD: when no library paths are configured, the task must NOT invoke the repair service (would waste a full library scan on an empty path list) AND must still report progress=100 so the scheduler UI doesn't hang on 0%.
         _configHelper.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns(new List<string>());
 
@@ -80,9 +75,7 @@ public sealed class RepairLinksTaskTests
 
         await task.ExecuteAsync(progress, CancellationToken.None);
 
-        // Verify exact paths were forwarded (verifies wiring, not just "any call").
-        // Default CleanupConfigHelper mock returns DryRun mode, so the second argument is true.
-        // Dedicated tests below cover the DryRun / non-DryRun flag propagation explicitly.
+        // Verify exact paths were forwarded (verifies wiring, not just "any call"). Default CleanupConfigHelper mock returns DryRun mode, so the second argument is true.
         _linkRepair.Verify(s => s.RepairLinks(libraryPaths, It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
 
         // Progress must hit at least three milestones: 0, 10 (post-load), 90 (post-repair), 100 (done).
@@ -136,9 +129,6 @@ public sealed class RepairLinksTaskTests
     public async Task ExecuteAsync_CancellationBeforeRepair_Throws()
     {
         // The task calls ThrowIfCancellationRequested BEFORE handing over to the service.
-        // A pre-cancelled token must cause an OperationCanceledException, and the service
-        // must NOT be invoked (this is the primary safety property when a scheduled task
-        // is killed by the scheduler mid-run).
         var libraryPaths = new List<string> { "/media" };
         _configHelper.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns(libraryPaths);
@@ -180,9 +170,7 @@ public sealed class RepairLinksTaskTests
     [Fact]
     public async Task ExecuteAsync_ProgressReporter_ReceivesMonotonicallyNonDecreasingValues()
     {
-        // Locks the invariant that progress values never go backwards - a subtle but
-        // important UX property. If a future refactor reorders progress.Report() calls
-        // (e.g. reports 90 before 10), this test surfaces it.
+        // Locks the invariant that progress values never go backwards - a subtle but important UX property. If a future refactor reorders progress.Report() calls (e.g.
         var libraryPaths = new List<string> { "/media" };
         _configHelper.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns(libraryPaths);

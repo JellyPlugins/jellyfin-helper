@@ -7,18 +7,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Covers the logger-guarded diagnostics in <see cref="LearnedScoringStrategy.Train"/>:
-///     the Information-level weight-reset message on the first standardized pass and the
-///     Debug-level feature-importance dump (including its skip branch when Debug is off).
+///     Covers the logger-guarded diagnostics in Train: the Information-level weight-reset message on the first standardized pass and the Debug-level feature-importance dump (including its skip branch when Debug is off).
 /// </summary>
 public sealed class LearnedScoringStrategyLoggingTests
 {
     [Fact]
     public void Train_FirstStandardizedPass_LogsWeightResetAtInformation()
     {
-        // A fresh strategy has _featureMeans == null. Training >= MinExamplesForStandardization
-        // examples flips useStandardization true, so the standardization mode changes and the
-        // model must reset to defaults - and say so at Information level.
+        // A fresh strategy has _featureMeans == null. Training >= MinExamplesForStandardization examples flips useStandardization true, so the standardization mode changes and the model must reset to defaults - and say so at Information level.
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath: null, logger: logger.Object);
 
@@ -34,9 +30,7 @@ public sealed class LearnedScoringStrategyLoggingTests
     [Fact]
     public void Train_WithDebugDisabledLogger_SkipsFeatureImportanceLogging()
     {
-        // IsEnabled(Debug) == false must short-circuit LogFeatureImportance before any Debug
-        // Log call - the guard exists precisely to avoid building the ranked string when nobody
-        // will read it. Training itself must still succeed.
+        // IsEnabled(Debug) == false must short-circuit LogFeatureImportance before any Debug Log call - the guard exists precisely to avoid building the ranked string when nobody will read it.
         var logger = TestMockFactory.CreateDisabledLogger();
         var strategy = new LearnedScoringStrategy(weightsPath: null, logger: logger.Object);
 
@@ -55,9 +49,7 @@ public sealed class LearnedScoringStrategyLoggingTests
     [Fact]
     public void Train_WithDebugEnabledLogger_LogsSortedFeatureWeights()
     {
-        // With Debug enabled the importance dump must emit the ranked, |w|-sorted list. Asserting
-        // both the header and a concrete FeatureIndex name proves the list was actually built and
-        // formatted (not just an empty placeholder).
+        // With Debug enabled the importance dump must emit the ranked, |w|-sorted list. Asserting both the header and a concrete FeatureIndex name proves the list was actually built and formatted (not just an empty placeholder).
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath: null, logger: logger.Object);
 

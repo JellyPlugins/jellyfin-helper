@@ -1,13 +1,6 @@
 /* Arr comparison */
 
-/* ============================================================
-   Arr page - card layout (aligned with Settings + Health redesigns).
-   Rules below are ADDITIVE. Existing selectors (.arr-section,
-   .arr-list, .arr-count, .arr-integration-instance-header) keep
-   their behaviour so all existing initArrButtons + compareArr
-   markup renders exactly as before, just optionally wrapped
-   in an .arr-card for visual consistency with the other tabs.
-   ============================================================ */
+/* Arr page - card layout */
 
 /* noinspection CssUnusedSymbol */
 .arr-card {
@@ -19,13 +12,7 @@
     box-sizing: border-box;
 }
 
-/* First card in the arr tab hugs the top of the tab-content area
-   (the .section-title in the tab shell already provides top spacing).
-   The card lives one level deeper (#arrButtons > .arr-card and
-   #arrResult > .arr-card), so we target it via descendant selectors
-   and pair the rule with :empty on #arrResult so the first card in
-   #arrButtons still gets the tightened margin when no comparison
-   result is displayed yet. */
+/* First card hugs the top, tightened when no comparison result is shown. */
 /* noinspection CssUnusedSymbol */
 #arrButtons > .arr-card:first-child {
     margin-top: 0.4em;
@@ -56,13 +43,7 @@
     margin-top: 0.5em;
 }
 
-/* ============================================================
-   Arr compare row - one dropdown + one compare button per type.
-   Replaces the old "N buttons of varying width per instance"
-   layout so the Radarr and Sonarr rows always share the same
-   visual footprint regardless of how many instances or how
-   long their names are.
-   ============================================================ */
+/* Arr compare row */
 
 /* noinspection CssUnusedSymbol */
 .arr-compare-block {
@@ -196,10 +177,7 @@
     color: rgba(255, 255, 255, 0.55);
 }
 
-/* Screen-reader-only utility scoped to the arr status badge. The visual
-   badge is icon-only for sighted users; assistive tech reads this text
-   instead. Uses the well-known clip pattern so the text is off-screen
-   but stays in the accessibility tree. */
+/* Screen-reader text for the icon-only status badge. */
 /* noinspection CssUnusedSymbol */
 .arr-status-sr-only {
     position: absolute;
@@ -236,15 +214,7 @@
     .arr-instance-status .arr-status-spinner { animation: none; }
 }
 
-/* The Compare button in the new dropdown+button row.
-   Shared.css sets `.arr-compare-btn { min-width: 14em; ... }` as a legacy
-   rule for the old per-instance "Compare with Radarr X" layout. In the
-   new layout this rule would push the button outside its .arr-card on
-   narrow viewports. We override `min-width` here without touching
-   Shared.css (which is loaded across every tab in the dashboard).
-   ArrIntegration.css is loaded AFTER Shared.css in the composed
-   configPage.html (see ComposeConfigPage MSBuild task), so this rule
-   wins at equal specificity. */
+/* Override Shared.css 14em min-width that would push the button outside the card on narrow viewports. */
 /* noinspection CssUnusedSymbol */
 .arr-compare-btn {
     flex: 0 0 auto;
@@ -261,20 +231,7 @@
     max-width: 100%;
 }
 
-/* Mobile: stack the dropdown and compare button on their own rows so
-   the button label never truncates on narrow viewports.
-
-   Critical override: the shared .arr-compare-btn rule in Shared.css sets
-   `min-width: 14em` (for the previous desktop button layout). On very
-   narrow viewports 14em can exceed the card's available inner width,
-   which pushes the button visually outside the card border. We reset
-   min-width to 0 inside the mobile media query so the button collapses
-   to its container width. max-width:100 % is a defense-in-depth guard
-   in case any future rule reintroduces a min-content-based expansion.
-
-   .arr-compare-row uses align-items:stretch so both children (dropdown
-   wrapper + button) fill the full column width in flex-direction:column
-   mode. Explicit width:100 % on both keeps their visual widths identical. */
+/* Mobile: stack dropdown and button. Resets Shared.css 14em min-width that would overflow the card. */
 @media (max-width: 500px) {
     /* noinspection CssUnusedSymbol */
     .arr-compare-row {

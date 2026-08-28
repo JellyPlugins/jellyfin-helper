@@ -12,16 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 
 /// <summary>
-///     Tests for <see cref="DiscoverySidebarInjectionService"/> - the startup hosted service that
-///     re-runs the Discovery sidebar injection at a robust point in the Jellyfin boot sequence
-///     (after DI is built and the web root is mounted), self-healing the disk-write fallback after
-///     a web update.
-///     <para>
-///         These tests use a real temp filesystem because injection goes through
-///         <see cref="Plugin.UpdateIndexHtml"/> -> <c>AtomicFile</c>. Each test uses a unique temp
-///         directory cleaned up in <see cref="IDisposable.Dispose"/>. The service reads
-///         <see cref="Plugin.Instance"/>, so a fresh Plugin is constructed per test.
-///     </para>
+///     Tests for DiscoverySidebarInjectionService - the startup hosted service that re-runs the Discovery sidebar injection at a robust point in the Jellyfin boot sequence (after DI is built and the web root is mounted), self-healing the disk-write fallback after a web update.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class DiscoverySidebarInjectionServiceTests : IDisposable
@@ -74,9 +65,7 @@ public sealed class DiscoverySidebarInjectionServiceTests : IDisposable
     [Fact]
     public async Task StartAsync_ReInjectsScriptTagIntoIndexHtml()
     {
-        // The hosted service must re-run injection at startup. On a writable web dir with the
-        // File Transformation plugin absent, that means the fallback tag is (re)written to disk -
-        // even if it had been stripped after the constructor ran (simulating a web update).
+        // The hosted service must re-run injection at startup. On a writable web dir with the File Transformation plugin absent, that means the fallback tag is (re)written to disk - even if it had been stripped after the constructor ran (simulating a web update).
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
 

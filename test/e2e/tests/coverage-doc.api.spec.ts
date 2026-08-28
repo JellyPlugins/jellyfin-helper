@@ -1,18 +1,4 @@
-/**
- * Documentation drift guard - every e2e spec must be documented in COVERAGE.md.
- *
- * COVERAGE.md is the human-facing map of what the harness verifies. It silently
- * rots the moment someone adds a `*.spec.ts` without a matching entry: the file
- * runs in CI but nobody reading the coverage doc knows it exists. This test makes
- * that failure loud - add a spec, you must mention its filename in COVERAGE.md.
- *
- * Pure filesystem: needs no Jellyfin stack, no auth, no network. It reads the
- * sibling `tests/` directory and the repo `COVERAGE.md`.
- *
- * To satisfy it when you add a spec: reference the exact filename (e.g.
- * `my-feature.api.spec.ts`) somewhere in COVERAGE.md - typically a `-> file.spec.ts`
- * section heading plus a bullet or two describing what it asserts.
- */
+/** * Documentation drift guard - every e2e spec must be documented in COVERAGE.md. * * COVERAGE.md is the human-facing map of what the harness verifies. */
 import { test, expect } from '@playwright/test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

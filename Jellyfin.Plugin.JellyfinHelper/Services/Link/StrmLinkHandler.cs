@@ -5,16 +5,11 @@ using System.IO.Abstractions;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
 /// <summary>
-///     Link handler for .strm files.
-///     A .strm file is a plain-text file whose content is the target media path (or URL).
-///     This handler encapsulates all .strm-specific logic so it can be removed cleanly
-///     if .strm support is deprecated in the future.
+///     Link handler for .strm files. A .strm file is a plain-text file whose content is the target media path (or URL).
 /// </summary>
 public class StrmLinkHandler : ILinkHandler
 {
-    // A valid .strm target (path or URL) is never more than a few hundred characters.
-    // Reading beyond 4 KB would only happen for accidentally misnamed files (e.g. a
-    // media file with a .strm extension) and would allocate a large string for nothing.
+    // A valid .strm target (path or URL) is never more than a few hundred characters. Reading beyond 4 KB would only happen for accidentally misnamed files (e.g.
     private const int MaxStrmFileSizeBytes = 32 * 1024;
 
     private readonly IFileSystem _fileSystem;
@@ -64,12 +59,7 @@ public class StrmLinkHandler : ILinkHandler
     /// <exception cref="UnauthorizedAccessException">Thrown when write access to the file is denied.</exception>
     public void WriteTarget(string filePath, string targetPath)
     {
-        // Crash-safe write: stage the new content in a sibling temp file and atomically move it
-        // over the target. An in-place File.WriteAllText truncates first, so an interrupted write
-        // (crash, power loss, process kill) would leave a truncated/empty .strm - the original
-        // target pointer is destroyed by the truncate and, on the next run, reads back empty, which yields
-        // InvalidContent, permanently losing the pointer. The temp+atomic-move gives .strm repair
-        // the same durability guarantee SymlinkHandler already has.
+        // Crash-safe write: stage the new content in a sibling temp file and atomically move it over the target.
         var tempPath = filePath + ".jfh-tmp";
         try
         {

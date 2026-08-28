@@ -1,10 +1,4 @@
-/**
- * Adversarial configuration-save tests. Fat-finger / hostile inputs to
- * PUT /Configuration and PUT /Configuration/LogLevel must fail cleanly (400,
- * never 500), never silently apply, and never corrupt the stored config.
- *
- * HTTP-only - runs everywhere (no container FS needed).
- */
+/** * Adversarial configuration-save tests. Fat-finger / hostile inputs to * PUT /Configuration and PUT /Configuration/LogLevel must fail cleanly (400, * never 500), never silently apply, and never corrupt the stored config. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 
@@ -59,9 +53,7 @@ test('unknown task-mode enum on PUT /Configuration → 400, other fields untouch
 });
 
 test('oversized RadarrInstances array (10000) → 400, known-good list preserved, no hang', async () => {
-  // Establish a known-good single instance first, so we can prove the rejected
-  // oversized save did NOT wipe or corrupt the existing config (a `?? []` length
-  // check alone passes vacuously when the field is cleared).
+  // Establish a known-good single instance first, so we can prove the rejected oversized save did NOT wipe or corrupt the existing config (a `?? []` length check alone passes vacuously when the field is cleared).
   const seed = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: JSON.stringify({ RadarrInstances: [{ Name: 'Known Good', Url: 'http://mock-arr:9000', ApiKey: 'k' }] }),

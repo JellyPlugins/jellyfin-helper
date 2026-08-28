@@ -8,8 +8,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.PluginLog;
 /// </summary>
 public class PluginLogEntryTests
 {
-    // ===== Default Values =====
-
     /// <summary>
     ///     Verifies that a default-constructed entry has empty strings for Level, Source, and Message.
     /// </summary>
@@ -44,8 +42,6 @@ public class PluginLogEntryTests
 
         Assert.Null(entry.Exception);
     }
-
-    // ===== Property Init =====
 
     /// <summary>
     ///     Verifies that Timestamp can be set via init.
@@ -114,8 +110,6 @@ public class PluginLogEntryTests
         Assert.Null(entry.Exception);
     }
 
-    // ===== Full Object Init =====
-
     /// <summary>
     ///     Verifies that all properties can be set together via object initializer.
     /// </summary>
@@ -159,8 +153,6 @@ public class PluginLogEntryTests
         Assert.Null(entry.Exception);
     }
 
-    // ===== Level Values =====
-
     /// <summary>
     ///     Verifies that all standard log levels can be assigned.
     /// </summary>
@@ -186,8 +178,6 @@ public class PluginLogEntryTests
 
         Assert.Equal("CUSTOM_LEVEL", entry.Level);
     }
-
-    // ===== Edge Cases =====
 
     /// <summary>
     ///     Verifies that empty string values are valid for all string properties.

@@ -91,8 +91,7 @@ public sealed class WatchedItemInfo
     public Guid? SeriesId { get; set; }
 
     /// <summary>
-    ///     Gets or sets the date the item was added to the Jellyfin library.
-    ///     Used for LibraryAddedRecency feature computation in training (Phase 2 organic items).
+    ///     Gets or sets the date the item was added to the Jellyfin library. Used for LibraryAddedRecency feature computation in training (Phase 2 organic items).
     /// </summary>
     public DateTime? DateCreated { get; set; }
 
@@ -103,14 +102,11 @@ public sealed class WatchedItemInfo
 
     /// <summary>
     ///     Gets or sets the TMDb collection (franchise) name this movie belongs to, if any.
-    ///     Used for FranchiseAffinity profile building and train/serve parity (Phase 2/3 organic items).
     /// </summary>
     public string? TmdbCollectionName { get; set; }
 
     /// <summary>
-    ///     Gets or sets the production country codes/names associated with this item.
-    ///     Used for ProductionLocationAffinity profile building and train/serve parity.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the production country codes/names associated with this item. Used for ProductionLocationAffinity profile building and train/serve parity.
     /// </summary>
     public IReadOnlyList<string> ProductionCountries
     {
@@ -120,8 +116,6 @@ public sealed class WatchedItemInfo
 
     /// <summary>
     ///     Gets or sets the inherited tags (own tags unioned with parent/collection/library-folder tags).
-    ///     Used for InheritedTagSimilarity profile building and train/serve parity.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
     /// </summary>
     public IReadOnlyList<string> InheritedTags
     {
@@ -131,7 +125,6 @@ public sealed class WatchedItemInfo
 
     /// <summary>
     ///     Gets or sets the series lifecycle status (e.g. "Continuing", "Ended", "Unreleased"); null for non-series.
-    ///     Used for SeriesCompletability train/serve parity on aggregated-series examples.
     /// </summary>
     public string? SeriesStatus { get; set; }
 
@@ -141,9 +134,7 @@ public sealed class WatchedItemInfo
     public DateTime? EndDate { get; set; }
 
     /// <summary>
-    ///     Gets or sets the writer (screenplay/creator) names associated with this item.
-    ///     Used for WriterAffinity profile building and train/serve parity.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the writer (screenplay/creator) names associated with this item. Used for WriterAffinity profile building and train/serve parity.
     /// </summary>
     public IReadOnlyList<string> WriterNames
     {
@@ -152,11 +143,7 @@ public sealed class WatchedItemInfo
     }
 
     /// <summary>
-    ///     Gets or sets the billed cast/director names associated with this item, aligned positionally
-    ///     to <see cref="PeopleWeights"/>. Used to compute BillingWeightedPeople for organic /
-    ///     aggregated-series training examples with the SAME shared helper the live path uses, closing
-    ///     the train/serve gap where these examples previously hardcoded 0.0.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the billed cast/director names associated with this item, aligned positionally to PeopleWeights.
     /// </summary>
     public IReadOnlyList<string> PeopleNames
     {
@@ -165,10 +152,7 @@ public sealed class WatchedItemInfo
     }
 
     /// <summary>
-    ///     Gets or sets the billing weights (derived from PersonInfo.SortOrder) aligned positionally to
-    ///     <see cref="PeopleNames"/>. Legacy cache entries lacking this field deserialize to empty, in
-    ///     which case BillingWeightedPeople self-neutralizes (length mismatch -> empty map -> 0.0).
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the billing weights (derived from PersonInfo.SortOrder) aligned positionally to PeopleNames.
     /// </summary>
     public IReadOnlyList<double> PeopleWeights
     {
@@ -177,11 +161,7 @@ public sealed class WatchedItemInfo
     }
 
     /// <summary>
-    ///     Determines whether this item represents a meaningful user interaction.
-    ///     Centralized predicate used across the recommendation engine to ensure consistent
-    ///     filtering logic (TrainingService, Engine, PreferenceBuilder).
-    ///     An item has meaningful interaction if: Played, IsFavorite, PlayCount &gt; 0,
-    ///     or PlaybackPositionTicks &gt; 0.
+    ///     Determines whether this item represents a meaningful user interaction. Centralized predicate used across the recommendation engine to ensure consistent filtering logic (TrainingService, Engine, PreferenceBuilder).
     /// </summary>
     /// <returns>True if the user has meaningfully interacted with this item.</returns>
     public bool HasMeaningfulInteraction()
@@ -189,8 +169,6 @@ public sealed class WatchedItemInfo
 
     /// <summary>
     ///     Determines whether this item has real playback activity (excluding favorite-only items).
-    ///     Used for temporal affinity calculations where actual viewing timestamps matter.
-    ///     An item has playback activity if: Played, PlayCount &gt; 0, or PlaybackPositionTicks &gt; 0.
     /// </summary>
     /// <returns>True if the user has actually started playing this item.</returns>
     public bool HasPlaybackActivity()

@@ -12,8 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services;
 internal static class PathValidator
 {
     /// <summary>
-    /// Cached set of invalid filename characters (excluding directory separators).
-    /// Thread-safe: static readonly field initializers are guaranteed to run once.
+    ///     Cached set of invalid filename characters (excluding directory separators). Thread-safe: static readonly field initializers are guaranteed to run once.
     /// </summary>
     private static readonly HashSet<char> InvalidFileNameChars =
         Path.GetInvalidFileNameChars()
@@ -21,17 +20,7 @@ internal static class PathValidator
             .ToHashSet();
 
     /// <summary>
-    /// Canonical set of sensitive system directories that plugin features must never
-    /// read from, write to, delete, browse into, or repair links toward. This is the
-    /// single source of truth - previously each of LinkRepairService, TrashController
-    /// and FolderBrowserService kept its own (drifting) copy. Includes Jellyfin's own
-    /// data/config/cache mounts and OS system roots on both Linux and Windows. The
-    /// Windows roots include C: literals (defense-in-depth, matched even on non-Windows
-    /// hosts) plus the OS-resolved locations via <see cref="Environment.GetFolderPath(Environment.SpecialFolder)"/>
-    /// so a server installed on a drive other than C: is still protected.
-    /// NOTE: "/data" is deliberately listed - this plugin's containers mount media at
-    /// "/media", and "/data" is a Jellyfin-internal location that unit and e2e canary
-    /// tests require to be refused. Do not remove it.
+    ///     Canonical set of sensitive system directories that plugin features must never read from, write to, delete, browse into, or repair links toward.
     /// </summary>
     private static readonly string[] SensitiveSystemRoots = BuildSensitiveSystemRoots();
 
@@ -41,15 +30,11 @@ internal static class PathValidator
         {
             "/config", "/cache", "/data", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
             "/boot", "/proc", "/sys", "/dev", "/var", "/root", "/run",
-            // Common Windows system roots as literals so they are refused even on a non-Windows
-            // host (defense-in-depth for cross-platform string checks) and regardless of drive
-            // when the OS *is* installed on C:.
+            // Common Windows system roots as literals so they are refused even on a non-Windows host (defense-in-depth for cross-platform string checks) and regardless of drive when the OS *is* installed on C:.
             @"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData",
         };
 
-        // Additionally resolve the real Windows system dirs from the OS, so a server installed
-        // on a drive other than C: (e.g. D:\Windows) is also protected - the literals above
-        // only cover C:.
+        // Additionally resolve the real Windows system dirs from the OS, so a server installed on a drive other than C: (e.g.
         if (OperatingSystem.IsWindows())
         {
             foreach (var folder in new[]
@@ -93,10 +78,7 @@ internal static class PathValidator
             return false;
         }
 
-        // Reject null bytes and segment-level ".." traversal.
-        // A substring Contains("..") would produce false positives for names like "my..folder",
-        // so split on both separators and check each segment individually.
-        // The real protection is Path.GetFullPath + StartsWith below; this is an early-exit guard.
+        // Reject null bytes and segment-level ".." traversal. A substring Contains("..") would produce false positives for names like "my..folder", so split on both separators and check each segment individually.
         if (path.Contains('\0', StringComparison.Ordinal))
         {
             pluginLog?.LogWarning("PathValidator", $"Path validation failed: null byte detected in '{path}'.");
@@ -132,9 +114,7 @@ internal static class PathValidator
     }
 
     /// <summary>
-    /// Validates that <paramref name="fullPath"/> is safe for recursive deletion.
-    /// Rejects filesystem roots, paths that equal or are an ancestor of any library root,
-    /// and paths that are a child of any library root (would delete content inside a library).
+    ///     Validates that is safe for recursive deletion. Rejects filesystem roots, paths that equal or are an ancestor of any library root, and paths that are a child of any library root (would delete content inside a library).
     /// </summary>
     /// <param name="fullPath">Fully-resolved absolute path to validate.</param>
     /// <param name="libraryFolders">Library root folders that must not be deleted.</param>
@@ -180,9 +160,7 @@ internal static class PathValidator
                 return false;
             }
 
-            // Reject if candidate is a CHILD of the library root (deleting it removes content inside the library)
-            // Note: callers that legitimately manage a trash sub-folder inside a library must confirm
-            // the path is the configured trash folder before calling this method.
+            // Reject if candidate is a CHILD of the library root (deleting it removes content inside the library) Note: callers that legitimately manage a trash sub-folder inside a library must confirm the path is the configured trash folder before calling this method.
             if (candidate.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
             {
                 return false;
@@ -193,11 +171,7 @@ internal static class PathValidator
     }
 
     /// <summary>
-    /// Determines whether a fully-normalized absolute path equals, or is inside, a
-    /// sensitive system directory (see <see cref="SensitiveSystemRoots"/>). Callers pass
-    /// an already-normalized path (e.g. from <see cref="Path.GetFullPath(string)"/>).
-    /// A cross-location media target (another library / mount) is NOT sensitive - only
-    /// the well-known system/config locations are refused.
+    ///     Determines whether a fully-normalized absolute path equals, or is inside, a sensitive system directory (see SensitiveSystemRoots).
     /// </summary>
     /// <param name="normalizedPath">A normalized absolute path.</param>
     /// <returns><c>true</c> if the path is a sensitive system location; otherwise <c>false</c>.</returns>
@@ -239,9 +213,7 @@ internal static class PathValidator
             return "export";
         }
 
-        // Single pass: replace invalid filename characters with '_' and treat '\' as a
-        // directory separator (on Linux '\' is legal but must not appear in a filename).
-        // Directory separators are preserved here so Path.GetFileName can strip them next.
+        // Single pass: replace invalid filename characters with '_' and treat '\' as a directory separator (on Linux '\' is legal but must not appear in a filename).
         var name = new string(fileName.Select(ch =>
         {
             if (ch == '\\')

@@ -1,12 +1,4 @@
-/**
- * Adversarial user-facing Discovery tests - access-control and write-side abuse.
- * The gate must never leak to Seerr when disabled/denied, must reject malformed
- * input with 400 (not 500), and must not let a user spoof another identity.
- *
- * Uses the mock's request-recording hook (/last-request) to prove what actually
- * reached Seerr. Non-admin-dependent cases skip cleanly if no normal user was
- * provisioned.
- */
+/** * Adversarial user-facing Discovery tests - access-control and write-side abuse. * The gate must never leak to Seerr when disabled/denied, must reject malformed * input with 400 (not 500), and must not let a user spoof another identity. */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, API_KEY_MASK } from '../setup/api-client.ts';
 

@@ -19,10 +19,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Tests for <see cref="UserDiscoveryController"/> with the access gate ENABLED.
-///     Complements <see cref="UserDiscoveryControllerTests"/> by exercising validation,
-///     permission and happy-path branches unreachable when the gate is disabled.
-///     Belongs to the shared <c>ConfigOverride</c> collection.
+///     Tests for UserDiscoveryController with the access gate ENABLED. Complements UserDiscoveryControllerTests by exercising validation, permission and happy-path branches unreachable when the gate is disabled.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable

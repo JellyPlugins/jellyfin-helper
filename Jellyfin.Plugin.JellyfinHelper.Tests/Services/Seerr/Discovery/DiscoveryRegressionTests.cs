@@ -12,15 +12,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     - ServerId=0 causing 400 Bad Request (Seerr uses 0-based server IDs)
-///     - Duplicate quality profiles in popup when multiple root folders exist
-///     - MissingMethodException crashing the scheduled task
+///     - ServerId=0 causing 400 Bad Request (Seerr uses 0-based server IDs) - Duplicate quality profiles in popup when multiple root folders exist - MissingMethodException crashing the scheduled task.
 /// </summary>
 public sealed class DiscoveryRegressionTests
 {
-    // ===========================================================================================
     // Issue 3: ServerId=0 must be valid (Seerr uses 0-based IDs)
-    // ===========================================================================================
 
     [Theory]
     [InlineData(0)]
@@ -119,9 +115,7 @@ public sealed class DiscoveryRegressionTests
             r.MemberNames.Contains("ProfileId"));
     }
 
-    // ===========================================================================================
     // Issue 2: Duplicate quality profiles when multiple root folders exist
-    // ===========================================================================================
 
     [Fact]
     public void BuildServiceInfoFromProfiles_DeduplicatesProfilesByProfileId()
@@ -213,9 +207,7 @@ public sealed class DiscoveryRegressionTests
         Assert.All(result, server => Assert.Equal(2, server.RootFolders.Count));
     }
 
-    // ===========================================================================================
     // Issue 1: GetAllUserWatchProfiles uses GetUsers() API (Jellyfin 10.11.8+)
-    // ===========================================================================================
 
     [Fact]
     public void GetAllUserWatchProfiles_NoUsers_ReturnsEmptyCollection()
@@ -277,9 +269,7 @@ public sealed class DiscoveryRegressionTests
         mockUserManager.Verify(m => m.GetUsers(), Times.Once);
     }
 
-    // ===========================================================================================
     // Helpers
-    // ===========================================================================================
 
     private static List<ValidationResult> ValidateModel(object model)
     {

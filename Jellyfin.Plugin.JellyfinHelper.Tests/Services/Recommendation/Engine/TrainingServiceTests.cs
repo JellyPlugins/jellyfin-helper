@@ -12,8 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for <see cref="TrainingService"/>. The class uses a process-wide static gate
-///     (<c>TrainGate</c>) so tests must be serialised - hence the <c>ConfigOverride</c> collection.
+///     Tests for TrainingService. The class uses a process-wide static gate (TrainGate) so tests must be serialised - hence the ConfigOverride collection.
 /// </summary>
 [Collection("ConfigOverride")]
 public class TrainingServiceTests
@@ -27,8 +26,7 @@ public class TrainingServiceTests
         => new(_watchHistoryMock.Object, _feedbackStoreMock.Object, _pluginLogMock.Object, _loggerMock.Object);
 
     /// <summary>
-    ///     Minimal recording strategy that captures the last received training set so tests can
-    ///     assert against it. Deliberately implements <see cref="ITrainableStrategy"/>.
+    ///     Minimal recording strategy that captures the last received training set so tests can assert against it.
     /// </summary>
     private sealed class RecordingStrategy : IScoringStrategy, ITrainableStrategy
     {
@@ -104,9 +102,7 @@ public class TrainingServiceTests
     [Fact]
     public void Train_TrainableStrategy_NoUsersOrExamples_DoesNotInvokeStrategy()
     {
-        // No watch profiles => TrainingDataBuilder produces an empty example list.
-        // The trainable strategy is still invoked (Train receives an empty list) but must
-        // report false via NextTrainReturns=false, and the service must forward that.
+        // No watch profiles => TrainingDataBuilder produces an empty example list. The trainable strategy is still invoked (Train receives an empty list) but must report false via NextTrainReturns=false, and the service must forward that.
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
@@ -154,8 +150,6 @@ public class TrainingServiceTests
         // The training path was still exercised (strategy.Train called once).
         Assert.Equal(1, strategy.TrainInvocationCount);
     }
-
-    // ===== Populated training path =====
 
     /// <summary>
     ///     Builds a small but realistic watch profile so that TrainingDataBuilder actually
@@ -245,11 +239,6 @@ public class TrainingServiceTests
     public void Train_Incremental_SubsamplesOldExamples()
     {
         // Incremental=true reduces the training set to "recent + sampled old".
-        // A non-null assertion alone would pass even if the incremental branch became a
-        // no-op - we compare against the non-incremental training path on the SAME inputs
-        // and assert the invariant "incremental <= baseline" instead. The tighter
-        // subsampling behaviour (older examples sampled while newer ones survive) is
-        // covered in detail by Train_Incremental_WithMixedAgeExamples_SubsamplesOldOnesOnly.
         var userId = Guid.NewGuid();
         var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
@@ -268,12 +257,7 @@ public class TrainingServiceTests
         Assert.NotNull(strategy.LastReceivedTrainSet);
         Assert.NotNull(baselineStrategy.LastReceivedTrainSet);
 
-        // Invariant: an incremental pass never enlarges the training set relative to a
-        // full pass on the same fixture. If someone accidentally disables the
-        // "sample old examples" step, both counts would still typically match (the
-        // fixture may be below IncrementalMinExamplesThreshold), so this assertion is
-        // deliberately non-strict - it fails ONLY if a regression makes incremental
-        // produce MORE examples, which would be a serious correctness bug.
+        // Invariant: an incremental pass never enlarges the training set relative to a full pass on the same fixture.
         Assert.True(
             strategy.LastReceivedTrainSet!.Count <= baselineStrategy.LastReceivedTrainSet!.Count,
             $"incremental training must not enlarge the training set (baseline={baselineStrategy.LastReceivedTrainSet!.Count}, incremental={strategy.LastReceivedTrainSet!.Count})");
@@ -315,16 +299,10 @@ public class TrainingServiceTests
         _feedbackStoreMock.Verify(s => s.LoadAll(), Times.Once);
     }
 
-    // ===== Extended coverage: constructor overload + incremental subsample + held-out split =====
-
     [Fact]
     public void Ctor_WithoutFeedbackStore_TrainCallSucceeds()
     {
-        // The legacy two-arg constructor (no feedback store) was previously
-        // dead code - no test exercised it. If someone ever removes it in a "cleanup"
-        // pass, this test catches the removal because it also protects against a subtle
-        // The incoming null must be tolerated by the discovery-feedback-load
-        // branch inside TrainCore.
+        // The legacy two-arg constructor (no feedback store) was previously dead code - no test exercised it.
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
@@ -351,9 +329,7 @@ public class TrainingServiceTests
     }
 
     /// <summary>
-    ///     Builds a large watch profile with N distinct watched items across several genres,
-    ///     which - combined with N recommendations per user - produces enough training examples
-    ///     to trigger the held-out validation split path (>= 20 examples).
+    ///     Builds a large watch profile with N distinct watched items across several genres, which - combined with N recommendations per user - produces enough training examples to trigger the held-out validation split path (>= 20 examples).
     /// </summary>
     private static UserWatchProfile CreateLargeProfile(Guid userId, int watchedCount)
     {
@@ -409,11 +385,7 @@ public class TrainingServiceTests
     [Fact]
     public void Train_WithEnoughExamples_UsesHeldOutValidationSplit()
     {
-        // BUG GUARD: The held-out split path (Lines 209-215) only fires when
-        // trainingExamples.Count >= 20. Below that threshold the code falls back to
-        // "train on all, validate on training-set fit". If the threshold is ever
-        // changed silently, this test catches it because we're pushing WELL past 20
-        // and asserting the strategy actually receives a held-out slice.
+        // BUG GUARD: The held-out split path (Lines 209-215) only fires when trainingExamples.Count >= 20. Below that threshold the code falls back to "train on all, validate on training-set fit".
         var userId = Guid.NewGuid();
         var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
@@ -431,22 +403,7 @@ public class TrainingServiceTests
         Assert.NotNull(strategy.LastReceivedHeldOutSet);
         Assert.True(strategy.LastReceivedHeldOutSet!.Count >= 2,
             "Held-out split must contain at least 2 examples (Math.Max(2, 10%) floor).");
-        // The train split must be non-empty AND the two splits must be disjoint by
-        // object reference - together this proves the split actually partitioned the
-        // example set rather than degenerating to either "all-training / no-holdout"
-        // or "all-holdout / no-training" (either extreme would silently disable
-        // validation-based early stopping in the trainable strategy).
-        //
-        // NOTE: the previous version of this assertion was
-        //     train.Count < train.Count + heldOut.Count
-        // which reduces to `heldOut.Count > 0` - trivially true given the `>= 2`
-        // assertion above and therefore never catching a regression. We now assert
-        // the two invariants that actually matter for the split's semantics.
-        //
-        // We use reference equality (ReferenceEqualityComparer) because TrainingExample
-        // does not expose a stable per-example identifier - the split is expected to
-        // hand each captured example instance to EXACTLY one of the two lists, so
-        // referential disjointness is the correct integrity check.
+        // The train split must be non-empty AND the two splits must be disjoint by object reference - together this proves the split actually partitioned the example set rather than degenerating to either "all-training / no-holdout" or "all-holdout / no-training" (either extreme would.
         Assert.NotEmpty(strategy.LastReceivedTrainSet!);
         var trainSetRefs = new HashSet<TrainingExample>(
             strategy.LastReceivedTrainSet!,
@@ -460,10 +417,7 @@ public class TrainingServiceTests
     [Fact]
     public void Train_HeldOutSplit_PicksMostRecentAsValidation()
     {
-        // BUG GUARD: The comment at line 211 promises "Sort by GeneratedAtUtc descending
-        // to pick the most recent as held-out". If someone flips the order accidentally,
-        // the model would train on future data and validate on past data - a subtle
-        // form of temporal leakage that this test guards against.
+        // BUG GUARD: The comment at line 211 promises "Sort by GeneratedAtUtc descending to pick the most recent as held-out".
         var userId = Guid.NewGuid();
         var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
@@ -478,20 +432,14 @@ public class TrainingServiceTests
         Assert.NotNull(strategy.LastReceivedHeldOutSet);
         Assert.NotNull(strategy.LastReceivedTrainSet);
 
-        // Hard requirement: with 30 watched items + 30 prior recommendations, BuildExamples MUST
-        // produce enough examples to populate BOTH splits. If either split is empty the temporal
-        // leakage check silently no-ops - the very drift we are trying to catch. Assert non-empty
-        // first so future refactors of BuildExamples cannot accidentally hide the invariant.
+        // Hard requirement: with 30 watched items + 30 prior recommendations, BuildExamples MUST produce enough examples to populate BOTH splits.
         Assert.NotEmpty(strategy.LastReceivedHeldOutSet!);
         Assert.NotEmpty(strategy.LastReceivedTrainSet!);
 
         var minHeldOut = strategy.LastReceivedHeldOutSet!.Min(e => e.GeneratedAtUtc);
         var maxTrain = strategy.LastReceivedTrainSet!.Max(e => e.GeneratedAtUtc);
 
-        // Every held-out example must be at least as recent as the newest training example.
-        // (Ties can occur because BuildExamples stamps a batch of examples with the same
-        // GeneratedAtUtc; the invariant is "no train example is strictly newer than any
-        // held-out example".)
+        // Every held-out example must be at least as recent as the newest training example. (Ties can occur because BuildExamples stamps a batch of examples with the same GeneratedAtUtc; the invariant is "no train example is strictly newer than any held-out example".).
         Assert.True(minHeldOut >= maxTrain,
             $"Temporal leakage detected: oldest held-out ({minHeldOut:o}) predates newest train ({maxTrain:o}).");
     }
@@ -499,14 +447,7 @@ public class TrainingServiceTests
     [Fact]
     public void Train_Incremental_WithMixedAgeExamples_SubsamplesOldOnesOnly()
     {
-        // BUG GUARD: The incremental training branch (Lines 144-194) partitions examples
-        // by "generatedAt >= cutoff" where cutoff = latestGeneratedAt.AddDays(-1). When
-        // multiple recommendation results span more than a day, older examples must be
-        // subsampled at IncrementalOldSampleRatio while ALL new examples survive.
-        //
-        // We build TWO recommendation results spaced 5 days apart so the age partitioning
-        // has content on both sides of the cutoff. This exercises Lines 149-189 which
-        // were entirely uncovered until now.
+        // BUG GUARD: The incremental training branch (Lines 144-194) partitions examples by "generatedAt >= cutoff" where cutoff = latestGeneratedAt.AddDays(-1).
         var userId = Guid.NewGuid();
         var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
@@ -529,18 +470,14 @@ public class TrainingServiceTests
         sut.Train(strategy, previous, incremental: true);
         var incrementalCount = strategy.LastReceivedTrainSet?.Count ?? 0;
 
-        // The incremental path must produce >= 1 example. If both counts happen to fall below
-        // IncrementalMinExamplesThreshold the incremental branch is skipped and both paths
-        // return the same set - that is a valid outcome, not a bug. The stronger invariant
-        // is: incremental never PRODUCES MORE examples than the non-incremental baseline.
+        // The incremental path must produce >= 1 example. If both counts happen to fall below IncrementalMinExamplesThreshold the incremental branch is skipped and both paths return the same set - that is a valid outcome, not a bug.
         Assert.NotNull(strategy.LastReceivedTrainSet);
         Assert.True(incrementalCount <= baselineCount,
             $"Incremental training must not enlarge the training set. baseline={baselineCount}, incremental={incrementalCount}.");
     }
 
     /// <summary>
-    ///     Strategy whose Train callback re-enters TrainingService.Train on the SAME instance,
-    ///     letting us prove the non-blocking gate rejects the reentrant call.
+    ///     Strategy whose Train callback re-enters TrainingService.Train on the SAME instance, letting us prove the non-blocking gate rejects the reentrant call.
     /// </summary>
     private sealed class ReentrantStrategy : IScoringStrategy, ITrainableStrategy
     {
@@ -600,9 +537,7 @@ public class TrainingServiceTests
     [Fact]
     public void Train_WhenAlreadyRunningOnSameInstance_SkipsReentrantCallAndReturnsFalse()
     {
-        // The gate is per-instance and non-blocking (Wait(0)). A reentrant Train on the same
-        // instance, issued while the outer call still holds the gate, must be rejected and
-        // return false without building examples or invoking the strategy a second time.
+        // The gate is per-instance and non-blocking (Wait(0)). A reentrant Train on the same instance, issued while the outer call still holds the gate, must be rejected and return false without building examples or invoking the strategy a second time.
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
@@ -641,9 +576,7 @@ public class TrainingServiceTests
     [Fact]
     public void Train_IncrementalWithAllRecentExamples_KeepsAllAndSubsamplesNothing()
     {
-        // A single recommendation batch stamps every example at one GeneratedAt, so all examples
-        // land newer than cutoff (latest-1day) and oldExamples is empty. The else-branch must keep
-        // the full recent set (trainingExamples = newExamples) with no old-sample subsampling.
+        // A single recommendation batch stamps every example at one GeneratedAt, so all examples land newer than cutoff (latest-1day) and oldExamples is empty.
         var userId = Guid.NewGuid();
         var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);

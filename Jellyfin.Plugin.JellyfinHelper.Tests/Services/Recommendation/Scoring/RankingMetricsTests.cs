@@ -15,8 +15,6 @@ public sealed class RankingMetricsTests
     [Fact]
     public void DefaultRelevanceThreshold_Is05() => Assert.Equal(0.5, RankingMetrics.DefaultRelevanceThreshold);
 
-    // === Precision@K ===
-
     [Fact]
     public void PrecisionAtK_PerfectRanking_ReturnsOne()
     {
@@ -74,8 +72,6 @@ public sealed class RankingMetricsTests
         Assert.Equal(1.0 / 3.0, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 3, relevanceThreshold: 0.7), 10);
     }
 
-    // === Recall@K ===
-
     [Fact]
     public void RecallAtK_AllRelevantInTopK_ReturnsOne()
     {
@@ -124,8 +120,6 @@ public sealed class RankingMetricsTests
         Assert.Equal(0.0, RankingMetrics.ComputeRecallAtK(pred, lbl, k: 2), 10);
     }
 
-    // === NDCG@K ===
-
     [Fact]
     public void NdcgAtK_PerfectRanking_ReturnsOne()
     {
@@ -169,8 +163,6 @@ public sealed class RankingMetricsTests
         Assert.True(good > bad, $"Top-heavy labels should have higher NDCG: {good:F4} vs {bad:F4}");
     }
 
-    // === ComputeAllFromArrays ===
-
     [Fact]
     public void ComputeAllFromArrays_ReturnsConsistentResults()
     {
@@ -192,8 +184,6 @@ public sealed class RankingMetricsTests
         Assert.Equal(0.0, r, 10);
         Assert.Equal(0.0, n, 10);
     }
-
-    // === ComputeAll with strategy ===
 
     [Fact]
     public void ComputeAll_WithStrategy_ProducesValidMetrics()
@@ -233,8 +223,6 @@ public sealed class RankingMetricsTests
         Assert.Equal(0.0, r, 10);
         Assert.Equal(0.0, n, 10);
     }
-
-    // === Consistency: P@K and R@K relationship ===
 
     [Fact]
     public void PrecisionAndRecall_AreConsistent()
@@ -277,8 +265,6 @@ public sealed class RankingMetricsTests
         Assert.True(p5 < p2, $"P@5 ({p5:F4}) should be < P@2 ({p2:F4})");
     }
 
-    // === NDCG monotonicity ===
-
     [Fact]
     public void NdcgAtK_IsOneForAllK_WhenPerfectRanking()
     {
@@ -303,8 +289,6 @@ public sealed class RankingMetricsTests
         Assert.Equal(ndcgFull, ndcgLargeK, 10);
     }
 
-    // === ComputeAllFromArrays with custom threshold ===
-
     [Fact]
     public void ComputeAllFromArrays_CustomThreshold()
     {
@@ -318,8 +302,6 @@ public sealed class RankingMetricsTests
         Assert.Equal(1.0, rLow, 10);
         Assert.Equal(1.0, rHigh, 10);
     }
-
-    // === ComputeAll with HeuristicScoringStrategy ===
 
     [Fact]
     public void ComputeAll_WithHeuristicStrategy_ProducesValidMetrics()
@@ -350,8 +332,6 @@ public sealed class RankingMetricsTests
         Assert.InRange(n, 0.0, 1.0);
     }
 
-    // === Edge cases: all items relevant ===
-
     [Fact]
     public void PrecisionAtK_AllRelevant_ReturnsOne()
     {
@@ -367,8 +347,6 @@ public sealed class RankingMetricsTests
         var lbl = new[] { 1.0, 0.9, 0.8, 0.7 };
         Assert.Equal(1.0, RankingMetrics.ComputeRecallAtK(pred, lbl, k: 4), 10);
     }
-
-    // === Edge case: tied scores ===
 
     [Fact]
     public void PrecisionAtK_TiedScores_StillComputes()
@@ -390,8 +368,6 @@ public sealed class RankingMetricsTests
         Assert.InRange(ndcg, 0.0, 1.0);
     }
 
-    // === Edge case: negative K ===
-
     [Fact]
     public void PrecisionAtK_NegativeK_ReturnsZero() =>
         Assert.Equal(0.0, RankingMetrics.ComputePrecisionAtK(new[] { 0.9 }, new[] { 1.0 }, k: -1), 10);
@@ -404,8 +380,6 @@ public sealed class RankingMetricsTests
     public void NdcgAtK_NegativeK_ReturnsZero() =>
         Assert.Equal(0.0, RankingMetrics.ComputeNdcgAtK(new[] { 0.9 }, new[] { 1.0 }, k: -1), 10);
 
-    // === Edge case: single item ===
-
     [Fact]
     public void PrecisionAtK_SingleRelevantItem_ReturnsOne() =>
         Assert.Equal(1.0, RankingMetrics.ComputePrecisionAtK(new[] { 0.9 }, new[] { 1.0 }, k: 1), 10);
@@ -417,8 +391,6 @@ public sealed class RankingMetricsTests
     [Fact]
     public void RecallAtK_SingleRelevantItem_K1_ReturnsOne() =>
         Assert.Equal(1.0, RankingMetrics.ComputeRecallAtK(new[] { 0.9 }, new[] { 1.0 }, k: 1), 10);
-
-    // === Default parameters ===
 
     [Fact]
     public void ComputeAll_UsesDefaultKAndThreshold()
@@ -468,8 +440,6 @@ public sealed class RankingMetricsTests
         Assert.InRange(n, 0.0, 1.0);
     }
 
-    // === Recall with custom threshold ===
-
     [Fact]
     public void RecallAtK_CustomThreshold()
     {
@@ -481,8 +451,6 @@ public sealed class RankingMetricsTests
         Assert.Equal(2.0 / 3.0, RankingMetrics.ComputeRecallAtK(pred, lbl, k: 2, relevanceThreshold: 0.3), 10);
     }
 
-    // === NDCG swapped pair ===
-
     [Fact]
     public void NdcgAtK_SwappedPair_LowerThanPerfect()
     {
@@ -493,7 +461,6 @@ public sealed class RankingMetricsTests
         Assert.True(swapped < perfect, $"Swapped ({swapped:F4}) should be < perfect ({perfect:F4})");
     }
 
-    // === Mismatched array lengths ===
     // Predictions and labels are paired per example; a length mismatch is caller error.
     // The guard must reject it up front rather than index into the shorter array.
 

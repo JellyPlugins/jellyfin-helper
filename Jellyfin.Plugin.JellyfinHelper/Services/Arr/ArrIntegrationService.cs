@@ -326,15 +326,12 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         return result;
     }
 
-    // --- DTOs for Radarr/Sonarr API responses ---
-
     /// <summary>Returns the last path segment of <paramref name="path"/>, normalized to remove trailing slashes.</summary>
     private static string GetFolderName(string path)
         => path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
 
     /// <summary>
-    ///     Returns <paramref name="set"/> unchanged when it already uses <see cref="StringComparer.OrdinalIgnoreCase"/>;
-    ///     otherwise returns a new <see cref="HashSet{T}"/> with the same elements and the correct comparer.
+    ///     Returns unchanged when it already uses OrdinalIgnoreCase; otherwise returns a new HashSet{T} with the same elements and the correct comparer.
     /// </summary>
     private static HashSet<string> EnsureOrdinalIgnoreCase(HashSet<string> set)
         => ReferenceEquals(set.Comparer, StringComparer.OrdinalIgnoreCase)
@@ -342,11 +339,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             : new HashSet<string>(set, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    ///     Validates <paramref name="baseUrl"/> and <paramref name="relPath"/>, sends a GET request,
-    ///     and returns the response body as a string, enforcing the 100 MB size cap.
-    ///     Throws <see cref="ArgumentException"/> for bad URLs,
-    ///     <see cref="HttpRequestException"/> for non-2xx responses,
-    ///     and <see cref="ResponseTooLargeException"/> when the response exceeds the size limit.
+    ///     Validates baseUrl and relPath, sends a GET request, and returns the response body as a string, enforcing the 100 MB size cap.
     /// </summary>
     private async Task<string> FetchJsonAsync(
         string baseUrl,
@@ -361,9 +354,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
-        // ResponseHeadersRead: return as soon as headers arrive so HttpResponseReader's LimitedStream
-        // enforces the size cap while streaming the body, instead of HttpClient first buffering the
-        // whole body (up to MaxResponseContentBufferSize) and then reading it a second time.
+        // ResponseHeadersRead: return as soon as headers arrive so HttpResponseReader's LimitedStream enforces the size cap while streaming the body, instead of HttpClient first buffering the whole body (up to MaxResponseContentBufferSize) and then reading it a second time.
         using var response = await httpClient.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,
@@ -380,9 +371,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             throw new ArgumentException("Invalid or unsupported URL scheme", nameof(baseUrl));
         }
 
-        // Central SSRF guard: block cloud metadata endpoints on EVERY path that reaches the network,
-        // including the configuration-save path which calls the service directly (bypassing the
-        // controller-level check).
+        // Central SSRF guard: block cloud metadata endpoints on EVERY path that reaches the network, including the configuration-save path which calls the service directly (bypassing the controller-level check).
         SsrfGuard.ThrowIfCloudMetadataHost(uri.Host, nameof(baseUrl));
     }
 
@@ -431,7 +420,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         /// <summary>
         ///     Gets or sets the TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
-        ///     Sonarr v3 does NOT include this field - value remains at default 0.
         /// </summary>
         public int TmdbId { get; set; }
 

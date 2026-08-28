@@ -4,9 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 
 /// <summary>
-///     Security tests for <see cref="BackupValidator" />. Verifies that an operator-enabled
-///     trash path carrying injection payloads (null bytes, newline log/header injection) is
-///     rejected by the dedicated path-safety guard rather than silently accepted.
+///     Security tests for BackupValidator. Verifies that an operator-enabled trash path carrying injection payloads (null bytes, newline log/header injection) is rejected by the dedicated path-safety guard rather than silently accepted.
 /// </summary>
 public sealed class BackupValidatorSecurityTests
 {

@@ -1,14 +1,5 @@
 /**
- * Mock Jellyseerr/Overseerr (Seerr) server for the Jellyfin Helper E2E tests.
- *
- * Implements the Overseerr API v1 subset the plugin actually calls. Auth is
- * `X-Api-Key` (any non-empty key accepted; `force-fail` -> 500 for negatives).
- * Only the fields the plugin deserializes are populated; camelCase throughout.
- *
- * State: an in-memory list of requests so DELETE actually removes one and the
- * cleanup task's "Deleted" count is real. Reset via GET /reset (test hook).
- *
- * No external dependencies - Node built-in http only.
+ * Mock Seerr server for E2E tests. Implements the Overseerr API v1 subset the plugin uses.
  */
 import http from 'node:http';
 
@@ -20,7 +11,6 @@ const SLOW_KEY = 'force-slow'; // send headers, then hold the socket open ~40s
 const GIANT_KEY = 'force-giant'; // stream a huge body with no Content-Length
 const GARBAGE_KEY = 'force-garbage'; // return non-JSON / truncated garbage
 
-// --- mutable state ---------------------------------------------------------
 
 function seedRequests() {
   // "Recent" is relative to NOW so it always survives the age cutoff, no matter
@@ -51,16 +41,11 @@ let requests = seedRequests();
 // (identity-spoofing guard) and that denied/disabled flows never reach Seerr.
 let submittedRequests = [];
 
-// Partial-pagination-failure test hook: when armed, GET /api/v1/request reports
-// more results than one page holds (so the plugin fetches page 2 at skip=50) and
-// then 500s that page-2 fetch - simulating "page 1 OK, page 2 fails mid-scan".
-// listCalls records the (skip, status) of every request-list call so a test can
-// prove BOTH page 1 (200) and page 2 (500) were actually observed.
+// Partial-pagination-failure test hook: when armed, GET /api/v1/request reports more results than one page holds (so the plugin fetches page 2 at skip=50) and then 500s that page-2 fetch - simulating "page 1 OK, page 2 fails mid-scan".
 let failListSkip = null; // when a number, GET /request with this skip -> 500
 let inflateResults = false; // when true, page 1's pageInfo.results forces a 2nd page
 let listCalls = [];
 
-// --- canned payloads -------------------------------------------------------
 
 const mainSettings = { applicationTitle: 'Jellyseerr' };
 
@@ -109,7 +94,6 @@ function discoverPage() {
   };
 }
 
-// --- helpers ---------------------------------------------------------------
 
 function send(res, status, body) {
   let payload;
@@ -135,7 +119,6 @@ function readBody(req) {
   });
 }
 
-// --- server ----------------------------------------------------------------
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
@@ -159,9 +142,7 @@ const server = http.createServer(async (req, res) => {
     return done(200);
   }
   if (path === '/count') { send(res, 200, { count: requests.length, ids: requests.map((r) => r.id) }); return done(200); }
-  // Arm the partial-pagination failure: page 1 (skip=0) succeeds but claims a 2nd
-  // page exists; page 2 (skip=50) then 500s. Uses a normal green-path key so the
-  // connection test and title lookups still work - only the page-2 list fetch fails.
+  // Arm the partial-pagination failure: page 1 (skip=0) succeeds but claims a 2nd page exists; page 2 (skip=50) then 500s.
   if (path === '/force-fail-page2') {
     failListSkip = 50;
     inflateResults = true;
@@ -190,12 +171,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (!apiKey) { send(res, 401, { error: 'missing X-Api-Key' }); return done(401); }
-  // A literal mask value is never a real key. The plugin masks a stored key as a fixed run of
-  // asterisks in GET /Configuration; if a save regression ever persisted that mask AS the key, a
-  // connection test would otherwise still "succeed" against a mock that accepts any non-empty key
-  // - hiding a credential wipe. Reject any all-asterisk value (length-agnostic, so it survives a
-  // change to the mask's star count) and its whitespace-padded form with 401, so the round-trip
-  // test can prove the real stored key was preserved, not overwritten with the mask.
+  // A literal mask value is never a real key.
   if (/^\*+$/.test(String(apiKey).trim())) { send(res, 401, { error: 'masked placeholder is not a valid api key' }); return done(401); }
   if (apiKey === FAIL_KEY) { send(res, 500, { error: 'forced failure' }); return done(500); }
 

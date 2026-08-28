@@ -9,9 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 
 /// <summary>
-///     Direct tests for <see cref="LimitedStream" /> covering every member: capability flags, the
-///     synchronous and asynchronous read paths (including the exactly-at-limit EOF probe and the
-///     over-limit throw), and the write/seek members that must throw <see cref="NotSupportedException" />.
+///     Direct tests for LimitedStream covering every member: capability flags, the synchronous and asynchronous read paths (including the exactly-at-limit EOF probe and the over-limit throw), and the write/seek members that must throw NotSupportedException.
 /// </summary>
 public sealed class LimitedStreamTests
 {

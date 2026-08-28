@@ -6,11 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for <see cref="NullableDateTimeConverter"/>.
-///     TMDb/Seerr responses frequently contain empty strings (<c>""</c>) or malformed
-///     date values for optional fields like <c>release_date</c> or <c>first_air_date</c>.
-///     A stock <c>JsonSerializer</c> would throw <see cref="JsonException"/> in that case
-///     and drop the entire response - this converter must degrade gracefully.
+///     Tests for NullableDateTimeConverter. TMDb/Seerr responses frequently contain empty strings ("") or malformed date values for optional fields like release_date or first_air_date.
 /// </summary>
 public class NullableDateTimeConverterTests
 {
@@ -27,9 +23,7 @@ public class NullableDateTimeConverterTests
         return opts;
     }
 
-    // -----------------------------------------------------------------------
     // Read: valid inputs
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Read_NullToken_ReturnsNull()
@@ -74,9 +68,7 @@ public class NullableDateTimeConverterTests
         Assert.Equal(15, result.Value!.Value.Day);
     }
 
-    // -----------------------------------------------------------------------
     // Read: graceful degradation - the core motivation for this converter
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Read_EmptyString_ReturnsNull_DoesNotThrow()
@@ -184,9 +176,7 @@ public class NullableDateTimeConverterTests
         public int After { get; set; }
     }
 
-    // -----------------------------------------------------------------------
     // Write: round-trip
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Write_NullValue_ProducesJsonNull()
@@ -248,17 +238,12 @@ public class NullableDateTimeConverterTests
         }
     }
 
-    // -----------------------------------------------------------------------
     // Kind-preservation contract (regression tests for the RoundtripKind fix)
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ReadWrite_UtcKind_IsPreservedThroughRoundTrip()
     {
-        // Prior to using DateTimeStyles.RoundtripKind, the converter's Read()
-        // silently downgraded UTC ("...Z") input to Kind=Local, shifting .Ticks by the
-        // host's UTC offset. This test locks in the fixed behaviour so nobody accidentally
-        // reverts to DateTimeStyles.None.
+        // Prior to using DateTimeStyles.RoundtripKind, the converter's Read() silently downgraded UTC ("...Z") input to Kind=Local, shifting .Ticks by the host's UTC offset.
         var container = new Container
         {
             Value = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc)
@@ -279,12 +264,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void Read_IsoStringWithZeroOffset_RepresentsSameInstantAsZ()
     {
-        // NOTE on .NET semantics: with DateTimeStyles.RoundtripKind, "+00:00" is treated as
-        // "local timezone with offset 0" and becomes Kind=Local, whereas the trailing "Z" is
-        // treated as UTC and becomes Kind=Utc. This is intentional in .NET - offsets carry
-        // wall-clock information, "Z" carries the UTC marker.
-        // The instant is identical either way, which is what matters for callers doing
-        // absolute comparisons via ToUniversalTime().
+        // NOTE on .NET semantics: with DateTimeStyles.RoundtripKind, "+00:00" is treated as "local timezone with offset 0" and becomes Kind=Local, whereas the trailing "Z" is treated as UTC and becomes Kind=Utc.
         var json = "{\"Value\":\"2024-06-15T10:30:00+00:00\"}";
         var result = JsonSerializer.Deserialize<Container>(json, CreateOptions());
         Assert.NotNull(result);
@@ -326,19 +306,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void ReadInvariantCulture_ParsesEnglishFormattedDate_UnderGermanCulture()
     {
-        // The Read() path MUST use InvariantCulture. Otherwise a
-        // "6/15/2024" style string under de-DE culture would parse as 6 May 2024
-        // (dd/MM/yyyy) or fail entirely, silently corrupting dates parsed from
-        // Seerr responses.
-        //
-        // The previous version of this test used an ISO-8601 payload ("2024-06-15T...Z")
-        // which parses identically in every culture - so it could not detect a
-        // regression that removed the InvariantCulture argument. We now use the
-        // US-format "6/15/2024" which is:
-        //   * unambiguous under InvariantCulture (June 15, 2024)
-        //   * INVALID under de-DE (day 15 of month 15 -> FormatException)
-        // If the InvariantCulture argument were dropped from DateTime.TryParse, the
-        // Read() method would return null under de-DE and this test would fail.
+        // The Read() path MUST use InvariantCulture. Otherwise a "6/15/2024" style string under de-DE culture would parse as 6 May 2024 (dd/MM/yyyy) or fail entirely, silently corrupting dates parsed from Seerr responses.
         var original = CultureInfo.CurrentCulture;
         try
         {
@@ -360,9 +328,7 @@ public class NullableDateTimeConverterTests
         }
     }
 
-    // -----------------------------------------------------------------------
     // Direct converter API (bypassing JsonSerializer) - exercises Write() edge cases
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Write_LocalKindDateTime_RoundTripsThroughIsoString()
@@ -401,11 +367,7 @@ public class NullableDateTimeConverterTests
         public int After { get; set; }
     }
 
-    // -----------------------------------------------------------------------
-    // Direct Read/Write invocation - System.Text.Json short-circuits JSON null
-    // for Nullable<T> converters (HandleNull=false), so these branches are never
-    // reached through the JsonSerializer path above. Call the converter directly.
-    // -----------------------------------------------------------------------
+    // Direct Read/Write invocation - System.Text.Json short-circuits JSON null for Nullable<T> converters (HandleNull=false), so these branches are never reached through the JsonSerializer path above.
 
     [Fact]
     public void Read_DirectInvocation_NullToken_ReturnsNull()

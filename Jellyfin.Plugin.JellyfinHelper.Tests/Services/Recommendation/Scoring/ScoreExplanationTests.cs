@@ -8,9 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public sealed class ScoreExplanationTests
 {
-    // ============================================================
     // DetermineDominantSignal Tests
-    // ============================================================
 
     [Fact]
     public void DetermineDominantSignal_GenreHighest_ReturnsGenre()
@@ -175,9 +173,7 @@ public sealed class ScoreExplanationTests
         Assert.Equal("Genre", result);
     }
 
-    // ============================================================
     // Blend Tests
-    // ============================================================
 
     [Fact]
     public void Blend_AlphaZero_ReturnsThis()
@@ -271,9 +267,7 @@ public sealed class ScoreExplanationTests
         Assert.Equal("TestStrategy", result.StrategyName);
     }
 
-    // ============================================================
     // WithPenalty Tests
-    // ============================================================
 
     [Fact]
     public void WithPenalty_One_ReturnsUnchanged()
@@ -347,9 +341,7 @@ public sealed class ScoreExplanationTests
         Assert.Equal("TestStrategy", result.StrategyName);
     }
 
-    // ============================================================
     // ToString Tests
-    // ============================================================
 
     [Fact]
     public void ToString_ContainsAllComponents()
@@ -375,9 +367,7 @@ public sealed class ScoreExplanationTests
         Assert.Contains("dominant=Genre", str);
     }
 
-    // ============================================================
     // Helpers
-    // ============================================================
 
     private static ScoreExplanation CreateExplanation(
         double finalScore,

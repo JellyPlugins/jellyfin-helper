@@ -1,14 +1,4 @@
-/**
- * Contract assertions for endpoints that the rest of the suite only *routes*
- * (smoke) or *tolerates a status class* for (hardening's [200,400,404,503]).
- * Those loose checks let a regression that flips a 400 into a silent 200 - or a
- * 503 guard into a 200 - pass unnoticed. Here we PIN the documented status +
- * body for each branch, verified against the controller source.
- *
- * State handling: several endpoints gate on RecommendationsTaskMode. Each block
- * sets the mode it needs in a beforeAll and restores a neutral mode after, so
- * the blocks are order-independent under the single serial worker.
- */
+/** * Contract assertions for endpoints that the rest of the suite only *routes* * (smoke) or *tolerates a status class* for (hardening's [200,400,404,503]). */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p } from '../setup/api-client.ts';
 
@@ -34,10 +24,7 @@ async function setRecsMode(mode: 'Deactivate' | 'DryRun' | 'Activate'): Promise<
   expect(res.ok(), `setRecsMode(${mode}) failed: ${res.status()}`).toBeTruthy();
 }
 
-// --- Recommendations / UserActivity: 503 Deactivate guard -------------------
-// Both controllers return 503 "...disabled in plugin configuration." when
-// RecommendationsTaskMode == Deactivate. smoke tolerates [200,503] so this
-// specific guard is never actually asserted anywhere.
+// --- Recommendations / UserActivity: 503 Deactivate guard ------------------- Both controllers return 503 "...disabled in plugin configuration." when RecommendationsTaskMode == Deactivate.
 test.describe('Deactivate guards return 503', () => {
   test.beforeAll(() => setRecsMode('Deactivate'));
   test.afterAll(() => setRecsMode('DryRun'));
@@ -111,12 +98,7 @@ test.describe('UserActivity/User behavior', () => {
   });
 });
 
-// --- Discovery/Request: validation 400s -------------------------------------
-// The DTO's DataAnnotations ([Range]/[RegularExpression]) are enforced by
-// [ApiController]'s automatic model validation, which short-circuits with an
-// RFC9110 ValidationProblemDetails envelope ({title, status, errors:{Field:[...]}})
-// BEFORE the action body's hand-built {Success:false} path runs. We assert the
-// actual, observable contract - the DataAnnotation ErrorMessage still surfaces.
+// --- Discovery/Request: validation 400s ------------------------------------- The DTO's DataAnnotations ([Range]/[RegularExpression]) are enforced by [ApiController]'s automatic model validation, which short-circuits with an RFC9110 ValidationProblemDetails envelope ({title,.
 test.describe('Discovery/Request validation', () => {
   test('TmdbId 0 → 400 problem-details with the TmdbId message', async () => {
     const res = await ctx.post(p('Discovery/Request'), {
@@ -139,11 +121,7 @@ test.describe('Discovery/Request validation', () => {
   });
 
   test('null body → 400 (rejected by [ApiController] model validation)', async () => {
-    // A literal `null` / empty JSON body is a required-body violation: [ApiController]
-    // auto-validation short-circuits with an RFC9110 ValidationProblemDetails
-    // envelope ({title, status, errors}) BEFORE the action's own {Success:false}
-    // null-guard can run (that guard is only reachable via direct in-process calls).
-    // Pin the observable wire contract, like the TmdbId/MediaType cases above.
+    // A literal `null` / empty JSON body is a required-body violation: [ApiController] auto-validation short-circuits with an RFC9110 ValidationProblemDetails envelope ({title, status, errors}) BEFORE the action's own {Success:false} null-guard can run (that guard is only reachable.
     const res = await ctx.post(p('Discovery/Request'), {
       headers: { 'Content-Type': 'application/json' },
       data: 'null',
@@ -197,12 +175,7 @@ test('Configuration/Libraries returns {Libraries[]} with Name + CollectionType',
   }
 });
 
-// --- Configuration/Libraries: the EXCLUSION filter actually fires ------------
-// The shape test above passes vacuously because the fixture only has Movies+Shows
-// (nothing excludable). Here we create a real boxset-type library so the
-// music/boxsets exclusion branch is genuinely exercised, then assert it is hidden
-// from the cleanup picker while the normal movies library still appears with its
-// CollectionType, and that Names come back sorted case-insensitively.
+// --- Configuration/Libraries: the EXCLUSION filter actually fires ------------ The shape test above passes vacuously because the fixture only has Movies+Shows (nothing excludable).
 test.describe.serial('Configuration/Libraries exclusion filter', () => {
   const BOXSET_NAME = 'ZZ Boxset Collection';
   let admin: APIRequestContext;
@@ -221,10 +194,7 @@ test.describe.serial('Configuration/Libraries exclusion filter', () => {
     });
     // 204/200 = created; a 4xx on a warm container may mean it already exists.
     expect([200, 204, 400, 409], `create boxset lib: ${res.status()}`).toContain(res.status());
-    // Confirm the boxset library actually EXISTS as a VirtualFolder now (created here
-    // or pre-existing). Only then is the exclusion assertion load-bearing; if the
-    // create genuinely failed and it's absent, the not-contains check would pass
-    // vacuously - so we skip it loudly rather than pretend the filter was proven.
+    // Confirm the boxset library actually EXISTS as a VirtualFolder now (created here or pre-existing).
     const list = await admin.get('/Library/VirtualFolders');
     if (list.ok()) {
       const folders = (await list.json()) as Array<{ Name: string }>;

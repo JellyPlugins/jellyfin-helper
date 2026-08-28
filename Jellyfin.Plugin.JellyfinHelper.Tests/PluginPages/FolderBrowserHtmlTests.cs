@@ -4,14 +4,10 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 /// <summary>
-/// Tests for FolderBrowser.js (server-side folder picker for the trash-folder setting).
-/// Covers: dialog structure, quick-jump library roots, breadcrumb, keyboard support,
-/// path-selection flow, error handling, and re-entrancy safety.
+///     Tests for FolderBrowser.js (server-side folder picker for the trash-folder setting).
 /// </summary>
 public class FolderBrowserHtmlTests : ConfigPageTestBase
 {
-    // === Top-level functions ===
-
     [Theory]
     [InlineData("function initFolderBrowser")]
     [InlineData("function openFolderBrowserDialog")]
@@ -21,8 +17,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
     {
         Assert.Contains(signature, HtmlContent);
     }
-
-    // === Wire-up ===
 
     [Fact]
     public void Html_InitFolderBrowser_HooksBrowseButton()
@@ -37,8 +31,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
             new Regex(@"function\s+openFolderBrowserDialog[\s\S]*?getElementById\(\s*['""]cfgTrashPath['""]"),
             HtmlContent);
     }
-
-    // === Dialog structure ===
 
     [Fact]
     public void Html_FolderBrowser_UsesUniqueOverlayId()
@@ -78,8 +70,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
         Assert.Contains("folderBrowserSelect", HtmlContent);
     }
 
-    // === Accessibility (role/aria) ===
-
     [Fact]
     public void Html_FolderBrowser_DialogHasRoleAndAriaModal()
     {
@@ -116,8 +106,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Backend endpoints ===
-
     [Fact]
     public void Html_FolderBrowser_LoadsLibraryPathsFromServer()
     {
@@ -139,8 +127,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Race-condition guard ===
-
     [Fact]
     public void Html_FolderBrowser_UsesRequestIdForRaceProtection()
     {
@@ -149,8 +135,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
             new Regex(@"function\s+browseTo[\s\S]*?state\.requestId"),
             HtmlContent);
     }
-
-    // === Path selection semantics ===
 
     [Fact]
     public void Html_FolderBrowser_AppendsNewFolderNameToCurrentPath()
@@ -194,8 +178,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Absolute path detection ===
-
     [Fact]
     public void Html_FolderBrowser_DetectsUnixAbsolutePath()
     {
@@ -217,8 +199,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
         Assert.Matches(new Regex(@"\[A-Za-z\]:\[\\\\/\]"), HtmlContent);
     }
 
-    // === Error handling ===
-
     [Fact]
     public void Html_FolderBrowser_ClearsSelectionOnServerError()
     {
@@ -234,8 +214,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
         Assert.Contains("trashBrowseError", HtmlContent);
     }
 
-    // === i18n keys ===
-
     [Theory]
     [InlineData("trashBrowseTitle")]
     [InlineData("trashBrowseCreateNew")]
@@ -250,8 +228,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
     {
         Assert.Contains(key, HtmlContent);
     }
-
-    // === Success feedback on browse button ===
 
     [Fact]
     public void Html_FolderBrowser_ShowsSuccessFeedbackAfterSave()

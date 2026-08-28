@@ -77,8 +77,6 @@ public class TrashControllerRelocateTests : IDisposable
             trashService.Object);
     }
 
-    // ===== FoldersForPath Tests =====
-
     [Fact]
     public void GetTrashFoldersForPath_EmptyPath_ReturnsBadRequest()
     {
@@ -152,8 +150,6 @@ public class TrashControllerRelocateTests : IDisposable
         var paths = (IEnumerable<string>)pathsProp!.GetValue(value)!;
         Assert.Empty(paths);
     }
-
-    // ===== Relocate Tests =====
 
     [Fact]
     public void RelocateTrash_EmptyPaths_ReturnsBadRequest()
@@ -273,11 +269,7 @@ public class TrashControllerRelocateTests : IDisposable
     [Fact]
     public void RelocateTrash_AbsoluteOldRelativeNew_ResolvesUnderTheLibraryContainingTheSource()
     {
-        // Arrange: two libraries, and an absolute source INSIDE the second-registered
-        // one. The relative new path resolves under BOTH libraries, so a naive "first
-        // library that resolves" would target the first (movies) - a non-deterministic,
-        // wrong result driven by enumeration order. The correct behaviour is to relocate
-        // WITHIN the library that actually contains the source (shows).
+        // Arrange: two libraries, and an absolute source INSIDE the second-registered one.
         var moviesRoot = Path.Combine(_testRoot, "movies");
         var showsRoot = Path.Combine(_testRoot, "shows");
         Directory.CreateDirectory(moviesRoot);
@@ -351,10 +343,7 @@ public class TrashControllerRelocateTests : IDisposable
     [Trait("Category", "Security")]
     public void RelocateTrash_AbsoluteSourceIsSensitiveSystemDir_ReturnsBadRequest()
     {
-        // Regression (FS-escape bug): a fully-qualified OLD path pointing at a sensitive
-        // system directory (e.g. Jellyfin's /config) must be refused, so RelocateTrash
-        // can never drain the config dir into the library. Previously the guard only
-        // rejected fs-root + exact/parent library roots, letting /config through.
+        // Regression (FS-escape bug): a fully-qualified OLD path pointing at a sensitive system directory (e.g.
         var libraryRoot = Path.Combine(_testRoot, "movies");
         Directory.CreateDirectory(libraryRoot);
         var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-src" : "/config/jfh-src";
@@ -393,9 +382,7 @@ public class TrashControllerRelocateTests : IDisposable
 
         var result = controller.RelocateTrash(new TrashRelocateRequest
         {
-            // Safe absolute source (inside the library) so the OLD-path guard passes and
-            // the rejection can ONLY come from the sensitive DESTINATION - otherwise this
-            // test would short-circuit on the source guard and never exercise the target.
+            // Safe absolute source (inside the library) so the OLD-path guard passes and the rejection can ONLY come from the sensitive DESTINATION - otherwise this test would short-circuit on the source guard and never exercise the target.
             OldTrashPath = oldRelativeTrash,
             NewTrashPath = sensitive,
         });

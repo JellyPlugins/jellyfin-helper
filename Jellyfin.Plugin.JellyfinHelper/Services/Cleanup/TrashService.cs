@@ -12,8 +12,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 
 /// <summary>
 ///     Manages a trash/recycle bin for deleted media items instead of permanent deletion.
-///     Items are moved to a timestamped trash folder and can be permanently purged after a retention period.
-///     Registered as a singleton via DI.
 /// </summary>
 public class TrashService : ITrashService
 {
@@ -22,21 +20,12 @@ public class TrashService : ITrashService
     private const string LogCategory = "Trash";
 
     /// <summary>
-    ///     Maximum length of a single path component (filename or directory name).
-    ///     POSIX NAME_MAX is 255 bytes on virtually all Linux/macOS filesystems.
-    ///     Windows NTFS caps individual components at 255 UTF-16 code units.
-    ///     On non-Windows platforms this limit is enforced in bytes (UTF-8);
-    ///     on Windows it is enforced in characters (UTF-16 code units).
+    ///     Maximum length of a single path component (filename or directory name). POSIX NAME_MAX is 255 bytes on virtually all Linux/macOS filesystems.
     /// </summary>
     private const int MaxPathComponentLimit = 255;
 
     /// <summary>
-    ///     Maximum allowed path length. Windows has a legacy MAX_PATH of 260; macOS defines
-    ///     PATH_MAX as 1024; Linux allows up to 4096. We cap at 259 on Windows, 1023 on macOS,
-    ///     and 4095 on Linux to guarantee the resulting path is always valid even after
-    ///     suffixes or a GUID are appended.
-    ///     On non-Windows platforms this is enforced in bytes (UTF-8);
-    ///     on Windows it is enforced in characters (UTF-16 code units).
+    ///     Maximum allowed path length. Windows has a legacy MAX_PATH of 260; macOS defines PATH_MAX as 1024; Linux allows up to 4096.
     /// </summary>
     private static readonly int MaxPathLimit = GetMaxPathLimit();
 
@@ -54,9 +43,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Gets the platform-aware string comparison for path containment checks.
-    ///     Windows filesystems (NTFS, FAT) are case-insensitive; macOS default APFS is case-insensitive
-    ///     (case-preserving); Linux (ext4, XFS) is case-sensitive.
+    ///     Gets the platform-aware string comparison for path containment checks. Windows filesystems (NTFS, FAT) are case-insensitive; macOS default APFS is case-insensitive (case-preserving); Linux (ext4, XFS) is case-sensitive.
     /// </summary>
     internal static StringComparison PathComparison =>
         OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
@@ -74,11 +61,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            // Guard: prevent re-trashing items that are already inside the trash folder.
-            // This can occur if a cleanup task's recursive directory scan inadvertently
-            // includes the trash directory. Each re-trash prepends a timestamp prefix,
-            // eventually exceeding PATH_MAX and causing an IOException.
-            // Path.GetFullPath normalizes trailing separators, relative segments, and mixed slashes.
+            // Guard: prevent re-trashing items that are already inside the trash folder. This can occur if a cleanup task's recursive directory scan inadvertently includes the trash directory.
             var normalizedSource = Path.GetFullPath(sourcePath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var normalizedTrashRoot = Path.GetFullPath(trashBasePath)
@@ -106,9 +89,7 @@ public class TrashService : ITrashService
 
             var size = CalculateDirectorySize(sourcePath);
 
-            // TOCTOU mitigation: ResolveCollision found a free path, but between that check
-            // and Directory.Move another process could claim the same path. On IOException
-            // where the destination already exists, re-resolve to a fresh GUID-based name and retry.
+            // TOCTOU mitigation: ResolveCollision found a free path, but between that check and Directory.Move another process could claim the same path.
             const int MoveRetries = 3;
             for (var moveAttempt = 0; ; moveAttempt++)
             {
@@ -121,11 +102,7 @@ public class TrashService : ITrashService
                     moveAttempt < MoveRetries &&
                     DestinationExists(trashItemPath))
                 {
-                    // Reuse the collision resolver so the retry path shares one naming strategy.
-                    // EnsurePathLength truncates the name from the END, which on a deep trash
-                    // directory with a tight budget would cut the trailing GUID and let two retries
-                    // collapse to the identical path. ResolveCollision preserves the suffix via
-                    // BuildSuffixSafeCandidate and verifies the candidate does not already exist.
+                    // Reuse the collision resolver so the retry path shares one naming strategy. EnsurePathLength truncates the name from the END, which on a deep trash directory with a tight budget would cut the trailing GUID and let two retries collapse to the identical path.
                     trashItemPath = ResolveCollision(
                         Path.Join(trashBasePath, $"{timestamp}_{dirName}_{Guid.NewGuid():N}"));
                 }
@@ -155,9 +132,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            // Prevent re-trashing files that are already inside the trash folder.
-            // This mirrors the equivalent guard in MoveDirectoryToTrash() and prevents
-            // path-length growth from repeated timestamp prefixing.
+            // Prevent re-trashing files that are already inside the trash folder. This mirrors the equivalent guard in MoveDirectoryToTrash() and prevents path-length growth from repeated timestamp prefixing.
             var normalizedFile = Path.GetFullPath(sourceFilePath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var normalizedTrashRoot = Path.GetFullPath(trashBasePath)
@@ -216,10 +191,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // retentionDays <= 0 is treated as "disabled" - never purge anything.
-        // Callers that want to purge everything immediately should pass retentionDays = 1
-        // (or use a positive value). Zero and negative values are sentinel "off" states
-        // consistent with how SeerrCleanupAgeDays = 0 means "feature disabled".
+        // retentionDays <= 0 is treated as "disabled" - never purge anything. Callers that want to purge everything immediately should pass retentionDays = 1 (or use a positive value).
         if (retentionDays <= 0)
         {
             return (0, 0);
@@ -229,9 +201,7 @@ public class TrashService : ITrashService
 
         try
         {
-            // Guard: refuse to enumerate a trash folder that is itself a symlink/reparse point.
-            // If trashBasePath were replaced with a symlink pointing to a media library, enumerating
-            // its contents and deleting timestamp-matching entries would destroy real media files.
+            // Guard: refuse to enumerate a trash folder that is itself a symlink/reparse point. If trashBasePath were replaced with a symlink pointing to a media library, enumerating its contents and deleting timestamp-matching entries would destroy real media files.
             if (IsReparsePoint(trashBasePath))
             {
                 _pluginLog.LogError(
@@ -262,8 +232,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Purges a single trash subdirectory when its timestamp-prefixed name is older than
-    ///     <paramref name="cutoff"/>. Reparse-point entries have only their link node removed.
+    ///     Purges a single trash subdirectory when its timestamp-prefixed name is older than .
     /// </summary>
     private void PurgeExpiredDirectory(
         string dir,
@@ -689,9 +658,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Resolves naming collisions for trash items by appending a numeric suffix (_2, _3, ...)
-    ///     if the target path already exists as a file or directory.
-    ///     The returned path is guaranteed to fit within the OS path-length limit.
+    ///     Resolves naming collisions for trash items by appending a numeric suffix (_2, _3, ...) if the target path already exists as a file or directory.
     /// </summary>
     /// <param name="desiredPath">The initially desired trash path.</param>
     /// <returns>A collision-free path that does not yet exist on disk and is within the OS path limit.</returns>
@@ -699,10 +666,7 @@ public class TrashService : ITrashService
     {
         var directory = Path.GetDirectoryName(desiredPath) ?? string.Empty;
 
-        // Fail fast: if the directory path alone exhausts the OS path budget,
-        // no child name (even a single character) can fit. Throwing here prevents
-        // EnsurePathLength from silently returning an over-budget path that would
-        // fail at Directory.Move/File.Move time.
+        // Fail fast: if the directory path alone exhausts the OS path budget, no child name (even a single character) can fit.
         if (GetMaxComponentSize(directory) <= 0)
         {
             throw new IOException(
@@ -718,9 +682,7 @@ public class TrashService : ITrashService
         var name = Path.GetFileName(desiredPath);
         var maxNameSize = GetMaxComponentSize(directory);
 
-        // Fail fast when the remaining name budget cannot encode a unique suffix.
-        // Without this guard, BuildSuffixSafeCandidate collapses every candidate to the
-        // same truncated path and the retry loops would spin indefinitely.
+        // Fail fast when the remaining name budget cannot encode a unique suffix. Without this guard, BuildSuffixSafeCandidate collapses every candidate to the same truncated path and the retry loops would spin indefinitely.
         if (maxNameSize < MeasureString("_2"))
         {
             throw new IOException(
@@ -728,10 +690,7 @@ public class TrashService : ITrashService
                 $"(available: {maxNameSize}, minimum required: {MeasureString("_2")}).");
         }
 
-        // A short numeric scan keeps human-readable names for the common few-collisions case.
-        // We deliberately cap this low (was 998) so that on high-latency mounts (NFS/SMB) we do
-        // not perform hundreds of stat round-trips. After this we jump straight to a GUID suffix,
-        // which is collision-free in practice. Path.Exists checks file+dir in a single syscall.
+        // A short numeric scan keeps human-readable names for the common few-collisions case. We deliberately cap this low (was 998) so that on high-latency mounts (NFS/SMB) we do not perform hundreds of stat round-trips.
         const int NumericScanLimit = 20;
         for (var i = 2; i < NumericScanLimit; i++)
         {
@@ -758,11 +717,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Builds a length-safe candidate path by truncating the <paramref name="baseName" />
-    ///     (not the suffix) so that the suffix is always preserved in the result.
-    ///     This prevents the degenerate case where appending a suffix then truncating removes
-    ///     the suffix entirely, causing every candidate to resolve to the same existing path.
-    ///     On Unix, limits are enforced in UTF-8 bytes; on Windows, in UTF-16 code units (chars).
+    ///     Builds a length-safe candidate path by truncating the baseName (not the suffix) so that the suffix is always preserved in the result.
     /// </summary>
     private static string BuildSuffixSafeCandidate(string directory, string baseName, string suffix)
     {
@@ -782,10 +737,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Ensures the path does not exceed the platform path limit.
-    ///     If it does, the file-name component is truncated (from the end, preserving the directory)
-    ///     until the full path fits. The directory part is never truncated.
-    ///     On Unix, limits are enforced in UTF-8 bytes; on Windows, in UTF-16 code units (chars).
+    ///     Ensures the path does not exceed the platform path limit. If it does, the file-name component is truncated (from the end, preserving the directory) until the full path fits.
     /// </summary>
     private static string EnsurePathLength(string path)
     {
@@ -807,21 +759,13 @@ public class TrashService : ITrashService
             return path;
         }
 
-        // Trash entries carry a fixed 16-char "yyyyMMdd-HHmmss_" prefix that PurgeExpiredTrash and
-        // the trash UI parse to recover the trashed-at time. Naively truncating the WHOLE name from
-        // the end would chop into (or off) that prefix once the per-component budget drops below the
-        // original name length, producing an entry that TryParseTrashTimestamp rejects - so it is
-        // never purged (retention silently defeated) and shows no date in the UI. Preserve the prefix
-        // intact and truncate ONLY the original-name portion after it. Non-trash names (no valid
-        // prefix) fall through to the previous whole-name truncation, so other callers are unchanged.
+        // Trash entries carry a fixed 16-char "yyyyMMdd-HHmmss_" prefix that PurgeExpiredTrash and the trash UI parse to recover the trashed-at time.
         const int trashPrefixLength = 15 + 1; // TimestampFormat length + '_' separator; all ASCII (1 byte/char)
         if (TryParseTrashTimestamp(name, out _))
         {
             if (maxNameSize <= trashPrefixLength)
             {
-                // Cannot even keep the parseable prefix - refuse rather than emit an unpurgeable,
-                // date-less entry. Mirrors the fail-fast IOException the collision resolver throws
-                // when the directory budget is exhausted.
+                // Cannot even keep the parseable prefix - refuse rather than emit an unpurgeable, date-less entry. Mirrors the fail-fast IOException the collision resolver throws when the directory budget is exhausted.
                 throw new IOException(
                     $"Trash path directory is too deep to preserve the timestamp prefix for '{name}' "
                     + $"(budget {maxNameSize} <= required {trashPrefixLength}).");
@@ -839,8 +783,6 @@ public class TrashService : ITrashService
 
     /// <summary>
     ///     Computes the maximum allowed size for a path component given its parent directory.
-    ///     Takes into account both the total path limit (PATH_MAX) and the per-component limit (NAME_MAX).
-    ///     On Unix, sizes are UTF-8 byte counts; on Windows, UTF-16 char counts.
     /// </summary>
     private static int GetMaxComponentSize(string directory)
     {
@@ -867,9 +809,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Measures the size of a string in the platform-appropriate unit.
-    ///     On Unix (where filesystem limits are byte-based), returns the UTF-8 byte count.
-    ///     On Windows (where limits are char-based), returns the string length (UTF-16 code units).
+    ///     Measures the size of a string in the platform-appropriate unit. On Unix (where filesystem limits are byte-based), returns the UTF-8 byte count.
     /// </summary>
     /// <param name="value">The string to measure.</param>
     /// <returns>The size in bytes (Unix) or characters (Windows).</returns>
@@ -884,10 +824,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Truncates a string so that its platform-measured size does not exceed <paramref name="maxSize" />.
-    ///     On Unix, truncates to fit within a UTF-8 byte budget without splitting multi-byte sequences.
-    ///     On Windows, truncates to fit within a character (UTF-16 code unit) budget without splitting
-    ///     surrogate pairs.
+    ///     Truncates a string so that its platform-measured size does not exceed maxSize. On Unix, truncates to fit within a UTF-8 byte budget without splitting multi-byte sequences.
     /// </summary>
     /// <param name="value">The string to truncate.</param>
     /// <param name="maxSize">The maximum allowed size (bytes on Unix, chars on Windows).</param>
@@ -919,9 +856,7 @@ public class TrashService : ITrashService
             return value[..length];
         }
 
-        // Unix: limit is in UTF-8 bytes. Iterate through characters accumulating byte counts,
-        // stopping before we would exceed the budget. Use Rune enumeration to avoid
-        // splitting multi-byte sequences.
+        // Unix: limit is in UTF-8 bytes. Iterate through characters accumulating byte counts, stopping before we would exceed the budget.
         var byteCount = 0;
         var charIndex = 0;
         while (charIndex < value.Length)
@@ -953,10 +888,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Calculates the total size of all files in a directory tree using <see cref="DirectoryInfo" />.
-    ///     This is a self-contained implementation for the trash module which operates outside the
-    ///     Jellyfin <c>IFileSystem</c> abstraction. For library paths, prefer
-    ///     <see cref="FileSystemHelper.CalculateDirectorySize" /> instead.
+    ///     Calculates the total size of all files in a directory tree using DirectoryInfo. This is a self-contained implementation for the trash module which operates outside the Jellyfin IFileSystem abstraction.
     /// </summary>
     private static long CalculateDirectorySize(string path)
     {
@@ -965,11 +897,7 @@ public class TrashService : ITrashService
         {
             var dirInfo = new DirectoryInfo(path);
 
-            // AttributesToSkip = ReparsePoint prunes directory symlinks/junctions DURING recursion,
-            // so the walk never descends INTO a linked tree. SearchOption.AllDirectories does not do
-            // this: it follows directory junctions, which inflates the byte total for a link pointing
-            // at a large tree and can loop unboundedly on a cyclic junction. It also skips reparse
-            // files, so the size only counts real files physically under this trash entry.
+            // AttributesToSkip = ReparsePoint prunes directory symlinks/junctions DURING recursion, so the walk never descends INTO a linked tree.
             var options = new EnumerationOptions
             {
                 RecurseSubdirectories = true,
@@ -1068,8 +996,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Walks up to the nearest existing ancestor of a not-yet-created path and reports whether the
-    ///     path could be created there (i.e. the parent is writable).
+    ///     Walks up to the nearest existing ancestor of a not-yet-created path and reports whether the path could be created there (i.e.
     /// </summary>
     private TrashPathAccessResult CheckCreatableAtParent(string fullPath, ILogger logger)
     {
@@ -1133,9 +1060,7 @@ public class TrashService : ITrashService
     }
 
     /// <summary>
-    ///     Attempts to create and immediately delete a temporary probe file inside the directory
-    ///     to verify write access. This is more reliable than checking ACLs because it respects
-    ///     effective permissions, SELinux policies, and filesystem mount options.
+    ///     Attempts to create and immediately delete a temporary probe file inside the directory to verify write access.
     /// </summary>
     private static bool CanWriteDirectory(string directoryPath)
     {
@@ -1171,16 +1096,7 @@ public class TrashService : ITrashService
         }
     }
 
-    // ---------------------------------------------------------------------------------------------
     // Filesystem seams (overridable for tests).
-    //
-    // These thin wrappers isolate the handful of OS-level primitives that the mocked-filesystem
-    // model cannot exercise deterministically: reparse-point (symlink/junction) detection, deleting
-    // only the link node, and the directory move whose TOCTOU retry hinges on a filesystem race.
-    // Creating real symlinks needs elevated privileges (unavailable in CI) and provoking a genuine
-    // move race is non-deterministic, so a test subclass overrides these to drive the defensive
-    // branches. Production always runs the real System.IO implementations below.
-    // ---------------------------------------------------------------------------------------------
 
     /// <summary>
     ///     Determines whether <paramref name="path" /> is an existing reparse point
@@ -1204,12 +1120,7 @@ public class TrashService : ITrashService
         ReparsePointGuard.DeleteLinkNode(path, InvokeDirectoryDelete);
 
     /// <summary>
-    ///     Thin seam around <see cref="DirectoryInfo.Delete()" />. Zero-logic passthrough to a single
-    ///     BCL call with no branching of our own; the guard logic protecting it lives in
-    ///     <see cref="ReparsePointGuard.DeleteLinkNode" /> and is unit tested via this seam being
-    ///     overridden. Excluded from coverage because running the real body needs an actual
-    ///     reparse-point node on disk (junction/symlink creation privileges unavailable in CI); a
-    ///     test would assert nothing beyond "DirectoryInfo.Delete was invoked".
+    ///     Thin seam around Delete(). Zero-logic passthrough to a single BCL call with no branching of our own; the guard logic protecting it lives in DeleteLinkNode and is unit tested via this seam being overridden.
     /// </summary>
     /// <param name="info">The <see cref="DirectoryInfo" /> whose link node should be removed.</param>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
@@ -1224,11 +1135,7 @@ public class TrashService : ITrashService
         Directory.Move(source, destination);
 
     /// <summary>
-    ///     Determines whether anything already occupies <paramref name="path" />, including a
-    ///     dangling symlink's link node. Uses <see cref="Path.Exists(string?)" />, which does not
-    ///     follow the link (unlike <see cref="File.Exists(string?)" /> /
-    ///     <see cref="Directory.Exists(string?)" />), so a broken link still holding the destination
-    ///     name correctly drives the TOCTOU move-retry instead of being treated as free.
+    ///     Determines whether anything already occupies path, including a dangling symlink's link node.
     /// </summary>
     /// <param name="path">The path to test.</param>
     /// <returns>

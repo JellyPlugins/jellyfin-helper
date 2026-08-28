@@ -22,8 +22,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 /// </summary>
 public static class TestMockFactory
 {
-    // ===== Core Infrastructure Mocks =====
-
     /// <summary>Creates a new <see cref="Mock{ILibraryManager}"/> with GetVirtualFolders returning empty list.</summary>
     public static Mock<ILibraryManager> CreateLibraryManager()
     {
@@ -49,13 +47,8 @@ public static class TestMockFactory
         return mock;
     }
 
-    // ===== Logger Mocks =====
-
     /// <summary>
-    /// Creates a new <see cref="Mock{ILogger}"/> (non-generic).
-    /// <c>IsEnabled(...)</c> is set up to return <c>true</c> for all log levels so that
-    /// production code guarded by <c>logger.IsEnabled(...)</c> checks (see CA1873 fixes)
-    /// still executes the underlying <c>Log(...)</c> call under test.
+    ///     Creates a new Mock{ILogger} (non-generic). IsEnabled(...) is set up to return true for all log levels so that production code guarded by logger.IsEnabled(...) checks (see CA1873 fixes) still executes the underlying Log(...) call under test.
     /// </summary>
     public static Mock<ILogger> CreateLogger()
     {
@@ -65,10 +58,7 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    /// Creates a new <see cref="Mock{T}"/> for a typed logger.
-    /// <c>IsEnabled(...)</c> is set up to return <c>true</c> for all log levels so that
-    /// production code guarded by <c>logger.IsEnabled(...)</c> checks (see CA1873 fixes)
-    /// still executes the underlying <c>Log(...)</c> call under test.
+    ///     Creates a new Mock{T} for a typed logger. IsEnabled(...) is set up to return true for all log levels so that production code guarded by logger.IsEnabled(...) checks (see CA1873 fixes) still executes the underlying Log(...) call under test.
     /// </summary>
     public static Mock<ILogger<T>> CreateLogger<T>()
     {
@@ -78,13 +68,7 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    /// Creates a new <see cref="Mock{ILogger}"/> where <c>IsEnabled(...)</c> always returns
-    /// <c>false</c>. Use this in tests that specifically want to exercise the
-    /// <c>logger.IsEnabled(...) == false</c> branch - for example to prove that a guarded
-    /// <c>Log(...)</c> call is skipped without side effects (an <c>ILoggerProvider</c> that
-    /// throws when disabled would surface here). The main <see cref="CreateLogger()"/>
-    /// helper deliberately returns <c>true</c> so the common test path exercises the
-    /// happy-log flow; this disabled variant is the complementary regression guard.
+    ///     Creates a new Mock{ILogger} where IsEnabled(...) always returns false.
     /// </summary>
     public static Mock<ILogger> CreateDisabledLogger()
     {
@@ -103,15 +87,11 @@ public static class TestMockFactory
         return mock;
     }
 
-    // ===== Other Mocks =====
-
     /// <summary>Creates a new <see cref="Mock{IHttpClientFactory}"/>.</summary>
     public static Mock<IHttpClientFactory> CreateHttpClientFactory() => new();
 
     /// <summary>Creates a new <see cref="IMemoryCache"/> instance.</summary>
     public static IMemoryCache CreateMemoryCache() => new MemoryCache(new MemoryCacheOptions());
-
-    // ===== HTTP Mocks =====
 
     /// <summary>Creates a mock <see cref="HttpMessageHandler"/> that returns the given status code and content.</summary>
     public static Mock<HttpMessageHandler> CreateHttpMessageHandler(HttpStatusCode statusCode, string content)
@@ -132,12 +112,8 @@ public static class TestMockFactory
         return mock;
     }
 
-    // ===== Configuration Mocks =====
-
     /// <summary>
-    /// Creates a new <see cref="Mock{ICleanupConfigHelper}"/> with sensible defaults.
-    /// Returns a fixed <see cref="PluginConfiguration"/> instead of reading from the global singleton,
-    /// avoiding order-dependent and flaky tests.
+    ///     Creates a new Mock{ICleanupConfigHelper} with sensible defaults. Returns a fixed PluginConfiguration instead of reading from the global singleton, avoiding order-dependent and flaky tests.
     /// </summary>
     public static Mock<ICleanupConfigHelper> CreateCleanupConfigHelper(PluginConfiguration? config = null)
     {
@@ -170,8 +146,6 @@ public static class TestMockFactory
         return mock;
     }
 
-    // ===== Service Mocks =====
-
     /// <summary>Creates a new <see cref="Mock{IMediaStatisticsService}"/>.</summary>
     public static Mock<IMediaStatisticsService> CreateMediaStatisticsService() => new();
 
@@ -185,10 +159,7 @@ public static class TestMockFactory
     public static Mock<ILibraryInsightsService> CreateLibraryInsightsService() => new();
 
     /// <summary>
-    /// Creates a new <see cref="Mock{IPluginConfigurationService}"/> with sensible defaults.
-    /// Returns a fresh <see cref="PluginConfiguration"/> so tests don't depend on Plugin.Instance.
-    /// <see cref="IPluginConfigurationService.ReadAndMutate"/> is stubbed to immediately invoke
-    /// the delegate on the same config object returned by <see cref="IPluginConfigurationService.GetConfiguration"/>.
+    ///     Creates a new Mock{IPluginConfigurationService} with sensible defaults. Returns a fresh PluginConfiguration so tests don't depend on Plugin.Instance.
     /// </summary>
     public static Mock<IPluginConfigurationService> CreateConfigurationService(PluginConfiguration? config = null)
     {
@@ -202,10 +173,7 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    /// Wires <see cref="IPluginConfigurationService.ReadAndMutate"/> on <paramref name="mock"/>
-    /// so that the callback is immediately invoked on <paramref name="cfg"/>.
-    /// Call this whenever a test mock needs to support the atomic read-mutate-save path used
-    /// by <c>BackupService.RestoreConfiguration</c> (and any future callers of ReadAndMutate).
+    ///     Wires ReadAndMutate on mock so that the callback is immediately invoked on cfg. Call this whenever a test mock needs to support the atomic read-mutate-save path used by BackupService.RestoreConfiguration (and any future callers of ReadAndMutate).
     /// </summary>
     public static void SetupReadAndMutate(Mock<IPluginConfigurationService> mock, PluginConfiguration cfg)
     {
@@ -214,8 +182,7 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    /// Creates a new <see cref="PluginLogService"/> backed by a mock <see cref="IPluginConfigurationService"/>.
-    /// Convenience method so tests do not need to create the mock themselves.
+    ///     Creates a new PluginLogService backed by a mock IPluginConfigurationService. Convenience method so tests do not need to create the mock themselves.
     /// </summary>
     public static PluginLogService CreatePluginLogService(PluginConfiguration? config = null)
     {

@@ -8,21 +8,12 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
 /// <summary>
-///     Pure computation methods for content-based scoring signals:
-///     collaborative score normalization, community rating, recency, year proximity,
-///     user rating, completion ratio, average year, and engagement labels.
+///     Pure computation methods for content-based scoring signals: collaborative score normalization, community rating, recency, year proximity, user rating, completion ratio, average year, and engagement labels.
 /// </summary>
 internal static class ContentScoring
 {
     /// <summary>
-    ///     Process-lifetime counter of parallel-array mismatches in
-    ///     <see cref="ComputeContentNearestNeighborScore"/>. Exposed so tests/diagnostics can observe
-    ///     silent degradations that Debug.Assert only surfaces in Debug builds.
-    ///     <para>
-    ///         Incremented atomically; the first non-zero value emits a one-shot
-    ///         <see cref="Trace.TraceWarning(string)"/> so the mismatch reaches the .NET trace listener
-    ///         chain in Release too (Debug.Assert is a no-op there, hiding the degradation).
-    ///     </para>
+    ///     Process-lifetime counter of parallel-array mismatches in ComputeContentNearestNeighborScore.
     /// </summary>
     private static long _parallelArrayMismatchCount;
 
@@ -53,9 +44,7 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Normalizes a Rotten Tomatoes critic rating (0-100%) to a 0-1 score.
-    ///     Returns 0.5 (neutral) when the value is null, zero, negative, NaN, or Infinity.
-    ///     Jellyfin stores CriticRating as a float? representing the "Tomatometer" percentage.
+    ///     Normalizes a Rotten Tomatoes critic rating (0-100%) to a 0-1 score. Returns 0.5 (neutral) when the value is null, zero, negative, NaN, or Infinity.
     /// </summary>
     /// <param name="criticRating">The critic rating value (0-100).</param>
     /// <returns>A normalized score between 0 and 1, or 0.5 if unavailable.</returns>
@@ -71,11 +60,7 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Computes a combined critic score from TMDb community rating and Rotten Tomatoes
-    ///     Tomatometer. When both are available, TMDb is weighted 55% and Tomatometer 45%
-    ///     (TMDb slightly stronger because it reflects a broader audience perspective).
-    ///     When only one source is available, that source is used exclusively.
-    ///     Returns 0.5 (neutral) when neither source has data.
+    ///     Computes a combined critic score from TMDb community rating and Rotten Tomatoes Tomatometer.
     /// </summary>
     /// <param name="communityRating">TMDb community rating (0-10), or null if unavailable.</param>
     /// <param name="criticRating">Rotten Tomatoes Tomatometer (0-100%), or null if unavailable.</param>
@@ -190,11 +175,7 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Computes a completion-ratio-modulated engagement label for watched items.
-    ///     Instead of a flat label, this interpolates between <see cref="EngineConstants.WatchedLabelFloor" />
-    ///     and <see cref="EngineConstants.WatchedLabel" /> based on how much of the item the user completed.
-    ///     This gives the model richer gradient signal: fully-watched items get ~0.85,
-    ///     while barely-started items still get a positive label (~0.5) since the user chose to watch.
+    ///     Computes a completion-ratio-modulated engagement label for watched items. Instead of a flat label, this interpolates between WatchedLabelFloor and WatchedLabel based on how much of the item the user completed.
     /// </summary>
     /// <param name="completionRatio">The watch completion ratio (0-1).</param>
     /// <returns>
@@ -206,17 +187,13 @@ internal static class ContentScoring
         // Clamp input to valid range
         var ratio = Math.Clamp(completionRatio, 0.0, 1.0);
 
-        // Linear interpolation: floor + ratio * (ceiling - floor)
-        // At 0% completion: WatchedLabelFloor (0.5) - user chose to watch, still positive
-        // At 100% completion: WatchedLabel (0.85) - strong positive signal
+        // Linear interpolation: floor + ratio * (ceiling - floor) At 0% completion: WatchedLabelFloor (0.5) - user chose to watch, still positive At 100% completion: WatchedLabel (0.85) - strong positive signal.
         return EngineConstants.WatchedLabelFloor +
                (ratio * (EngineConstants.WatchedLabel - EngineConstants.WatchedLabelFloor));
     }
 
     /// <summary>
-    ///     Computes the watch completion ratio for a candidate item.
-    ///     Returns 0 if the user has never started the item (new candidate),
-    ///     or a ratio of played ticks to runtime ticks for partially watched items.
+    ///     Computes the watch completion ratio for a candidate item. Returns 0 if the user has never started the item (new candidate), or a ratio of played ticks to runtime ticks for partially watched items.
     /// </summary>
     /// <param name="watchedItem">The watched item entry, or null if the user hasn't interacted with it.</param>
     /// <returns>A completion ratio between 0 and 1.</returns>
@@ -244,8 +221,6 @@ internal static class ContentScoring
 
     /// <summary>
     ///     Computes the average production year from the user's watched and favorited items.
-    ///     Favorites are included because they represent explicit interest in content
-    ///     from a particular era, even if not yet played.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>The average production year, or 0 if no years are available.</returns>
@@ -265,19 +240,9 @@ internal static class ContentScoring
 
     /// <summary>
     ///     Computes the content-based nearest-neighbor score for a candidate item.
-    ///     For each watched item, calculates a composite similarity using:
-    ///     - Genre Jaccard similarity (50% weight)
-    ///     - People/cast Jaccard similarity (30% weight)
-    ///     - Studio overlap (20% weight, binary: 1 if any shared studio, 0 otherwise)
-    ///     Returns the MAX composite similarity across all watched items, measuring how similar
-    ///     this candidate is to the user's most similar watched item.
     /// </summary>
     /// <remarks>
-    ///     Unlike GenreSimilarity (which compares against the aggregated user profile), this
-    ///     captures item-to-item affinity: a niche anime in a mostly-action user's library
-    ///     will still boost similar anime candidates because of the specific item-level match.
-    ///     Performance: O(W × G) where W = watched items, G = max genres per item (~5).
-    ///     Typically &lt;10ms for 200 watched items × 1000 candidates when called per-candidate.
+    ///     Unlike GenreSimilarity (which compares against the aggregated user profile), this captures item-to-item affinity: a niche anime in a mostly-action user's library will still boost similar anime candidates because of the specific item-level match.
     /// </remarks>
     /// <param name="candidateGenres">The candidate's genre set (case-insensitive).</param>
     /// <param name="candidatePeople">The candidate's people/cast set (case-insensitive), or null if unavailable.</param>
@@ -299,12 +264,7 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        // Parallel-array invariant: all three lists MUST be the same length (populated in the same loop
-        // in Engine.GenerateForUser and the training-data builders). A mismatch is always a bug, but
-        // throwing would abort a whole training run for one misconfigured user, leaving no updated weights.
-        // Fail-safe: iterate the full genre list (primary signal, 50% weight) and treat missing
-        // people/studio entries as unavailable rather than dropping the watched item, so a stray refactor
-        // cannot down the task or silently discard half the signal.
+        // Parallel-array invariant: all three lists MUST be the same length (populated in the same loop in Engine.GenerateForUser and the training-data builders).
         ReportParallelArrayMismatch(watchedGenreSets, watchedPeopleSets, watchedStudioSets);
 
         var maxComposite = 0.0;
@@ -329,10 +289,6 @@ internal static class ContentScoring
 
     /// <summary>
     ///     Detects and reports a parallel-array length mismatch across the watched-item set lists.
-    ///     Visibility: Debug.Assert catches this in Debug/tests but compiles away in Release, so this also
-    ///     bumps a static counter (ParallelArrayMismatchCount) and emits ONE Trace.TraceWarning on the
-    ///     FIRST mismatch; later calls stay cheap. A mismatch is always a bug; the caller degrades
-    ///     gracefully by treating missing entries as absent rather than aborting.
     /// </summary>
     /// <param name="watchedGenreSets">Pre-computed genre sets for each watched item.</param>
     /// <param name="watchedPeopleSets">Pre-computed people sets for each watched item (parallel to genre sets).</param>
@@ -366,9 +322,7 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Computes the weighted composite similarity between the candidate and a single watched item:
-    ///     genre Jaccard (50%), people Jaccard (30%), and binary studio overlap (20%). Missing parallel
-    ///     entries (null people/studio set) contribute zero to their dimension without dropping the item.
+    ///     Computes the weighted composite similarity between the candidate and a single watched item: genre Jaccard (50%), people Jaccard (30%), and binary studio overlap (20%).
     /// </summary>
     /// <param name="candidateGenres">The candidate's genre set (case-insensitive).</param>
     /// <param name="candidatePeople">The candidate's people/cast set (case-insensitive), or null if unavailable.</param>
@@ -406,11 +360,7 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Computes a popularity proxy score from collaborative and critic signals.
-    ///     When collaborative data is available, uses a scaled collaborative score.
-    ///     Otherwise falls back to a fraction of the combined critic score.
-    ///     Centralized here to ensure consistent computation across Engine.ScoreCandidate()
-    ///     and TrainingService (all training phases).
+    ///     Computes a popularity proxy score from collaborative and critic signals. When collaborative data is available, uses a scaled collaborative score.
     /// </summary>
     /// <param name="collaborativeScore">The normalized collaborative score (0-1).</param>
     /// <param name="combinedCriticScore">The combined critic score (0-1).</param>

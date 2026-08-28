@@ -5,9 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 
 /// <summary>
-///     Tests for <see cref="PatchRequestPayload"/> - a JSON DTO used by the File Transformation
-///     plugin callback. The property must map to <c>"contents"</c> (lowercase-camel) so upstream
-///     payloads deserialize correctly.
+///     Tests for PatchRequestPayload - a JSON DTO used by the File Transformation plugin callback.
 /// </summary>
 public class PatchRequestPayloadTests
 {

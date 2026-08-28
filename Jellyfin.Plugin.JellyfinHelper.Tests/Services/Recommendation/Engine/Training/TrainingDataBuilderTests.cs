@@ -9,23 +9,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Training;
 
 /// <summary>
-///     Tests for <see cref="TrainingDataBuilder.BuildExamples"/>.
-///     Cross-user random negatives must be
-///     reproducible across runs with identical input, otherwise training weights drift
-///     between runs and Regressions-Tests against the ensemble output become flaky.
+///     Tests for BuildExamples. Cross-user random negatives must be reproducible across runs with identical input, otherwise training weights drift between runs and Regressions-Tests against the ensemble output become flaky.
 /// </summary>
 public sealed class TrainingDataBuilderTests
 {
     [Fact]
     public void BuildExamples_Phase3RandomNegatives_AreDeterministicAcrossRuns()
     {
-        // Two users, each with one recommendation of a unique item. Neither user has
-        // watched the OTHER's recommended item -> both are eligible cross-user negatives
-        // in Phase 3. We repeat BuildExamples() with an identical fresh copy of the input
-        // (same GUIDs, same order) - the deterministic seed introduced in F-01 must yield
-        // bit-identical randomNegativeCount, generatedAtUtc, and label sequences across
-        // both runs. A regression to Random.Shared would keep the counts stable (sample
-        // size is capped) but the picked items would change on nearly every retry.
+        // Two users, each with one recommendation of a unique item. Neither user has watched the OTHER's recommended item -> both are eligible cross-user negatives in Phase 3.
         var userA = Guid.NewGuid();
         var userB = Guid.NewGuid();
         var itemA = Guid.NewGuid();
@@ -93,10 +84,7 @@ public sealed class TrainingDataBuilderTests
         Assert.Equal(run1.DiscoveryCount, run2.DiscoveryCount);
         Assert.Equal(run1.Examples.Count, run2.Examples.Count);
 
-        // Deterministic contract: for every example emitted, label + feature vector must
-        // match position-by-position. Random.Shared would flip the picked negatives (and
-        // therefore the CollaborativeScore / GenreSimilarity / GenreCount / PopularityScore
-        // of the emitted negative-label examples) on virtually every re-run.
+        // Deterministic contract: for every example emitted, label + feature vector must match position-by-position.
         for (var i = 0; i < run1.Examples.Count; i++)
         {
             var e1 = run1.Examples[i];
@@ -115,10 +103,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_SeriesLevelFavorite_CountsRecommendedSeriesAsWatched()
     {
-        // A series marked favorite at the series level (FavoriteSeriesIds), with no watched
-        // episode rows for it. When that series is recommended, the FavoriteSeriesIds loop must
-        // fold it into the watched-series set so it counts as watched, and the null-episode
-        // favorite branch must apply the explicit favorite-only intent label (0.65), not exposure.
+        // A series marked favorite at the series level (FavoriteSeriesIds), with no watched episode rows for it.
         var user = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
 
@@ -154,10 +139,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_RecommendationWithRichMetadata_PopulatesCachedLookups()
     {
-        // A recommended item that the user also organically watched (same ItemId in a prior rec
-        // AND in WatchedItems). The recommendation carries people/studios/tags/boxset metadata,
-        // so the cached lookups seed the user's preferred people/studio/tag sets and BoxSet counts.
-        // The re-recommended item then resolves matching features from those lookups.
+        // A recommended item that the user also organically watched (same ItemId in a prior rec AND in WatchedItems).
         var user = Guid.NewGuid();
         var itemId = Guid.NewGuid();
         var boxSet = Guid.NewGuid();
@@ -216,10 +198,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_SharedWatchHistory_ProducesPositiveCollaborativeScore()
     {
-        // Two users share three watched items (>= MinCollaborativeOverlap) plus each has one
-        // unique item. This produces a finite positive co-occurrence for the neighbour's unique
-        // item, raising collaborativeMax above zero. User A is recommended user B's unique item,
-        // which A never watched, so it must carry a positive collaborative score.
+        // Two users share three watched items (>= MinCollaborativeOverlap) plus each has one unique item. This produces a finite positive co-occurrence for the neighbour's unique item, raising collaborativeMax above zero.
         var userA = Guid.NewGuid();
         var userB = Guid.NewGuid();
         var shared1 = Guid.NewGuid();
@@ -276,10 +255,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_RecommendedSeriesWithWatchedEpisodes_NeutralisesUserInteraction()
     {
-        // A user meaningfully watched several episodes of a series, and that SERIES id is later
-        // recommended. The live path filters watched series out of the candidate pool, so the
-        // training example for the series must neutralise all user-interaction channels while
-        // still being labelled positive via the watched-series membership.
+        // A user meaningfully watched several episodes of a series, and that SERIES id is later recommended.
         var user = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
 
@@ -334,9 +310,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_RecommendedSeriesFavoriteWithoutEpisodes_NeutralisesInteraction()
     {
-        // A recommended series is a series-level favorite but has no watched episode rows, so the
-        // resolved watched item is null. The switch arm for "watched via favorite, no episodes"
-        // must neutralise interaction features while the label reflects favorite-only intent.
+        // A recommended series is a series-level favorite but has no watched episode rows, so the resolved watched item is null.
         var user = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
 
@@ -375,9 +349,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_StartedThenAbandonedRecommendation_GetsAbandonedLabel()
     {
-        // A recommended item the user started but abandoned early (playback progress well below
-        // the abandoned-completion threshold, never marked played, not a favorite) is active
-        // rejection - it must be labelled AbandonedLabel (0.0), not treated as a normal watch.
+        // A recommended item the user started but abandoned early (playback progress well below the abandoned-completion threshold, never marked played, not a favorite) is active rejection - it must be labelled AbandonedLabel (0.0), not treated as a normal watch.
         var user = Guid.NewGuid();
         var itemId = Guid.NewGuid();
 
@@ -425,11 +397,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_Phase3NegativesForUserWithoutOwnRecs_UseSeriesStudioAndBoxSetCounts()
     {
-        // Sampled user (B) has NO prior recommendations of their own, watches episodes whose
-        // studios resolve only via the series-level studio lookup, and watches an item belonging
-        // to a BoxSet. User A's recommendations become eligible cross-user negatives for B. Every
-        // negative must be labelled 0.0 with weight 0.5, and a metadata-rich negative should carry
-        // a non-zero content-similarity or progression signal built from B's watched studios/boxsets.
+        // Sampled user (B) has NO prior recommendations of their own, watches episodes whose studios resolve only via the series-level studio lookup, and watches an item belonging to a BoxSet.
         var userA = Guid.NewGuid();
         var userB = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
@@ -476,9 +444,7 @@ public sealed class TrainingDataBuilderTests
             }
         };
 
-        // Recommendations to A only: the series carries studios (resolved for B via SeriesId),
-        // boxItemId carries the shared BoxSet (so B's watched item contributes a BoxSet count),
-        // and negItem shares genres/studios with B's watched content.
+        // Recommendations to A only: the series carries studios (resolved for B via SeriesId), boxItemId carries the shared BoxSet (so B's watched item contributes a BoxSet count), and negItem shares genres/studios with B's watched content.
         var results = new List<RecommendationResult>
         {
             new()
@@ -516,9 +482,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_WithDiscoveryFeedback_DelegatesAndCountsDiscovery()
     {
-        // The 4-argument discovery overload must forward the feedback through the core so Phase 4
-        // produces discovery examples. A requested-and-watched entry is a strong positive; it must
-        // appear in the returned examples and be counted in DiscoveryCount.
+        // The 4-argument discovery overload must forward the feedback through the core so Phase 4 produces discovery examples.
         var user = Guid.NewGuid();
         var itemId = Guid.NewGuid();
 
@@ -579,11 +543,7 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_Phase1WatchedEpisodeStudiosResolveViaSeries_FeedContentNearestNeighbor()
     {
-        // A watched episode carries no studios under its own ItemId, but its SeriesId was
-        // recommended with studios. The watched-studio set must therefore be populated from the
-        // series-level fallback. A separate exposure candidate shares that studio but has genres
-        // disjoint from everything watched and no cast, so ContentNearestNeighbor can only score
-        // through the 20% studio-overlap term - proving the series fallback fed the studio set.
+        // A watched episode carries no studios under its own ItemId, but its SeriesId was recommended with studios.
         var user = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();

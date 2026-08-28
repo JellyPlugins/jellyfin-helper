@@ -25,9 +25,7 @@ public static class BackupValidator
     internal const int MaxTimelineDataPoints = 5000;
 
     /// <summary>
-    ///     Maximum number of baseline directory entries allowed in a backup.
-    ///     Each top-level media directory (movie folder, TV show folder, etc.) is one entry.
-    ///     50,000 supports very large media servers.
+    ///     Maximum number of baseline directory entries allowed in a backup. Each top-level media directory (movie folder, TV show folder, etc.) is one entry.
     /// </summary>
     internal const int MaxBaselineDirectories = 50_000;
 
@@ -93,11 +91,7 @@ public static class BackupValidator
         "daily", "weekly", "monthly", "quarterly", "yearly"
     };
 
-    // Regex to detect script injection in string fields. Covers the common HTML/script
-    // vectors plus the two dangerous URL schemes (data:text/html and vbscript:) that the
-    // earlier pattern missed. Homoglyph/obfuscation variants are out of scope for a denylist;
-    // the real defense is that these config values are never rendered as raw HTML server-side
-    // and are HTML-encoded on display; this pattern is defense-in-depth on stored input.
+    // Regex to detect script injection in string fields. Covers the common HTML/script vectors plus the two dangerous URL schemes (data:text/html and vbscript:) that the earlier pattern missed.
     private static readonly Regex ScriptPattern = new(
         @"<\s*script|javascript\s*:|vbscript\s*:|data\s*:\s*text/html|on\w+\s*=|<\s*iframe|<\s*object|<\s*embed|<\s*form|<\s*svg\s+on",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
@@ -142,19 +136,14 @@ public static class BackupValidator
         return result;
     }
 
-    // === Validation helpers ===
-
     /// <summary>
-    ///     Validates the backup timestamp, normalising an unspecified <see cref="DateTimeKind"/> to UTC
-    ///     before the suspiciously-old / in-the-future sanity comparisons.
+    ///     Validates the backup timestamp, normalising an unspecified DateTimeKind to UTC before the suspiciously-old / in-the-future sanity comparisons.
     /// </summary>
     /// <param name="result">The validation result to append warnings to.</param>
     /// <param name="backup">The backup being validated.</param>
     private static void ValidateTimestamp(BackupValidationResult result, BackupData backup)
     {
-        // Timestamp sanity
-        // Normalise Kind before comparing - JSON without a 'Z' suffix deserialises as Unspecified,
-        // which .NET does NOT automatically treat as UTC in comparisons, causing incorrect results.
+        // Timestamp sanity Normalise Kind before comparing - JSON without a 'Z' suffix deserialises as Unspecified, which .NET does NOT automatically treat as UTC in comparisons, causing incorrect results.
         if (backup.CreatedAt.Kind == DateTimeKind.Unspecified)
         {
             result.Warnings.Add("Backup CreatedAt has no timezone indicator; treating as UTC.");
@@ -263,22 +252,13 @@ public static class BackupValidator
     }
 
     /// <summary>
-    ///     Validates the trash folder path with defence in depth, gated on <c>UseTrash</c>: injection-pattern
-    ///     safety plus the same structural rules the settings save API applies.
+    ///     Validates the trash folder path with defence in depth, gated on UseTrash: injection-pattern safety plus the same structural rules the settings save API applies.
     /// </summary>
     /// <param name="result">The validation result to append errors to.</param>
     /// <param name="backup">The backup being validated.</param>
     private static void ValidateTrashPath(BackupValidationResult result, BackupData backup)
     {
-        // Path validation for trash folder - defence in depth:
-        //   1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...}).
-        //   2. ValidateTrashPathStrict applies the same structural rules as the settings save API.
-        // Gated on UseTrash by design: a restore must ALWAYS succeed (never hard-400). An unsafe
-        // trash path in a backup is DEFANGED to the default during RestoreConfiguration rather than
-        // rejected here, so this hard error only fires when the operator is actively enabling trash.
-        // The defang in BackupService.RestoreConfiguration is what keeps a traversal/sensitive/
-        // absolute path from ever reaching live config when UseTrash=false. See the e2e contract
-        // "import defangs a traversal trash path (UseTrash off) to the default".
+        // Path validation for trash folder - defence in depth: 1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...}).
         if (!backup.UseTrash)
         {
             return;
@@ -338,10 +318,7 @@ public static class BackupValidator
 
     private static void ValidatePathSafety(BackupValidationResult result, string path, string fieldName)
     {
-        // Check for path traversal attempts (segment-aware to avoid false positives on names like "my..folder")
-        // Use hardcoded separators because on Unix both Path.DirectorySeparatorChar and
-        // Path.AltDirectorySeparatorChar are '/', so a Windows-style path like "C:\trash\..\escape"
-        // would remain a single segment and bypass the traversal check.
+        // Check for path traversal attempts (segment-aware to avoid false positives on names like "my..folder") Use hardcoded separators because on Unix both Path.DirectorySeparatorChar and Path.AltDirectorySeparatorChar are '/', so a Windows-style path like "C:\trash\..\escape" would.
         var segments = path.Split(
             ['/', '\\'],
             StringSplitOptions.RemoveEmptyEntries);
@@ -515,8 +492,6 @@ public static class BackupValidator
             }
         }
     }
-
-    // === Security helpers ===
 
     internal static bool ContainsNullBytes(string value)
     {

@@ -74,9 +74,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                     Directory.CreateDirectory(directory);
                 }
 
-                // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
-                // final File.Move gets a bounded retry instead of silently dropping the save.
-                // AtomicFile also handles temp-file cleanup internally.
+                // Use AtomicFile so a transient Windows AV/indexer sharing violation on the final File.Move gets a bounded retry instead of silently dropping the save.
                 AtomicFile.WriteAllText(_cacheFilePath, json);
 
                 _pluginLog.LogDebug(
@@ -85,18 +83,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                     _logger);
             }
 
-            // Broader filter than plain IOException / UnauthorizedAccessException / JsonException
-            // because AtomicFile.WriteAllText can also surface SecurityException,
-            // NotSupportedException and ArgumentException (malformed path characters from OS layer).
-            // Best-effort save must degrade gracefully for every one of those rather than crashing
-            // the scheduled task. Matches the filter used in StatisticsCacheService.
-            //
-            // Not covered by unit tests: triggering SecurityException / NotSupportedException
-            // reliably in-process requires filesystem edge cases (locked-down user accounts,
-            // exotic path syntax on non-Windows) that a portable xUnit run cannot reproduce.
-            // The handler body is intentionally identical to the IOException/JsonException
-            // path (log + swallow, no state mutation) so all six exception types share the
-            // same code path - extending the filter cannot introduce a new failure mode.
+            // Broader filter than plain IOException / UnauthorizedAccessException / JsonException because AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException and ArgumentException (malformed path characters from OS layer).
             catch (Exception ex) when (ex is IOException
                                         or UnauthorizedAccessException
                                         or JsonException

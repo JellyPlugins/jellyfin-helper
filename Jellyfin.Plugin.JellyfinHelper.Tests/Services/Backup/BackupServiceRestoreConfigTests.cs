@@ -9,13 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 
 /// <summary>
-///     Focused tests for the RestoreBackup + RestoreConfiguration path when
-///     <see cref="IPluginConfigurationService.IsInitialized"/> returns <c>true</c> - this
-///     exercises the full config-restore pipeline that the existing tests deliberately
-///     skip (they set <c>IsInitialized = false</c> so only the file I/O paths run).
-///     Covers sanitization/validation edge cases: invalid language falls back to "en",
-///     out-of-range values are clamped, task-mode parsing rejects garbage input, and
-///     Arr instance lists are properly cleared before replacement.
+///     Focused tests for the RestoreBackup + RestoreConfiguration path when IsInitialized returns true - this exercises the full config-restore pipeline that the existing tests deliberately skip (they set IsInitialized = false so only the file I/O paths run).
 /// </summary>
 public sealed class BackupServiceRestoreConfigTests : IDisposable
 {
@@ -127,9 +121,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_InvalidLanguage_FallsBackToEnglish()
     {
-        // BUG GUARD: If the persisted language is corrupted or from a newer version that
-        // introduced language codes the current version doesn't know, the plugin must NOT
-        // apply the untrusted value - it must fall back to "en" to keep the UI usable.
+        // BUG GUARD: If the persisted language is corrupted or from a newer version that introduced language codes the current version doesn't know, the plugin must NOT apply the untrusted value - it must fall back to "en" to keep the UI usable.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         backup.Language = "klingon-KL";
@@ -190,9 +182,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_EmptyTrashFolderPath_UsesDefault()
     {
-        // BUG GUARD: If the persisted trash path is missing/blank, RestoreConfiguration must
-        // inject the sensible default ".jellyfin-trash" - leaving it empty would break
-        // subsequent trash operations that assume a valid folder name.
+        // BUG GUARD: If the persisted trash path is missing/blank, RestoreConfiguration must inject the sensible default ".jellyfin-trash" - leaving it empty would break subsequent trash operations that assume a valid folder name.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         backup.TrashFolderPath = "";
@@ -217,10 +207,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_TraversalTrashPath_TrashOff_DefangsToDefault()
     {
-        // AUDIT GUARD (backup-01): a crafted backup with UseTrash=false must NOT hard-fail the
-        // restore, but the traversal path must be defanged to the default so it can never reach
-        // live config. Matches the e2e contract
-        // "import defangs a traversal trash path (UseTrash off) to the default".
+        // AUDIT GUARD (backup-01): a crafted backup with UseTrash=false must NOT hard-fail the restore, but the traversal path must be defanged to the default so it can never reach live config.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup(useTrash: false);
         backup.TrashFolderPath = "../../etc";
@@ -233,9 +220,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_SensitiveAbsoluteTrashPath_TrashOff_DefangsToDefault()
     {
-        // AUDIT GUARD (backup-01): a sensitive absolute system path with UseTrash=false must be
-        // defanged to the default rather than persisted into live config. This is the actual attack
-        // the audit finding raised (a /etc or C:\Windows path landing in config with trash disabled).
+        // AUDIT GUARD (backup-01): a sensitive absolute system path with UseTrash=false must be defanged to the default rather than persisted into live config.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup(useTrash: false);
         backup.TrashFolderPath = OperatingSystem.IsWindows() ? "C:\\Windows" : "/etc";
@@ -262,9 +247,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_UnknownTaskMode_DefaultsToDryRun()
     {
-        // BUG GUARD: unknown task mode strings must fall back to DryRun (safe default) rather
-        // than throw or corrupt the enum. This prevents a malicious/older backup from disabling
-        // safety modes silently.
+        // BUG GUARD: unknown task mode strings must fall back to DryRun (safe default) rather than throw or corrupt the enum.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         backup.TrickplayTaskMode = "MaliciousMode";
@@ -283,10 +266,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_EmptySeerrCleanupTaskMode_DefaultsToDeactivate()
     {
-        // SeerrCleanupTaskMode intentionally falls back to Deactivate (not DryRun) because
-        // enabling cleanup by default on a fresh restore could permanently delete Seerr
-        // requests the admin has not reviewed. Deactivate is the safest no-op sentinel for
-        // an opt-in background cleanup that modifies external data in a third-party service.
+        // SeerrCleanupTaskMode intentionally falls back to Deactivate (not DryRun) because enabling cleanup by default on a fresh restore could permanently delete Seerr requests the admin has not reviewed.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         backup.SeerrCleanupTaskMode = "";
@@ -388,9 +368,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_ZeroSeerrCleanupAgeDays_IsApplied()
     {
-        // BUG-10 / HARDENING-6: with int?, null means "absent" and 0 is a valid
-        // "immediate cleanup" value that MUST be applied. The previous int sentinel
-        // (0 == absent) silently swallowed legitimate zero values.
+        // BUG-10 / HARDENING-6: with int?, null means "absent" and 0 is a valid "immediate cleanup" value that MUST be applied.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrCleanupAgeDays = 45;
         var backup = MakeMinimalValidBackup();
@@ -565,9 +543,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void CreateBackup_SeerrApiKey_IsIncludedInExport()
     {
-        // API keys are now exported so that a backup/restore round-trip preserves
-        // credentials. The ContainsSecrets flag is set to true so the UI/caller can
-        // warn the user to store the file securely.
+        // API keys are now exported so that a backup/restore round-trip preserves credentials. The ContainsSecrets flag is set to true so the UI/caller can warn the user to store the file securely.
         var liveConfig = new PluginConfiguration { SeerrApiKey = "real-secret-key" };
         var configMock = new Mock<IPluginConfigurationService>();
         configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
@@ -663,9 +639,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_NonEmptySeerrApiKey_EmitsAuditWarning()
     {
-        // BUG GUARD: silently overwriting credentials from a backup file with no log
-        // entry makes it impossible to audit. When a non-empty key in the backup differs
-        // from the live value the service must emit a LogWarning before applying it.
+        // BUG GUARD: silently overwriting credentials from a backup file with no log entry makes it impossible to audit.
         var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
         var liveConfig = new PluginConfiguration();
         var configMock = new Mock<IPluginConfigurationService>();
@@ -750,8 +724,6 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal(backupKey, liveConfig.SeerrApiKey);
     }
 
-    // ===== HARDENING-6 / BUG-10: nullable SeerrCleanupAgeDays =====
-
     [Fact]
     public void RestoreConfiguration_SeerrCleanupAgeDays_WhenNull_LeavesExistingValue()
     {
@@ -795,8 +767,6 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal(BackupValidator.MaxRetentionDays, liveConfig.SeerrCleanupAgeDays);
     }
 
-    // ===== SEC-3: URL scheme validation on restore =====
-
     [Fact]
     public void RestoreConfiguration_SeerrUrl_FileScheme_IsRejected()
     {
@@ -826,16 +796,10 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal("https://new.seerr.example.com", liveConfig.SeerrUrl);
     }
 
-    // ===== HARDENING-2: data files written before config =====
-
     [Fact]
     public void RestoreBackup_FileWriteFails_ConfigStillRestored()
     {
-        // HARDENING-2 ordering: data files are written first, THEN config is updated.
-        // If file I/O fails (no timeline/baseline in this backup), RestoreConfiguration
-        // must still run - the config restore is independent of data-file success.
-        // This test verifies the production ordering by checking that config fields
-        // are applied even when the backup carries no timeline/baseline data.
+        // HARDENING-2 ordering: data files are written first, THEN config is updated. If file I/O fails (no timeline/baseline in this backup), RestoreConfiguration must still run - the config restore is independent of data-file success.
         var (service, liveConfig, configMock) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         // No timeline/baseline -> no file writes occur; config restore must still run.
@@ -858,10 +822,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void CreateBackup_ExcludeSecrets_RedactsArrInstanceApiKeys()
     {
-        // Default export (includeSecrets:false) must strip every Arr API key so the file
-        // can be shared without leaking plaintext credentials, while leaving the Name/Url
-        // intact so a restore can still preserve the live key by name. Redaction must be
-        // surgical, and the export must not be flagged as carrying secrets.
+        // Default export (includeSecrets:false) must strip every Arr API key so the file can be shared without leaking plaintext credentials, while leaving the Name/Url intact so a restore can still preserve the live key by name.
         var liveConfig = new PluginConfiguration();
         liveConfig.RadarrInstances.Add(new ArrInstanceConfig
             { Name = "R1", Url = "http://r:7878", ApiKey = "radarr-secret" });

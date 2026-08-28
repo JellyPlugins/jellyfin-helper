@@ -19,29 +19,16 @@ public class SymlinkHelper : ISymlinkHelper
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or ArgumentException or PathTooLongException)
         {
-            // Non-existent paths / permission denied / invalid path characters -> treat as "not a symlink". The
-            // LinkRepairService will decide separately whether the *absence* of the
-            // path is itself an actionable state.
+            // Non-existent paths / permission denied / invalid path characters -> treat as "not a symlink". The LinkRepairService will decide separately whether the *absence* of the path is itself an actionable state.
             return false;
         }
     }
 
     /// <summary>
-    ///     Determines whether a path is a symbolic link given an already-fetched
-    ///     <see cref="FileAttributes" /> value, avoiding a second <c>GetAttributes</c> syscall
-    ///     in callers that have already read the attributes (e.g. <see cref="DeleteSymlink" />).
+    ///     Determines whether a path is a symbolic link given an already-fetched FileAttributes value, avoiding a second GetAttributes syscall in callers that have already read the attributes (e.g.
     /// </summary>
     /// <remarks>
-    ///     Must detect the link NODE, not follow it. Avoids <c>info.Exists</c>, which on Windows
-    ///     follows the link and reports a broken symlink as NOT a symlink - hiding the exact links
-    ///     LinkRepairService fixes (Linux reports the node, but relying on that is non-portable).
-    ///     <para>
-    ///       The <c>ReparsePoint</c> bit is necessary but NOT sufficient: OneDrive placeholders and
-    ///       Windows dedup stubs also carry it, so bit-only detection flags healthy media as broken.
-    ///       We additionally require a non-null <c>LinkTarget</c>, which reads the stored target
-    ///       without following it: non-null for valid AND broken symlinks (target string survives
-    ///       target deletion - see IsSymlink_BrokenSymlink), null for cloud/dedup reparse points.
-    ///     </para>
+    ///     Must detect the link NODE, not follow it.
     /// </remarks>
     private bool IsSymlinkFromAttributes(string path, FileAttributes attrs) =>
         (attrs & FileAttributes.ReparsePoint) != 0 && GetLinkTarget(path) != null;
@@ -64,9 +51,7 @@ public class SymlinkHelper : ISymlinkHelper
     /// <inheritdoc />
     public void CreateSymlink(string linkPath, string targetPath)
     {
-        // Precondition validation: File.CreateSymbolicLink throws a bare ArgumentException on
-        // null/empty, and silently no-ops nothing useful if the link path already points at a
-        // file/dir. Fail fast with clear errors so callers cannot create a broken/ambiguous link.
+        // Precondition validation: File.CreateSymbolicLink throws a bare ArgumentException on null/empty, and silently no-ops nothing useful if the link path already points at a file/dir.
         if (string.IsNullOrWhiteSpace(linkPath))
         {
             throw new ArgumentException("Link path must not be null or empty.", nameof(linkPath));
@@ -77,10 +62,7 @@ public class SymlinkHelper : ISymlinkHelper
             throw new ArgumentException("Target path must not be null or empty.", nameof(targetPath));
         }
 
-        // Path.Exists (via the PathExists seam) reports the link NODE without following it, so a
-        // dangling symlink already occupying linkPath is correctly seen as "occupied", unlike
-        // File.Exists/Directory.Exists, which both follow the link and would report false, letting
-        // File.CreateSymbolicLink throw its own less-specific IOException a line later.
+        // Path.Exists (via the PathExists seam) reports the link NODE without following it, so a dangling symlink already occupying linkPath is correctly seen as "occupied", unlike File.Exists/Directory.Exists, which both follow the link and would report false, letting.
         if (PathExists(linkPath))
         {
             throw new IOException($"Cannot create symlink at '{linkPath}': a file or directory already exists there.");
@@ -119,12 +101,7 @@ public class SymlinkHelper : ISymlinkHelper
         }
         catch (IOException)
         {
-            // Only the "destination already exists" case is recoverable here. Any other
-            // IOException (EXDEV cross-device move, read-only mount, media error) is not related
-            // to a racing file and must propagate unchanged rather than trigger a pointless retry.
-            // Path.Exists (unlike File.Exists/Directory.Exists) reports the link NODE without
-            // following it, so a dangling symlink still occupying destPath is correctly seen as
-            // "occupied" and routes into the re-stat/overwrite recovery rather than being rethrown.
+            // Only the "destination already exists" case is recoverable here. Any other IOException (EXDEV cross-device move, read-only mount, media error) is not related to a racing file and must propagate unchanged rather than trigger a pointless retry.
             if (!PathExists(destPath))
             {
                 throw;
@@ -151,16 +128,7 @@ public class SymlinkHelper : ISymlinkHelper
                     + "Aborting repair to avoid data loss. The downloaded media file is safe.");
             }
 
-            // Still a symlink, so use an overwriting move which calls rename(2) on Linux /
-            // MoveFileExW(MOVEFILE_REPLACE_EXISTING) on Windows. This replaces the destination
-            // in a single kernel operation, removing the delete-then-move two-step gap.
-            //
-            // A narrow TOCTOU window remains: a concurrent process could swap the link node for a
-            // real file between the re-check above and the rename syscall.  The .NET BCL exposes no
-            // identity-pinned (no-follow) rename that would close this gap without P/Invoke.  The
-            // two IsSymlinkFromAttributes checks above (the initial guard and the post-move
-            // re-stat) already fail closed for real files that arrive before this point; accepting
-            // the residual nanosecond-scale window is the safest option available in managed code.
+            // Still a symlink, so use an overwriting move which calls rename(2) on Linux / MoveFileExW(MOVEFILE_REPLACE_EXISTING) on Windows.
             MoveFileOverwrite(sourcePath, destPath);
         }
     }
@@ -196,16 +164,7 @@ public class SymlinkHelper : ISymlinkHelper
         }
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Filesystem seams (overridable for tests).
-    //
-    // ReplaceSymlink / DeleteSymlink guard against concurrent replacement of a link node between
-    // the stat and the mutation (TOCTOU). Provoking those races against the real filesystem is
-    // non-deterministic, and creating real symlinks needs elevated privileges unavailable in CI.
-    // Routing every raw System.IO primitive through these thin virtual wrappers lets a test
-    // subclass drive each defensive branch deterministically. Production always runs the real
-    // System.IO implementations below.
-    // ---------------------------------------------------------------------------------------------
+    // Filesystem seams (overridable for tests). ReplaceSymlink / DeleteSymlink guard against concurrent replacement of a link node between the stat and the mutation (TOCTOU).
 
     /// <summary>Reads the attributes of the entry at <paramref name="path" /> without following links.</summary>
     /// <param name="path">The path to inspect.</param>
@@ -213,9 +172,7 @@ public class SymlinkHelper : ISymlinkHelper
     internal virtual FileAttributes GetAttributes(string path) => File.GetAttributes(path);
 
     /// <summary>
-    ///     Reads the stored link target of <paramref name="path" /> without following it
-    ///     (<see cref="FileSystemInfo.LinkTarget" />). Non-null for valid and broken symlinks;
-    ///     null for cloud/dedup reparse points and non-link entries.
+    ///     Reads the stored link target of without following it (LinkTarget). Non-null for valid and broken symlinks; null for cloud/dedup reparse points and non-link entries.
     /// </summary>
     /// <param name="path">The path to inspect.</param>
     /// <returns>The link target string, or <see langword="null" /> when the entry is not a link.</returns>
@@ -240,10 +197,7 @@ public class SymlinkHelper : ISymlinkHelper
     internal virtual void DeleteDirectory(string path) => Directory.Delete(path);
 
     /// <summary>
-    ///     Determines whether anything occupies <paramref name="path" />, including a dangling
-    ///     symlink's link node. Uses <see cref="Path.Exists(string?)" />, which (unlike
-    ///     <see cref="File.Exists(string?)" /> / <see cref="Directory.Exists(string?)" />) does not
-    ///     follow the link, so a broken symlink still blocking the destination is reported as present.
+    ///     Determines whether anything occupies path, including a dangling symlink's link node.
     /// </summary>
     /// <param name="path">The path to test.</param>
     /// <returns><see langword="true" /> if a file, directory, or link node occupies the path.</returns>

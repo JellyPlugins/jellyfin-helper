@@ -9,10 +9,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
 ///     Reads HTTP response bodies with a hard upper bound on the number of bytes buffered.
-///     Prevents a hostile or misbehaving upstream (Seerr/Arr, or an SSRF-reachable target)
-///     from causing an out-of-memory condition by returning an unbounded response body.
-///     Enforces the limit both via the declared <c>Content-Length</c> header (fast reject)
-///     and via a streaming byte counter (defeats chunked-encoding / lying-length responses).
 /// </summary>
 internal static class HttpResponseReader
 {
@@ -48,18 +44,14 @@ internal static class HttpResponseReader
         // wrapper must not dispose it a second time.
         using var limited = new LimitedStream(stream, maxBytes, leaveOpen: true);
 
-        // Honor the charset declared by the upstream. A bare `new StreamReader(stream)` assumes
-        // UTF-8 when there is no BOM, so a non-BOM UTF-16 (or other-charset) response would decode
-        // to garbage and fail JSON parsing. Fall back to UTF-8 when the header is missing or names
-        // an encoding we cannot resolve, and keep BOM detection enabled so a present BOM still wins.
+        // Honor the charset declared by the upstream. A bare `new StreamReader(stream)` assumes UTF-8 when there is no BOM, so a non-BOM UTF-16 (or other-charset) response would decode to garbage and fail JSON parsing.
         var encoding = ResolveEncoding(content);
         using var reader = new StreamReader(limited, encoding, detectEncodingFromByteOrderMarks: true);
         return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    ///     Resolves the response body encoding from the <c>Content-Type</c> charset, defaulting to
-    ///     UTF-8 when the charset is absent or not a recognized encoding name.
+    ///     Resolves the response body encoding from the Content-Type charset, defaulting to UTF-8 when the charset is absent or not a recognized encoding name.
     /// </summary>
     /// <param name="content">The HTTP content whose declared charset is inspected.</param>
     /// <returns>The resolved <see cref="Encoding"/>, or <see cref="Encoding.UTF8"/> as a fallback.</returns>

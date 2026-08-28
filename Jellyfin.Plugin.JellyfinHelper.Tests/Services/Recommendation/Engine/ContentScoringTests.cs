@@ -5,13 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     xUnit collection marker for tests that touch process-global state related to
-///     <see cref="ContentScoring"/> - the static
-///     <see cref="ContentScoring.ParallelArrayMismatchCount"/> counter and the
-///     <see cref="Trace.Listeners"/> chain used by <see cref="Debug.Assert(bool)"/>.
-///     xUnit executes tests inside the same collection sequentially, which prevents a
-///     parallel test from observing a partial counter increment or from firing a
-///     Debug.Assert into a temporarily-cleared listener chain owned by another test.
+///     xUnit collection marker for tests that touch process-global state related to ContentScoring - the static ParallelArrayMismatchCount counter and the Listeners chain used by Assert(bool).
 /// </summary>
 [CollectionDefinition(Name)]
 public sealed class ContentScoringGlobalStateCollection
@@ -21,34 +15,12 @@ public sealed class ContentScoringGlobalStateCollection
 }
 
 /// <summary>
-///     Tests for <see cref="ContentScoring"/> static helper methods.
-///     <para>
-///         The previously-tested
-///         <c>TrainingDataBuilder.ComputeCollectionProgressionBoostFromCache</c> legacy method
-///         was removed because it was dead code - only reflection-based tests referenced it and
-///         its 0.0/0.3/0.5 flat heuristic had already been superseded by the diminishing-returns
-///         <c>ComputeCollectionProgressionBoostWithCounts</c> used in both Phase 1 and Phase 3
-///         of <c>TrainingDataBuilder</c>. The remaining formula is covered end-to-end via the
-///         Phase 1 / Phase 3 training paths, which exercise the same math with real BoxSet inputs.
-///     </para>
-///     <para>
-///         <b>Concurrency isolation</b>: the parallel-array-mismatch tests read the
-///         process-lifetime <see cref="ContentScoring.ParallelArrayMismatchCount"/> counter and
-///         temporarily clear <see cref="Trace.Listeners"/> to keep
-///         <see cref="Debug.Assert(bool)"/> from aborting the run when it fires. Both are
-///         process-global state, so this class opts into a named xUnit collection via the
-///         <see cref="CollectionAttribute"/> below. xUnit executes all tests within a
-///         collection sequentially, which eliminates the interleaving that would otherwise
-///         let a parallel test observe a partial counter increment or fire a Debug.Assert
-///         into an empty listener chain we own.
-///     </para>
+///     Tests for ContentScoring static helper methods.
 /// </summary>
 [Collection(ContentScoringGlobalStateCollection.Name)]
 public sealed class ContentScoringTests
 {
-    // ============================================================
     // ComputePopularityScore Tests
-    // ============================================================
 
     [Fact]
     public void ComputePopularityScore_CollaborativePositive_ScalesBy08()
@@ -67,9 +39,7 @@ public sealed class ContentScoringTests
     [Fact]
     public void ComputePopularityScore_CollaborativeHigh_ClampsToOne()
     {
-        // collaborativeScore * 0.8 > 1.0 when collaborativeScore > 1.25
-        // Since collaborative scores are normalized to [0,1], this shouldn't happen in practice,
-        // but the Clamp guarantees contract compliance.
+        // collaborativeScore * 0.8 > 1.0 when collaborativeScore > 1.25 Since collaborative scores are normalized to [0,1], this shouldn't happen in practice, but the Clamp guarantees contract compliance.
         var result = ContentScoring.ComputePopularityScore(1.5, 0.0);
         Assert.Equal(1.0, result, 10); // Clamped
     }
@@ -123,23 +93,12 @@ public sealed class ContentScoringTests
         }
     }
 
-    // ============================================================
     // ComputeContentNearestNeighborScore parallel-array mismatch guard
-    // ============================================================
 
     [Fact]
     public void ComputeContentNearestNeighborScore_ParallelArrayMismatch_DegradesGracefully()
     {
-        // Silent-degradation guard: when the parallel arrays disagree in length (always a bug),
-        // the method must NOT throw AND must still produce a score that reflects at least the
-        // genre dimension (the primary 50% signal). It must also record the mismatch on the
-        // process-lifetime counter so operators / diagnostics can observe the degraded state
-        // even in Release builds where Debug.Assert is a no-op.
-        //
-        // Debug.Assert in Debug builds would abort the test run via the default trace listener,
-        // so we scope a listener swap that swallows the assertion while the method runs. The
-        // Trace.TraceWarning emitted on the first mismatch is orthogonal to this - we do not
-        // assert on its exact wording (that would be brittle), only on the counter delta.
+        // Silent-degradation guard: when the parallel arrays disagree in length (always a bug), the method must NOT throw AND must still produce a score that reflects at least the genre dimension (the primary 50% signal).
         var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action", "SciFi" };
         var watchedGenres = new List<HashSet<string>>
         {
@@ -170,10 +129,7 @@ public sealed class ContentScoringTests
                 watchedPeople,
                 watchedStudios);
 
-            // Genre-only path: candidate {Action, SciFi} vs first watched {Action} -> Jaccard 1/2
-            // (Action shared, SciFi only in candidate). Second watched {SciFi, Drama} vs candidate
-            // gives 1/3 (SciFi shared). Max composite is 0.5 x 0.5 = 0.25 from the first row -
-            // the people/studio contributions are 0 due to the mismatch guard degrading them.
+            // Genre-only path: candidate {Action, SciFi} vs first watched {Action} -> Jaccard 1/2 (Action shared, SciFi only in candidate).
             Assert.InRange(score, 0.0, 1.0);
             Assert.True(score > 0.0, $"Score must reflect the surviving genre signal, got {score}");
 
@@ -193,9 +149,7 @@ public sealed class ContentScoringTests
     [Fact]
     public void ComputeContentNearestNeighborScore_MatchedArrays_DoNotIncrementMismatchCounter()
     {
-        // Positive-path check: when all three parallel arrays have equal length the counter
-        // must stay flat. Guards against a stray increment path (e.g. off-by-one) that would
-        // otherwise silently poison the counter for the whole process.
+        // Positive-path check: when all three parallel arrays have equal length the counter must stay flat. Guards against a stray increment path (e.g.
         var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" };
         var watchedGenres = new List<HashSet<string>>
         {
@@ -228,9 +182,7 @@ public sealed class ContentScoringTests
     [Fact]
     public void ComputeContentNearestNeighborScore_NoWatchedItems_ReturnsZero()
     {
-        // Cold-start user with no history: the empty-set guard must short-circuit to 0.0
-        // BEFORE the parallel-array length check runs. The three lists are equal-length here,
-        // so a stray increment would prove the mismatch check ran when it should not have.
+        // Cold-start user with no history: the empty-set guard must short-circuit to 0.0 BEFORE the parallel-array length check runs.
         var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" };
         var watchedGenres = new List<HashSet<string>>();
         var watchedPeople = new List<HashSet<string>>();
@@ -250,9 +202,7 @@ public sealed class ContentScoringTests
         Assert.Equal(before, ContentScoring.ParallelArrayMismatchCount);
     }
 
-    // ============================================================
     // NormalizeCriticRating Tests
-    // ============================================================
 
     [Fact]
     public void NormalizeCriticRating_ValidPercentage_NormalizesToZeroOne()
@@ -283,9 +233,7 @@ public sealed class ContentScoringTests
         Assert.Equal(0.5, result, 10);
     }
 
-    // ============================================================
     // ComputeCombinedCriticScore Tests
-    // ============================================================
 
     [Fact]
     public void ComputeCombinedCriticScore_BothSources_Blends55Tmdb45Tomatometer()

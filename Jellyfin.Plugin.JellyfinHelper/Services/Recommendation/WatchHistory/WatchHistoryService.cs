@@ -143,10 +143,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Collapses a flat episode list into a per-series playable-episode count. Only episodes
-    ///     with a non-empty <c>Path</c> and a valid <c>SeriesId</c> are counted, matching the
-    ///     engine's identical rule (see the recommendation engine's candidate load) so the
-    ///     progression ratio (watched / total) stays consistent across both subsystems.
+    ///     Collapses a flat episode list into a per-series playable-episode count.
     /// </summary>
     /// <param name="episodes">The flat episode list.</param>
     /// <returns>A map of series ID to playable-episode count.</returns>
@@ -194,9 +191,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var watchedSeriesIds = new HashSet<Guid>();
 
         // Pre-fetch user data for every video item in one batch call (Jellyfin 12+ API).
-        // Falls back to null on any exception; the per-item lookup below then reverts to
-        // the pre-batch code path via _userDataManager.GetUserData, so the profile never
-        // regresses to worse behavior than before this optimization.
         var itemUserDataLookup = TryLoadUserDataBatch(user, allItems);
 
         foreach (var item in allItems)
@@ -216,9 +210,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, ref ratingSum, ref ratingCount);
         }
 
-        // Check series-level favorites: users can favorite an entire series in Jellyfin
-        // (the heart button on the series page). This UserData lives on the Series item
-        // itself, not on individual episodes.
+        // Check series-level favorites: users can favorite an entire series in Jellyfin (the heart button on the series page).
         allSeries ??= LoadAllSeriesItems();
 
         // Second batch call for the (usually much smaller) series list.
@@ -233,10 +225,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
         }
 
-        // Build audio + subtitle language profiles in a single pass over allItems.
-        // Previously these were two separate methods each iterating allItems and calling
-        // GetUserData per item, causing 2× the UserData lookups.
-        // Reuses the already-fetched itemUserDataLookup to avoid a third pass.
+        // Build audio + subtitle language profiles in a single pass over allItems. Previously these were two separate methods each iterating allItems and calling GetUserData per item, causing 2× the UserData lookups.
         BuildLanguageProfiles(profile, user, allItems, itemUserDataLookup);
 
         // Build people (actors/directors) profile from BaseItem.People metadata
@@ -256,9 +245,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Builds a <see cref="WatchedItemInfo"/> for an interacted library item and folds its
-    ///     statistics (watch counts, runtime, genres, favorites, ratings, last activity) into the
-    ///     profile. Extracted verbatim from the primary watched-items loop in <see cref="BuildProfile"/>.
+    ///     Builds a WatchedItemInfo for an interacted library item and folds its statistics (watch counts, runtime, genres, favorites, ratings, last activity) into the profile.
     /// </summary>
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="item">The library item the user interacted with.</param>
@@ -274,13 +261,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         ref double ratingSum,
         ref int ratingCount)
     {
-        // Billed cast/directors for this item, cached as aligned name/weight lists so the training
-        // path can compute BillingWeightedPeople with the same shared helper the live path uses
-        // (closes the organic/aggregated-series train/serve gap that previously hardcoded 0.0).
-        // Resolved ONLY for non-episode items (movies + series), which are exactly the item types
-        // that appear as live scoring candidates - episodes never do. Skipping episodes also
-        // preserves the invariant that people are aggregated at series level, never per episode
-        // (GetPeople is never called on an Episode), avoiding guest-cast noise.
+        // Billed cast/directors for this item, cached as aligned name/weight lists so the training path can compute BillingWeightedPeople with the same shared helper the live path uses (closes the organic/aggregated-series train/serve gap that previously hardcoded 0.0).
         var itemPeople = ResolveWatchedItemPeople(item);
 
         var (billedNames, billedWeights) = SimilarityComputer.ExtractBilledPeople(itemPeople);
@@ -312,11 +293,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             PeopleNames = billedNames,
             PeopleWeights = billedWeights,
 
-            // Content-affinity source fields. Populated here on the watched side so the preference
-            // builders (franchise/country/inherited-tag/writer/series-completability) have real
-            // signal to compare live candidates against - extracted with the exact same shared,
-            // library-free resolvers the live scoring and precompute paths use, guaranteeing parity.
-            // WriterNames reuses the people list already fetched above (no extra GetPeople call).
+            // Content-affinity source fields.
             TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
             ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(item),
             InheritedTags = ContentAffinityResolver.ResolveInheritedTags(item),
@@ -331,10 +308,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Resolves the billed cast/directors for a watched item, returning <c>null</c> for episodes
-    ///     (people are aggregated at series level, never per episode) and swallowing non-fatal lookup
-    ///     failures. Extracted verbatim from the people-resolution block of
-    ///     <see cref="AccumulateWatchedItem"/>.
+    ///     Resolves the billed cast/directors for a watched item, returning null for episodes (people are aggregated at series level, never per episode) and swallowing non-fatal lookup failures.
     /// </summary>
     /// <param name="item">The library item to resolve people for.</param>
     /// <returns>The item's people, or <c>null</c> when the item is an episode or lookup fails.</returns>
@@ -360,9 +334,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Folds a watched item's statistics (played counts, runtime, genres, favorites, community
-    ///     rating, last activity) into the profile. Extracted verbatim from the statistics-accumulation
-    ///     block of <see cref="AccumulateWatchedItem"/>.
+    ///     Folds a watched item's statistics (played counts, runtime, genres, favorites, community rating, last activity) into the profile.
     /// </summary>
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="item">The library item the user interacted with.</param>
@@ -426,10 +398,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Records a favorited series into the profile: adds it to <c>FavoriteSeriesIds</c>, appends
-    ///     a synthetic <see cref="WatchedItemInfo"/> so its metadata influences preference vectors, and
-    ///     folds its genres into the distribution. Extracted verbatim from the series loop in
-    ///     <see cref="BuildProfile"/>.
+    ///     Records a favorited series into the profile: adds it to FavoriteSeriesIds, appends a synthetic WatchedItemInfo so its metadata influences preference vectors, and folds its genres into the distribution.
     /// </summary>
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="series">The favorited series item.</param>
@@ -442,11 +411,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         profile.FavoriteSeriesIds.Add(series.Id);
         profile.FavoriteCount++;
 
-        // Create a synthetic WatchedItemInfo so that the series' genres, year,
-        // and community rating flow into PreferenceBuilder.BuildGenrePreferenceVector()
-        // with the FavoriteGenreBoostFactor (3×). Without this, favoriting a series
-        // only populates FavoriteSeriesIds (used for candidate exclusion) but does NOT
-        // influence genre preferences, studio preferences, or training labels.
+        // Create a synthetic WatchedItemInfo so that the series' genres, year, and community rating flow into PreferenceBuilder.BuildGenrePreferenceVector() with the FavoriteGenreBoostFactor (3×).
         IReadOnlyList<PersonInfo>? seriesPeople;
         try
         {
@@ -484,10 +449,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             PeopleNames = favBilledNames,
             PeopleWeights = favBilledWeights,
 
-            // Content-affinity source fields for the favorited series, using the same shared
-            // resolvers as the primary loop so a favorited series contributes franchise/country/
-            // inherited-tag/writer/completability preference signal identically to a watched item.
-            // WriterNames reuses seriesPeople (already fetched); SeriesStatus/EndDate are real here.
+            // Content-affinity source fields for the favorited series, using the same shared resolvers as the primary loop so a favorited series contributes franchise/country/ inherited-tag/writer/completability preference signal identically to a watched item.
             TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(series),
             ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(series),
             InheritedTags = ContentAffinityResolver.ResolveInheritedTags(series),
@@ -501,9 +463,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Folds an item's genres into the profile's genre distribution, skipping null/whitespace
-    ///     entries. Extracted verbatim from the two identical genre-distribution blocks in
-    ///     <see cref="BuildProfile"/>.
+    ///     Folds an item's genres into the profile's genre distribution, skipping null/whitespace entries.
     /// </summary>
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="genres">The item's genres, or <c>null</c>.</param>
@@ -520,12 +480,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Builds both the audio language and subtitle language preference profiles
-    ///     in a single pass over <paramref name="allItems"/>.
-    ///     This eliminates the prior pattern of two separate loops each calling
-    ///     <c>GetUserData</c> and <c>GetMediaStreams</c> per item (2× the cost).
-    ///     Distinguishes "chosen" (user had alternatives) from "forced" (only option)
-    ///     for both audio and subtitle tracks.
+    ///     Builds both the audio language and subtitle language preference profiles in a single pass over allItems.
     /// </summary>
     /// <param name="profile">The user profile to populate with language data.</param>
     /// <param name="user">The Jellyfin user entity.</param>
@@ -577,18 +532,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
             var audioStreams = streamsByType[MediaStreamType.Audio].ToList();
             var subtitleStreams = streamsByType[MediaStreamType.Subtitle].ToList();
 
-            // === Audio Language Analysis ===
             AccumulateAudioLanguage(profile, userData, audioStreams);
 
-            // === Subtitle Language Analysis ===
             AccumulateSubtitleLanguage(profile, userData, subtitleStreams);
         }
     }
 
     /// <summary>
-    ///     Folds the audio language the user watched an item in into the profile's language profile,
-    ///     distinguishing "chosen" (alternatives existed) from "forced" (single option). Extracted
-    ///     verbatim from the audio-analysis block of <see cref="BuildLanguageProfiles"/>.
+    ///     Folds the audio language the user watched an item in into the profile's language profile, distinguishing "chosen" (alternatives existed) from "forced" (single option).
     /// </summary>
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="userData">The user data for the item.</param>
@@ -643,9 +594,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Folds the subtitle language the user selected for an item into the profile's subtitle
-    ///     language profile, distinguishing "chosen" from "forced". Extracted verbatim from the
-    ///     subtitle-analysis block of <see cref="BuildLanguageProfiles"/>.
+    ///     Folds the subtitle language the user selected for an item into the profile's subtitle language profile, distinguishing "chosen" from "forced".
     /// </summary>
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="userData">The user data for the item.</param>
@@ -697,12 +646,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Builds the user's people (actors/directors) preference profile by analyzing
-    ///     <c>BaseItem.People</c> metadata for each watched or favorited item.
-    ///     Only Actors and Directors are included. Each person is counted once per distinct item
-    ///     (not per play count) to reflect breadth of exposure rather than re-watch frequency.
-    ///     For episodes, the parent series' people are used (via SeriesId lookup) to avoid
-    ///     counting per-episode guest actors disproportionately.
+    ///     Builds the user's people (actors/directors) preference profile by analyzing BaseItem.People metadata for each watched or favorited item.
     /// </summary>
     /// <param name="profile">The user profile to populate with people data.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
@@ -766,10 +710,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Builds an item-ID lookup from the video items plus series items for O(1) access
-    ///     (avoids N+1 DB queries). Also includes series items so that synthetic favorite-series
-    ///     entries in <c>WatchedItems</c> can resolve to their <see cref="BaseItem"/>. Extracted
-    ///     verbatim from <see cref="BuildPeopleProfile"/>.
+    ///     Builds an item-ID lookup from the video items plus series items for O(1) access (avoids N+1 DB queries).
     /// </summary>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
     /// <param name="allSeries">Pre-loaded series items from the library, or <c>null</c>.</param>
@@ -796,9 +737,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Determines whether a watched item represents a meaningful interaction: played, favorited,
-    ///     or partially-watched with at least 15% progress. Extracted verbatim from the interaction
-    ///     filter in <see cref="BuildPeopleProfile"/>.
+    ///     Determines whether a watched item represents a meaningful interaction: played, favorited, or partially-watched with at least 15% progress.
     /// </summary>
     /// <param name="watchedItem">The watched item to test.</param>
     /// <returns><c>true</c> when the item should contribute to the people profile.</returns>
@@ -815,9 +754,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Aggregates people for a single watched item, dispatching episodes to their parent series
-    ///     (series-level metadata only) and movies/other items directly, while de-duplicating via the
-    ///     processed-ID sets. Extracted verbatim from the per-item body of <see cref="BuildPeopleProfile"/>.
+    ///     Aggregates people for a single watched item, dispatching episodes to their parent series (series-level metadata only) and movies/other items directly, while de-duplicating via the processed-ID sets.
     /// </summary>
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="watchedItem">The watched item to process.</param>
@@ -848,12 +785,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             // (which have ItemId = seriesId, SeriesId = null) don't double-count.
             processedItemIds.Add(seriesId);
 
-            // Use series-level metadata only. If the series is not in the lookup, skip entirely
-            // rather than falling back to episode-level data. Falling back would count only the
-            // limited guest cast of a single episode instead of the full main cast, and would
-            // also cause a double-count if a synthetic favourite-series row (ItemId == seriesId,
-            // SeriesId == null) is processed later and the processedItemIds guard
-            // already blocked it from reaching the people aggregation path.
+            // Use series-level metadata only. If the series is not in the lookup, skip entirely rather than falling back to episode-level data.
             if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
             {
                 AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
@@ -877,7 +809,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
     /// <summary>
     ///     Aggregates people (actors/directors) from a single BaseItem into the profile's PeopleProfile.
-    ///     Only includes persons with PersonKind.Actor (top-billed, limited count) and PersonKind.Director.
     /// </summary>
     /// <param name="profile">The user profile to populate.</param>
     /// <param name="item">The library item to extract people from.</param>
@@ -930,9 +861,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Adds a person (actor or director) to the profile's people distribution if the per-kind cap
-    ///     has not been reached, incrementing the running kind count and marking the name as seen.
-    ///     Extracted verbatim from the two identical per-kind blocks of <see cref="AggregatePeopleFromItem"/>.
+    ///     Adds a person (actor or director) to the profile's people distribution if the per-kind cap has not been reached, incrementing the running kind count and marking the name as seen.
     /// </summary>
     /// <param name="profile">The user profile being populated.</param>
     /// <param name="personName">The non-empty, not-yet-seen person name.</param>
@@ -958,9 +887,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Normalizes ISO 639-2/B (3-letter) and ISO 639-3 language codes to ISO 639-1 (2-letter)
-    ///     for consistent cross-item comparison. Codes already in 2-letter form are returned as-is.
-    ///     Returns null for null, empty, or whitespace-only input.
+    ///     Normalizes ISO 639-2/B (3-letter) and ISO 639-3 language codes to ISO 639-1 (2-letter) for consistent cross-item comparison.
     /// </summary>
     /// <param name="language">The raw language code from the media stream metadata.</param>
     /// <returns>A normalized 2-letter language code, or null if the input is invalid.</returns>
@@ -1021,13 +948,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Fetches user data for many items in one shot via the Jellyfin 12+
-    ///     <c>IUserDataManager.GetUserDataBatch</c> call. Returns <c>null</c> on failure so
-    ///     the caller can fall back to per-item lookups. An empty <paramref name="items"/>
-    ///     list short-circuits with an empty dictionary - treated as "batch succeeded, no
-    ///     results" rather than "batch failed, fall back".
-    ///     The try/catch shape is delegated to <see cref="BatchFallbackHelper"/> so the
-    ///     three batch call sites in the plugin can't drift apart on cancellation handling.
+    ///     Fetches user data for many items in one shot via the Jellyfin 12+ IUserDataManager.GetUserDataBatch call.
     /// </summary>
     private IReadOnlyDictionary<Guid, UserItemData>? TryLoadUserDataBatch(
         Jellyfin.Database.Implementations.Entities.User user,
@@ -1064,11 +985,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary
-    ///     but falling back to a per-item <c>GetUserData</c> call when the batch was not
-    ///     available for this user (batch returned <c>null</c> due to an exception upstream).
-    ///     A missing entry in a valid batch is treated as "no user data" - identical to
-    ///     the pre-batch behavior of <c>GetUserData</c> returning <c>null</c>.
+    ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary but falling back to a per-item GetUserData call when the batch was not available for this user (batch returned null due to an exception upstream).
     /// </summary>
     /// <param name="lookup">The batch lookup, or <c>null</c> if the batch failed.</param>
     /// <param name="item">The item whose user data to fetch.</param>

@@ -18,9 +18,7 @@ public sealed class DiscoveryRequestDto : IValidatableObject
     public int TmdbId { get; set; }
 
     /// <summary>
-    ///     Gets or sets the media type ("movie" or "tv").
-    ///     Case-insensitive; the controller normalizes to lowercase before processing.
-    ///     Defaults to "movie" when omitted from the request payload.
+    ///     Gets or sets the media type ("movie" or "tv"). Case-insensitive; the controller normalizes to lowercase before processing.
     /// </summary>
     [Required]
     [RegularExpression("^(?i)(movie|tv)$", ErrorMessage = "MediaType must be either 'movie' or 'tv'.")]
@@ -34,17 +32,13 @@ public sealed class DiscoveryRequestDto : IValidatableObject
     public int? SeerrUserId { get; set; }
 
     /// <summary>
-    ///     Gets or sets the Radarr/Sonarr server ID in Seerr.
-    ///     When provided, overrides the default server selection.
-    ///     Seerr uses 0-based server IDs (first configured server has ID 0).
+    ///     Gets or sets the Radarr/Sonarr server ID in Seerr. When provided, overrides the default server selection.
     /// </summary>
     [Range(0, int.MaxValue, ErrorMessage = "ServerId must be 0 or greater when provided.")]
     public int? ServerId { get; set; }
 
     /// <summary>
-    ///     Gets or sets the quality profile ID to use for the download.
-    ///     When provided, overrides the default quality profile.
-    ///     Seerr quality profile IDs can start at 0 depending on the Arr instance configuration.
+    ///     Gets or sets the quality profile ID to use for the download. When provided, overrides the default quality profile.
     /// </summary>
     [Range(0, int.MaxValue, ErrorMessage = "ProfileId must be 0 or greater when provided.")]
     public int? ProfileId { get; set; }

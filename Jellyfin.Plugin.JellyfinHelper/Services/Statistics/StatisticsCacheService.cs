@@ -59,10 +59,7 @@ public class StatisticsCacheService : IStatisticsCacheService
 
                 var json = JsonSerializer.Serialize(result, JsonOptions);
 
-                // Use AtomicFile so a transient sharing violation on the final File.Move
-                // (typical when an AV scanner or the Search indexer briefly holds the file
-                // handle) gets a bounded retry with backoff. AtomicFile also handles
-                // temp-file cleanup internally.
+                // Use AtomicFile so a transient sharing violation on the final File.Move (typical when an AV scanner or the Search indexer briefly holds the file handle) gets a bounded retry with backoff.
                 AtomicFile.WriteAllText(_latestResultFilePath, json);
 
                 _pluginLog.LogDebug(
@@ -71,11 +68,7 @@ public class StatisticsCacheService : IStatisticsCacheService
                     _logger);
             }
 
-            // Broader filter than plain IOException / UnauthorizedAccessException because
-            // AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException,
-            // ArgumentException (malformed path characters from OS layer), and JsonException
-            // (serializer). Best-effort save must degrade gracefully for every one of those
-            // rather than crashing the scheduled task and taking the next scan down with it.
+            // Broader filter than plain IOException / UnauthorizedAccessException because AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException, ArgumentException (malformed path characters from OS layer), and JsonException (serializer).
             catch (Exception ex) when (ex is IOException
                                         or UnauthorizedAccessException
                                         or System.Security.SecurityException

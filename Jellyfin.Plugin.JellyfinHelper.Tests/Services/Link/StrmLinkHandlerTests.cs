@@ -23,8 +23,6 @@ public class StrmLinkHandlerTests
         _handler = new StrmLinkHandler(_fileSystem);
     }
 
-    // ===== CanHandle =====
-
     [Theory]
     [InlineData("/media/movie.strm", true)]
     [InlineData("/media/movie.STRM", true)]
@@ -38,8 +36,6 @@ public class StrmLinkHandlerTests
     {
         Assert.Equal(expected, _handler.CanHandle(filePath));
     }
-
-    // ===== ReadTarget =====
 
     [Fact]
     public void ReadTarget_ReturnsFileContent()
@@ -103,9 +99,7 @@ public class StrmLinkHandlerTests
     [Fact]
     public void ReadTarget_WhenReadThrowsIOException_ReturnsNull()
     {
-        // A .strm that passes the Exists/size guard but faults mid-read is a broken pointer, not a
-        // fatal error: the caller must see null, not a propagated exception. MockFileSystem can't
-        // inject a read fault, so mock the file-info guard true and force ReadAllText to throw.
+        // A .strm that passes the Exists/size guard but faults mid-read is a broken pointer, not a fatal error: the caller must see null, not a propagated exception.
         const string linkFile = "/series/episode.strm";
         var fs = new Mock<IFileSystem>();
         var file = new Mock<IFile>();
@@ -145,8 +139,6 @@ public class StrmLinkHandlerTests
         Assert.Null(handler.ReadTarget(linkFile));
     }
 
-    // ===== WriteTarget =====
-
     [Fact]
     public void WriteTarget_WritesContentToFile()
     {
@@ -172,9 +164,7 @@ public class StrmLinkHandlerTests
     [Fact]
     public void WriteTarget_LeavesNoTempFileAndDoesNotTruncateInPlace()
     {
-        // Crash-safety guard: the write must stage to a sibling temp and atomically move it over the
-        // target (never truncate-then-write in place, which loses the pointer on an interrupted write).
-        // After a successful write the temp file must not linger, and the content must be exact.
+        // Crash-safety guard: the write must stage to a sibling temp and atomically move it over the target (never truncate-then-write in place, which loses the pointer on an interrupted write).
         var linkFile = _fileSystem.Path.GetFullPath("/series/episode.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("/old/path.mkv"));
 
@@ -189,10 +179,7 @@ public class StrmLinkHandlerTests
     [Fact]
     public void WriteTarget_WhenMoveFails_DeletesTempAndRethrows_WithoutTruncatingOriginal()
     {
-        // ERROR-PATH GUARD for the crash-safe write: if the atomic Move fails (IOException), the
-        // handler must delete the staging temp file and rethrow, and must NEVER have touched the
-        // original .strm in place (the whole point of temp+move). Uses a mocked IFileSystem to
-        // deterministically force the Move failure that MockFileSystem cannot inject.
+        // ERROR-PATH GUARD for the crash-safe write: if the atomic Move fails (IOException), the handler must delete the staging temp file and rethrow, and must NEVER have touched the original .strm in place (the whole point of temp+move).
         var fs = new Mock<IFileSystem>();
         var file = new Mock<IFile>();
         fs.SetupGet(f => f.File).Returns(file.Object);
@@ -216,9 +203,7 @@ public class StrmLinkHandlerTests
     [Fact]
     public void WriteTarget_WhenMoveFailsAndCleanupFails_StillRethrowsOriginal()
     {
-        // Belt-and-suspenders: even if the best-effort temp cleanup itself throws, the ORIGINAL
-        // write failure must still propagate (the inner cleanup catch must swallow only the
-        // cleanup exception, never mask the real IOException).
+        // Belt-and-suspenders: even if the best-effort temp cleanup itself throws, the ORIGINAL write failure must still propagate (the inner cleanup catch must swallow only the cleanup exception, never mask the real IOException).
         var fs = new Mock<IFileSystem>();
         var file = new Mock<IFile>();
         fs.SetupGet(f => f.File).Returns(file.Object);

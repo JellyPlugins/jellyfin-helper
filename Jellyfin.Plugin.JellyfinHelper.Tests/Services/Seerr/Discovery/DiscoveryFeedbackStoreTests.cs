@@ -7,9 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for <see cref="DiscoveryFeedbackStore"/> composite key (TmdbId, MediaType) dedup logic.
-///     Verifies that Movie and TV items with the same TMDb ID are tracked independently.
-///     Each test gets an isolated temp directory to prevent cross-test file contamination.
+///     Tests for DiscoveryFeedbackStore composite key (TmdbId, MediaType) dedup logic. Verifies that Movie and TV items with the same TMDb ID are tracked independently.
 /// </summary>
 public class DiscoveryFeedbackStoreTests : IDisposable
 {
@@ -330,9 +328,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(2023, tvEntry.Year);
     }
 
-    // -----------------------------------------------------------------------
     // Guard-clause tests: empty inputs / invalid IDs must not persist
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void RecordShown_EmptyItemsList_DoesNotCreateUserEntry()
@@ -455,16 +451,12 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(firstTimestamp, secondTimestamp);
     }
 
-    // -----------------------------------------------------------------------
     // RecordShown backfill: existing placeholder entries are enriched, not replaced
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void RecordShown_BackfillsAllMetadataOnPlaceholderEntry()
     {
-        // A placeholder entry created by RecordDismissed carries only TmdbId/MediaType.
-        // A later RecordShown must backfill Title, Year, Genres, TmdbRating, Popularity,
-        // Score, and KnownPeople onto that same entry (no duplicate row).
+        // A placeholder entry created by RecordDismissed carries only TmdbId/MediaType. A later RecordShown must backfill Title, Year, Genres, TmdbRating, Popularity, Score, and KnownPeople onto that same entry (no duplicate row).
         var store = CreateStore();
         var userId = Guid.NewGuid();
 
@@ -541,9 +533,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(8.0, result.Entries[0].TmdbRating);
     }
 
-    // -----------------------------------------------------------------------
     // Lookup helpers: GetDismissedItems / GetRequestedItems / LoadAll
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void GetDismissedItems_ReturnsOnlyDismissedComposites()
@@ -623,10 +613,6 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Contains(all, r => r.UserId == u2);
 
         // Prove defensive copy: mutating the returned list must not affect the store.
-        // Look up u1's returned record explicitly rather than relying on `all[0]` - the
-        // dictionary-backed store makes no ordering guarantee, and picking the wrong
-        // record would let a shallow-copy regression pass by mutating u2 while asserting
-        // only against u1's later state.
         var returnedU1 = all.First(r => r.UserId == u1);
         returnedU1.Entries.Clear();
         returnedU1.Entries.Add(
@@ -681,9 +667,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal("Original", fresh.Entries[0].Title);
     }
 
-    // -----------------------------------------------------------------------
     // File-corruption / oversize handling
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void LoadForUser_CorruptedJsonFile_ReturnsNullAndDeletesFile()
@@ -714,18 +698,11 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void LoadForUser_CorruptedJsonFile_DeleteFails_DegradesGracefullyWithoutThrowing()
     {
-        // The corrupt-file recovery deletes the poisoned file, but the delete itself is
-        // best-effort: if the OS refuses (a handle is open without FileShare.Delete), the
-        // store must swallow the IOException rather than surface it to the caller.
+        // The corrupt-file recovery deletes the poisoned file, but the delete itself is best-effort: if the OS refuses (a handle is open without FileShare.Delete), the store must swallow the IOException rather than surface it to the caller.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
         File.WriteAllText(filePath, "{ not valid json ]]]");
 
-        // Forcing the best-effort File.Delete to fail relies on a mandatory file lock:
-        // an open handle without FileShare.Delete makes File.Delete throw IOException on
-        // Windows. POSIX has no such mandatory lock - an open handle never blocks unlink -
-        // so this specific "delete fails" branch can only be reproduced on Windows. On
-        // Linux we still assert the cross-platform contract: the corrupt file is treated
-        // as absent, no exception escapes, and the store degrades to empty.
+        // Forcing the best-effort File.Delete to fail relies on a mandatory file lock: an open handle without FileShare.Delete makes File.Delete throw IOException on Windows.
         var store = CreateStore();
 
         if (!OperatingSystem.IsWindows())
@@ -771,10 +748,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal("PostRecovery", result.Entries[0].Title);
     }
 
-    // -----------------------------------------------------------------------
     // Isolation invariant: repeated construction with same directory does not
     // clobber previously-written data.
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void MultipleStoreInstances_ShareTheSameFile_ConsistentReads()
@@ -804,9 +779,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.NotNull(seenByStore3!.Entries[0].RequestedAtUtc);
     }
 
-    // -----------------------------------------------------------------------
     // GetOrCreateUserResult: UserName update
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void RecordShown_UpdatesUserNameOnSubsequentCall()
@@ -830,41 +803,18 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal("AliceRenamed", result!.UserName);
     }
 
-    // -----------------------------------------------------------------------
-    // Bounds enforcement: MaxFileSizeBytes / MaxEntriesPerUser / MaxEntryAgeDays
-    //
-    // These branches guard against three separate DoS-style corruption modes:
-    //   1. A rogue writer inflates the feedback file past 30 MB - the store must
-    //      delete it and start over rather than OOM'ing on the next read.
-    //   2. A user's entry list grows unbounded because show/dismiss/request cycles
-    //      accumulate over years - the store must cap at MaxEntriesPerUser=200 and
-    //      keep the most-recently-active entries, so training data reflects recent
-    //      user preferences instead of ancient noise.
-    //   3. Very old entries (>365 days) survive indefinitely - the store must evict
-    //      them so the JSON file doesn't grow by ~50 bytes per shown item forever.
-    //
-    // The current tests exercise none of these paths (all use tiny in-memory sets
-    // with fresh timestamps). Coverage report flags them explicitly.
-    // -----------------------------------------------------------------------
+    // Bounds enforcement: MaxFileSizeBytes / MaxEntriesPerUser / MaxEntryAgeDays These branches guard against three separate DoS-style corruption modes: 1.
 
     [Fact]
     public void LoadForUser_OversizeFile_DeletesFileAndReturnsNull()
     {
-        // Any file larger than MaxFileSizeBytes (30 MB) must be treated
-        // as poisoned - deserializing a 30 MB+ JSON payload can OOM small deployments
-        // (e.g. Raspberry Pi hosts) and even valid content that grows this large is
-        // a sign the eviction logic silently broke. The store must delete the file
-        // and log a warning so the operator sees the recovery.
+        // Any file larger than MaxFileSizeBytes (30 MB) must be treated as poisoned - deserializing a 30 MB+ JSON payload can OOM small deployments (e.g.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
-        // Write just over the 30 MB threshold. We use a valid JSON array header
-        // followed by filler so the code hits the size check BEFORE the deserializer.
-        // 30 MB = 30 * 1024 * 1024 = 31,457,280 bytes. Add a few extra to guarantee overflow.
+        // Write just over the 30 MB threshold. We use a valid JSON array header followed by filler so the code hits the size check BEFORE the deserializer.
         var padSize = (30 * 1024 * 1024) + 1024;
         using (var stream = File.Create(filePath))
         {
-            // Prefix with a valid empty-array so a code path that skipped the size guard
-            // would still deserialize cleanly - makes the test specifically prove the
-            // size-guard fires FIRST, not the JSON parser bailing on garbage input.
+            // Prefix with a valid empty-array so a code path that skipped the size guard would still deserialize cleanly - makes the test specifically prove the size-guard fires FIRST, not the JSON parser bailing on garbage input.
             stream.Write("[]"u8);
             var padding = new byte[8192];
             Array.Fill(padding, (byte)' ');
@@ -901,20 +851,11 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void SaveInternal_UserWithMoreThanMaxEntries_KeepsOnlyMostRecent200()
     {
-        // Cap at MaxEntriesPerUser=200. A user who accumulates 250 shown
-        // items must have the oldest-by-activity 50 evicted, keeping the 200 most
-        // recently active. This prevents unbounded per-user growth.
-        //
-        // We force a mixture of "shown-only" entries with staggered ShownAtUtc to
-        // avoid entries getting the same timestamp (which would make the eviction
-        // ordering ambiguous - LINQ OrderByDescending is stable but the input order
-        // has to be non-degenerate for the test to be meaningful).
+        // Cap at MaxEntriesPerUser=200. A user who accumulates 250 shown items must have the oldest-by-activity 50 evicted, keeping the 200 most recently active.
         var store = CreateStore();
         var userId = Guid.NewGuid();
 
-        // Show 250 items in one batch - RecordShown assigns DateTime.UtcNow to all
-        // of them, but the eviction code uses GetLatestActivityUtc which will tie.
-        // To make eviction deterministic we do two batches with a small wait between.
+        // Show 250 items in one batch - RecordShown assigns DateTime.UtcNow to all of them, but the eviction code uses GetLatestActivityUtc which will tie.
         var oldBatch = new List<DiscoveryRecommendation>();
         for (var i = 1; i <= 50; i++)
         {
@@ -959,10 +900,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void SaveInternal_EntriesOlderThanMaxAge_AreEvicted()
     {
-        // Entries with ALL activity timestamps older than MaxEntryAgeDays=365
-        // must be evicted. We seed the file directly (bypassing RecordShown, which
-        // stamps DateTime.UtcNow) so the ancient timestamps are real, then trigger a
-        // save via a fresh RecordShown call to exercise the eviction path.
+        // Entries with ALL activity timestamps older than MaxEntryAgeDays=365 must be evicted.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
         var userId = Guid.NewGuid();
         var ancientUtc = DateTime.UtcNow.AddDays(-400); // beyond the 365-day cutoff
@@ -1004,9 +942,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void SaveInternal_UsersWithZeroEntriesAfterEviction_AreRemoved()
     {
-        // After eviction removes all of a user's entries (because they
-        // were all ancient), the user record itself must be removed from the top-level
-        // list. Otherwise the file accumulates empty user shells forever.
+        // After eviction removes all of a user's entries (because they were all ancient), the user record itself must be removed from the top-level list.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
         var deadUser = Guid.NewGuid();
         var liveUser = Guid.NewGuid();
@@ -1044,8 +980,6 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Contains(liveResult!.Entries, e => e.TmdbId == 2);
         Assert.Contains(liveResult.Entries, e => e.TmdbId == 3);
     }
-
-    // ===== RecordDismissed / RecordRequested O(1) path via GetOrCreateEntry =====
 
     [Fact]
     public void RecordDismissed_NewUser_CreatesEntryWithDismissedTimestamp()
@@ -1169,9 +1103,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(originalShownAt, second!.Entries[0].ShownAtUtc);
     }
 
-    // -----------------------------------------------------------------------
     // NormalizeMediaType: defensive defaulting to "movie"
-    // -----------------------------------------------------------------------
 
     [Theory]
     [InlineData(null)]
@@ -1220,9 +1152,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             Times.Once);
     }
 
-    // -----------------------------------------------------------------------
     // SaveInternal: directory creation + graceful degradation on unwritable path
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void RecordShown_DataFolderDoesNotYetExist_CreatesDirectoryAndPersists()
@@ -1249,9 +1179,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void RecordShown_UnwritableFilePath_DegradesGracefullyAndLogsWarning()
     {
-        // A directory occupying the exact feedback file name makes the atomic move fail.
-        // The store must swallow the IO failure (best-effort persistence) and log a
-        // warning instead of propagating the exception to the caller's request/task.
+        // A directory occupying the exact feedback file name makes the atomic move fail. The store must swallow the IO failure (best-effort persistence) and log a warning instead of propagating the exception to the caller's request/task.
         var dataDir = Path.Join(_tempDir, "blocked");
         Directory.CreateDirectory(dataDir);
         Directory.CreateDirectory(Path.Join(dataDir, "jellyfin-helper-discovery-feedback.json"));

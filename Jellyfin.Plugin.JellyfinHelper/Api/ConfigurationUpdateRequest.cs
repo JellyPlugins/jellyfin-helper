@@ -4,8 +4,7 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     Request DTO for updating the plugin configuration via the API.
-///     Uses arrays for Arr instances to avoid CA2227 while supporting JSON deserialization.
+///     Request DTO for updating the plugin configuration via the API. Uses arrays for Arr instances to avoid CA2227 while supporting JSON deserialization.
 /// </summary>
 public class ConfigurationUpdateRequest
 {
@@ -128,10 +127,6 @@ public class ConfigurationUpdateRequest
 
     /// <summary>
     ///     Gets the plugin log level (e.g. DEBUG, INFO, WARN, ERROR).
-    ///     Nullable so the Settings POST can distinguish "old client, field absent" from
-    ///     "client tried to change the level". Actual mutation lives on PUT /Configuration/LogLevel;
-    ///     the Settings POST only warns when a non-null value is sent that differs from the
-    ///     currently-persisted level.
     /// </summary>
     public string? PluginLogLevel { get; init; }
 }

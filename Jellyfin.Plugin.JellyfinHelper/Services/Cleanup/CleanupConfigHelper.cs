@@ -10,9 +10,7 @@ using MediaBrowser.Model.Entities;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 
 /// <summary>
-///     Helper that applies plugin configuration rules to cleanup operations.
-///     Provides library filtering, orphan age checking, trash/delete resolution, and task mode queries.
-///     Registered as a singleton via DI; reads configuration from <see cref="IPluginConfigurationService" />.
+///     Helper that applies plugin configuration rules to cleanup operations. Provides library filtering, orphan age checking, trash/delete resolution, and task mode queries.
 /// </summary>
 public class CleanupConfigHelper : ICleanupConfigHelper
 {
@@ -28,8 +26,6 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     {
         _configService = configService;
     }
-
-    // ===== Instance members (config access via IPluginConfigurationService) =====
 
     /// <inheritdoc />
     public PluginConfiguration GetConfig()
@@ -87,9 +83,6 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     // NOTE: each IsDryRun* method above fetches config independently via GetConfig().
-    // If a caller needs to check multiple modes in one task execution, call GetConfig()
-    // once at the call site and read the TaskMode properties directly to avoid
-    // redundant configuration fetches.
 
     /// <inheritdoc />
     public IReadOnlyList<string> GetFilteredLibraryLocations(ILibraryManager libraryManager)
@@ -105,11 +98,8 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         {
             var name = f.Name ?? string.Empty;
 
-            // Fail-safe allow-list: only ever clean libraries whose collection type can contain
-            // video/audio media. Anything else — books (eBooks: PDF/CBZ/EPUB…), and any unknown or
-            // future/null type — is skipped so its files can never be treated as "orphaned" and
-            // deleted. This replaces the earlier music/boxsets-only deny-list, which let a Book
-            // library through and caused whole eBook collections to be deleted (GitHub issue).
+            // Allow-list: only video/audio collection types are cleaned. Books and unknown types are
+            // skipped to prevent eBook deletion.
             if (!IsCleanupEligibleCollectionType(f.CollectionType))
             {
                 return false;
@@ -248,9 +238,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return trashPath;
         }
 
-        // Resolve relative path against the library root and verify it does not escape
-        // via ".." sequences. Path.Join does not resolve ".." - only GetFullPath does.
-        // Guard against malformed or excessively long paths that would otherwise throw.
+        // Resolve relative path against the library root and verify it does not escape via ".." sequences. Path.Join does not resolve ".." - only GetFullPath does.
         string resolved;
         string normalizedRoot;
         try
@@ -328,9 +316,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     /// <summary>
-    ///     Normalizes each library root to a full path with trailing separators trimmed. Roots whose
-    ///     paths cannot be resolved are skipped. Pre-normalizing once keeps the inner containment
-    ///     checks O(n) rather than O(n*m).
+    ///     Normalizes each library root to a full path with trailing separators trimmed. Roots whose paths cannot be resolved are skipped.
     /// </summary>
     private static List<string> NormalizeLibraryRoots(List<string> allLibraryRoots)
     {
@@ -390,8 +376,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     /// <summary>
-    ///     Resolves a relative trash path against each managed (filtered) library root, adding the
-    ///     per-library trash folders that exist on disk, stay within their root, and are not roots.
+    ///     Resolves a relative trash path against each managed (filtered) library root, adding the per-library trash folders that exist on disk, stay within their root, and are not roots.
     /// </summary>
     private void ResolveRelativeTrashFolders(
         string queryPath,
@@ -443,8 +428,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     /// <summary>
-    ///     Derives the managed library folders (video libraries that are not collections/boxsets and
-    ///     not user-excluded) from the supplied virtual-folder snapshot.
+    ///     Derives the managed library folders (video libraries that are not collections/boxsets and not user-excluded) from the supplied virtual-folder snapshot.
     /// </summary>
     private List<string> GetManagedLibraryFolders(IEnumerable<VirtualFolderInfo> virtualFolders)
     {
@@ -482,18 +466,8 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             .ToList();
     }
 
-    // ===== Private helpers =====
-
-    // ===== Pure static helpers (no state, no config access) =====
-
     /// <summary>
-    ///     Returns the OS-appropriate <see cref="StringComparison" /> for file-system path comparisons.
-    ///     Note: macOS is treated as case-insensitive because the overwhelming majority of installations
-    ///     use case-insensitive APFS/HFS+. While case-sensitive APFS volumes exist, using OrdinalIgnoreCase
-    ///     is the safer default for a cleanup/trash tool - it may produce false positives (treating two
-    ///     case-differing paths as identical) but never false negatives (missing a match that could lead
-    ///     to operating on a library root). If case-sensitive macOS volumes become a reported issue,
-    ///     a volume-aware probe can be added here.
+    ///     Returns the OS-appropriate StringComparison for file-system path comparisons. Note: macOS is treated as case-insensitive because the overwhelming majority of installations use case-insensitive APFS/HFS+.
     /// </summary>
     private static StringComparison GetOsPathComparison()
     {
@@ -503,9 +477,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     /// <summary>
-    ///     Determines whether a task should run in dry-run mode based on its <see cref="TaskMode" />.
-    ///     Returns true only for <see cref="TaskMode.DryRun" />; false for all other modes.
-    ///     Callers must handle <see cref="TaskMode.Deactivate" /> separately before calling this.
+    ///     Determines whether a task should run in dry-run mode based on its TaskMode. Returns true only for DryRun; false for all other modes.
     /// </summary>
     /// <param name="mode">The task mode.</param>
     /// <returns>True if the task should run in dry-run mode.</returns>
@@ -515,19 +487,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     /// <summary>
-    ///     Determines whether a library's collection type is eligible for destructive cleanup
-    ///     (empty-folder deletion, trash management, etc.). Non-audio/video collection types are
-    ///     excluded so their files can never be misclassified as orphaned media and deleted:
-    ///     <list type="bullet">
-    ///         <item><description><c>books</c> — eBooks (PDF/CBZ/EPUB…) contain no video/audio and
-    ///         would otherwise be treated as orphan folders and deleted (the reported data-loss bug).</description></item>
-    ///         <item><description><c>music</c> — audio-only libraries have no video, so every folder
-    ///         would look orphaned to the empty-folder task.</description></item>
-    ///         <item><description><c>boxsets</c> — Jellyfin-internal collections that must never be touched.</description></item>
-    ///     </list>
-    ///     A <see langword="null" />/unknown type stays eligible (mixed or manually-created libraries
-    ///     legitimately report no type); those are still guarded by the name-pattern fallback and the
-    ///     user's ExcludedLibraries list at the call sites.
+    ///     Determines whether a library's collection type is eligible for destructive cleanup (empty-folder deletion, trash management, etc.).
     /// </summary>
     /// <param name="collectionType">The library's Jellyfin collection type (may be null/unknown).</param>
     /// <returns><see langword="false" /> for books/music/boxsets; otherwise <see langword="true" />.</returns>
@@ -539,9 +499,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     /// <summary>
-    ///     Returns true when any path segment of <paramref name="location" /> is exactly "collections"
-    ///     (case-insensitive). Handles both forward-slash and backslash separators.
-    ///     Used to exclude Jellyfin's internal collections directory from all library-location filters.
+    ///     Returns true when any path segment of location is exactly "collections" (case-insensitive). Handles both forward-slash and backslash separators.
     /// </summary>
     /// <param name="location">The filesystem path to test.</param>
     /// <returns>
@@ -555,9 +513,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return false;
         }
 
-        // Split on all three possible separators so the check works correctly on both
-        // Linux (separator='/') and Windows (separator='\'), including Windows-style paths
-        // stored in config on a Linux host.
+        // Split on all three possible separators so the check works correctly on both Linux (separator='/') and Windows (separator='\'), including Windows-style paths stored in config on a Linux host.
         var segments = location.Split(['/', '\\'], StringSplitOptions.None);
         return segments.Any(s => string.Equals(s, "collections", StringComparison.OrdinalIgnoreCase));
     }

@@ -9,8 +9,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// </summary>
 public class LogsHtmlTests : ConfigPageTestBase
 {
-    // === Tab registration ===
-
     [Fact]
     public void Html_ContainsLogsTabButton()
     {
@@ -34,8 +32,6 @@ public class LogsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("function destroyLogsTab()", HtmlContent);
     }
-
-    // === UI elements ===
 
     [Fact]
     public void Html_ContainsLogLevelFilterSelect()
@@ -89,8 +85,6 @@ public class LogsHtmlTests : ConfigPageTestBase
         Assert.Contains("id=\"logsTableWrapper\"", HtmlContent);
     }
 
-    // === Table structure ===
-
     [Fact]
     public void Html_ContainsLogsTableClass()
     {
@@ -106,8 +100,6 @@ public class LogsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains(cssClass, HtmlContent);
     }
-
-    // === Core functions ===
 
     [Fact]
     public void Html_ContainsLoadLogsFunction()
@@ -132,8 +124,6 @@ public class LogsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("function formatLogTimestamp(", HtmlContent);
     }
-
-    // === Log level persistence ===
 
     [Fact]
     public void Html_ContainsLoadLogLevelFromConfigFunction()
@@ -167,8 +157,6 @@ public class LogsHtmlTests : ConfigPageTestBase
         Assert.Contains("PluginLogLevel", HtmlContent);
     }
 
-    // === API endpoints ===
-
     [Fact]
     public void Html_CallsLogsEndpoint()
     {
@@ -188,8 +176,6 @@ public class LogsHtmlTests : ConfigPageTestBase
             new Regex(@"type\s*:\s*['""]DELETE['""].*JellyfinHelper/Logs", RegexOptions.Singleline),
             HtmlContent);
     }
-
-    // === Auto-refresh ===
 
     [Fact]
     public void Html_ContainsAutoRefreshTimer()
@@ -215,8 +201,6 @@ public class LogsHtmlTests : ConfigPageTestBase
         Assert.Contains("10000", HtmlContent);
     }
 
-    // === Download mechanism ===
-
     [Fact]
     public void Html_DownloadUsesFetchApi()
     {
@@ -232,9 +216,7 @@ public class LogsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_DownloadUsesAuthorizationHeader()
     {
-        // Auth header is handled internally by apiFetchBlob in Shared.js;
-        // verify the shared helper carries the token via Authorization header
-        // Scoped to apiFetchBlob function body to avoid false positives from other helpers
+        // Auth header is handled internally by apiFetchBlob in Shared.js; verify the shared helper carries the token via Authorization header Scoped to apiFetchBlob function body to avoid false positives from other helpers.
         Assert.Matches(
             new Regex(
                 @"function\s+apiFetchBlob\s*\([^)]*\)\s*\{[\s\S]*?Authorization[\s\S]*?accessToken\(\)",
@@ -260,8 +242,6 @@ public class LogsHtmlTests : ConfigPageTestBase
         Assert.Contains("jellyfin-helper-logs.txt", HtmlContent);
     }
 
-    // === Clear confirmation ===
-
     [Fact]
     public void Html_ClearLogs_RequiresConfirmation()
     {
@@ -278,8 +258,6 @@ public class LogsHtmlTests : ConfigPageTestBase
                 RegexOptions.Multiline),
             HtmlContent);
     }
-
-    // === CSS classes ===
 
     [Theory]
     [InlineData("logs-container")]
@@ -300,8 +278,6 @@ public class LogsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains(cssClass, HtmlContent);
     }
-
-    // === i18n keys ===
 
     [Theory]
     [InlineData("logsLevel")]
@@ -325,8 +301,6 @@ public class LogsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("'" + key + "'", HtmlContent);
     }
-
-    // === Source filter debounce ===
 
     [Fact]
     public void Html_SourceFilter_HasDebounce()

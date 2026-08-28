@@ -1,10 +1,4 @@
-/**
- * Authorization gating - every admin controller carries
- * [Authorize(Policy = "RequiresElevation")], but no other spec ever calls them
- * as a non-admin. A regression that relaxes a policy would pass silently. This
- * asserts the whole matrix denies a normal (non-elevated) user, with an admin
- * positive control so a blanket "everything 403s" (e.g. broken auth) also fails.
- */
+/** * Authorization gating - every admin controller carries * [Authorize(Policy = "RequiresElevation")], but no other spec ever calls them * as a non-admin. */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 

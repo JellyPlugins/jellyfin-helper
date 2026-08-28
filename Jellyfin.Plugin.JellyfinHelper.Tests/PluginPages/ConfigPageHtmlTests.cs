@@ -4,9 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 /// <summary>
-/// General page structure and README quality tests.
-/// Module-specific tests live in OverviewHtmlTests, CodecsHtmlTests,
-/// HealthHtmlTests, TrendsHtmlTests, SettingsHtmlTests, ArrIntegrationHtmlTests.
+///     General page structure and README quality tests. Module-specific tests live in OverviewHtmlTests, CodecsHtmlTests, HealthHtmlTests, TrendsHtmlTests, SettingsHtmlTests, ArrIntegrationHtmlTests.
 /// </summary>
 public class ConfigPageHtmlTests : ConfigPageTestBase
 {

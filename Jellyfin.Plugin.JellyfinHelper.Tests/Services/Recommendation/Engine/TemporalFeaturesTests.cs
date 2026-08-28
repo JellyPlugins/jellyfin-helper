@@ -6,10 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for <see cref="TemporalFeatures"/>. Covers <c>ResolveIsWeekend</c> (parity contract
-///     across live scoring, Phase 1 recommendation-history examples, Phase 2 organic watches,
-///     Phase 3 random negatives, and aggregated series examples), <c>GetTimeBucket</c>,
-///     <c>ComputeDayOfWeekAffinity</c>, and <c>ComputeHourOfDayAffinity</c>.
+///     Tests for TemporalFeatures.
 /// </summary>
 public class TemporalFeaturesTests
 {

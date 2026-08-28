@@ -12,8 +12,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Activity;
 
 public class UserActivityInsightsServiceTests
 {
-    // === CalculateCompletion (internal static helper) ===
-
     [Fact]
     public void CalculateCompletion_Played_Returns100()
         => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(0, 1000, played: true));
@@ -62,7 +60,6 @@ public class UserActivityInsightsServiceTests
     public void CalculateCompletion_Played_ZeroRuntime_StillReturns100()
         => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(0, 0, played: true));
 
-    // === BuildActivityReport (end-to-end behavioral tests) ===
     // These lock in observable behavior so internal fetch-path swaps
     // (e.g. batch user-data on Jellyfin 12+) can be verified against the same suite.
 
@@ -368,10 +365,7 @@ public class UserActivityInsightsServiceTests
         Assert.Equal(alice.Id, s.UserActivities[0].UserId);
     }
 
-    // === Batch user-data fallback contract (Jellyfin 12+ GetUserDataBatch) ===
-    // Locks in the same contract that SimilarityComputerTests enforces for
-    // GetPeopleNamesByItems: non-cancellation failures degrade gracefully to
-    // per-item GetUserData, but OperationCanceledException must propagate.
+    // Locks in the same contract that SimilarityComputerTests enforces for GetPeopleNamesByItems: non-cancellation failures degrade gracefully to per-item GetUserData, but OperationCanceledException must propagate.
 
     [Fact]
     public void BuildActivityReport_BatchApiThrows_FallsBackToPerItemGetUserData()
@@ -398,9 +392,7 @@ public class UserActivityInsightsServiceTests
     [Fact]
     public void BuildActivityReport_BatchApiCancelled_PropagatesWithoutFallback()
     {
-        // OperationCanceledException from GetUserDataBatch must propagate to the caller
-        // without triggering per-item fallback. Cancellation is a stop signal, not a
-        // degradable error. Mirrors SimilarityComputer.BuildCandidatePeopleLookup.
+        // OperationCanceledException from GetUserDataBatch must propagate to the caller without triggering per-item fallback.
         var (svc, lib, um, ud) = CreateSut();
         var alice = User("alice");
         var movie = NewMovie("BatchCancelled");
@@ -418,9 +410,6 @@ public class UserActivityInsightsServiceTests
     public void BuildActivityReport_BatchApiCancelledOnSecondUser_PropagatesWithoutPartialReport()
     {
         // Multi-user variant of BuildActivityReport_BatchApiCancelled_PropagatesWithoutFallback.
-        // Locks in the invariant documented on BuildUserDataLookup: cancellation mid-scan aborts
-        // the entire report; no caller ever observes a partial result even when earlier users
-        // already had their batch loaded successfully.
         var (svc, lib, um, ud) = CreateSut();
         var alice = User("alice");
         var bob = User("bob");
@@ -435,10 +424,7 @@ public class UserActivityInsightsServiceTests
           .Throws(new OperationCanceledException());
 
         Assert.Throws<OperationCanceledException>(() => svc.BuildActivityReport());
-        // Both users' batch calls must have fired exactly once so the assertion actually
-        // exercises "cancellation after a partial preload" - not the shortcut where the
-        // scan aborts before ever reaching Bob. Alice's successful batch proves the loop
-        // was already several iterations in before Bob's cancellation propagated.
+        // Both users' batch calls must have fired exactly once so the assertion actually exercises "cancellation after a partial preload" - not the shortcut where the scan aborts before ever reaching Bob.
         ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice), Times.Once);
         ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), bob), Times.Once);
         // Neither user is allowed to trigger the per-item fallback once cancellation was requested,
@@ -449,14 +435,7 @@ public class UserActivityInsightsServiceTests
     [Fact]
     public void BuildActivityReport_UserDataThrowsObjectDisposedException_OtherUsersStillProcessed()
     {
-        // Contract: ObjectDisposedException from GetUserData for one user must not abort the
-        // whole report. The affected user is skipped for that item; other users are still
-        // included in the summary. This mirrors the InvalidOperationException resilience test
-        // but exercises the ObjectDisposedException branch of the same catch clause.
-        //
-        // Setup: both users hit the per-item fallback path (batch throws for both so that
-        // GetUserData is exercised for each). User1's GetUserData throws
-        // ObjectDisposedException; user2's GetUserData succeeds with a played entry.
+        // Contract: ObjectDisposedException from GetUserData for one user must not abort the whole report. The affected user is skipped for that item; other users are still included in the summary.
         var (svc, lib, um, ud) = CreateSut();
         var user1 = User("user1");
         var user2 = User("user2");

@@ -4,9 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Tests for the neural sub-strategy integration in <see cref="EnsembleScoringStrategy"/>:
-///     the injected-instance getter, the beta ramp past the activation threshold, the
-///     poor-quality and failed-training decay branches, and disposal of the composed neural.
+///     Tests for the neural sub-strategy integration in EnsembleScoringStrategy: the injected-instance getter, the beta ramp past the activation threshold, the poor-quality and failed-training decay branches, and disposal of the composed neural.
 /// </summary>
 public sealed class EnsembleScoringStrategyNeuralTests
 {
@@ -90,9 +88,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var betaBefore = ensemble.CurrentNeuralBeta;
         Assert.True(betaBefore > 0, $"Neural beta must have activated, was {betaBefore:F4}");
 
-        // 8 examples: >= LearnedScoringStrategy.MinTrainingExamples (5) so learned trains,
-        // but < NeuralScoringStrategy.MinTrainingExamples (12) so the neural fails to train.
-        // With beta > 0 this hits the learned-success / neural-fail decay branch.
+        // 8 examples: >= LearnedScoringStrategy.MinTrainingExamples (5) so learned trains, but < NeuralScoringStrategy.MinTrainingExamples (12) so the neural fails to train.
         Assert.True(ensemble.Train(CleanExamples(8)));
 
         var betaAfter = ensemble.CurrentNeuralBeta;
@@ -131,10 +127,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var betaStart = ensemble.CurrentNeuralBeta;
         Assert.True(betaStart > 0, $"Neural beta must have activated, was {betaStart:F4}");
 
-        // Fewer than LearnedScoringStrategy.MinTrainingExamples (5) so learned training FAILS
-        // every round, driving the cold-start else-branch that halves beta and records a
-        // placeholder snapshot. Fifteen rounds is enough to both cross the zero-floor and
-        // overflow the 10-row history cap.
+        // Fewer than LearnedScoringStrategy.MinTrainingExamples (5) so learned training FAILS every round, driving the cold-start else-branch that halves beta and records a placeholder snapshot.
         var previousBeta = betaStart;
         var sawStrictDecrease = false;
         for (var round = 0; round < 15; round++)
@@ -166,9 +159,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var betaStart = ensemble.CurrentNeuralBeta;
         Assert.True(betaStart > 0, $"Neural beta must have activated, was {betaStart:F4}");
 
-        // 8 examples: >= 5 so learned keeps succeeding, but < 12 so the neural fails to train.
-        // Each learned-success/neural-fail round halves beta; once a halved value drops below
-        // NeuralBetaMinFloor the branch must snap it to exactly 0.0 rather than leaving a ghost.
+        // 8 examples: >= 5 so learned keeps succeeding, but < 12 so the neural fails to train. Each learned-success/neural-fail round halves beta; once a halved value drops below NeuralBetaMinFloor the branch must snap it to exactly 0.0 rather than leaving a ghost.
         for (var round = 0; round < 12; round++)
         {
             Assert.True(ensemble.Train(CleanExamples(8)),

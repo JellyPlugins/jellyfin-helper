@@ -10,14 +10,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
 ///     Train/serve parity tests for the seven content-affinity features.
-///     <para>
-///         The live scoring path (<c>Engine.ScoreCandidate</c>) and every training path
-///         (<c>TrainingDataBuilder</c> / <c>TrainingFeatureComputer</c>) compute these features by
-///         calling the SAME shared static helpers (<see cref="SimilarityComputer"/> +
-///         <see cref="EngineConstants.ComputeSeriesCompletability"/>). Parity is therefore structural:
-///         identical inputs must yield identical outputs regardless of caller. These tests lock that
-///         contract in so a future refactor cannot silently reintroduce a train/serve skew.
-///     </para>
 /// </summary>
 public sealed class FeatureParityTests
 {
@@ -110,10 +102,7 @@ public sealed class FeatureParityTests
     [Fact]
     public void ExtractBilledPeople_ThenBuildBillingMapFromCache_RoundTripsIdentically()
     {
-        // Serve side: WatchHistoryService caches (names, weights) via ExtractBilledPeople.
-        // Train side: TrainingFeatureComputer rebuilds the billing map from those cached lists.
-        // The rebuilt map must equal the map ExtractBillingWeightMap would have produced live -
-        // this is the train/serve parity contract for BillingWeightedPeople on organic examples.
+        // Serve side: WatchHistoryService caches (names, weights) via ExtractBilledPeople. Train side: TrainingFeatureComputer rebuilds the billing map from those cached lists.
         var people = new List<PersonInfo>
         {
             new() { Name = "Lead", Type = PersonKind.Actor, SortOrder = 0 },
@@ -147,8 +136,6 @@ public sealed class FeatureParityTests
         Assert.Empty(w2);
     }
 
-    // ===================== SeriesCompletability (canonical formula) =====================
-
     [Theory]
     [InlineData(false, "Ended", true, EngineConstants.SeriesCompletabilityNeutral)]   // movie -> neutral
     [InlineData(false, null, false, EngineConstants.SeriesCompletabilityNeutral)]     // movie -> neutral
@@ -171,8 +158,6 @@ public sealed class FeatureParityTests
         Assert.True(result > EngineConstants.SeriesCompletabilityContinuing);
         Assert.True(result <= EngineConstants.SeriesCompletabilityEnded);
     }
-
-    // ===================== BillingWeight (canonical formula) =====================
 
     [Fact]
     public void BillingWeight_TopBilled_IsMaximal_AndMonotonicallyNonIncreasing()

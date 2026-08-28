@@ -4,10 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Reverse-lookup contract for <see cref="TmdbGenreMap" />: mapping Jellyfin genre strings
-///     back to TMDb movie/TV genre IDs. This is the path recommendation discovery uses to translate
-///     a user's stored genre preferences into TMDb query parameters, so the alias handling and the
-///     null/whitespace guards must hold exactly as documented.
+///     Reverse-lookup contract for TmdbGenreMap: mapping Jellyfin genre strings back to TMDb movie/TV genre IDs.
 /// </summary>
 public class TmdbGenreMapReverseLookupTests
 {

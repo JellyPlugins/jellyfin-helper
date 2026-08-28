@@ -136,9 +136,7 @@ public class TrashControllerAccessTests : IDisposable
     [Fact]
     public void CheckAccess_RelativePathThatFailsPathResolution_SkipsLibrary()
     {
-        // An embedded NUL in the relative path makes Path.GetFullPath throw inside
-        // ResolveRelativeTrashPath; the exception is swallowed and the library is skipped,
-        // so the endpoint still returns 200 with no accessible results.
+        // An embedded NUL in the relative path makes Path.GetFullPath throw inside ResolveRelativeTrashPath; the exception is swallowed and the library is skipped, so the endpoint still returns 200 with no accessible results.
         var config = new PluginConfiguration { UseTrash = true, TrashFolderPath = ".jellyfin-trash" };
         var controller = CreateController(config, new List<string> { _testRoot });
 

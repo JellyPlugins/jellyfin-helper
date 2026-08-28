@@ -17,18 +17,13 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for the in-memory TTL cache inside <c>SeerrDiscoveryService.GetCachedSeerrUsersAsync</c>.
-///     Exercises the cache hit (warm path), cache miss (cold/expired path), stampede behaviour
-///     under concurrent misses, and the invariant that incomplete fetches are never cached.
-///     Belongs to <c>ConfigOverride</c> because it mutates <c>Plugin.Instance.Configuration</c>.
+///     Tests for the in-memory TTL cache inside SeerrDiscoveryService.GetCachedSeerrUsersAsync.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
 {
-    // -----------------------------------------------------------------------
     // Single-user roster JSON returned by the mock HTTP handler.
     // The Jellyfin user ID below is the "N"-format of LinkedJellyfinUserId.
-    // -----------------------------------------------------------------------
     private const string SingleUserJson = """
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -40,9 +35,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
 
     private static readonly Guid LinkedJellyfinUserId = new("11111111-2222-3333-4444-555555555555");
 
-    // -----------------------------------------------------------------------
     // Infrastructure
-    // -----------------------------------------------------------------------
 
     private readonly DiscoveryCacheService _cache;
 
@@ -63,9 +56,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         ControllerTestFactory.ResetPluginConfiguration();
     }
 
-    // -----------------------------------------------------------------------
     // Factory helpers
-    // -----------------------------------------------------------------------
 
     private SeerrDiscoveryService BuildSut(FailableCountingHttpHandler handler)
     {
@@ -99,9 +90,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 
-    // -----------------------------------------------------------------------
     // TEST-10a: Warm cache - second sequential call must NOT hit the network.
-    // -----------------------------------------------------------------------
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_WarmCache_NoAdditionalHttpCallsMade()
@@ -125,11 +114,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         Assert.True(callsAfterFirst >= 1, "At least one HTTP call must have occurred to warm the cache.");
     }
 
-    // -----------------------------------------------------------------------
-    // TEST-10b: Stampede - concurrent cold-cache callers all fan out to HTTP
-    //           (documents current "allow stampede" behaviour and verifies that
-    //           once any caller has written the cache the result is consistent).
-    // -----------------------------------------------------------------------
+    // TEST-10b: Stampede - concurrent cold-cache callers all fan out to HTTP (documents current "allow stampede" behaviour and verifies that once any caller has written the cache the result is consistent).
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_ConcurrentColdCacheMisses_AllReceiveConsistentResult()
@@ -153,19 +138,12 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         // Assert: every caller must receive the same, correct Seerr user ID.
         Assert.All(results, r => Assert.Equal(1, r));
 
-        // The current implementation does NOT coalesce concurrent fetches - each concurrent
-        // caller independently reaches FetchSeerrUsersInternalAsync. Verify the call count
-        // is consistent with the observed concurrency (at least 1, at most N). This assertion
-        // documents the known stampede: it verifies the RESULT is always correct (no data
-        // corruption from concurrent writes) without asserting the exact call count, which
-        // would make the test brittle against scheduling variations.
+        // The current implementation does NOT coalesce concurrent fetches - each concurrent caller independently reaches FetchSeerrUsersInternalAsync.
         Assert.InRange(handler.CallCount, 1, concurrency);
     }
 
-    // -----------------------------------------------------------------------
     // TEST-10c: After the stampede settles the cache is warm - the NEXT call
     //           (after all concurrent ones complete) must not re-fetch.
-    // -----------------------------------------------------------------------
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_AfterStampedeSettles_SubsequentCallUsesCache()
@@ -192,11 +170,9 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         Assert.Equal(callsAfterStampede, handler.CallCount);
     }
 
-    // -----------------------------------------------------------------------
     // TEST-10d: Incomplete fetch (upstream error) must NOT be written to cache -
     //           callers must keep retrying rather than getting a stale empty list
     //           for the full TTL.
-    // -----------------------------------------------------------------------
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_FailedFetch_NotCached_NextCallRetries()
@@ -233,18 +209,11 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
     }
 }
 
-// ---------------------------------------------------------------------------
 // FailableCountingHttpHandler - thread-safe scripted handler that counts /api/v1/user
 // GET calls and can inject a configurable per-response delay for stampede tests.
-// ---------------------------------------------------------------------------
 
 /// <summary>
-///     A scripted <see cref="HttpMessageHandler"/> that:
-///     <list type="bullet">
-///         <item>counts every GET request to any URL containing <c>/api/v1/user</c>;</item>
-///         <item>optionally injects a per-response delay to widen the stampede window;</item>
-///         <item>can fail the first <paramref name="failFirstN"/> requests with HTTP 500.</item>
-///     </list>
+///     A scripted HttpMessageHandler that: counts every GET request to any URL containing /api/v1/user; optionally injects a per-response delay to widen the stampede window; can fail the first failFirstN requests with HTTP 500.
 /// </summary>
 internal sealed class FailableCountingHttpHandler : HttpMessageHandler
 {

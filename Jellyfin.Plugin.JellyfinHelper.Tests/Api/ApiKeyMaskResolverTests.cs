@@ -8,18 +8,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Unit tests for <see cref="ApiKeyMaskResolver"/>, the shared logic that decides whether an
-///     incoming API key is the masked sentinel and, if so, recovers the real stored key. The class
-///     is <c>internal</c> but reachable via <c>InternalsVisibleTo</c>. These tests lock the exact
-///     semantics the save path (<c>ConfigurationController.ResolveApiKey</c>) previously implemented
-///     inline, plus the security invariant that an unresolvable mask yields an empty string (never a
-///     literal copy of the mask) so callers know not to forward it upstream.
+///     Unit tests for ApiKeyMaskResolver, the shared logic that decides whether an incoming API key is the masked sentinel and, if so, recovers the real stored key.
 /// </summary>
 public class ApiKeyMaskResolverTests
 {
     private const string ApiKeyMask = "********";
-
-    // ---------- IsMask ----------
 
     [Fact]
     public void IsMask_ExactSentinel_ReturnsTrue()
@@ -46,8 +39,6 @@ public class ApiKeyMaskResolverTests
         Assert.False(ApiKeyMaskResolver.IsMask(candidate));
     }
 
-    // ---------- ResolveArrKey: non-mask passthrough ----------
-
     [Fact]
     public void ResolveArrKey_RealKey_ReturnedUnchanged()
     {
@@ -68,8 +59,6 @@ public class ApiKeyMaskResolverTests
 
         Assert.Equal(string.Empty, result);
     }
-
-    // ---------- ResolveArrKey: mask resolution ----------
 
     [Fact]
     public void ResolveArrKey_MaskMatchesByUrl_RecoversStoredKey()
@@ -101,11 +90,7 @@ public class ApiKeyMaskResolverTests
     [Fact]
     public void ResolveArrKey_MaskSameUrlSameName_ResolvesToAStoredKeyDeterministically()
     {
-        // Duplicate instances with identical URL and Name are indistinguishable to the resolver, so
-        // it deterministically returns the first matching stored key. The security invariant still
-        // holds: a real stored key for that URL comes back, never the mask and never a key from a
-        // different URL. Names are display labels, not unique keys. This locks the behaviour so it
-        // can't silently regress.
+        // Duplicate instances with identical URL and Name are indistinguishable to the resolver, so it deterministically returns the first matching stored key.
         var stored = new List<ArrInstanceConfig>
         {
             new() { Url = "http://localhost:7878", ApiKey = "key-first", Name = "Dup" },
@@ -188,9 +173,7 @@ public class ApiKeyMaskResolverTests
     [Fact]
     public void ResolveArrKey_MaskWithReadOnlyListStore_UsesFastPath_RecoversStoredKey()
     {
-        // The resolver reuses the list directly when it already implements IReadOnlyList, with no
-        // defensive copy. An array satisfies IReadOnlyList<T>, so this hits that fast path. Key
-        // recovery must be identical whatever the collection shape.
+        // The resolver reuses the list directly when it already implements IReadOnlyList, with no defensive copy.
         IReadOnlyList<ArrInstanceConfig> stored = new[]
         {
             new ArrInstanceConfig { Url = "http://localhost:7878", ApiKey = "stored-key", Name = "R" }
@@ -224,10 +207,7 @@ public class ApiKeyMaskResolverTests
     [Fact]
     public void ResolveArrKey_StoredKeyLiterallyEqualsMask_TreatedAsUnchanged_RoundTrips()
     {
-        // Edge case: the admin's real stored key happens to equal the mask sentinel. Incoming is
-        // also the mask, so IsMask short-circuits and we recover the stored key by URL+Name.
-        // The returned value is the recovered stored key, never a freshly minted mask leaked as
-        // a new secret.
+        // Edge case: the admin's real stored key happens to equal the mask sentinel. Incoming is also the mask, so IsMask short-circuits and we recover the stored key by URL+Name.
         var stored = new List<ArrInstanceConfig>
         {
             new() { Url = "http://x", ApiKey = ApiKeyMask, Name = "R" }

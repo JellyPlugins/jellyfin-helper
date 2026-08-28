@@ -18,28 +18,12 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     TEST-10 - Concurrent correctness tests for <c>GetCachedSeerrUsersAsync</c> (exercised
-///     through the public <see cref="SeerrDiscoveryService.GetSeerrUsersAsync"/> entry point).
-///
-///     The current implementation does NOT use a single-flight / mutex-around-fetch pattern:
-///     the lock is released before the network call, so multiple concurrent callers that
-///     arrive when the cache is cold may each issue their own HTTP request to
-///     <c>/api/v1/user</c>.  These tests therefore do NOT assert "exactly one HTTP call" -
-///     they assert that:
-///       - all concurrent callers receive a valid, non-empty result,
-///       - all callers receive an identical user list,
-///       - the cache is populated after the stampede (a follow-up call is served from cache),
-///       - a failed fetch is not cached (the next call retries rather than serving empty).
-///
-///     The tests document and pin the current correctness contract without mandating a
-///     particular concurrency optimisation.
+///     TEST-10 - Concurrent correctness tests for GetCachedSeerrUsersAsync (exercised through the public GetSeerrUsersAsync entry point).
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
 {
-    // ---------------------------------------------------------------------------
     // Shared user-page JSON returned by all scripted responses
-    // ---------------------------------------------------------------------------
 
     private const string SinglePageUserJson = """
         {
@@ -72,15 +56,10 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         ControllerTestFactory.ResetPluginConfiguration();
     }
 
-    // ---------------------------------------------------------------------------
     // Factory helpers
-    // ---------------------------------------------------------------------------
 
     /// <summary>
-    ///     Creates a <see cref="SeerrDiscoveryService"/> backed by <paramref name="handler"/>.
-    ///     Every call to <c>IHttpClientFactory.CreateClient</c> returns a fresh
-    ///     <see cref="HttpClient"/> wrapping the same handler so that the request-count
-    ///     tracking in <see cref="CountingHttpHandler"/> accumulates across all calls.
+    ///     Creates a SeerrDiscoveryService backed by handler. Every call to IHttpClientFactory.CreateClient returns a fresh HttpClient wrapping the same handler so that the request-count tracking in CountingHttpHandler accumulates across all calls.
     /// </summary>
     private SeerrDiscoveryService BuildService(CountingHttpHandler handler)
     {
@@ -114,9 +93,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 
-    // ---------------------------------------------------------------------------
     // Tests
-    // ---------------------------------------------------------------------------
 
     [Fact]
     public async Task GetSeerrUsersAsync_WarmCache_SecondCallMakesNoHttpRequest()
@@ -139,9 +116,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     [Fact]
     public async Task GetSeerrUsersAsync_ConcurrentColdMiss_AllCallersReceiveValidResult()
     {
-        // Arrange: 8 concurrent callers hit an empty cache simultaneously.
-        // The handler introduces a brief response delay to maximise the chance that
-        // multiple callers pass the "cache expired?" check before any response arrives.
+        // Arrange: 8 concurrent callers hit an empty cache simultaneously. The handler introduces a brief response delay to maximise the chance that multiple callers pass the "cache expired?" check before any response arrives.
         const int concurrency = 8;
         using var handler = new CountingHttpHandler(responseDelayMs: 30);
         for (var i = 0; i < concurrency; i++)
@@ -226,14 +201,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
 }
 
 /// <summary>
-///     A thread-safe <see cref="HttpMessageHandler"/> that:
-///     <list type="bullet">
-///       <item>Serves scripted responses from a per-path FIFO queue.</item>
-///       <item>Counts how many times each path-suffix was requested.</item>
-///       <item>Optionally introduces a configurable delay before responding (to
-///             widen the concurrency window for stampede tests).</item>
-///       <item>Returns 404 when the queue for the requested path is empty.</item>
-///     </list>
+///     A thread-safe HttpMessageHandler that: Serves scripted responses from a per-path FIFO queue. Counts how many times each path-suffix was requested.
 /// </summary>
 internal sealed class CountingHttpHandler : HttpMessageHandler
 {

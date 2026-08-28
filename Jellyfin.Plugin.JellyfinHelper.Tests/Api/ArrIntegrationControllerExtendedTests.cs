@@ -16,10 +16,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Branch-coverage extensions for <see cref="ArrIntegrationController"/> covering paths
-///     that <see cref="ArrIntegrationControllerTests"/> left uncovered: the <c>index</c>
-///     parameter (valid + invalid range), the <c>failedInstances</c> 502 path, the empty
-///     Url/ApiKey skip, and the trash-folder skip in <c>GetJellyfinFolderNames</c>.
+///     Branch-coverage extensions for ArrIntegrationController covering paths that ArrIntegrationControllerTests left uncovered: the index parameter (valid + invalid range), the failedInstances 502 path, the empty Url/ApiKey skip, and the trash-folder skip in GetJellyfinFolderNames.
 /// </summary>
 public sealed class ArrIntegrationControllerExtendedTests : IDisposable
 {
@@ -69,8 +66,6 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
         return config;
     }
 
-    // ---------- Radarr: index validation ----------
-
     [Fact]
     public async Task CompareRadarrAsync_NegativeIndex_ReturnsBadRequest()
     {
@@ -118,22 +113,10 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
         Assert.Single(data.InBoth);
     }
 
-    // ---------- Radarr: empty Url/ApiKey is filtered by GetEffectiveRadarrInstances ----------
-
     [Fact]
     public async Task CompareRadarrAsync_AllInstancesHaveEmptyUrl_ReturnsBadRequest()
     {
-        // DESIGN CONTRACT: PluginConfiguration.GetEffectiveRadarrInstances() filters out
-        // instances with empty Url or ApiKey BEFORE the controller sees them. So a config
-        // that only contains partially-filled instances is effectively "no instance
-        // configured" from the controller's perspective - the correct response is 400
-        // "At least one Radarr instance must be configured.", NOT a silent skip.
-        //
-        // The controller's inner `if (IsNullOrWhiteSpace(instance.Url)) continue;` is
-        // therefore defense-in-depth against a future refactor that removes the filter
-        // in GetEffectiveRadarrInstances. This test locks the CURRENT, filter-aware
-        // behavior so that a regression removing the filter would immediately surface
-        // in the response type.
+        // DESIGN CONTRACT: PluginConfiguration.GetEffectiveRadarrInstances() filters out instances with empty Url or ApiKey BEFORE the controller sees them.
         ConfigWithRadarr(("", "k", "Partial"));
 
         var result = await _controller.CompareRadarrAsync(null, CancellationToken.None);
@@ -164,8 +147,6 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
         Assert.Equal(StatusCodes.Status502BadGateway, status.StatusCode);
         Assert.Contains("ImportantRadarr", JsonSerializer.Serialize(status.Value), StringComparison.Ordinal);
     }
-
-    // ---------- Radarr: trash folder must be excluded from folder set ----------
 
     [Fact]
     public async Task CompareRadarrAsync_TrashFolderInLibrary_IsExcludedFromComparison()
@@ -210,9 +191,7 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
     [Fact]
     public async Task CompareRadarrAsync_GetDirectoriesThrowsIOException_IsSwallowed()
     {
-        // IOException from a filesystem enumeration on one library location must NOT
-        // fail the entire comparison. The controller catches IOException and
-        // UnauthorizedAccessException, logs a warning, and continues.
+        // IOException from a filesystem enumeration on one library location must NOT fail the entire comparison.
         var libPath = Path.Join(_tempPath, "Movies");
         Directory.CreateDirectory(libPath);
         ConfigWithRadarr(("http://r", "k", "R1"));
@@ -263,8 +242,6 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
         Assert.IsType<OkObjectResult>(result.Result);
     }
 
-    // ---------- Sonarr: mirrored coverage of the same branches ----------
-
     [Fact]
     public async Task CompareSonarrAsync_NegativeIndex_ReturnsBadRequest()
     {
@@ -302,9 +279,7 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
     [Fact]
     public async Task CompareSonarrAsync_AllInstancesHaveEmptyApiKey_ReturnsBadRequest()
     {
-        // Mirrors CompareRadarrAsync_AllInstancesHaveEmptyUrl_ReturnsBadRequest - the
-        // GetEffectiveSonarrInstances filter drops the partial instance, leaving Count==0
-        // which the controller reports as 400 BadRequest.
+        // Mirrors CompareRadarrAsync_AllInstancesHaveEmptyUrl_ReturnsBadRequest - the GetEffectiveSonarrInstances filter drops the partial instance, leaving Count==0 which the controller reports as 400 BadRequest.
         ConfigWithSonarr(("http://s", "", "Partial"));
 
         var result = await _controller.CompareSonarrAsync(null, CancellationToken.None);
@@ -319,10 +294,7 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
     [Fact]
     public async Task CompareSonarrAsync_ValidIndex_UsesOnlyThatInstance()
     {
-        // Twin of CompareRadarrAsync_ValidIndex_UsesOnlyThatInstance: with two instances
-        // configured, a valid index must narrow the working set to that single instance
-        // (line 207) rather than merging all. A match therefore proves the indexed
-        // instance was the one queried.
+        // Twin of CompareRadarrAsync_ValidIndex_UsesOnlyThatInstance: with two instances configured, a valid index must narrow the working set to that single instance (line 207) rather than merging all.
         var libPath = Path.Join(_tempPath, "TVShows");
         Directory.CreateDirectory(libPath);
         var showDir = Path.Join(libPath, "ShowA");

@@ -38,8 +38,6 @@ public class RecommendationControllerTests
             _mockConfigService.Object);
     }
 
-    // === GetAllRecommendations ===
-
     [Fact]
     public async Task GetAllRecommendations_CacheHit_ReturnsCachedResults()
     {
@@ -94,8 +92,6 @@ public class RecommendationControllerTests
 
         _mockEngine.Verify(e => e.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
     }
-
-    // === GetUserRecommendations ===
 
     [Fact]
     public void GetUserRecommendations_CacheHit_ReturnsCachedUser()
@@ -153,8 +149,6 @@ public class RecommendationControllerTests
         Assert.Contains("userId", badRequest.Value!.ToString() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
-    // === GetUserWatchProfile ===
-
     [Fact]
     public void GetUserWatchProfile_Found_ReturnsOk()
     {
@@ -188,8 +182,6 @@ public class RecommendationControllerTests
         Assert.NotNull(badRequest.Value);
         Assert.Contains("userId", badRequest.Value!.ToString() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
-
-    // === 503 Disabled ===
 
     [Fact]
     public async Task GetAllRecommendations_Disabled_Returns503()
@@ -259,8 +251,6 @@ public class RecommendationControllerTests
         _mockCache.Verify(c => c.SaveResults(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);
     }
 
-    // === GetAllWatchProfiles ===
-
     [Fact]
     public void GetAllWatchProfiles_ReturnsProfilesWithoutWatchedItems()
     {
@@ -290,14 +280,10 @@ public class RecommendationControllerTests
         Assert.Equal("Movie A", profiles[0].WatchedItems[0].Name);
     }
 
-    // === Trim / cache-mutation-guard tests ===
-
     [Fact]
     public async Task GetAllRecommendations_CachedListLargerThanRequestedMax_TrimsWithoutMutatingCache()
     {
-        // BUG GUARD: TrimRecommendations must return a DEEP COPY when trimming so subsequent
-        // requests still see the full cached list. A regression that mutates the cache in-place
-        // would cause every following request to see the previously-trimmed size.
+        // BUG GUARD: TrimRecommendations must return a DEEP COPY when trimming so subsequent requests still see the full cached list.
         var userId = Guid.NewGuid();
         var original = new RecommendationResult
         {
@@ -325,9 +311,7 @@ public class RecommendationControllerTests
     [Fact]
     public async Task GetAllRecommendations_CachedListSmallerThanRequestedMax_ReturnsSameReference()
     {
-        // Perf regression guard: when no trim is needed the controller must not
-        // allocate a copy of the list. We can prove this by checking element count
-        // and the exact reference of the underlying Recommendations collection.
+        // Perf regression guard: when no trim is needed the controller must not allocate a copy of the list. We can prove this by checking element count and the exact reference of the underlying Recommendations collection.
         var userId = Guid.NewGuid();
         var original = new RecommendationResult
         {
@@ -353,10 +337,7 @@ public class RecommendationControllerTests
     [Fact]
     public void GetUserRecommendations_CachedUserLargerThanRequestedMax_ReturnsTrimmedCopy()
     {
-        // BUG GUARD: the copy-on-trim path in GetUserRecommendations (Lines 145-157) must
-        // preserve all metadata (UserName, ScoringStrategy, GeneratedAt, Profile, Cohort) -
-        // not just the Recommendations. If a future refactor forgets one field, this test
-        // catches it because we assert against every metadata property.
+        // BUG GUARD: the copy-on-trim path in GetUserRecommendations (Lines 145-157) must preserve all metadata (UserName, ScoringStrategy, GeneratedAt, Profile, Cohort) - not just the Recommendations.
         var userId = Guid.NewGuid();
         var original = new RecommendationResult
         {
@@ -396,9 +377,7 @@ public class RecommendationControllerTests
     [Fact]
     public async Task GetAllRecommendations_CachedListLargerThanRequestedMax_TrimmedCopyPreservesCohort()
     {
-        // BUG GUARD: TrimRecommendations must propagate the Cohort field on the trimmed copy.
-        // Without this test, a regression that drops Cohort would silently break the A/B
-        // reporting for the admin overview endpoint.
+        // BUG GUARD: TrimRecommendations must propagate the Cohort field on the trimmed copy. Without this test, a regression that drops Cohort would silently break the A/B reporting for the admin overview endpoint.
         var userId = Guid.NewGuid();
         var original = new RecommendationResult
         {
@@ -423,9 +402,7 @@ public class RecommendationControllerTests
     }
 
     [Theory]
-    // maxPerUser <= 0 -> falls back to configured (20); >100 -> clamped to 100.
-    // The trailing tuple asserts BOTH: what the engine is invoked with AND how many
-    // recommendations survive trimming for each element in the response.
+    // maxPerUser <= 0 -> falls back to configured (20); >100 -> clamped to 100. The trailing tuple asserts BOTH: what the engine is invoked with AND how many recommendations survive trimming for each element in the response.
     [InlineData(0, 20)]
     [InlineData(-5, 20)]
     [InlineData(1000, 100)]
@@ -507,15 +484,10 @@ public class RecommendationControllerTests
         Assert.Equal(150, cachedUser.Recommendations.Count);
     }
 
-    // === Concurrency: cache-fill lock prevents duplicate engine calls ===
-
     [Fact]
     public async Task GetAllRecommendations_ConcurrentCacheMiss_EngineCalledOnce()
     {
-        // First call: cache empty, generates. Second concurrent call: waits for lock,
-        // then finds the cache already filled, skips generation.
-        // We simulate this by making LoadResults return null on first call and a result on
-        // the second (i.e. after the first caller has saved it).
+        // First call: cache empty, generates. Second concurrent call: waits for lock, then finds the cache already filled, skips generation.
         var callCount = 0;
         _mockCache.Setup(c => c.LoadResults()).Returns(() =>
         {
@@ -546,9 +518,7 @@ public class RecommendationControllerTests
     [Fact]
     public async Task GetAllRecommendations_CacheFilledUnderLock_ReturnsCachedWithoutGenerating()
     {
-        // The pre-lock LoadResults misses, but by the time we re-check under the lock another
-        // caller has filled the cache. The controller must serve that late-arriving cache
-        // (trimmed) and never invoke the engine.
+        // The pre-lock LoadResults misses, but by the time we re-check under the lock another caller has filled the cache.
         var userId = Guid.NewGuid();
         var filled = new Collection<RecommendationResult>
         {

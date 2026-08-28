@@ -82,10 +82,7 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    /// Gets the list of existing trash folder paths on disk.
-    /// Used by the UI to show which folders would be affected when disabling trash.
-    /// For a relative trash path (default), returns one folder per library.
-    /// For an absolute trash path, returns at most one folder.
+    ///     Gets the list of existing trash folder paths on disk. Used by the UI to show which folders would be affected when disabling trash.
     /// </summary>
     /// <returns>An object containing the list of existing trash folder paths.</returns>
     [HttpGet("Folders")]
@@ -194,14 +191,7 @@ public class TrashController : ControllerBase
     {
         try
         {
-            // TOCTOU guard: between the Directory.Exists check above and this delete, the
-            // path (or one of its ancestors) could be swapped for a symlink/junction pointing
-            // at a real media library, redirecting the recursive delete into that tree. .NET's
-            // Directory.Delete removes a FINAL symlink node itself rather than following it, but
-            // a symlinked ANCESTOR still redirects traversal, so we re-stat this path AND every
-            // ancestor immediately before deleting and refuse if any is a reparse point. This
-            // narrows, but cannot fully close, the race (a pathname-based check is not an atomic
-            // binding), and is the safest option available without handle-relative syscalls.
+            // TOCTOU guard: between the Directory.Exists check above and this delete, the path (or one of its ancestors) could be swapped for a symlink/junction pointing at a real media library, redirecting the recursive delete into that tree.
             var pathInfo = new DirectoryInfo(path);
             if (!pathInfo.Exists)
             {
@@ -271,8 +261,7 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    /// Gets the list of existing trash folder paths for a specific (possibly non-current) trash path.
-    /// Used by the UI to check whether trash content exists at the OLD path before a path change is saved.
+    ///     Gets the list of existing trash folder paths for a specific (possibly non-current) trash path.
     /// </summary>
     /// <param name="request">The request containing the trash folder path to query.</param>
     /// <returns>An object containing the list of existing trash folder paths.</returns>
@@ -293,10 +282,7 @@ public class TrashController : ControllerBase
 
         var queryPath = request.TrashFolderPath.Trim();
 
-        // Basic input sanity: cap length and reject obvious path-traversal sequences.
-        // Full path-safety validation (library-root containment, filesystem-root rejection)
-        // is enforced by GetExistingTrashFoldersForPath itself - this check is a
-        // defence-in-depth guard only.
+        // Basic input sanity: cap length and reject obvious path-traversal sequences. Full path-safety validation (library-root containment, filesystem-root rejection) is enforced by GetExistingTrashFoldersForPath itself - this check is a defence-in-depth guard only.
         if (HasTraversalSegment(queryPath) || queryPath.Length > 512)
         {
             return BadRequest(new { Error = "TrashFolderPath must not contain path-traversal sequences." });
@@ -312,8 +298,7 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    /// Relocates trash contents from old trash folder(s) to new trash folder(s).
-    /// Called when the user changes the trash path and chooses to move existing content.
+    ///     Relocates trash contents from old trash folder(s) to new trash folder(s). Called when the user changes the trash path and chooses to move existing content.
     /// </summary>
     /// <param name="request">The request containing old and new trash paths.</param>
     /// <returns>A result indicating how many items were moved/failed.</returns>
@@ -474,13 +459,7 @@ public class TrashController : ControllerBase
             return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
         }
 
-        // Choose the target library deterministically and meaningfully: prefer the
-        // library that actually CONTAINS the absolute source, so e.g.
-        // /media/Movies/.abs-old drains into /media/Movies/<newRelative>. Only when
-        // no library contains the source (a trash dir on a separate volume) do we
-        // fall back to the first library whose relative path resolves. Library
-        // enumeration order (Jellyfin's GetVirtualFolders) is otherwise unsorted, so
-        // relying on "the first one" alone was non-deterministic.
+        // Choose the target library deterministically and meaningfully: prefer the library that actually CONTAINS the absolute source, so e.g.
         var containingLibrary = FindContainingLibrary(resolvedOld, libraryFolders);
         var candidateLibraries = containingLibrary != null
             ? new[] { containingLibrary }.Concat(libraryFolders.Where(f => !string.Equals(f, containingLibrary, StringComparison.Ordinal)))
@@ -529,15 +508,8 @@ public class TrashController : ControllerBase
         return null;
     }
 
-    // === Private helpers ===
-
     /// <summary>
-    /// Segment-aware path-traversal check shared by every body-taking trash endpoint
-    /// (CheckAccess, FoldersForPath, Relocate) so they enforce identical input rules.
-    /// Splits on both path separators and rejects only whole "." / ".." segments, so a
-    /// legitimate directory name that merely contains ".." (e.g. "my..archive") is allowed
-    /// while real traversal components are rejected. Downstream containment / sensitive-path
-    /// checks remain as defence in depth.
+    ///     Segment-aware path-traversal check shared by every body-taking trash endpoint (CheckAccess, FoldersForPath, Relocate) so they enforce identical input rules.
     /// </summary>
     /// <param name="path">The caller-supplied path to screen.</param>
     /// <returns><c>true</c> if any segment is "." or ".."; otherwise <c>false</c>.</returns>
@@ -578,14 +550,7 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    /// Validates that a path is safe for recursive deletion / relocation.
-    /// A path is safe when EITHER it lies strictly inside a configured library root,
-    /// OR it is a dedicated absolute directory that is not a filesystem root, not a
-    /// known system/sensitive directory (e.g. <c>/config</c>, <c>/etc</c>,
-    /// <c>C:\Windows</c>), and does not itself contain a library root. This keeps the
-    /// intended "absolute trash folder outside the library" feature working while
-    /// making it impossible for trash delete/relocate to touch Jellyfin's own config,
-    /// OS directories, or a whole library.
+    ///     Validates that a path is safe for recursive deletion / relocation.
     /// </summary>
     private static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
     {
@@ -607,11 +572,7 @@ public class TrashController : ControllerBase
             .Select(f => Path.GetFullPath(f).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
             .ToList();
 
-        // REJECT pass FIRST, over ALL libraries: never allow a library root itself, nor a
-        // path that CONTAINS a library root (deleting/moving it would take the library
-        // with it). This must run to completion before any allow, otherwise an early
-        // "strictly inside library A" allow could short-circuit a later "contains library
-        // B" reject for a nested library - approving a delete/relocate that wipes B.
+        // REJECT pass FIRST, over ALL libraries: never allow a library root itself, nor a path that CONTAINS a library root (deleting/moving it would take the library with it).
         if (libraryRoots.Any(libraryRoot =>
                 string.Equals(normalizedPath, libraryRoot, comparison)
                 || libraryRoot.StartsWith(normalizedPath + Path.DirectorySeparatorChar, comparison)))
@@ -625,18 +586,12 @@ public class TrashController : ControllerBase
             return true;
         }
 
-        // Outside every library root: allow only a dedicated absolute directory that is
-        // NOT a known system/sensitive location. This preserves the "trash folder on a
-        // separate volume" admin setup while blocking /config, OS dirs, etc.
+        // Outside every library root: allow only a dedicated absolute directory that is NOT a known system/sensitive location.
         return !IsSensitiveSystemPath(normalizedPath);
     }
 
     /// <summary>
-    /// Returns the library root that strictly CONTAINS <paramref name="fullPath"/>, or
-    /// <c>null</c> when the path lies outside every library (e.g. a trash directory on a
-    /// separate volume). Used to relocate an absolute trash source into its own library's
-    /// relative target deterministically, rather than into whichever library Jellyfin's
-    /// unsorted enumeration happened to return first.
+    ///     Returns the library root that strictly CONTAINS fullPath, or null when the path lies outside every library (e.g.
     /// </summary>
     /// <param name="fullPath">The already-resolved absolute path to locate.</param>
     /// <param name="libraryFolders">The known library root folders.</param>
@@ -650,12 +605,7 @@ public class TrashController : ControllerBase
         var normalizedPath = Path.GetFullPath(fullPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        // Pick the LONGEST (most specific) containing library root, not the first one
-        // enumerated. With nested libraries (e.g. /media and /media/movies both
-        // registered) a source could be strictly inside both; returning whichever the
-        // unsorted GetVirtualFolders enumerated first would be non-deterministic - the
-        // same order-dependence just fixed in IsPathSafeForDeletion. For a single or
-        // sibling-only library layout this is a no-op (exactly one match).
+        // Pick the LONGEST (most specific) containing library root, not the first one enumerated. With nested libraries (e.g.
         string? best = null;
         var bestLength = -1;
         foreach (var folder in libraryFolders)
@@ -676,22 +626,13 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    /// True when the path is (or is inside) a well-known system / application directory
-    /// that must never be a trash-deletion or relocation target - most importantly
-    /// Jellyfin's own <c>/config</c>, plus common OS directories on Linux and Windows.
-    /// Delegates to the shared <see cref="PathValidator.IsSensitiveSystemPath"/> (single
-    /// source of truth; the OS-appropriate comparison is chosen there).
+    ///     True when the path is (or is inside) a well-known system / application directory that must never be a trash-deletion or relocation target - most importantly Jellyfin's own /config, plus common OS directories on Linux and Windows.
     /// </summary>
     private static bool IsSensitiveSystemPath(string normalizedPath)
         => PathValidator.IsSensitiveSystemPath(normalizedPath);
 
     /// <summary>
-    ///     Returns <see langword="true" /> if any ANCESTOR directory of <paramref name="path" /> is a
-    ///     reparse point (symlink/junction). A symlinked ancestor would let a subsequent
-    ///     <c>Directory.Delete(path, recursive)</c> traverse into the link's real target, so callers
-    ///     must refuse deletion when this returns true. Walks parents up to the filesystem root; a
-    ///     missing/inaccessible ancestor (which cannot be proven not to be a reparse point) is treated
-    ///     as "assume reparse point" (fail closed).
+    ///     Returns true if any ANCESTOR directory of path is a reparse point (symlink/junction).
     /// </summary>
     /// <param name="path">The fully-qualified path whose ancestry is inspected.</param>
     /// <returns><see langword="true" /> if an ancestor is (or cannot be proven not to be) a reparse point.</returns>
@@ -705,10 +646,6 @@ public class TrashController : ControllerBase
                 var info = new DirectoryInfo(parent);
 
                 // A missing/inaccessible ancestor cannot be proven NOT to be a reparse point.
-                // DirectoryInfo.Exists returns false (no throw) for both cases, so relying on
-                // `Exists && isReparsePoint` would silently treat an unverifiable ancestor as safe
-                // and let a later Directory.Delete(path, recursive) run after an incomplete check.
-                // Fail closed: an ancestor we cannot stat is assumed to be a reparse point.
                 if (!info.Exists)
                 {
                     return true;
@@ -738,9 +675,7 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    ///     Normalizes OS-level exception messages in CheckAccess responses to prevent
-    ///     leaking internal path structures or system-specific error text to API callers.
-    ///     Returns a generic human-readable category string instead of raw OS exception text.
+    ///     Normalizes OS-level exception messages in CheckAccess responses to prevent leaking internal path structures or system-specific error text to API callers.
     /// </summary>
     private static string? SanitizeAccessErrorMessage(string? message)
     {
@@ -768,9 +703,7 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    /// Checks whether the Jellyfin process has read/write access to a given trash path.
-    /// Used by the UI to proactively warn the user before attempting relocation or deletion
-    /// on a path where permissions are insufficient.
+    ///     Checks whether the Jellyfin process has read/write access to a given trash path.
     /// </summary>
     /// <param name="request">The request containing the trash folder path to check.</param>
     /// <returns>An object indicating access status and any error message.</returns>
@@ -791,9 +724,7 @@ public class TrashController : ControllerBase
 
         var queryPath = request.TrashFolderPath.Trim();
 
-        // Segment-aware traversal check (shared with the other body-taking trash endpoints). A plain
-        // Contains("..") would also reject legitimate names like "my..archive"; splitting on the path
-        // separators and matching whole segments rejects only real "." / ".." traversal components.
+        // Segment-aware traversal check (shared with the other body-taking trash endpoints).
         if (HasTraversalSegment(queryPath) || queryPath.Length > 512)
         {
             return BadRequest("Invalid path");
@@ -805,12 +736,7 @@ public class TrashController : ControllerBase
 
         if (Path.IsPathFullyQualified(queryPath))
         {
-            // Absolute path: enforce the same library-root containment guard used by Delete
-            // and Relocate. Without this check an admin could enumerate arbitrary host paths
-            // or cause the Jellyfin process to create a probe file anywhere it can write.
-            // IsPathFullyQualified (not IsPathRooted) is required: on Windows, IsPathRooted
-            // returns true for root-relative paths like \Windows\System32, which would bypass
-            // the containment check below because they are not fully qualified library roots.
+            // Absolute path: enforce the same library-root containment guard used by Delete and Relocate. Without this check an admin could enumerate arbitrary host paths or cause the Jellyfin process to create a probe file anywhere it can write.
             if (!IsPathSafeForDeletion(Path.GetFullPath(queryPath), libraryFolders))
             {
                 return BadRequest("Path is outside of the permitted library trash directories.");
@@ -821,9 +747,7 @@ public class TrashController : ControllerBase
         }
         else
         {
-            // Relative path: resolve the submitted path against each library root and check access.
-            // ResolveRelativeTrashPath enforces root-containment so the submitted path cannot
-            // escape its library boundary via traversal sequences.
+            // Relative path: resolve the submitted path against each library root and check access. ResolveRelativeTrashPath enforces root-containment so the submitted path cannot escape its library boundary via traversal sequences.
             foreach (var folder in libraryFolders)
             {
                 var resolvedPath = ResolveRelativeTrashPath(folder, queryPath);
@@ -841,9 +765,7 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    ///     Checks access to a single resolved trash path, logs the outcome, appends a sanitized
-    ///     <see cref="TrashAccessEntry"/> to <paramref name="results"/>, and returns whether the path
-    ///     has full access.
+    ///     Checks access to a single resolved trash path, logs the outcome, appends a sanitized TrashAccessEntry to , and returns whether the path has full access.
     /// </summary>
     private bool AppendAccessEntry(string path, string? libraryRoot, List<TrashAccessEntry> results)
     {

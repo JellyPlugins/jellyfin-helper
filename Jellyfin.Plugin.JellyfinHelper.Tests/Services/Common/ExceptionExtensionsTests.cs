@@ -5,10 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 
 /// <summary>
-///     Tests for <see cref="ExceptionExtensions.IsFatal" />.
-///     Contract: <see cref="OutOfMemoryException" />, <see cref="StackOverflowException" /> and
-///     <see cref="AccessViolationException" /> must return <see langword="true" />; all other
-///     exception types must return <see langword="false" />.
+///     Tests for IsFatal. Contract: OutOfMemoryException, StackOverflowException and AccessViolationException must return true; all other exception types must return false.
 /// </summary>
 public sealed class ExceptionExtensionsTests
 {

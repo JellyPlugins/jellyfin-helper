@@ -1,13 +1,4 @@
-/**
- * Backup export -> tamper -> import round-trip, plus the documented gotchas:
- *   - Backup is JSON (distinct from the plugin's XML config file).
- *   - Export redacts API keys unless includeSecrets=true.
- *   - Some fields are intentionally NOT exported (MaxRecommendationsPerUser,
- *     ensemble tuning, cumulative stats) - a round-trip must not claim to
- *     restore them.
- *   - Import validates: garbage/oversized/broken JSON is rejected (400), and
- *     the server + plugin survive it (hardening).
- */
+/** * Backup export -> tamper -> import round-trip, plus the documented gotchas: * - Backup is JSON (distinct from the plugin's XML config file). */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive, sleep } from '../setup/api-client.ts';
 
@@ -133,9 +124,7 @@ test('import tolerates/repairs missing fields without crashing', async () => {
 });
 
 test('HARDENING: backup with negative trends values is sanitized (clamped to 0), never corrupt', async () => {
-  // A cumulative byte size / file count is physically non-negative. BackupSanitizer
-  // clamps negatives to 0 on import (the validator only warns), so a hostile/corrupt
-  // backup can never plant a negative point that surfaces on GET GrowthTimeline.
+  // A cumulative byte size / file count is physically non-negative. BackupSanitizer clamps negatives to 0 on import (the validator only warns), so a hostile/corrupt backup can never plant a negative point that surfaces on GET GrowthTimeline.
   const backup = await exportBackup(true);
   backup.growthTimeline = {
     granularity: 'Daily',
@@ -162,11 +151,7 @@ test('HARDENING: backup with negative trends values is sanitized (clamped to 0),
       }
     }
   } finally {
-    // Belt-and-suspenders hygiene: recompute a fresh timeline from the real library so
-    // downstream specs read library-derived data rather than this test's single planted
-    // (now clamped-to-0) point. Tolerate the 30s recompute rate-limit (429) with one retry.
-    // NOTE: recompute alone would NOT purge a negative if one had persisted - the
-    // append-only path keeps historical points; the real guarantee is the import-time clamp.
+    // Belt-and-suspenders hygiene: recompute a fresh timeline from the real library so downstream specs read library-derived data rather than this test's single planted (now clamped-to-0) point.
     let refresh = await ctx.get(p('GrowthTimeline?forceRefresh=true'));
     if (refresh.status() === 429) {
       await sleep(31_000);

@@ -5,19 +5,12 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.ConfigAccess;
 
 /// <summary>
-///     Tests for <see cref="PluginConfigurationService"/>. The service depends on the
-///     <c>Plugin.Instance</c> singleton - a piece of process-wide state that other tests
-///     may leave in either the initialised or the uninitialised state. To make the
-///     branches deterministic we go through the internal <c>IPluginAccessor</c> seam
-///     (exposed via <c>InternalsVisibleTo</c>) with a per-test fake so both the
-///     "plugin present" and "plugin absent" paths are exercised on every run.
+///     Tests for PluginConfigurationService. The service depends on the Plugin.Instance singleton - a piece of process-wide state that other tests may leave in either the initialised or the uninitialised state.
 /// </summary>
 public class PluginConfigurationServiceTests
 {
     /// <summary>
-    ///     Deterministic accessor stub - replaces the real Plugin.Instance lookup with
-    ///     fields we control, so the tests are independent of process-wide singleton
-    ///     state and can be run in parallel without racing against any other suite.
+    ///     Deterministic accessor stub - replaces the real Plugin.Instance lookup with fields we control, so the tests are independent of process-wide singleton state and can be run in parallel without racing against any other suite.
     /// </summary>
     private sealed class FakePluginAccessor : PluginConfigurationService.IPluginAccessor
     {
@@ -28,8 +21,6 @@ public class PluginConfigurationServiceTests
 
         public void SaveConfiguration() => SaveCallCount++;
     }
-
-    // ===== IsInitialized =====
 
     [Fact]
     public void IsInitialized_TrueWhenAccessorReportsInitialized()
@@ -45,8 +36,6 @@ public class PluginConfigurationServiceTests
         Assert.False(sut.IsInitialized);
     }
 
-    // ===== PluginVersion =====
-
     [Fact]
     public void PluginVersion_ReturnsAccessorVersionWhenPresent()
     {
@@ -60,8 +49,6 @@ public class PluginConfigurationServiceTests
         var sut = new PluginConfigurationService(new FakePluginAccessor { Version = null });
         Assert.Equal("unknown", sut.PluginVersion);
     }
-
-    // ===== GetConfiguration =====
 
     [Fact]
     public void GetConfiguration_ReturnsAccessorConfigurationWhenAvailable()
@@ -96,8 +83,6 @@ public class PluginConfigurationServiceTests
         Assert.Throws<InvalidOperationException>(() => sut.GetConfiguration());
     }
 
-    // ===== SaveConfiguration =====
-
     [Fact]
     public void SaveConfiguration_ForwardsToAccessorWhenInitialized()
     {
@@ -114,9 +99,7 @@ public class PluginConfigurationServiceTests
     [Fact]
     public void SaveConfiguration_ForwardsToAccessorEvenWhenUninitialized()
     {
-        // Contract: the service forwards unconditionally; the ACCESSOR decides whether
-        // an uninitialised plugin means "no-op" or "throw". This keeps the service
-        // itself free of environmental branching.
+        // Contract: the service forwards unconditionally; the ACCESSOR decides whether an uninitialised plugin means "no-op" or "throw".
         var accessor = new FakePluginAccessor { IsInitialized = false };
         var sut = new PluginConfigurationService(accessor);
 
@@ -125,8 +108,6 @@ public class PluginConfigurationServiceTests
         Assert.Null(ex);
         Assert.Equal(1, accessor.SaveCallCount);
     }
-
-    // ===== Constructor guards =====
 
     [Fact]
     public void Constructor_RejectsNullAccessor()
@@ -138,15 +119,7 @@ public class PluginConfigurationServiceTests
     [Fact]
     public void ParameterlessConstructor_UsesRealPluginAccessor_WithoutThrowing()
     {
-        // Smoke test for the production wiring path. Construction must not throw
-        // regardless of whether Plugin.Instance has been set by a parallel test.
-        // We verify PluginVersion but do NOT call GetConfiguration() because
-        // GetConfiguration() throws InvalidOperationException when not initialized.
-        //
-        // NOTE: We intentionally do NOT invoke SaveConfiguration() here - that would
-        // touch the real Plugin.Instance persistence layer (ambient disk I/O) and could
-        // race with other tests running in parallel. Save-path behaviour is covered by
-        // the accessor-mock tests below.
+        // Smoke test for the production wiring path. Construction must not throw regardless of whether Plugin.Instance has been set by a parallel test.
         var sut = new PluginConfigurationService();
 
         // Construction must succeed regardless of Plugin.Instance state.
@@ -154,8 +127,6 @@ public class PluginConfigurationServiceTests
         Assert.Equal(Plugin.Instance != null, sut.IsInitialized);
         Assert.False(string.IsNullOrWhiteSpace(sut.PluginVersion));
     }
-
-    // ===== ReadAndMutate =====
 
     [Fact]
     public void ReadAndMutate_ThrowsArgumentNullException_WhenMutateIsNull()

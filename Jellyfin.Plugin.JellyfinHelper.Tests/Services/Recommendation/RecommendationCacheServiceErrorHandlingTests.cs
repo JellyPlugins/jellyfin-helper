@@ -9,10 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation;
 
 /// <summary>
-///     Error-handling tests for <see cref="RecommendationCacheService"/> that drive the
-///     broad save-side catch and the load-side IO catch by holding the on-disk cache file
-///     open with an exclusive lock. Both paths must degrade gracefully so a background
-///     scheduled task never crashes and a locked read is treated as "no cache".
+///     Error-handling tests for RecommendationCacheService that drive the broad save-side catch and the load-side IO catch by holding the on-disk cache file open with an exclusive lock.
 /// </summary>
 public sealed class RecommendationCacheServiceErrorHandlingTests : IDisposable
 {
@@ -53,9 +50,7 @@ public sealed class RecommendationCacheServiceErrorHandlingTests : IDisposable
     [Fact]
     public void SaveResults_TargetFileLockedExclusively_SwallowsIoErrorAndDoesNotThrow()
     {
-        // Seed a real cache so the destination exists; the second save's File.Replace on the
-        // locked destination fails every retry, and the final IOException must be swallowed by
-        // the broad catch instead of taking down the scheduled-task caller.
+        // Seed a real cache so the destination exists; the second save's File.Replace on the locked destination fails every retry, and the final IOException must be swallowed by the broad catch instead of taking down the scheduled-task caller.
         var service = CreateService(_tempDir);
         var seed = new Collection<RecommendationResult>
         {
@@ -102,11 +97,7 @@ public sealed class RecommendationCacheServiceErrorHandlingTests : IDisposable
         }
         else
         {
-            // POSIX has no mandatory locking, so a FileShare.None handle does NOT block a replace -
-            // the Windows path would let the save succeed on Linux. Instead we make the destination
-            // path a directory: AtomicFile writes the temp file, sees no file at the destination and
-            // calls File.Move(temp, cachePath), which throws IOException on both Linux and Windows
-            // when the target name is an existing directory. That drives the same broad catch.
+            // POSIX has no mandatory locking, so a FileShare.None handle does NOT block a replace - the Windows path would let the save succeed on Linux.
             File.Delete(cacheFile);
             Directory.CreateDirectory(cacheFile);
 

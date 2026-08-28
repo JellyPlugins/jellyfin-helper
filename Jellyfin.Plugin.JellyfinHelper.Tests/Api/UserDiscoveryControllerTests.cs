@@ -17,24 +17,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Tests for <see cref="UserDiscoveryController"/>.
-///     Note: These tests exercise the security access gate (DiscoveryUserAccessEnabled)
-///     which cannot be bypassed in unit tests because <c>Plugin.Instance</c> is null.
-///     Validation paths (400 responses) are covered by the equivalent admin
-///     <see cref="DiscoveryControllerTests"/> which shares the same DTO validation logic.
-///     Full integration tests covering the enabled-access path require a running
-///     Jellyfin host with Plugin.Instance initialized - those are exercised by
-///     <see cref="UserDiscoveryControllerAccessEnabledTests"/> and
-///     <see cref="UserDiscoveryControllerSubmitTests"/> which flip the toggle on.
-///     <para>
-///         Belongs to the <c>ConfigOverride</c> collection because the sister suites
-///         that DO flip <c>Plugin.Instance.Configuration.DiscoveryUserAccessEnabled</c> to
-///         <c>true</c> run in parallel by default. Without joining the collection, THIS
-///         suite would race with them and observe the toggle mid-flight, causing the
-///         "access gate = false" tests here to see a mutated state and fail. All three
-///         suites in the collection are serialised, so each suite's ctor/dispose resets
-///         the toggle to a known state before its tests run.
-///     </para>
+///     Tests for UserDiscoveryController. Note: These tests exercise the security access gate (DiscoveryUserAccessEnabled) which cannot be bypassed in unit tests because Plugin.Instance is null.
 /// </summary>
 [Collection("ConfigOverride")]
 public class UserDiscoveryControllerTests
@@ -106,9 +89,7 @@ public class UserDiscoveryControllerTests
     [Fact]
     public async Task SubmitMyRequest_InvalidTmdbId_Returns403WhenAccessDisabled()
     {
-        // Note: Validation branches (400) cannot be reached in unit tests because
-        // Plugin.Instance is null -> IsDiscoveryUserAccessEnabled() always returns false.
-        // The access gate correctly fires first, which is the expected security behavior.
+        // Note: Validation branches (400) cannot be reached in unit tests because Plugin.Instance is null -> IsDiscoveryUserAccessEnabled() always returns false.
         var controller = CreateController(Guid.NewGuid());
         var dto = new DiscoveryRequestDto { TmdbId = 0, MediaType = "movie" };
         var result = await controller.SubmitMyRequest(dto, CancellationToken.None);

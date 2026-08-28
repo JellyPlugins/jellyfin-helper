@@ -7,11 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for the family of Seerr / TMDb JSON DTOs used by the discovery pipeline.
-///     Each test asserts the wire contract: property names (lower-camel), default values,
-///     null-handling of collection properties, and round-trip fidelity.
-///     Several of these types are <c>internal sealed</c>, so we reach them via reflection
-///     to avoid making them public just to test them.
+///     Tests for the family of Seerr / TMDb JSON DTOs used by the discovery pipeline. Each test asserts the wire contract: property names (lower-camel), default values, null-handling of collection properties, and round-trip fidelity.
 /// </summary>
 public class SeerrDiscoveryDtoTests
 {
@@ -30,9 +26,7 @@ public class SeerrDiscoveryDtoTests
     private static object? GetProp(object obj, string name)
         => obj.GetType().GetProperty(name)!.GetValue(obj);
 
-    // -----------------------------------------------------------------------
     // SeerrCastMember
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void SeerrCastMember_DeserializesLowerCamelWireContract()
@@ -65,9 +59,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Null(GetProp(obj, "Character"));
     }
 
-    // -----------------------------------------------------------------------
     // SeerrCrewMember
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void SeerrCrewMember_DeserializesLowerCamelWireContract()
@@ -90,9 +82,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Null(GetProp(obj, "Department"));
     }
 
-    // -----------------------------------------------------------------------
     // SeerrCredits
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void SeerrCredits_DeserializesCastAndCrewIntoCollections()
@@ -119,9 +109,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Empty((IEnumerable)GetProp(obj, "Crew")!);
     }
 
-    // -----------------------------------------------------------------------
     // SeerrMediaDetailResponse
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void SeerrMediaDetailResponse_DeserializesIdAndOptionalCredits()
@@ -141,9 +129,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Null(GetProp(obj, "Credits"));
     }
 
-    // -----------------------------------------------------------------------
     // SeerrUser (public - no reflection needed)
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void SeerrUser_DeserializesFullWireContract()
@@ -191,9 +177,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Equal(string.Empty, user.DisplayName);
     }
 
-    // -----------------------------------------------------------------------
     // SeerrUserPage / SeerrUserPageInfo
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void SeerrUserPage_DeserializesPageInfoAndResults()
@@ -235,9 +219,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Equal(0, GetProp(obj, "Pages"));
     }
 
-    // -----------------------------------------------------------------------
     // TmdbDiscoverResponse - has a non-trivial Results setter that coalesces null -> []
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void TmdbDiscoverResponse_DeserializesPagingFields()
@@ -283,9 +265,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Empty((IEnumerable)GetProp(obj, "Results")!);
     }
 
-    // -----------------------------------------------------------------------
     // DiscoveryResult (public class)
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void DiscoveryResult_UserName_IsIgnoredDuringJsonSerialization()
@@ -347,9 +327,7 @@ public class SeerrDiscoveryDtoTests
         Assert.Single(dr.Recommendations);
     }
 
-    // -----------------------------------------------------------------------
     // UserRequestPermissionResult (public - used by the DiscoveryController response contract)
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void UserRequestPermissionResult_DefaultInstance_IsSafeShape()
@@ -413,9 +391,7 @@ public class SeerrDiscoveryDtoTests
         Assert.False(permanent.IsTransient);
     }
 
-    // -----------------------------------------------------------------------
     // DiscoveryFeedbackEntry - MediaType normalisation + GetStatus() state machine
-    // -----------------------------------------------------------------------
 
     [Theory]
     [InlineData("MOVIE", "movie")]
@@ -499,10 +475,7 @@ public class SeerrDiscoveryDtoTests
     [Fact]
     public void DiscoveryFeedbackEntry_GetStatus_WasWatchedButNotRequested_DoesNotBecomeRequestedAndWatched()
     {
-        // Defensive invariant: WasWatched alone does not qualify as RequestedAndWatched.
-        // Only the combination Requested + WasWatched does. Otherwise the "shown -> watched
-        // externally" edge case (user watched the movie somewhere else) would falsely count
-        // as a conversion.
+        // Defensive invariant: WasWatched alone does not qualify as RequestedAndWatched. Only the combination Requested + WasWatched does.
         var e = new DiscoveryFeedbackEntry
         {
             ShownAtUtc = DateTime.UtcNow,

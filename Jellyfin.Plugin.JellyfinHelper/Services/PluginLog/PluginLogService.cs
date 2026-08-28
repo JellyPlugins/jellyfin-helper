@@ -13,10 +13,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 
 /// <summary>
 ///     In-memory ring buffer for plugin-specific log entries with dual-logging support.
-///     Thread-safe singleton that captures structured log messages from all plugin components.
-///     When an <see cref="ILogger" /> is provided, messages are forwarded to both the plugin's
-///     in-memory buffer AND Jellyfin's standard logging pipeline.
-///     Respects the configured minimum log level from <see cref="Configuration.PluginConfiguration" />.
 /// </summary>
 public class PluginLogService : IPluginLogService
 {
@@ -48,7 +44,6 @@ public class PluginLogService : IPluginLogService
 
     /// <summary>
     ///     Gets or sets an optional override for the minimum log level. Used by unit tests.
-    ///     When set to a non-null value, this overrides the plugin configuration.
     /// </summary>
     internal string? TestMinLevelOverride
     {
@@ -296,8 +291,6 @@ public class PluginLogService : IPluginLogService
 
     /// <summary>
     ///     Strips CR, LF, and NUL from a string to prevent log-forging via injected newlines.
-    ///     Applied at the public API boundary so all paths - ILogger forwarding and buffer storage -
-    ///     receive sanitized values.
     /// </summary>
     private static string SanitizeForLog(string value)
         => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ').Replace('\t', ' ');
@@ -311,9 +304,7 @@ public class PluginLogService : IPluginLogService
             return;
         }
 
-        // source and message are already sanitized by the public Log* methods.
-        // Cap the exception string at 8192 chars to prevent ExportAsText memory bloat when an
-        // exception carries a very large stack trace or inner-exception chain.
+        // source and message are already sanitized by the public Log* methods. Cap the exception string at 8192 chars to prevent ExportAsText memory bloat when an exception carries a very large stack trace or inner-exception chain.
         const int MaxExceptionLength = 8192;
         var rawException = exception?.ToString().Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
         var sanitizedException = rawException is { Length: > MaxExceptionLength }

@@ -58,10 +58,7 @@ test('Logs tab: clear opens confirm dialog and empties on confirm', async ({ pag
   const dialog = page.locator('#logsClearDialogOverlay');
   await expect(dialog).toBeVisible();
 
-  // Confirm (the danger button) -> DELETE /Logs; assert it SUCCEEDS and the
-  // table shows the empty state afterwards. Dialog buttons are built by
-  // createDialogBtn(), which sets only inline styles - no CSS class - so the
-  // confirm button must be matched by its label (Cancel / Clear), not a class.
+  // Confirm (the danger button) -> DELETE /Logs; assert it SUCCEEDS and the table shows the empty state afterwards.
   const confirmBtn = dialog.getByRole('button', { name: /clear|löschen|leeren/i }).last();
   const [delResp] = await Promise.all([
     page.waitForResponse(

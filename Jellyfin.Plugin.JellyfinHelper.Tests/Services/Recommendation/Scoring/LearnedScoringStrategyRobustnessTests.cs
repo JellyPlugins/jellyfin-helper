@@ -8,10 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Load/save robustness for <see cref="LearnedScoringStrategy"/>: oversized-file guard,
-///     corrupt/NaN weights, mismatched or versioned standardization stats, and I/O failures on
-///     both the read and the write path. All failures must degrade to default weights (or a
-///     non-fatal save) and be logged rather than thrown.
+///     Load/save robustness for LearnedScoringStrategy: oversized-file guard, corrupt/NaN weights, mismatched or versioned standardization stats, and I/O failures on both the read and the write path.
 /// </summary>
 public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
 {
@@ -46,9 +43,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     [Fact]
     public void TryLoadWeights_OversizedFile_SkipsLoadAndKeepsDefaults()
     {
-        // A weights file over the 5 MB ceiling must not be read into memory at all - the guard
-        // exists to stop a corrupted/replaced huge file from becoming a DoS. Load is skipped and
-        // the strategy stays on default weights.
+        // A weights file over the 5 MB ceiling must not be read into memory at all - the guard exists to stop a corrupted/replaced huge file from becoming a DoS.
         var weightsPath = Path.Join(_tempDir, "oversized.json");
         using (var fs = new FileStream(weightsPath, FileMode.CreateNew))
         {
@@ -65,9 +60,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     [Fact]
     public void TryLoadWeights_NaNInWeights_DiscardsAndResetsToDefaults()
     {
-        // A structurally-valid file whose first weight is corrupted to NaN must never load into
-        // the model - a NaN weight would silently poison every score. Mirrors the Neural
-        // robustness test: the strategy falls back to defaults and keeps producing finite scores.
+        // A structurally-valid file whose first weight is corrupted to NaN must never load into the model - a NaN weight would silently poison every score.
         var weightsPath = Path.Join(_tempDir, "nan_weight.json");
         var seed = new LearnedScoringStrategy(weightsPath);
         Assert.True(seed.Train(GenerateExamples(12)));
@@ -94,9 +87,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     [Fact]
     public void TryLoadWeights_MeansPresentButStdDevsNull_DiscardsWeightsAndStats()
     {
-        // Standardization stats must be all-or-nothing: means present but stddevs null means the
-        // persisted weights (trained in standardized space) cannot be safely reused. Everything
-        // resets to defaults so the next Train() re-fits from scratch.
+        // Standardization stats must be all-or-nothing: means present but stddevs null means the persisted weights (trained in standardized space) cannot be safely reused.
         var weightsPath = Path.Join(_tempDir, "half_stats.json");
         var data = new LearnedScoringStrategy.WeightsData
         {
@@ -162,9 +153,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     [Fact]
     public void TrySaveWeights_ParentPathIsAFile_LogsIoErrorWithoutThrowing()
     {
-        // Point the weights path under an existing regular file so Directory.CreateDirectory(dir)
-        // faults (cannot create a directory beneath a file). A failed save is non-fatal: Train
-        // must still return true and no exception may escape.
+        // Point the weights path under an existing regular file so Directory.CreateDirectory(dir) faults (cannot create a directory beneath a file).
         var blockingFile = Path.Join(_tempDir, "blocker");
         File.WriteAllText(blockingFile, "x");
         var weightsPath = Path.Join(blockingFile, "weights.json");
@@ -179,12 +168,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     [Fact]
     public void TryLoadWeights_InfinityInWeights_DiscardsAndResetsToDefaults()
     {
-        // A structurally valid file (right length + version) whose first weight is an
-        // out-of-range magnitude deserializes to +Infinity rather than throwing a parse
-        // error. Unlike a bare NaN token (which System.Text.Json rejects up front), this
-        // slips past deserialization, so only the explicit finite-value check can catch it.
-        // A non-finite weight would silently poison every score, so the model must fall
-        // back to defaults and keep producing finite, in-range scores.
+        // A structurally valid file (right length + version) whose first weight is an out-of-range magnitude deserializes to +Infinity rather than throwing a parse error.
         var weightsPath = Path.Join(_tempDir, "inf_weight.json");
         var seed = new LearnedScoringStrategy(weightsPath);
         Assert.True(seed.Train(GenerateExamples(12)));
@@ -211,10 +195,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     [Fact]
     public void TrySaveWeights_InvalidPathCharacters_LogsWithoutThrowing()
     {
-        // A weights path with a NUL in a directory component survives Path.GetDirectoryName
-        // but makes Directory.CreateDirectory throw ArgumentException. That is a config error,
-        // not a runtime failure to recover from: the save is swallowed, Train still returns
-        // true, and the failure is logged for diagnostics.
+        // A weights path with a NUL in a directory component survives Path.GetDirectoryName but makes Directory.CreateDirectory throw ArgumentException.
         var weightsPath = Path.Join(_tempDir, "ab\0cd", "weights.json");
 
         var logger = TestMockFactory.CreateLogger();

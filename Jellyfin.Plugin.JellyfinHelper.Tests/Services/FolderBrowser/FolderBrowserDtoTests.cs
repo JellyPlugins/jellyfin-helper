@@ -4,14 +4,10 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FolderBrowser;
 
 /// <summary>
-///     Tests for the folder-browser DTOs <see cref="FolderBrowseResult" /> and <see cref="FolderEntry" />.
-///     Covers default values, mutability, and reference-equality semantics so behavioural regressions
-///     (e.g. accidentally making the DTOs immutable records) surface here.
+///     Tests for the folder-browser DTOs FolderBrowseResult and FolderEntry. Covers default values, mutability, and reference-equality semantics so behavioural regressions (e.g.
 /// </summary>
 public class FolderBrowserDtoTests
 {
-    // ===== FolderEntry =====
-
     [Fact]
     public void FolderEntry_Defaults_AreEmptyStringAndFalse()
     {
@@ -48,12 +44,7 @@ public class FolderBrowserDtoTests
     [Fact]
     public void FolderEntry_TwoInstancesWithSameValues_AreNotEqualByValue()
     {
-        // The DTO is intentionally NOT a value/record type - two payloads with identical
-        // field values must not compare equal, so callers can safely use identity in
-        // caches without collisions. `ReferenceEquals` alone cannot detect a switch to
-        // `record` (records still fail ReferenceEquals on two allocations), so we
-        // additionally assert on `Equals` and the default hash-code contract that
-        // reference types get from `object`.
+        // The DTO is intentionally NOT a value/record type - two payloads with identical field values must not compare equal, so callers can safely use identity in caches without collisions.
         var a = new FolderEntry { Name = "x", Path = "/x", HasChildren = true };
         var b = new FolderEntry { Name = "x", Path = "/x", HasChildren = true };
 
@@ -65,8 +56,6 @@ public class FolderBrowserDtoTests
         // Equals to a constant false.
         Assert.True(a.Equals(a));
     }
-
-    // ===== FolderBrowseResult =====
 
     [Fact]
     public void FolderBrowseResult_Defaults_AreNullEmptyAndFalse()

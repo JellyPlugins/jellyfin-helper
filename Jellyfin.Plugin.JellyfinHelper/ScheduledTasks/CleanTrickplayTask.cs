@@ -15,8 +15,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
-///     A scheduled task to clean up orphaned trickplay folders.
-///     Supports configuration-driven library filtering, orphan age, trash/delete mode, and storage tracking.
+///     A scheduled task to clean up orphaned trickplay folders. Supports configuration-driven library filtering, orphan age, trash/delete mode, and storage tracking.
 /// </summary>
 public class CleanTrickplayTask : BaseLibraryCleanupTask
 {
@@ -69,10 +68,6 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             var directories = GetSubdirectoriesIterative(libraryPath);
 
             // Resolve the trash folder path so we can skip any directories inside it.
-            // Without this, previously trashed .trickplay folders would be re-detected as orphans
-            // and moved to trash again on every run, accumulating timestamp prefixes until the
-            // path exceeds the OS limit (PATH_MAX).
-            // Path.GetFullPath normalizes trailing separators, relative segments, and mixed slashes.
             var trashPath = ConfigHelper.GetTrashPath(libraryPath);
             var trashRoot = Path.GetFullPath(trashPath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -82,9 +77,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 ? StringComparison.Ordinal
                 : StringComparison.OrdinalIgnoreCase;
 
-            // Cache files per parent directory to avoid repeated filesystem calls.
-            // Use OS-aware case sensitivity: Linux paths are case-sensitive (Ordinal),
-            // Windows/macOS paths are case-insensitive (OrdinalIgnoreCase).
+            // Cache files per parent directory to avoid repeated filesystem calls. Use OS-aware case sensitivity: Linux paths are case-sensitive (Ordinal), Windows/macOS paths are case-insensitive (OrdinalIgnoreCase).
             var fileCacheComparer = OperatingSystem.IsLinux()
                 ? StringComparer.Ordinal
                 : StringComparer.OrdinalIgnoreCase;
@@ -114,9 +107,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Evaluates a single candidate directory and, if it is an orphaned trickplay folder,
-    ///     applies the configured dry-run/trash/delete action. Returns the per-item deletion count
-    ///     and bytes freed so the caller can accumulate them.
+    ///     Evaluates a single candidate directory and, if it is an orphaned trickplay folder, applies the configured dry-run/trash/delete action.
     /// </summary>
     private (int Deleted, long BytesFreed) ProcessTrickplayDirectory(
         string dirFullName,
@@ -168,12 +159,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Determines whether the candidate directory is an orphaned trickplay folder that is safe to
-    ///     delete under the configured mode. Runs all eligibility guards (trash-root skip, .trickplay
-    ///     suffix, parent-is-trickplay skip, media-exists check with file cache, orphan-age check) and
-    ///     the reparse-point (symlink) guard that fails closed on stat errors. Returns <c>false</c> for
-    ///     any directory that must be skipped; returns <c>true</c> only when the directory is a deletable
-    ///     orphan.
+    ///     Determines whether the candidate directory is an orphaned trickplay folder that is safe to delete under the configured mode.
     /// </summary>
     /// <param name="dirFullName">The candidate trickplay directory to evaluate.</param>
     /// <param name="trashRoot">The normalized trash root used to skip already-trashed items.</param>
@@ -236,9 +222,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Determines whether a media file with the trickplay folder's base name exists in the parent
-    ///     directory, populating the per-parent file cache on demand. A file-listing failure is treated
-    ///     as "media exists" (skip, fail closed) so an unreadable parent never triggers a deletion.
+    ///     Determines whether a media file with the trickplay folder's base name exists in the parent directory, populating the per-parent file cache on demand.
     /// </summary>
     /// <param name="dirName">The trickplay directory name (with the <c>.trickplay</c> suffix).</param>
     /// <param name="parentPath">The parent directory whose files are inspected.</param>
@@ -273,12 +257,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Applies the reparse-point (symlink/junction) guard used by ALL modes (dry-run, trash,
-    ///     hard-delete): a reparse-point trickplay dir is never trashed, never recursively deleted, and
-    ///     never reported as a dry-run deletion. Trashing would relocate the link node while its target
-    ///     stays behind, and Directory.Delete(recursive) could be redirected into the link's real
-    ///     target. A stat failure is treated as "skip" (fail closed) and must not surface as a
-    ///     misleading delete error.
+    ///     Applies the reparse-point (symlink/junction) guard used by ALL modes (dry-run, trash, hard-delete): a reparse-point trickplay dir is never trashed, never recursively deleted, and never reported as a dry-run deletion.
     /// </summary>
     /// <param name="dirFullName">The candidate trickplay directory to stat.</param>
     /// <returns><c>true</c> if the directory is a reparse point or could not be stat'd; otherwise <c>false</c>.</returns>
@@ -304,9 +283,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
         return false;
     }
 
-    // Enumerate directories lazily with per-directory error isolation instead of
-    // materialising the whole tree upfront. An IOException on one directory
-    // no longer aborts the entire scan; each failed entry is logged and skipped.
+    // Enumerate directories lazily with per-directory error isolation instead of materialising the whole tree upfront.
     private IEnumerable<string> GetSubdirectoriesIterative(string root)
     {
         var stack = new Stack<string>();
@@ -331,10 +308,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             var current = stack.Pop();
             yield return current;
 
-            // Do not enumerate children of reparse-point (symlink/junction) directories.
-            // The per-entry guard in the caller handles the yielded entry; not traversing
-            // here prevents following links into foreign trees. A stat failure is treated
-            // as "do not traverse" (fail closed) so the iterator does not fault mid-scan.
+            // Do not enumerate children of reparse-point (symlink/junction) directories. The per-entry guard in the caller handles the yielded entry; not traversing here prevents following links into foreign trees.
             bool currentIsReparsePoint;
             try
             {

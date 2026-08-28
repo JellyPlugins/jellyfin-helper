@@ -1,21 +1,4 @@
-/**
- * FolderBrowser coverage - behavioral + adversarial. This endpoint had ZERO e2e
- * coverage, and it is filesystem-facing (the admin folder-picker in config), so it
- * is prime hardening territory.
- *
- * Behavioral: browsing roots and a known media dir lists real children; going up
- * works. LibraryPaths lists the configured libraries.
- *
- * Adversarial / hardening (canary-guarded): the endpoint must never let a caller
- * DELETE, MOVE, or otherwise mutate anything - it is read-only - and must reject
- * `..` traversal, non-absolute paths, NUL bytes, and sensitive system directories
- * (Jellyfin's own /config, /data and OS roots like /etc, /var - refused via the
- * shared PathValidator). Validation failures are surfaced as HTTP 200 with a
- * non-null `Error` field (not an error status), so we assert on the body, not the
- * status code. Whatever the input, the library-external canaries must stay intact.
- *
- * Requires the container FS; skips loudly when Docker is unreachable.
- */
+/** * FolderBrowser coverage - behavioral + adversarial. This endpoint had ZERO e2e * coverage, and it is filesystem-facing (the admin folder-picker in config), so it * is prime hardening territory. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 import {
@@ -98,13 +81,7 @@ test.describe('FolderBrowser - adversarial / hardening (canary-guarded)', () => 
   });
 
   test('a path containing a NUL byte is refused (never lists a directory)', async () => {
-    // A real embedded NUL (%00) - the injection the server guards against
-    // (FolderBrowserService.ValidatePath: "Path contains invalid characters.").
-    // Sent as %00 rather than a literal NUL in source so this file stays valid
-    // UTF-8. Two acceptable outcomes, both non-listing: the ASP.NET pipeline may
-    // reject the control character with a 400 before the action runs, OR the
-    // action runs and returns its own {Error} with no Directories. A 200 that
-    // LISTS anything would mean the NUL slipped through - the regression we catch.
+    // A real embedded NUL (%00) - the injection the server guards against (FolderBrowserService.ValidatePath: "Path contains invalid characters.").
     const res = await ctx.get(p('Configuration/BrowseFolders?path=/media%00/etc'));
     if (res.ok()) {
       const body = (await res.json()) as FolderBrowseResult;
@@ -128,13 +105,7 @@ test.describe('FolderBrowser - adversarial / hardening (canary-guarded)', () => 
   });
 
   test('sensitive system directories are refused (not listed) and canaries stay intact', async () => {
-    // Hardening: the picker must refuse Jellyfin's own /config, /data and OS roots like
-    // /etc, /var - with the protected-folder Error and NO listing - so the admin can
-    // neither browse into nor select them. (Consistent with the link-repair / trash
-    // sensitive-path guard via the shared PathValidator.) The canary inside /config must
-    // also remain byte-for-byte intact - the endpoint is strictly read-only.
-    // The /config canary is guaranteed planted by ensureCanariesPlanted() in
-    // beforeEach, so capture its content unconditionally as the baseline.
+    // Hardening: the picker must refuse Jellyfin's own /config, /data and OS roots like /etc, /var - with the protected-folder Error and NO listing - so the admin can neither browse into nor select them.
     const canaryInConfig = '/config/jfh-canary/marker.txt';
     expect(containerFileExists(canaryInConfig), 'config canary must be planted').toBe(true);
     const before = readContainerFile(canaryInConfig);

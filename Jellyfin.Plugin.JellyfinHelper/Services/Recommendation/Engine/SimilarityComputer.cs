@@ -11,17 +11,12 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
 /// <summary>
-///     Computes similarity metrics between items and user preferences:
-///     genre similarity (cosine), people similarity (overlap coefficient),
-///     tag similarity (Jaccard), and Jaccard from pre-built sets.
-///     Also handles batch-loading people data from the library.
+///     Computes similarity metrics between items and user preferences: genre similarity (cosine), people similarity (overlap coefficient), tag similarity (Jaccard), and Jaccard from pre-built sets.
 /// </summary>
 internal sealed class SimilarityComputer
 {
     /// <summary>
-    ///     Person-type strings expected by <see cref="ILibraryManager.GetPeopleNamesByItems"/>.
-    ///     Derived from <see cref="PersonKind"/> enum names so that any future refactor of
-    ///     <see cref="EngineConstants.RelevantPersonKinds"/> automatically flows through here.
+    ///     Person-type strings expected by GetPeopleNamesByItems. Derived from PersonKind enum names so that any future refactor of RelevantPersonKinds automatically flows through here.
     /// </summary>
     private static readonly IReadOnlyList<string> RelevantPersonTypeStrings =
         EngineConstants.RelevantPersonKinds.Select(k => k.ToString()).ToList().AsReadOnly();
@@ -47,14 +42,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Batch-loads people (actors/directors) for all candidate items into a lookup dictionary,
-    ///     once per recommendation run and shared across users. Only stores names for relevant types
-    ///     (Actor, Director) to keep memory compact.
-    ///     <para>
-    ///         Uses <see cref="ILibraryManager.GetPeopleNamesByItems"/> (Jellyfin 12+) as a single DB
-    ///         roundtrip when available, falling back to per-item <c>ILibraryManager.GetPeople(BaseItem)</c>
-    ///         if the batch API throws, so the lookup is never worse than the pre-Jellyfin-12 path.
-    ///     </para>
+    ///     Batch-loads people (actors/directors) for all candidate items into a lookup dictionary, once per recommendation run and shared across users.
     /// </summary>
     /// <param name="candidates">All candidate base items.</param>
     /// <returns>A dictionary mapping item IDs to their associated person name sets (case-insensitive).</returns>
@@ -72,9 +60,7 @@ internal sealed class SimilarityComputer
             return batchLookup;
         }
 
-        // Fallback: per-item GetPeople with client-side type filtering. Kept identical to
-        // pre-Jellyfin-12 behavior so a single failing candidate cannot abort the lookup;
-        // only cancellation propagates.
+        // Fallback: per-item GetPeople with client-side type filtering. Kept identical to pre-Jellyfin-12 behavior so a single failing candidate cannot abort the lookup; only cancellation propagates.
         var lookup = BuildPeopleLookupPerItem(candidates);
         _pluginLog.LogDebug(
             "Recommendations",
@@ -84,11 +70,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Tries the Jellyfin 12+ <see cref="ILibraryManager.GetPeopleNamesByItems"/> batch API.
-    ///     Returns <c>null</c> on failure so the caller falls back to per-item lookups; on an
-    ///     empty candidate list we short-circuit with an empty dictionary (nothing to do).
-    ///     The try/catch is delegated to <see cref="BatchFallbackHelper"/> so cancellation
-    ///     propagation stays in sync with the other batch call sites.
+    ///     Tries the Jellyfin 12+ GetPeopleNamesByItems batch API. Returns null on failure so the caller falls back to per-item lookups; on an empty candidate list we short-circuit with an empty dictionary (nothing to do).
     /// </summary>
     private Dictionary<Guid, HashSet<string>>? TryBuildPeopleLookupBatch(List<BaseItem> candidates)
     {
@@ -133,10 +115,7 @@ internal sealed class SimilarityComputer
                 return lookup;
             },
             fallbackValue: null,
-            // Log at Warning via _pluginLog for parity with sibling batch call sites
-            // (WatchHistoryService.TryLoadUserDataBatch, UserActivityInsightsService.BuildUserDataLookup).
-            // A raw _logger.LogDebug would vanish at the default production log level, so an
-            // admin would never notice the batch API fell back to per-item.
+            // Log at Warning via _pluginLog for parity with sibling batch call sites (WatchHistoryService.TryLoadUserDataBatch, UserActivityInsightsService.BuildUserDataLookup).
             onFailure: ex => _pluginLog.LogWarning(
                 "Recommendations",
                 "Batch people lookup via GetPeopleNamesByItems failed, falling back to per-item GetPeople.",
@@ -177,10 +156,7 @@ internal sealed class SimilarityComputer
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
-                // Fail-soft: skip this candidate's people rather than aborting the whole lookup
-                // (some item types / corrupted metadata make GetPeople throw). OOM / stack
-                // overflow are excluded from the filter so they propagate as process-fatal,
-                // matching BatchFallbackHelper's contract for the batch path above.
+                // Fail-soft: skip this candidate's people rather than aborting the whole lookup (some item types / corrupted metadata make GetPeople throw).
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     _logger.LogDebug(ex, "Failed to load people for candidate {ItemId}, skipping", candidate.Id);
@@ -192,9 +168,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Extracts the case-insensitive set of relevant (actor/director) person names from a people
-    ///     collection, skipping blanks and irrelevant kinds. Extracted verbatim from
-    ///     <see cref="BuildPeopleLookupPerItem"/>.
+    ///     Extracts the case-insensitive set of relevant (actor/director) person names from a people collection, skipping blanks and irrelevant kinds.
     /// </summary>
     /// <param name="people">The item's people collection.</param>
     /// <returns>The relevant name set, or <c>null</c> when none apply.</returns>
@@ -222,9 +196,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes genre similarity between a candidate item and the user's genre preference vector
-    ///     using cosine similarity. This properly handles multi-genre items (e.g. Action + SciFi + Adventure)
-    ///     without penalizing them for having many genres.
+    ///     Computes genre similarity between a candidate item and the user's genre preference vector using cosine similarity.
     /// </summary>
     /// <param name="candidateGenres">The genres of the candidate item.</param>
     /// <param name="genrePreferences">The user's genre preference vector.</param>
@@ -243,8 +215,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes genre similarity using a precomputed user-norm-squared value.
-    ///     Use this overload in per-candidate hot loops where genrePreferences is fixed per user.
+    ///     Computes genre similarity using a precomputed user-norm-squared value. Use this overload in per-candidate hot loops where genrePreferences is fixed per user.
     /// </summary>
     /// <param name="candidateGenres">The genres of the candidate item.</param>
     /// <param name="genrePreferences">The user's genre preference vector.</param>
@@ -303,11 +274,7 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Unknown-genre damping: reduce similarity proportionally when a candidate has genres the user
-        // has never watched, so items mixing familiar and unfamiliar genres score below fully-familiar
-        // ones. Factor 0.5 = moderate ("never watched" != "dislikes"). Example: Anime
-        // ["Animation","Action","Drama"] for an Action/Drama user: unknownFraction = 1/3,
-        // damping = 1 - 0.33 * 0.5 = 0.835 -> ~17% reduction.
+        // Unknown-genre damping: reduce similarity proportionally when a candidate has genres the user has never watched, so items mixing familiar and unfamiliar genres score below fully-familiar ones.
         if (unknownGenreCount == 0)
         {
             return cosineSimilarity;
@@ -321,8 +288,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Accumulates the candidate-vs-user genre dot product and counts genres the user has never
-    ///     watched. Extracted verbatim from <see cref="ComputeGenreSimilarity(IReadOnlyList{string}, Dictionary{string, double}, double)"/>.
+    ///     Accumulates the candidate-vs-user genre dot product and counts genres the user has never watched.
     /// </summary>
     /// <param name="uniqueCandidateGenres">The candidate's de-duplicated genre set.</param>
     /// <param name="genrePreferences">The user's genre preference vector.</param>
@@ -358,22 +324,13 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes people similarity between a candidate's cast/directors and the user's preferred
-    ///     people set using the overlap coefficient: |A ∩ B| / min(|A|, |B|). Preferred over Jaccard
-    ///     here because the user's preferred set is typically far larger than one candidate's cast, which
-    ///     would drive Jaccard toward zero; the overlap coefficient measures what fraction of the smaller
-    ///     set is shared, giving a meaningful signal.
+    ///     Computes people similarity between a candidate's cast/directors and the user's preferred people set using the overlap coefficient: |A ∩ B| / min(|A|, |B|).
     /// </summary>
     /// <param name="candidatePeople">The candidate item's person names.</param>
     /// <param name="preferredPeople">The user's preferred person names.</param>
     /// <returns>An overlap coefficient between 0 and 1.</returns>
     /// <remarks>
-    ///     Retained for the legacy unit-test suite that pins the overlap-coefficient contract
-    ///     (see <c>RecommendationEngineTests.ComputePeopleSimilarity_*</c>). Production scoring
-    ///     paths - both live (<c>Engine.ScoreCandidate</c>) and training
-    ///     (<c>TrainingDataBuilder</c>, <c>TrainingFeatureComputer</c>) - call the WEIGHTED
-    ///     overload exclusively. Prefer that overload for any new call site; this one exists
-    ///     only so historical behavioural tests keep pinning the plain overlap semantics.
+    ///     Retained for the legacy unit-test suite that pins the overlap-coefficient contract (see RecommendationEngineTests.ComputePeopleSimilarity_*).
     /// </remarks>
     internal static double ComputePeopleSimilarity(
         HashSet<string> candidatePeople,
@@ -395,41 +352,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Weighted variant of <see cref="ComputePeopleSimilarity(HashSet{string}, HashSet{string})"/>
-    ///     that scores candidates by how much of the user's <b>weight mass</b> they carry rather than raw
-    ///     set membership. Used at inference by <c>Engine.ScoreCandidate</c> and across all training phases
-    ///     in <c>TrainingDataBuilder</c> so the ML feature is identical on both sides.
-    ///     <para>
-    ///         <b>Active formula</b> (top-K weighted-budget, clamped [0, 1]):
-    ///         <code>
-    ///             score = clamp( matchedWeight
-    ///                          / max( |candidate| × avg(topK(preferredWeight)),
-    ///                                 <see cref="EngineConstants.WeightedPeopleSimilarityMinDenominator"/> ),
-    ///                          0, 1 )
-    ///         </code>
-    ///         where <c>avg(topK(preferredWeight))</c> is the mean of the <see
-    ///         cref="EngineConstants.WeightedPeopleSimilarityTopK"/> largest positive weights (full positive
-    ///         set if fewer than <c>K</c>). Averaging only the heavy hitters anchors the denominator to the
-    ///         collaborators driving the user's preferences; averaging the full set would let two heavy
-    ///         matches saturate to 1.0 on 100-person profiles full of one-off cameos. The floor guards
-    ///         sparse-user overshoot and empty-preferred stability (see the floor constant's XML doc).
-    ///     </para>
-    ///     <para>
-    ///         <b>Intuition</b>: <c>|candidate| × avg</c> is the expected matched weight if the cast were
-    ///         all "average preferred" people; delivering exactly that scores 1.0, less scores lower. The
-    ///         monotone ordering (more matched weight -> strictly higher, up to the clamp) is what the
-    ///         downstream neural ranking head needs.
-    ///     </para>
-    ///     <para>
-    ///         <b>Design history</b>: an earlier <c>matchedWeight / min(|candidate|, totalPreferredWeight)</c>
-    ///         (a) collapsed rich-profile candidates to 1.0 once matched-weight exceeded |candidate|
-    ///         (ceiling-compression) and (b) let one heavy match on a sparse profile hit 1.0 (sparse-user
-    ///         overshoot). The weighted-budget formula fixes both; see <c>SimilarityComputerTests</c>.
-    ///     </para>
-    ///     <para>
-    ///         Empty-input contract mirrors <see cref="ComputePeopleSimilarity(HashSet{string},HashSet{string})"/>:
-    ///         zero on empty candidate or empty weights, preserving train/serve parity.
-    ///     </para>
+    ///     Weighted variant of ComputePeopleSimilarity(HashSet{string}, HashSet{string}) that scores candidates by how much of the user's <b>weight mass</b> they carry rather than raw set membership.
     /// </summary>
     /// <param name="candidatePeople">The candidate item's person names.</param>
     /// <param name="preferredPeopleWeights">
@@ -447,23 +370,13 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Delegates to the precomputed-context overload so the sort cost is paid once on the
-        // batched path. This overload keeps the eager compute for legacy call sites and unit
-        // tests that pass raw dictionaries.
+        // Delegates to the precomputed-context overload so the sort cost is paid once on the batched path. This overload keeps the eager compute for legacy call sites and unit tests that pass raw dictionaries.
         var averagePreferredWeight = ComputeAveragePreferredWeight(preferredPeopleWeights);
         return ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights, averagePreferredWeight);
     }
 
     /// <summary>
-    ///     Batched variant of <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double})"/>
-    ///     that takes a precomputed <paramref name="averagePreferredWeight"/> so the O(P log P) top-K
-    ///     sort does not run per candidate. Callers scoring N candidates for one user can pay the
-    ///     sort exactly once via <see cref="ComputeAveragePreferredWeight"/> and reuse the result.
-    ///     <para>
-    ///         Semantics are identical to the eager overload: matched-weight over
-    ///         <c>max( |candidate| × avg, floor )</c>, clamped to <c>[0, 1]</c>. Empty inputs (either
-    ///         candidate or weights) short-circuit to <c>0</c> just like the eager path.
-    ///     </para>
+    ///     Batched variant of ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double}) that takes a precomputed averagePreferredWeight so the O(P log P) top-K sort does not run per candidate.
     /// </summary>
     /// <param name="candidatePeople">The candidate item's person names.</param>
     /// <param name="preferredPeopleWeights">The user's weighted preferences (same dictionary passed to <see cref="ComputeAveragePreferredWeight"/>).</param>
@@ -479,9 +392,7 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Iterate the (typically small) candidate cast rather than the full preference map:
-        // a movie has O(10) people, a user's map can hold hundreds. Both lookups are O(1),
-        // so iterating the smaller collection cuts this hot-path loop by an order of magnitude.
+        // Iterate the (typically small) candidate cast rather than the full preference map: a movie has O(10) people, a user's map can hold hundreds.
         var matchedWeight = 0.0;
         foreach (var name in candidatePeople)
         {
@@ -493,9 +404,7 @@ internal sealed class SimilarityComputer
 
         if (matchedWeight <= 0.0)
         {
-            // No positive-weight overlap -> cannot produce a meaningful score even with the floor.
-            // Early return also avoids emitting a small positive score for zero-match candidates
-            // just because the floor would otherwise appear in the denominator.
+            // No positive-weight overlap -> cannot produce a meaningful score even with the floor. Early return also avoids emitting a small positive score for zero-match candidates just because the floor would otherwise appear in the denominator.
             return 0;
         }
 
@@ -506,16 +415,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Precomputes the top-K average preferred weight used as the denominator anchor in
-    ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double})"/>.
-    ///     Callers scoring many candidates against the SAME <paramref name="preferredPeopleWeights"/>
-    ///     (batched inference, training-data build) should call this once per user and pass the result to
-    ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double}, double)"/>
-    ///     to skip the O(P log P) sort in the per-candidate hot path.
-    ///     <para>
-    ///         Returns <c>0.0</c> when no positive-weight entries exist; the consuming overload treats a
-    ///         zero average as "no meaningful preference structure", matching the eager path's result.
-    ///     </para>
+    ///     Precomputes the top-K average preferred weight used as the denominator anchor in ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double}).
     /// </summary>
     /// <param name="preferredPeopleWeights">The user's weighted preferences.</param>
     /// <returns>The mean of the top-<see cref="EngineConstants.WeightedPeopleSimilarityTopK"/> positive weights, or <c>0.0</c> if none.</returns>
@@ -537,9 +437,7 @@ internal sealed class SimilarityComputer
             return 0.0;
         }
 
-        // Sparse profiles (positiveEntries.Count < K) fall back to the full set, so the previous
-        // behaviour for low-cardinality preferences is unchanged and the floor still guards
-        // pathological sparse-profile scores.
+        // Sparse profiles (positiveEntries.Count < K) fall back to the full set, so the previous behaviour for low-cardinality preferences is unchanged and the floor still guards pathological sparse-profile scores.
         var sampleSize = Math.Min(positiveEntries.Count, EngineConstants.WeightedPeopleSimilarityTopK);
         positiveEntries.Sort((a, b) => b.CompareTo(a));
         var topKSum = 0.0;
@@ -552,9 +450,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes tag similarity between a candidate item's tags and the user's preferred tag set
-    ///     using Jaccard similarity: |A ∩ B| / |A ∪ B|.
-    ///     Returns 0 if either set is empty (no tags available).
+    ///     Computes tag similarity between a candidate item's tags and the user's preferred tag set using Jaccard similarity: |A ∩ B| / |A ∪ B|.
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <param name="preferredTags">The user's preferred tag set.</param>
@@ -593,11 +489,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes franchise affinity: how strongly a candidate's TMDb collection matches the user's
-    ///     franchise preference map. This is the single shared implementation called by BOTH the live
-    ///     scoring path and the training path so the two cannot drift (train/serve parity).
-    ///     <para>Returns 0.0 when the candidate has no collection name or the user has no franchise
-    ///     preference (empty map / unknown franchise) - never throws, never divides.</para>
+    ///     Computes franchise affinity: how strongly a candidate's TMDb collection matches the user's franchise preference map.
     /// </summary>
     /// <param name="candidateFranchise">The candidate's TMDb collection name, or null/empty.</param>
     /// <param name="preferredFranchises">The user's normalized franchise to weight map.</param>
@@ -619,10 +511,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes production-location affinity: weighted overlap of a candidate's production countries
-    ///     with the user's country-preference map. Single shared implementation for live + training.
-    ///     <para>Returns 0.0 when the candidate has no countries or the user has no country preference -
-    ///     never throws, never divides (averages over the candidate's own country count only).</para>
+    ///     Computes production-location affinity: weighted overlap of a candidate's production countries with the user's country-preference map.
     /// </summary>
     /// <param name="candidateCountries">The candidate's production countries.</param>
     /// <param name="preferredCountries">The user's normalized country to weight map.</param>
@@ -658,10 +547,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes inherited-tag similarity: Jaccard overlap of a candidate's inherited tags with the
-    ///     user's preferred inherited-tag set. Single shared implementation for live + training.
-    ///     Delegates to the division-safe <see cref="ComputeJaccardFromSets"/>.
-    ///     <para>Returns 0.0 when either side is empty.</para>
+    ///     Computes inherited-tag similarity: Jaccard overlap of a candidate's inherited tags with the user's preferred inherited-tag set.
     /// </summary>
     /// <param name="candidateInheritedTags">The candidate's inherited tags.</param>
     /// <param name="preferredInheritedTags">The user's preferred inherited-tag set (case-insensitive).</param>
@@ -683,14 +569,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes writer affinity: weighted name-overlap of a candidate's writers with the user's
-    ///     writer-preference map. Single shared implementation for live + training. Reuses the
-    ///     division-safe weighted people-similarity primitive so it behaves identically to the
-    ///     actor/director people channel while staying a separate signal.
-    ///     <para>Returns 0.0 when either side is empty.</para>
-    ///     <para>This eager overload recomputes the top-K average per call; hot paths that score many
-    ///     candidates for one user should precompute the average via <see cref="ComputeAveragePreferredWeight"/>
-    ///     once and call the three-argument overload instead.</para>
+    ///     Computes writer affinity: weighted name-overlap of a candidate's writers with the user's writer-preference map.
     /// </summary>
     /// <param name="candidateWriters">The candidate's writer names.</param>
     /// <param name="preferredWriterWeights">The user's writer to weight map.</param>
@@ -704,10 +583,7 @@ internal sealed class SimilarityComputer
             ComputeAveragePreferredWeight(preferredWriterWeights));
 
     /// <summary>
-    ///     Batched writer-affinity overload taking a precomputed top-K average writer weight, so the
-    ///     O(W log W) sort inside <see cref="ComputeAveragePreferredWeight"/> runs once per user rather
-    ///     than once per candidate. Mirrors the precomputed-average <c>ComputePeopleSimilarity</c> path.
-    ///     <para>Returns 0.0 when either side is empty.</para>
+    ///     Batched writer-affinity overload taking a precomputed top-K average writer weight, so the O(W log W) sort inside ComputeAveragePreferredWeight runs once per user rather than once per candidate.
     /// </summary>
     /// <param name="candidateWriters">The candidate's writer names.</param>
     /// <param name="preferredWriterWeights">The user's writer to weight map.</param>
@@ -735,11 +611,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes billing-weighted people affinity: like the actor/director people channel but the
-    ///     candidate side carries per-person billing weights (top-billed cast count for more). Single
-    ///     shared implementation for live + training. Scores the candidate's billed people against the
-    ///     user's favoured billed-people map, weighting each match by the candidate's billing weight.
-    ///     <para>Returns 0.0 when either side is empty - never divides by zero (denominator floored).</para>
+    ///     Computes billing-weighted people affinity: like the actor/director people channel but the candidate side carries per-person billing weights (top-billed cast count for more).
     /// </summary>
     /// <param name="candidateBilling">Candidate name to billing weight (top-billed -> higher).</param>
     /// <param name="preferredBilledPeople">The user's favoured billed-people name to weight map.</param>
@@ -753,9 +625,7 @@ internal sealed class SimilarityComputer
             return 0.0;
         }
 
-        // matched = Σ over shared names of (candidate billing weight × user preference weight);
-        // normalized by the candidate's total billing budget so a top-billed match dominates a
-        // deep-cast match. Denominator is the candidate's own billing sum (always > 0 here).
+        // matched = Σ over shared names of (candidate billing weight × user preference weight); normalized by the candidate's total billing budget so a top-billed match dominates a deep-cast match.
         var matched = 0.0;
         var billingBudget = 0.0;
         foreach (var (name, billing) in candidateBilling)
@@ -781,11 +651,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Computes the genre/studio IDF rarity prior for a candidate: the mean inverse-document-frequency
-    ///     of its genres and studios against a library-wide IDF table. Rare genres/studios score higher.
-    ///     Single shared implementation for live + training.
-    ///     <para>Returns 0.0 when the candidate has no genres/studios or the IDF table is empty/unavailable -
-    ///     never throws, never divides by zero (the table is pre-normalized to [0,1]).</para>
+    ///     Computes the genre/studio IDF rarity prior for a candidate: the mean inverse-document-frequency of its genres and studios against a library-wide IDF table.
     /// </summary>
     /// <param name="candidateGenres">The candidate's genres.</param>
     /// <param name="candidateStudios">The candidate's studios.</param>
@@ -833,13 +699,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Extracts billed cast/director names and their billing weights from an item's people list,
-    ///     as two positionally-aligned lists suitable for caching on <c>WatchedItemInfo</c>. Billing
-    ///     weight is derived from <see cref="PersonInfo.SortOrder"/> via
-    ///     <see cref="EngineConstants.ComputeBillingWeight"/> - the SAME formula the live scoring path
-    ///     uses - so a training example rebuilt from these cached lists yields an identical
-    ///     BillingWeightedPeople value (train/serve parity). Duplicate names keep the highest weight.
-    ///     <para>Returns empty lists when no billable people are present (fail-soft).</para>
+    ///     Extracts billed cast/director names and their billing weights from an item's people list, as two positionally-aligned lists suitable for caching on WatchedItemInfo.
     /// </summary>
     /// <param name="people">The item's people (from <c>ILibraryManager.GetPeople</c>), or null.</param>
     /// <returns>Aligned (names, weights) for the item's billed cast/directors.</returns>

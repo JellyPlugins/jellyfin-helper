@@ -13,33 +13,17 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 internal static class PreferenceBuilder
 {
     /// <summary>
-    ///     Upper cap for the raw <c>PlayCount</c> fed into the log1p transform. Guards against
-    ///     pathological metadata (e.g. stuck counters) inflating a genre's raw weight before normalization.
-    ///     <para>
-    ///         Typed as <see cref="int"/> to match <c>WatchedItemInfo.PlayCount</c>, avoiding a
-    ///         double->int->double round-trip when clamping.
-    ///     </para>
+    ///     Upper cap for the raw PlayCount fed into the log1p transform. Guards against pathological metadata (e.g.
     /// </summary>
     private const int PlayCountMaxForLog1p = 100;
 
     /// <summary>
-    ///     Lower bound of the progression multiplier: even an abandoned series must still
-    ///     contribute a fraction of its signal so users with mostly-abandoned watch history
-    ///     don't end up with an empty preference vector.
+    ///     Lower bound of the progression multiplier: even an abandoned series must still contribute a fraction of its signal so users with mostly-abandoned watch history don't end up with an empty preference vector.
     /// </summary>
     private const double ProgressionFloor = 0.3;
 
     /// <summary>
-    ///     Upper bound of the progression multiplier: a fully-completed series gets a modest
-    ///     boost above the baseline "1.0" for movies, so binge-watched shows shape preferences
-    ///     more strongly than a single played row.
-    ///     <para>
-    ///         The multiplier only acts on the (temporal + playCount) portion and is capped so it
-    ///         cannot invert a favorite decision. By design an explicit favorite (direct signal)
-    ///         outranks a watched-through non-favorite (inferred signal). Callers needing the two
-    ///         comparable should re-tune both constants together rather than folding progression
-    ///         into the favorite additive.
-    ///     </para>
+    ///     Upper bound of the progression multiplier: a fully-completed series gets a modest boost above the baseline "1.0" for movies, so binge-watched shows shape preferences more strongly than a single played row.
     /// </summary>
     private const double ProgressionCeiling = 1.5;
 
@@ -49,18 +33,7 @@ internal static class PreferenceBuilder
     private const double ProgressionSpan = ProgressionCeiling - ProgressionFloor;
 
     /// <summary>
-    ///     Target maximum contribution of the PlayCount log1p boost, chosen so heavy re-watchers produce
-    ///     a meaningful signal not drowned out by the favorite additive
-    ///     (<see cref="EngineConstants.FavoriteGenreBoostFactor"/> = 3.0), while staying sub-favorite so
-    ///     an explicit favorite click always outweighs a pure re-watching pattern.
-    ///     <para>
-    ///         Rationale for 2.0 (v3 C1 hardening pass): the original scale (1.0) matched the pre-v3
-    ///         linear cap (<c>min(PlayCount, 5) × 0.2 = 1.0</c>), which - with the +3.0 favorite additive
-    ///         in <c>weight = temporalWeight + playCountBoost + (fav ? 3.0 : 0)</c> - made PlayCount 5 vs.
-    ///         30 differ by only 4-13% of the total for favorited items, hiding the log1p refinement from
-    ///         the ML feature. Raising the ceiling to 2.0 gives PlayCount 30 a ~1.5 boost (≈50% of the
-    ///         favorite additive) so re-watching is measurable without inverting the favorite/re-watch ordering.
-    ///     </para>
+    ///     Target maximum contribution of the PlayCount log1p boost, chosen so heavy re-watchers produce a meaningful signal not drowned out by the favorite additive (FavoriteGenreBoostFactor = 3.0), while staying sub-favorite so an explicit favorite click always.
     /// </summary>
     private const double PlayCountLog1pCeiling = 2.0;
 
@@ -68,25 +41,12 @@ internal static class PreferenceBuilder
     private static readonly double GenreDecayConstant = Math.Log(2.0) / EngineConstants.GenreDecayHalfLifeDays;
 
     /// <summary>
-    ///     Scale factor for the log1p PlayCount contribution. Calibrated so a fully-capped
-    ///     PlayCount (100) contributes exactly <see cref="PlayCountLog1pCeiling"/> (2.0),
-    ///     placing heavy re-watchers roughly halfway to the favorite additive so re-watching
-    ///     patterns are visible to the downstream ML feature without dominating explicit
-    ///     favorite signals. Approximate contributions with this scale:
-    ///     <list type="bullet">
-    ///         <item><description>PlayCount 1 -> 0.30 (baseline single-watch weight)</description></item>
-    ///         <item><description>PlayCount 5 -> 0.78 (comparable to a fresh 1-day-old temporalWeight)</description></item>
-    ///         <item><description>PlayCount 30 -> 1.49 (dedicated re-watcher signal, ≈50% of favorite additive)</description></item>
-    ///         <item><description>PlayCount 100 -> 2.00 (theoretical ceiling; clamp beyond)</description></item>
-    ///     </list>
+    ///     Scale factor for the log1p PlayCount contribution.
     /// </summary>
     private static readonly double PlayCountLog1pScale = PlayCountLog1pCeiling / Math.Log(1.0 + PlayCountMaxForLog1p);
 
     /// <summary>
-    ///     Builds a normalized genre preference vector from watch history. Each genre is weighted
-    ///     by recency (180-day half-life exponential decay), play count (log1p boost), and favorites
-    ///     (additive boost). Favorited-but-unplayed items are included since the user explicitly
-    ///     expressed interest.
+    ///     Builds a normalized genre preference vector from watch history. Each genre is weighted by recency (180-day half-life exponential decay), play count (log1p boost), and favorites (additive boost).
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <param name="seriesEpisodeCounts">
@@ -109,19 +69,14 @@ internal static class PreferenceBuilder
             return vector;
         }
 
-        // Shared per-series played counter. BuildGenrePreferenceVector and
-        // BuildPeoplePreferenceWeights use the exact same aggregation, so extracting the loop
-        // guarantees train/serve parity between the Genre- and People-similarity features.
+        // Shared per-series played counter. BuildGenrePreferenceVector and BuildPeoplePreferenceWeights use the exact same aggregation, so extracting the loop guarantees train/serve parity between the Genre- and People-similarity features.
         var watchedEpisodesPerSeries = BuildWatchedEpisodesPerSeries(profile, seriesEpisodeCounts);
 
         // Build genre preferences with temporal decay - recent watches count more
         var now = DateTime.UtcNow;
         AccumulateWatchedGenreWeights(vector, profile, seriesEpisodeCounts, watchedEpisodesPerSeries, now);
 
-        // Merge GenreDistribution as base weights for genres not in WatchedItems (backward compat;
-        // catches genres from items whose WatchedItemInfo has no Genres array, e.g. episodes
-        // inheriting parent series genres). Counts are scaled into the same 0-1 range as
-        // watch-derived weights so they supplement rather than dominate after normalization.
+        // Merge GenreDistribution as base weights for genres not in WatchedItems (backward compat; catches genres from items whose WatchedItemInfo has no Genres array, e.g.
         MergeGenreDistributionWeights(vector, profile);
 
         if (vector.Count == 0)
@@ -129,10 +84,7 @@ internal static class PreferenceBuilder
             return vector;
         }
 
-        // Expand first, normalize afterwards so proximity-derived weights participate in
-        // the same max-normalization pass as the base entries. Doing it in the other order
-        // would leave secondary genres in `[0, 0.15]` while primary genres are in `[0, 1]`,
-        // producing a non-normalized vector that drifts SimilarityComputer's `userNorm`.
+        // Expand first, normalize afterwards so proximity-derived weights participate in the same max-normalization pass as the base entries.
         ExpandGenreProximity(vector, profile);
 
         var maxWeight = vector.Values.Max();
@@ -150,9 +102,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Accumulates temporal-decay genre weights from the profile's watched items into
-    ///     <paramref name="vector"/>. Extracted verbatim from <see cref="BuildGenrePreferenceVector"/>;
-    ///     eligibility guards, phantom-series guard, and per-genre accumulation order are unchanged.
+    ///     Accumulates temporal-decay genre weights from the profile's watched items into .
     /// </summary>
     /// <param name="vector">The genre weight accumulator to add into.</param>
     /// <param name="profile">The user's watch profile.</param>
@@ -168,10 +118,7 @@ internal static class PreferenceBuilder
     {
         foreach (var item in profile.WatchedItems)
         {
-            // Eligibility must include PlayCount > 0 so the SAME rows contributing to
-            // watchedEpisodesPerSeries also contribute their genres here. Without this symmetry a
-            // series with PlayCount>0 but Played=false episodes would inflate the progression
-            // multiplier for OTHER episodes without ever counting its own genres - a signal leak.
+            // Eligibility must include PlayCount > 0 so the SAME rows contributing to watchedEpisodesPerSeries also contribute their genres here.
             if (!IsEligibleForPreferenceWeighting(item))
             {
                 continue;
@@ -199,9 +146,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Merges the profile's <c>GenreDistribution</c> counts as base weights for genres not already
-    ///     present in <paramref name="vector"/>. Extracted verbatim from
-    ///     <see cref="BuildGenrePreferenceVector"/>; scaling and skip conditions are unchanged.
+    ///     Merges the profile's GenreDistribution counts as base weights for genres not already present in .
     /// </summary>
     /// <param name="vector">The genre weight accumulator to supplement.</param>
     /// <param name="profile">The user's watch profile.</param>
@@ -226,9 +171,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Computes the per-item genre weight (temporal decay + play-count boost, scaled by the series
-    ///     progression multiplier, plus an additive favorite boost). Extracted verbatim from
-    ///     <see cref="BuildGenrePreferenceVector"/>; the weight formula is unchanged.
+    ///     Computes the per-item genre weight (temporal decay + play-count boost, scaled by the series progression multiplier, plus an additive favorite boost).
     /// </summary>
     /// <param name="item">The watched item row.</param>
     /// <param name="now">The reference timestamp for temporal decay.</param>
@@ -241,9 +184,7 @@ internal static class PreferenceBuilder
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         Dictionary<Guid, int>? watchedEpisodesPerSeries)
     {
-        // Temporal weight: exponential decay with ~180-day half-life. Unplayed favorites
-        // represent current intent, so they are not age-penalized. Played items without a
-        // timestamp are rare and default to ~1 year as a conservative fallback.
+        // Temporal weight: exponential decay with ~180-day half-life. Unplayed favorites represent current intent, so they are not age-penalized.
         double temporalWeight;
         if (item.LastPlayedDate.HasValue)
         {
@@ -259,19 +200,11 @@ internal static class PreferenceBuilder
             temporalWeight = Math.Exp(-GenreDecayConstant * 365.0);
         }
 
-        // PlayCount boost: re-watched items signal stronger preference. Uses log1p (not the pre-v3
-        // linear min(PlayCount,5)×0.2 cap) so a 30×-rewatched item does not linearly dominate;
-        // ceiling raised to 2.0 so the signal survives the +3.0 favorite additive (contribution
-        // table in PlayCountLog1pScale's doc). Clamp at 100 prevents pathological metadata from
-        // producing unbounded weights.
+        // PlayCount boost: re-watched items signal stronger preference.
         var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
         var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
 
-        // Progression multiplier: for episode rows, dampen or amplify the (temporal+playCount)
-        // signal by how much of the series the user consumed. The FAVORITE additive stays
-        // independent (an explicit favorite must not be diluted by an abandoned series) and is
-        // added after multiplication. Formula: clamp(0.3 + rawRatio * 1.2, 0.3, 1.5); see
-        // ComputeProgressionMultiplier.
+        // Progression multiplier: for episode rows, dampen or amplify the (temporal+playCount) signal by how much of the series the user consumed.
         var progressionMultiplier = ComputeProgressionMultiplier(
             item,
             seriesEpisodeCounts,
@@ -289,20 +222,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Expands genre preferences with co-occurrence proximity weights. Genres frequently appearing
-    ///     together reinforce each other: an existing entry gets an additive boost proportional to the
-    ///     strongest incoming co-occurrence path, and absent genres that co-occur with known ones are
-    ///     introduced with a derived weight.
-    ///     <para>
-    ///         <b>Design rationale (v3 hardening pass):</b> the previous version only inserted <i>new</i>
-    ///         genres (guarded by <c>vector.ContainsKey</c>), a near no-op since neighbours were usually
-    ///         already direct-watched. The current version applies an <b>additive</b> boost (capped so it
-    ///         cannot exceed a fresh direct-watch signal) to existing entries too, so a strongly
-    ///         co-occurring pair like Action↔Adventure reinforces both peers relative to a weakly
-    ///         co-occurring third genre. The cap keeps the boost below the raw direct-watch peer weight,
-    ///         so an explicitly-watched genre always outranks a purely-inferred one - the same
-    ///         monotonicity the favorite additive maintains against re-watch signals.
-    ///     </para>
+    ///     Expands genre preferences with co-occurrence proximity weights.
     /// </summary>
     /// <param name="vector">The genre preference vector to expand (modified in-place).</param>
     /// <param name="profile">The user watch profile for co-occurrence data.</param>
@@ -315,38 +235,21 @@ internal static class PreferenceBuilder
 
         var cooccurrence = BuildGenreCooccurrence(profile);
 
-        // proximityFactor caps every derived boost at 15% of the source genre's own weight,
-        // so a co-occurrence link can never lift a neighbour above the source itself.
-        // minCooccurrences filters one-off pairs that would otherwise inject noise from a
-        // single mis-tagged item.
+        // proximityFactor caps every derived boost at 15% of the source genre's own weight, so a co-occurrence link can never lift a neighbour above the source itself.
         const double proximityFactor = 0.15;
         const int minCooccurrences = 2;
 
-        // Snapshot pre-expansion weights so proximity boosts are computed from the direct-watch
-        // signal only. Reading a mutating vector while iterating would let earlier boosts feed
-        // later ones, cascading a mild pair into a dominant signal.
+        // Snapshot pre-expansion weights so proximity boosts are computed from the direct-watch signal only. Reading a mutating vector while iterating would let earlier boosts feed later ones, cascading a mild pair into a dominant signal.
         var baseWeights = new Dictionary<string, double>(vector, StringComparer.OrdinalIgnoreCase);
 
-        // Aggregate the strongest incoming proximity contribution per target genre. "Strongest"
-        // (Math.Max) rather than "sum": a genre co-occurring with three known peers should not be
-        // triple-boosted, which would inflate hubs like "Drama"/"Action" purely from appearing on
-        // many multi-genre items. The strongest path captures reinforcement without double-counting.
+        // Aggregate the strongest incoming proximity contribution per target genre.
         var proximityContributions = AggregateProximityContributions(
             baseWeights,
             cooccurrence,
             proximityFactor,
             minCooccurrences);
 
-        // Apply contributions.
-        //   * Genres already in the vector (direct-watch): ADD the derived contribution. proximityFactor
-        //     (0.15) caps it at 15% of the source peer's weight, whose max is the direct-watch peak, so a
-        //     reinforced genre can never overtake one with a strictly stronger direct-watch signal.
-        //   * Genres NOT in the vector (pure inference): INSERT with the derived weight so soft-related
-        //     genres surface for candidates never explicitly watched (the "expand into unseen genres"
-        //     behaviour the original ContainsKey skip never applied).
-        // Applied last (after the read snapshot) so baseWeights iteration order does not influence the
-        // result - an invariant for train/serve parity, since Dictionary enumeration order is not part
-        // of the .NET contract.
+        // Apply contributions. * Genres already in the vector (direct-watch): ADD the derived contribution.
         foreach (var (targetGenre, derivedWeight) in proximityContributions)
         {
             if (vector.TryGetValue(targetGenre, out var existingWeight))
@@ -390,9 +293,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Returns the de-duplicated, non-blank genres of a watched item that qualifies for
-    ///     co-occurrence (played or favorited with genre metadata), or an empty array otherwise.
-    ///     Extracted verbatim from <see cref="BuildGenreCooccurrence"/>.
+    ///     Returns the de-duplicated, non-blank genres of a watched item that qualifies for co-occurrence (played or favorited with genre metadata), or an empty array otherwise.
     /// </summary>
     private static string[] GetEligibleDistinctGenres(WatchedItemInfo item)
     {
@@ -443,8 +344,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Aggregates the strongest incoming proximity contribution per target genre. Extracted
-    ///     verbatim from <see cref="ExpandGenreProximity"/>; the derivation formula is unchanged.
+    ///     Aggregates the strongest incoming proximity contribution per target genre. Extracted verbatim from ExpandGenreProximity; the derivation formula is unchanged.
     /// </summary>
     /// <param name="baseWeights">Pre-expansion direct-watch genre weights.</param>
     /// <param name="cooccurrence">The genre co-occurrence map.</param>
@@ -487,17 +387,6 @@ internal static class PreferenceBuilder
 
     /// <summary>
     ///     Builds a set of studio names the user prefers, derived from their watched and favorited items.
-    ///     Looks up the actual BaseItem objects from the candidate lookup to access Studios metadata.
-    ///     <para>
-    ///         Asymmetric weighting vs. genre/people: this returns an unweighted
-    ///         <see cref="HashSet{T}"/>, so a studio from a 2/30-watched series counts the same as one
-    ///         accumulated across 20 fully-watched series. Genre and people preferences apply the
-    ///         progression multiplier, but studios stay flat because the downstream consumer is a binary
-    ///         <c>StudioMatch</c> feature (<c>candidate.Studios.Any(preferredStudios.Contains)</c>) where
-    ///         a weighted set adds no value. Feature-importance reports rank <c>StudioMatch</c> below
-    ///         <c>GenreSimilarity</c> and <c>PeopleSimilarity</c>, so weighting is not justified as of
-    ///         v3.0.0.0. Revisit if a future importance report shows Studio contributing meaningfully.
-    ///     </para>
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="candidateLookup">Pre-built candidate lookup by item ID (shared across calls for performance).</param>
@@ -511,9 +400,7 @@ internal static class PreferenceBuilder
         // Collect studios from watched and favorited movies and series
         foreach (var w in userProfile.WatchedItems)
         {
-            // Same eligibility as BuildGenrePreferenceVector so a PlayCount>0 row that contributes
-            // its genres also contributes its studios. Keeps the four preference builders
-            // (genre / studio / tag / people) internally consistent.
+            // Same eligibility as BuildGenrePreferenceVector so a PlayCount>0 row that contributes its genres also contributes its studios.
             if (!IsEligibleForPreferenceWeighting(w))
             {
                 continue;
@@ -546,8 +433,6 @@ internal static class PreferenceBuilder
 
     /// <summary>
     ///     Builds a set of tags the user prefers, derived from their watched and favorited items.
-    ///     Looks up the actual BaseItem objects from the candidate lookup to access Tags metadata.
-    ///     Used for tag-based content similarity scoring.
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="candidateLookup">Pre-built candidate lookup by item ID (shared across calls for performance).</param>
@@ -594,8 +479,6 @@ internal static class PreferenceBuilder
 
     /// <summary>
     ///     Builds a set of preferred person names (actors/directors) from the user's watched and favorited items.
-    ///     Uses the pre-built people lookup to avoid additional library queries.
-    ///     Includes people from both directly watched/favorited items and series the user has watched episodes of.
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="peopleLookup">Pre-built candidate people lookup (item ID -> person names).</param>
@@ -608,9 +491,7 @@ internal static class PreferenceBuilder
 
         foreach (var w in userProfile.WatchedItems)
         {
-            // Aligned with BuildGenrePreferenceVector so the unweighted set (reason-display) and
-            // the weighted set (ML scoring) cover the same source rows - otherwise the Reason
-            // ("because you like <actor>") could reference an actor with no ML weight, or vice-versa.
+            // Aligned with BuildGenrePreferenceVector so the unweighted set (reason-display) and the weighted set (ML scoring) cover the same source rows - otherwise the Reason ("because you like <actor>") could reference an actor with no ML weight, or vice-versa.
             if (!IsEligibleForPreferenceWeighting(w))
             {
                 continue;
@@ -633,22 +514,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a weighted preference map of person names (actors/directors) from the user's
-    ///     watched/favorited items. Each person's weight equals the number of DISTINCT watched/favorited
-    ///     items they appear on (an actor in 8 Nolan films gets weight 8; a one-off watch gets weight 1).
-    ///     <para>
-    ///         <see cref="BuildPeoplePreferenceSet"/> flattens people into a HashSet, giving a one-off
-    ///         appearance the same influence as a director watched dozens of times. This weighted variant
-    ///         preserves the frequency signal so
-    ///         <see cref="SimilarityComputer.ComputePeopleSimilarity(System.Collections.Generic.HashSet{string},System.Collections.Generic.IReadOnlyDictionary{string,double})"/>
-    ///         can score a user's dominant collaborators above random cameo overlaps.
-    ///     </para>
-    ///     <para>
-    ///         Uses the SAME source as <see cref="BuildPeoplePreferenceSet"/> (watched-or-favorited items ×
-    ///         <paramref name="peopleLookup"/>) rather than <see cref="UserWatchProfile.PeopleProfile"/>,
-    ///         which is populated at a different lifecycle point and can drift; this keeps the weighted map
-    ///         a strict super-set of the unweighted HashSet (same keys, plus counts).
-    ///     </para>
+    ///     Builds a weighted preference map of person names (actors/directors) from the user's watched/favorited items.
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="peopleLookup">Pre-built candidate people lookup (item ID -> person names).</param>
@@ -690,9 +556,7 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            // Merge people from the item itself AND its parent series (episodes -> series).
-            // De-duplicate per watched row so the same person on the same item is not
-            // double-counted just because both item-level and series-level lookups return them.
+            // Merge people from the item itself AND its parent series (episodes -> series). De-duplicate per watched row so the same person on the same item is not double-counted just because both item-level and series-level lookups return them.
             var perRowPeople = BuildPerRowPeople(w, peopleLookup);
 
             if (perRowPeople is null || perRowPeople.Count == 0)
@@ -700,9 +564,7 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            // Progression multiplier: episodes contribute proportionally to how much of the
-            // series the user has actually watched. Favorites are their own row and keep the
-            // full weight (the multiplier degrades gracefully to 1.0 for non-series rows).
+            // Progression multiplier: episodes contribute proportionally to how much of the series the user has actually watched.
             var progressionMultiplier = ComputeProgressionMultiplier(
                 w,
                 seriesEpisodeCounts,
@@ -719,8 +581,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Merges the de-duplicated person names for a single watched row from both the item-level and
-    ///     parent-series people lookups. Extracted verbatim from <see cref="BuildPeoplePreferenceWeights"/>.
+    ///     Merges the de-duplicated person names for a single watched row from both the item-level and parent-series people lookups.
     /// </summary>
     /// <param name="w">The watched item row.</param>
     /// <param name="peopleLookup">Item id -> person name set lookup.</param>
@@ -753,13 +614,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a max-normalized franchise preference map (TMDb collection name -> weight in [0,1])
-    ///     from the user's watched/favorited movies. Mirrors <see cref="BuildGenrePreferenceVector"/>'s
-    ///     temporal-decay + play-count + favorite-boost composition so franchise affinity is comparable
-    ///     in magnitude to genre affinity. Source is <see cref="WatchedItemInfo.TmdbCollectionName"/>
-    ///     directly (no BaseItem lookup needed).
-    ///     <para>Empty watch history or items without a collection name yield an empty map - a candidate
-    ///     with no franchise, or a franchise the user never engaged with, scores 0.0 (no crash, no bias).</para>
+    ///     Builds a max-normalized franchise preference map (TMDb collection name -> weight in [0,1]) from the user's watched/favorited movies.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive franchise -> normalized-weight map (empty when no signal).</returns>
@@ -789,11 +644,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a max-normalized production-country preference map (country -> weight in [0,1]) from the
-    ///     user's watched/favorited items, using the same weighting as
-    ///     <see cref="BuildFranchisePreferenceVector"/>. Source is
-    ///     <see cref="WatchedItemInfo.ProductionCountries"/> directly.
-    ///     <para>Empty history or items without countries yield an empty map -> candidate scores 0.0.</para>
+    ///     Builds a max-normalized production-country preference map (country -> weight in [0,1]) from the user's watched/favorited items, using the same weighting as BuildFranchisePreferenceVector.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive country -> normalized-weight map (empty when no signal).</returns>
@@ -826,10 +677,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a set of preferred inherited tags from the user's watched/favorited items, reading
-    ///     <see cref="WatchedItemInfo.InheritedTags"/> directly. Mirrors <see cref="BuildTagPreferenceSet"/>
-    ///     but over the inherited (own + parent/collection/library-folder) tag set.
-    ///     <para>Empty history or items without inherited tags yield an empty set -> candidate scores 0.0.</para>
+    ///     Builds a set of preferred inherited tags from the user's watched/favorited items, reading InheritedTags directly.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive set of preferred inherited tags (empty when no signal).</returns>
@@ -855,13 +703,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a weighted writer preference map (writer name -> weight) from the user's watched/favorited
-    ///     items, reading <see cref="WatchedItemInfo.WriterNames"/> directly. Kept separate from the
-    ///     actor/director people profile so writer affinity does not dilute
-    ///     <see cref="SimilarityComputer.ComputePeopleSimilarity(System.Collections.Generic.HashSet{string},System.Collections.Generic.IReadOnlyDictionary{string,double})"/>.
-    ///     Each writer is counted once per row (progression-weighted), mirroring
-    ///     <see cref="BuildPeoplePreferenceWeights"/>.
-    ///     <para>Empty history or items without writers yield an empty map -> candidate scores 0.0.</para>
+    ///     Builds a weighted writer preference map (writer name -> weight) from the user's watched/favorited items, reading WriterNames directly.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive writer -> weight map (empty when no signal).</returns>
@@ -895,11 +737,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Computes the per-row preference weight shared by the franchise/country/writer builders,
-    ///     using the SAME temporal-decay + play-count-log1p + favorite-additive composition as
-    ///     <see cref="BuildGenrePreferenceVector"/> (without series-progression, which needs a series
-    ///     episode-count map not threaded here - it degrades to the neutral 1.0 multiplier anyway).
-    ///     All arithmetic is finite (Log/Exp of clamped non-negative inputs), so no NaN is produced.
+    ///     Computes the per-row preference weight shared by the franchise/country/writer builders, using the SAME temporal-decay + play-count-log1p + favorite-additive composition as BuildGenrePreferenceVector (without series-progression, which needs a series.
     /// </summary>
     /// <param name="item">The watched item row.</param>
     /// <returns>A non-negative preference weight.</returns>
@@ -929,9 +767,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Max-normalizes a weight map in place so its largest value becomes 1.0, matching the
-    ///     normalization tail of <see cref="BuildGenrePreferenceVector"/>. Guarded against empty maps
-    ///     and non-positive maxima (no division by zero).
+    ///     Max-normalizes a weight map in place so its largest value becomes 1.0, matching the normalization tail of BuildGenrePreferenceVector.
     /// </summary>
     /// <param name="vector">The weight map to normalize in place.</param>
     private static void NormalizeByMax(Dictionary<string, double> vector)
@@ -954,9 +790,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds the genre exposure analysis for a user. This is computed once per user
-    ///     and reused for all candidate items to avoid redundant computation.
-    ///     Returns a neutral (invalid) analysis when the user has insufficient watch history.
+    ///     Builds the genre exposure analysis for a user. This is computed once per user and reused for all candidate items to avoid redundant computation.
     /// </summary>
     /// <param name="genrePreferences">
     ///     The user's normalized genre preference vector from
@@ -1022,10 +856,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Computes the three genre exposure features for a single candidate item.
-    ///     Uses a pre-built <see cref="GenreExposureAnalysis" /> to avoid redundant computation.
-    ///     All three features are soft, continuous values in [0, 1] - they never hard-block
-    ///     any genre, only provide graduated signals that the ML models can learn to weight.
+    ///     Computes the three genre exposure features for a single candidate item. Uses a pre-built GenreExposureAnalysis to avoid redundant computation.
     /// </summary>
     /// <param name="candidateGenres">The genres of the candidate item.</param>
     /// <param name="analysis">The pre-built genre exposure analysis for the user.</param>
@@ -1044,11 +875,7 @@ internal static class PreferenceBuilder
         var dominantCount = 0;
         var candidateWeightSum = 0.0;
 
-        // De-duplicate candidate genres case-insensitively BEFORE counting, mirroring the sibling
-        // SimilarityComputer.ComputeGenreSimilarity. Without this, a candidate carrying duplicate
-        // genre entries (e.g. ["Action","Action","Drama"] from a metadata provider) would inflate
-        // validCount / dominantCount / candidateWeightSum, corrupting all three exposure features and
-        // making them disagree with the deduping GenreSimilarity on the same item's effective genre set.
+        // De-duplicate candidate genres case-insensitively BEFORE counting, mirroring the sibling SimilarityComputer.ComputeGenreSimilarity.
         var distinctGenres = new HashSet<string>(
             candidateGenres.Where(static g => !string.IsNullOrWhiteSpace(g)),
             StringComparer.OrdinalIgnoreCase);
@@ -1099,20 +926,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Returns true when the row should count as a "completed episode" for the series-progression
-    ///     multiplier. Stricter than <see cref="WatchedItemInfo.HasPlaybackActivity"/>:
-    ///     PlaybackPositionTicks > 0 alone is a partial start and does NOT count, else briefly opening
-    ///     every episode would inflate playedEps to totalEps and unlock the max <c>ProgressionCeiling</c>
-    ///     (1.5) with nothing finished.
-    ///     <para>
-    ///         The two eligible signals are:
-    ///         <list type="bullet">
-    ///             <item><description><c>Played</c> - Jellyfin's own "watched" flag, set on completion.</description></item>
-    ///             <item><description><c>PlayCount &gt; 0</c> - finished the episode at least once.</description></item>
-    ///         </list>
-    ///         Favorites are excluded (favoriting does not imply completion); the favorite additive is
-    ///         applied elsewhere so it is not lost through this filter.
-    ///     </para>
+    ///     Returns true when the row should count as a "completed episode" for the series-progression multiplier.
     /// </summary>
     /// <param name="row">The watched-item row to classify.</param>
     /// <returns>True when the row represents an actually-completed episode.</returns>
@@ -1122,12 +936,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Eligibility predicate for the genre / people preference-weighting loops. Superset of
-    ///     <see cref="IsEpisodeCompletedForProgression"/>: any completed-episode row contributes its
-    ///     genres and people, PLUS explicit favorites (intent regardless of playback state).
-    ///     Guarantees every row in <c>watchedEpisodesPerSeries</c> also contributes its own signal, so
-    ///     a PlayCount>0 row cannot inflate another row's progression multiplier while withholding its
-    ///     own genres - the signal-leak bug this predicate closes.
+    ///     Eligibility predicate for the genre / people preference-weighting loops.
     /// </summary>
     /// <param name="row">The watched-item row to classify.</param>
     /// <returns>True when the row is eligible for genre / people preference weighting.</returns>
@@ -1137,17 +946,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     F-04 phantom-row guard. Returns true when the row belongs to a series deleted from the
-    ///     library: the caller passes <paramref name="seriesEpisodeCounts"/> from
-    ///     <c>Engine.LoadCandidateItems</c>, so any <c>SeriesId</c> absent from that map is stale.
-    ///     Only <see cref="BuildGenrePreferenceVector"/> and <see cref="BuildPeoplePreferenceWeights"/>
-    ///     receive the series map; the studio / tag / (unweighted) people paths still call the 1-arg
-    ///     <see cref="IsEligibleForPreferenceWeighting"/> unchanged for backwards compatibility.
-    ///     <para>
-    ///         Rows without a <see cref="WatchedItemInfo.SeriesId"/> (movies, standalone items) are
-    ///         never phantoms here - the item-lookup maps in the caller validate them. Only
-    ///         episode / series rows benefit from this guard.
-    ///     </para>
+    ///     F-04 phantom-row guard. Returns true when the row belongs to a series deleted from the library: the caller passes seriesEpisodeCounts from Engine.LoadCandidateItems, so any SeriesId absent from that map is stale.
     /// </summary>
     private static bool IsPhantomSeriesRow(
         WatchedItemInfo row,
@@ -1162,17 +961,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Pre-aggregates the number of completed episodes per series for the user, using the
-    ///     strict <see cref="IsEpisodeCompletedForProgression"/> predicate (Played or PlayCount &gt; 0).
-    ///     Returns <c>null</c> when the caller did not supply a <paramref name="seriesEpisodeCounts"/>
-    ///     map - signalling the downstream progression-multiplier helper to fall back to the neutral
-    ///     <c>1.0</c> weight instead of computing a ratio.
-    ///     <para>
-    ///         Extracted so <see cref="BuildGenrePreferenceVector"/> and
-    ///         <see cref="BuildPeoplePreferenceWeights"/> share <b>one</b> aggregation pass, so any tweak
-    ///         to the completion predicate propagates to both pipelines automatically (the previous
-    ///         duplicated loops needed a code-review convention to stay in sync).
-    ///     </para>
+    ///     Pre-aggregates the number of completed episodes per series for the user, using the strict IsEpisodeCompletedForProgression predicate (Played or PlayCount &gt; 0).
     /// </summary>
     /// <param name="profile">The user watch profile whose rows we aggregate.</param>
     /// <param name="seriesEpisodeCounts">Optional caller-supplied totals; <c>null</c> disables aggregation.</param>
@@ -1197,9 +986,7 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            // Skip rows for series no longer in the library (phantom data). The skip must happen
-            // BEFORE bumping the counter; ComputeProgressionMultiplier's Math.Min(1.0, rawRatio)
-            // already clamps overshoot for still-existing series, so no per-row cap is needed here.
+            // Skip rows for series no longer in the library (phantom data). The skip must happen BEFORE bumping the counter; ComputeProgressionMultiplier's Math.Min(1.0, rawRatio) already clamps overshoot for still-existing series, so no per-row cap is needed here.
             if (!seriesEpisodeCounts.ContainsKey(sid))
             {
                 continue;
@@ -1213,17 +1000,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Derives the per-row progression multiplier for a watched item.
-    ///     Non-episode rows and rows without accompanying series-episode metadata get a
-    ///     neutral multiplier of <c>1.0</c> (identical to the pre-progression weight).
-    ///     Episode rows return <c>clamp(ProgressionFloor + rawRatio * ProgressionSpan, ProgressionFloor, ProgressionCeiling)</c>
-    ///     where <c>rawRatio = playedInSeries / totalEpisodes</c>.
-    ///     <para>
-    ///         Design intent: a completed series should drive preferences <b>more</b> than one
-    ///         abandoned after two episodes. A hard 0.0 floor would erase genre signals for users
-    ///         with mostly-abandoned history, worse than a mildly damped signal, so the floor is
-    ///         <c>0.3</c> (audible but clearly weaker than a completed watch's <c>1.5</c>).
-    ///     </para>
+    ///     Derives the per-row progression multiplier for a watched item. Non-episode rows and rows without accompanying series-episode metadata get a neutral multiplier of 1.0 (identical to the pre-progression weight).
     /// </summary>
     /// <param name="item">The watched item row currently being weighted.</param>
     /// <param name="seriesEpisodeCounts">Optional per-series total-episode map from the caller.</param>
@@ -1234,17 +1011,7 @@ internal static class PreferenceBuilder
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         Dictionary<Guid, int>? watchedEpisodesPerSeries)
     {
-        // Explicit-favorite rows that are NOT themselves completed episodes bypass progression scaling:
-        //   * BuildGenrePreferenceVector adds the FAVORITE additive (+3.0) AFTER the multiplier. An
-        //     episode row's multiplier derives from OTHER episodes of the series (which the user may not
-        //     have engaged with); scaling first would dampen a favorited-pilot of an abandoned series to
-        //     ProgressionFloor (0.3) before the additive, breaking "favorite always keeps full weight".
-        //   * BuildPeoplePreferenceWeights has NO favorite additive - each row contributes exactly
-        //     progressionMultiplier per person. Without this guard an unplayed favorite episode of an
-        //     abandoned series would contribute only 0.3 per person, wrongly ranking the explicit favorite
-        //     below the abandoned series' progression ratio.
-        // Completed favorites (Played or PlayCount > 0) take the normal ratio path so their signal
-        // reflects favorite intent AND completion - strictly stronger than either alone.
+        // Explicit-favorite rows that are NOT themselves completed episodes bypass progression scaling: * BuildGenrePreferenceVector adds the FAVORITE additive (+3.0) AFTER the multiplier.
         if (item.IsFavorite && !IsEpisodeCompletedForProgression(item))
         {
             return 1.0;
@@ -1281,8 +1048,6 @@ internal static class PreferenceBuilder
 
     /// <summary>
     ///     Pre-computed genre exposure analysis for a user, reusable across all candidate items.
-    ///     Built once per user by <see cref="BuildGenreExposureAnalysis" /> and passed to
-    ///     <see cref="ComputeGenreExposureFeatures" /> for each candidate.
     /// </summary>
     internal sealed class GenreExposureAnalysis
     {

@@ -4,20 +4,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.WatchHistory;
 
 /// <summary>
-///     Tests for <see cref="UserWatchProfile"/>. Focus on:
-///     <list type="bullet">
-///         <item>Cache invalidation semantics for lazily-computed properties.</item>
-///         <item>Null-safe setters that coalesce to empty rather than propagating NRE from cache
-///               deserialization.</item>
-///         <item>Boundary behavior of <see cref="UserWatchProfile.TopPeople"/> (min-count filter,
-///               tie-break, cap at 20).</item>
-///     </list>
+///     Tests for UserWatchProfile. Focus on: Cache invalidation semantics for lazily-computed properties.
 /// </summary>
 public class UserWatchProfileTests
 {
-    // ---------------------------------------------------------------------
     // Default state
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void DefaultConstruction_YieldsEmptyCollections()
@@ -39,9 +30,7 @@ public class UserWatchProfileTests
         Assert.Null(profile.PrimarySubtitleLanguage);
     }
 
-    // ---------------------------------------------------------------------
     // GenreDistribution setter - case-insensitive normalization
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void GenreDistributionSetter_NullValue_CoalescesToEmptyCaseInsensitive()
@@ -59,9 +48,7 @@ public class UserWatchProfileTests
     [Fact]
     public void GenreDistributionSetter_CaseSensitiveInput_IsUpgradedToCaseInsensitive()
     {
-        // If a caller passes a case-sensitive dictionary, the property
-        // must copy it into an OrdinalIgnoreCase dictionary. Otherwise a mixed-case
-        // lookup ("action" vs. "Action") would silently miss.
+        // If a caller passes a case-sensitive dictionary, the property must copy it into an OrdinalIgnoreCase dictionary.
         var input = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["Action"] = 3,
@@ -92,9 +79,7 @@ public class UserWatchProfileTests
         Assert.False(profile.GenreDistribution.ContainsKey("Comedy"));
     }
 
-    // ---------------------------------------------------------------------
     // WatchedItems setter - null coalescing
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void WatchedItemsSetter_NullValue_CoalescesToEmpty()
@@ -104,9 +89,7 @@ public class UserWatchProfileTests
         Assert.Empty(profile.WatchedItems);
     }
 
-    // ---------------------------------------------------------------------
     // LanguageProfile - cache invalidation
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void PrimaryLanguage_CachedAndRecomputedOnSetter()
@@ -213,9 +196,7 @@ public class UserWatchProfileTests
         Assert.Contains("FR", profile.ToleratedLanguages);
     }
 
-    // ---------------------------------------------------------------------
     // SubtitleLanguageProfile - mirror the audio-profile invariants
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void PrimarySubtitleLanguage_ReflectsHighestWeightedScore()
@@ -266,9 +247,7 @@ public class UserWatchProfileTests
         Assert.Contains("ja", profile.ToleratedSubtitleLanguages);
     }
 
-    // ---------------------------------------------------------------------
     // PeopleProfile / TopPeople
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void PeopleProfileSetter_NullValue_CoalescesToEmptyCaseInsensitive()
@@ -386,9 +365,7 @@ public class UserWatchProfileTests
         Assert.Empty(profile.TopPeople);
     }
 
-    // ---------------------------------------------------------------------
     // MaxParentalRating - nullable semantics
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void MaxParentalRating_DefaultIsNull()
@@ -403,9 +380,7 @@ public class UserWatchProfileTests
         Assert.Equal(13, profile.MaxParentalRating);
     }
 
-    // ---------------------------------------------------------------------
     // FavoriteSeriesIds - init-only HashSet
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void FavoriteSeriesIds_SupportsIdempotentAdd()
@@ -419,9 +394,7 @@ public class UserWatchProfileTests
         Assert.Single(profile.FavoriteSeriesIds);
     }
 
-    // ---------------------------------------------------------------------
     // Simple scalar properties round-trip
-    // ---------------------------------------------------------------------
 
     [Fact]
     public void ScalarProperties_RoundTrip()

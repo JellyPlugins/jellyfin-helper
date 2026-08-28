@@ -4,15 +4,10 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 /// <summary>
-/// Deep tests for Recommendations.js behaviour (Discover tab logic).
-/// Complements DiscoverHtmlTests.cs which covers surface-level structure;
-/// this class covers caching, TTL, request-ID guards, error handling,
-/// XSS-safety, and the quality-profile popup.
+///     Deep tests for Recommendations.js behaviour (Discover tab logic). Complements DiscoverHtmlTests.cs which covers surface-level structure; this class covers caching, TTL, request-ID guards, error handling, XSS-safety, and the quality-profile popup.
 /// </summary>
 public class RecommendationsHtmlTests : ConfigPageTestBase
 {
-    // === Cache TTL constants ===
-
     [Fact]
     public void Html_RecsCache_HasFiveMinuteTtl()
     {
@@ -30,8 +25,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("_seerrServicesCacheTtlMs = 5 * 60 * 1000", HtmlContent);
     }
-
-    // === Cache invalidation & guards ===
 
     [Fact]
     public void Html_LoadDiscovery_InvalidatesPerUserCachesAfterGlobalExpiry()
@@ -104,8 +97,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === XSS safety in the recommendations grid ===
-
     [Fact]
     public void Html_RenderRecommendationCard_EscapesUserInputName()
     {
@@ -173,8 +164,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Sorting / scoring ===
-
     [Fact]
     public void Html_RenderUserRecommendations_SortsByScoreDescending()
     {
@@ -190,8 +179,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
         // Renders as percent, must be clamped for the width style
         Assert.Matches(new Regex(@"Math\.max\(0,\s*Math\.min\(100,\s*Math\.round"), HtmlContent);
     }
-
-    // === LocalStorage for selected user ===
 
     [Fact]
     public void Html_UserSelection_PersistedToLocalStorage()
@@ -215,8 +202,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Discovery cache lookup semantics ===
-
     [Fact]
     public void Html_FindUserDiscovery_MatchesUserIdCaseInsensitively()
     {
@@ -233,8 +218,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             new Regex(@"function\s+findUserDiscovery[\s\S]*?UserId\s*\|\|[\s\S]*?userId"),
             HtmlContent);
     }
-
-    // === Quality-profile popup accessibility ===
 
     [Fact]
     public void Html_QualityProfilePopup_HasDialogRole()
@@ -296,8 +279,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Discovery request flow ===
-
     [Fact]
     public void Html_DiscoveryRequest_UsesPostEndpoint()
     {
@@ -355,8 +336,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Discovery card filtering ===
-
     [Fact]
     public void Html_RenderDiscoveryCards_FiltersAlreadyRequestedItems()
     {
@@ -364,8 +343,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             new Regex(@"function\s+renderDiscoveryCards[\s\S]*?filter\(function[\s\S]*?!r\.AlreadyRequested"),
             HtmlContent);
     }
-
-    // === Genre distribution helper ===
 
     [Fact]
     public void Html_GetTopGenres_UsesHasOwnPropertyGuard()
@@ -382,8 +359,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             new Regex(@"function\s+getTopGenresFromDistribution[\s\S]*?!genreDistribution[\s\S]*?return\s*\[\]"),
             HtmlContent);
     }
-
-    // === Activity table ===
 
     [Fact]
     public void Html_ActivityTable_LimitedTo15Rows()
@@ -411,8 +386,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Collapsible sections ===
-
     [Fact]
     public void Html_ToggleCollapsible_UpdatesAriaExpanded()
     {
@@ -429,8 +402,6 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             new Regex(@"function\s+toggleCollapsible[\s\S]*?u25B[6C]", RegexOptions.IgnoreCase),
             HtmlContent);
     }
-
-    // === Empty-state rendering ===
 
     [Fact]
     public void Html_RenderRecommendations_CachesEmptyResults()

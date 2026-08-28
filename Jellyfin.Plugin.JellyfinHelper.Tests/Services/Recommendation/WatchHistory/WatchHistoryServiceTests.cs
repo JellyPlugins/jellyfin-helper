@@ -184,12 +184,7 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal(0, profile.WatchedMovieCount);
     }
 
-    // --- Series-level favorites ---
-    // The three tests below explicitly stub GetUserDataBatch so LookupUserData exercises the
-    // "valid batch present" branch (lookup is not null) rather than falling back to per-item
-    // GetUserData via Moq's implicit null default. Without this stub the tests would silently
-    // cover the fallback path only - a distinct contract already covered by
-    // GetUserWatchProfile_BatchApiThrows_FallsBackToPerItemGetUserData further below.
+    // The three tests below explicitly stub GetUserDataBatch so LookupUserData exercises the "valid batch present" branch (lookup is not null) rather than falling back to per-item GetUserData via Moq's implicit null default.
 
     [Fact]
     public void BuildProfile_FavoriteSeries_AddsSyntheticWatchedItemAndFavoriteId()
@@ -276,9 +271,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void BuildProfile_NullSeriesUserData_IsIgnored()
     {
-        // Contract for batch refactor: a series that has no entry in the batch dictionary
-        // (batch itself is non-null, key is simply missing) must produce the exact same
-        // skip-behavior as the pre-batch GetUserData returning null.
+        // Contract for batch refactor: a series that has no entry in the batch dictionary (batch itself is non-null, key is simply missing) must produce the exact same skip-behavior as the pre-batch GetUserData returning null.
         var user = CreateTestUser("charlie");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var series = new Series { Id = Guid.NewGuid(), Name = "Ghost Show", Genres = new[] { "Horror" } };
@@ -302,17 +295,12 @@ public sealed class WatchHistoryServiceTests
             Times.AtLeastOnce);
     }
 
-    // --- Batch user-data fallback contract (Jellyfin 12+ GetUserDataBatch) ---
-    // Locks in the same contract that SimilarityComputerTests enforces for
-    // GetPeopleNamesByItems: non-cancellation failures degrade gracefully to
-    // per-item GetUserData, but OperationCanceledException must propagate.
+    // Locks in the same contract that SimilarityComputerTests enforces for GetPeopleNamesByItems: non-cancellation failures degrade gracefully to per-item GetUserData, but OperationCanceledException must propagate.
 
     [Fact]
     public void GetUserWatchProfile_BatchApiThrows_FallsBackToPerItemGetUserData()
     {
-        // If GetUserDataBatch throws a non-cancellation exception (e.g. an obscure Jellyfin
-        // runtime error), the profile build must fall back to per-item GetUserData so it
-        // never regresses below the pre-batch baseline.
+        // If GetUserDataBatch throws a non-cancellation exception (e.g. an obscure Jellyfin runtime error), the profile build must fall back to per-item GetUserData so it never regresses below the pre-batch baseline.
         var user = CreateTestUser("alice");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var movie = new Movie
@@ -349,9 +337,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void GetUserWatchProfile_BatchApiCancelled_PropagatesWithoutFallback()
     {
-        // OperationCanceledException from GetUserDataBatch must propagate to the caller.
-        // Per-item fallback must NOT be invoked once cancellation was requested.
-        // Mirrors SimilarityComputer.BuildCandidatePeopleLookup contract.
+        // OperationCanceledException from GetUserDataBatch must propagate to the caller. Per-item fallback must NOT be invoked once cancellation was requested.
         var user = CreateTestUser("alice");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var movie = new Movie { Id = Guid.NewGuid(), Name = "CancelledMovie" };
@@ -370,9 +356,7 @@ public sealed class WatchHistoryServiceTests
             Times.Never);
     }
 
-    // =========================================================================
     // BuildPeopleProfile / AggregatePeopleFromItem - actor/director aggregation
-    // =========================================================================
 
     [Fact]
     public void BuildProfile_MovieWithActorsAndDirectors_PopulatesPeopleProfile()
@@ -409,9 +393,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void BuildProfile_ActorsExceedTopBilledCap_OnlyFirstFiveAreCounted()
     {
-        // BUG SURFACE: without the top-billed cap, a movie with 30 credited extras would
-        // flood PeopleProfile and dilute genuine actor-preference signals. The cap of 5
-        // preserves the "leading roles matter more" heuristic.
+        // BUG SURFACE: without the top-billed cap, a movie with 30 credited extras would flood PeopleProfile and dilute genuine actor-preference signals.
         var user = CreateTestUser("bob");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var movie = new Movie { Id = Guid.NewGuid(), Name = "BigCast", RunTimeTicks = 1 };
@@ -441,9 +423,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void BuildProfile_PeopleWithBlankOrDuplicateNames_AreDeduplicated()
     {
-        // BUG SURFACE: a person credited twice under the same name (e.g. director AND
-        // producer with only one Director role) should count exactly once. Also
-        // blank/whitespace names must not pollute the profile keys.
+        // BUG SURFACE: a person credited twice under the same name (e.g. director AND producer with only one Director role) should count exactly once.
         var user = CreateTestUser("charlie");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var movie = new Movie { Id = Guid.NewGuid(), Name = "DupeCast", RunTimeTicks = 1 };
@@ -546,9 +526,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void BuildProfile_EpisodeWatched_UsesSeriesLevelPeopleAggregation()
     {
-        // For episodes, people are aggregated at the series level to avoid over-counting
-        // guest actors who appear in every episode. This verifies GetPeople is called
-        // for the SERIES, not the episode.
+        // For episodes, people are aggregated at the series level to avoid over-counting guest actors who appear in every episode.
         var user = CreateTestUser("gina");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var seriesId = Guid.NewGuid();
@@ -591,10 +569,7 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal(1, profile!.PeopleProfile["Bryan Cranston"]);
         Assert.Equal(1, profile.PeopleProfile["Aaron Paul"]);
         _mockLibraryManager.Verify(m => m.GetPeople(series), Times.Once);
-        // Strengthened contract: GetPeople must NEVER be queried for an Episode. Returning
-        // an empty list from the episode setup above would let a regression pass silently
-        // (queried but happens to return nothing = same outward result). An explicit
-        // Times.Never verify pins the "series-level aggregation only" invariant.
+        // Strengthened contract: GetPeople must NEVER be queried for an Episode. Returning an empty list from the episode setup above would let a regression pass silently (queried but happens to return nothing = same outward result).
         _mockLibraryManager.Verify(
             m => m.GetPeople(It.Is<BaseItem>(i => i is Episode)),
             Times.Never);
@@ -673,11 +648,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void BuildPeopleProfile_MissingSeriesMetadata_SkipsEpisodeFallback()
     {
-        // The original bug: if we had fallen back to episode-level data, we would either
-        // (a) count only limited guest cast instead of the full main cast, or
-        // (b) double-count people when a synthetic favourite-series row (ItemId == seriesId,
-        //     SeriesId == null) is processed later and the processedItemIds guard blocks it.
-        // The fix: the code now unconditionally continues when seriesLookup lookup misses.
+        // The original bug: if we had fallen back to episode-level data, we would either (a) count only limited guest cast instead of the full main cast, or (b) double-count people when a synthetic favourite-series row (ItemId == seriesId, SeriesId == null) is processed later and the.
         var user = CreateTestUser("missingSeriesUser");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
 
@@ -733,10 +704,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void GetSeriesEpisodeCounts_CountsPlayableEpisodesPerSeries_SkippingPathlessAndOrphans()
     {
-        // Two series, mixed playability. The count must include only episodes that have a
-        // non-empty Path AND a valid SeriesId - the exact rule the recommendation engine uses
-        // when building the progression-weighting map, so discovery genre preferences stay in
-        // lock-step with the engine's training pipeline.
+        // Two series, mixed playability.
         var seriesA = Guid.NewGuid();
         var seriesB = Guid.NewGuid();
 

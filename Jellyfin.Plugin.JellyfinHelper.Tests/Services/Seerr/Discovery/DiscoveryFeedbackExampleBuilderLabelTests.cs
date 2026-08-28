@@ -11,11 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for <see cref="DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples"/> covering the
-///     interaction-status -> label mapping, the most-recent-interaction timestamp selection used for
-///     temporal holdout placement, and the people-similarity feature. The sibling
-///     <see cref="ExternalCandidateFeatureBuilderTests"/> already pins the popularity/exposure
-///     train-serve parity paths.
+///     Tests for BuildDiscoveryExamples covering the interaction-status -> label mapping, the most-recent-interaction timestamp selection used for temporal holdout placement, and the people-similarity feature.
 /// </summary>
 public sealed class DiscoveryFeedbackExampleBuilderLabelTests
 {
@@ -125,9 +121,7 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
     [Fact]
     public void BuildDiscoveryExamples_KnownPeopleOverlapPreferredPeople_ProducesPositivePeopleSimilarity()
     {
-        // A person the user has watched in >=2 items becomes a "top person"; a candidate whose
-        // KnownPeople include that person must produce a positive PeopleSimilarity feature that
-        // matches the shared inference helper exactly.
+        // A person the user has watched in >=2 items becomes a "top person"; a candidate whose KnownPeople include that person must produce a positive PeopleSimilarity feature that matches the shared inference helper exactly.
         const string sharedPerson = "Keanu Reeves";
         var userId = Guid.NewGuid();
         var profile = BuildActionHeavyProfile(userId);

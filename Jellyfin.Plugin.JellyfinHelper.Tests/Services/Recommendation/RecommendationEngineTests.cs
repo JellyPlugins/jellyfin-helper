@@ -423,8 +423,6 @@ public class RecommendationEngineTests
         Assert.Empty(map);
     }
 
-    // --- ComputeUserRatingScore tests ---
-
     [Fact]
     public void ComputeUserRatingScore_NullItem_ReturnsNeutral()
     {
@@ -466,8 +464,6 @@ public class RecommendationEngineTests
         Assert.Equal(1.0, ContentScoring.ComputeUserRatingScore(item));
     }
 
-    // --- ComputeCompletionRatio tests ---
-
     [Fact]
     public void ComputeCompletionRatio_NullItem_ReturnsZero()
     {
@@ -501,8 +497,6 @@ public class RecommendationEngineTests
         var item = new WatchedItemInfo { RuntimeTicks = 1000, PlaybackPositionTicks = 1500 };
         Assert.Equal(1.0, ContentScoring.ComputeCompletionRatio(item));
     }
-
-    // --- ComputeJaccardFromSets tests ---
 
     [Fact]
     public void ComputeJaccardFromSets_BothEmpty_ReturnsZero()
@@ -545,8 +539,6 @@ public class RecommendationEngineTests
         Assert.Equal(1.0 / 3.0, SimilarityComputer.ComputeJaccardFromSets(a, b), 4);
     }
 
-    // --- Cold-start behavior tests ---
-
     [Fact]
     public void BuildGenrePreferenceVector_WithFavorites_BoostsGenres()
     {
@@ -573,9 +565,7 @@ public class RecommendationEngineTests
 
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
 
-        // Action should be boosted (temporal weight + favorite boost + PlayCount boost).
-        // Comedy comes from the GenreDistribution fallback only (count=3).
-        // Both should be present; Action should have a higher weight than Comedy after normalization.
+        // Action should be boosted (temporal weight + favorite boost + PlayCount boost). Comedy comes from the GenreDistribution fallback only (count=3).
         Assert.True(vector.TryGetValue("Action", out var actionWeight), "Action should be in vector");
         Assert.True(vector.TryGetValue("Comedy", out var comedyWeight), "Comedy should be in vector");
         Assert.True(actionWeight > comedyWeight,
@@ -651,9 +641,6 @@ public class RecommendationEngineTests
         var map = CollaborativeFilter.BuildCollaborativeMap(user, [user, other1, other2]);
 
         // uniqueItem should have accumulated weighted co-occurrence from both other users.
-        // Each user shares 3/4 items (Jaccard = 0.75), but the actual score is further
-        // modulated by trust weight and IDF - so we verify presence and a positive score
-        // rather than hard-coding a raw Jaccard total that would break on algorithm tuning.
         Assert.True(map.TryGetValue(uniqueItem, out var uniqueItemScore));
         Assert.True(uniqueItemScore > 0, $"Expected positive score for uniqueItem, got {uniqueItemScore}");
         // Both neighbours contribute, so the accumulated score must exceed a single neighbour's contribution.
@@ -867,9 +854,7 @@ public class RecommendationEngineTests
             { "Action", 1.0 }
         };
 
-        // Candidate with duplicate genres (edge case from malformed metadata)
-        // ComputeGenreSimilarity deduplicates via HashSet before computing cosine similarity,
-        // so duplicates become a single element. The single matching genre yields cosine = 1.0.
+        // Candidate with duplicate genres (edge case from malformed metadata) ComputeGenreSimilarity deduplicates via HashSet before computing cosine similarity, so duplicates become a single element.
         var score = SimilarityComputer.ComputeGenreSimilarity(
             new[] { "Action", "Action", "Action" }, prefs);
 
@@ -1022,9 +1007,7 @@ public class RecommendationEngineTests
         Assert.True(score >= 0.0 && score <= 1.0, $"Score should be in [0, 1], got {score}");
     }
 
-    // ============================================================
     // Genre Exposure Analysis Tests
-    // ============================================================
 
     [Fact]
     public void BuildGenreExposureAnalysis_InsufficientHistory_ReturnsInvalid()
@@ -1288,10 +1271,7 @@ public class RecommendationEngineTests
     // -- CompletionRatio for uninteracted items (Engine.cs fix) --
 
     /// <summary>
-    ///     Verifies that CandidateFeatures.CompletionRatio is 0.0 (not the neutral default 0.5)
-    ///     when HasUserInteraction is false. An item the user has never touched has no watch
-    ///     progress, so its completion ratio must be 0.0. Using 0.5 would incorrectly signal
-    ///     "half-watched" to the scoring model and could trigger IsAbandoned logic.
+    ///     Verifies that CandidateFeatures.CompletionRatio is 0.0 (not the neutral default 0.5) when HasUserInteraction is false.
     /// </summary>
     [Fact]
     public void CandidateFeatures_CompletionRatio_IsZeroForUninteractedItem()
@@ -1311,9 +1291,7 @@ public class RecommendationEngineTests
     [Fact]
     public void CandidateFeatures_CompletionRatio_DefaultIsNotMistaken_AsHalfWatched()
     {
-        // The CandidateFeatures backing field initialises to 0.5 as a sentinel value.
-        // Code that sets CompletionRatio explicitly to 0.0 for uninteracted items must
-        // not be confused with the half-watched sentinel. Verify the explicit assignment wins.
+        // The CandidateFeatures backing field initialises to 0.5 as a sentinel value. Code that sets CompletionRatio explicitly to 0.0 for uninteracted items must not be confused with the half-watched sentinel.
         var features = new CandidateFeatures();
 
         // Default (before any assignment) is 0.5 - the neutral sentinel
@@ -1327,10 +1305,7 @@ public class RecommendationEngineTests
     [Fact]
     public void CandidateFeatures_IsAbandoned_FalseForUninteractedItem()
     {
-        // An uninteracted item (HasUserInteraction=false, CompletionRatio=0.0) must NOT
-        // be flagged as abandoned. IsAbandoned is written in WriteToVector as:
-        //   HasUserInteraction && CompletionRatio > 0.0 && CompletionRatio < AbandonedThreshold
-        // With CompletionRatio=0.0 the middle condition is false, so IsAbandoned=0.
+        // An uninteracted item (HasUserInteraction=false, CompletionRatio=0.0) must NOT be flagged as abandoned.
         var features = new CandidateFeatures
         {
             HasUserInteraction = false,

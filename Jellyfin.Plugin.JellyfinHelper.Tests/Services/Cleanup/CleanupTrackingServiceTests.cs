@@ -9,10 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-/// Tests for <see cref="CleanupTrackingService"/>.
-/// Uses a mock <see cref="IPluginConfigurationService"/> that targets a shared <see cref="PluginConfiguration"/>
-/// instance so that mutations in <see cref="CleanupTrackingService.RecordCleanup"/> are visible
-/// in subsequent <see cref="CleanupTrackingService.GetStatistics"/> calls (Plugin.Instance is null in tests).
+///     Tests for CleanupTrackingService. Uses a mock IPluginConfigurationService that targets a shared PluginConfiguration instance so that mutations in RecordCleanup are visible in subsequent GetStatistics calls (Plugin.Instance is null in tests).
 /// </summary>
 public class CleanupTrackingServiceTests
 {

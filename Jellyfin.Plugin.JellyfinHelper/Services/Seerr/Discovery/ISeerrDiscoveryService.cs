@@ -60,9 +60,7 @@ public interface ISeerrDiscoveryService
     Task<IReadOnlyList<SeerrServiceInfo>> GetServiceInfoAsync(string serviceType, CancellationToken cancellationToken);
 
     /// <summary>
-    ///     Resolves a Jellyfin user ID to the corresponding Seerr user ID.
-    ///     Fetches all Seerr users and matches by the <c>jellyfinUserId</c> field
-    ///     using normalized comparison (without hyphens, case-insensitive).
+    ///     Resolves a Jellyfin user ID to the corresponding Seerr user ID. Fetches all Seerr users and matches by the jellyfinUserId field using normalized comparison (without hyphens, case-insensitive).
     /// </summary>
     /// <param name="jellyfinUserId">The Jellyfin user GUID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -71,19 +69,9 @@ public interface ISeerrDiscoveryService
 
     /// <summary>
     ///     Evaluates the request permissions for a specific Jellyfin user and service type.
-    ///     Resolves the user to their Seerr account, checks their permission bitmask,
-    ///     and returns only the quality profiles the user is authorized to select.
     /// </summary>
     /// <remarks>
-    ///     <para>
-    ///         The permission evaluation follows Overseerr/Jellyseerr's permission model:
-    ///     </para>
-    ///     <list type="bullet">
-    ///         <item>If the user has no Seerr account -> <see cref="UserRequestPermissionResult.CanRequest"/> is <c>false</c>.</item>
-    ///         <item>If the user lacks REQUEST permission for the media type -> <c>CanRequest</c> is <c>false</c>.</item>
-    ///         <item>If the user has REQUEST_ADVANCED, MANAGE_REQUESTS, or ADMIN -> all profiles are returned.</item>
-    ///         <item>Otherwise (normal user) -> only the server's default profile is returned.</item>
-    ///     </list>
+    ///     The permission evaluation follows Overseerr/Jellyseerr's permission model: If the user has no Seerr account -> CanRequest is false.
     /// </remarks>
     /// <param name="jellyfinUserId">The Jellyfin user GUID.</param>
     /// <param name="mediaType">"movie" or "tv" - used to check type-specific permissions.</param>

@@ -1,11 +1,4 @@
-/**
- * Adversarial trash tests - prove misuse can't touch data outside the media
- * library. These exercise the containment fix directly: an absolute trash path
- * pointing at a sensitive dir (e.g. Jellyfin's /config) must be REFUSED, and the
- * library-external canaries must survive every attempt.
- *
- * Requires the container FS; skips loudly when Docker is unreachable.
- */
+/** * Adversarial trash tests - prove misuse can't touch data outside the media * library. These exercise the containment fix directly: an absolute trash path * pointing at a sensitive dir (e.g. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 import {
@@ -42,9 +35,7 @@ test.describe.serial('trash operations never escape the media library', () => {
   });
 
   test('an absolute /config trash path is refused at save, and DELETE never wipes config', async () => {
-    // Containment now happens at CONFIG-SAVE time: persisting an absolute sensitive
-    // trash path (Jellyfin's own /config) is rejected with 400, so the dangerous value
-    // never lands - a strictly stronger defense than catching it later at delete time.
+    // Containment now happens at CONFIG-SAVE time: persisting an absolute sensitive trash path (Jellyfin's own /config) is rejected with 400, so the dangerous value never lands - a strictly stronger defense than catching it later at delete time.
     const put = await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
       data: { UseTrash: true, TrashFolderPath: '/config', TrashRetentionDays: 30 },
@@ -80,10 +71,7 @@ test.describe.serial('trash operations never escape the media library', () => {
   });
 
   test('Trash/Relocate into an absolute /config destination is refused', async () => {
-    // Seed a real relative trash source so only the DESTINATION is the problem. A
-    // relative old + absolute new routes to the "old-relative/new-absolute" branch
-    // where only the destination guard fires - genuinely exercising the target
-    // rejection instead of duplicating the source-guard tests above.
+    // Seed a real relative trash source so only the DESTINATION is the problem.
     containerMkdir('/media/Movies/.jellyfin-trash');
     const res = await ctx.post(p('Trash/Relocate'), {
       headers: { 'Content-Type': 'application/json' },
@@ -107,13 +95,7 @@ test.describe.serial('trash operations never escape the media library', () => {
   });
 
   test('CheckAccess with an absolute /config path is refused BEFORE any probe write', async () => {
-    // The absolute-path containment guard (TrashController.CheckAccess) fires on a
-    // fully-qualified path and returns 400 with the bare-string body BEFORE
-    // CheckPathAccess runs - so the plugin must never create a probe file under
-    // /config. Every other CheckAccess test uses a relative path and cannot reach
-    // this arm; the sibling Relocate/DELETE /config guards are covered but this one
-    // was not. A probe artifact is a directory-listing/write oracle into a
-    // library-external dir, so proving "rejected AND nothing written" matters.
+    // The absolute-path containment guard (TrashController.CheckAccess) fires on a fully-qualified path and returns 400 with the bare-string body BEFORE CheckPathAccess runs - so the plugin must never create a probe file under /config.
     const probeBefore = '/config/.jfh-access-probe'; // best-effort: name-agnostic canary check below is the real guard
     const res = await ctx.post(p('Trash/CheckAccess'), {
       headers: { 'Content-Type': 'application/json' },

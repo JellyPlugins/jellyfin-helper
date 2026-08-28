@@ -5,18 +5,7 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 
 /// <summary>
-/// Default production implementation of <see cref="IPluginConfigurationService"/>
-/// that delegates to the <see cref="Plugin.Instance"/> singleton.
-/// <para>
-///     The dependency on <see cref="Plugin.Instance"/> is expressed through a small
-///     internal <see cref="IPluginAccessor"/> seam so tests can pin both branches
-///     (present / absent) deterministically instead of relying on process-wide state
-///     that other tests may set or clear. The <see cref="Plugin"/> singleton itself
-///     cannot be instantiated in a unit test without a full Jellyfin host (its
-///     constructor requires <c>IApplicationPaths</c>, <c>IXmlSerializer</c>, and a
-///     logger), so this seam exposes ONLY the properties the service actually reads -
-///     a much smaller surface that any test double can satisfy.
-/// </para>
+///     Default production implementation of IPluginConfigurationService that delegates to the Instance singleton.
 /// </summary>
 public class PluginConfigurationService : IPluginConfigurationService
 {
@@ -54,10 +43,7 @@ public class PluginConfigurationService : IPluginConfigurationService
     }
 
     /// <summary>
-    /// Minimal abstraction over the <see cref="Plugin.Instance"/> singleton, exposing
-    /// only the shape the service consumes. Kept internal because callers outside
-    /// this project have no legitimate need to swap it out - the DI container always
-    /// constructs the service through the parameterless production constructor.
+    ///     Minimal abstraction over the Instance singleton, exposing only the shape the service consumes.
     /// </summary>
     internal interface IPluginAccessor
     {
@@ -82,19 +68,7 @@ public class PluginConfigurationService : IPluginConfigurationService
 
     /// <inheritdoc />
     /// <remarks>
-    /// <para>
-    ///     <strong>Initialization guard </strong> Throws <see cref="InvalidOperationException"/>
-    ///     when the plugin singleton has not yet been created. Callers that may run before the
-    ///     plugin is fully started must check <see cref="IsInitialized"/> first.
-    /// </para>
-    /// <para>
-    ///     <strong>Mutation contract </strong> Returns the live shared
-    ///     <see cref="PluginConfiguration"/> reference held by the plugin singleton.
-    ///     Callers MUST treat the returned object as read-only. Any mutation MUST go through
-    ///     <see cref="ReadAndMutate"/> so that concurrent writes are serialized under the
-    ///     write lock and the change is persisted atomically. Mutating the returned reference
-    ///     directly bypasses the lock and will not be saved.
-    /// </para>
+    ///     <strong>Initialization guard </strong> Throws InvalidOperationException when the plugin singleton has not yet been created.
     /// </remarks>
     public PluginConfiguration GetConfiguration()
     {
@@ -103,9 +77,7 @@ public class PluginConfigurationService : IPluginConfigurationService
             throw new InvalidOperationException("Plugin configuration is not yet available. Check IsInitialized before calling GetConfiguration.");
         }
 
-        // _accessor.Configuration is non-null whenever IsInitialized is true (both properties
-        // read Plugin.Instance, which is either null or fully constructed). The null-forgiving
-        // operator documents that assertion rather than silently returning a detached default.
+        // _accessor.Configuration is non-null whenever IsInitialized is true (both properties read Plugin.Instance, which is either null or fully constructed).
         return _accessor.Configuration!;
     }
 

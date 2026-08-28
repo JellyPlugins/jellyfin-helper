@@ -1,4 +1,3 @@
-// --- Trends Tab (Growth Timeline) ---
 'use strict';
 
 
@@ -24,13 +23,7 @@ function formatGranularityLabel(dateStr, granularity) {
     }
 }
 
-/**
- * Interpolates missing intermediate buckets between sparse data points.
- * When the backend deduplicates consecutive identical points, gaps appear
- * in the timeline. This function fills those gaps by carrying forward
- * the previous point's values so the chart has a continuous line.
- * A safety guard prevents runaway iteration.
- */
+/** * Interpolates missing intermediate buckets between sparse data points. * When the backend deduplicates consecutive identical points, gaps appear * in the timeline. */
 function interpolateDataPoints(dataPoints, granularity) {
     if (dataPoints.length < 2) return dataPoints;
 
@@ -158,9 +151,7 @@ function renderTrendChart(timeline) {
     }
     if (rawMax === 0) rawMax = 1;
 
-    // Compute nice tick interval in binary units (1024-based) so Y-axis labels
-    // show clean values like "5 TB", "10 TB" instead of "9.09 TB", "27.28 TB".
-    // formatBytes() uses 1024-based divisions, so we must calculate in the same base.
+    // Compute nice tick interval in binary units (1024-based) so Y-axis labels show clean values like "5 TB", "10 TB" instead of "9.09 TB", "27.28 TB".
     var niceTickCount = 4;
     var binaryUnits = [1, 1024, 1024 * 1024, 1024 * 1024 * 1024, 1024 * 1024 * 1024 * 1024, 1024 * 1024 * 1024 * 1024 * 1024];
     var unitIdx = 0;
@@ -380,10 +371,7 @@ function attachTrendInteraction(container, pointData) {
         var ptX = padL + idx * step;
         var ptY = padT + chartH - (pt.s / yMax * chartH);
 
-        // Convert viewBox coords to pixel coords relative to chart container.
-        // The SVG uses preserveAspectRatio="xMidYMid meet", so on narrow/tall
-        // containers the rendered content is centered with letterboxing.
-        // We must account for the actual scale and offset.
+        // Convert viewBox coords to pixel coords relative to chart container. The SVG uses preserveAspectRatio="xMidYMid meet", so on narrow/tall containers the rendered content is centered with letterboxing.
         var scale = Math.min(svgRect.width / vbWidth, svgRect.height / vbHeight);
         var renderedW = vbWidth * scale;
         var renderedH = vbHeight * scale;
@@ -525,7 +513,6 @@ function attachTrendInteraction(container, pointData) {
     }, {passive: true});
 }
 
-// --- Library Insights (Largest & Recently Added/Changed) ---
 
 var _insightsLoadSeq = 0;
 
@@ -560,14 +547,12 @@ function renderInsightCards(data) {
 
     var html = '<div class="insights-cards">';
 
-    // --- Largest card ---
     html += '<button class="insight-card" id="insightLargestBtn" type="button" aria-expanded="false">';
     html += '<span class="insight-icon">' + mi('save') + '</span>';
     html += '<span class="insight-value">' + formatBytes(data.LargestTotalSize) + '</span>';
     html += '<span class="insight-label">' + T('insightLargest', 'Largest') + '</span>';
     html += '</button>';
 
-    // --- Recently card ---
     html += '<button class="insight-card" id="insightRecentBtn" type="button" aria-expanded="false">';
     html += '<span class="insight-icon">' + mi('schedule') + '</span>';
     html += '<span class="insight-value">' + data.RecentTotalCount + '</span>';
@@ -576,7 +561,6 @@ function renderInsightCards(data) {
 
     html += '</div>';
 
-    // --- Expandable panels ---
     html += '<div class="insight-panel" id="insightLargestPanel"></div>';
     html += '<div class="insight-panel" id="insightRecentPanel"></div>';
 

@@ -7,10 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 
 /// <summary>
-///     Security tests for <see cref="LinkRepairService" />.
-///     Verifies that link files with malicious content (path traversal,
-///     command injection, oversized content) are handled safely.
-///     Tests both .strm and symlink handler scenarios.
+///     Security tests for LinkRepairService. Verifies that link files with malicious content (path traversal, command injection, oversized content) are handled safely.
 /// </summary>
 public class LinkRepairSecurityTests
 {
@@ -33,8 +30,6 @@ public class LinkRepairSecurityTests
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
     }
 
-    // ===== .strm: Path Traversal =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void ProcessLinkFile_Strm_PathTraversal_DetectedAsBroken()
@@ -44,10 +39,7 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        // On Linux this traversal resolves to /etc/passwd and is refused as
-        // InvalidContent (sensitive system dir); on Windows the target resolves to a
-        // non-sensitive drive-relative path that doesn't exist -> Broken. Either way it
-        // must never be repaired or treated as valid - that is the security property.
+        // On Linux this traversal resolves to /etc/passwd and is refused as InvalidContent (sensitive system dir); on Windows the target resolves to a non-sensitive drive-relative path that doesn't exist -> Broken.
         Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
         Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
         Assert.NotEqual(LinkFileStatus.Valid, result.Status);
@@ -62,15 +54,11 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        // On Windows this traversal resolves into C:\Windows and is refused as
-        // InvalidContent (sensitive system dir); on other hosts the backslash target
-        // simply doesn't exist and is Broken. Either way it must never be repaired.
+        // On Windows this traversal resolves into C:\Windows and is refused as InvalidContent (sensitive system dir); on other hosts the backslash target simply doesn't exist and is Broken.
         Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
         Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
         Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
-
-    // ===== Symlink: Path Traversal =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -82,9 +70,7 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        // On Linux this resolves to /etc/passwd -> InvalidContent (sensitive system
-        // dir); on Windows it resolves to a non-existent drive-relative path -> Broken.
-        // Never repaired, never valid - that is the security property under test.
+        // On Linux this resolves to /etc/passwd -> InvalidContent (sensitive system dir); on Windows it resolves to a non-existent drive-relative path -> Broken.
         Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
         Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
         Assert.NotEqual(LinkFileStatus.Valid, result.Status);
@@ -107,8 +93,6 @@ public class LinkRepairSecurityTests
         Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
 
-    // ===== .strm: Command Injection =====
-
     [Theory]
     [Trait("Category", "Security")]
     [InlineData("; rm -rf /")]
@@ -125,8 +109,6 @@ public class LinkRepairSecurityTests
         Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
 
-    // ===== Symlink: Command Injection =====
-
     [Theory]
     [Trait("Category", "Security")]
     [InlineData("; rm -rf /")]
@@ -142,8 +124,6 @@ public class LinkRepairSecurityTests
 
         Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
-
-    // ===== .strm: URL schemes =====
 
     [Theory]
     [Trait("Category", "Security")]
@@ -169,16 +149,11 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        // file:// URIs reference local files and must NOT bypass validation. The URI
-        // is converted to the local path /etc/passwd; on Linux that is a sensitive
-        // system dir -> InvalidContent, on Windows it is a non-existent path -> Broken.
-        // The security property is that it is never repaired or treated as valid.
+        // file:// URIs reference local files and must NOT bypass validation. The URI is converted to the local path /etc/passwd; on Linux that is a sensitive system dir -> InvalidContent, on Windows it is a non-existent path -> Broken.
         Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
         Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
         Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
-
-    // ===== Symlink: URL-like targets =====
 
     [Theory]
     [Trait("Category", "Security")]
@@ -196,8 +171,6 @@ public class LinkRepairSecurityTests
         Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
 
-    // ===== .strm: Empty / Whitespace =====
-
     [Theory]
     [Trait("Category", "Security")]
     [InlineData("")]
@@ -214,8 +187,6 @@ public class LinkRepairSecurityTests
         Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
     }
 
-    // ===== Symlink: Null target =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void ProcessLinkFile_Symlink_NullTarget_DetectedAsInvalidContent()
@@ -227,8 +198,6 @@ public class LinkRepairSecurityTests
 
         Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
     }
-
-    // ===== .strm: Oversized content =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -243,8 +212,6 @@ public class LinkRepairSecurityTests
         Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
 
-    // ===== Symlink: Oversized target =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void ProcessLinkFile_Symlink_OversizedTarget_HandledWithoutCrash()
@@ -258,8 +225,6 @@ public class LinkRepairSecurityTests
         Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
 
-    // ===== .strm: Null bytes =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void ProcessLinkFile_Strm_NullBytes_HandledSafely()
@@ -269,15 +234,9 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        // The service must handle null bytes gracefully without throwing and must classify the
-        // entry as InvalidContent - a NUL byte is a structural violation of the path grammar,
-        // not merely a missing file. Prior versions returned Broken because .NET no longer
-        // throws ArgumentException from Path.GetFullPath for embedded NULs; the explicit
-        // guard now catches it before normalisation runs and produces the correct classification.
+        // The service must handle null bytes gracefully without throwing and must classify the entry as InvalidContent - a NUL byte is a structural violation of the path grammar, not merely a missing file.
         Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
     }
-
-    // ===== Symlink: Null bytes in target =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -289,13 +248,9 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        // Symlink targets go through the same NUL-byte guard as .strm targets and must
-        // therefore land in InvalidContent (a structurally malformed path), never Broken
-        // (which would incorrectly imply the target is a resolvable-but-missing filename).
+        // Symlink targets go through the same NUL-byte guard as .strm targets and must therefore land in InvalidContent (a structurally malformed path), never Broken (which would incorrectly imply the target is a resolvable-but-missing filename).
         Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
     }
-
-    // ===== FindLinkFiles: Edge cases =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -318,8 +273,6 @@ public class LinkRepairSecurityTests
         Assert.Single(result);
         Assert.Contains(result, r => r.FilePath == linkFile);
     }
-
-    // ===== .strm: Unicode and encoding =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -348,8 +301,6 @@ public class LinkRepairSecurityTests
         Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
 
-    // ===== DryRun Safety: .strm =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void ProcessLinkFile_Strm_DryRunMode_DoesNotModifyFiles()
@@ -365,8 +316,6 @@ public class LinkRepairSecurityTests
         Assert.Equal(LinkFileStatus.Repaired, result.Status); // Dry-run: Repaired signals "would repair"
         Assert.Equal(originalTarget, _fileSystem.File.ReadAllText(linkFile));
     }
-
-    // ===== DryRun Safety: Symlink =====
 
     [Fact]
     [Trait("Category", "Security")]

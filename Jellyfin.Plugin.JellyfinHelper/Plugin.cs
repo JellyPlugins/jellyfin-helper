@@ -27,28 +27,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
 
     /// <summary>
-    ///     Serializes the read-modify-write in <see cref="UpdateIndexHtml"/>. Injection runs from
-    ///     both the constructor and the startup hosted service (and could overlap under real
-    ///     parallelism), so without this lock two threads could both read the pre-injection
-    ///     content, both insert the tag, and race the write - risking a duplicated tag or a lost
-    ///     update. The lock makes "check whether our tag is already present, and only write if it
-    ///     changed" a single atomic section.
+    ///     Serializes the read-modify-write in UpdateIndexHtml.
     /// </summary>
     private readonly object _indexHtmlLock = new();
 
     /// <summary>
-    ///     Data files this plugin persists to <see cref="IApplicationPaths.DataPath"/> that do
-    ///     <b>not</b> follow the <c>jellyfin-helper-*.json</c> naming convention and therefore
-    ///     would not be matched by the prefix glob in <see cref="CleanupDataFiles"/>. Listed by
-    ///     exact name so uninstall removes them without widening the glob (which would risk
-    ///     deleting unrelated files):
-    ///     <list type="bullet">
-    ///         <item><c>ml_weights.json</c> - learned scoring weights (<see cref="PluginServiceRegistrator"/>)</item>
-    ///         <item><c>neural_weights.json</c> - neural scoring weights (<see cref="PluginServiceRegistrator"/>)</item>
-    ///         <item><c>ensemble_state.json</c> - ensemble alpha/state (<see cref="PluginServiceRegistrator"/>)</item>
-    ///         <item><c>jellyfin-helper-batch-generation.txt</c> - batch-generation counter (has the
-    ///         prefix but a <c>.txt</c> extension the glob's extension guard excludes)</item>
-    ///     </list>
+    ///     Data files this plugin persists to DataPath that do <b>not</b> follow the jellyfin-helper-*.json naming convention and therefore would not be matched by the prefix glob in CleanupDataFiles.
     /// </summary>
     private static readonly string[] UnprefixedDataFiles =
     [
@@ -59,10 +43,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ];
 
     /// <summary>
-    ///     Guards the "install File Transformation" warning so it is emitted at most once per
-    ///     server start, even though <see cref="InjectScript"/> runs both from the constructor and
-    ///     again from the startup hosted service (and could be retried). <c>0</c> = not yet warned,
-    ///     <c>1</c> = already warned; flipped atomically via <see cref="Interlocked.Exchange(ref int, int)"/>.
+    ///     Guards the "install File Transformation" warning so it is emitted at most once per server start, even though InjectScript runs both from the constructor and again from the startup hosted service (and could be retried).
     /// </summary>
     private int _readOnlyWarningEmitted;
 
@@ -84,29 +65,22 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Outcome of a fallback <see cref="UpdateIndexHtml"/> attempt, so callers can react to a
-    ///     genuine write failure (e.g. a read-only web directory) without re-inspecting the file.
+    ///     Outcome of a fallback UpdateIndexHtml attempt, so callers can react to a genuine write failure (e.g.
     /// </summary>
     internal enum IndexHtmlUpdateResult
     {
         /// <summary>
-        ///     The desired state was achieved: the tag was injected/removed and persisted, or the
-        ///     file already matched the desired content so no write was needed.
+        ///     The desired state was achieved: the tag was injected/removed and persisted, or the file already matched the desired content so no write was needed.
         /// </summary>
         Success,
 
         /// <summary>
-        ///     The file could not be modified for a reason that installing File Transformation would
-        ///     resolve - most importantly the web directory being read-only (the write threw
-        ///     <see cref="UnauthorizedAccessException"/>/<see cref="IOException"/>), but also a
-        ///     missing <c>index.html</c> that we cannot create on a read-only image.
+        ///     The file could not be modified for a reason that installing File Transformation would resolve - most importantly the web directory being read-only (the write threw UnauthorizedAccessException/IOException), but also a missing index.html that we cannot create on a read-only image.
         /// </summary>
         WriteFailed,
 
         /// <summary>
-        ///     Injection did not apply for a content/layout reason (no <c>&lt;/body&gt;</c> to anchor
-        ///     to). This is not a permissions problem, so suggesting File Transformation would not
-        ///     help; the existing warning already describes it.
+        ///     Injection did not apply for a content/layout reason (no &lt;/body&gt; to anchor to).
         /// </summary>
         NotApplicable,
     }
@@ -187,16 +161,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Surfaces any config values that were clamped during XML deserialization as a single
-    ///     warning line per affected property. Fixes the previous silent-clamp behaviour where a
-    ///     hand-edited value outside the accepted range would be quietly narrowed with no
-    ///     feedback to the operator.
+    ///     Surfaces any config values that were clamped during XML deserialization as a single warning line per affected property.
     /// </summary>
     private void ReportClampedConfigValues()
     {
-        // BasePlugin<T>.Configuration is lazily materialised - in the real host it is populated
-        // before this ctor runs, but tests spin up a bare Plugin instance without a serializer
-        // wiring, so Configuration may still be null here. Skip silently in that case.
+        // BasePlugin<T>.Configuration is lazily materialised - in the real host it is populated before this ctor runs, but tests spin up a bare Plugin instance without a serializer wiring, so Configuration may still be null here.
         PluginConfiguration? config = null;
         try
         {
@@ -219,9 +188,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return;
         }
 
-        // Normalize alpha range BEFORE draining reports so any Min > Max swap is included
-        // in this drain rather than being silently discarded (PluginServiceRegistrator calls
-        // NormalizeAlphaRange during DI build, after the constructor drain already ran).
+        // Normalize alpha range BEFORE draining reports so any Min > Max swap is included in this drain rather than being silently discarded (PluginServiceRegistrator calls NormalizeAlphaRange during DI build, after the constructor drain already ran).
         config.NormalizeAlphaRange();
 
         var reports = config.DrainClampReports();
@@ -242,22 +209,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <summary>
     ///     Injects the discovery sidebar script tag into Jellyfin's index.html.
-    ///     Registers with the File Transformation plugin when present (on-the-fly response
-    ///     rewriting, survives web-asset updates, works on read-only web dirs) AND always writes
-    ///     the disk fallback as a belt-and-suspenders guarantee.
-    ///     <para>
-    ///         Why always write the disk fallback rather than skipping it when File Transformation
-    ///         registered: "registered" does not prove the transformation is actually being applied
-    ///         to the served response (the plugin could be a stale/incompatible build, or the
-    ///         registration could silently no-op). Relying on registration alone is exactly what
-    ///         made the sidebar silently absent on a fresh server. The two paths are safe together -
-    ///         <see cref="TransformationPatches.IndexHtml"/> strips any existing tag via
-    ///         <see cref="DiscoveryScriptTag.RemovalRegex"/> before inserting, so a disk-injected tag
-    ///         is de-duplicated in the served output; and <see cref="UpdateIndexHtml"/> is idempotent
-    ///         (skips the write when the file already carries the current tag). The only case the disk
-    ///         write cannot cover - a read-only web dir - is precisely where File Transformation is
-    ///         needed, and we surface that as one actionable warning.
-    ///     </para>
     /// </summary>
     internal void InjectScript()
     {
@@ -267,10 +218,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin (on-the-fly rewriting active)");
         }
 
-        // Always attempt the disk fallback too. It is idempotent (no write when the tag is already
-        // present) and de-duplicated by the File Transformation callback, so writing it while a
-        // transformation is also registered is harmless - but it guarantees the sidebar appears even
-        // when File Transformation is absent, or registered-but-not-actually-applying.
+        // Always attempt the disk fallback too.
         var result = UpdateIndexHtml(true);
 
         if (_logger.IsEnabled(LogLevel.Information))
@@ -286,28 +234,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             && !registered
             && Interlocked.Exchange(ref _readOnlyWarningEmitted, 1) == 0)
         {
-            // The disk fallback could not write (read-only web dir - the common case on Jellyfin 12
-            // / Docker) AND File Transformation is not available to rewrite the response instead.
-            // Emit ONE actionable warning per server start (not a raw stack trace, not on every
-            // re-injection attempt) so the admin knows exactly what to do.
+            // The disk fallback could not write (read-only web dir - the common case on Jellyfin 12 / Docker) AND File Transformation is not available to rewrite the response instead.
             _logger.LogWarning(
                 "[Discovery Sidebar] Could not inject the sidebar script into index.html (the Jellyfin web directory appears to be read-only) and the File Transformation plugin is not installed. Install the 'File Transformation' plugin so the Discovery sidebar can be injected without writing to disk.");
         }
     }
 
     /// <summary>
-    ///     Determines whether a loaded assembly is the File Transformation plugin, matching on its
-    ///     exact simple assembly name (<c>Jellyfin.Plugin.FileTransformation</c>).
-    ///     <para>
-    ///         This is a precise, positive identity check - not a loose substring scan of the full
-    ///         assembly name - so an unrelated assembly that merely happens to contain the text
-    ///         ".FileTransformation" somewhere (including this plugin's own
-    ///         <c>...Services.FileTransformation</c> namespace, which is a namespace, not an assembly
-    ///         name) can never be mistaken for the File Transformation plugin. Getting this wrong in
-    ///         either direction is harmless to correctness now that the disk fallback always runs
-    ///         (see <see cref="InjectScript"/>), but a precise check keeps the registration path and
-    ///         its logging honest.
-    ///     </para>
+    ///     Determines whether a loaded assembly is the File Transformation plugin, matching on its exact simple assembly name (Jellyfin.Plugin.FileTransformation).
     /// </summary>
     /// <param name="assembly">The assembly to test.</param>
     /// <returns><c>true</c> if this is the File Transformation plugin assembly.</returns>
@@ -320,9 +254,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Attempts to register the script injection with the File Transformation plugin.
-    ///     This plugin intercepts file serving and transforms content on-the-fly,
-    ///     avoiding the need to write to the read-only filesystem in Docker containers.
+    ///     Attempts to register the script injection with the File Transformation plugin. This plugin intercepts file serving and transforms content on-the-fly, avoiding the need to write to the read-only filesystem in Docker containers.
     /// </summary>
     /// <returns>True if registration succeeded, false if the plugin is not available.</returns>
     private bool RegisterFileTransformation()
@@ -356,9 +288,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Locates the File Transformation assembly and verifies that it is loaded from within
-    ///     Jellyfin's plugins directory. Fails closed (returns <c>false</c>) whenever the origin
-    ///     cannot be verified.
+    ///     Locates the File Transformation assembly and verifies that it is loaded from within Jellyfin's plugins directory.
     /// </summary>
     /// <param name="fileTransformationAssembly">The verified assembly, when the method returns true.</param>
     /// <returns><c>true</c> if the assembly was found and its origin verified.</returns>
@@ -373,18 +303,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return false;
         }
 
-        // Defense-in-depth: verify the assembly is loaded from within Jellyfin's plugin
-        // directory. This does not replace strong-name/signature verification but prevents
-        // a rogue assembly placed outside the plugin directory from passing the name check.
+        // Defense-in-depth: verify the assembly is loaded from within Jellyfin's plugin directory. This does not replace strong-name/signature verification but prevents a rogue assembly placed outside the plugin directory from passing the name check.
         var assemblyLocation = fileTransformationAssembly.Location;
         if (_logger.IsEnabled(LogLevel.Information))
         {
             _logger.LogInformation("[Discovery Sidebar] FileTransformation assembly found at: {Location}", assemblyLocation);
         }
 
-        // Fail CLOSED: if we cannot determine the assembly location or the plugins path, we
-        // cannot verify the origin, so we must NOT register (previously this skipped the check
-        // and registered anyway).
+        // Fail CLOSED: if we cannot determine the assembly location or the plugins path, we cannot verify the origin, so we must NOT register (previously this skipped the check and registered anyway).
         if (string.IsNullOrWhiteSpace(assemblyLocation) || string.IsNullOrWhiteSpace(_applicationPaths.PluginsPath))
         {
             _logger.LogWarning(
@@ -394,11 +320,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return false;
         }
 
-        // Resolve BOTH paths to their canonical physical form before comparing. Assembly.Location
-        // (and PluginsPath) can contain symlink/junction components, and Path.GetFullPath does NOT
-        // resolve reparse points, so a symlinked assembly whose physical file lives OUTSIDE the
-        // plugins tree could otherwise pass the string prefix check. Resolving the real path closes
-        // that escape. If resolution fails we fail closed (do not register).
+        // Resolve BOTH paths to their canonical physical form before comparing.
         string normalizedLocation;
         string normalizedPluginsPath;
         try
@@ -420,11 +342,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
 
-        // Path comparison must be OS-aware: Linux paths are case-sensitive, so an
-        // OrdinalIgnoreCase compare would treat /plugins and /PLUGINS as equal and could let a
-        // differently-cased outside path pass. Only Windows uses the case-insensitive compare;
-        // macOS is deliberately treated as case-sensitive here, which can only reject a
-        // differently-cased path (fail closed), never accept one.
+        // Path comparison must be OS-aware: Linux paths are case-sensitive, so an OrdinalIgnoreCase compare would treat /plugins and /PLUGINS as equal and could let a differently-cased outside path pass.
         var pathComparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
@@ -459,9 +377,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return false;
         }
 
-        // The File Transformation plugin expects a Newtonsoft.Json JObject payload.
-        // We construct it via reflection to avoid adding a Newtonsoft.Json package dependency
-        // (it's available at runtime as a transitive dependency of Jellyfin).
+        // The File Transformation plugin expects a Newtonsoft.Json JObject payload. We construct it via reflection to avoid adding a Newtonsoft.Json package dependency (it's available at runtime as a transitive dependency of Jellyfin).
         var newtonsoftAssembly = AssemblyLoadContext.All
             .SelectMany(x => x.Assemblies)
             .FirstOrDefault(x => x.GetName().Name == "Newtonsoft.Json");
@@ -515,16 +431,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Resolves a filesystem path to its canonical physical form, following symlinks and
-    ///     junctions on the final component as well as every ancestor directory.
-    ///     <para>
-    ///         <see cref="Path.GetFullPath(string)" /> only normalizes <c>.</c>/<c>..</c> and
-    ///         separators. It does NOT resolve reparse points. Relying on it alone would let an
-    ///         assembly whose physical file lives outside the plugins tree, but is reached through a
-    ///         symlink inside it (or vice versa), slip past a string prefix check. Resolving the
-    ///         parent chain first and then the leaf collapses every link so the returned path
-    ///         reflects where the bytes actually live.
-    ///     </para>
+    ///     Resolves a filesystem path to its canonical physical form, following symlinks and junctions on the final component as well as every ancestor directory.
     /// </summary>
     /// <param name="path">The path to canonicalize.</param>
     /// <returns>The real, fully symlink-resolved absolute path.</returns>
@@ -552,15 +459,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Attempts to remove the script injection from the File Transformation plugin.
-    ///     Best-effort: if the plugin is not installed or lacks the removal method, this is a no-op.
-    ///     Called during <see cref="OnUninstalling"/> to clean up the registered transformation.
-    ///     <para>
-    ///         Targets the v12 API <c>PluginInterface.RemoveTransformation(Guid)</c>. Earlier
-    ///         plugin builds exposed <c>UnregisterTransformation(string)</c>; that name is
-    ///         intentionally not probed since this plugin supports the v12 File Transformation
-    ///         API only (the runtime ABI is Jellyfin 12 / net10).
-    ///     </para>
+    ///     Attempts to remove the script injection from the File Transformation plugin. Best-effort: if the plugin is not installed or lacks the removal method, this is a no-op.
     /// </summary>
     private void UnregisterFileTransformation()
     {
@@ -581,9 +480,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return;
             }
 
-            // v12 removal API: static void RemoveTransformation(Guid id). Bind the Guid overload
-            // explicitly so we don't accidentally match a same-named method with a different
-            // signature, and pass the plugin Id as a Guid (not its string form).
+            // v12 removal API: static void RemoveTransformation(Guid id). Bind the Guid overload explicitly so we don't accidentally match a same-named method with a different signature, and pass the plugin Id as a Guid (not its string form).
             var removeMethod = pluginInterfaceType.GetMethod("RemoveTransformation", new[] { typeof(Guid) });
             if (removeMethod == null)
             {
@@ -618,9 +515,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Adds or removes the discovery sidebar script tag from Jellyfin's index.html.
-    ///     When <paramref name="inject"/> is true, any old version of the tag is replaced with the current one.
-    ///     When false, the tag is removed entirely (used during uninstall).
+    ///     Adds or removes the discovery sidebar script tag from Jellyfin's index.html. When inject is true, any old version of the tag is replaced with the current one.
     /// </summary>
     /// <param name="inject">Whether to inject (true) or remove (false) the script tag.</param>
     /// <returns>
@@ -629,11 +524,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </returns>
     internal IndexHtmlUpdateResult UpdateIndexHtml(bool inject)
     {
-        // Serialize the whole read-modify-write: the ctor and the startup hosted service can call
-        // this concurrently, and "read current content -> strip old tag -> insert current tag -> write
-        // only if changed" must be atomic so a second caller cannot inject a duplicate or clobber
-        // the first write. When our tag is already present the content is unchanged and no write
-        // happens (idempotent), so repeated calls are cheap and safe.
+        // Serialize the whole read-modify-write: the ctor and the startup hosted service can call this concurrently, and "read current content -> strip old tag -> insert current tag -> write only if changed" must be atomic so a second caller cannot inject a duplicate or clobber the first.
         lock (_indexHtmlLock)
         {
             try
@@ -653,17 +544,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 {
                     _logger.LogWarning("[Discovery Sidebar] index.html NOT FOUND at {IndexPath}", indexPath);
 
-                    // A missing index.html when injecting is a genuine "cannot inject via disk" case that
-                    // File Transformation would resolve (it transforms the served response, not the file).
-                    // When removing (uninstall cleanup), a missing file is already the desired end state.
+                    // A missing index.html when injecting is a genuine "cannot inject via disk" case that File Transformation would resolve (it transforms the served response, not the file).
                     return inject ? IndexHtmlUpdateResult.WriteFailed : IndexHtmlUpdateResult.Success;
                 }
 
                 // CA1873: guard every LogDebug in this method consistently.
-                // These particular calls use constant messages (no expensive argument evaluation),
-                // so the runtime win is negligible - the value of the guard here is _consistency_:
-                // it prevents future maintainers from adding a parameterized LogDebug to this
-                // block and accidentally regressing the CA1873 pattern the class opted into.
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
@@ -677,10 +562,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
                 if (!string.Equals(content, originalContent, StringComparison.Ordinal))
                 {
-                    // Use AtomicFile so a transient sharing violation on the final File.Move
-                    // (typical when Jellyfin's web server or an AV scanner briefly holds the
-                    // file handle) gets a bounded retry with backoff. AtomicFile also handles
-                    // temp-file cleanup internally, so no finally block is required here.
+                    // Use AtomicFile so a transient sharing violation on the final File.Move (typical when Jellyfin's web server or an AV scanner briefly holds the file handle) gets a bounded retry with backoff.
                     AtomicFile.WriteAllText(indexPath, content);
                     if (_logger.IsEnabled(LogLevel.Debug))
                     {
@@ -696,9 +578,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
-                // A write failure here is the read-only-web-directory case that motivates the
-                // File Transformation plugin. Log at debug (the actionable guidance is emitted once,
-                // higher up in InjectScript) and report the failure to the caller.
+                // A write failure here is the read-only-web-directory case that motivates the File Transformation plugin.
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     _logger.LogDebug(ex, "[Discovery Sidebar] Failed to update index.html on disk");
@@ -710,8 +590,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Strips any prior discovery script tag and, when <paramref name="inject"/> is <c>true</c>,
-    ///     inserts the current tag before the closing <c>&lt;/body&gt;</c>.
+    ///     Strips any prior discovery script tag and, when is true, inserts the current tag before the closing &lt;/body&gt;.
     /// </summary>
     /// <param name="originalContent">The current index.html content.</param>
     /// <param name="inject">Whether to inject the script tag (as opposed to removing it).</param>
@@ -755,17 +634,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <summary>
     ///     Deletes all persistent data files created by this plugin from the Jellyfin data directory.
-    ///     Most plugin data files follow the naming convention <c>jellyfin-helper-*.json</c>:
-    ///     <list type="bullet">
-    ///         <item><c>jellyfin-helper-statistics-latest.json</c> - media statistics cache</item>
-    ///         <item><c>jellyfin-helper-recommendations-latest.json</c> - recommendation results cache</item>
-    ///         <item><c>jellyfin-helper-useractivity-latest.json</c> - user activity insights cache</item>
-    ///         <item><c>jellyfin-helper-growth-timeline.json</c> - library growth timeline data</item>
-    ///         <item><c>jellyfin-helper-growth-baseline.json</c> - library growth baseline snapshot</item>
-    ///     </list>
-    ///     Also removes any leftover <c>.tmp</c> files from atomic write operations, plus the
-    ///     recommendation ML/state artifacts that predate the naming convention (see
-    ///     <see cref="UnprefixedDataFiles"/>).
     /// </summary>
     private void CleanupDataFiles()
     {
@@ -777,9 +645,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return;
             }
 
-            // Match all files created by this plugin: jellyfin-helper-*
-            // Only delete known extensions (.json data files and .tmp atomic-write leftovers)
-            // to avoid accidental deletion of unrelated files sharing the prefix.
+            // Match all files created by this plugin: jellyfin-helper-* Only delete known extensions (.json data files and .tmp atomic-write leftovers) to avoid accidental deletion of unrelated files sharing the prefix.
             foreach (var file in Directory.GetFiles(dataPath, "jellyfin-helper-*"))
             {
                 var extension = Path.GetExtension(file);
@@ -792,9 +658,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 DeleteDataFile(file);
             }
 
-            // Recommendation ML/state artifacts that don't match the prefix+extension glob above
-            // (unprefixed .json weights, and the .txt batch-generation counter). Deleted by exact
-            // name so we never widen the glob and catch unrelated files.
+            // Recommendation ML/state artifacts that don't match the prefix+extension glob above (unprefixed .json weights, and the .txt batch-generation counter).
             foreach (var name in UnprefixedDataFiles)
             {
                 var file = Path.Combine(dataPath, name);
@@ -823,15 +687,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Removes stale atomic-write temp files left in the Jellyfin <c>WebPath</c> by
-    ///     <see cref="UpdateIndexHtml"/>. <see cref="AtomicFile.WriteAllText"/> writes to a
-    ///     uniquely-named <c>index.html.&lt;guid&gt;.tmp</c> before renaming it over the target;
-    ///     it cleans that temp file up in-process on failure, but a hard process kill
-    ///     (OOM / container SIGKILL) between the write and the rename orphans it. Because the
-    ///     name is unique per attempt, such orphans would otherwise accumulate forever -
-    ///     <see cref="CleanupDataFiles"/> only sweeps <c>DataPath</c>, never <c>WebPath</c>.
-    ///     Swept on uninstall and at the start of each <see cref="UpdateIndexHtml"/> run so
-    ///     leftovers cannot build up across crashes/restarts.
+    ///     Removes stale atomic-write temp files left in the Jellyfin WebPath by UpdateIndexHtml.
     /// </summary>
     internal void CleanupWebPathTempFiles()
     {
@@ -843,10 +699,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return;
             }
 
-            // Only our own atomic-write leftovers: index.html.<something>.tmp. The middle
-            // segment is a GUID in practice, but the glob stays permissive while the
-            // "index.html." prefix + ".tmp" suffix keep it scoped to this plugin's writes
-            // and away from Jellyfin's real index.html.
+            // Only our own atomic-write leftovers: index.html.<something>.tmp.
             foreach (var file in Directory.GetFiles(webPath, "index.html.*.tmp"))
             {
                 try
@@ -867,13 +720,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Removes all recommendation playlist folders created by this plugin.
-    ///     Jellyfin stores playlists as subdirectories under <c>{DataPath}/playlists/</c>.
-    ///     Managed playlists are identified by the
-    ///     <see cref="RecommendationPlaylistService.PlaylistNamePrefix"/> folder name prefix.
-    ///     This is a best-effort filesystem cleanup - the Jellyfin library database may still
-    ///     reference these playlists until the next library scan, at which point the stale
-    ///     entries will be removed automatically.
+    ///     Removes all recommendation playlist folders created by this plugin. Jellyfin stores playlists as subdirectories under {DataPath}/playlists/.
     /// </summary>
     private void CleanupRecommendationPlaylists()
     {

@@ -26,8 +26,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
 ///     A single master scheduled task that orchestrates all cleanup sub-tasks sequentially.
-///     Each sub-task can be individually configured as Activate, Deactivate, or DryRun
-///     via the plugin settings.
 /// </summary>
 public class HelperCleanupTask : IScheduledTask
 {
@@ -137,11 +135,6 @@ public class HelperCleanupTask : IScheduledTask
         var config = _configHelper.GetConfig();
 
         // RunOnDeactivate: most sub-tasks are true no-ops when Deactivated and are skipped.
-        // "Smart Recommendations" is the exception - on Deactivate it must still run so its
-        // handler can PURGE any previously-created recommendation playlists (switching a
-        // library from Activate to Deactivate should not leave stale managed playlists
-        // behind). RunRecommendationsUpdate short-circuits all expensive work in Deactivate
-        // mode and only performs the cleanup.
         var subTasks = new (string Name, TaskMode Mode, bool RunOnDeactivate, Func<IProgress<double>, CancellationToken, Task> Execute)[]
         {
             ("Trickplay Cleanup", config.TrickplayTaskMode, false, RunTrickplayCleanup),
@@ -171,9 +164,7 @@ public class HelperCleanupTask : IScheduledTask
     }
 
     /// <summary>
-    ///     Runs each configured sub-task sequentially, honouring Deactivate/RunOnDeactivate semantics
-    ///     and reporting incremental progress. Individual sub-task failures are logged and the loop
-    ///     continues; cancellation is propagated.
+    ///     Runs each configured sub-task sequentially, honouring Deactivate/RunOnDeactivate semantics and reporting incremental progress.
     /// </summary>
     private async Task RunSubTasksAsync(
         (string Name, TaskMode Mode, bool RunOnDeactivate, Func<IProgress<double>, CancellationToken, Task> Execute)[] subTasks,
@@ -236,20 +227,12 @@ public class HelperCleanupTask : IScheduledTask
         {
             cancellationToken.ThrowIfCancellationRequested();
             _pluginLog.LogInfo(LogSource, $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
-            // Purge only the trash of libraries the cleanup actually operates on:
-            // GetFilteredLibraryLocations honours ExcludedLibraries and skips
-            // music/boxset libraries, so an admin-excluded library's trash is left
-            // untouched (matching the contract the cleanup stages themselves follow).
+            // Purge only the trash of libraries the cleanup actually operates on: GetFilteredLibraryLocations honours ExcludedLibraries and skips music/boxset libraries, so an admin-excluded library's trash is left untouched (matching the contract the cleanup stages themselves follow).
             var libraryLocations = _configHelper.GetFilteredLibraryLocations(_libraryManager);
             long totalBytesFreed = 0;
             var totalItemsPurged = 0;
 
-            // Resolve each library's trash path, then purge the DISTINCT set so a shared absolute
-            // TrashFolderPath is purged once. Reject only a path resolving to a library root itself
-            // (never valid trash); an absolute path OUTSIDE every root is supported and MUST be
-            // purged, else TrashRetentionDays is silently defeated. Bounded regardless:
-            // PurgeExpiredTrash removes only entries matching the strict "yyyyMMdd-HHmmss_" prefix,
-            // so even a misconfigured path loses nothing that is not a real trash entry.
+            // Resolve each library's trash path, then purge the DISTINCT set so a shared absolute TrashFolderPath is purged once.
             var pathComparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
 
             var libraryRoots = new HashSet<string>(pathComparer);

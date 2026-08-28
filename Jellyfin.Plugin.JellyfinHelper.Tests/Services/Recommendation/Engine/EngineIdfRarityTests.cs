@@ -16,23 +16,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for the library-wide genre/studio IDF (inverse document frequency) rarity table
-///     the recommendation
-///     <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine"/>
-///     builds from <see cref="IItemRepository.GetGenres"/> / <see cref="IItemRepository.GetStudios"/>.
-///     <para>
-///         The default harness returns empty genre/studio counts, which short-circuits
-///         <c>BuildGenreStudioIdfTable</c> before it ever accumulates or normalizes. These tests
-///         populate the repository with real per-term item counts so the accumulate loop, the
-///         add-one-smoothed IDF computation, and the [0,1] max-normalization all execute - the
-///         path that turns raw term frequencies into the <c>GenreStudioIdfPrior</c> scoring signal.
-///     </para>
-///     <para>
-///         BUG SURFACE: a regression in the smoothing or normalization (e.g. dividing by the wrong
-///         max, or a log-domain error on a zero document frequency) would either crash the batch or
-///         silently flatten the rarity prior to a constant - erasing the "rare genres are more
-///         informative" signal without any visible failure.
-///     </para>
+///     Tests for the library-wide genre/studio IDF (inverse document frequency) rarity table the recommendation Engine builds from GetGenres / GetStudios.
 /// </summary>
 public sealed class EngineIdfRarityTests
 {
@@ -58,9 +42,7 @@ public sealed class EngineIdfRarityTests
     [Fact]
     public void GetAllRecommendations_GenreCountsPresent_BuildsAndNormalizesIdfTable()
     {
-        // Populate GetGenres with a ubiquitous term (high count) and a rare term (count 1) so the
-        // accumulate + add-one-smoothing + [0,1] normalization path actually runs, then feed
-        // candidates carrying those genres through a warm batch so the table is consulted.
+        // Populate GetGenres with a ubiquitous term (high count) and a rare term (count 1) so the accumulate + add-one-smoothing + [0,1] normalization path actually runs, then feed candidates carrying those genres through a warm batch so the table is consulted.
         var harness = EngineTestFactory.Create();
 
         harness.ItemRepository
@@ -123,9 +105,7 @@ public sealed class EngineIdfRarityTests
     [Fact]
     public void GetAllRecommendations_IdfGenreQueryThrows_BatchCompletesAndLogsNeutralWarning()
     {
-        // BuildGenreStudioIdfTable must treat a repository failure as non-fatal: catch it, log a
-        // warning that the GenreStudioIdfPrior will be neutral, and return an empty table so the
-        // batch still finishes. A regression that let the exception escape would abort the whole run.
+        // BuildGenreStudioIdfTable must treat a repository failure as non-fatal: catch it, log a warning that the GenreStudioIdfPrior will be neutral, and return an empty table so the batch still finishes.
         var harness = EngineTestFactory.Create();
 
         harness.ItemRepository

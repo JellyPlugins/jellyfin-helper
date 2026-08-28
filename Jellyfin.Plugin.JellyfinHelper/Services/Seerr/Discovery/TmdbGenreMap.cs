@@ -4,9 +4,7 @@ using System.Collections.Generic;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 /// <summary>
-///     Bidirectional mapping between TMDb genre IDs and Jellyfin genre strings.
-///     TMDb uses integer IDs; Jellyfin uses localized strings. This map uses the
-///     English TMDb genre names which match Jellyfin's default genre metadata.
+///     Bidirectional mapping between TMDb genre IDs and Jellyfin genre strings. TMDb uses integer IDs; Jellyfin uses localized strings.
 /// </summary>
 internal static class TmdbGenreMap
 {
@@ -81,9 +79,7 @@ internal static class TmdbGenreMap
 
         dict.TryAdd("Science Fiction", 10765);
         dict.TryAdd("Sci-Fi", 10765);
-        // Jellyfin stores "Action" and "Adventure" as separate genres from movies.
-        // Map them to the combined TMDb TV genre "Action & Adventure" (10759)
-        // so users with these preferences get TV discovery results.
+        // Jellyfin stores "Action" and "Adventure" as separate genres from movies. Map them to the combined TMDb TV genre "Action & Adventure" (10759) so users with these preferences get TV discovery results.
         dict.TryAdd("Action", 10759);
         dict.TryAdd("Adventure", 10759);
         return dict;

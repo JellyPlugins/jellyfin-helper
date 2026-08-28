@@ -4,9 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Tests for <see cref="IScoringStrategy" /> implementations:
-///     <see cref="HeuristicScoringStrategy" />, <see cref="LearnedScoringStrategy" />,
-///     and <see cref="EnsembleScoringStrategy" />.
+///     Tests for IScoringStrategy implementations: HeuristicScoringStrategy, LearnedScoringStrategy, and EnsembleScoringStrategy.
 /// </summary>
 public sealed class ScoringStrategyTests : IDisposable
 {
@@ -44,9 +42,7 @@ public sealed class ScoringStrategyTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    // ============================================================
     // CandidateFeatures Tests
-    // ============================================================
 
     [Fact]
     public void CandidateFeatures_ToVector_ReturnsCorrectValues()
@@ -133,9 +129,7 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var features = new CandidateFeatures();
         var vector = features.ToVector();
-        // Most default to 0.0. Neutral-0.5 channels: UserRatingScore (9), CompletionRatio (10),
-        // LanguageAffinity (28), SubtitleLanguageAffinity (30), SeriesCompletability (34, N/A for movies).
-        // IsAbandoned = 0.0 because HasUserInteraction defaults to false.
+        // Most default to 0.0. Neutral-0.5 channels: UserRatingScore (9), CompletionRatio (10), LanguageAffinity (28), SubtitleLanguageAffinity (30), SeriesCompletability (34, N/A for movies).
         for (var i = 0; i < vector.Length; i++)
         {
             if (i == 9 || i == 10 || i == 28 || i == 30 || i == 34)
@@ -161,9 +155,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void CandidateFeatures_WriteToVector_BufferSmallerThanFeatureCount_ThrowsArgumentException()
     {
-        // The documented contract rejects undersized buffers up front; without the guard,
-        // WriteToVector would either throw IndexOutOfRange mid-write or silently emit a partial
-        // vector, which would poison training/scoring downstream.
+        // The documented contract rejects undersized buffers up front; without the guard, WriteToVector would either throw IndexOutOfRange mid-write or silently emit a partial vector, which would poison training/scoring downstream.
         var undersized = new double[CandidateFeatures.FeatureCount - 1];
 
         var ex = Assert.Throws<ArgumentException>(() => new CandidateFeatures().WriteToVector(undersized));
@@ -173,9 +165,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Contains($"got {undersized.Length}", ex.Message);
     }
 
-    // ============================================================
     // HeuristicScoringStrategy Tests
-    // ============================================================
 
     [Fact]
     public void Heuristic_Name_ReturnsExpected()
@@ -205,9 +195,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // With all basic features = 1.0 but many features (PeopleSimilarity, StudioMatch,
-        // HasInteraction, SeriesProgressionBoost, PopularityScore, DayOfWeekAffinity, and the newer
-        // content features) at their neutral defaults, the weighted sum stays in this band.
+        // With all basic features = 1.0 but many features (PeopleSimilarity, StudioMatch, HasInteraction, SeriesProgressionBoost, PopularityScore, DayOfWeekAffinity, and the newer content features) at their neutral defaults, the weighted sum stays in this band.
         Assert.InRange(score, 0.55, 1.00);
     }
 
@@ -388,9 +376,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void DefaultWeights_CreateWeightArray_CoversAllFeatureIndexValues()
     {
-        // Guard test: ensures every FeatureIndex enum value has an explicit weight assignment
-        // in DefaultWeights.CreateWeightArray(). If a new FeatureIndex is added without updating
-        // CreateWeightArray, this test will fail - preventing silently unweighted features.
+        // Guard test: ensures every FeatureIndex enum value has an explicit weight assignment in DefaultWeights.CreateWeightArray().
         var weights = DefaultWeights.CreateWeightArray();
         var allIndices = Enum.GetValues<FeatureIndex>();
 
@@ -411,9 +397,7 @@ public sealed class ScoringStrategyTests : IDisposable
         }
     }
 
-    // ============================================================
     // LearnedScoringStrategy Tests
-    // ============================================================
 
     [Fact]
     public void Learned_Name_ReturnsExpected()
@@ -480,9 +464,6 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Learned_Score_NoGenreMatch_ScoresSignificantlyLower()
     {
         // Learned strategy does NOT apply a genre penalty multiplier - that's in the Ensemble.
-        // However, genre similarity has the highest weight (0.20) and contributes to interaction
-        // terms (genre×rating, genre×collab), so items with zero genre match naturally score
-        // much lower due to weight dominance alone.
         var strategy = new LearnedScoringStrategy();
 
         var goodFeatures = new CandidateFeatures
@@ -506,10 +487,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var goodScore = strategy.Score(goodFeatures);
         var badScore = strategy.Score(badFeatures);
 
-        // Genre match must still score far higher than no-genre-match. The multiplier is 1.8 (not 2.0)
-        // because every candidate now also carries constant neutral-0.5 signals (e.g. SeriesCompletability)
-        // that add a small fixed offset to both scores, slightly compressing their ratio while leaving
-        // the large absolute gap (here ~0.29 vs ~0.15) intact.
+        // Genre match must still score far higher than no-genre-match. The multiplier is 1.8 (not 2.0) because every candidate now also carries constant neutral-0.5 signals (e.g.
         Assert.True(goodScore > badScore * 1.8,
             $"Genre weight dominance should create large score gap: good={goodScore:F4}, bad={badScore:F4}");
     }
@@ -714,9 +692,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.InRange(bias, -1.0, 1.0);
     }
 
-    // ============================================================
     // Weight Persistence Tests
-    // ============================================================
 
     [Fact]
     public void Learned_PersistsWeights_ToFile()
@@ -822,9 +798,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.True(strategy.Train(examples));
     }
 
-    // ============================================================
     // TrainingExample Tests
-    // ============================================================
 
     [Fact]
     public void TrainingExample_DefaultLabel_IsZero()
@@ -833,20 +807,12 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.0, example.Label);
     }
 
-    // ============================================================
     // Genre Mismatch Penalty Integration Tests
-    // ============================================================
 
     [Fact]
     public void Heuristic_GenreMismatch_ChuckyVsMarvel_MarvelWins()
     {
-        // Simulates: user likes Action/SciFi/Superhero, candidate is Horror (Chucky) vs Action (Marvel)
-        // Note: When used standalone (default constructor), Heuristic DOES apply genre penalty
-        // (genrePenaltyFloor=0.10). When used inside Ensemble, penalty is disabled (floor=1.0)
-        // and the Ensemble applies it centrally instead.
-        // Marvel scores much higher because genre similarity dominates the weights,
-        // interaction terms (genre×rating, genre×collab) amplify genre-matching items,
-        // and the standalone penalty further suppresses zero-genre-overlap items.
+        // Simulates: user likes Action/SciFi/Superhero, candidate is Horror (Chucky) vs Action (Marvel) Note: When used standalone (default constructor), Heuristic DOES apply genre penalty (genrePenaltyFloor=0.10).
         var strategy = new HeuristicScoringStrategy();
 
         var marvelFeatures = new CandidateFeatures
@@ -916,9 +882,7 @@ public sealed class ScoringStrategyTests : IDisposable
             $"Marvel should be significantly higher than Chucky: Marvel={marvelScore:F4}, Chucky={chuckyScore:F4}");
     }
 
-    // ============================================================
     // EnsembleScoringStrategy Tests
-    // ============================================================
 
     [Fact]
     public void Ensemble_Name_ReturnsExpected()
@@ -951,9 +915,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var learnedScore = learned.Score(features);
         var heuristicScore = heuristic.Score(features);
 
-        // Ensemble applies genre penalty centrally, so the blended score may be below both sub-scores.
-        // But for features with GenreSimilarity > threshold (0.15), penalty = 1.0 and the score
-        // should be between the two sub-strategy scores.
+        // Ensemble applies genre penalty centrally, so the blended score may be below both sub-scores. But for features with GenreSimilarity > threshold (0.15), penalty = 1.0 and the score should be between the two sub-strategy scores.
         var penalty = EnsembleScoringStrategy.ComputeSoftGenrePenalty(
             features.GenreSimilarity, EnsembleScoringStrategy.DefaultGenrePenaltyFloor);
         var minScore = Math.Min(learnedScore, heuristicScore) * penalty;
@@ -1194,9 +1156,7 @@ public sealed class ScoringStrategyTests : IDisposable
         return examples;
     }
 
-    // ============================================================
     // Edge-Case & Validation Tests
-    // ============================================================
 
     [Fact]
     public void CandidateFeatures_Clamping_NegativeValues_ClampedToZero()
@@ -1490,9 +1450,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal("Genre", blended.DominantSignal); // 0.7 > 0.3
     }
 
-    // ============================================================
     // ScoreExplanation.WithPenalty Tests
-    // ============================================================
 
     [Fact]
     public void ScoreExplanation_WithPenalty_ScalesAllContributions()
@@ -1546,9 +1504,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.0, zeroed.GenreContribution, 10);
     }
 
-    // ============================================================
     // DefaultWeights Tests
-    // ============================================================
 
     [Fact]
     public void DefaultWeights_CreateWeightArray_HasCorrectLength()
@@ -1585,11 +1541,7 @@ public sealed class ScoringStrategyTests : IDisposable
             sum += weights[i];
         }
 
-        // Verify the weight array sum matches the exact expected total from all DefaultWeights constants.
-        // This is NOT 1.0 because the weight vector includes negative penalty weights (IsAbandoned,
-        // GenreUnderexposure, GenreAffinityGap). The test catches any accidental weight change
-        // that breaks the total balance - if a new weight is added or an existing one is modified,
-        // this assertion will fail, forcing the developer to verify the change was intentional.
+        // Verify the weight array sum matches the exact expected total from all DefaultWeights constants. This is NOT 1.0 because the weight vector includes negative penalty weights (IsAbandoned, GenreUnderexposure, GenreAffinityGap).
         var expectedSum =
             DefaultWeights.GenreSimilarity + DefaultWeights.CollaborativeScore +
             DefaultWeights.CombinedCriticScore + DefaultWeights.RecencyScore +
@@ -1614,9 +1566,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(expectedSum, sum, 10);
     }
 
-    // ============================================================
     // TrainingExample - Temporal Decay Tests
-    // ============================================================
 
     [Fact]
     public void TrainingExample_ComputeTemporalWeight_NowReturnsOne()
@@ -1705,9 +1655,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.0, example.Label, 15);
     }
 
-    // ============================================================
     // ScoringHelper Tests
-    // ============================================================
 
     [Fact]
     public void ScoringHelper_ComputeRawScore_MatchesManualCalculation()
@@ -1801,9 +1749,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(explanation.FinalScore, contributionSum, 6);
     }
 
-    // ============================================================
     // Ensemble State Persistence Tests
-    // ============================================================
 
     [Fact]
     public void Ensemble_State_PersistsAndRestores()
@@ -1842,9 +1788,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0, strategy.TrainingExampleCount);
     }
 
-    // ============================================================
     // NeuralScoringStrategy Tests
-    // ============================================================
 
     [Fact]
     public void Neural_Name_ReturnsExpectedValue()
@@ -2144,9 +2088,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.InRange(zeroScore, 0.0, 1.0);
     }
 
-    // ============================================================
     // Ensemble + Neural Integration Tests (3-way blending)
-    // ============================================================
 
     [Fact]
     public void Ensemble_WithNeural_BlendsBetaCorrectly()
@@ -2447,8 +2389,6 @@ public sealed class ScoringStrategyTests : IDisposable
             $"Beta should not exceed max: {betaAt155:F4} > {EnsembleScoringStrategy.NeuralMaxBetaFraction}");
     }
 
-    // === Trend Detection Tests ===
-
     [Fact]
     public void AnalyzeTrend_InsufficientData_ReturnsInsufficientData()
     {
@@ -2623,11 +2563,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_MetricsHistoryCount_TracksFailedTrainingRuns()
     {
-        // Cold-start scenario: the very first training call has too few examples
-        // for LearnedScoringStrategy.Train to succeed. Previously the metrics history
-        // stayed empty in this case, which self-locked the exploration gate
-        // (StrategySelector requires MetricsHistoryCount >= 2). We now record a
-        // placeholder snapshot even on failed training so the gate can eventually flip.
+        // Cold-start scenario: the very first training call has too few examples for LearnedScoringStrategy.Train to succeed.
         var ensemble = new EnsembleScoringStrategy();
 
         Assert.Equal(0, ensemble.MetricsHistoryCount);
@@ -2706,18 +2642,12 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(countBefore, ensemble2.MetricsHistoryCount);
     }
 
-    // ============================================================
     // ITrainableStrategy Default Method Tests
-    // ============================================================
 
     [Fact]
     public void ITrainableStrategy_DefaultTrain_ForwardsToSingleArgOverload()
     {
-        // The two-arg Train has a default body that drops heldOutForMetrics and forwards to the
-        // single-arg overload. All three production strategies (Learned/Neural/Ensemble) override
-        // the two-arg overload, so only a 1-arg-only implementer exercises the default. The contract
-        // is: return exactly what the single-arg Train returned, pass through the same examples list,
-        // and ignore the held-out slice.
+        // The two-arg Train has a default body that drops heldOutForMetrics and forwards to the single-arg overload.
         var examples = new List<TrainingExample>
         {
             new() { Features = new CandidateFeatures { GenreSimilarity = 1.0 }, Label = 1.0 },
@@ -2747,9 +2677,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void ScoringHelper_BuildExplanation_TruncatedWeights_OutOfBoundsFeaturesContributeZero()
     {
-        // A shorter-than-FeatureCount weight array mirrors loading an older/corrupted model
-        // that persisted fewer weights. GetContribution must tolerate this by returning 0.0
-        // for every feature index beyond the array, never indexing out of bounds.
+        // A shorter-than-FeatureCount weight array mirrors loading an older/corrupted model that persisted fewer weights.
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
@@ -2791,8 +2719,7 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     /// <summary>
-    ///     Implements ONLY the single-arg <see cref="ITrainableStrategy.Train(IReadOnlyList{TrainingExample})" />
-    ///     so the two-arg interface default (which drops the held-out slice and forwards) is exercised.
+    ///     Implements ONLY the single-arg Train(IReadOnlyList{TrainingExample}) so the two-arg interface default (which drops the held-out slice and forwards) is exercised.
     /// </summary>
     private sealed class SingleArgTrainableStub : ITrainableStrategy
     {
