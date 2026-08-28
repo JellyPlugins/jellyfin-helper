@@ -476,7 +476,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     [Fact]
     public async Task PostRequest_SubmitRequest_PassesCallerUserIdToMarkAsRequested()
     {
-        // Finding #36: DiscoveryController.SubmitRequest must pass the authenticated admin caller's Jellyfin user ID to MarkAsRequestedAsync (three-argument overload), not null (which marks ALL users).
+        // DiscoveryController.SubmitRequest must pass the authenticated admin caller's Jellyfin user ID to MarkAsRequestedAsync (three-argument overload), not null (which marks ALL users).
         var adminUserId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
 

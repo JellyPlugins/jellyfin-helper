@@ -245,7 +245,7 @@ public class LogsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_ClearLogs_RequiresConfirmation()
     {
-        // Finding 12: native confirm() replaced with custom dialog
+        // Native confirm() replaced with custom dialog
         // Scoped to clearLogs() to avoid false positives from other dialog usage
         Assert.Matches(
             new Regex(

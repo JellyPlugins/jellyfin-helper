@@ -6,7 +6,115 @@ on:
     branches: [main]
     paths:
     - "manifest.json"
-    - "Jellyfin.Plugin.JellyfinHelper/** " - "build.yaml" - "Directory.Build.props" permissions: contents: read env: PLUGIN_NAME: JellyfinHelper jobs: security-audit: runs-on: ubuntu-latest if: "!contains(github.event.head_commit.message, '[skip release]')" permissions: contents: read steps: - name: Checkout repository. */TestResults/**/*.trx"
+    - "Jellyfin.Plugin.JellyfinHelper/**"
+    - "build.yaml"
+    - "Directory.Build.props"
+
+permissions:
+  contents: read
+
+env:
+  PLUGIN_NAME: JellyfinHelper
+
+jobs:
+  security-audit:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Check for vulnerable packages
+      run: |
+        set -euo pipefail
+        echo "## Dependency Vulnerability Scan" >> $GITHUB_STEP_SUMMARY
+        dotnet list package --vulnerable --include-transitive --format json > vuln-report.json
+        cat vuln-report.json
+        # Parse JSON output to detect vulnerabilities (SDK-independent, fail-closed)
+        VULN_COUNT=$(python3 -c "
+        import json
+        with open('vuln-report.json', 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        count = sum(
+            len(pkg.get('vulnerabilities') or [])
+            for proj in data.get('projects', [])
+            for fw in proj.get('frameworks', [])
+            for pkg in (fw.get('topLevelPackages') or []) + (fw.get('transitivePackages') or [])
+        )
+        print(count)
+        ")
+        if [ "$VULN_COUNT" -gt 0 ]; then
+          echo "::error::Vulnerable NuGet packages detected! Release blocked. ($VULN_COUNT vulnerabilities)"
+          echo "[FAIL] **Vulnerable packages found - release blocked! ($VULN_COUNT vulnerabilities)**" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat vuln-report.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          exit 1
+        else
+          echo "[PASS] **No vulnerable packages detected.**" >> $GITHUB_STEP_SUMMARY
+        fi
+
+  test:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        bucket:
+          - name: Unit
+            filter: "Category!=Performance&Category!=Security"
+          - name: Security
+            filter: "Category=Security"
+          - name: Performance
+            filter: "Category=Performance"
+            continue-on-error: true
+
+    name: "Tests (${{ matrix.bucket.name }})"
+    continue-on-error: ${{ matrix.bucket.continue-on-error == true }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: "Run ${{ matrix.bucket.name }} tests"
+      env:
+        TEST_FILTER: ${{ matrix.bucket.filter }}
+      run: |
+        dotnet test --configuration Release --no-build --verbosity normal \
+          --filter "$TEST_FILTER" \
+          --logger "trx;LogFileName=${{ matrix.bucket.name }}.trx"
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: test-results-${{ matrix.bucket.name }}
+        path: "**/TestResults/**/*.trx"
         retention-days: 7
 
   build:

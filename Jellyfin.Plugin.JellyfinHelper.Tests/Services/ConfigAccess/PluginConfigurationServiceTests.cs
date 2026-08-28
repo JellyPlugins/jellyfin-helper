@@ -68,7 +68,7 @@ public class PluginConfigurationServiceTests
     [Fact]
     public void GetConfiguration_ThrowsWhenNotInitialized()
     {
-        // Finding #9: when the plugin singleton has not yet been created, GetConfiguration must
+        // When the plugin singleton has not yet been created, GetConfiguration must
         // throw rather than return a silent default that could mask a startup-ordering bug.
         var sut = new PluginConfigurationService(new FakePluginAccessor { IsInitialized = false, Configuration = null });
 
