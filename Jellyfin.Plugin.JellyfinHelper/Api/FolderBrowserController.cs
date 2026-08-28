@@ -10,9 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     API controller for server-side folder browsing.
-///     Used by the settings UI to provide a folder picker dialog for selecting
-///     the trash folder path. Only accessible by admin users.
+///     API controller for server-side folder browsing. Used by the settings UI to provide a folder picker dialog for selecting the trash folder path.
 /// </summary>
 [ApiController]
 [Authorize(Policy = "RequiresElevation")]
@@ -37,10 +35,7 @@ public class FolderBrowserController : ControllerBase
     }
 
     /// <summary>
-    ///     Browses server-side directories for the folder picker UI.
-    ///     When no path is provided, returns filesystem roots.
-    ///     When a path is provided, returns its immediate subdirectories.
-    ///     Only returns directories the server process can read.
+    ///     Browses server-side directories for the folder picker UI. When no path is provided, returns filesystem roots.
     /// </summary>
     /// <param name="path">The parent path to list children of. Empty or null returns filesystem roots.</param>
     /// <returns>A browse result with the current path, parent path, and list of subdirectories.</returns>
@@ -53,17 +48,12 @@ public class FolderBrowserController : ControllerBase
             return Ok(_folderBrowser.GetRoots());
         }
 
-        // All path validation (traversal prevention, allow-list enforcement, existence checks)
-        // is delegated to FolderBrowserService.GetChildren -> ValidatePath. No pre-validation
-        // is performed here intentionally; the service is the single source of truth for what
-        // paths are permitted.
+        // All path validation (traversal prevention, allow-list enforcement, existence checks) is delegated to FolderBrowserService.GetChildren -> ValidatePath.
         return Ok(_folderBrowser.GetChildren(path));
     }
 
     /// <summary>
-    ///     Gets the library root paths configured in Jellyfin.
-    ///     Used as quick-navigation targets in the folder browser dialog.
-    ///     Returns the physical filesystem paths of all configured library folders.
+    ///     Gets the library root paths configured in Jellyfin. Used as quick-navigation targets in the folder browser dialog.
     /// </summary>
     /// <returns>A list of library root paths with their names.</returns>
     [HttpGet("LibraryPaths")]

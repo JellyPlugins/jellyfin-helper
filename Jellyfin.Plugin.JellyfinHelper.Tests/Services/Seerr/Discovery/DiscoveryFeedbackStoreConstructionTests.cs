@@ -8,9 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Construction-time contract for <see cref="DiscoveryFeedbackStore"/>: the public two-arg
-///     constructor resolves its file path from <c>Plugin.Instance.DataFolderPath</c>, so it must
-///     fail fast when the singleton is not initialised rather than silently binding to a bogus path.
+///     Construction-time contract for DiscoveryFeedbackStore: the public two-arg constructor resolves its file path from Plugin.Instance.DataFolderPath, so it must fail fast when the singleton is not initialised rather than silently binding to a bogus path.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class DiscoveryFeedbackStoreConstructionTests
@@ -42,9 +40,7 @@ public sealed class DiscoveryFeedbackStoreConstructionTests
     [Fact]
     public void Ctor_PluginInstanceInitialized_UsesDataFolderPathAndRecordsFeedback()
     {
-        // Exercising the production two-arg ctor proves _filePath is derived from
-        // Plugin.Instance.DataFolderPath and that the store is functional through the
-        // real DI entry point, not just the test-only internal ctor.
+        // Exercising the production two-arg ctor proves _filePath is derived from Plugin.Instance.DataFolderPath and that the store is functional through the real DI entry point, not just the test-only internal ctor.
         var store = new DiscoveryFeedbackStore(
             new Mock<IPluginLogService>().Object,
             new Mock<ILogger<DiscoveryFeedbackStore>>().Object);

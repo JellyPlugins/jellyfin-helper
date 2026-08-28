@@ -17,22 +17,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for the discovery "Requested + Watched" reconciliation the recommendation
-///     <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine"/>
-///     runs at the top of <c>TrainStrategy</c> (via <c>UpdateDiscoveryWatchedStatus</c>).
-///     <para>
-///         This pass cross-references discovery feedback (items the user requested via Seerr)
-///         against the live library (to resolve TMDb ids) and the user's watch history. When a
-///         previously-requested discovery item now exists in the library AND the user has watched
-///         it, the feedback entry is upgraded from "Requested" to "RequestedAndWatched" via
-///         <see cref="IDiscoveryFeedbackStore.MarkWatched"/> - a stronger training label.
-///     </para>
-///     <para>
-///         BUG SURFACE: this is best-effort enrichment that must never crash training. A
-///         regression that mis-resolves the media type ('movie' vs 'tv'), fails to cross-reference
-///         the watch profile, or lets a feedback-store failure propagate would either poison the
-///         training label or abort every training run. Each contract is pinned via Moq verification.
-///     </para>
+///     Tests for the discovery "Requested + Watched" reconciliation the recommendation Engine runs at the top of TrainStrategy (via UpdateDiscoveryWatchedStatus).
 /// </summary>
 public sealed class EngineDiscoveryWatchedStatusTests
 {
@@ -199,9 +184,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
     [Fact]
     public void TrainStrategy_FeedbackStoreThrows_IsSwallowedAsNonCritical()
     {
-        // The discovery reconciliation is best-effort: a feedback-store failure must be caught and
-        // logged at debug level, never propagated. TrainStrategy still returns (false here, since
-        // the default heuristic strategy has nothing to train on).
+        // The discovery reconciliation is best-effort: a feedback-store failure must be caught and logged at debug level, never propagated.
         var harness = EngineTestFactory.Create();
         harness.FeedbackStore.Setup(f => f.LoadAll())
             .Throws(new InvalidOperationException("simulated feedback store failure"));

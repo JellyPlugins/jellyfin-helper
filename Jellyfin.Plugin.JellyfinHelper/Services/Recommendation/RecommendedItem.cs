@@ -76,9 +76,7 @@ public sealed class RecommendedItem
     public float? CommunityRating { get; set; }
 
     /// <summary>
-    ///     Gets or sets the Rotten Tomatoes critic rating (Tomatometer, 0-100%).
-    ///     Stored for training feature parity: allows TrainingService to compute
-    ///     CombinedCriticScore from cached recommendations without re-querying the library.
+    ///     Gets or sets the Rotten Tomatoes critic rating (Tomatometer, 0-100%). Stored for training feature parity: allows TrainingService to compute CombinedCriticScore from cached recommendations without re-querying the library.
     /// </summary>
     public float? CriticRating { get; set; }
 
@@ -98,10 +96,7 @@ public sealed class RecommendedItem
     public DateTime? PremiereDate { get; set; }
 
     /// <summary>
-    ///     Gets or sets the people (cast/director) names associated with this item.
-    ///     Stored for training feature parity: allows TrainingService to compute
-    ///     PeopleSimilarity from cached recommendations without re-querying the library.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the people (cast/director) names associated with this item. Stored for training feature parity: allows TrainingService to compute PeopleSimilarity from cached recommendations without re-querying the library.
     /// </summary>
     public IReadOnlyList<string> PeopleNames
     {
@@ -110,10 +105,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the studio names associated with this item.
-    ///     Stored for training feature parity: allows TrainingService to compute
-    ///     StudioMatch from cached recommendations without re-querying the library.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the studio names associated with this item. Stored for training feature parity: allows TrainingService to compute StudioMatch from cached recommendations without re-querying the library.
     /// </summary>
     public IReadOnlyList<string> Studios
     {
@@ -122,10 +114,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the tags associated with this item.
-    ///     Stored for training feature parity: allows TrainingService to compute
-    ///     TagSimilarity from cached recommendations without re-querying the library.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the tags associated with this item. Stored for training feature parity: allows TrainingService to compute TagSimilarity from cached recommendations without re-querying the library.
     /// </summary>
     public IReadOnlyList<string> Tags
     {
@@ -134,10 +123,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the normalized audio language codes available for this item.
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     LanguageAffinity from cached recommendations without re-querying media streams.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the normalized audio language codes available for this item. Stored for training feature parity: allows TrainingDataBuilder to compute LanguageAffinity from cached recommendations without re-querying media streams.
     /// </summary>
     public IReadOnlyList<string> AudioLanguages
     {
@@ -146,10 +132,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the normalized subtitle language codes available for this item.
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     SubtitleLanguageAffinity from cached recommendations without re-querying media streams.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the normalized subtitle language codes available for this item. Stored for training feature parity: allows TrainingDataBuilder to compute SubtitleLanguageAffinity from cached recommendations without re-querying media streams.
     /// </summary>
     public IReadOnlyList<string> SubtitleLanguages
     {
@@ -158,10 +141,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the BoxSet (collection) IDs this item belongs to.
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     CollectionProgressionBoost from cached recommendations without re-querying the library.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the BoxSet (collection) IDs this item belongs to. Stored for training feature parity: allows TrainingDataBuilder to compute CollectionProgressionBoost from cached recommendations without re-querying the library.
     /// </summary>
     public IReadOnlyList<Guid> BoxSetIds
     {
@@ -170,24 +150,17 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the date the item was added to the Jellyfin library.
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     LibraryAddedRecency from cached recommendations without re-querying the library.
+    ///     Gets or sets the date the item was added to the Jellyfin library. Stored for training feature parity: allows TrainingDataBuilder to compute LibraryAddedRecency from cached recommendations without re-querying the library.
     /// </summary>
     public DateTime? DateCreated { get; set; }
 
     /// <summary>
     ///     Gets or sets the TMDb collection (franchise) name this movie belongs to, if any.
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     FranchiseAffinity from cached recommendations without re-querying the library.
     /// </summary>
     public string? TmdbCollectionName { get; set; }
 
     /// <summary>
-    ///     Gets or sets the production country codes/names associated with this item.
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     ProductionLocationAffinity from cached recommendations without re-querying the library.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the production country codes/names associated with this item. Stored for training feature parity: allows TrainingDataBuilder to compute ProductionLocationAffinity from cached recommendations without re-querying the library.
     /// </summary>
     public IReadOnlyList<string> ProductionCountries
     {
@@ -197,9 +170,6 @@ public sealed class RecommendedItem
 
     /// <summary>
     ///     Gets or sets the inherited tags (own tags unioned with parent/collection/library-folder tags).
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     InheritedTagSimilarity from cached recommendations without re-querying the library.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
     /// </summary>
     public IReadOnlyList<string> InheritedTags
     {
@@ -209,22 +179,16 @@ public sealed class RecommendedItem
 
     /// <summary>
     ///     Gets or sets the series lifecycle status (e.g. "Continuing", "Ended", "Unreleased"); null for non-series.
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     SeriesCompletability from cached recommendations without re-querying the library.
     /// </summary>
     public string? SeriesStatus { get; set; }
 
     /// <summary>
-    ///     Gets or sets the series end date, if any.
-    ///     Stored for training feature parity: contributes to SeriesCompletability alongside <see cref="SeriesStatus"/>.
+    ///     Gets or sets the series end date, if any. Stored for training feature parity: contributes to SeriesCompletability alongside SeriesStatus.
     /// </summary>
     public DateTime? EndDate { get; set; }
 
     /// <summary>
-    ///     Gets or sets the writer (screenplay/creator) names associated with this item.
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     WriterAffinity from cached recommendations without re-querying the library.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the writer (screenplay/creator) names associated with this item. Stored for training feature parity: allows TrainingDataBuilder to compute WriterAffinity from cached recommendations without re-querying the library.
     /// </summary>
     public IReadOnlyList<string> WriterNames
     {
@@ -233,11 +197,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the billing weights aligned positionally to <see cref="PeopleNames"/>
-    ///     (higher = more top-billed, derived from PersonInfo.SortOrder).
-    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
-    ///     BillingWeightedPeople from cached recommendations without re-querying the library.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    ///     Gets or sets the billing weights aligned positionally to PeopleNames (higher = more top-billed, derived from PersonInfo.SortOrder).
     /// </summary>
     public IReadOnlyList<double> PeopleWeights
     {

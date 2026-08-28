@@ -15,13 +15,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Covers the two outer catch blocks of <see cref="BackupController.ImportBackupAsync"/> that only
-///     fire when the restore itself throws AFTER validation has already passed. These paths are
-///     unreachable through the real <see cref="BackupService"/> (it swallows I/O and parse faults
-///     internally), so a mocked <see cref="IBackupService"/> is required to make
-///     <see cref="IBackupService.RestoreBackup"/> throw the specific exception families the controller
-///     is contracted to translate into a 400 (client-caused, malformed data) versus a 500 (server-side
-///     filesystem failure).
+///     Covers the two outer catch blocks of ImportBackupAsync that only fire when the restore itself throws AFTER validation has already passed.
 /// </summary>
 public sealed class BackupControllerErrorHandlingTests
 {
@@ -94,9 +88,7 @@ public sealed class BackupControllerErrorHandlingTests
     }
 
     /// <summary>
-    ///     Builds a controller over a mocked backup service whose <see cref="IBackupService.RestoreBackup"/>
-    ///     throws <paramref name="restoreException"/>. A minimal valid backup body is attached so
-    ///     deserialization and validation both pass and control reaches the restore call.
+    ///     Builds a controller over a mocked backup service whose RestoreBackup throws . A minimal valid backup body is attached so deserialization and validation both pass and control reaches the restore call.
     /// </summary>
     private BackupController CreateControllerWithFailingRestore(string dataPath, Exception restoreException)
     {

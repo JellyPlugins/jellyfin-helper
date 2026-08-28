@@ -45,8 +45,6 @@ public class BackupServiceTests
         return backup;
     }
 
-    // ===== Validation: Valid backup =====
-
     [Fact]
     public void Validate_ValidBackup_ReturnsNoErrors()
     {
@@ -66,8 +64,6 @@ public class BackupServiceTests
         Assert.Single(result.Errors);
         Assert.Contains("null", result.Errors[0]);
     }
-
-    // ===== Validation: Version =====
 
     [Fact]
     public void Validate_UnsupportedVersion_ReturnsError()
@@ -90,8 +86,6 @@ public class BackupServiceTests
         Assert.False(result.IsValid);
     }
 
-    // ===== Validation: Timestamp =====
-
     [Fact]
     public void Validate_OldTimestamp_ReturnsWarning()
     {
@@ -113,8 +107,6 @@ public class BackupServiceTests
         Assert.True(result.IsValid);
         Assert.Contains(result.Warnings, w => w.Contains("future"));
     }
-
-    // ===== Validation: Language =====
 
     [Fact]
     public void Validate_UnknownLanguage_ReturnsWarning()
@@ -145,8 +137,6 @@ public class BackupServiceTests
         Assert.True(result.IsValid);
         Assert.DoesNotContain(result.Warnings, w => w.Contains("language") || w.Contains("Language"));
     }
-
-    // ===== Validation: Task Modes =====
 
     [Theory]
     [InlineData("InvalidMode")]
@@ -181,8 +171,6 @@ public class BackupServiceTests
         Assert.Empty(result.Warnings);
     }
 
-    // ===== Validation: Numeric ranges =====
-
     [Fact]
     public void Validate_NegativeOrphanMinAge_ReturnsError()
     {
@@ -214,8 +202,6 @@ public class BackupServiceTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e => e.Contains("TrashRetentionDays"));
     }
-
-    // ===== Security: Script injection =====
 
     [Theory]
     [InlineData("<script>alert('xss')</script>")]
@@ -259,8 +245,6 @@ public class BackupServiceTests
         Assert.False(result.IsValid);
     }
 
-    // ===== Security: Null bytes =====
-
     [Fact]
     public void Validate_NullBytesInString_ReturnsError()
     {
@@ -271,8 +255,6 @@ public class BackupServiceTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e => e.Contains("null bytes"));
     }
-
-    // ===== Security: Path traversal =====
 
     [Fact]
     public void Validate_PathTraversalInTrashPath_ReturnsError()
@@ -300,8 +282,6 @@ public class BackupServiceTests
         Assert.Contains(result.Errors, e => e.Contains("dangerous characters") || e.Contains("TrashFolderPath"));
     }
 
-    // ===== Security: String length overflow =====
-
     [Fact]
     public void Validate_ExcessiveStringLength_ReturnsError()
     {
@@ -312,8 +292,6 @@ public class BackupServiceTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e => e.Contains("maximum length"));
     }
-
-    // ===== Arr Instances Validation =====
 
     [Fact]
     public void Validate_TooManyArrInstances_ReturnsError()
@@ -381,8 +359,6 @@ public class BackupServiceTests
         Assert.True(result.IsValid);
     }
 
-    // ===== Timeline Validation =====
-
     [Fact]
     public void Validate_TimelineWithTooManyPoints_ReturnsWarning()
     {
@@ -429,8 +405,6 @@ public class BackupServiceTests
         Assert.True(result.IsValid);
     }
 
-    // ===== Baseline Validation =====
-
     [Fact]
     public void Validate_BaselineWithScriptInPath_ReturnsError()
     {
@@ -474,8 +448,6 @@ public class BackupServiceTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e => e.Contains("1000 characters"));
     }
-
-    // ===== Sanitize =====
 
     [Fact]
     public void Sanitize_InvalidLanguage_DefaultsToEnglish()
@@ -548,8 +520,6 @@ public class BackupServiceTests
         Assert.Equal("INFO", backup.PluginLogLevel);
     }
 
-    // ===== Serialization round-trip =====
-
     [Fact]
     public void SerializeDeserialize_RoundTrip_PreservesData()
     {
@@ -619,8 +589,6 @@ public class BackupServiceTests
         Assert.Equal("en", result.Language); // default from class
     }
 
-    // ===== Security: ContainsScriptInjection helper =====
-
     [Theory]
     [InlineData("<script>alert(1)</script>", true)]
     [InlineData("javascript:void(0)", true)]
@@ -641,8 +609,6 @@ public class BackupServiceTests
         Assert.Equal(expected, BackupValidator.ContainsScriptInjection(input));
     }
 
-    // ===== Security: ContainsNullBytes helper =====
-
     [Fact]
     public void ContainsNullBytes_DetectsNullByte()
     {
@@ -650,8 +616,6 @@ public class BackupServiceTests
         Assert.False(BackupValidator.ContainsNullBytes("hello world"));
         Assert.False(BackupValidator.ContainsNullBytes(""));
     }
-
-    // ===== Full validation pipeline: malicious backup =====
 
     [Fact]
     public void Validate_CompletelyMaliciousBackup_RejectsAll()
@@ -678,8 +642,6 @@ public class BackupServiceTests
         Assert.True(result.Errors.Count >= 5,
             $"Expected >= 5 errors, got {result.Errors.Count}: {string.Join("; ", result.Errors)}");
     }
-
-    // ===== Edge cases =====
 
     [Fact]
     public void Validate_EmptyBackup_WithVersion1_IsValid()
@@ -715,8 +677,6 @@ public class BackupServiceTests
         backup.TrashRetentionDays = 3650;
         Assert.True(BackupValidator.Validate(backup).IsValid);
     }
-
-    // ===== File I/O: RestoreBackup with data path =====
 
     [Fact]
     public void CreateBackup_ReadsHistoricalDataFiles()
@@ -928,8 +888,6 @@ public class BackupServiceTests
         Assert.Equal("DryRun", backup.RecommendationsTaskMode);
     }
 
-    // ===== ValidateGrowthTimeline: loop breaks once both flags set (#335) =====
-
     [Fact]
     public void Validate_TimelineWithBothNegativeSizeAndCount_EmitsBothWarningsOnce()
     {
@@ -946,8 +904,6 @@ public class BackupServiceTests
         Assert.Equal(1, result.Warnings.Count(w => w.Contains("negative cumulative size")));
         Assert.Equal(1, result.Warnings.Count(w => w.Contains("negative cumulative file count")));
     }
-
-    // ===== Baseline path: injection check runs unconditionally before length check (#339) =====
 
     [Fact]
     public void Validate_BaselinePathWithScriptInjectionAndLongPath_ReportsInjectionError()

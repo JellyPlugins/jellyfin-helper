@@ -12,9 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Playlist;
 
 /// <summary>
-///     Security guards on the DB-item fallback delete: a drifted/hostile <c>playlist.Path</c>
-///     must never trigger a recursive <c>Directory.Delete</c> outside Jellyfin's playlists
-///     root - including the root itself, which would wipe every user's playlists.
+///     Security guards on the DB-item fallback delete: a drifted/hostile playlist.Path must never trigger a recursive Directory.Delete outside Jellyfin's playlists root - including the root itself, which would wipe every user's playlists.
 /// </summary>
 public sealed class RecommendationPlaylistServiceSecurityTests : IDisposable
 {

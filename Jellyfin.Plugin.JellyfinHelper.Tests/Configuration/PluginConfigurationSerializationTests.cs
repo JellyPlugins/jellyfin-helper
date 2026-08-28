@@ -219,12 +219,7 @@ public class PluginConfigurationSerializationTests
         Assert.Equal("Radarr 4K", restored3.RadarrInstances[1].Name);
     }
 
-    // === Complete property surface round-trip ===
-    // The tests above cover Arr instances plus a mixed subset of settings. What they miss is
-    // "did every single property survive a round-trip at its default?" and "does a fully
-    // non-default configuration round-trip without dropping / renaming any property?". The
-    // three tests below close that gap so a future property rename in PluginConfiguration
-    // can't silently break existing user configs.
+    // The tests above cover Arr instances plus a mixed subset of settings. What they miss is "did every single property survive a round-trip at its default?" and "does a fully non-default configuration round-trip without dropping / renaming any property?".
 
     [Fact]
     public void XmlRoundTrip_DefaultConfiguration_AllPropertiesUnchanged()
@@ -306,9 +301,7 @@ public class PluginConfigurationSerializationTests
             PluginLogLevel = "DEBUG",
             TotalBytesFreed = 123_456_789L,
             TotalItemsDeleted = 42,
-            // Any DateTime distinct from DateTime.MinValue proves the property was written.
-            // Kind=Utc + subseconds=0 avoids XML round-trip surprises (fractional seconds and
-            // local/UTC conversion are both silently lossy in some serializer configurations).
+            // Any DateTime distinct from DateTime.MinValue proves the property was written. Kind=Utc + subseconds=0 avoids XML round-trip surprises (fractional seconds and local/UTC conversion are both silently lossy in some serializer configurations).
             LastCleanupTimestamp = new DateTime(2026, 7, 9, 10, 17, 12, DateTimeKind.Utc)
         };
         original.RadarrInstances.Add(new ArrInstanceConfig { Name = "R", Url = "http://r", ApiKey = "rk" });
@@ -351,9 +344,7 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void XmlRoundTrip_OutOfRangeNumericProperties_AreClampedBySetter()
     {
-        // Values assigned via property are clamped BEFORE serialization, so the XML
-        // never contains out-of-range values. The Deserialize_HandEditedXmlWithOutOfRangeValues_ClampsOnLoad
-        // test below covers the complementary case: XML that already contains bad values.
+        // Values assigned via property are clamped BEFORE serialization, so the XML never contains out-of-range values.
         var original = new PluginConfiguration
         {
             OrphanMinAgeDays = 10_000,          // clamped to 3650
@@ -375,11 +366,7 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void Deserialize_HandEditedXmlWithOutOfRangeValues_ClampsOnLoad()
     {
-        // Simulates the real-world case: an admin hand-edits the plugin config XML file
-        // and puts values outside the valid ranges. The XmlSerializer must run every
-        // setter (which is where the clamping lives), so the loaded configuration should
-        // come back with values pinned to the documented bounds - no exceptions, no
-        // corrupt state.
+        // Simulates the real-world case: an admin hand-edits the plugin config XML file and puts values outside the valid ranges.
         const string xml = @"<?xml version=""1.0"" encoding=""utf-16""?>
 <PluginConfiguration xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"">
   <OrphanMinAgeDays>99999</OrphanMinAgeDays>
@@ -402,10 +389,7 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void Deserialize_HandEditedXmlWithNaNDoubles_CoercedToFiniteValueAndReported()
     {
-        // Math.Clamp passes NaN through unchanged. Without an explicit NaN guard the ensemble
-        // blend would then multiply by NaN and poison every recommendation score. Guard the
-        // finite invariant here so a corrupted or hand-mangled config file cannot silently
-        // brick recommendations.
+        // Math.Clamp passes NaN through unchanged. Without an explicit NaN guard the ensemble blend would then multiply by NaN and poison every recommendation score.
         const string xml = @"<?xml version=""1.0"" encoding=""utf-16""?>
 <PluginConfiguration xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"">
   <EnsembleAlphaMin>NaN</EnsembleAlphaMin>

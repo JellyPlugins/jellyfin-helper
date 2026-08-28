@@ -8,8 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Tests the defense-in-depth guard in <see cref="TrashService.MoveToTrash"/>
-///     that prevents re-trashing items already located inside the trash folder.
+///     Tests the defense-in-depth guard in MoveToTrash that prevents re-trashing items already located inside the trash folder.
 /// </summary>
 public sealed class TrashServiceGuardTests
 {
@@ -125,9 +124,7 @@ public sealed class TrashServiceGuardTests
     [Fact]
     public void MoveFileToTrash_SourceFileInsideTrashFolder_ReturnsZeroAndLogsWarning()
     {
-        // A file that already lives under the trash prefix must not be re-trashed:
-        // repeated timestamp prefixing would grow the path past PATH_MAX. The guard
-        // must short-circuit before any move happens.
+        // A file that already lives under the trash prefix must not be re-trashed: repeated timestamp prefixing would grow the path past PATH_MAX.
         var tempBase = Path.Join(Path.GetTempPath(), $"trash-guard-file-inside-{Guid.NewGuid():N}");
         var trashBasePath = Path.Join(tempBase, ".jellyfin-trash");
         var sourceFile = Path.Join(trashBasePath, "20260510-010001_x.srt");

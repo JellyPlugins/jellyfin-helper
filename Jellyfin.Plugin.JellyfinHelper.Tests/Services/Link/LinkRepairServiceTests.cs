@@ -8,9 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 
 /// <summary>
-///     Unit tests for <see cref="LinkRepairService" />.
-///     Tests the handler-agnostic service logic. Uses real StrmLinkHandler for .strm tests
-///     and a mocked ISymlinkHelper-backed SymlinkHandler for symlink tests.
+///     Unit tests for LinkRepairService. Tests the handler-agnostic service logic.
 /// </summary>
 public class LinkRepairServiceTests
 {
@@ -32,8 +30,6 @@ public class LinkRepairServiceTests
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
     }
-
-    // ===== FindLinkFiles: .strm =====
 
     [Fact]
     public void FindLinkFiles_FindsStrmFilesRecursively()
@@ -66,8 +62,6 @@ public class LinkRepairServiceTests
         Assert.Single(result);
         Assert.Same(_strmHandler, result[0].Handler);
     }
-
-    // ===== FindLinkFiles: Symlinks =====
 
     [Fact]
     public void FindLinkFiles_FindsSymlinkFiles()
@@ -121,8 +115,6 @@ public class LinkRepairServiceTests
         Assert.Contains(result, r => r.FilePath == symlinkFile && r.Handler == _symlinkHandler);
     }
 
-    // ===== FindLinkFiles: Edge Cases =====
-
     [Fact]
     public void FindLinkFiles_SkipsNonExistentLibraryPaths()
     {
@@ -136,8 +128,6 @@ public class LinkRepairServiceTests
         var result = _service.FindLinkFiles([]);
         Assert.Empty(result);
     }
-
-    // ===== ProcessLinkFile: .strm scenarios =====
 
     [Fact]
     public void ProcessLinkFile_Strm_ValidTarget_ReturnsValid()
@@ -231,8 +221,6 @@ public class LinkRepairServiceTests
         Assert.Equal(newFile, _fileSystem.File.ReadAllText(linkFile));
     }
 
-    // ===== ProcessLinkFile: Symlink scenarios =====
-
     [Fact]
     public void ProcessLinkFile_Symlink_ValidTarget_ReturnsValid()
     {
@@ -302,8 +290,6 @@ public class LinkRepairServiceTests
         _symlinkHelper.Verify(h => h.ReplaceSymlink(symlinkFile + ".jfh-tmp", symlinkFile), Times.Once);
         _symlinkHelper.Verify(h => h.DeleteSymlink(symlinkFile), Times.Never);
     }
-
-    // ===== ProcessLinkFile: Shared scenarios (handler-agnostic) =====
 
     [Fact]
     public void ProcessLinkFile_BrokenTarget_ParentDirDoesNotExist_ReturnsBroken()
@@ -399,8 +385,6 @@ public class LinkRepairServiceTests
         Assert.Equal(LinkFileStatus.Ambiguous, result.Status);
     }
 
-    // ===== URL bypass: only for handlers that support URLs =====
-
     [Fact]
     public void ProcessLinkFile_Symlink_UrlLikeTarget_IsNotSkippedAsUrl()
     {
@@ -411,9 +395,7 @@ public class LinkRepairServiceTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        // The target is not a valid file path, so normalisation or file-exists check will fail.
-        // A URL target must be treated as Broken (or InvalidContent), never as Valid
-        // (which would mean the URL was silently skipped despite SupportsUrlTargets == false).
+        // The target is not a valid file path, so normalisation or file-exists check will fail. A URL target must be treated as Broken (or InvalidContent), never as Valid (which would mean the URL was silently skipped despite SupportsUrlTargets == false).
         Assert.True(
             result.Status == LinkFileStatus.Broken || result.Status == LinkFileStatus.InvalidContent,
             $"Expected Broken or InvalidContent but got {result.Status}");
@@ -432,8 +414,6 @@ public class LinkRepairServiceTests
 
         Assert.Equal(LinkFileStatus.Valid, result.Status);
     }
-
-    // ===== FindMediaFilesInDirectory =====
 
     [Fact]
     public void FindMediaFilesInDirectory_FindsOnlyVideoFiles()
@@ -463,8 +443,6 @@ public class LinkRepairServiceTests
 
         Assert.Equal(3, result.Count);
     }
-
-    // ===== RepairLinks: Full workflow =====
 
     [Fact]
     public void RepairLinks_Strm_FullWorkflow_DryRun()
@@ -574,9 +552,7 @@ public class LinkRepairServiceTests
         Assert.Throws<OperationCanceledException>(() => _service.RepairLinks([seriesDir], true, cts.Token));
     }
 
-    // =========================================================================
     // Error-path & bug-surface coverage
-    // =========================================================================
 
     [Fact]
     public void ProcessLinkFile_Symlink_ActualRepair_DeleteThrows_ReturnsBroken_AndClearsNewTargetPath()
@@ -673,11 +649,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void ProcessLinkFile_ReadTargetThrowsIOException_ReturnsInvalidContent_DoesNotPropagate()
     {
-        // A handler throwing IOException must be caught & mapped to InvalidContent -
-        // never propagate up and abort the whole library scan. The method name promises
-        // IO-exception coverage, so we throw an actual IOException here (an
-        // UnauthorizedAccessException hits a different catch clause and would not
-        // exercise the intended path).
+        // A handler throwing IOException must be caught & mapped to InvalidContent - never propagate up and abort the whole library scan.
         var handler = new Mock<ILinkHandler>();
         handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
         handler.Setup(x => x.SupportsUrlTargets).Returns(false);
@@ -764,8 +736,6 @@ public class LinkRepairServiceTests
         Assert.Equal(LinkFileStatus.Valid, result.FileResults[0].Status);
     }
 
-    // ===== Iterative traversal (no stack overflow on deep trees) =====
-
     [Fact]
     public void FindLinkFiles_DeepDirectoryTree_DoesNotOverflow()
     {
@@ -816,11 +786,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void RepairLinks_YieldReturnLibraryPaths_RelativeTargetOutsideLibraryRoot_ReturnsInvalidContent()
     {
-        // When libraryPaths is a non-replayable IEnumerable (yield-return),
-        // the second enumeration in RepairLinks produced an empty normalizedLibraryPaths,
-        // which caused the path-traversal guard (Count > 0) to be skipped - so a relative
-        // target that resolves outside the library root was silently treated as Broken instead
-        // of InvalidContent. Materializing to a list before both uses must fix this.
+        // When libraryPaths is a non-replayable IEnumerable (yield-return), the second enumeration in RepairLinks produced an empty normalizedLibraryPaths, which caused the path-traversal guard (Count > 0) to be skipped - so a relative target that resolves outside the library root was.
         var libDir = _fileSystem.Path.GetFullPath("/series/Show1");
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
 
@@ -844,15 +810,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void FindLinkFiles_VisitedDirectoryCapReached_DoesNotSilentlyProcessSubsequentLibraryPaths()
     {
-        // When the visited-directory cap was hit inside FindLinkFilesRecursive,
-        // the inner while-loop broke but FindLinkFiles continued iterating further library
-        // paths. Each subsequent call immediately hit the accumulated cap and silently
-        // returned - processing no files from those paths. The fix propagates limitReached
-        // out and breaks the outer foreach.
-        //
-        // A service subclass overrides VisitedDirectoryCap to 2 so the cap is hit while
-        // traversing lib1 (root + 2 subdirs = 3 visited entries), then lib2 must not be
-        // processed.
+        // When the visited-directory cap was hit inside FindLinkFilesRecursive, the inner while-loop broke but FindLinkFiles continued iterating further library paths.
         var fs = new MockFileSystem();
         var service = new LowCapLinkRepairService(
             fs,
@@ -874,9 +832,7 @@ public class LinkRepairServiceTests
         Assert.DoesNotContain(found, r => r.FilePath.StartsWith(lib2, StringComparison.OrdinalIgnoreCase));
     }
 
-    // =========================================================================
     // RepairLinks: aggregate counts
-    // =========================================================================
 
     [Fact]
     public void RepairLinks_AggregatesInvalidContentCount()
@@ -927,9 +883,7 @@ public class LinkRepairServiceTests
         Assert.Equal(0, result.RepairedCount);
     }
 
-    // =========================================================================
     // RepairLinks: cancellation between file-processing iterations
-    // =========================================================================
 
     [Fact]
     public void RepairLinks_CancellationBetweenFileProcessing_Throws()
@@ -974,17 +928,12 @@ public class LinkRepairServiceTests
             service.RepairLinks([seriesDir], dryRun: true, cts.Token));
     }
 
-    // =========================================================================
     // FindMediaFilesInDirectory: inaccessible directory
-    // =========================================================================
 
     [Fact]
     public void FindMediaFilesInDirectory_InaccessibleDirectory_ReturnsEmpty()
     {
-        // A handler that throws UnauthorizedAccessException when the directory is
-        // enumerated should be caught and result in an empty list (not a crash).
-        // We simulate this by using a non-existent directory so the MockFileSystem
-        // returns an empty enumeration (or throws, which the catch block handles).
+        // A handler that throws UnauthorizedAccessException when the directory is enumerated should be caught and result in an empty list (not a crash).
         var missingDir = _fileSystem.Path.GetFullPath("/no-such-dir");
 
         var result = _service.FindMediaFilesInDirectory(missingDir);
@@ -992,16 +941,12 @@ public class LinkRepairServiceTests
         Assert.Empty(result);
     }
 
-    // =========================================================================
     // ProcessLinkFile: normalizedLibraryPaths path-traversal guard
-    // =========================================================================
 
     [Fact]
     public void ProcessLinkFile_RelativeTarget_EscapesLibraryRoot_ReturnsInvalidContent()
     {
-        // When ProcessLinkFile is called with an explicit normalizedLibraryPaths list
-        // and the relative target resolves outside every listed root, the result must
-        // be InvalidContent (path-traversal guard), not Broken.
+        // When ProcessLinkFile is called with an explicit normalizedLibraryPaths list and the relative target resolves outside every listed root, the result must be InvalidContent (path-traversal guard), not Broken.
         var libDir = _fileSystem.Path.GetFullPath("/series/Show1");
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
@@ -1038,16 +983,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void ProcessLinkFile_RelativeTarget_NullNormalizedPaths_SkipsGuard()
     {
-        // When normalizedLibraryPaths is null the path-traversal guard is skipped,
-        // and a relative target that resolves to a non-existent file is Broken (not
-        // InvalidContent). This is the behaviour used by the direct test-helper overload.
-        //
-        // The target must be a NON-sensitive relative sibling: an escaping target like
-        // "../../../etc/passwd" resolves to /etc/passwd on Linux, which the sensitive-
-        // system-target guard (IsSensitiveSystemTarget) correctly rejects as
-        // InvalidContent regardless of normalizedLibraryPaths - so it would NOT reach
-        // the Broken (existence) path on a Linux CI runner. A plain missing sibling
-        // exercises the guard-skipped -> existence-check path identically on every OS.
+        // When normalizedLibraryPaths is null the path-traversal guard is skipped, and a relative target that resolves to a non-existent file is Broken (not InvalidContent).
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("MissingSibling.mkv"));
 
@@ -1065,14 +1001,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void ProcessLinkFile_RelativeTarget_NullNormalizedPaths_SensitiveTarget_ReturnsInvalidContent()
     {
-        // Even with the path-traversal guard skipped (normalizedLibraryPaths null), a
-        // relative target that escapes to a sensitive system directory must still be
-        // refused as InvalidContent by the sensitive-system-target guard - link repair
-        // must never enumerate or rewrite toward host paths like /etc. This is the
-        // cross-platform-sensitive counterpart to the missing-sibling case above; it is
-        // meaningful only where the resolved path lands under a sensitive root, so it is
-        // scoped to POSIX layouts (on Windows "../../../etc/passwd" resolves to a
-        // non-sensitive drive-relative path).
+        // Even with the path-traversal guard skipped (normalizedLibraryPaths null), a relative target that escapes to a sensitive system directory must still be refused as InvalidContent by the sensitive-system-target guard - link repair must never enumerate or rewrite toward host paths.
         if (!OperatingSystem.IsWindows())
         {
             var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
@@ -1088,10 +1017,7 @@ public class LinkRepairServiceTests
         }
         else
         {
-            // On Windows "../../../etc/passwd" resolves to a non-sensitive drive-relative
-            // path (e.g. C:\etc\passwd), so the sensitive-system-target guard does NOT
-            // fire. The target simply does not exist -> the link is Broken (not
-            // InvalidContent). Assert that explicitly so the test is not vacuous on Windows.
+            // On Windows "../../../etc/passwd" resolves to a non-sensitive drive-relative path (e.g. C:\etc\passwd), so the sensitive-system-target guard does NOT fire.
             var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
             _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
 
@@ -1105,9 +1031,7 @@ public class LinkRepairServiceTests
         }
     }
 
-    // =========================================================================
     // ProcessLinkFile: strm WriteTarget exception variants
-    // =========================================================================
 
     [Fact]
     public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsNotSupported_ReturnsBroken()
@@ -1214,18 +1138,12 @@ public class LinkRepairServiceTests
         Assert.Null(result.NewTargetPath);
     }
 
-    // =========================================================================
     // StrmLinkHandler: oversized file handled at service level
-    // =========================================================================
 
     [Fact]
     public void ProcessLinkFile_Strm_OversizedFile_ReturnsInvalidContent()
     {
-        // StrmLinkHandler.ReadTarget returns null for files > 32 KB.
-        // LinkRepairService must classify null-target reads as InvalidContent.
-        // We replicate the condition by having the handler return null (the service
-        // path for null/empty target is already exercised for empty files, but this
-        // verifies the oversized branch is handled identically through the same gate).
+        // StrmLinkHandler.ReadTarget returns null for files > 32 KB. LinkRepairService must classify null-target reads as InvalidContent.
         var oversizedContent = new string('A', 33 * 1024); // > 32 KB MaxStrmFileSizeBytes
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/oversized.strm");
         _fileSystem.AddFile(linkFile, new MockFileData(oversizedContent));
@@ -1235,9 +1153,7 @@ public class LinkRepairServiceTests
         Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
     }
 
-    // =========================================================================
     // ProcessLinkFile: path normalization exception variants
-    // =========================================================================
 
     [Fact]
     public void ProcessLinkFile_PathTooLongTarget_ReturnsInvalidContent()
@@ -1247,10 +1163,7 @@ public class LinkRepairServiceTests
         var handler = new Mock<ILinkHandler>();
         handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
         handler.Setup(x => x.SupportsUrlTargets).Returns(false);
-        // PathTooLongException is thrown when Path.GetFullPath processes an
-        // extremely long path on some platforms. We inject it directly from ReadTarget
-        // to target the catch(ArgumentException | NotSupportedException | PathTooLongException)
-        // block around GetFullPath at line 333.
+        // PathTooLongException is thrown when Path.GetFullPath processes an extremely long path on some platforms.
         handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
             .Returns("/" + new string('x', 32_768) + ".mkv");
 
@@ -1266,9 +1179,7 @@ public class LinkRepairServiceTests
             $"Expected Broken or InvalidContent but got {result.Status}");
     }
 
-    // =========================================================================
     // RepairLinks: dryRun=false end-to-end aggregate
-    // =========================================================================
 
     [Fact]
     public void RepairLinks_ActualRepair_AllStatuses_AggregatedCorrectly()
@@ -1315,9 +1226,7 @@ public class LinkRepairServiceTests
         Assert.Equal(1, result.InvalidContentCount);
     }
 
-    // =========================================================================
     // RepairLinks: malformed library path in normalizedLibraryPaths
-    // =========================================================================
 
     [Fact]
     public void RepairLinks_MalformedLibraryPath_DoesNotThrow_ReturnsEmptyResult()
@@ -1395,10 +1304,8 @@ public class LinkRepairServiceTests
         protected override int VisitedDirectoryCap => 2;
     }
 
-    // =========================================================================
     // FindLinkFiles: per-file & per-directory fault isolation, cancellation,
     // directory-symlink resolution
-    // =========================================================================
 
     [Fact]
     public void FindLinkFiles_HandlerCanHandleThrowsIOException_SkipsFileAndContinuesScan()
@@ -1432,9 +1339,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void FindLinkFiles_CancellationDuringFileInspection_PropagatesOperationCanceled()
     {
-        // Cancellation raised from inside the try block (during per-file inspection) must
-        // surface as OperationCanceledException via the dedicated OCE catch - it must NOT
-        // be swallowed by the broader IOException catch that guards directory access.
+        // Cancellation raised from inside the try block (during per-file inspection) must surface as OperationCanceledException via the dedicated OCE catch - it must NOT be swallowed by the broader IOException catch that guards directory access.
         var seriesDir = _fileSystem.Path.GetFullPath("/series");
         _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/a.strm"), new MockFileData("t"));
         _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/b.strm"), new MockFileData("t"));
@@ -1482,9 +1387,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void FindLinkFiles_DirectorySymlinkResolvedToTarget_EnumeratesTargetContents()
     {
-        // When a scanned directory is itself a symlink, ResolveLinkTarget returns the real
-        // target and the visited-set is keyed on that resolved path (dedupe) - the .strm
-        // inside must still be discovered exactly once.
+        // When a scanned directory is itself a symlink, ResolveLinkTarget returns the real target and the visited-set is keyed on that resolved path (dedupe) - the .strm inside must still be discovered exactly once.
         var fs = new ResolvingDirectoryFileSystem();
         var link = fs.Path.GetFullPath("/series/linkdir");
         var target = fs.Path.GetFullPath("/real/targetdir");
@@ -1505,9 +1408,7 @@ public class LinkRepairServiceTests
         Assert.Equal(strmFile, result[0].FilePath);
     }
 
-    // =========================================================================
     // ProcessLinkFile: link-file directory null & normalization exceptions
-    // =========================================================================
 
     [Fact]
     public void ProcessLinkFile_LinkFilePathIsRoot_DirectoryNameNull_ReturnsInvalidContent()
@@ -1529,9 +1430,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void ProcessLinkFile_NormalizationThrowsArgumentException_ReturnsInvalidContent()
     {
-        // GetFullPath throwing ArgumentException while normalizing a rooted target must be
-        // caught and mapped to InvalidContent - never propagate. (Deterministic counterpart
-        // to the PathTooLong test, which modern runtimes may not actually throw for.)
+        // GetFullPath throwing ArgumentException while normalizing a rooted target must be caught and mapped to InvalidContent - never propagate.
         var fs = new GetFullPathThrowsForTargetFileSystem();
         var rootedTarget = fs.Path.GetFullPath("/rooted/target.mkv");
         fs.SetThrowTarget(rootedTarget);
@@ -1612,9 +1511,7 @@ public class LinkRepairServiceTests
         }
     }
 
-    // MockFileSystem whose DirectoryInfo.New returns a directory whose ResolveLinkTarget
-    // reports a non-null resolved target - plain MockFileSystem throws IOException there,
-    // which would take the fallback catch instead of the resolved-target branch.
+    // MockFileSystem whose DirectoryInfo.New returns a directory whose ResolveLinkTarget reports a non-null resolved target - plain MockFileSystem throws IOException there, which would take the fallback catch instead of the resolved-target branch.
     private sealed class ResolvingDirectoryFileSystem : MockFileSystem
     {
         private string _linkPath = string.Empty;

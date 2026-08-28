@@ -11,10 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Behavioral tests for the shared <see cref="ContentAffinityResolver"/> resolvers that feed the
-///     content-affinity features (series status and end date, TMDb collection, production countries,
-///     inherited tags, writers). These run on both the live scoring path and training, so the exact
-///     values returned are a train/serve parity contract, not merely "some non-null value".
+///     Behavioral tests for the shared ContentAffinityResolver resolvers that feed the content-affinity features (series status and end date, TMDb collection, production countries, inherited tags, writers).
 /// </summary>
 public sealed class ContentAffinityResolverTests
 {
@@ -87,10 +84,7 @@ public sealed class ContentAffinityResolverTests
         Assert.Empty(ContentAffinityResolver.ResolveProductionCountries(movie));
     }
 
-    // The positive case (tags actually flow through) is not unit-testable here: GetInheritedTags()
-    // walks the LibraryManager and parent chain, so a bare Movie with Tags set still resolves to
-    // empty. That path is covered by the e2e suite against a live server. We only lock the fail-soft
-    // contract below, which is what this resolver adds on top.
+    // The positive case (tags actually flow through) is not unit-testable here: GetInheritedTags() walks the LibraryManager and parent chain, so a bare Movie with Tags set still resolves to empty.
     [Fact]
     public void ResolveInheritedTags_NoTags_ReturnsEmptyList()
     {

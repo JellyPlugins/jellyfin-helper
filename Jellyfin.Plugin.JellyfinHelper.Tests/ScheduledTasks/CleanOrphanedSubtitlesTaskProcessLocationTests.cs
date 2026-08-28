@@ -36,8 +36,6 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
             MockTrashService.Object);
     }
 
-    // ===== Chunk 1: Happy path - orphan detection & keep-if-matched =====
-
     [Fact]
     public async Task Execute_OrphanedSubtitleInDirWithVideo_IsDetectedInDryRun()
     {
@@ -88,8 +86,6 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         VerifyLogContains(_loggerMock, "Would have deleted 0 files", LogLevel.Information);
     }
 
-    // ===== Chunk 2: guarded directories (trickplay, trash) =====
-
     [Fact]
     public async Task Execute_TrickplayDir_IsSkipped()
     {
@@ -129,8 +125,6 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
                 It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
             Times.Never);
     }
-
-    // ===== Chunk 3: activate mode + trash service integration =====
 
     [Fact]
     public async Task Execute_Activate_UseTrash_InvokesTrashServiceAndReportsBytes()
@@ -200,8 +194,6 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         VerifyLogContains(_loggerMock, "Deleted 0 files, freed 0 bytes", LogLevel.Information);
     }
 
-    // ===== Chunk 4: age gate & IOException resilience =====
-
     [Fact]
     public async Task Execute_OrphanTooNew_SkipsDelete_ProtectsRadarrRace()
     {
@@ -260,8 +252,6 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         VerifyLogContains(_loggerMock, "Could not list files in", LogLevel.Warning);
         VerifyLogContains(_loggerMock, "Would delete orphaned subtitle", LogLevel.Information);
     }
-
-    // ===== Chunk 5: cancellation & progress =====
 
     [Fact]
     public async Task Execute_CancellationRequested_ThrowsAndStopsBetweenLocations()
@@ -336,9 +326,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     [Fact]
     public async Task Execute_GetTrashPathThrowsUnexpected_LogsErrorAndDoesNotCrash()
     {
-        // The trash-path setup is hoisted outside the per-directory loop. A non-IO failure there
-        // (e.g. a bad configuration surfacing as InvalidOperationException) must be caught by the
-        // outer catch-all so a single library does not abort the whole task.
+        // The trash-path setup is hoisted outside the per-directory loop. A non-IO failure there (e.g.
         const string lib = "/media/movies";
         const string dir = "/media/movies/M";
         SetupLibrary(lib);
@@ -402,9 +390,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     }
 
     /// <summary>
-    ///     When the seed-phase <c>GetDirectories(libraryPath)</c> call inside <c>TryGetSubdirectories</c>
-    ///     throws, the method must log a warning and return an empty list.  The task still processes
-    ///     <c>libraryPath</c> itself (it is prepended directly) and completes without crashing.
+    ///     When the seed-phase GetDirectories(libraryPath) call inside TryGetSubdirectories throws, the method must log a warning and return an empty list.
     /// </summary>
     [Fact]
     public async Task Execute_TryGetSubdirectoriesSeedThrows_LogsWarningAndContinues()
@@ -426,10 +412,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     }
 
     /// <summary>
-    ///     When <c>GetDirectories</c> throws for a nested directory during the loop phase of
-    ///     <c>TryGetSubdirectories</c>, the method must log a warning and continue processing
-    ///     the remaining directories (not abort the whole scan). Proven by a readable sibling
-    ///     whose orphaned subtitle is still detected after the failing directory.
+    ///     When GetDirectories throws for a nested directory during the loop phase of TryGetSubdirectories, the method must log a warning and continue processing the remaining directories (not abort the whole scan).
     /// </summary>
     [Fact]
     public async Task Execute_TryGetSubdirectoriesLoopThrows_LogsWarningAndContinues()
@@ -438,9 +421,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         const string subDir = "/media/movies/ShowA";
         const string okDir = "/media/movies/ShowB";
         SetupLibrary(lib);
-        // Seed order matters: TryGetSubdirectories uses a LIFO stack, so the FIRST-returned dir is
-        // processed LAST. Return okDir first (-> bottom of stack) so the failing subDir is popped and
-        // throws BEFORE okDir is reached, proving the loop continues past the failure, not around it.
+        // Seed order matters: TryGetSubdirectories uses a LIFO stack, so the FIRST-returned dir is processed LAST.
         _fileSystemMock.Setup(f => f.GetDirectories(lib)).Returns([
             new FileSystemMetadata { FullName = okDir, Name = "ShowB", IsDirectory = true },
             new FileSystemMetadata { FullName = subDir, Name = "ShowA", IsDirectory = true }

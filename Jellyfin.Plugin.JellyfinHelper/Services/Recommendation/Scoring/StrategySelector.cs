@@ -5,18 +5,12 @@ using System;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Selects alpha-exploration offsets for users, enabling automatic calibration of the
-///     ensemble's sigmoid midpoint via cohort-based A/B testing.
-///     Users are deterministically assigned to cohorts based on their user ID hash,
-///     ensuring stable cohort membership across requests (same user always gets same cohort).
+///     Selects alpha-exploration offsets for users, enabling automatic calibration of the ensemble's sigmoid midpoint via cohort-based A/B testing.
 /// </summary>
 public interface IStrategySelector
 {
     /// <summary>
-    ///     Gets the alpha offset for the given user's exploration cohort.
-    ///     Returns 0.0 for the control group (80%), +0.12 for explore-high (10%),
-    ///     and -0.12 for explore-low (10%). Returns 0.0 for all users when exploration
-    ///     is not yet activated (insufficient training data).
+    ///     Gets the alpha offset for the given user's exploration cohort. Returns 0.0 for the control group (80%), +0.12 for explore-high (10%), and -0.12 for explore-low (10%).
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <returns>The alpha offset to apply during scoring.</returns>
@@ -31,19 +25,10 @@ public interface IStrategySelector
 }
 
 /// <summary>
-///     Default implementation of <see cref="IStrategySelector"/> that splits users into
-///     alpha-exploration cohorts for automatic sigmoid midpoint calibration.
-///     When exploration is inactive (insufficient training data), all users receive offset 0.0.
+///     Default implementation of IStrategySelector that splits users into alpha-exploration cohorts for automatic sigmoid midpoint calibration.
 /// </summary>
 /// <remarks>
-///     Bucketing uses a deterministic hash of the user ID so that:
-///     1. The same user always lands in the same cohort (no flickering between requests).
-///     2. No persistent state is needed (stateless computation).
-///     3. Cohort assignment survives server restarts.
-///
-///     Exploration activates only when the ensemble has accumulated sufficient training data
-///     (>= 50 examples AND >= 2 metrics history snapshots), ensuring the system is past the
-///     initial cold-start phase before diversifying alpha values.
+///     Bucketing uses a deterministic hash of the user ID so that: 1. The same user always lands in the same cohort (no flickering between requests).
 /// </remarks>
 internal sealed class StrategySelector : IStrategySelector
 {
@@ -60,15 +45,12 @@ internal sealed class StrategySelector : IStrategySelector
     internal const double ExploreLowOffset = -0.12;
 
     /// <summary>
-    ///     Minimum cumulative training examples before exploration activates.
-    ///     Below this threshold, the sigmoid curve is in its early flat region
-    ///     and exploration would not yield meaningful signal.
+    ///     Minimum cumulative training examples before exploration activates. Below this threshold, the sigmoid curve is in its early flat region and exploration would not yield meaningful signal.
     /// </summary>
     internal const int MinExamplesForExploration = 50;
 
     /// <summary>
     ///     Minimum metrics history snapshots (completed training runs) before exploration activates.
-    ///     Ensures at least 2 full train cycles have completed so the system has baseline stability.
     /// </summary>
     internal const int MinMetricsHistoryForExploration = 2;
 
@@ -142,8 +124,6 @@ internal sealed class StrategySelector : IStrategySelector
 
     /// <summary>
     ///     Determines whether exploration is active based on the ensemble's training maturity.
-    ///     Exploration only activates after sufficient training data has accumulated,
-    ///     ensuring the base alpha is meaningful before testing variations.
     /// </summary>
     private bool IsExplorationActive()
     {
@@ -152,11 +132,7 @@ internal sealed class StrategySelector : IStrategySelector
     }
 
     /// <summary>
-    ///     Computes a deterministic bucket (0-99) for a user ID.
-    ///     Uses XOR-fold over the raw 16 Guid bytes to produce a stable hash that
-    ///     is independent of the .NET runtime's Guid.GetHashCode implementation
-    ///     (which has changed historically between .NET versions).
-    ///     This ensures cohort assignments remain consistent across server upgrades.
+    ///     Computes a deterministic bucket (0-99) for a user ID. Uses XOR-fold over the raw 16 Guid bytes to produce a stable hash that is independent of the .NET runtime's Guid.GetHashCode implementation (which has changed historically between .NET versions).
     /// </summary>
     private static int ComputeBucket(Guid userId)
     {

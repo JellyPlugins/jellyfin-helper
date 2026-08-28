@@ -4,10 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 
 /// <summary>
-///     Tests for <see cref="SsrfGuard" />.
-///     Contract: well-known cloud instance-metadata hosts must be blocked; ordinary LAN/loopback/
-///     public hosts must be allowed (Arr/Seerr commonly run on the LAN, so private ranges are not
-///     blocked by design).
+///     Tests for SsrfGuard. Contract: well-known cloud instance-metadata hosts must be blocked; ordinary LAN/loopback/ public hosts must be allowed (Arr/Seerr commonly run on the LAN, so private ranges are not blocked by design).
 /// </summary>
 public sealed class SsrfGuardTests
 {
@@ -57,8 +54,6 @@ public sealed class SsrfGuardTests
 
         Assert.Null(ex);
     }
-
-    // --- SafeEndpointLabel: never leak user-info credentials embedded in a URL ---
 
     [Fact]
     public void SafeEndpointLabel_UrlWithUserInfoCredentials_StripsPassword()

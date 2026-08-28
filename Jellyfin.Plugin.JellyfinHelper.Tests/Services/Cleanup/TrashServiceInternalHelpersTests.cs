@@ -6,19 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Tests for the <see cref="TrashService"/> internal static helpers
-///     (<c>TruncateToSize</c>, <c>MeasureString</c>, <c>ExtractOriginalName</c>,
-///     <c>TryParseTrashTimestamp</c>, <c>PathComparison</c>) that the higher-level
-///     path-length tests exercise only indirectly.
-///     <para>
-///         The point of hitting these helpers directly is to guarantee behaviour at the
-///         exact edge cases the OS filesystem rules pivot on: NAME_MAX 255 bytes on Unix,
-///         char-based limits on Windows, empty inputs, and surrogate-pair boundaries.
-///         Those edges are exactly where filesystem code silently corrupts data (broken
-///         mojibake, truncated multi-byte sequences, or infinite retry loops when the
-///         suffix budget vanishes) and where the coverage report has red-marked gaps
-///         despite the higher-level tests passing.
-///     </para>
+///     Tests for the TrashService internal static helpers (TruncateToSize, MeasureString, ExtractOriginalName, TryParseTrashTimestamp, PathComparison) that the higher-level path-length tests exercise only indirectly.
 /// </summary>
 public sealed class TrashServiceInternalHelpersTests
 {
@@ -72,9 +60,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void MeasureString_EmojiSurrogatePair_MatchesPlatformExpectation()
     {
-        // One emoji: 4 bytes in UTF-8, 2 chars in UTF-16 (surrogate pair).
-        // BUG GUARD: an early revision counted char length as UTF-8 length, which under-reported
-        // sizes on Unix and let mojibake through the truncation logic.
+        // One emoji: 4 bytes in UTF-8, 2 chars in UTF-16 (surrogate pair). BUG GUARD: an early revision counted char length as UTF-8 length, which under-reported sizes on Unix and let mojibake through the truncation logic.
         const string emoji = "\U0001F3AC";
         var measured = TrashService.MeasureString(emoji);
 
@@ -88,12 +74,7 @@ public sealed class TrashServiceInternalHelpersTests
         }
     }
 
-    // TruncateToSize
-    //   Contract:
-    //     Empty / null / non-positive maxSize -> empty string
-    //     Value that already fits -> returned as-is
-    //     Overshoot -> truncated on encoding boundary (no split surrogate,
-    //       no split UTF-8 sequence)
+    // TruncateToSize Contract: Empty / null / non-positive maxSize -> empty string Value that already fits -> returned as-is Overshoot -> truncated on encoding boundary (no split surrogate, no split UTF-8 sequence).
 
     [Fact]
     public void TruncateToSize_Null_ReturnsEmpty()
@@ -217,12 +198,7 @@ public sealed class TrashServiceInternalHelpersTests
         Assert.Equal("\U0001F3AC", truncated);
     }
 
-    // ============================================================================
-    // ExtractOriginalName
-    //   Reconstruct the human-readable name from a trashed path prefix.
-    //   Format: "yyyyMMdd-HHmmss_<original>" -> "<original>"
-    //   Bare / malformed input passes through untouched.
-    // ============================================================================
+    // ExtractOriginalName Reconstruct the human-readable name from a trashed path prefix. Format: "yyyyMMdd-HHmmss_<original>" -> "<original>" Bare / malformed input passes through untouched.
 
     [Fact]
     public void ExtractOriginalName_ValidTimestampPrefix_ReturnsSuffixOnly()
@@ -284,10 +260,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void ExtractOriginalName_TimestampPlusUnderscoreOnly_ReturnsInputUnchanged_BoundaryGuard()
     {
-        // 16 chars input: valid timestamp + underscore + NOTHING. The guard
-        // "trashItemName.Length <= TimestampFormat.Length + 1" (i.e. <= 16) fires,
-        // so the input passes through untouched. This pins the boundary decision
-        // that would flip if a maintainer refactored the guard to a strict "<".
+        // 16 chars input: valid timestamp + underscore + NOTHING. The guard "trashItemName.Length <= TimestampFormat.Length + 1" (i.e.
         const string exact16 = "20260601-120000_";
         Assert.Equal(16, exact16.Length);
         var result = TrashService.ExtractOriginalName(exact16);
@@ -297,18 +270,13 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void ExtractOriginalName_TimestampPlusUnderscorePlusOneChar_ExtractsThatChar()
     {
-        // 17 chars: valid timestamp + underscore + single char suffix. The guard
-        // "<= 16" does NOT fire -> we get the "x" suffix back. This complements the
-        // boundary-guard test above so a regression that flips <= to < is caught
-        // from BOTH sides of the boundary.
+        // 17 chars: valid timestamp + underscore + single char suffix. The guard "<= 16" does NOT fire -> we get the "x" suffix back.
         var result = TrashService.ExtractOriginalName("20260601-120000_x");
         Assert.Equal("x", result);
     }
 
-    // ============================================================================
     // TryParseTrashTimestamp
     //   Verifies the timestamp-prefix parser used by purge & GetTrashContents.
-    // ============================================================================
 
     [Fact]
     public void TryParseTrashTimestamp_ValidFormat_ReturnsUtcTimestamp()
@@ -369,9 +337,7 @@ public sealed class TrashServiceInternalHelpersTests
         Assert.Equal(DateTime.MinValue, ts);
     }
 
-    // ============================================================================
     // PathComparison - platform-aware string comparison used for path prefix checks.
-    // ============================================================================
 
     [Fact]
     public void PathComparison_MatchesPlatformCasePolicy()
@@ -387,10 +353,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void PathComparison_IsCaseInsensitiveOnCaseInsensitiveFilesystems()
     {
-        // On macOS/Windows a lower-case reference to a Trash path
-        // would fail to match the canonical mixed-case one if this ever regressed to
-        // Ordinal. That would let the guard against re-trashing be bypassed by simply
-        // lowercasing the source path.
+        // On macOS/Windows a lower-case reference to a Trash path would fail to match the canonical mixed-case one if this ever regressed to Ordinal.
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
             Assert.True("Trash".Equals("trash", TrashService.PathComparison));

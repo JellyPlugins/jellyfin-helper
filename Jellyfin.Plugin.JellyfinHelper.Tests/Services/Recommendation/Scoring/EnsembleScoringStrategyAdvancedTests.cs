@@ -7,9 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Advanced tests for <see cref="EnsembleScoringStrategy"/> targeting the previously
-///     uncovered branches: <c>ScoreWithOffset</c>, <c>ScoreWithExplanationAndOffset</c>,
-///     <c>ApplyCohortFeedback</c>, and constructor guards.
+///     Advanced tests for EnsembleScoringStrategy targeting the previously uncovered branches: ScoreWithOffset, ScoreWithExplanationAndOffset, ApplyCohortFeedback, and constructor guards.
 /// </summary>
 public sealed class EnsembleScoringStrategyAdvancedTests
 {
@@ -71,10 +69,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void Constructor_AlphaMaxBelowAlphaMin_IsClampedToAlphaMin()
     {
-        // A "finite & in-range" assertion alone would still pass if the constructor
-        // silently ignored the invalid values altogether. Pin the actual clamp by
-        // comparing against an instance configured explicitly at the expected boundary
-        // (alphaMax == alphaMin) - both must produce the same score.
+        // A "finite & in-range" assertion alone would still pass if the constructor silently ignored the invalid values altogether.
         var invalid = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.2);
         var clamped = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.6);
         var features = new CandidateFeatures { GenreSimilarity = 0.5, CombinedCriticScore = 0.5 };
@@ -319,8 +314,6 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         Assert.Equal(-EnsembleScoringStrategy.MidpointAdaptationStep, ensemble.SigmoidMidpointOffset, 6);
     }
 
-    // ===== Reconfigure =====
-
     [Fact]
     public void Reconfigure_UpdatesBoundsAndClampsAlpha()
     {
@@ -381,8 +374,6 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         ensemble.Reconfigure(alphaMin: 0.8, alphaMax: 0.3, genrePenaltyFloor: 0.1);
         Assert.InRange(ensemble.CurrentAlpha, 0.0, 1.0);
     }
-
-    // ===== Neural-active blending through the offset paths =====
 
     private static List<TrainingExample> NeuralTrainingExamples(int count)
     {
@@ -483,13 +474,8 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         Assert.InRange(explanation.FinalScore, 0.0, 1.0);
 
         // The explanation path must agree with the scalar path for the same offset.
-        // Neural blending routes through per-contribution explanation math, so a small
-        // floating-point divergence from the scalar path is expected (same tolerance the
-        // sibling neural-explanation test uses).
         Assert.Equal(ensemble.ScoreWithOffset(features, offset), explanation.FinalScore, 2);
     }
-
-    // ===== Cohort-feedback logging branches =====
 
     private static EnsembleScoringStrategy BuildLoggingEnsemble(Mock<ILogger> logger)
     {

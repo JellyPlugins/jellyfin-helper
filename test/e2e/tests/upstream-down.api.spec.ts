@@ -1,23 +1,4 @@
-/**
- * Upstream DOWN - resilience under a genuinely unreachable Arr/Seerr.
- *
- * This is distinct from the "reachable-but-errors" coverage elsewhere:
- *   - integrations.api.spec.ts drives `ApiKey:'force-fail'` against the REACHABLE
- *     mock, which returns HTTP 500 -> the plugin's upstream-parsed-failure branch.
- *   - integrations-adversarial.api.spec.ts `force-slow` touches the timeout branch.
- *
- * Here we point the plugin at a dead port (127.0.0.1:1, nothing listening) so the
- * HTTP client raises a connection-refused (HttpRequestException) - a SEPARATE catch
- * branch in ArrIntegrationService / SeerrController from the upstream-500 path
- * (ArrIntegrationService.cs conn-refused -> (false,...) -> 502; SeerrController.cs
- * HttpRequestException -> 502). The contract we assert: behaviour DEGRADES (a clean
- * 4xx/5xx status, bounded in time) but NOTHING BREAKS - never a 500 or a hang, and
- * the plugin stays Active after every hostile call.
- *
- * hardening.api.spec.ts already covers Seerr/Test against a dead port; this file adds
- * the two gaps that had no coverage: (1) Arr Compare against a dead host, and (2) a
- * Seerr-dependent READ path (Discovery/Services) against a dead host.
- */
+/** * Upstream DOWN - resilience under a genuinely unreachable Arr/Seerr. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 
@@ -37,9 +18,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // Restore the working mock config so later specs that assume a reachable Arr/Seerr
-  // don't inherit the dead-port pointing. (beforeAll of integrations.api.spec.ts also
-  // re-establishes it, but leaving shared state coherent is the contract here.)
+  // Restore the working mock config so later specs that assume a reachable Arr/Seerr don't inherit the dead-port pointing.
   await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: {
@@ -88,9 +67,7 @@ test('Seerr-dependent Discovery/Services against a dead host degrades cleanly (n
     data: { SeerrUrl: DEAD_URL, SeerrApiKey: 'k' },
   });
   const res = await ctx.get(p('Discovery/Services/radarr'), { timeout: CALL_TIMEOUT });
-  // A dependent READ path against a dead upstream must not 500 or hang: either an
-  // empty/graceful 200, or a transient-upstream status (502/503/504). The key
-  // invariant is "no 500, bounded time, plugin survives".
+  // A dependent READ path against a dead upstream must not 500 or hang: either an empty/graceful 200, or a transient-upstream status (502/503/504).
   expect(res.status(), `unexpected status ${res.status()}`).not.toBe(500);
   expect([200, 204, 502, 503, 504]).toContain(res.status());
   if (res.ok()) {

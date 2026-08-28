@@ -5,7 +5,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 
 /// <summary>
 ///     Complete user activity result containing all item summaries and global statistics.
-///     This is the top-level DTO returned by the API and persisted to cache.
 /// </summary>
 public sealed class UserActivityResult
 {
@@ -36,10 +35,7 @@ public sealed class UserActivityResult
     public long TotalPlayCount { get; set; }
 
     /// <summary>
-    ///     Gets the per-item activity summaries. The builder
-    ///     (<see cref="UserActivityInsightsService.BuildActivityReport"/>) populates this
-    ///     ordered by total play count descending; cached/deserialized instances preserve
-    ///     whatever order was persisted.
+    ///     Gets the per-item activity summaries. The builder (BuildActivityReport) populates this ordered by total play count descending; cached/deserialized instances preserve whatever order was persisted.
     /// </summary>
     public Collection<UserActivitySummary> Items { get; init; } = [];
 }

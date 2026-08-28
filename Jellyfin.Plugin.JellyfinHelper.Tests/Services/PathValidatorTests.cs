@@ -7,8 +7,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 public class PathValidatorTests
 {
-    // ===== IsSafePath =====
-
     [Fact]
     public void IsSafePath_ReturnsFalse_WhenPathIsNull()
     {
@@ -54,8 +52,6 @@ public class PathValidatorTests
         var outsidePath = Path.Join(Path.GetTempPath(), "outside", "file.txt");
         Assert.False(PathValidator.IsSafePath(outsidePath, basePath));
     }
-
-    // ===== SanitizeFileName =====
 
     [Fact]
     public void SanitizeFileName_ReturnsExport_WhenNull()
@@ -126,8 +122,6 @@ public class PathValidatorTests
         Assert.False(PathValidator.IsSafePath(Path.Combine(dir, "..", "escape"), dir));
     }
 
-    // ===== IsPathSafeForDeletion =====
-
     /// <summary>
     /// A path whose folder name contains ".." as a substring, but has no ".." segment,
     /// must not be rejected. That would be a false positive.
@@ -148,7 +142,7 @@ public class PathValidatorTests
     public void IsPathSafeForDeletion_PathInsideLibraryRoot_Rejected()
     {
         var libraryRoot = Path.Combine(Path.DirectorySeparatorChar.ToString(), "media", "movies");
-        var candidate   = Path.Combine(libraryRoot, "Inception");
+        var candidate = Path.Combine(libraryRoot, "Inception");
         Assert.False(PathValidator.IsPathSafeForDeletion(candidate, [libraryRoot]));
     }
 
@@ -164,8 +158,6 @@ public class PathValidatorTests
             Path.DirectorySeparatorChar.ToString(), "media", "..", "etc");
         Assert.False(PathValidator.IsSafePath(path, Path.Combine(Path.DirectorySeparatorChar.ToString(), "media")));
     }
-
-    // ===== IsSensitiveSystemPath =====
 
     [Theory]
     [InlineData(null)]
@@ -263,9 +255,7 @@ public class PathValidatorTests
         Assert.Equal("export", PathValidator.SanitizeFileName(name));
     }
 
-    // A path that clears the null-byte and ".."-segment guards but is still malformed
-    // enough that Path.GetFullPath throws, like a mid-string colon on Windows, must be
-    // refused via the exception filter instead of surfacing as an exception to the caller.
+    // A path that clears the null-byte and ".."-segment guards but is still malformed enough that Path.GetFullPath throws, like a mid-string colon on Windows, must be refused via the exception filter instead of surfacing as an exception to the caller.
     [Fact]
     public void IsSafePath_MalformedPath_ReturnsFalse()
     {
@@ -278,21 +268,14 @@ public class PathValidatorTests
         Assert.Null(result);
     }
 
-    // Backslash traversal. On Windows '\' is a real separator, so "\..\" walks up and out and
-    // the path is rejected. On Linux '\' is an ordinary filename char, so "/media\..\etc" is a
-    // single leaf directly under "/", not under "/media/": there is no '/' after "media", so the
-    // base-prefix check fails and the path is rejected there too. Refused on both platforms, for
-    // different reasons.
+    // Backslash traversal. On Windows '\' is a real separator, so "\..\" walks up and out and the path is rejected.
     [Fact]
     public void IsSafePath_BackslashTraversal_Rejected()
     {
         Assert.False(PathValidator.IsSafePath("/media\\..\\etc", "/media"));
     }
 
-    // Mixed separators split by platform. The path keeps a real '/' after "/media", so on Linux
-    // it resolves to "/media/sub\..\..\etc", a leaf that still starts with "/media/" (backslashes
-    // are ordinary chars), so it is allowed. On Windows the '\..\' segments are real traversal that
-    // escapes "/media", so it is refused.
+    // Mixed separators split by platform. The path keeps a real '/' after "/media", so on Linux it resolves to "/media/sub\..\..\etc", a leaf that still starts with "/media/" (backslashes are ordinary chars), so it is allowed.
     [Fact]
     public void IsSafePath_MixedSeparatorTraversal()
     {
@@ -330,9 +313,7 @@ public class PathValidatorTests
         Assert.Equal("evil.dll", result);
     }
 
-    // Wildcards and reserved chars ('<', '>', '?') are invalid filenames on Windows and get
-    // replaced with '_'. On Linux they are legal chars, so SanitizeFileName leaves them intact.
-    // Either way the result is a single inert leaf with no path separators.
+    // Wildcards and reserved chars ('<', '>', '?') are invalid filenames on Windows and get replaced with '_'.
     [Fact]
     public void SanitizeFileName_ReplacesInvalidChars()
     {
@@ -344,20 +325,14 @@ public class PathValidatorTests
         Assert.DoesNotContain('\\', result);
     }
 
-    // Boundary contract: this helper guards only filesystem and library roots, not system
-    // paths, so "/etc" returns true here by design. Callers pair it with
-    // IsSensitiveSystemPath (see TrashController), which is what actually refuses /etc.
-    // Nothing in production treats this method alone as a full guard.
+    // Boundary contract: this helper guards only filesystem and library roots, not system paths, so "/etc" returns true here by design.
     [Fact]
     public void IsPathSafeForDeletion_DoesNotGuardSystemRoots_ByDesign()
     {
         Assert.True(PathValidator.IsPathSafeForDeletion("/etc", Array.Empty<string>()));
     }
 
-    // A candidate that is unrelated to every configured library root (not the root, not an
-    // ancestor, not a child) must be accepted. This is the method's success path WITH a
-    // non-empty library list, distinct from the empty-list cases above - it proves the loop
-    // runs to completion and falls through to the final "return true".
+    // A candidate that is unrelated to every configured library root (not the root, not an ancestor, not a child) must be accepted.
     [Fact]
     public void IsPathSafeForDeletion_CandidateUnrelatedToLibraryRoots_Allowed()
     {
@@ -369,10 +344,7 @@ public class PathValidatorTests
         Assert.True(PathValidator.IsPathSafeForDeletion(candidate, [libraryRoot]));
     }
 
-    // A null/whitespace entry in the library-folder list is not a real root and must be
-    // skipped, not treated as an empty-string root that would match everything. With an
-    // otherwise-unrelated candidate the method must still return true - proving the
-    // per-entry IsNullOrWhiteSpace guard skips the bogus entry rather than rejecting.
+    // A null/whitespace entry in the library-folder list is not a real root and must be skipped, not treated as an empty-string root that would match everything.
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

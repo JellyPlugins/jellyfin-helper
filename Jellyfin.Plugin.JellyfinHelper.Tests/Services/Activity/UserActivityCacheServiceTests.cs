@@ -176,39 +176,19 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         Assert.Empty(loaded.Items);
     }
 
-    // -----------------------------------------------------------------------
-    // Guard-branch coverage (was untested before this batch):
-    //   * SaveResult(null) - must throw before the lock is taken so the caller
-    //     surfaces the NRE via its normal test/observability tooling, not as
-    //     a corrupted "empty JSON" cache file.
-    //   * LoadResult on a JSON file that deserializes to literal null - the
-    //     helper is expected to log a warning AND return null so the caller
-    //     falls through to the "no cache" recovery path instead of crashing
-    //     on a null-dereference.
-    //   * SaveResult when the parent directory is missing - the helper must
-    //     auto-create the directory chain so a first-boot deployment doesn't
-    //     lose its very first result.
-    // -----------------------------------------------------------------------
+    // Guard-branch coverage (was untested before this batch): * SaveResult(null) - must throw before the lock is taken so the caller surfaces the NRE via its normal test/observability tooling, not as a corrupted "empty JSON" cache file.
 
     [Fact]
     public void SaveResult_NullResult_ThrowsArgumentNullException()
     {
-        // BUG GUARD: the guard clause is a "throw before lock" - if a maintainer
-        // moved it inside the lock, a concurrent LoadResult would still spin
-        // waiting for the lock while the NRE propagated. The pre-lock throw
-        // means we fail fast and do not hold the semaphore on the failure path.
+        // BUG GUARD: the guard clause is a "throw before lock" - if a maintainer moved it inside the lock, a concurrent LoadResult would still spin waiting for the lock while the NRE propagated.
         Assert.Throws<ArgumentNullException>(() => _cacheService.SaveResult(null!));
     }
 
     [Fact]
     public void LoadResult_FileContainsLiteralNull_LogsWarningAndReturnsNull()
     {
-        // BUG GUARD: a corrupt-but-parseable JSON payload containing the
-        // literal token `null` deserializes to a null UserActivityResult.
-        // Historically this collapsed with the "no cache file" branch and
-        // silently returned null - no diagnostics for the operator. The
-        // implementation now logs a warning specifically for this case,
-        // pinned by this test with a mock captured on the IPluginLogService.
+        // BUG GUARD: a corrupt-but-parseable JSON payload containing the literal token `null` deserializes to a null UserActivityResult.
         var mockPaths = new Mock<IApplicationPaths>();
         mockPaths.Setup(p => p.DataPath).Returns(_tempDir);
         var mockPluginLog = new Mock<IPluginLogService>();
@@ -236,11 +216,7 @@ public sealed class UserActivityCacheServiceTests : IDisposable
     [Fact]
     public void SaveResult_ParentDirectoryMissing_CreatesItAndPersists()
     {
-        // BUG GUARD: on a fresh install DataPath may exist but a nested cache
-        // directory may not. The helper must create the directory chain in
-        // one shot, otherwise the very first scheduled-task result silently
-        // vanishes (the AtomicFile.WriteAllText would throw DirectoryNotFoundException
-        // and the outer catch would only log a warning).
+        // BUG GUARD: on a fresh install DataPath may exist but a nested cache directory may not.
         var nestedDir = Path.Join(_tempDir, "nested", "deep", "cache");
         var mockPaths = new Mock<IApplicationPaths>();
         mockPaths.Setup(p => p.DataPath).Returns(nestedDir);
@@ -261,15 +237,7 @@ public sealed class UserActivityCacheServiceTests : IDisposable
     [Fact]
     public void LoadResult_EmptyFile_ReturnsNullAndLogsWarning()
     {
-        // BUG GUARD: an empty file (e.g. a zero-byte artefact of a crash during
-        // a previous save) must NOT crash the caller with a JsonException at the
-        // top of the LoadResult method - the try/catch must swallow it and
-        // return null. Without this test a regression that narrows the catch
-        // filter would silently break next-boot recovery. We also lock the
-        // "logs a warning" contract by constructing a service with a captured
-        // IPluginLogService mock - the class-level _cacheService is built with
-        // its own log-service mock the tests cannot reach, so we build a
-        // dedicated instance here (same pattern as the literal-null test above).
+        // BUG GUARD: an empty file (e.g. a zero-byte artefact of a crash during a previous save) must NOT crash the caller with a JsonException at the top of the LoadResult method - the try/catch must swallow it and return null.
         var mockPaths = new Mock<IApplicationPaths>();
         mockPaths.Setup(p => p.DataPath).Returns(_tempDir);
         var mockPluginLog = new Mock<IPluginLogService>();
@@ -290,20 +258,14 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         var loaded = service.LoadResult();
 
         Assert.Null(loaded);
-        // Contract: the empty-file branch MUST emit at least one warning so operators
-        // can spot the corruption in logs. Zero warnings would mean the catch filter
-        // silently swallowed the JsonException without diagnostics.
+        // Contract: the empty-file branch MUST emit at least one warning so operators can spot the corruption in logs.
         Assert.True(warningCount >= 1, $"expected at least one warning to be logged, got {warningCount}");
     }
 
     [Fact]
     public void SaveResult_WriteFails_SwallowsIoErrorAndLogsWarning()
     {
-        // BUG GUARD: SaveResult runs inside the scheduled task. A write failure
-        // (here: a directory occupying the exact cache-file path, so AtomicFile's
-        // final File.Move/Replace onto a directory throws IOException) must be
-        // swallowed and logged, never propagated - a narrowed catch filter would
-        // let the IOException escape and crash the task run.
+        // BUG GUARD: SaveResult runs inside the scheduled task.
         var mockPaths = new Mock<IApplicationPaths>();
         mockPaths.Setup(p => p.DataPath).Returns(_tempDir);
         var mockPluginLog = new Mock<IPluginLogService>();

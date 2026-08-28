@@ -6,11 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for the <see cref="TmdbDiscoverItem"/> DTO - the parsing surface between
-///     Seerr/TMDb JSON payloads and the recommendation engine. TMDb frequently returns
-///     JSON that violates its own schema (empty-string dates, null arrays, missing
-///     title/name); the tests below pin the graceful-fallback contract that keeps the
-///     recommendation pipeline alive when upstream data is dirty.
+///     Tests for the TmdbDiscoverItem DTO - the parsing surface between Seerr/TMDb JSON payloads and the recommendation engine.
 /// </summary>
 public sealed class TmdbDiscoverItemTests
 {

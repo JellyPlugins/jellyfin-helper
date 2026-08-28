@@ -15,9 +15,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 /// <summary>
-///     Error-handling behavior for <see cref="RecommendationsTask" />: cancellation must
-///     propagate out of every phase, while non-fatal failures in the best-effort playlist
-///     phases are logged and swallowed so the task still completes.
+///     Error-handling behavior for RecommendationsTask: cancellation must propagate out of every phase, while non-fatal failures in the best-effort playlist phases are logged and swallowed so the task still completes.
 /// </summary>
 public class RecommendationsTaskErrorHandlingTests
 {

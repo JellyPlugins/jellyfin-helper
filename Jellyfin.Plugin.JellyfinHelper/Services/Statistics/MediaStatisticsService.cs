@@ -72,9 +72,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             $"Starting media statistics scan for {virtualFolders.Count} libraries",
             _logger);
 
-        // Pre-build a lookup of file paths -> BaseItem for all known library items.
-        // This avoids calling FindByPath() per file during the scan, significantly
-        // improving performance for large libraries.
+        // Pre-build a lookup of file paths -> BaseItem for all known library items. This avoids calling FindByPath() per file during the scan, significantly improving performance for large libraries.
         var itemLookup = BuildItemLookup();
         _pluginLog.LogDebug(
             LogCategory,
@@ -178,8 +176,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Builds a lookup dictionary mapping file paths to their Jellyfin library items.
-    ///     This pre-loads all items once to avoid per-file FindByPath calls during scanning.
+    ///     Builds a lookup dictionary mapping file paths to their Jellyfin library items. This pre-loads all items once to avoid per-file FindByPath calls during scanning.
     /// </summary>
     /// <returns>A case-insensitive dictionary of file path -> BaseItem.</returns>
     internal virtual Dictionary<string, BaseItem> BuildItemLookup()
@@ -310,9 +307,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 scanContext,
                 ref containsVideo);
 
-            // Health checks - per-directory analysis
-            // Boxset/collection libraries are excluded: they are Jellyfin-internal virtual folders
-            // that group related movies and typically only contain posters/images, not real media.
+            // Health checks - per-directory analysis Boxset/collection libraries are excluded: they are Jellyfin-internal virtual folders that group related movies and typically only contain posters/images, not real media.
             if (!skipHealthChecks)
             {
                 if (flags.HasVideo)
@@ -340,9 +335,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Classifies a single file by extension and accumulates its size/count into the
-    ///     statistics, updating the per-directory presence flags. Extracted verbatim from the
-    ///     file loop of <see cref="AnalyzeDirectoryRecursive"/>.
+    ///     Classifies a single file by extension and accumulates its size/count into the statistics, updating the per-directory presence flags.
     /// </summary>
     /// <param name="file">The file to classify.</param>
     /// <param name="stats">The statistics accumulator.</param>
@@ -415,9 +408,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
         else if (MediaExtensions.BookExtensions.Contains(ext))
         {
-            // eBooks are tracked as a first-class "Books" category (rather than "Other") with a
-            // per-format breakdown, so the UI can surface a Books section only when books exist.
-            // This is tracking only; Book libraries are never deleted (see CleanupConfigHelper).
+            // eBooks are tracked as a first-class "Books" category (rather than "Other") with a per-format breakdown, so the UI can surface a Books section only when books exist.
             stats.BookSize += size;
             stats.BookFileCount++;
             var format = ext.TrimStart('.').ToUpperInvariant();
@@ -432,9 +423,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Iterates the subdirectories of the current directory, skipping the trash folder,
-    ///     accumulating trickplay statistics, and recursing into the rest. Extracted verbatim
-    ///     from the subdirectory loop of <see cref="AnalyzeDirectoryRecursive"/>.
+    ///     Iterates the subdirectories of the current directory, skipping the trash folder, accumulating trickplay statistics, and recursing into the rest.
     /// </summary>
     /// <param name="subDirs">The subdirectories to scan.</param>
     /// <param name="stats">The statistics accumulator.</param>
@@ -485,9 +474,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Records video-directory health statistics (missing subtitles, images, NFO) for a
-    ///     directory that contains at least one video. Extracted verbatim from the health-check
-    ///     block of <see cref="AnalyzeDirectoryRecursive"/>.
+    ///     Records video-directory health statistics (missing subtitles, images, NFO) for a directory that contains at least one video.
     /// </summary>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="files">All files in the current directory.</param>
@@ -545,9 +532,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Records an orphaned-metadata directory (metadata-only, no video) unless it is a
-    ///     TV show container folder. Extracted verbatim from the health-check block of
-    ///     <see cref="AnalyzeDirectoryRecursive"/>.
+    ///     Records an orphaned-metadata directory (metadata-only, no video) unless it is a TV show container folder.
     /// </summary>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="directoryPath">The directory being analyzed.</param>
@@ -557,9 +542,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         string directoryPath,
         bool subDirHasVideo)
     {
-        // Special case for TV Shows: Don't mark as orphaned if it contains subdirectories with videos
-        // (e.g. "Series 1" folder containing "Season 01")
-        // OR if it is a known TV show container folder (Specials, Season XX)
+        // Special case for TV Shows: Don't mark as orphaned if it contains subdirectories with videos (e.g. "Series 1" folder containing "Season 01") OR if it is a known TV show container folder (Specials, Season XX).
         var isTvShow = string.Equals(stats.CollectionType, "tvshows", StringComparison.OrdinalIgnoreCase);
         var isTvContainer = false;
         if (isTvShow)
@@ -581,10 +564,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Resolves the Jellyfin library item for a given file path by first checking the
-    ///     pre-built batch lookup, then falling back to a per-file <see cref="ILibraryManager.FindByPath"/>
-    ///     call. This ensures metadata is still available when the batch lookup missed the file
-    ///     (e.g. newly added files or a failed bulk load).
+    ///     Resolves the Jellyfin library item for a given file path by first checking the pre-built batch lookup, then falling back to a per-file FindByPath call.
     /// </summary>
     /// <param name="filePath">Full path to the media file.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem.</param>
@@ -635,10 +615,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Extracts video metadata (codec, resolution, audio codec, dynamic range) from Jellyfin
-    ///     MediaStream data and records it in the statistics. Uses a two-tier lookup: batch
-    ///     dictionary first, then per-file <see cref="ILibraryManager.FindByPath"/> fallback.
-    ///     Falls back to "Unknown" only when both lookups fail.
+    ///     Extracts video metadata (codec, resolution, audio codec, dynamic range) from Jellyfin MediaStream data and records it in the statistics.
     /// </summary>
     /// <param name="filePath">Full path to the video file.</param>
     /// <param name="fileSize">Size of the video file in bytes.</param>
@@ -693,9 +670,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Extracts music audio codec metadata from Jellyfin MediaStream data and records it
-    ///     in the statistics. Uses a two-tier item lookup (batch dictionary -> per-file FindByPath)
-    ///     and falls back to extension-based mapping when neither lookup yields stream data.
+    ///     Extracts music audio codec metadata from Jellyfin MediaStream data and records it in the statistics.
     /// </summary>
     /// <param name="filePath">Full path to the audio file.</param>
     /// <param name="extension">The file extension (with leading dot).</param>
@@ -793,11 +768,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         var w = width.Value;
         var h = height.Value;
 
-        // Classify by the shorter (vertical for landscape, horizontal for portrait) dimension,
-        // matching the industry convention where resolution labels (1080p, 4K, etc.) refer to
-        // the vertical pixel count for standard aspect ratios.
-        // NOTE: ultra-wide frames (e.g. 3840x1080) will be classified as 1080p because their
-        // short dimension is 1080. This matches the vertical-line naming convention.
+        // Classify by the shorter (vertical for landscape, horizontal for portrait) dimension, matching the industry convention where resolution labels (1080p, 4K, etc.) refer to the vertical pixel count for standard aspect ratios.
         var shortDimension = Math.Min(w, h);
 
         return shortDimension switch
@@ -873,8 +844,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Classifies an audio codec and profile from MediaStream metadata into a detailed
-    ///     display label that distinguishes variants like TrueHD Atmos, DTS-HD MA, etc.
+    ///     Classifies an audio codec and profile from MediaStream metadata into a detailed display label that distinguishes variants like TrueHD Atmos, DTS-HD MA, etc.
     /// </summary>
     /// <param name="codec">The audio codec string (e.g. "truehd", "eac3", "dts", "aac").</param>
     /// <param name="profile">The audio profile string (e.g. "DTS-HD MA", "LC", "HE-AAC").</param>
@@ -978,9 +948,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Groups the trash-resolution and recursion context threaded through
-    ///     <see cref="ScanSubdirectories" /> and the recursive analysis, keeping the parameter
-    ///     count within bounds without changing behaviour.
+    ///     Groups the trash-resolution and recursion context threaded through ScanSubdirectories and the recursive analysis, keeping the parameter count within bounds without changing behaviour.
     /// </summary>
     /// <param name="ResolvedTrashFolderName">The resolved trash folder name (empty when unset).</param>
     /// <param name="LibraryRoot">The library root path (used for trash folder resolution).</param>
@@ -995,9 +963,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         string? ResolvedFullTrashPath);
 
     /// <summary>
-    ///     Mutable per-directory presence flags accumulated while classifying the files of a
-    ///     single directory. Grouped into one object so <see cref="ClassifyFile" /> can update
-    ///     them without an unwieldy list of <c>ref bool</c> parameters.
+    ///     Mutable per-directory presence flags accumulated while classifying the files of a single directory.
     /// </summary>
     private sealed class DirectoryFileFlags
     {

@@ -1,12 +1,4 @@
-/**
- * Smoke + endpoint coverage: the plugin loads as Active, and every controller
- * under JellyfinHelper/ responds without 404/500. This is the automated version
- * of the manual "does it load and do the endpoints answer" check.
- *
- * We assert on status *classes* (not exact bodies) here - behaviour-specific
- * assertions live in the other api specs. A 401 would mean auth broke; a 404
- * means a route regressed; a 500 means the endpoint threw.
- */
+/** * Smoke + endpoint coverage: the plugin loads as Active, and every controller * under JellyfinHelper/ responds without 404/500. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, PLUGIN_GUID } from '../setup/api-client.ts';
 
@@ -80,10 +72,7 @@ for (const ep of getEndpoints) {
   test(`GET ${ep.path} responds without server error`, async () => {
     const res = await ctx.get(ep.path);
     const allowed = ep.okStatuses ?? [200];
-    // Never 404 (route regression). Every endpoint must answer with a status in its
-    // declared allow-list, plus 429 (rate-limited scans) tolerated as non-fatal. This
-    // toContain hard-rejects anything else - including any 5xx - so the contract is
-    // strict, not merely "not a server error".
+    // Never 404 (route regression). Every endpoint must answer with a status in its declared allow-list, plus 429 (rate-limited scans) tolerated as non-fatal.
     expect(res.status(), `unexpected status for ${ep.path}`).not.toBe(404);
     expect([...allowed, 429], `unexpected status for ${ep.path}`).toContain(res.status());
   });

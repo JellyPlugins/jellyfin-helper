@@ -8,9 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for <see cref="DiscoveryCacheService"/>. Uses the shared plugin instance so
-///     <c>Plugin.Instance.DataFolderPath</c> resolves to a real writable directory; each test
-///     wipes the cache file up-front to stay independent from sibling tests.
+///     Tests for DiscoveryCacheService. Uses the shared plugin instance so Plugin.Instance.DataFolderPath resolves to a real writable directory; each test wipes the cache file up-front to stay independent from sibling tests.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class DiscoveryCacheServiceTests : IDisposable
@@ -56,8 +54,6 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             // best-effort
         }
     }
-
-    // ===== Load / Save basics =====
 
     [Fact]
     public void Load_NoFileOnDisk_ReturnsEmpty()
@@ -122,22 +118,10 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.Single(loaded);
     }
 
-    // ===== MarkAsRequested =====
-
     [Fact]
     public void MarkAsRequested_WriteFailure_RollsBackInMemoryMutationAndDoesNotThrow()
     {
-        // REGRESSION GUARD (v3.0.0.0): MarkAsRequestedLocked applies AlreadyRequested=true in
-        // memory BEFORE the atomic write, then rolls it back if the write fails. The catch filter
-        // was broadened to `not OOM and not SO` (matching the sibling RemoveItemLocked) so that a
-        // write failure - of ANY non-fatal type - both rolls back the mutation AND is swallowed by
-        // the sync overload rather than escaping unlogged and leaving the in-memory cache diverged
-        // from disk until restart.
-        //
-        // We seed the in-memory cache from a real on-disk file (valid path), then turn the cache
-        // path into a DIRECTORY so the subsequent AtomicFile write (File.Move over a directory)
-        // fails deterministically. This exercises the apply-then-rollback path end to end: no throw
-        // escapes MarkAsRequested, and the flag is observably back to false afterwards.
+        // REGRESSION GUARD (v3.0.0.0): MarkAsRequestedLocked applies AlreadyRequested=true in memory BEFORE the atomic write, then rolls it back if the write fails.
         _sut.Save([
             new DiscoveryResult
             {
@@ -255,8 +239,6 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.Empty(_sut.Load());
     }
 
-    // ===== RemoveItem =====
-
     [Fact]
     public void RemoveItem_ExistingItem_IsRemovedForOwningUser()
     {
@@ -345,8 +327,6 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.Empty(_sut.Load());
     }
 
-    // ===== Error / edge cases =====
-
     [Fact]
     public void Load_CorruptedJson_ReturnsEmpty_AndDoesNotThrow()
     {
@@ -363,13 +343,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void Load_OversizedFile_DeletesFileAndReturnsEmpty()
     {
-        // Files above the 50 MB safety cap are treated as tampered and MUST be removed
-        // so the plugin does not sit in a repeated-deserialize loop. Rather than writing
-        // 50 MB of real data (slow, expensive on CI), we use FileStream.SetLength to
-        // create a SPARSE file that reports > 50 MB via FileInfo.Length without actually
-        // consuming disk blocks on filesystems that support sparse files. On filesystems
-        // that don't (e.g. FAT), SetLength still allocates the space - this is a one-shot
-        // test so the cost is acceptable.
+        // Files above the 50 MB safety cap are treated as tampered and MUST be removed so the plugin does not sit in a repeated-deserialize loop.
         Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
         using (var stream = new FileStream(
                    _cacheFilePath,
@@ -494,10 +468,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void Load_CacheFileContainsNullEntries_FiltersNullsAndReturnsValidEntries()
     {
-        // A JSON array with a null element (e.g. [null, {valid}]) must not produce
-        // NullReferenceException when downstream code accesses r.UserId on every element.
-        // EnsureLoadedLocked must strip nulls after deserialisation so _memoryCache never
-        // contains a null DiscoveryResult.
+        // A JSON array with a null element (e.g. [null, {valid}]) must not produce NullReferenceException when downstream code accesses r.UserId on every element.
         var userId = Guid.NewGuid();
         var json = $$"""[null, {"UserId":"{{userId}}","Recommendations":[]}]""";
         Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
@@ -590,10 +561,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void RemoveItem_WriteFailure_RollsBackRemovalPreservingOriginalOrderAndDoesNotThrow()
     {
-        // A failed persist must NOT silently drop the item AND must NOT reorder the surviving
-        // recommendations: RemoveItemLocked reinserts the removed item at its ORIGINAL index so a
-        // subsequent Save can't persist a shuffled ranking. Same directory-swap idiom as the
-        // MarkAsRequested write-failure test.
+        // A failed persist must NOT silently drop the item AND must NOT reorder the surviving recommendations: RemoveItemLocked reinserts the removed item at its ORIGINAL index so a subsequent Save can't persist a shuffled ranking.
         var userId = Guid.NewGuid();
         _sut.Save([
             new DiscoveryResult
@@ -633,9 +601,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void RemoveItem_LoadThrowsCorruptedJson_IsSwallowedAndCacheReset()
     {
-        // If EnsureLoadedLocked's deserialize throws before the write try (corrupt file, no
-        // pre-warmed cache), the broad outer catch must swallow it and reset the cache to []
-        // so the service stays usable rather than propagating the JsonException.
+        // If EnsureLoadedLocked's deserialize throws before the write try (corrupt file, no pre-warmed cache), the broad outer catch must swallow it and reset the cache to [] so the service stays usable rather than propagating the JsonException.
         Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
         File.WriteAllText(_cacheFilePath, "{ not valid json ");
 
@@ -654,9 +620,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void Save_WriteFailure_ReturnsFalseWithoutThrowing()
     {
-        // A write error (here: the cache path is a directory, so AtomicFile's File.Move throws
-        // IOException) must be caught and reported as false - distinct from the null-arg guard,
-        // which throws ArgumentNullException.
+        // A write error (here: the cache path is a directory, so AtomicFile's File.Move throws IOException) must be caught and reported as false - distinct from the null-arg guard, which throws ArgumentNullException.
         SafeDelete(_cacheFilePath);
         Directory.CreateDirectory(_cacheFilePath);
 
@@ -682,9 +646,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void Load_OversizedFileUndeletable_ReturnsEmptyAndSwallowsDeleteFailure()
     {
-        // The oversize guard's File.Delete is best-effort: if the file is locked by another
-        // handle, the delete failure must be swallowed and Load must still return []. We hold an
-        // exclusive read handle across the Load so the delete inside EnsureLoadedLocked fails.
+        // The oversize guard's File.Delete is best-effort: if the file is locked by another handle, the delete failure must be swallowed and Load must still return [].
         Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
         using (var stream = new FileStream(
                    _cacheFilePath,
@@ -715,22 +677,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
-    // -----------------------------------------------------------------------
-    // Post-oversize-recovery contract: after Load() ran the oversize-file guard
-    // and DELETED the file, the service must have _memoryCache=[] rather than
-    // null. The next Save() writes the caller's list, the next Load() must
-    // see it. A regression that left _memoryCache=null after the delete would
-    // still work for Load() (because EnsureLoadedLocked would re-run and see
-    // "no file, init empty"), but the *specific bug* it guards against is a
-    // future refactoring that assumes _memoryCache is non-null after Load
-    // returned successfully - for example, a Save() path that skips the
-    // detached-copy step because it thinks a valid cache is already loaded.
-    //
-    // NOTE: `Load_OversizedFile_DeletesFileAndReturnsEmpty` above already
-    // exercises the delete-and-return-empty branch; this test complements it
-    // by chaining Load -> Save -> Load through a single freshly-constructed
-    // service so the post-recovery state is proven end-to-end.
-    // -----------------------------------------------------------------------
+    // Post-oversize-recovery contract: after Load() ran the oversize-file guard and DELETED the file, the service must have _memoryCache=[] rather than null.
 
     [Fact]
     public void Load_AfterOversizeRecovery_SubsequentSaveWorks()

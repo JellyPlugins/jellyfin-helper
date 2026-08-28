@@ -15,10 +15,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Statistics;
 
 /// <summary>
-/// Verifies that a per-library-root failure to resolve the absolute trash path is contained:
-/// the scan logs a warning for that root and still walks the library instead of aborting.
-/// A fresh <see cref="ICleanupConfigHelper"/> mock is used because the shared factory helper
-/// sanitizes trash paths, which would prevent <see cref="System.IO.Path.GetFullPath"/> from throwing.
+///     Verifies that a per-library-root failure to resolve the absolute trash path is contained: the scan logs a warning for that root and still walks the library instead of aborting.
 /// </summary>
 public sealed class MediaStatisticsServiceTrashPathResolutionTests
 {

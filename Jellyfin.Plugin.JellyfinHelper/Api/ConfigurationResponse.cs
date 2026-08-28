@@ -6,17 +6,12 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     Read-only projection of <see cref="PluginConfiguration"/> returned by GET /Configuration.
-///     API keys are replaced with a masked placeholder so they never leave the server in plain text.
-///     Clients that need to submit a new key must send a non-masked value via POST /Configuration;
-///     receiving the placeholder back means "key already set, send the real value to change it".
+///     Read-only projection of PluginConfiguration returned by GET /Configuration. API keys are replaced with a masked placeholder so they never leave the server in plain text.
 /// </summary>
 public sealed class ConfigurationResponse
 {
     /// <summary>
-    ///     Placeholder emitted in place of any non-empty API key. Fixed length by design: it does
-    ///     NOT reflect the real key length, so the mask never leaks how long the stored secret is.
-    ///     Applies uniformly to the Seerr key and every Radarr/Sonarr instance key.
+    ///     Placeholder emitted in place of any non-empty API key. Fixed length by design: it does NOT reflect the real key length, so the mask never leaks how long the stored secret is.
     /// </summary>
     internal const string ApiKeyMask = "********";
 
@@ -108,8 +103,7 @@ public sealed class ConfigurationResponse
     public IReadOnlyList<MaskedArrInstanceConfig> SonarrInstances { get; init; } = [];
 
     /// <summary>
-    ///     Builds a <see cref="ConfigurationResponse"/> from a live <see cref="PluginConfiguration"/>,
-    ///     replacing every non-empty API key with <see cref="ApiKeyMask"/>.
+    ///     Builds a ConfigurationResponse from a live PluginConfiguration, replacing every non-empty API key with ApiKeyMask.
     /// </summary>
     /// <param name="config">The live plugin configuration.</param>
     /// <returns>The masked response DTO.</returns>

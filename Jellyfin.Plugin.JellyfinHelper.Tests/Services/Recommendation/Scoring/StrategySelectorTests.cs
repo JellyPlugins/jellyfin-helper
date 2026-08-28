@@ -4,15 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Tests for the internal <see cref="StrategySelector" /> cohort router. The class ties three
-///     concerns together - exploration-gate activation, deterministic user-hash bucketing, and the
-///     mapping from bucket-integer to cohort name / alpha-offset. Each of these has hard invariants
-///     that break user experience if regressed:
-///     <list type="bullet">
-///         <item>a user must land in the same cohort across restarts (stable Guid hash);</item>
-///         <item>exploration must stay OFF until the ensemble has enough training data;</item>
-///         <item>the alpha-offset and cohort name must agree on the bucket (no drift between them).</item>
-///     </list>
+///     Tests for the internal StrategySelector cohort router. The class ties three concerns together - exploration-gate activation, deterministic user-hash bucketing, and the mapping from bucket-integer to cohort name / alpha-offset.
 /// </summary>
 public class StrategySelectorTests
 {
@@ -106,17 +98,6 @@ public class StrategySelectorTests
     public void GetAlphaOffset_KnownGuids_ProduceStableBuckets_WithExplorationActive()
     {
         // With a bare ensemble, exploration is inactive and EVERY GUID maps to "control".
-        // Self-comparing the same GUID twice therefore proves stability of the cohort
-        // NAME, but tells us nothing about whether the underlying ComputeBucket function
-        // is stable - the whole function could be replaced with a constant "control"
-        // return and this test would still pass.
-        //
-        // We activate the ensemble here so ComputeBucket actually runs, then assert
-        // that fixed GUIDs land on well-defined offsets. The two fixed GUIDs were
-        // chosen because their XOR-folded bucket bytes deterministically land one in
-        // the explore-high band (0..9) and one in the control band (20..99).
-        // If ComputeBucket ever changes its hashing constants, this test flips its
-        // assertion result and surfaces the algorithmic drift.
         var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
@@ -191,15 +172,7 @@ public class StrategySelectorTests
         Assert.Equal("control", selector.GetCohortName(Guid.Empty));
     }
 
-    // ---------------------------------------------------------------------
-    // Exploration-active tests (require both gates open)
-    // ---------------------------------------------------------------------
-    //
-    // The exploration gate is `TrainingExampleCount >= 50 && MetricsHistoryCount >= 2`.
-    // We drive that state by calling Train() with cold-start placeholder examples that fail
-    // (single example -> LearnedScoringStrategy.Train returns false but still records a
-    // placeholder metrics snapshot). Two failed runs get MetricsHistoryCount to 2, then
-    // one successful training round pushes TrainingExampleCount to >= 50.
+    // Exploration-active tests (require both gates open) The exploration gate is `TrainingExampleCount >= 50 && MetricsHistoryCount >= 2`.
 
     [Fact]
     public void GetAlphaOffset_AllZeroGuid_ExplorationActive_ReturnsExploreHigh()
@@ -215,10 +188,7 @@ public class StrategySelectorTests
     [Fact]
     public void GetAlphaOffset_ExplorationActive_DistributionCoversAllThreeCohorts()
     {
-        // With exploration active, iterating enough random users must produce entries in all
-        // three cohorts (explore-high 10%, explore-low 10%, control 80%). 500 iterations gives
-        // a near-zero probability of missing any single cohort by chance (~5e-24 for the
-        // rarest cohort). Reveals: hash bucketing is not degenerate (all users to one bucket).
+        // With exploration active, iterating enough random users must produce entries in all three cohorts (explore-high 10%, explore-low 10%, control 80%).
         var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
@@ -268,9 +238,7 @@ public class StrategySelectorTests
     [Fact]
     public void GetAlphaOffset_ExplorationActive_ApproximateSplitMatches10_10_80()
     {
-        // Statistical sanity: over 2000 samples the observed proportion of each cohort
-        // should be close to the intended 10 / 10 / 80 split. Loose tolerance because
-        // this is stochastic - we're only checking that we're not silently mis-bucketing.
+        // Statistical sanity: over 2000 samples the observed proportion of each cohort should be close to the intended 10 / 10 / 80 split.
         var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
@@ -287,22 +255,14 @@ public class StrategySelectorTests
             }
         }
 
-        // Wide bounds - stochastic tolerance:
-        //   * expected high/low ≈ 10% each -> allow 5..15%.
-        //   * expected control ≈ 80% -> allow 70..90%.
-        // The point is not tight statistical validation but to catch a "all users get
-        // the same cohort" bug or a "high band is 90%" bucketing regression.
+        // Wide bounds - stochastic tolerance: * expected high/low ≈ 10% each -> allow 5..15%. * expected control ≈ 80% -> allow 70..90%.
         Assert.InRange(high, iterations * 5 / 100, iterations * 15 / 100);
         Assert.InRange(low, iterations * 5 / 100, iterations * 15 / 100);
         Assert.InRange(control, iterations * 70 / 100, iterations * 90 / 100);
     }
 
     /// <summary>
-    ///     Builds an ensemble whose exploration gate has flipped to active
-    ///     (<c>TrainingExampleCount &gt;= 50</c> AND <c>MetricsHistoryCount &gt;= 2</c>).
-    ///     Uses two failed cold-start training calls to seed <c>MetricsHistoryCount = 2</c>
-    ///     (the placeholder-snapshot path) and one successful training call to lift
-    ///     the cumulative example count above <see cref="StrategySelector.MinExamplesForExploration"/>.
+    ///     Builds an ensemble whose exploration gate has flipped to active (TrainingExampleCount &gt;= 50 AND MetricsHistoryCount &gt;= 2).
     /// </summary>
     private static EnsembleScoringStrategy BuildActivatedEnsemble()
     {
@@ -316,9 +276,7 @@ public class StrategySelectorTests
     }
 
     /// <summary>
-    ///     Builds a fixed set of training examples with alternating labels and enough feature
-    ///     variance for the learned strategy to fit. Deterministic (no randomness) so the
-    ///     exploration-gate seed step is reproducible across CI runs.
+    ///     Builds a fixed set of training examples with alternating labels and enough feature variance for the learned strategy to fit.
     /// </summary>
     private static List<TrainingExample> BuildTrainingExamples(int count)
     {

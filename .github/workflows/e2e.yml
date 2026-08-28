@@ -1,16 +1,11 @@
 name: E2E (Docker)
 
-# Full end-to-end tests: real Jellyfin 12 container + mock Arr/Seerr, plugin
-# mounted in, wizard automated, every endpoint / task mode / UI tab exercised.
-# Runs on every PR and on push to main (per project decision). Slower than the
-# unit suite, so it runs in parallel with pr.yml rather than gating it.
+# Full end-to-end tests: real Jellyfin 12 container + mock Arr/Seerr, plugin mounted in, wizard automated, every endpoint / task mode / UI tab exercised.
 
 on:
   pull_request:
   push:
-    # Mirror pr.yml's coverage-on-main behaviour for the e2e side: Codecov reports the
-    # DEFAULT-branch results, so main must run e2e itself for the e2e Test-Analytics report
-    # (uploaded below) to reflect main - otherwise it only ever sees PR-branch runs.
+    # Mirror pr.yml's coverage-on-main behaviour for the e2e side: Codecov reports the DEFAULT-branch results, so main must run e2e itself for the e2e Test-Analytics report (uploaded below) to reflect main - otherwise it only ever sees PR-branch runs.
     branches: [main]
   workflow_dispatch:
 
@@ -65,12 +60,7 @@ jobs:
           path: test/e2e/playwright-report/
           retention-days: 7
 
-      # Codecov Test Analytics (NOT coverage): uploads the Playwright JUnit results so the
-      # Codecov UI surfaces e2e failures + flaky-test detection on the PR. Runs on always()
-      # so a failing run still reports which e2e tests failed. This does not affect the
-      # project/patch coverage thresholds in codecov.yml - it is a separate report type.
-      # Uses the unified codecov-action with `report_type: test_results` (the standalone
-      # test-results-action is deprecated); same pinned action/SHA that pr.yml uses for coverage.
+      # Codecov Test Analytics (NOT coverage): uploads the Playwright JUnit results so the Codecov UI surfaces e2e failures + flaky-test detection on the PR.
       - name: Upload E2E test results to Codecov
         if: always()
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

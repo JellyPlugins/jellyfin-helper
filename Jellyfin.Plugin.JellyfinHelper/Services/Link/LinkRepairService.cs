@@ -10,10 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
 /// <summary>
-///     Service for finding and repairing broken link file references.
-///     Delegates link-type-specific logic (reading/writing targets) to
-///     <see cref="ILinkHandler" /> strategies, keeping this service-agnostic
-///     of any particular link format.
+///     Service for finding and repairing broken link file references. Delegates link-type-specific logic (reading/writing targets) to ILinkHandler strategies, keeping this service-agnostic of any particular link format.
 /// </summary>
 public class LinkRepairService : ILinkRepairService
 {
@@ -62,8 +59,7 @@ public class LinkRepairService : ILinkRepairService
     protected virtual int VisitedDirectoryCap => MaxVisitedDirectories;
 
     /// <summary>
-    ///     Scans the given library paths for link files, validates their target paths,
-    ///     and repairs broken references by searching the parent directory for a media file.
+    ///     Scans the given library paths for link files, validates their target paths, and repairs broken references by searching the parent directory for a media file.
     /// </summary>
     /// <param name="libraryPaths">The library paths to scan for link files.</param>
     /// <param name="dryRun">If true, no files will be modified.</param>
@@ -149,8 +145,6 @@ public class LinkRepairService : ILinkRepairService
 
     /// <summary>
     ///     Iteratively scans a directory tree for files that any registered handler recognizes.
-    ///     Uses an explicit stack instead of recursion to avoid StackOverflowException on deep
-    ///     or symlink-looped directory trees.
     /// </summary>
     private void FindLinkFilesRecursive(
         string directory,
@@ -191,8 +185,7 @@ public class LinkRepairService : ILinkRepairService
     }
 
     /// <summary>
-    ///     Resolves <paramref name="current"/> to its final (symlink-dereferenced) full path for
-    ///     loop-detection, falling back to the lexical full path when the target cannot be resolved.
+    ///     Resolves to its final (symlink-dereferenced) full path for loop-detection, falling back to the lexical full path when the target cannot be resolved.
     /// </summary>
     private string ResolveTraversalPath(string current)
     {
@@ -215,8 +208,7 @@ public class LinkRepairService : ILinkRepairService
     }
 
     /// <summary>
-    ///     Enumerates the files of <paramref name="current"/> (recording handler-recognized link files)
-    ///     and pushes its subdirectories onto <paramref name="stack"/> for continued traversal.
+    ///     Enumerates the files of (recording handler-recognized link files) and pushes its subdirectories onto for continued traversal.
     /// </summary>
     private void ScanDirectoryForLinks(
         string current,
@@ -299,8 +291,6 @@ public class LinkRepairService : ILinkRepairService
         }
 
         // Skip URL-based targets only for handlers that legitimately support them (e.g. .strm files).
-        // Symlink targets are always filesystem paths - a "://" in a symlink target is not a URL.
-        // file:// URIs are excluded because they reference local files and must be validated like paths.
         if (handler.SupportsUrlTargets
             && Uri.TryCreate(targetPath, UriKind.Absolute, out var uri)
             && uri.Scheme != Uri.UriSchemeFile)
@@ -313,9 +303,7 @@ public class LinkRepairService : ILinkRepairService
 
         fileResult.OriginalTargetPath = targetPath;
 
-        // Reject null bytes before normalization - .NET no longer throws ArgumentException
-        // from Path.GetFullPath for embedded NULs on modern runtimes, so we must check
-        // explicitly. A NUL byte is a structural path-grammar violation -> InvalidContent.
+        // Reject null bytes before normalization - .NET no longer throws ArgumentException from Path.GetFullPath for embedded NULs on modern runtimes, so we must check explicitly.
         if (targetPath.Contains('\0', StringComparison.Ordinal))
         {
             _pluginLog.LogWarning(LogSource, $"Target path contains null byte in link file {linkFilePath}", logger: _logger);
@@ -381,8 +369,7 @@ public class LinkRepairService : ILinkRepairService
     }
 
     /// <summary>
-    ///     Applies the containment and sensitive-path guards to a normalized link target. Returns the
-    ///     failing <see cref="LinkFileStatus"/> when the target is rejected, or <c>null</c> when valid.
+    ///     Applies the containment and sensitive-path guards to a normalized link target. Returns the failing LinkFileStatus when the target is rejected, or null when valid.
     /// </summary>
     private LinkFileStatus? ValidateNormalizedTarget(
         string linkFilePath,
@@ -416,12 +403,7 @@ public class LinkRepairService : ILinkRepairService
             }
         }
 
-        // (b) An ABSOLUTE target (or file:// URI) pointing at a sensitive system
-        // directory - Jellyfin's own /config, OS dirs like /etc, C:\Windows - is
-        // refused so link repair never enumerates or rewrites toward host files
-        // outside the media libraries (info-disclosure / traversal via absolute
-        // targets). A cross-location absolute media target (another library / mount)
-        // is still allowed; only sensitive locations are blocked.
+        // (b) An ABSOLUTE target (or file:// URI) pointing at a sensitive system directory - Jellyfin's own /config, OS dirs like /etc, C:\Windows - is refused so link repair never enumerates or rewrites toward host files outside the media libraries (info-disclosure / traversal via.
         if (IsSensitiveSystemTarget(normalizedTargetPath))
         {
             _pluginLog.LogWarning(
@@ -457,12 +439,7 @@ public class LinkRepairService : ILinkRepairService
             return fileResult;
         }
 
-        // Search the parent directory for media files, EXCLUDING the link file
-        // itself. A symlink with a media extension (e.g. a broken "Movie.mkv"
-        // symlink) would otherwise be enumerated as one of its own repair
-        // candidates and make every such folder look ambiguous - a link can never
-        // legitimately repair to itself. (.strm links are already excluded from
-        // the candidate filter by extension, so this only affects symlinks.)
+        // Search the parent directory for media files, EXCLUDING the link file itself. A symlink with a media extension (e.g.
         var mediaFiles = FindMediaFilesInDirectory(parentDir)
             .Where(f => !string.Equals(
                 _fileSystem.Path.GetFullPath(f),
@@ -491,9 +468,7 @@ public class LinkRepairService : ILinkRepairService
                             LogSource,
                             $"[Dry Run] Would repair link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
                             _logger);
-                        // Mark as Repaired (not Broken) so dry-run summary correctly reports
-                        // "Would repair: N" instead of inflating the Broken count.
-                        // LinkFileStatus.Repaired covers both actual repairs and dry-run candidates.
+                        // Mark as Repaired (not Broken) so dry-run summary correctly reports "Would repair: N" instead of inflating the Broken count.
                         fileResult.Status = LinkFileStatus.Repaired;
                     }
                     else
@@ -535,13 +510,7 @@ public class LinkRepairService : ILinkRepairService
     }
 
     /// <summary>
-    ///     Finds all media files (video files) in the given directory (non-recursive).
-    ///     <para>
-    ///         Note: This enumerates all files in the directory without a count limit.
-    ///         In edge cases with very large flat directories this could be slow, but
-    ///         it is only called for the parent directory of a broken link target, so
-    ///         the directory typically contains a small number of files.
-    ///     </para>
+    ///     Finds all media files (video files) in the given directory (non-recursive). Note: This enumerates all files in the directory without a count limit.
     /// </summary>
     /// <param name="directory">The directory to search.</param>
     /// <returns>A list of media file paths.</returns>
@@ -567,11 +536,7 @@ public class LinkRepairService : ILinkRepairService
     }
 
     /// <summary>
-    ///     True when an absolute target path is (or is inside) a sensitive system /
-    ///     application directory that link repair must never read from or rewrite
-    ///     toward - Jellyfin's own <c>/config</c>, plus common OS directories. A
-    ///     cross-location media target (another library or mount) is not sensitive
-    ///     and is allowed; only these locations are blocked.
+    ///     True when an absolute target path is (or is inside) a sensitive system / application directory that link repair must never read from or rewrite toward - Jellyfin's own /config, plus common OS directories.
     /// </summary>
     private static bool IsSensitiveSystemTarget(string normalizedTargetPath)
         => PathValidator.IsSensitiveSystemPath(normalizedTargetPath);

@@ -6,7 +6,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 
 /// <summary>
 ///     Manages a trash/recycle bin for deleted media items instead of permanent deletion.
-///     Items are moved to a timestamped trash folder and can be permanently purged after a retention period.
 /// </summary>
 public interface ITrashService
 {
@@ -62,9 +61,7 @@ public interface ITrashService
     IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays, ILogger? logger = null);
 
     /// <summary>
-    ///     Relocates all trash contents from an old trash folder to a new trash folder.
-    ///     Moves all top-level entries (files and directories) preserving their timestamp-prefixed names.
-    ///     Creates the destination folder if it does not exist. Removes the old folder if it becomes empty.
+    ///     Relocates all trash contents from an old trash folder to a new trash folder. Moves all top-level entries (files and directories) preserving their timestamp-prefixed names.
     /// </summary>
     /// <param name="oldTrashPath">The full path of the old trash folder.</param>
     /// <param name="newTrashPath">The full path of the new trash folder.</param>
@@ -73,9 +70,7 @@ public interface ITrashService
     (int Moved, int Failed) RelocateTrashContents(string oldTrashPath, string newTrashPath, ILogger logger);
 
     /// <summary>
-    ///     Checks whether the Jellyfin process has read and write access to a given path.
-    ///     If the path does not exist, checks whether the nearest existing parent directory
-    ///     is writable (i.e., the path could be created).
+    ///     Checks whether the Jellyfin process has read and write access to a given path. If the path does not exist, checks whether the nearest existing parent directory is writable (i.e., the path could be created).
     /// </summary>
     /// <param name="path">The absolute path to check.</param>
     /// <param name="logger">The logger for diagnostics.</param>

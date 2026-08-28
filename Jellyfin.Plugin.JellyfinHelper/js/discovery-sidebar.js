@@ -1,7 +1,4 @@
-// Jellyfin Helper - Discovery Custom Tab + Sidebar Script
-// Injected into index.html via File Transformation plugin.
-// Custom Tab: Renders discovery into <div class="jellyfinhelper discovery"> (requires Custom Tabs plugin)
-// Sidebar: Also adds a "Seerr Discovery" link as fallback navigation
+// Jellyfin Helper - Discovery Custom Tab + Sidebar Script Injected into index.html via File Transformation plugin.
 (function () {
     'use strict';
 
@@ -15,9 +12,7 @@
     var CUSTOM_TAB_SELECTOR = '.jellyfinhelper.discovery';
     var SECTION_CLASS = 'jellyfinHelperSection';
     var NAV_ITEM_CLASS = 'jfhelper-nav-discovery';
-    // No standalone page exists - discovery is rendered via Custom Tabs plugin.
-    // The sidebar click handler searches for the tab first; if not found,
-    // it shows an inline message instead of navigating to a 404 page.
+    // No standalone page exists - discovery is rendered via Custom Tabs plugin. The sidebar click handler searches for the tab first; if not found, it shows an inline message instead of navigating to a 404 page.
     var API_URL = '/JellyfinHelper/Discovery/My';
 
     var TOAST_DURATION_MS = 5000;
@@ -25,15 +20,7 @@
     var _seerrBaseUrl = '';
     var EXTERNAL_LINKS_URL = '/JellyfinHelper/Discovery/My/ExternalLinks';
 
-    /**
-     * Returns the URL only if it uses a safe http(s) scheme, otherwise ''.
-     * The Seerr base URL is admin-controlled config; without this guard a value like
-     * "javascript:..." would survive HTML-escaping in the data-href attribute and then
-     * execute when read back and passed to window.open() (stored XSS, admin→user).
-     *
-     * @param {string} url - The URL to validate.
-     * @returns {string} The trimmed URL if http(s), otherwise an empty string.
-     */
+    /** * Returns the URL only if it uses a safe http(s) scheme, otherwise ''. */
     function safeHttpUrl(url) {
         if (typeof url !== 'string') return '';
         var trimmed = url.trim();
@@ -61,7 +48,6 @@
         callback();
     }
 
-    // ===== I18N =====
     var _strings = null;
 
     function loadStrings(callback) {
@@ -96,7 +82,7 @@
             dataType: 'json'
         }).then(function (data) {
             if (data && data.SeerrUrl) {
-                // Only accept http(s) URLs — reject javascript:/data:/etc. at the source so a
+                // Only accept http(s) URLs , reject javascript:/data:/etc. at the source so a
                 // misconfigured or hostile admin value can never reach the window.open() sink.
                 _seerrBaseUrl = safeHttpUrl(data.SeerrUrl).replace(/\/+$/, '');
             }
@@ -105,15 +91,8 @@
         });
     }
 
-    // ===== TOAST NOTIFICATIONS =====
 
-    /**
-     * Shows a temporary toast notification at the bottom-center of the viewport.
-     * Used to surface error details from non-200 API responses without blocking the UI.
-     *
-     * @param {string} message - The message text to display (plain text, rendered via textContent).
-     * @param {number} [duration] - Time in milliseconds before auto-dismissal. Defaults to TOAST_DURATION_MS.
-     */
+    /** * Shows a temporary toast notification at the bottom-center of the viewport. * Used to surface error details from non-200 API responses without blocking the UI. */
     function showToast(message, duration) {
         if (!message) return;
         duration = duration || TOAST_DURATION_MS;
@@ -153,13 +132,7 @@
         }, 300);
     }
 
-    /**
-     * Extracts a human-readable error message from an API error response.
-     * Handles both XHR-style objects (responseText/responseJSON) and plain error objects.
-     *
-     * @param {Object} err - The error object from ApiClient.ajax rejection.
-     * @returns {string} The extracted message, or an empty string if unavailable.
-     */
+    /** * Extracts a human-readable error message from an API error response. * Handles both XHR-style objects (responseText/responseJSON) and plain error objects. */
     function extractErrorMessage(err) {
         if (!err) return '';
         try {
@@ -178,14 +151,7 @@
         return '';
     }
 
-    /**
-     * Maps a raw server error message to a short, user-friendly i18n toast message.
-     * Inspects the message text for HTTP status codes and returns an appropriate translation.
-     * Always returns a non-empty string (falls back to generic error).
-     *
-     * @param {string} serverMessage - The raw message from the API response body.
-     * @returns {string} A short, localized message suitable for a toast notification.
-     */
+    /** * Maps a raw server error message to a short, user-friendly i18n toast message. * Inspects the message text for HTTP status codes and returns an appropriate translation. */
     function getUserFriendlyErrorMessage(serverMessage) {
         var msg = (serverMessage || '').toLowerCase();
         if (msg.includes('http 403') || msg.includes('not linked') || msg.includes('no permission')) {
@@ -200,7 +166,6 @@
         return t('discoveryErrGeneric', 'Request failed. Try again later.');
     }
 
-    // ===== STYLES =====
     function injectStyles() {
         if (document.getElementById('jfhelper-discovery-styles')) return;
         var style = document.createElement('style');
@@ -262,17 +227,13 @@
         document.head.appendChild(style);
     }
 
-    // ===== CUSTOM TAB =====
     var lastMountedContainer = null;
 
     function initCustomTab() {
         injectStyles();
         tryMountCustomTab();
         var pending = false;
-        // Prefer observing the SPA content root rather than document.body to avoid
-        // firing on every global DOM mutation. Fall back to document.body only when
-        // the content root is not yet present (cold load); the observer is then
-        // re-targeted once the narrower container appears.
+        // Prefer observing the SPA content root rather than document.body to avoid firing on every global DOM mutation.
         var observeTarget = document.querySelector('.mainAnimatedPages') || document.body;
         var observer = new MutationObserver(function () {
             // Re-target to the narrower container if we started on document.body
@@ -300,10 +261,7 @@
         var container = findActiveContainer();
         if (!container) { lastMountedContainer = null; return; }
 
-        // Determine if we need to (re-)mount:
-        // 1. Different container than last time
-        // 2. Container has no rendered content (was cleared by SPA)
-        // 3. Previous container was removed from DOM (orphaned after navigation)
+        // Determine if we need to (re-)mount: 1. Different container than last time 2.
         var shouldMount = container !== lastMountedContainer
             || !container.querySelector('.jfh-discovery-container')
             || (lastMountedContainer && !document.contains(lastMountedContainer));
@@ -436,7 +394,6 @@
         }
     }
 
-    // ===== PERMISSION-AWARE REQUEST LOGIC =====
     var _permCache = {};
     var PERM_CACHE_TTL_MS = 300000; // 5 minutes
 
@@ -555,9 +512,7 @@
             var prof = profiles[i];
             var item = document.createElement('button');
             item.className = 'jfh-discovery-popup-item' + (prof.IsDefault ? ' jfh-discovery-popup-item-default' : '');
-            // Build the button label using safe DOM operations instead of innerHTML to prevent
-            // XSS if ProfileName/ServerName originates from a compromised Arr/Seerr instance.
-            // textContent auto-escapes HTML — esc() is NOT applied here to avoid double-encoding.
+            // Build the button label using safe DOM operations instead of innerHTML to prevent XSS if ProfileName/ServerName originates from a compromised Arr/Seerr instance.
             item.appendChild(document.createTextNode(prof.ProfileName));
             if (multiServer) {
                 item.appendChild(document.createTextNode(' '));
@@ -677,13 +632,7 @@
         });
     }
 
-    /**
-     * Checks if all discovery cards have been removed (requested/dismissed) and shows
-     * the empty-state message so the user doesn't see a blank page.
-     *
-     * @param {HTMLElement} scopeContainer - The discovery container to check. Scoping avoids
-     *   inspecting an unrelated grid when multiple tab containers coexist in the DOM.
-     */
+    /** * Checks if all discovery cards have been removed (requested/dismissed) and shows * the empty-state message so the user doesn't see a blank page. */
     function checkEmptyDiscoveryState(scopeContainer) {
         var grid = scopeContainer ? scopeContainer.querySelector('.jfh-discovery-grid') : null;
         if (!grid) return;
@@ -695,7 +644,6 @@
         }
     }
 
-    // ===== DISMISS LOGIC =====
 
     /**
      * Handles the dismiss button click. Shows a confirmation popup before dismissing.
@@ -858,7 +806,6 @@
         return str.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
 
-    // ===== SIDEBAR =====
     function initSidebar() {
         injectNavigation();
         var drawer = document.querySelector('.mainDrawer');
@@ -948,19 +895,13 @@
         section.appendChild(navItem);
     }
 
-    // ===== INIT =====
     waitForApi(function () {
         loadStrings(function () {
             // Check if Discovery is available before injecting UI elements.
-            // If the admin disabled DiscoveryUserAccessEnabled or the task is deactivated,
-            // the API returns 403 or null - in that case, do not show the sidebar item
-            // or Custom Tab content to avoid confusing users with non-functional UI.
             ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
                 .then(function (data) {
                     if (!data || !data.Recommendations || data.Recommendations.length === 0) {
-                        // No discovery data available (task deactivated/dry-run/no results yet)
-                        // Still init Custom Tab so it can show "no results" message if container exists,
-                        // but do NOT inject sidebar navigation - no point advertising a feature with no content.
+                        // No discovery data available (task deactivated/dry-run/no results yet) Still init Custom Tab so it can show "no results" message if container exists, but do NOT inject sidebar navigation - no point advertising a feature with no content.
                         initCustomTab();
                         setTimeout(tryMountCustomTab, 500);
                         setTimeout(tryMountCustomTab, 1500);

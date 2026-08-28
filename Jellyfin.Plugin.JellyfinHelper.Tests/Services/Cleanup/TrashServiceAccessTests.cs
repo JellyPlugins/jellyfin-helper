@@ -8,8 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Unit tests for <see cref="TrashService.CheckPathAccess"/>,
-///     <see cref="TrashService.CanReadDirectory"/>, and <see cref="TrashService.CanWriteDirectory"/>.
+///     Unit tests for CheckPathAccess, CanReadDirectory, and CanWriteDirectory.
 /// </summary>
 public sealed class TrashServiceAccessTests : IDisposable
 {
@@ -127,9 +126,7 @@ public sealed class TrashServiceAccessTests : IDisposable
     [Fact]
     public void CheckPathAccess_MalformedPath_ReturnsInvalidPathError()
     {
-        // A non-whitespace path with an embedded null char passes the IsNullOrWhiteSpace
-        // guard but makes Path.GetFullPath throw ArgumentException. The catch must report
-        // an invalid-path result rather than let the exception escape.
+        // A non-whitespace path with an embedded null char passes the IsNullOrWhiteSpace guard but makes Path.GetFullPath throw ArgumentException.
         var result = _service.CheckPathAccess("bad\0path", _mockLogger.Object);
 
         Assert.False(result.HasFullAccess);

@@ -192,11 +192,8 @@ jobs:
         disable_search: true
         fail_ci_if_error: false
 
-  # Dedicated SonarCloud analysis with coverage import. SonarScanner for .NET requires a
-  # single begin -> build -> test -> end sequence in ONE job, so this cannot ride the `test`
-  # matrix above (which runs three parallel buckets). It builds once, runs the full unit-test
-  # suite with Cobertura coverage, and feeds that report to SonarCloud via
-  # sonar.cs.cobertura.reportsPaths.
+  # Dedicated SonarCloud analysis. Requires single begin -> build -> test -> end in one job,
+  # so it cannot use the test matrix above.
   sonar:
     name: SonarCloud
     runs-on: ubuntu-latest
@@ -235,14 +232,9 @@ jobs:
       if: ${{ env.SONAR_TOKEN != '' }}
       run: |
         set -euo pipefail
-        # Coverage is imported from the C# unit-test run only. The E2E harness, the browser-side
-        # PluginPages JS, the injected discovery-sidebar script, and the GitHub Pages demo have no
-        # coverage instrumentation, so without these exclusions SonarCloud would score them as 0%
-        # and drag the overall coverage number down to something meaningless. They stay in the
-        # normal analysis (code smells etc.) — they are only removed from the coverage denominator.
-        # The generated configPage.html and the docs/ demo copy are dropped from analysis entirely,
-        # since configPage.html is a build artifact rebuilt from the css/js sources and docs/ is a
-        # duplicate of those sources.
+        # Coverage is imported from the C# unit-test run only. E2E, PluginPages and demo have no
+        # instrumentation, so exclusions prevent 0% scores. They stay in normal analysis, only
+        # coverage denominator is affected. Generated configPage.html and docs/ are dropped entirely.
         #
         # sonar.tests marks the xUnit project and the E2E harness as TEST sources rather than
         # production code, so SonarCloud applies its (much lighter) test rule set to them instead

@@ -11,11 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Baseline behavioral tests for <see cref="SimilarityComputer.BuildCandidatePeopleLookup"/>
-///     and the weighted <c>ComputePeopleSimilarity</c> overload.
-///     Locks in the observable contract of the people-lookup so that the internal fetch path
-///     (per-item <c>GetPeople</c> vs. Jellyfin-12+ batch <c>GetPeopleNamesByItems</c>) can be
-///     swapped without changing the assertions below.
+///     Baseline behavioral tests for BuildCandidatePeopleLookup and the weighted ComputePeopleSimilarity overload.
 /// </summary>
 public sealed class SimilarityComputerTests
 {
@@ -33,8 +29,6 @@ public sealed class SimilarityComputerTests
 
     private static PersonInfo Person(string name, PersonKind kind)
         => new() { Name = name, Type = kind };
-
-    // === Empty / edge cases ===
 
     [Fact]
     public void BuildCandidatePeopleLookup_EmptyCandidateList_ReturnsEmptyDictionary()
@@ -69,8 +63,6 @@ public sealed class SimilarityComputerTests
 
         Assert.False(result.ContainsKey(candidate.Id));
     }
-
-    // === Type filtering ===
 
     [Fact]
     public void BuildCandidatePeopleLookup_ActorsAndDirectors_AreIncluded()
@@ -133,8 +125,6 @@ public sealed class SimilarityComputerTests
         Assert.False(result.ContainsKey(candidate.Id));
     }
 
-    // === Name handling ===
-
     [Fact]
     public void BuildCandidatePeopleLookup_NullOrEmptyNames_AreSkipped()
     {
@@ -191,8 +181,6 @@ public sealed class SimilarityComputerTests
         Assert.Contains("Alice", names);
     }
 
-    // === Multi-candidate ===
-
     [Fact]
     public void BuildCandidatePeopleLookup_MultipleCandidates_EachHasOwnPeople()
     {
@@ -210,8 +198,6 @@ public sealed class SimilarityComputerTests
         Assert.DoesNotContain("Bob", result[a.Id]);
         Assert.DoesNotContain("Alice", result[b.Id]);
     }
-
-    // === Exception handling ===
 
     [Fact]
     public void BuildCandidatePeopleLookup_GetPeopleThrows_CandidateIsSkippedOthersRemain()
@@ -240,8 +226,6 @@ public sealed class SimilarityComputerTests
 
         Assert.Throws<OperationCanceledException>(() => computer.BuildCandidatePeopleLookup([candidate]));
     }
-
-    // === Batch fast-path (Jellyfin 12+ GetPeopleNamesByItems) ===
 
     [Fact]
     public void BuildCandidatePeopleLookup_BatchApiReturnsData_UsesBatchPathAndSkipsPerItemFallback()
@@ -357,10 +341,7 @@ public sealed class SimilarityComputerTests
         library.Verify(l => l.GetPeople(It.IsAny<BaseItem>()), Times.Never);
     }
 
-    // Weighted ComputePeopleSimilarity overload ===
-    // These tests exercise the weighted-budget denominator introduced in the C2 hardening
-    // pass: matched-weight / max(|candidate| × avg(preferredWeight), MinDenominatorFloor).
-    // See SimilarityComputer.WeightedPeopleSimilarityMinDenominator for the floor rationale.
+    // Weighted ComputePeopleSimilarity overload === These tests exercise the weighted-budget denominator: matched-weight / max(|candidate| × avg(preferredWeight), MinDenominatorFloor).
 
     [Fact]
     public void ComputePeopleSimilarityWeighted_EmptyCandidate_ReturnsZero()
@@ -402,9 +383,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_HeavyCollaboratorMatch_OutscoresRareCameo()
     {
-        // A candidate featuring the user's dominant collaborator
-        // (weight 8) must score STRICTLY higher than a candidate featuring only a rare cameo
-        // person (weight 1). The unweighted overlap coefficient would treat both as identical.
+        // A candidate featuring the user's dominant collaborator (weight 8) must score STRICTLY higher than a candidate featuring only a rare cameo person (weight 1).
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Christopher Nolan", 8.0 },
@@ -430,9 +409,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_HighMatchedShareOfBudget_HitsCeiling()
     {
-        // Rich preferred profile that fully overlaps the candidate cast should hit the 1.0
-        // ceiling. avg = 6/3 = 2.0; budget = 2 × 2.0 = 4.0; floor(5) -> denom=5.0
-        // matched = 3 + 2 = 5.0 -> score = 5.0/5.0 = 1.0.
+        // Rich preferred profile that fully overlaps the candidate cast should hit the 1.0 ceiling. avg = 6/3 = 2.0; budget = 2 × 2.0 = 4.0; floor(5) -> denom=5.0 matched = 3 + 2 = 5.0 -> score = 5.0/5.0 = 1.0.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Alice", 3.0 },
@@ -449,13 +426,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_NonPositiveWeights_AreIgnored()
     {
-        // Weight entries with zero or negative values must be excluded from BOTH the matched
-        // weight sum AND the positive-entry count that feeds avg(). Otherwise pathological
-        // training data (from cache-serialisation bugs) could poison the denominator.
-        // With only Alice as positive: positive=1, total=5.0, avg=5.0.
-        // |candidate|=3, budget=3×5.0=15.0 (>floor). matched=5.0 -> score = 5/15 ≈ 0.333.
-        // The old min-based formula produced 1.0 here (bug); the new weighted-budget formula
-        // correctly reflects that only 1 out of 3 candidate slots is a positive match.
+        // Weight entries with zero or negative values must be excluded from BOTH the matched weight sum AND the positive-entry count that feeds avg().
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Alice", 5.0 },
@@ -488,13 +459,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_SparseProfileSingleMatch_DoesNotOvershoot()
     {
-        // v3 C2 hardening pass - Sparse-user overshoot fix.
-        // Old min-based formula: preferred={Alice=2}, |candidate|=10, matched=2
-        //   -> min(10, 2)=2 -> 2/2 = 1.0 !  A brand-new profile with a single 2-weight entry could
-        //   ride any single match to a perfect score, making every candidate that shared one
-        //   cast member look like a top pick.
-        // New weighted-budget: avg=2/1=2.0, budget=10×2.0=20.0, floor(5) -> denom=20. matched=2
-        //   -> score = 2/20 = 0.10. Correctly damped.
+        // Sparse-user overshoot fix.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Alice", 2.0 }
@@ -512,21 +477,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_RichProfileMultipleHeavyMatches_PreservesMonotonicOrdering()
     {
-        // v3 C2 hardening pass - Ceiling-compression fix.
-        // The old min-based formula collapsed all candidates whose matched-weight exceeded
-        // |candidate| onto the same 1.0 clamp, so a 2-match and a 5-match candidate scored
-        // identically and became indistinguishable to the ML feature. The weighted-budget
-        // formula preserves a monotone ordering: more matched weight -> strictly higher score
-        // (until the actual candidate budget is saturated).
-        //
-        // Rich user: 200 filler people at weight 3.0 plus 5 named heavy hitters
-        // (weights 8, 5, 3, 2, 1), giving 205 positive-weight entries in total.
-        //
-        // ComputePeopleSimilarity averages over the top-K entries only
-        // (K = WeightedPeopleSimilarityTopK = 20), NOT the whole 205-entry set. Sorted
-        // descending, the top 20 are: HeavyDirector (8), HeavyActor (5), then 18 of the
-        // 200 filler-3.0 rows - sum = 8 + 5 + 18·3 = 67, average = 67/20 = 3.35.
-        // With |candidate| = 10 the weighted budget denominator is therefore ≈ 33.5.
+        // Ceiling-compression fix.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < 200; i++)
         {
@@ -558,9 +509,7 @@ public sealed class SimilarityComputerTests
         Assert.True(fiveHittersScore > twoHeaviesScore,
             $"Five-match candidate must outscore two-match candidate (5-hit={fiveHittersScore:F4}, 2-hit={twoHeaviesScore:F4})");
 
-        // Both scores must remain within [0, 1] and neither should hit exactly 1.0 with these
-        // inputs (matched weight 13 vs 19 against the ~33.5 top-K weighted budget).
-        // Expected: twoHeavies ≈ 13/33.5 ≈ 0.388, fiveHitters ≈ 19/33.5 ≈ 0.567.
+        // Both scores must remain within [0, 1] and neither should hit exactly 1.0 with these inputs (matched weight 13 vs 19 against the ~33.5 top-K weighted budget).
         Assert.InRange(twoHeaviesScore, 0.35, 0.50);
         Assert.InRange(fiveHittersScore, 0.55, 0.75);
     }
@@ -568,10 +517,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_TopKAveraging_KeepsGranularityForHeavyHitters()
     {
-        // Asymmetric preferred profile: 95 one-off cameos (weight 1) and 5 heavy hitters (weight 8).
-        // With averaging over the whole set, avg ≈ 1.35, budget ≈ 13.5. Two heavy matches (weight 16)
-        // would clamp at 1.0 and lose granularity. Top-K averaging anchors the denominator to the
-        // heavy hitters, so the same two-match candidate stays well below the ceiling.
+        // Asymmetric preferred profile: 95 one-off cameos (weight 1) and 5 heavy hitters (weight 8). With averaging over the whole set, avg ≈ 1.35, budget ≈ 13.5.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < 95; i++)
         {
@@ -595,15 +541,10 @@ public sealed class SimilarityComputerTests
         Assert.InRange(result, 0.5, 0.7);
     }
 
-    // === Per-item fallback debug logging ===
-
     [Fact]
     public void BuildCandidatePeopleLookup_PerItemGetPeopleThrows_LogsSkipAtDebugLevel()
     {
-        // With Debug logging enabled, a per-item GetPeople failure must be recorded via LogDebug
-        // (so an admin running at Debug can see which candidate was skipped) while still gracefully
-        // omitting that candidate. Force the fallback path by throwing a non-cancellation exception
-        // from the batch API, then throw again per-item to hit the Debug branch.
+        // With Debug logging enabled, a per-item GetPeople failure must be recorded via LogDebug (so an admin running at Debug can see which candidate was skipped) while still gracefully omitting that candidate.
         var library = new Mock<ILibraryManager>();
         var pluginLog = new Mock<IPluginLogService>();
         var logger = new Mock<ILogger>();
@@ -628,8 +569,6 @@ public sealed class SimilarityComputerTests
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
     }
-
-    // === Genre similarity: degenerate / guarded inputs ===
 
     [Fact]
     public void ComputeGenreSimilarity_AllWhitespaceCandidateGenres_ReturnsZero()
@@ -681,8 +620,6 @@ public sealed class SimilarityComputerTests
         Assert.Equal(0.0, result);
     }
 
-    // === Average preferred weight ===
-
     [Fact]
     public void ComputeAveragePreferredWeight_AllNonPositiveWeights_ReturnsZero()
     {
@@ -698,8 +635,6 @@ public sealed class SimilarityComputerTests
 
         Assert.Equal(0.0, result);
     }
-
-    // === Tag similarity (Jaccard) ===
 
     [Fact]
     public void ComputeTagSimilarity_OverlappingTags_ReturnsJaccard()
@@ -742,14 +677,10 @@ public sealed class SimilarityComputerTests
         Assert.Equal(1.0, result, 10);
     }
 
-    // === Billed-people extraction: duplicate-name weight resolution ===
-
     [Fact]
     public void ExtractBilledPeople_DuplicateNameHigherWeightWins_KeepsMaxWeight()
     {
-        // The same actor appears twice: first low-billed (high SortOrder), then top-billed
-        // (SortOrder 0 -> weight 1.0). Duplicates must collapse to a single name carrying the
-        // MAX billing weight, not last-write-wins.
+        // The same actor appears twice: first low-billed (high SortOrder), then top-billed (SortOrder 0 -> weight 1.0).
         var people = new List<PersonInfo>
         {
             new() { Name = "Sigourney Weaver", Type = PersonKind.Actor, SortOrder = 9 },

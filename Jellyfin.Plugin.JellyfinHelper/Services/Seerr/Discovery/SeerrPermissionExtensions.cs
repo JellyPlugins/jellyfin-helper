@@ -8,8 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 public static class SeerrPermissionExtensions
 {
     /// <summary>
-    ///     Determines whether the user holds the specified permission flag.
-    ///     Implicitly returns <c>true</c> if the user is an admin (admins have all permissions).
+    ///     Determines whether the user holds the specified permission flag. Implicitly returns true if the user is an admin (admins have all permissions).
     /// </summary>
     /// <param name="user">The Seerr user.</param>
     /// <param name="flag">The permission flag to check.</param>
@@ -37,8 +36,6 @@ public static class SeerrPermissionExtensions
 
     /// <summary>
     ///     Determines whether the user can submit a standard (non-4K) request for the given media type.
-    ///     Checks the general <see cref="SeerrPermissions.Request"/> flag first, then
-    ///     the granular <see cref="SeerrPermissions.RequestMovie"/> / <see cref="SeerrPermissions.RequestTv"/> flags.
     /// </summary>
     /// <param name="user">The Seerr user.</param>
     /// <param name="mediaType">"movie" or "tv".</param>
@@ -79,7 +76,6 @@ public static class SeerrPermissionExtensions
 
     /// <summary>
     ///     Determines whether the user can select a custom quality profile (advanced request flow).
-    ///     This is true for admins, users with MANAGE_REQUESTS, or users with REQUEST_ADVANCED.
     /// </summary>
     /// <param name="user">The Seerr user.</param>
     /// <returns><c>true</c> if the user may choose quality profiles; otherwise <c>false</c>.</returns>

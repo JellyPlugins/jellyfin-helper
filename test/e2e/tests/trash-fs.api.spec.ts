@@ -152,11 +152,7 @@ test.describe.serial('trash move + retention purge', () => {
   });
 
   test('an expired symlinked trash entry is unlinked, but its target survives (reparse-point = link-only delete)', async () => {
-    // Regression guard for the data-loss risk in PurgeExpiredTrash: a trash entry
-    // that is a symlink/junction (reparse point) must be removed as the LINK ONLY -
-    // never recursively followed into the target. If a regression flipped to the
-    // else-branch (Directory.Delete(dir, recursive:true)) it would wipe the
-    // target's real contents.
+    // Regression guard for the data-loss risk in PurgeExpiredTrash: a trash entry that is a symlink/junction (reparse point) must be removed as the LINK ONLY - never recursively followed into the target.
     await putConfig({
       TrickplayTaskMode: 'Deactivate', EmptyMediaFolderTaskMode: 'Deactivate',
       OrphanedSubtitleTaskMode: 'Deactivate', LinkRepairTaskMode: 'Deactivate',
@@ -190,18 +186,7 @@ test.describe.serial('trash move + retention purge', () => {
   });
 });
 
-/**
- * DELETE /Trash/Folders GREEN PATH - the on-disable bulk removal actually wipes the
- * per-library trash folders on disk and reports a non-zero Deleted count.
- *
- * Elsewhere this endpoint is only ever seen in its NEGATIVE branches: authz.api.spec
- * asserts non-admin denial, and trash-abuse.api.spec asserts an absolute /config
- * path is refused (and then runs against the safe default with NOTHING seeded, so it
- * proves a no-op, not a removal). The scheduled PurgeExpiredTrash path (above) is a
- * different code path (timestamp-name retention, not the endpoint's
- * Directory.Delete(recursive) loop). So the success branch - seed real trash, DELETE,
- * assert Deleted>0 AND the folders are gone - had no coverage.
- */
+/** * DELETE /Trash/Folders GREEN PATH - the on-disable bulk removal actually wipes the * per-library trash folders on disk and reports a non-zero Deleted count. */
 test.describe.serial('DELETE /Trash/Folders bulk removal (green path)', () => {
   test.beforeEach(() => {
     ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
@@ -257,17 +242,7 @@ test.describe.serial('DELETE /Trash/Folders bulk removal (green path)', () => {
   });
 });
 
-/**
- * GET Trash/Summary AGGREGATION - TotalSize/TotalItems are summed across libraries
- * and shared trash paths are de-duplicated. Existing coverage (tasks.api.spec.ts)
- * asserts only res.ok() + TotalSize/TotalItems >= 0, which any non-crashing (even
- * always-zero or double-counting) implementation satisfies. Here we seed a KNOWN
- * trash payload across two library trash folders and assert the EXACT totals, so a
- * regression in summing or the per-item count is caught.
- *
- * An item = each top-level entry (dir or file) under a trash base; TotalSize = sum
- * of bytes (dirs counted recursively). ASCII contents give exact byte lengths.
- */
+/** * GET Trash/Summary AGGREGATION - TotalSize/TotalItems are summed across libraries * and shared trash paths are de-duplicated. */
 test.describe.serial('GET Trash/Summary aggregation across libraries', () => {
   test.beforeEach(() => {
     ensureCanariesPlanted();

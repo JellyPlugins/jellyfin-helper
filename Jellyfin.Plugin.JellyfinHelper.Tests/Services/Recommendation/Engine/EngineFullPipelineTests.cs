@@ -15,19 +15,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     End-to-end pipeline tests that drive the FULL recommendation
-///     <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine"/>
-///     through cold-start and warm code paths.
-///     <para>
-///         Prior rounds pinned outer contracts (null user, cancellation, clamps) with the
-///         empty defaults from <see cref="EngineTestFactory"/>. Those never crossed the
-///         <c>userProfile.WatchedItems.Count == 0</c> branch, so
-///         <c>GenerateColdStartRecommendations</c>, <c>GenerateForUser</c>,
-///         <c>ScoreCandidate</c>, <c>ResolveMediaLanguages</c> and the batch parallel
-///         loop stayed at 0% coverage even though the outer control flow was fully green.
-///         These tests construct real <see cref="Movie"/> instances and feed them through
-///         the library manager mock so the engine actually scores something.
-///     </para>
+///     End-to-end pipeline tests that drive the FULL recommendation Engine through cold-start and warm code paths.
 /// </summary>
 public sealed class EngineFullPipelineTests
 {
@@ -112,21 +100,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetRecommendations_ColdStart_UnratedItem_TiesKnownMediocre_ButOutranksTrash()
     {
-        // REGRESSION GUARD (audit finding coldstart-05-rating): the cold-start scalar formula must
-        // NOT let a fully-unrated candidate outrank a candidate the community explicitly rated poorly.
-        // Previously ComputeCombinedCriticScore returned the neutral 0.5 for unrated items, so an
-        // unrated title scored 0.6*0.5=0.30 (rating term) while a real 3/10 scored 0.6*0.30=0.18 -
-        // a 0.12 quality inversion. The fix substitutes the 0.30 unrated prior LOCALLY in cold-start.
-        //
-        // We pin BOTH boundaries of the calibration so a future mis-set prior is caught:
-        //   * unrated must TIE a 3/10 exactly (0.30 prior == 3.0/10) - a one-sided "<=" would let an
-        //     over-penalizing regression (e.g. prior=0.0) ship undetected, so we assert equality.
-        //   * unrated must STRICTLY OUTRANK genuinely-bad content (2/10) - an unknown title is not
-        //     worse than trash, and this lower-bound assertion fails if the prior is pushed too low.
-        // All three movies share genre + year, so recency and diversity-reranking are equal and the
-        // rating term is the sole differentiator. We assert on Score (not list position) so an
-        // exact-score tie is not flipped by the reranker's deterministic ordering. This is the
-        // classic single-user branch (no community prior), which the test harness exercises.
+        // REGRESSION GUARD: the cold-start scalar formula must NOT let a fully-unrated candidate outrank a candidate the community explicitly rated poorly.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))
@@ -159,9 +133,7 @@ public sealed class EngineFullPipelineTests
         // community 3.0/10). Asserting equality - not just "<=" - catches an over-penalizing regression.
         Assert.Equal(mediocreRec!.Score, unratedRec!.Score, 4);
 
-        // Lower boundary: unrated strictly outranks genuinely-bad (2/10) content. Fails if the prior
-        // is pushed below the trash band (e.g. a future 0.0), which the equality assertion alone
-        // would not catch.
+        // Lower boundary: unrated strictly outranks genuinely-bad (2/10) content. Fails if the prior is pushed below the trash band (e.g.
         Assert.True(
             unratedRec.Score > trashRec!.Score,
             $"Unrated item (score={unratedRec.Score}) must strictly outrank the community-rated 2/10 item (score={trashRec.Score}).");
@@ -170,26 +142,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetRecommendations_ColdStartUser_WithMovies_ExecutesPipelineAndProducesValidResult()
     {
-        // Drives cold-start scoring end-to-end: rating filter, combined-critic + recency,
-        // diversity reranking, RecommendedItem projection, and the graceful fallback in
-        // ResolveMediaLanguages / ResolveBoxSetIds (no streams on bare Movie() instances).
-        //
-        // NAMING NOTE: this test used to be called "ReturnsPopulatedRecommendations" but
-        // an earlier CodeRabbit review correctly pointed out that Assert.All is vacuously
-        // true on an empty collection, so a green test did NOT guarantee the recs list
-        // was non-empty. Rather than lock in a "must-be-non-empty" invariant that the
-        // Jellyfin BaseItem plumbing cannot reliably satisfy from a unit-test host
-        // (LoadCandidateItems filters out path-less items and the test-host Movie
-        // instances are missing enough BaseItem state to survive that filter), we
-        // renamed the test to reflect what it ACTUALLY locks in:
-        //   1. The full cold-start pipeline executes without throwing.
-        //   2. The result carries the "strategyColdStart" key.
-        //   3. IF any recommendations survive, they carry stable per-item invariants
-        //      (non-empty ItemId, "reasonPopular" reason, non-empty display Name).
-        //
-        // If the LoadCandidateItems filter drops every candidate, we still get to
-        // exercise cold-start scoring on the pre-filter batch, which is exactly the
-        // 800+ lines of previously-uncovered code this test was written to reach.
+        // Drives cold-start scoring end-to-end: rating filter, combined-critic + recency, diversity reranking, RecommendedItem projection, and the graceful fallback in ResolveMediaLanguages / ResolveBoxSetIds (no streams on bare Movie() instances).
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))
@@ -207,9 +160,7 @@ public sealed class EngineFullPipelineTests
 
         Assert.NotNull(result);
         Assert.Equal("strategyColdStart", result!.ScoringStrategyKey);
-        // Guard against vacuous Assert.All on an empty collection: if all candidates are dropped
-        // by LoadCandidateItems the cold-start scoring pipeline (rating filter, popularity sort,
-        // RecommendedItem projection) is never exercised and the test provides false coverage.
+        // Guard against vacuous Assert.All on an empty collection: if all candidates are dropped by LoadCandidateItems the cold-start scoring pipeline (rating filter, popularity sort, RecommendedItem projection) is never exercised and the test provides false coverage.
         Assert.NotEmpty(result.Recommendations);
         Assert.All(result.Recommendations, r =>
         {
@@ -222,9 +173,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetRecommendations_WarmUser_WithCandidates_ReturnsScoredRecommendations()
     {
-        // Drives the FULL warm path: GenerateForUser -> preference vectors -> ScoreCandidate
-        // -> DiversityReranker -> RecommendedItem projection. Largest previously-uncovered
-        // block (~800 lines) gets executed here for the first time.
+        // Drives the FULL warm path: GenerateForUser -> preference vectors -> ScoreCandidate -> DiversityReranker -> RecommendedItem projection.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         var watchedId = Guid.NewGuid();
@@ -252,20 +201,14 @@ public sealed class EngineFullPipelineTests
         // Warm path uses the strategy passed via DI (HeuristicScoringStrategy from the
         // factory default). Its NameKey is stable across strategy-formula refactors.
         Assert.False(string.IsNullOrEmpty(result.ScoringStrategy));
-        // At least one recommendation must be produced: if result.Recommendations is empty
-        // the warm scoring pipeline (GenerateForUser -> ScoreCandidate -> DiversityReranker)
-        // was never actually exercised and the test provides no coverage of those ~800 lines.
+        // At least one recommendation must be produced: if result.Recommendations is empty the warm scoring pipeline (GenerateForUser -> ScoreCandidate -> DiversityReranker) was never actually exercised and the test provides no coverage of those ~800 lines.
         Assert.NotEmpty(result.Recommendations);
     }
 
     [Fact]
     public void GetAllRecommendations_MultipleUsers_ProducesOneResultPerUser()
     {
-        // Drives the parallel batch loop: LoadCandidateItems, PrecomputeUserWatchSets,
-        // PrecomputeCollaborativeContext, BuildCommunityPopularityMap, the two-user
-        // gate (activated here because we pass two users), and the Parallel.ForEach
-        // scoring branch. Prior to this test the batch path was only exercised with
-        // ZERO users so most of its body sat at 0% coverage.
+        // Drives the parallel batch loop: LoadCandidateItems, PrecomputeUserWatchSets, PrecomputeCollaborativeContext, BuildCommunityPopularityMap, the two-user gate (activated here because we pass two users), and the Parallel.ForEach scoring branch.
         var harness = EngineTestFactory.Create();
         var user1 = Guid.NewGuid();
         var user2 = Guid.NewGuid();
@@ -295,10 +238,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetAllRecommendations_PlaceholderMovieAndEmptySeries_AreFilteredAndLogged()
     {
-        // LoadCandidateItems must drop Arr placeholders: a Movie with no Path (file not yet
-        // downloaded) and a Series with zero indexed episodes cannot be played, so both are
-        // filtered out of the candidate pool and a single summary line is logged. A regression
-        // that stopped filtering would recommend un-playable items and waste recommendation slots.
+        // LoadCandidateItems must drop Arr placeholders: a Movie with no Path (file not yet downloaded) and a Series with zero indexed episodes cannot be played, so both are filtered out of the candidate pool and a single summary line is logged.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         var watchedId = Guid.NewGuid();
@@ -364,11 +304,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetAllRecommendations_ColdStartUserWithCommunityHistory_UsesCommunityBlendedFormula()
     {
-        // A cold-start user (no watch history) is scored with the enhanced 40/30/30 community
-        // formula when at least two OTHER users share watch history: the community-popularity
-        // map is non-empty, so a candidate watched by the crowd must outrank an identical
-        // candidate the crowd has never touched. This proves the 30% community term influenced
-        // the cold-start score rather than the classic 60/40 rating+recency branch.
+        // A cold-start user (no watch history) is scored with the enhanced 40/30/30 community formula when at least two OTHER users share watch history: the community-popularity map is non-empty, so a candidate watched by the crowd must outrank an identical candidate the crowd has never.
         var harness = EngineTestFactory.Create();
 
         var coldUser = Guid.NewGuid();
@@ -428,10 +364,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetRecommendations_WarmUser_FavoriteSeriesAndManyCandidates_ProducesWellFormedResult()
     {
-        // Warm path with a non-empty FavoriteSeriesIds set and a large candidate pool. This drives
-        // the favorite-series exclusion (a favorited series is never recommended) and forces the
-        // periodic cancellation check inside the scoring loop to execute at least once by supplying
-        // more than CancellationCheckBatchSize candidates under a live (non-cancelled) token.
+        // Warm path with a non-empty FavoriteSeriesIds set and a large candidate pool.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         var watchedId = Guid.NewGuid();
@@ -496,10 +429,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetRecommendations_WarmUser_CalledTwice_ReusesCachedSnapshot_NoSecondLibraryScan()
     {
-        // The first live request publishes a candidate snapshot; a second request within the
-        // CandidateSnapshotMaxAge TTL must take the still-valid fast-path in GetOrRefreshLiveSnapshot
-        // and reuse those candidates rather than re-scanning the library. If the TTL fast-path
-        // regressed, LoadCandidateItems would run again and fire the Movie query a second time.
+        // The first live request publishes a candidate snapshot; a second request within the CandidateSnapshotMaxAge TTL must take the still-valid fast-path in GetOrRefreshLiveSnapshot and reuse those candidates rather than re-scanning the library.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         var watchedId = Guid.NewGuid();
@@ -535,10 +465,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetAllRecommendations_GetPeopleThrows_StillCachesMetadataAndCompletes()
     {
-        // BuildCandidateContentAffinityLookup must swallow a non-fatal GetPeople failure (people=null)
-        // and still cache the five candidate metadata fields, so scoring proceeds with empty
-        // writer/billing signals. A regression that dropped the guard would crash the batch on the
-        // first candidate whose people index is unreadable.
+        // BuildCandidateContentAffinityLookup must swallow a non-fatal GetPeople failure (people=null) and still cache the five candidate metadata fields, so scoring proceeds with empty writer/billing signals.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         var watchedId = Guid.NewGuid();

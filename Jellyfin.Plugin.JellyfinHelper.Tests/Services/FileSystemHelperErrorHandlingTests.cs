@@ -4,10 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 /// <summary>
-///     Resilience tests for <see cref="FileSystemHelper.CalculateDirectorySize" />: per-file and
-///     per-directory access failures must be swallowed so a single broken entry never aborts the
-///     whole traversal or double-counts. Exercised against a real on-disk tree because the SUT
-///     calls the static <see cref="Directory" /> / <see cref="FileInfo" /> APIs directly.
+///     Resilience tests for CalculateDirectorySize: per-file and per-directory access failures must be swallowed so a single broken entry never aborts the whole traversal or double-counts.
 /// </summary>
 public sealed class FileSystemHelperErrorHandlingTests : IDisposable
 {
@@ -43,11 +40,7 @@ public sealed class FileSystemHelperErrorHandlingTests : IDisposable
     {
         WriteBytes(Path.Combine(_root, "real.mkv"), 1000);
 
-        // A dangling symlink is returned by GetFiles, but reading its Length must throw an
-        // IOException so the SUT skips it. Windows stat-fails the missing target and throws
-        // FileNotFoundException; Linux instead reports the symlink's own byte size (the stored
-        // target path length) without throwing, so the inner catch is never exercised there.
-        // This throw-on-Length behavior is genuinely OS-specific, so assert only where it holds.
+        // A dangling symlink is returned by GetFiles, but reading its Length must throw an IOException so the SUT skips it.
         var link = Path.Combine(_root, "broken.link");
         var missingTarget = Path.Combine(_root, "does_not_exist.mkv");
         try
@@ -62,9 +55,7 @@ public sealed class FileSystemHelperErrorHandlingTests : IDisposable
             return;
         }
 
-        // Guard against a false positive: only assert the skip contract when reading the link's
-        // Length actually throws an IOException on this OS (Windows). If it returns a size instead
-        // (Linux), the entry doesn't hit the SUT's inner catch, so there is nothing to assert here.
+        // Guard against a false positive: only assert the skip contract when reading the link's Length actually throws an IOException on this OS (Windows).
         try
         {
             _ = new FileInfo(link).Length;

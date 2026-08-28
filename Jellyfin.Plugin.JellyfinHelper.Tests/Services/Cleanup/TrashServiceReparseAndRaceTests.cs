@@ -8,12 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Covers the defensive reparse-point (symlink/junction) guards and the TOCTOU move-retry race
-///     in <see cref="TrashService"/> that cannot be reproduced against a real filesystem: creating
-///     symlinks requires elevated privileges (unavailable in CI) and a genuine move race is
-///     non-deterministic. The tests override the filesystem seams to drive those branches
-///     deterministically, then separately assert the default seam implementations behave correctly
-///     against a real temp directory so the production wrappers are covered too.
+///     Covers the defensive reparse-point (symlink/junction) guards and the TOCTOU move-retry race in TrashService that cannot be reproduced against a real filesystem: creating symlinks requires elevated privileges (unavailable in CI) and a genuine move race is non-deterministic.
 /// </summary>
 public sealed class TrashServiceReparseAndRaceTests : IDisposable
 {
@@ -92,10 +87,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_ReparseNodeChangesTypeBeforePurge_SkipsAndWarns()
     {
-        // Concurrent-replacement race: the entry was a reparse point when the purge decided to
-        // remove its link node, but between that check and the delete it changed type. The guard
-        // in DeleteReparsePointLinkNode throws InvalidOperationException; the purge must catch it,
-        // log a warning, leave the entry untouched, and count nothing as purged.
+        // Concurrent-replacement race: the entry was a reparse point when the purge decided to remove its link node, but between that check and the delete it changed type.
         Directory.CreateDirectory(_testRoot);
         var expiredLink = Path.Join(_testRoot, "20200101-000000_Racy");
         Directory.CreateDirectory(expiredLink);
@@ -191,10 +183,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
         Assert.False(Directory.Exists(realDir));
         Assert.True(Directory.Exists(moveDest));
 
-        // DeleteReparsePointLinkNode: must reject a real (non-reparse-point) path, fail closed.
-        // The method guards against the TOCTOU race where a symlink is replaced by a real directory
-        // between the caller's IsReparsePoint check and the deletion. Passing a real directory
-        // must throw InvalidOperationException and leave the entry unchanged.
+        // DeleteReparsePointLinkNode: must reject a real (non-reparse-point) path, fail closed. The method guards against the TOCTOU race where a symlink is replaced by a real directory between the caller's IsReparsePoint check and the deletion.
         Assert.Throws<InvalidOperationException>(() => service.DeleteReparsePointLinkNode(moveDest));
         Assert.True(Directory.Exists(moveDest)); // entry must be left unchanged
         Directory.Delete(moveDest);              // manual cleanup
@@ -203,8 +192,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
     // ── Test seams ────────────────────────────────────────────────────────────
 
     /// <summary>
-    ///     A <see cref="TrashService"/> whose reparse-point detection is driven by an explicit set
-    ///     of paths, so the symlink/junction guards can be exercised without real reparse points.
+    ///     A TrashService whose reparse-point detection is driven by an explicit set of paths, so the symlink/junction guards can be exercised without real reparse points.
     /// </summary>
     private sealed class ReparseStubTrashService : TrashService
     {
@@ -235,10 +223,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
     }
 
     /// <summary>
-    ///     A <see cref="TrashService"/> that reports a scripted set of paths as reparse points but
-    ///     whose <see cref="TrashService.DeleteReparsePointLinkNode"/> always throws
-    ///     <see cref="InvalidOperationException"/>, simulating the concurrent-replacement race the
-    ///     production guard detects.
+    ///     A TrashService that reports a scripted set of paths as reparse points but whose DeleteReparsePointLinkNode always throws InvalidOperationException, simulating the concurrent-replacement race the production guard detects.
     /// </summary>
     private sealed class TypeChangeRaceTrashService : TrashService
     {
@@ -260,11 +245,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
     }
 
     /// <summary>
-    ///     A <see cref="TrashService"/> whose <see cref="TrashService.MoveDirectory"/> throws an
-    ///     <see cref="IOException"/> for the first <c>failCount</c> attempts (simulating another
-    ///     process winning the destination between the collision check and the move), reporting the
-    ///     destination as existing so the TOCTOU retry path runs. Once the failure budget is spent it
-    ///     delegates to the real move.
+    ///     A TrashService whose MoveDirectory throws an IOException for the first failCount attempts (simulating another process winning the destination between the collision check and the move), reporting the destination as existing so the TOCTOU retry path runs.
     /// </summary>
     private sealed class RacyMoveTrashService : TrashService
     {
@@ -292,4 +273,3 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
         internal override bool DestinationExists(string path) => MoveCalls <= _failCount;
     }
 }
-

@@ -1,10 +1,4 @@
-/**
- * UI interactions that exist in the dashboard JS but weren't driven by any
- * spec: the manual scan button, quiet auto-save on task-mode change, the
- * insight-card trees, the Seerr Test-Connection button, and backup export.
- * These assert the real request the click fires AND a concrete DOM outcome, so
- * a regression that silently no-ops the handler is caught.
- */
+/** * UI interactions that exist in the dashboard JS but weren't driven by any * spec: the manual scan button, quiet auto-save on task-mode change, the * insight-card trees, the Seerr Test-Connection button, and backup export. */
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { openDashboard, switchTab } from './_ui-helpers.ts';
 import { apiContext, loadAuth, p } from '../setup/api-client.ts';
@@ -97,17 +91,13 @@ test('Settings: Seerr Test Connection button hits Seerr/Test', async ({ page }) 
   await switchTab(page, 'settings');
   await expect(page.locator('#settingsForm')).toBeVisible({ timeout: 15_000 });
 
-  // The Seerr Instance section renders COLLAPSED when a Seerr config already
-  // exists (our beforeAll set one), which hides the inputs + Test button.
-  // Expand it via its collapsible header first.
+  // The Seerr Instance section renders COLLAPSED when a Seerr config already exists (our beforeAll set one), which hides the inputs + Test button.
   const seerrHeader = page.locator('#arrCollapsibleHeaderSeerr');
   if ((await seerrHeader.getAttribute('aria-expanded')) !== 'true') {
     await seerrHeader.click();
   }
 
-  // The handler reads the URL/key from the DOM inputs and short-circuits (no
-  // request) if either is blank - the stored key renders masked/empty, so fill
-  // both fields explicitly before clicking.
+  // The handler reads the URL/key from the DOM inputs and short-circuits (no request) if either is blank - the stored key renders masked/empty, so fill both fields explicitly before clicking.
   await page.locator('#cfgSeerrUrl').fill(SEERR_URL);
   await page.locator('#cfgSeerrApiKey').fill('seerr-key');
 
@@ -147,9 +137,7 @@ test('Settings: folder-browser opens for the trash path', async ({ page }: { pag
   await expect(page.locator('#settingsForm')).toBeVisible({ timeout: 15_000 });
 
   const browseBtn = page.locator('#btnBrowseTrash');
-  // #btnBrowseTrash lives inside <fieldset id="trashSettingsWrapper" disabled>
-  // when UseTrash is off - a disabled fieldset blocks the button. Enable trash
-  // first so the browse control is interactive.
+  // #btnBrowseTrash lives inside <fieldset id="trashSettingsWrapper" disabled> when UseTrash is off - a disabled fieldset blocks the button.
   const trashChk = page.locator('#cfgTrash');
   if (!(await trashChk.isChecked())) {
     await trashChk.check();

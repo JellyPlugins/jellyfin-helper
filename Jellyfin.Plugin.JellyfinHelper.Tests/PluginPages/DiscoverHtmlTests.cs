@@ -8,8 +8,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// </summary>
 public class DiscoverHtmlTests : ConfigPageTestBase
 {
-    // === Tab registration ===
-
     [Fact]
     public void Html_ContainsDiscoverTabButton()
     {
@@ -52,8 +50,6 @@ public class DiscoverHtmlTests : ConfigPageTestBase
         Assert.Contains("function onUserChanged(", HtmlContent);
     }
 
-    // === API calls ===
-
     [Fact]
     public void Html_ContainsRecommendationsApiCall()
     {
@@ -72,8 +68,6 @@ public class DiscoverHtmlTests : ConfigPageTestBase
         Assert.Contains("JellyfinHelper/UserActivity/User/", HtmlContent);
     }
 
-    // === UI elements ===
-
     [Fact]
     public void Html_ContainsRecsContentContainer()
     {
@@ -85,8 +79,6 @@ public class DiscoverHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("id=\"recsUserGrid\"", HtmlContent);
     }
-
-    // === i18n keys ===
 
     [Theory]
     [InlineData("tabRecommendations")]
@@ -102,16 +94,12 @@ public class DiscoverHtmlTests : ConfigPageTestBase
         Assert.Contains($"'{key}'", HtmlContent);
     }
 
-    // === CSS ===
-
     [Fact]
     public void Html_ContainsRecommendationsCss()
     {
         // Recommendations.css should be included via build-time composition
         Assert.Contains(".recs-empty", HtmlContent);
     }
-
-    // === Settings integration ===
 
     [Fact]
     public void Html_ContainsRecommendationsTaskModeSelect()
@@ -124,8 +112,6 @@ public class DiscoverHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("function updateRecsTabVisibility(", HtmlContent);
     }
-
-    // === Tab icon ===
 
     [Fact]
     public void Html_ContainsDiscoverTabSmartToyIcon()

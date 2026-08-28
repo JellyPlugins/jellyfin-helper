@@ -1,12 +1,4 @@
-/**
- * Settings persistence + "does it take effect" - flips settings via
- * PUT /Configuration, reloads via GET, and asserts they stuck. Covers the
- * gotchas the research flagged:
- *   - API keys masked as *** on GET; sending *** preserves the stored key.
- *   - PluginLogLevel is ONLY settable via PUT /Configuration/LogLevel.
- *   - Numeric clamping (OrphanMinAgeDays / TrashRetentionDays 0..3650).
- *   - Task-mode round-trips (DryRun/Activate/Deactivate).
- */
+/** * Settings persistence + "does it take effect" - flips settings via * PUT /Configuration, reloads via GET, and asserts they stuck. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { request as pwRequest } from '@playwright/test';
 import { apiContext, loadAuth, p, API_KEY_MASK } from '../setup/api-client.ts';
@@ -83,11 +75,7 @@ test('trash settings persist and toggle', async () => {
 });
 
 test('Seerr API key mask: stored key is preserved on re-save (functionally proven)', async () => {
-  // The admin Discovery/Request path submits to the mock using the STORED key and
-  // returns a non-2xx if that key is rejected - a cache-immune, per-call probe
-  // (unlike Discovery/Users, which caches for 5 min and swallows upstream 401s).
-  // The mock now 401s any all-asterisk mask (mocks/seerr-server.js), so a wipe-to-mask
-  // is detectable: the submission would fail AND never reach the mock.
+  // The admin Discovery/Request path submits to the mock using the STORED key and returns a non-2xx if that key is rejected - a cache-immune, per-call probe (unlike Discovery/Users, which caches for 5 min and swallows upstream 401s).
   const mock = await pwRequest.newContext();
   const resetAndSubmit = async (): Promise<{ recorded: number }> => {
     const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);

@@ -1,17 +1,4 @@
-/**
- * User-facing Discovery (Discovery/My/*) - the non-admin sidebar flow.
- *
- * These endpoints require an authenticated NON-admin user AND the
- * DiscoveryUserAccessEnabled config toggle. We provisioned a normal user in
- * global-setup; if that failed, the whole suite skips (logged, not silent).
- *
- * Covered:
- *   - 403 for every /My endpoint while the toggle is OFF (access gating).
- *   - With the toggle ON: My, ExternalLinks, RequestPermissions, Services,
- *     script, Dismiss respond correctly (against the mock Seerr).
- *   - Also fills two admin-side gaps: Discovery/Request submission and
- *     Trash/Relocate.
- */
+/** * User-facing Discovery (Discovery/My/*) - the non-admin sidebar flow. * * These endpoints require an authenticated NON-admin user AND the * DiscoveryUserAccessEnabled config toggle. */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, runCleanupTask, API_KEY_MASK } from '../setup/api-client.ts';
 
@@ -23,9 +10,7 @@ const auth = loadAuth();
 let admin: APIRequestContext;
 let user: APIRequestContext | null;
 
-// Snapshot of the shared-backend Configuration fields these tests mutate, so we
-// can restore them in afterAll and not leak state into later specs that assume a
-// pristine Seerr/Trash config (the state-bleed pattern already fixed elsewhere).
+// Snapshot of the shared-backend Configuration fields these tests mutate, so we can restore them in afterAll and not leak state into later specs that assume a pristine Seerr/Trash config (the state-bleed pattern already fixed elsewhere).
 interface ConfigSnapshot {
   SeerrUrl?: string;
   DiscoveryUserAccessEnabled?: boolean;
@@ -64,10 +49,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // Restore the shared Configuration these tests mutated, so later specs run
-  // against the original backend state. The snapshot never captured the plaintext
-  // SeerrApiKey, so we send the mask sentinel, which the backend treats as "keep the
-  // currently-stored key" rather than overwriting it.
+  // Restore the shared Configuration these tests mutated, so later specs run against the original backend state.
   if (Object.keys(configSnapshot).length > 0) {
     await admin
       .put(p('Configuration'), {
@@ -144,9 +126,7 @@ test.describe.serial('Discovery/My access gating', () => {
   });
 
   test('/My/script is served anonymously (embedded JS, no auth header)', async () => {
-    // [AllowAnonymous] - must be reachable with NO Authorization header at all
-    // (the sidebar script loads before the user is known). Use a bare context so
-    // anonymity is actually exercised, not an admin token.
+    // [AllowAnonymous] - must be reachable with NO Authorization header at all (the sidebar script loads before the user is known).
     const anon = await pwRequest.newContext({ baseURL: auth.baseUrl });
     try {
       const res = await anon.get(p('Discovery/My/script'));
@@ -208,14 +188,7 @@ test('Trash/Relocate moves between paths (or degrades cleanly)', async () => {
   await assertPluginActive(admin);
 });
 
-// --- Discovery/My cached-result FILTERING (not just the empty-cache path) ----
-// The /My tests above only ever hit the empty-cache branch (body may be null). The
-// core user-facing behavior - filter out already-requested items, normalize
-// MediaType, and cap the visible pool at MaxVisiblePerUser - only runs when the
-// cache holds a DiscoveryResult for the user. Here we populate it via a real
-// discovery-generation run (the Seerr Discovery stage of HelperCleanup against the
-// mock) and then assert the filter/cap path executed: a non-null body with a
-// bounded Recommendations array and no AlreadyRequested item leaking through.
+// --- Discovery/My cached-result FILTERING (not just the empty-cache path) ---- The /My tests above only ever hit the empty-cache branch (body may be null).
 test.describe.serial('Discovery/My cached-result filtering', () => {
   test('populated cache is filtered and capped for the requesting user', async () => {
     requireNormalUser(user);
@@ -230,9 +203,7 @@ test.describe.serial('Discovery/My cached-result filtering', () => {
       Recommendations?: Array<{ TmdbId: number; MediaType?: string; AlreadyRequested?: boolean }>;
     } | null;
 
-    // The generation may or may not surface items for this specific linked user
-    // depending on the mock's discover pool; both are valid, but if it DID populate
-    // we must see the filter/cap invariants hold (not the vacuous empty-cache path).
+    // The generation may or may not surface items for this specific linked user depending on the mock's discover pool; both are valid, but if it DID populate we must see the filter/cap invariants hold (not the vacuous empty-cache path).
     if (body && Array.isArray(body.Recommendations)) {
       expect(
         body.Recommendations.length,

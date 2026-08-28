@@ -4,15 +4,10 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 /// <summary>
-/// Tests for the composed configPage.html template shell (configPage.template.html
-/// with CSS_CONTENT and JS_CONTENT placeholders filled in by the build task).
-/// Covers: Jellyfin plugin-page metadata, header, scan button, loading indicator,
-/// placeholder, and stats result container.
+///     Tests for the composed configPage.html template shell (configPage.template.html with CSS_CONTENT and JS_CONTENT placeholders filled in by the build task).
 /// </summary>
 public class ConfigPageTemplateTests : ConfigPageTestBase
 {
-    // === Page shell metadata (required by the Jellyfin plugin page loader) ===
-
     [Fact]
     public void Html_HasDataRolePage()
     {
@@ -55,8 +50,6 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
     {
         Assert.Contains("data-role=\"content\"", HtmlContent);
     }
-
-    // === Template placeholders must be replaced (not shipped as-is) ===
 
     [Fact]
     public void Html_DoesNotContainRawCssPlaceholder()
@@ -104,8 +97,6 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
             "Composed <script> block is unexpectedly small - JS assets may be missing.");
     }
 
-    // === Header structure ===
-
     [Fact]
     public void Html_ContainsPluginHeader()
     {
@@ -124,8 +115,6 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
         Assert.Contains("last-scan-badge", HtmlContent);
         Assert.Contains("id=\"lastScanBadge\"", HtmlContent);
     }
-
-    // === Scan button ===
 
     [Fact]
     public void Html_ContainsScanButton()
@@ -147,8 +136,6 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
     {
         Assert.Matches(new Regex(@"<button\b[^>]*\btitle=""[^""]+""[^>]*id=""btnScanLibraries""|<button\b[^>]*id=""btnScanLibraries""[^>]*\btitle=""", RegexOptions.Singleline), HtmlContent);
     }
-
-    // === Stats containers ===
 
     [Fact]
     public void Html_ContainsStatsContainer()
@@ -180,8 +167,6 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
         Assert.Matches(new Regex(@"id=""statsResult""[^>]*style=""display:none;"""), HtmlContent);
     }
 
-    // === Loading overlay ===
-
     [Fact]
     public void Html_ContainsLoadingIndicator()
     {
@@ -199,8 +184,6 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
     {
         Assert.Matches(new Regex(@"id=""loadingIndicator""[\s\S]*?class=""spinner"""), HtmlContent);
     }
-
-    // === Page ID ===
 
     [Fact]
     public void Html_RootPageElementHasExpectedId()

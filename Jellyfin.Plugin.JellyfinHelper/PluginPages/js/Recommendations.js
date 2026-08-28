@@ -1,4 +1,3 @@
-// --- Recommendations Tab (Smart Suggestions) ---
 'use strict';
 var MAX_ACTIVITY_ROWS = 15;
 
@@ -10,10 +9,7 @@ var _recsTimestamp = null;
 var _seerrServicesCache = null;
 
 function initRecommendationsTab() {
-    // If browser-cache already has results (e.g. from a previous tab visit), render directly
-    // without triggering another API call. This avoids expensive on-demand generation on every tab switch.
-    // Also caches empty results (length === 0) so empty-state responses don't re-trigger the API.
-    // TTL: invalidate after 5 minutes so the UI picks up fresh results after the scheduled task runs.
+    // If browser-cache already has results (e.g. from a previous tab visit), render directly without triggering another API call.
     var ttlMs = 5 * 60 * 1000; // 5 minutes
     if (_recsResults !== null && _recsTimestamp && (Date.now() - _recsTimestamp) < ttlMs) {
         var container = document.getElementById('recsContent');
@@ -142,9 +138,7 @@ function renderUserRecommendations(index) {
     if (countSpan) countSpan.textContent = '' + recs.length;
 
     if (recs.length === 0) { grid.innerHTML = '<div class="recs-empty"><p>' + T('recsNoItems', 'No recommendations for this user yet. More watch history is needed.') + '</p></div>'; return; }
-    // Sort by score descending so the UI ranking matches the match percentage.
-    // The backend uses MMR diversity-reranking which intentionally interleaves genres,
-    // but the display order should be intuitive (highest match first).
+    // Sort by score descending so the UI ranking matches the match percentage. The backend uses MMR diversity-reranking which intentionally interleaves genres, but the display order should be intuitive (highest match first).
     var sorted = recs.slice().sort(function (a, b) { return (b.Score || 0) - (a.Score || 0); });
     var html = '<div class="recs-grid">';
     for (var i = 0; i < sorted.length; i++) { html += renderRecommendationCard(sorted[i], i + 1); }
@@ -287,7 +281,6 @@ function getTopGenresFromDistribution(genreDistribution, maxGenres) {
     for (var i = 0; i < Math.min(entries.length, maxGenres); i++) { result.push(entries[i].name); }
     return result;
 }
-// === Discovery New Content Section ===
 var _discoveryReqId = 0;
 
 function renderDiscoverySection(container) {
@@ -673,9 +666,7 @@ function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
         btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
         markDiscoveryItemRequested(tmdbId, mediaType);
 
-        // Fade out and remove the card after brief success display.
-        // Guard: only decrement the counter if the card is still in the DOM when the timeout fires
-        // (prevents incorrect counter updates if the user switches profiles before the animation completes).
+        // Fade out and remove the card after brief success display. Guard: only decrement the counter if the card is still in the DOM when the timeout fires (prevents incorrect counter updates if the user switches profiles before the animation completes).
         var card = btn.closest('.discovery-card');
         if (card) {
             setTimeout(function () {
@@ -751,9 +742,7 @@ function submitDiscoveryRequest(tmdbId, mediaType, seerrUserId, btn) {
 }
 
 function markDiscoveryItemRequested(tmdbId, mediaType) {
-    // Update the cached discovery data so the item is marked as already requested
-    // and won't reappear when switching between users and back.
-    // Matches by both TmdbId AND MediaType to avoid false positives (TMDb movie/TV IDs are separate namespaces).
+    // Update the cached discovery data so the item is marked as already requested and won't reappear when switching between users and back.
     function markInDiscovery(userDiscovery) {
         if (!userDiscovery || !userDiscovery.Recommendations) return;
         for (var r = 0; r < userDiscovery.Recommendations.length; r++) {

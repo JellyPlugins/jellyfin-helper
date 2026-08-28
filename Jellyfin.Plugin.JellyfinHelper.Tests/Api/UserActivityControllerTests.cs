@@ -151,9 +151,7 @@ public class UserActivityControllerTests
         _mockCache.Verify(c => c.LoadResult(), Times.Once);
     }
 
-    // =========================================================================
     // Additional coverage preserved from prior test suite
-    // =========================================================================
 
     [Fact]
     public void GetUserActivity_EmptyGuid_Returns400()
@@ -284,9 +282,7 @@ public class UserActivityControllerTests
         Assert.Equal("Folge 3", data[0].ItemName);
     }
 
-    // =========================================================================
     // Helpers
-    // =========================================================================
 
     private static UserActivityResult BuildCachedResult(params UserActivitySummary[] items)
     {

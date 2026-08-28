@@ -1,27 +1,4 @@
-/**
- * Backup version-gating & config schema-evolution - the "what happens to an old
- * or forward-dated backup / an older-shaped config" surface, which had ZERO
- * behavioral coverage before.
- *
- * Verified against source (cited inline):
- *   - The ONLY accepted backupVersion is {1} (BackupValidator MaxBackupVersion=1).
- *     2/999/-1/0 -> 400 with an errors[] naming the unsupported version.
- *   - A MISSING backupVersion deserializes to the C# default (1) -> accepted (200).
- *   - A non-numeric backupVersion fails JSON parse -> a DISTINCT 400 body.
- *   - An older-shaped backup (newer fields absent) restores with safe defaults:
- *     DiscoveryUserAccessEnabled=false, SyncRecommendationsToPlaylist=false,
- *     RecommendationsTaskMode->"DryRun" (ParseTaskMode fallback), and a null
- *     SeerrCleanupAgeDays leaves the live value unchanged.
- *   - Unknown/removed fields (in both import and PUT /Configuration) are silently
- *     ignored (System.Text.Json default; no JsonUnmappedMemberHandling.Disallow).
- *
- * NOT covered here (and why): the restore partial-failure / "manual recovery"
- * branch (BackupService.RestoreBackup) can only trigger when a file write
- * succeeds and a later step throws - and validated HTTP input can't make the
- * config-restore step throw (every value is clamped/sanitized first). It needs
- * filesystem/permission tampering, so it is deliberately out of scope for an
- * HTTP-only spec rather than faked with a vacuous assertion.
- */
+/** * Backup version-gating & config schema-evolution - the "what happens to an old * or forward-dated backup / an older-shaped config" surface, which had ZERO * behavioral coverage before. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 
@@ -117,11 +94,7 @@ test('a non-numeric backupVersion fails to parse with a DISTINCT 400 body', asyn
 // --- older-shaped backup restores with safe defaults ------------------------
 
 test('an older-shaped backup (newer fields absent) restores with safe defaults', async () => {
-  // Seed a distinct prior state so we can prove "absent field -> left unchanged"
-  // for the null-preserving field, and "absent field -> hard default" for the rest.
-  // NOTE: PUT /Configuration only applies SeerrCleanupAgeDays when SeerrUrl is set
-  // (ConfigurationController: `string.IsNullOrEmpty(config.SeerrUrl) ? 0 : clamp(...)`),
-  // so the seed MUST include a SeerrUrl or the 42 silently becomes 0.
+  // Seed a distinct prior state so we can prove "absent field -> left unchanged" for the null-preserving field, and "absent field -> hard default" for the rest.
   await putConfig({
     SeerrUrl: 'http://mock-seerr:5055',
     SeerrApiKey: 'seerr-key',
@@ -182,9 +155,7 @@ test('an unknown extra field in PUT /Configuration is ignored, not rejected', as
 });
 
 test('GET /Configuration exposes an inert numeric ConfigVersion', async () => {
-  // ConfigVersion exists in the response but drives no migration logic today. We
-  // pin its presence + type so a future real migration can build on a known field
-  // (and so an accidental removal of the field surfaces here).
+  // ConfigVersion exists in the response but drives no migration logic today. We pin its presence + type so a future real migration can build on a known field (and so an accidental removal of the field surfaces here).
   const cfg = await getConfig();
   expect(typeof cfg.ConfigVersion, 'ConfigVersion is exposed as a number').toBe('number');
 });

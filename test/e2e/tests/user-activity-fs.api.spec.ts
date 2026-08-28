@@ -1,21 +1,4 @@
-/**
- * Behavioral coverage for UserActivity ("watched" / recently-played). Today only
- * the 503-guard, empty-GUID 400, and unknown-user 404 are tested; nothing seeds
- * real playback. Here we prove the DATA: mark a specific item PLAYED via Jellyfin's
- * own API, rebuild the activity cache (the HelperCleanup task builds it from
- * IUserDataManager), and assert that exact item surfaces as watched - in
- * UserActivity/Latest and in UserActivity/User/{userId} - with a matching play count.
- *
- * Contract notes (verified against the running stack):
- *   - Both routes require an elevated token and return 503 when
- *     RecommendationsTaskMode == Deactivate; we set Activate.
- *   - Latest reads a disk cache; if the task hasn't run it 503s ("not yet
- *     available"), so we run HelperCleanup first.
- *   - Responses are PascalCase (Items[].ItemId/ItemName/TotalPlayCount, ...).
- *
- * Requires the container FS gate only indirectly (it drives the real Jellyfin API);
- * it needs no docker-exec, so it runs wherever the API is reachable.
- */
+/** * Behavioral coverage for UserActivity ("watched" / recently-played). Today only * the 503-guard, empty-GUID 400, and unknown-user 404 are tested; nothing seeds * real playback. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask } from '../setup/api-client.ts';
 

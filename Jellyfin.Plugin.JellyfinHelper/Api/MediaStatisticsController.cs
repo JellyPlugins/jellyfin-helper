@@ -28,9 +28,6 @@ public class MediaStatisticsController : ControllerBase
     private static readonly Lock RateLimitLock = new();
 
     // Simple in-memory rate limiting (single-instance only; not effective in clustered/multi-pod deployments).
-    // Static field + lock is intentional: ASP.NET creates a new controller instance per request,
-    // so the rate-limit state must be shared across all instances via a static field.
-    // Must only be written inside RateLimitLock.
     private static DateTime _lastScanTime = DateTime.MinValue;
     private readonly IMemoryCache _cache;
     private readonly IStatisticsCacheService _cacheService;
@@ -99,8 +96,7 @@ public class MediaStatisticsController : ControllerBase
     }
 
     /// <summary>
-    ///     Gets the latest persisted statistics without triggering a new scan.
-    ///     Returns the most recent scan result that was saved to disk, surviving server restarts.
+    ///     Gets the latest persisted statistics without triggering a new scan. Returns the most recent scan result that was saved to disk, surviving server restarts.
     /// </summary>
     /// <returns>The latest statistics, or 204 No Content if no scan has been performed yet.</returns>
     [HttpGet("Latest")]

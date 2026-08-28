@@ -5,16 +5,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.WatchHistory;
 
 /// <summary>
-///     Tests for the audio language affinity feature:
-///     <see cref="LanguageProfileEntry"/>, language-related properties on
-///     <see cref="UserWatchProfile"/>, <see cref="WatchHistoryService.NormalizeLanguage"/>,
-///     and <see cref="Engine.ComputeLanguageAffinity"/>.
+///     Tests for the audio language affinity feature: LanguageProfileEntry, language-related properties on UserWatchProfile, NormalizeLanguage, and ComputeLanguageAffinity.
 /// </summary>
 public sealed class LanguageAffinityTests
 {
-    // ============================================================
     // LanguageProfileEntry Tests
-    // ============================================================
 
     [Fact]
     public void WeightedScore_ChosenOnly_ReturnsFullCount()
@@ -44,9 +39,7 @@ public sealed class LanguageAffinityTests
         Assert.Equal(0.0, entry.WeightedScore, 10);
     }
 
-    // ============================================================
     // UserWatchProfile Language Property Tests
-    // ============================================================
 
     [Fact]
     public void PrimaryLanguage_EmptyProfile_ReturnsNull()
@@ -154,9 +147,7 @@ public sealed class LanguageAffinityTests
         Assert.Empty(profile.ToleratedLanguages);
     }
 
-    // ============================================================
     // NormalizeLanguage Tests
-    // ============================================================
 
     [Fact]
     public void NormalizeLanguage_Null_ReturnsNull()
@@ -259,11 +250,5 @@ public sealed class LanguageAffinityTests
         Assert.Equal("xyz", WatchHistoryService.NormalizeLanguage("xyz"));
     }
 
-    // ============================================================
-    // ComputeLanguageAffinity Tests (via Engine static method)
-    // ============================================================
-    // Note: ComputeLanguageAffinity requires BaseItem.GetMediaStreams() which needs
-    // Jellyfin infrastructure. These are tested indirectly through the full scoring
-    // pipeline. The affinity tier values (1.0/0.85/0.5/0.3/0.1) and the empty-profile
-    // neutral (0.5) are covered by the CandidateFeatures default test (index 28 = 0.5).
+    // ComputeLanguageAffinity Tests (via Engine static method) Note: ComputeLanguageAffinity requires BaseItem.GetMediaStreams() which needs Jellyfin infrastructure.
 }

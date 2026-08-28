@@ -134,9 +134,7 @@ public sealed class ScoreExplanation
     }
 
     /// <summary>
-    ///     Determines the dominant signal name from the per-feature contributions.
-    ///     Returns the name of the feature with the highest absolute contribution value.
-    ///     Uses allocation-free inline comparisons for hot-path performance.
+    ///     Determines the dominant signal name from the per-feature contributions. Returns the name of the feature with the highest absolute contribution value.
     /// </summary>
     /// <param name="genreContrib">Genre similarity contribution.</param>
     /// <param name="collabContrib">Collaborative filtering contribution.</param>

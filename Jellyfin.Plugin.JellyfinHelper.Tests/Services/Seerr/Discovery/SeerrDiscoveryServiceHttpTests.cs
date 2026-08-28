@@ -20,11 +20,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests <see cref="SeerrDiscoveryService"/>'s HTTP-driven public API surface using a
-///     scripted <see cref="HttpMessageHandler"/> that pattern-matches on request URIs.
-///     Covers <c>SubmitRequestAsync</c>, <c>GetServiceInfoAsync</c>, <c>GetSeerrUsersAsync</c>,
-///     <c>ResolveSeerrUserIdAsync</c> and <c>GetUserRequestPermissionsAsync</c>.
-///     Belongs to <c>ConfigOverride</c> because it mutates <c>Plugin.Instance.Configuration</c>.
+///     Tests SeerrDiscoveryService's HTTP-driven public API surface using a scripted HttpMessageHandler that pattern-matches on request URIs.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
@@ -81,9 +77,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         ControllerTestFactory.ResetPluginConfiguration();
     }
 
-    // ============================================================
     // SubmitRequestAsync
-    // ============================================================
 
     [Fact]
     public async Task SubmitRequestAsync_HappyPath_MovieRequest_ReturnsSuccess()
@@ -100,11 +94,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task SubmitRequestAsync_HappyPath_TvRequest_IncludesSeasonsAllInPayload()
     {
-        // BUG GUARD: Overseerr crashes if TV requests omit "seasons". The service must
-        // always add "seasons": "all" for tv requests. We inspect the outgoing payload.
-        // NOTE: JsonDefaults.Options uses WriteIndented=true, so the serialised payload
-        // has spaces between keys and values (e.g. "seasons": "all"). We assert on the
-        // property name only to stay resilient to whitespace formatting changes.
+        // BUG GUARD: Overseerr crashes if TV requests omit "seasons". The service must always add "seasons": "all" for tv requests.
         _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
 
         var (success, _) = await _sut.SubmitRequestAsync(
@@ -218,11 +208,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task SubmitRequestAsync_UserIdIncludedInPayloadWhenPositive()
     {
-        // BUG GUARD: the earlier version of this test asserted `Contains("42")` on the
-        // raw JSON string, which also matches the existing mediaId 1234 - so a broken
-        // implementation that dropped the userId field entirely (or wrote the wrong
-        // value) would still pass. We now parse the payload as JSON and assert the
-        // strongly-typed value of the `userId` property.
+        // BUG GUARD: the earlier version of this test asserted `Contains("42")` on the raw JSON string, which also matches the existing mediaId 1234 - so a broken implementation that dropped the userId field entirely (or wrote the wrong value) would still pass.
         _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
 
         await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, CancellationToken.None);
@@ -256,9 +242,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task SubmitRequestAsync_RootFolderIncludedInPayloadWhenSet()
     {
-        // Same rationale as SubmitRequestAsync_UserIdIncludedInPayloadWhenPositive:
-        // JsonDefaults.Options is indented, so we assert on property name + value pairs
-        // separately (not glued together) to stay resilient to whitespace formatting.
+        // Same rationale as SubmitRequestAsync_UserIdIncludedInPayloadWhenPositive: JsonDefaults.Options is indented, so we assert on property name + value pairs separately (not glued together) to stay resilient to whitespace formatting.
         _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
 
         await _sut.SubmitRequestAsync(1234, "movie", null, 1, 2, "/movies/hd", CancellationToken.None);
@@ -280,9 +264,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             await _sut.SubmitRequestAsync(1234, "movie", null, null, null, null, cts.Token));
     }
 
-    // ============================================================
     // GetSeerrUsersAsync
-    // ============================================================
 
     [Fact]
     public async Task GetSeerrUsersAsync_SinglePage_ReturnsUsers()
@@ -306,9 +288,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetSeerrUsersAsync_MultiPage_FetchesAllPages()
     {
-        // BUG GUARD: pagination loop must continue when results.Count == take AND currentPage < totalPages.
-        // Page 1 must return exactly 50 results (== take) so the loop does not early-exit on the
-        // "fewer than take results" guard before checking totalPages.
+        // BUG GUARD: pagination loop must continue when results.Count == take AND currentPage < totalPages. Page 1 must return exactly 50 results (== take) so the loop does not early-exit on the "fewer than take results" guard before checking totalPages.
 
         // Build 50 users for page 1 (ids 1-50)
         var page1Results = string.Join(",\n", Enumerable.Range(1, 50).Select(i =>
@@ -341,9 +321,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetSeerrUsersAsync_UpstreamError_ReturnsEmptyList()
     {
-        // BUG GUARD: A partial fetch must return empty rather than a truncated roster.
-        // Callers assume "not in the roster -> not linked". Handing them a partial list would
-        // cause valid users to be treated as unlinked.
+        // BUG GUARD: A partial fetch must return empty rather than a truncated roster. Callers assume "not in the roster -> not linked".
         _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.InternalServerError, "boom");
 
         var users = await _sut.GetSeerrUsersAsync(CancellationToken.None);
@@ -359,9 +337,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Empty(users);
     }
 
-    // ============================================================
     // ResolveSeerrUserIdAsync
-    // ============================================================
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_EmptyGuid_ReturnsNull()
@@ -373,9 +349,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task ResolveSeerrUserIdAsync_MatchByHyphenatedGuid_ReturnsUserId()
     {
-        // BUG GUARD: Seerr may store the Jellyfin ID with OR without hyphens. The service
-        // must normalise both sides before comparing. We store the ID with hyphens on Seerr
-        // and query with the raw Guid.
+        // BUG GUARD: Seerr may store the Jellyfin ID with OR without hyphens. The service must normalise both sides before comparing.
         var jf = Guid.NewGuid();
         var stored = jf.ToString("D"); // With hyphens
         var json = $$"""
@@ -422,9 +396,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Null(result);
     }
 
-    // ============================================================
     // GetServiceInfoAsync
-    // ============================================================
 
     [Fact]
     public async Task GetServiceInfoAsync_InvalidServiceType_ThrowsArgumentException()
@@ -500,9 +472,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Empty(svc.Profiles);
     }
 
-    // ============================================================
     // GetUserRequestPermissionsAsync
-    // ============================================================
 
     [Fact]
     public async Task GetUserRequestPermissionsAsync_InvalidMediaType_ReturnsCannotRequest()
@@ -554,25 +524,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.False(result.IsTransient);
     }
 
-    // -----------------------------------------------------------------------
-    // Happy-path branches for GetUserRequestPermissionsAsync
-    //
-    // Coverage report flagged Step 2..5 of the method as untested (14 of the 22
-    // cyclomatic branches were unhit). The tests below execute:
-    //   - user found but LACKS Request permission (Step 2 denial)
-    //   - user found + can request + no services configured (Step 3 short-return)
-    //   - user found + can request + service lookup transient failure (Step 3 fallback)
-    //   - user found + admin -> all profiles exposed (Step 4)
-    //   - user found + normal -> only default profiles exposed (Step 5)
-    // Each test also transitively exercises GetServiceInfoWithStatusAsync and
-    // BuildAllowedProfileList, so a single test file lift bumps coverage on
-    // three separate methods at once.
-    //
-    // JellyfinUserId shape: the discovery service matches via GUID with hyphens
-    // stripped and case-lowered (see FindSeerrUserByJellyfinId). We use a fixed
-    // GUID here for reproducibility and its lowercase-no-hyphens form for the
-    // Seerr roster payload.
-    // -----------------------------------------------------------------------
+    // Happy-path branches for GetUserRequestPermissionsAsync Coverage report flagged Step 2..5 of the method as untested (14 of the 22 cyclomatic branches were unhit).
 
     private static readonly Guid LinkedJellyfinUserId = new("11111111-2222-3333-4444-555555555555");
     private const string LinkedJellyfinUserIdJson = "11111111222233334444555555555555";
@@ -580,11 +532,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetUserRequestPermissionsAsync_UserLacksRequestPermission_ReturnsCannotRequest()
     {
-        // BUG GUARD: user is correctly linked (jellyfinUserId matches) but their permissions
-        // bitmask does NOT include Request (32), RequestMovie (1024), RequestTv (2048), or
-        // Admin (2). The service MUST refuse the request with a NON-transient denial -
-        // upgrading them to "transient" would let a client-side retry loop hammer Seerr
-        // indefinitely on what is really a persistent authorization failure.
+        // BUG GUARD: user is correctly linked (jellyfinUserId matches) but their permissions bitmask does NOT include Request (32), RequestMovie (1024), RequestTv (2048), or Admin (2).
         var json = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -607,11 +555,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetUserRequestPermissionsAsync_UserCanRequest_NoServicesConfigured_ReturnsSuccessWithEmptyProfiles()
     {
-        // BUG GUARD: user has Request perm, service list is empty (Seerr admin never linked
-        // any Radarr/Sonarr). The service must ALLOW the request with an empty profile list
-        // (Seerr's own server defaults will apply). Denying here would break the "single-user
-        // no-config" install path where the operator wants to submit a request and let Seerr
-        // route it to whatever default is configured server-side.
+        // BUG GUARD: user has Request perm, service list is empty (Seerr admin never linked any Radarr/Sonarr).
         var userJson = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -635,12 +579,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetUserRequestPermissionsAsync_UserCanRequest_ServiceLookupFails_StillAllowsRequestWithoutProfiles()
     {
-        // BUG GUARD: user has Request perm, but Seerr's /service/radarr endpoint fails
-        // (500 Internal Server Error). This is a TRANSIENT failure - the service must
-        // still allow the request (with empty profiles = Seerr server-side defaults)
-        // rather than blocking the user on what could be a 5-second outage. Blocking
-        // here would produce visible "we can't verify your Seerr" errors on every retry
-        // during any Seerr degradation.
+        // BUG GUARD: user has Request perm, but Seerr's /service/radarr endpoint fails (500 Internal Server Error).
         var userJson = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -660,26 +599,12 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Empty(result.Profiles);
     }
 
-    // -----------------------------------------------------------------------
-    // Step 4 - quality-profile exposure depends on user's permission level.
-    //
-    // Admin / ManageRequests / RequestAdvanced  -> filterToDefault=false -> ALL profiles.
-    // Normal Request-only user                  -> filterToDefault=true  -> default profile only.
-    //
-    // These tests cover the two branches of BuildAllowedProfileList that the earlier
-    // happy-path tests leave dark (they return before reaching Step 4 because the
-    // service list is empty).
-    // -----------------------------------------------------------------------
+    // Step 4 - quality-profile exposure depends on user's permission level. Admin / ManageRequests / RequestAdvanced -> filterToDefault=false -> ALL profiles.
 
     [Fact]
     public async Task GetUserRequestPermissionsAsync_AdminUser_ExposesAllProfiles()
     {
         // BUG GUARD: admin users must receive ALL configured profiles (filterToDefault=false).
-        // A regression that forces filterToDefault=true for admins would silently strip profile
-        // choice from every admin request form - they would see only the server's active profile
-        // and have no way to override quality without knowing the workaround.
-        //
-        // Permissions=2 -> Admin. Service list: one Radarr server, two profiles (HD=100, 4K=200).
         var userJson = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -717,10 +642,6 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     public async Task GetUserRequestPermissionsAsync_NormalUser_ExposesOnlyDefaultProfile()
     {
         // BUG GUARD: a user with only Request (32) must be restricted to the server's active profile.
-        // Over-exposing all profiles to normal users bypasses the Seerr quality-tier access model
-        // and could allow unprivileged users to request 4K content they are not entitled to.
-        //
-        // Permissions=32 -> Request only (no RequestAdvanced/ManageRequests/Admin).
         var userJson = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -758,9 +679,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetUserRequestPermissionsAsync_RequestAdvancedUser_ExposesAllProfiles()
     {
-        // Users with RequestAdvanced (2097152) should be treated the same as admin for
-        // profile exposure. This verifies the CanSelectQualityProfile() path that grants
-        // full-profile access via RequestAdvanced without also having Admin/ManageRequests.
+        // Users with RequestAdvanced (2097152) should be treated the same as admin for profile exposure. This verifies the CanSelectQualityProfile() path that grants full-profile access via RequestAdvanced without also having Admin/ManageRequests.
         var userJson = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
@@ -828,9 +747,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Equal(10, result.Profiles[0].ProfileId);
     }
 
-    // ============================================================
     // Config-boundary guards, cancellation, pagination and header-injection defence
-    // ============================================================
 
     [Fact]
     public void MaxVisiblePerUser_ExplicitInterfaceMember_ReturnsTen()
@@ -867,9 +784,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task SubmitRequestAsync_ApiKeyWithCrlf_ReturnsInvalidConfiguration()
     {
-        // A CRLF-laced key passes the whitespace guard but must be blocked by
-        // EnsureApiKeyHeaderSafe (HTTP header-injection defence). The ArgumentException is
-        // caught and mapped to a generic "Invalid" message; no request is ever sent.
+        // A CRLF-laced key passes the whitespace guard but must be blocked by EnsureApiKeyHeaderSafe (HTTP header-injection defence).
         Plugin.Instance!.Configuration.SeerrApiKey = "key\r\ninject";
         _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
 
@@ -939,11 +854,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetSeerrUsersAsync_ExceedsPageSafetyCap_ReturnsWithoutInfiniteLoop()
     {
-        // Every page reports 50 results and a page count far above the 20-page safety cap so
-        // neither early-exit guard fires. The loop must terminate at the cap and mark the
-        // fetch incomplete - an incomplete fetch is NOT cached and surfaces as an empty roster
-        // (callers stay on the retriable "temporarily unavailable" path). The key guarantee is
-        // that it returns at all instead of looping forever.
+        // Every page reports 50 results and a page count far above the 20-page safety cap so neither early-exit guard fires.
         for (var skip = 0; skip <= 950; skip += 50)
         {
             var results = string.Join(",\n", Enumerable.Range(skip + 1, 50).Select(i =>
@@ -1029,9 +940,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
 }
 
 /// <summary>
-///     A scripted <see cref="HttpMessageHandler"/> that pattern-matches on request path suffixes
-///     and returns a pre-registered response. Also captures the last request body so tests can
-///     assert on outgoing payloads without hooking into the request pipeline.
+///     A scripted HttpMessageHandler that pattern-matches on request path suffixes and returns a pre-registered response.
 /// </summary>
 internal sealed class ScriptedHttpHandler : HttpMessageHandler
 {

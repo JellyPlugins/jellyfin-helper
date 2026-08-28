@@ -4,16 +4,12 @@ using System.Buffers;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Uses hand-tuned weights from <see cref="DefaultWeights"/> with genre similarity as the dominant signal.
-///     When used standalone (not via Ensemble), a configurable genre-penalty floor is applied
-///     so that items with zero genre overlap are penalized.
-///     This strategy does not support learning - weights are constant.
+///     Uses hand-tuned weights from DefaultWeights with genre similarity as the dominant signal.
 /// </summary>
 public sealed class HeuristicScoringStrategy : IScoringStrategy
 {
     /// <summary>
-    ///     Pre-allocated weight array for <see cref="ScoringHelper"/> which requires <c>double[]</c>.
-    ///     Safe because this class never mutates the array after construction.
+    ///     Pre-allocated weight array for ScoringHelper which requires double[]. Safe because this class never mutates the array after construction.
     /// </summary>
     private static readonly double[] WeightsArray = DefaultWeights.CreateWeightArray();
 
@@ -31,9 +27,7 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     }
 
     /// <summary>
-    ///     Gets the configured genre penalty floor for this instance.
-    ///     Used by <see cref="EnsembleScoringStrategy"/> to validate that the heuristic
-    ///     was constructed with penalty disabled (floor = 1.0) to avoid double-penalization.
+    ///     Gets the configured genre penalty floor for this instance. Used by EnsembleScoringStrategy to validate that the heuristic was constructed with penalty disabled (floor = 1.0) to avoid double-penalization.
     /// </summary>
     internal double GenrePenaltyFloor { get; }
 
@@ -94,10 +88,7 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     }
 
     /// <summary>
-    ///     Returns the genre-penalty multiplier for a given genre similarity value.
-    ///     Returns 1.0 (no penalty) when this instance was configured with
-    ///     <see cref="GenrePenaltyFloor"/> = 1.0, i.e. penalty disabled (ensemble mode).
-    ///     Otherwise delegates to <see cref="ScoringHelper.ComputeSoftGenrePenalty"/>.
+    ///     Returns the genre-penalty multiplier for a given genre similarity value. Returns 1.0 (no penalty) when this instance was configured with GenrePenaltyFloor = 1.0, i.e.
     /// </summary>
     private double PenaltyMultiplier(double genreSimilarity)
         => GenrePenaltyFloor >= 1.0

@@ -4,9 +4,7 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 
 /// <summary>
-/// Abstracts access to the plugin's runtime configuration.
-/// Consumers MUST use this service instead of accessing <see cref="Plugin.Instance"/> directly
-/// so that configuration reads/writes are testable without a real plugin singleton.
+///     Abstracts access to the plugin's runtime configuration. Consumers MUST use this service instead of accessing Instance directly so that configuration reads/writes are testable without a real plugin singleton.
 /// </summary>
 public interface IPluginConfigurationService
 {
@@ -26,22 +24,17 @@ public interface IPluginConfigurationService
     /// before the plugin is fully started.
     /// </exception>
     /// <remarks>
-    /// The returned object is the live shared reference. Treat it as read-only; any
-    /// mutation must go through <see cref="ReadAndMutate"/> to stay under the write lock.
+    ///     The returned object is the live shared reference. Treat it as read-only; any mutation must go through ReadAndMutate to stay under the write lock.
     /// </remarks>
     PluginConfiguration GetConfiguration();
 
     /// <summary>
-    /// Persists the current in-memory configuration to disk without replacing the object reference.
-    /// Use this after mutating individual properties on the existing configuration.
+    ///     Persists the current in-memory configuration to disk without replacing the object reference.
     /// </summary>
     void SaveConfiguration();
 
     /// <summary>
-    /// Atomically reads the current configuration, applies <paramref name="mutate"/>, and
-    /// saves it - all under a write lock that prevents concurrent callers from interleaving
-    /// their own mutations.  Callers must not cache the <see cref="PluginConfiguration"/>
-    /// reference passed to the delegate beyond the delegate's lifetime.
+    ///     Atomically reads the current configuration, applies mutate, and saves it - all under a write lock that prevents concurrent callers from interleaving their own mutations.
     /// </summary>
     /// <param name="mutate">Action that receives the live config object and applies changes to it.</param>
     void ReadAndMutate(Action<PluginConfiguration> mutate);

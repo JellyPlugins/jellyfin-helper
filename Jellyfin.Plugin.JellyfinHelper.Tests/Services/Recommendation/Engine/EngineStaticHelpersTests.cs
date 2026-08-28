@@ -11,21 +11,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for the pure <c>private static</c> parsing/filtering helpers on
-///     <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine"/>.
-///     These sit on the recommendation hot path and encode real filtering rules
-///     (skip pathless/orphan episodes, dedupe languages, drop non-billed people), so their
-///     edge cases are worth pinning even though the enclosing methods are private. They take
-///     plain model objects and touch no library host, so they run deterministically via reflection.
+///     Tests for the pure private static parsing/filtering helpers on Engine.
 /// </summary>
 public sealed class EngineStaticHelpersTests
 {
     private static readonly Type EngineType =
         typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine);
 
-    // ================================================================================
     // CountPlayableEpisodesPerSeries
-    // ================================================================================
 
     [Fact]
     public void CountPlayableEpisodesPerSeries_SkipsEpisodesWithoutPathOrSeriesId()
@@ -56,9 +49,7 @@ public sealed class EngineStaticHelpersTests
         Assert.Empty(result);
     }
 
-    // ================================================================================
     // ParseLanguagesFromStreams
-    // ================================================================================
 
     [Fact]
     public void ParseLanguagesFromStreams_DedupesAndSkipsBlankLanguages()
@@ -81,9 +72,7 @@ public sealed class EngineStaticHelpersTests
         Assert.Contains("de", subtitles);
     }
 
-    // ================================================================================
     // ResolveStreamsLanguages: null-streams early return
-    // ================================================================================
 
     [Fact]
     public void ResolveStreamsLanguages_CandidateWithoutStreams_ReturnsEmptyLists()
@@ -96,9 +85,7 @@ public sealed class EngineStaticHelpersTests
         Assert.Empty(subtitles);
     }
 
-    // ================================================================================
     // ExtractBillingWeightMap
-    // ================================================================================
 
     [Fact]
     public void ExtractBillingWeightMap_KeepsActorsAndDirectors_DropsOthersAndBlanks()
@@ -127,9 +114,7 @@ public sealed class EngineStaticHelpersTests
         Assert.Empty(InvokeExtractBillingWeightMap(new List<PersonInfo>()));
     }
 
-    // ================================================================================
     // Reflection glue - all helpers are `private static`.
-    // ================================================================================
 
     private static Dictionary<Guid, int> InvokeCountPlayableEpisodesPerSeries(IReadOnlyList<BaseItem> episodes)
     {

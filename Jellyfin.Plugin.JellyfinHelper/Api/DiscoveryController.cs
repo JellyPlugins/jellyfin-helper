@@ -58,10 +58,7 @@ public sealed class DiscoveryController : ControllerBase
         [FromQuery] int skip = 0,
         [FromQuery] int? take = null)
     {
-        // The per-user recommendation pool is already capped by MaxVisiblePerUser, but the number
-        // of users is unbounded, so a large deployment would return an arbitrarily large payload.
-        // Paginate the outer per-user list; clamp inputs so hostile/invalid values cannot force a
-        // huge response or a negative skip.
+        // The per-user recommendation pool is already capped by MaxVisiblePerUser, but the number of users is unbounded, so a large deployment would return an arbitrarily large payload.
         const int MaxPageSize = 100;
         var effectiveSkip = Math.Max(0, skip);
         var effectiveTake = Math.Clamp(take ?? MaxPageSize, 1, MaxPageSize);
@@ -141,9 +138,7 @@ public sealed class DiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
         }
 
-        // Validate all DataAnnotations and IValidatableObject rules declared on the DTO.
-        // This runs both in the ASP.NET pipeline and in direct unit-test invocations,
-        // so validation is never silently skipped regardless of how the controller is called.
+        // Validate all DataAnnotations and IValidatableObject rules declared on the DTO. This runs both in the ASP.NET pipeline and in direct unit-test invocations, so validation is never silently skipped regardless of how the controller is called.
         var validationResults = new System.Collections.Generic.List<ValidationResult>();
         var validationContext = new ValidationContext(dto);
         if (!Validator.TryValidateObject(dto, validationContext, validationResults, validateAllProperties: true))
@@ -178,24 +173,7 @@ public sealed class DiscoveryController : ControllerBase
             return StatusCode(StatusCodes.Status502BadGateway, new RequestResult { Success = false, Message = message });
         }
 
-        // Mark item as requested in cache so it doesn't reappear on page refresh.
-        // Best-effort: don't let cache bookkeeping failures turn a successful Seerr
-        // request into a 500 response, which would encourage client retries.
-        //
-        // Async variant is preferred here (over the legacy MarkAsRequested sync overload)
-        // because it releases the request thread while AtomicFile's transient-IO retries
-        // sleep - the sync path can block for up to ~200 ms on AV/indexer contention,
-        // which would starve the request pool under a burst of user requests.
-        //
-        // CancellationToken is DELIBERATELY NOT forwarded here. Once Seerr has accepted
-        // the request (a few lines above), the local cache MUST be updated regardless of
-        // whether the HTTP client has disconnected - otherwise the item silently reappears
-        // on the next discovery-page refresh, and the user gets a phantom "please request
-        // this again" prompt for an item they already successfully requested. See the
-        // similar rationale in UserDiscoveryController.SubmitMyRequest.
-        //
-        // Pass the admin caller's Jellyfin user ID so the mark is scoped to their cache
-        // entry, matching the behaviour of UserDiscoveryController.SubmitMyRequest.
+        // Mark item as requested in cache so it doesn't reappear on page refresh. Best-effort: don't let cache bookkeeping failures turn a successful Seerr request into a 500 response, which would encourage client retries.
         try
         {
             await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, callerUserId, CancellationToken.None).ConfigureAwait(false);

@@ -202,9 +202,7 @@ public class TrashServiceRelocateTests : IDisposable
     [Fact]
     public void RelocateTrashContents_MalformedPath_ReturnsZeroWithoutThrowing()
     {
-        // oldTrash exists so the Directory.Exists guard passes and control reaches the
-        // normalize block; an embedded null char makes Path.GetFullPath(newTrash) throw
-        // ArgumentException, which must be caught and reported as a no-op relocation.
+        // oldTrash exists so the Directory.Exists guard passes and control reaches the normalize block; an embedded null char makes Path.GetFullPath(newTrash) throw ArgumentException, which must be caught and reported as a no-op relocation.
         var oldTrash = Path.Combine(_testRoot, "old-trash");
         Directory.CreateDirectory(oldTrash);
         File.WriteAllText(Path.Combine(oldTrash, "20260101-120000_file.txt"), "data");

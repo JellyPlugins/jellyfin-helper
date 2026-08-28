@@ -14,13 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
-///     Scheduled sub-task that trains the scoring strategy from previous results
-///     and generates fresh recommendations for all users.
-///     Training, playlist sync, cache persistence, and incremental updates only run when TaskMode is Activate.
-///     DryRun mode generates recommendations but does NOT persist them to disk or train models.
-///     The UI fetches results on-demand via the API and caches them in the browser.
-///     Deactivate mode skips the task entirely (true no-op), but cleans up any
-///     previously created recommendation playlists as a best-effort step.
+///     Scheduled sub-task that trains the scoring strategy from previous results and generates fresh recommendations for all users.
 /// </summary>
 public class RecommendationsTask
 {
@@ -83,9 +77,7 @@ public class RecommendationsTask
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(progress);
 
-        // Deactivate mode: true no-op - skip all expensive work.
-        // However, clean up any previously created recommendation playlists
-        // so users who switch from Activate to Deactivate don't keep stale playlists.
+        // Deactivate mode: true no-op - skip all expensive work. However, clean up any previously created recommendation playlists so users who switch from Activate to Deactivate don't keep stale playlists.
         if (config.RecommendationsTaskMode == TaskMode.Deactivate)
         {
             _pluginLog.LogInfo(LogSource, "Task skipped (Deactivated).", _logger);
@@ -112,9 +104,7 @@ public class RecommendationsTask
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Train the scoring strategy ONLY when TaskMode is Activate.
-        // DryRun must NOT train because training writes ML weights to disk (side effect).
-        // Incremental training is enabled only in Activate mode.
+        // Train the scoring strategy ONLY when TaskMode is Activate. DryRun must NOT train because training writes ML weights to disk (side effect).
         TrainStrategyIfActive(isActive, cancellationToken);
 
         progress.Report(20);
@@ -132,8 +122,7 @@ public class RecommendationsTask
     }
 
     /// <summary>
-    ///     Trains the scoring strategy incrementally from cached results when the task is in Activate
-    ///     mode. Training is a no-op (and logged) in DryRun mode. Failures are logged and swallowed.
+    ///     Trains the scoring strategy incrementally from cached results when the task is in Activate mode. Training is a no-op (and logged) in DryRun mode.
     /// </summary>
     private void TrainStrategyIfActive(bool isActive, CancellationToken cancellationToken)
     {
@@ -169,8 +158,7 @@ public class RecommendationsTask
     }
 
     /// <summary>
-    ///     Persists the generated recommendations (Activate only), optionally syncs them to Jellyfin
-    ///     playlists, and logs the task outcome. In DryRun mode nothing is written to disk.
+    ///     Persists the generated recommendations (Activate only), optionally syncs them to Jellyfin playlists, and logs the task outcome.
     /// </summary>
     private async Task SaveAndReportResultsAsync(
         PluginConfiguration config,
@@ -224,10 +212,7 @@ public class RecommendationsTask
     }
 
     /// <summary>
-    ///     Attempts to remove all recommendation playlists from a previous run.
-    ///     This is called when playlist sync is disabled or the task is deactivated
-    ///     to clean up stale playlists.
-    ///     Errors are logged but do not fail the task.
+    ///     Attempts to remove all recommendation playlists from a previous run. This is called when playlist sync is disabled or the task is deactivated to clean up stale playlists.
     /// </summary>
     private async Task CleanupOldPlaylistsAsync(IRecommendationPlaylistService playlistService, CancellationToken cancellationToken)
     {

@@ -4,22 +4,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Security-relevant tests for <see cref="SeerrPermissionExtensions" />. Because this is the
-///     authorization gate for Discovery requests, every branch and every "admin bypass" contract
-///     must be locked down against accidental changes:
-///     <list type="bullet">
-///         <item>Zero-flag guard - <c>HasFlag(None)</c> must NEVER pass.</item>
-///         <item>Admin bypass - an admin user must satisfy every check.</item>
-///         <item>Granular per-media-type flags must be respected only when general flag is missing.</item>
-///         <item>Unknown media types must be rejected even for admins (defense in depth).</item>
-///         <item>Null user must throw - no silent authorization.</item>
-///     </list>
+///     Security-relevant tests for SeerrPermissionExtensions. Because this is the authorization gate for Discovery requests, every branch and every "admin bypass" contract must be locked down against accidental changes: Zero-flag guard - HasFlag(None) must NEVER pass.
 /// </summary>
 public class SeerrPermissionExtensionsTests
 {
     private static SeerrUser Make(long perms) => new() { Id = 1, DisplayName = "test", Permissions = perms };
-
-    // === HasPermission ===
 
     [Fact]
     public void HasPermission_NullUser_Throws()
@@ -92,8 +81,6 @@ public class SeerrPermissionExtensionsTests
         Assert.False(user.HasPermission(SeerrPermissions.RequestMovie));
         Assert.False(user.HasPermission(SeerrPermissions.Admin));
     }
-
-    // === CanRequest ===
 
     [Fact]
     public void CanRequest_NullUser_Throws()
@@ -180,8 +167,6 @@ public class SeerrPermissionExtensionsTests
         Assert.True(user.CanRequest("tv"));
     }
 
-    // === CanSelectQualityProfile ===
-
     [Fact]
     public void CanSelectQualityProfile_NullUser_Throws()
     {
@@ -225,8 +210,6 @@ public class SeerrPermissionExtensionsTests
         var user = Make(0);
         Assert.False(user.CanSelectQualityProfile());
     }
-
-    // === Bit-flag combinations: real-world scenarios ===
 
     [Fact]
     public void RealWorldScenario_TypicalUser_CanRequestButNotChooseProfile()

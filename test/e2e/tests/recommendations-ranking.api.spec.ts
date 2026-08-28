@@ -1,25 +1,4 @@
-/**
- * Behavioral coverage for Recommendations - prove the engine consumes a REAL watch
- * profile, not just that the route responds. The existing recommendations-playlist
- * spec proves playlist create/purge; contracts only checks guards. Here we assert
- * the ranking contract:
- *
- *   1. WatchProfile/{userId} reflects items actually marked played (count + the
- *      item appears in WatchedItems).
- *   2. Recommendations/{userId} EXCLUDES anything the user has watched - a hard,
- *      deterministic invariant of the engine (watched ids are removed from the
- *      candidate pool and fed into the preference vectors).
- *   3. Results are ranked: Score in [0,1], sorted descending.
- *
- * Note on fixtures: the generated clips carry no genre metadata, so we do NOT
- * assert genre-similarity ranking (that would be non-deterministic here). The
- * watched-exclusion + score-ordering invariants hold regardless of metadata and
- * are the meaningful proof that the profile drives the engine.
- *
- * Contract (verified live): elevated token; 503 when RecommendationsTaskMode ==
- * Deactivate; PascalCase; per-user route computes on demand if no cache. We use
- * Activate + a HelperCleanup run so both cache and profile are populated.
- */
+/** * Behavioral coverage for Recommendations - prove the engine consumes a REAL watch * profile, not just that the route responds. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask } from '../setup/api-client.ts';
 
@@ -48,9 +27,7 @@ test.beforeAll(async () => {
   ctx = await apiContext(auth);
 });
 test.afterAll(async () => {
-  // Leave no managed playlists behind: switch to Deactivate and run the cleanup so any
-  // playlists (from this or a prior spec) are purged before the recommendations-playlist
-  // spec establishes its baseline. Then restore a benign DryRun.
+  // Leave no managed playlists behind: switch to Deactivate and run the cleanup so any playlists (from this or a prior spec) are purged before the recommendations-playlist spec establishes its baseline.
   await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { RecommendationsTaskMode: 'Deactivate', SyncRecommendationsToPlaylist: false },
@@ -77,9 +54,7 @@ test.describe.serial('Recommendations rank from a real watch profile', () => {
   test.beforeAll(async () => {
     await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
-      // Activate the engine but keep playlist sync OFF - this spec only reads the
-      // recommendation/profile APIs and must NOT create managed playlists that would
-      // bleed into the recommendations-playlist spec's baseline.
+      // Activate the engine but keep playlist sync OFF - this spec only reads the recommendation/profile APIs and must NOT create managed playlists that would bleed into the recommendations-playlist spec's baseline.
       data: { RecommendationsTaskMode: 'Activate', SyncRecommendationsToPlaylist: false },
     });
 
@@ -121,9 +96,7 @@ test.describe.serial('Recommendations rank from a real watch profile', () => {
     expect(rec.ScoringStrategyKey, 'a strategy key is reported').toBeTruthy();
 
     for (const r of rec.Recommendations) {
-      // Hard invariant: nothing the user watched may be recommended back. This is
-      // the meaningful proof that the real watch profile drives the engine (watched
-      // ids are removed from the candidate pool).
+      // Hard invariant: nothing the user watched may be recommended back. This is the meaningful proof that the real watch profile drives the engine (watched ids are removed from the candidate pool).
       expect(
         watchedIds.has(norm(r.ItemId)),
         `watched item "${r.Name}" must NOT be recommended`,
@@ -132,11 +105,7 @@ test.describe.serial('Recommendations rank from a real watch profile', () => {
       expect(r.Score, `score for ${r.Name} in [0,1]`).toBeGreaterThanOrEqual(0);
       expect(r.Score).toBeLessThanOrEqual(1);
     }
-    // NOTE: we deliberately do NOT assert strict score-descending order. The
-    // diversity reranker (MMR + an exploration tail) intentionally promotes some
-    // lower-relevance items past higher-scoring ones - reordering by score is its
-    // whole job - so the list is ranked-ish, not monotonic. Watched-exclusion and
-    // the [0,1] score bound are the invariants that actually hold.
+    // NOTE: we deliberately do NOT assert strict score-descending order.
   });
 
   test('guards intact: empty GUID 400, unknown user 404', async () => {

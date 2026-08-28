@@ -4,26 +4,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr;
 
 /// <summary>
-///     Tests the null-coalescing setter on <see cref="SeerrRequestPage.Results"/>.
-///     <see cref="SeerrRequestPage"/> is the DTO deserialised from the Seerr
-///     <c>/api/v1/request</c> endpoint. When the upstream returns an empty payload
-///     (or an unexpected shape that yields <c>null</c> after
-///     <c>JsonSerializer.Deserialize</c>), the setter must fall back to an empty list
-///     rather than let a <c>null</c> propagate into the request-processing loops.
-///     <para>
-///         The class is <c>internal sealed</c>, but the test project has
-///         <c>InternalsVisibleTo</c> access.
-///     </para>
+///     Tests the null-coalescing setter on Results. SeerrRequestPage is the DTO deserialised from the Seerr /api/v1/request endpoint.
 /// </summary>
 public sealed class SeerrRequestPageTests
 {
     [Fact]
     public void Results_NullAssignment_CoalescedToEmptyList()
     {
-        // BUG GUARD: a `null` Results list would cause `SeerrIntegrationService.FetchAllRequestsAsync`
-        // to throw NRE when iterating with `foreach (var r in page.Results)`. The setter contract
-        // must actively substitute an empty list on null so the "no requests" case is indistinguishable
-        // from "empty results" downstream.
+        // BUG GUARD: a `null` Results list would cause `SeerrIntegrationService.FetchAllRequestsAsync` to throw NRE when iterating with `foreach (var r in page.Results)`.
         var sut = new SeerrRequestPage { Results = null! };
         Assert.NotNull(sut.Results);
         Assert.Empty(sut.Results);
@@ -32,9 +20,7 @@ public sealed class SeerrRequestPageTests
     [Fact]
     public void Results_NonNullAssignment_PreservesReference()
     {
-        // Non-null input must be stored as-is - no defensive copy, no re-wrap.
-        // A regression that wrapped the input in a fresh list would break `Assert.Same`
-        // and would double the memory allocation on every page.
+        // Non-null input must be stored as-is - no defensive copy, no re-wrap. A regression that wrapped the input in a fresh list would break `Assert.Same` and would double the memory allocation on every page.
         var input = new List<SeerrRequest>
         {
             new() { Id = 1 },
@@ -58,10 +44,7 @@ public sealed class SeerrRequestPageTests
     [Fact]
     public void Results_Reassignment_FromNonNullToNull_ReplacesWithEmpty()
     {
-        // Contract: every setter call re-evaluates the null-coalescing operator.
-        // A regression that used init-only or one-shot assignment would fail this
-        // test because the second (null) assignment would silently no-op, leaving
-        // the stale non-null value visible to callers.
+        // Contract: every setter call re-evaluates the null-coalescing operator. A regression that used init-only or one-shot assignment would fail this test because the second (null) assignment would silently no-op, leaving the stale non-null value visible to callers.
         var sut = new SeerrRequestPage
         {
             Results = [new SeerrRequest { Id = 42 }]

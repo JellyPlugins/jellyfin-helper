@@ -4,14 +4,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Tests for <see cref="TrainingExample"/>: ComputeEffectiveWeight(), ComputeTemporalWeight(),
-///     Label/SampleWeight clamping, and temporal decay constants.
+///     Tests for TrainingExample: ComputeEffectiveWeight(), ComputeTemporalWeight(), Label/SampleWeight clamping, and temporal decay constants.
 /// </summary>
 public sealed class TrainingExampleTests
 {
-    // ============================================================
     // Constants Verification
-    // ============================================================
 
     [Fact]
     public void TemporalDecayHalfLifeDays_Is90()
@@ -26,9 +23,7 @@ public sealed class TrainingExampleTests
         Assert.Equal(expected, TrainingExample.TemporalDecayConstant, 12);
     }
 
-    // ============================================================
     // Label Clamping Tests
-    // ============================================================
 
     [Fact]
     public void Label_DefaultIsZero()
@@ -58,9 +53,7 @@ public sealed class TrainingExampleTests
         Assert.Equal(0.75, example.Label);
     }
 
-    // ============================================================
     // SampleWeight Clamping Tests
-    // ============================================================
 
     [Fact]
     public void SampleWeight_DefaultIsOne()
@@ -90,9 +83,7 @@ public sealed class TrainingExampleTests
         Assert.Equal(0.6, example.SampleWeight);
     }
 
-    // ============================================================
     // Non-Finite Input Tests (NaN, Infinity)
-    // ============================================================
 
     [Fact]
     public void Label_NaN_ClampsToZero()
@@ -136,9 +127,7 @@ public sealed class TrainingExampleTests
         Assert.Equal(0.0, example.SampleWeight);
     }
 
-    // ============================================================
     // ComputeTemporalWeight Tests
-    // ============================================================
 
     [Fact]
     public void ComputeTemporalWeight_BrandNew_ReturnsOne()
@@ -250,9 +239,7 @@ public sealed class TrainingExampleTests
         }
     }
 
-    // ============================================================
     // ComputeEffectiveWeight Tests
-    // ============================================================
 
     [Fact]
     public void ComputeEffectiveWeight_FullWeight_BrandNew_ReturnsOne()
@@ -361,9 +348,7 @@ public sealed class TrainingExampleTests
         Assert.Equal(0.7 * temporal, effective, 10);
     }
 
-    // ============================================================
     // GeneratedAtUtc Tests
-    // ============================================================
 
     [Fact]
     public void GeneratedAtUtc_DefaultsToApproximatelyNow()

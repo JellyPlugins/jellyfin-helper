@@ -4,8 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 /// <summary>
-/// Tests for Main.js (page bootstrap / tab lifecycle) as embedded in the composed configPage.html.
-/// Covers: tab init, lifecycle, shell rendering, statistics loading, last-scan badge, retry logic.
+///     Tests for Main.js (page bootstrap / tab lifecycle) as embedded in the composed configPage.html.
 /// </summary>
 public class MainHtmlTests : ConfigPageTestBase
 {

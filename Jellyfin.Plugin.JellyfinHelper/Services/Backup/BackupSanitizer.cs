@@ -6,16 +6,12 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 
 /// <summary>
-///     Sanitizes backup data by clamping values to valid ranges and replacing
-///     invalid enum values with defaults. Makes backup data safe to import
-///     even if some fields had warning-level issues.
+///     Sanitizes backup data by clamping values to valid ranges and replacing invalid enum values with defaults.
 /// </summary>
 public static class BackupSanitizer
 {
     /// <summary>
-    ///     Sanitizes a backup by clamping values to valid ranges and replacing
-    ///     invalid enum values with defaults. This makes the backup safe to import
-    ///     even if some fields had warning-level issues.
+    ///     Sanitizes a backup by clamping values to valid ranges and replacing invalid enum values with defaults.
     /// </summary>
     /// <param name="backup">The backup to sanitize (modified in place).</param>
     public static void Sanitize(BackupData backup)
@@ -67,8 +63,7 @@ public static class BackupSanitizer
     }
 
     /// <summary>
-    ///     Trims the growth timeline to the newest <see cref="BackupValidator.MaxTimelineDataPoints"/>
-    ///     entries and clamps each data point's cumulative size / file count to a non-negative value.
+    ///     Trims the growth timeline to the newest MaxTimelineDataPoints entries and clamps each data point's cumulative size / file count to a non-negative value.
     /// </summary>
     /// <param name="backup">The backup whose growth timeline is sanitized in place.</param>
     private static void SanitizeGrowthTimeline(BackupData backup)
@@ -89,13 +84,7 @@ public static class BackupSanitizer
             }
         }
 
-        // Clamp negative cumulative values to 0. A cumulative byte size / file count is
-        // physically non-negative; the validator only WARNS on negatives, and the timeline
-        // is written to the cache VERBATIM on restore, so without this a hostile/corrupt
-        // backup could plant a negative point that surfaces on GET GrowthTimeline and even
-        // survives a recompute (the append-only path preserves historical points, and
-        // TrimLeadingZeros keeps one leading point). Matches the Math.Clamp treatment every
-        // other backup numeric already gets and the aggregator's own Math.Max(0, ...) output guard.
+        // Clamp negative cumulative values to 0.
         if (backup.GrowthTimeline != null)
         {
             foreach (var point in backup.GrowthTimeline.DataPoints)
@@ -107,8 +96,7 @@ public static class BackupSanitizer
     }
 
     /// <summary>
-    ///     Clamps the growth baseline's per-directory size / count to non-negative values and trims the
-    ///     oldest entries by <c>CreatedUtc</c> when over <see cref="BackupValidator.MaxBaselineDirectories"/>.
+    ///     Clamps the growth baseline's per-directory size / count to non-negative values and trims the oldest entries by CreatedUtc when over MaxBaselineDirectories.
     /// </summary>
     /// <param name="backup">The backup whose growth baseline is sanitized in place.</param>
     private static void SanitizeGrowthBaseline(BackupData backup)
@@ -171,9 +159,7 @@ public static class BackupSanitizer
             return value;
         }
 
-        // Avoid splitting a UTF-16 surrogate pair (emoji, astral-plane CJK): if the last
-        // retained code unit is a high surrogate with no low surrogate following it, drop it
-        // so the result is never ill-formed UTF-16 that could corrupt on re-serialization.
+        // Avoid splitting a UTF-16 surrogate pair (emoji, astral-plane CJK): if the last retained code unit is a high surrogate with no low surrogate following it, drop it so the result is never ill-formed UTF-16 that could corrupt on re-serialization.
         var end = maxLength;
         if (end > 0 && char.IsHighSurrogate(value[end - 1]))
         {
@@ -190,11 +176,7 @@ public static class BackupSanitizer
             return;
         }
 
-        // Drop any null entries FIRST - a backup JSON can contain `[null]` in the
-        // instance array, which would otherwise NRE below (sanitize runs before
-        // validation, so the validator's null guard hasn't executed yet). This must
-        // precede the count cap so a leading null can't consume a valid instance's slot
-        // (e.g. [null, v1..v10] must keep v1..vN, not drop vN while retaining the null).
+        // Drop any null entries FIRST - a backup JSON can contain `[null]` in the instance array, which would otherwise NRE below (sanitize runs before validation, so the validator's null guard hasn't executed yet).
         instances.RemoveAll(i => i is null);
 
         // Limit count (after null removal, so only real instances count toward the cap).

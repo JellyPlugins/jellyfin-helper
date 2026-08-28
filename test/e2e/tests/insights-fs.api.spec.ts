@@ -1,22 +1,4 @@
-/**
- * Behavioral coverage for LibraryInsights - the "largest media dirs" and "recently
- * added/changed" views. Today only smoke/shape/authz is tested; here we prove the
- * DATA is correct against the KNOWN generated fixtures.
- *
- * IMPORTANT - cache constraint: LibraryInsights caches its result for 15 minutes
- * with NO bust/forceRefresh (LibraryInsightsController.cs:24). So we CANNOT add a
- * file mid-run and expect it to appear - a warm cache would hide it. Instead we
- * assert against the fixtures that gen-media.sh created before the global-setup
- * library scan (already in Jellyfin's model) and check the ranking/aggregate
- * INVARIANTS, which hold regardless of cache warmth:
- *   - Largest is sorted by Size descending, every entry is a real media dir
- *     under /media, and LargestTotalSize == sum(Largest sizes).
- *   - A known generated movie (e.g. "Nebula Drift", the 4K clip) is present.
- *   - Recent lists items with a valid ChangeType and RecentTotalCount >= its length.
- *
- * Responses are PascalCase (Largest/LargestTotalSize/Recent/RecentTotalCount/
- * LibrarySizes; entries Name/Size/CreatedUtc/ModifiedUtc/CollectionType/ChangeType).
- */
+/** * Behavioral coverage for LibraryInsights - the "largest media dirs" and "recently * added/changed" views. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p } from '../setup/api-client.ts';
 

@@ -5,9 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Unit tests for <see cref="ConfigurationResponse" /> and <see cref="MaskedArrInstanceConfig" />.
-///     Verifies the masking contract: non-empty API keys must never leave the server in plain text;
-///     the sentinel value signals "key is already set" to the UI without exposing the real value.
+///     Unit tests for ConfigurationResponse and MaskedArrInstanceConfig. Verifies the masking contract: non-empty API keys must never leave the server in plain text; the sentinel value signals "key is already set" to the UI without exposing the real value.
 /// </summary>
 public class ConfigurationResponseTests
 {
@@ -43,9 +41,7 @@ public class ConfigurationResponseTests
     [Fact]
     public void FromConfig_SeerrApiKey_Whitespace_ReturnsEmpty()
     {
-        // Whitespace-only key is treated as "not configured" (IsNullOrWhiteSpace) - same
-        // behaviour as the save-path in ApplyRequestToConfig. Emitting the mask sentinel would
-        // mislead operators into thinking the key is valid when it will fail all API calls.
+        // Whitespace-only key is treated as "not configured" (IsNullOrWhiteSpace) - same behaviour as the save-path in ApplyRequestToConfig.
         var config = new PluginConfiguration { SeerrApiKey = "   " };
         var response = ConfigurationResponse.FromConfig(config);
         Assert.Equal(string.Empty, response.SeerrApiKey);

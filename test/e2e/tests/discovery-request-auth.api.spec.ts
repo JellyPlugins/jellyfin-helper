@@ -1,28 +1,4 @@
-/**
- * User-facing request submission - POST /Discovery/My/Request authorization.
- *
- * This is the security-critical path that stops a non-admin user from routing a
- * download to an arbitrary quality profile / root folder. The controller
- * (UserDiscoveryController.SubmitMyRequest) enforces, in order:
- *   - a per-user 10s rate limit (429 + Retry-After; a rejected call does NOT
- *     extend the window);
- *   - ServerId and ProfileId must be supplied together (else 400);
- *   - the (ServerId, ProfileId) pair must be one the user is actually allowed
- *     (else 403);
- *   - the RootFolder must match the matched profile's root (else 403).
- * A valid submission forwards to Seerr with the CALLER's resolved SeerrUserId.
- *
- * The non-admin user is linked in global-setup to the mock's second Seerr user
- * (Bob) with the Request permission (bit 32), so it has exactly ONE allowed
- * profile - the server default. We read that allowed profile from
- * RequestPermissions rather than hard-coding the mock's ids, so the assertions
- * stay correct if the mock's profile fixture changes.
- *
- * The 10s rate limit is keyed by the caller's Jellyfin GUID in a process-wide
- * static, and any call that passes the rate check (even one that then 400/403s)
- * opens the window. So every request-submitting step here is spaced past the
- * window; the suite runs serially (workers: 1), so this is deterministic.
- */
+/** * User-facing request submission - POST /Discovery/My/Request authorization. * * This is the security-critical path that stops a non-admin user from routing a * download to an arbitrary quality profile / root folder. */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, sleep } from '../setup/api-client.ts';
 
@@ -84,9 +60,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // Reset the config this suite's beforeAll enabled (discovery access + recommendations
-  // mode) back to defaults, so later specs don't inherit an enabled discovery gate or an
-  // Activated recommendations mode. SeerrUrl/key are left as-is (each spec owns its own).
+  // Reset the config this suite's beforeAll enabled (discovery access + recommendations mode) back to defaults, so later specs don't inherit an enabled discovery gate or an Activated recommendations mode.
   await admin
     .put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
@@ -205,9 +179,7 @@ test.describe.serial('POST /Discovery/My/Request - per-user rate limit', () => {
     expect(retryAfter, 'Retry-After within the 10s window').toBeGreaterThan(0);
     expect(retryAfter, 'Retry-After no larger than the window').toBeLessThanOrEqual(10);
 
-    // A rejected request must NOT reset/extend the window: a third immediate call
-    // still reports a Retry-After that is not LARGER than the second's (the window
-    // keeps counting down from the first accepted call, it did not restart).
+    // A rejected request must NOT reset/extend the window: a third immediate call still reports a Retry-After that is not LARGER than the second's (the window keeps counting down from the first accepted call, it did not restart).
     const third = await submitMyRequest({ TmdbId: 27205, MediaType: 'movie' });
     expect(third.status()).toBe(429);
     const retryAfter3 = Number(third.headers()['retry-after']);

@@ -6,11 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 
 /// <summary>
-///     Tests for <see cref="ReparsePointGuard" />.
-///     The happy-path that calls <c>delete</c> on a real reparse point cannot be exercised
-///     in unit tests without symlink/junction creation privileges (unavailable in CI).
-///     All testable branches, non-existent path, real non-reparse directory, fail-closed
-///     throw, and delete-action never-called, are covered here.
+///     Tests for ReparsePointGuard. The happy-path that calls delete on a real reparse point cannot be exercised in unit tests without symlink/junction creation privileges (unavailable in CI).
 /// </summary>
 public sealed class ReparsePointGuardTests : IDisposable
 {
@@ -63,9 +59,7 @@ public sealed class ReparsePointGuardTests : IDisposable
     [Fact]
     public void IsReparsePoint_RealFile_ReturnsFalse()
     {
-        // The guard requires the Directory flag: a plain file (never a reparse point, and not a
-        // directory) must report false. This branch became explicit when the implementation moved
-        // from DirectoryInfo (which reported files as non-existent) to File.GetAttributes.
+        // The guard requires the Directory flag: a plain file (never a reparse point, and not a directory) must report false.
         var file = Path.Join(_tempDir, "plain.txt");
         File.WriteAllText(file, "x");
         Assert.False(ReparsePointGuard.IsReparsePoint(file));
@@ -80,11 +74,7 @@ public sealed class ReparsePointGuardTests : IDisposable
         Assert.False(ReparsePointGuard.IsReparsePoint(path));
     }
 
-    // ── IsReparsePointAnyType ─────────────────────────────────────────────────
-    // A real symlink cannot be created without elevated privileges in CI, so the
-    // link-node true-branch is covered by the E2E suite. The false branches, a
-    // plain file, a plain directory, and a missing path (both not-found shapes),
-    // are all reachable here and must never report a reparse point.
+    // ── IsReparsePointAnyType ───────────────────────────────────────────────── A real symlink cannot be created without elevated privileges in CI, so the link-node true-branch is covered by the E2E suite.
 
     [Fact]
     public void IsReparsePointAnyType_NonExistentPath_ReturnsFalse()

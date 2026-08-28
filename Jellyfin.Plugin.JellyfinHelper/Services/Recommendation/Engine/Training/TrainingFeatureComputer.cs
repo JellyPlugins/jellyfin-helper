@@ -16,9 +16,6 @@ internal static class TrainingFeatureComputer
 {
     /// <summary>
     ///     Builds a set of preferred studio names for a user from a precomputed item-to-studios lookup.
-    ///     Collects studios from items the user has watched (matched by item ID or series ID).
-    ///     This mirrors <see cref="PreferenceBuilder.BuildStudioPreferenceSet"/> but uses cached data
-    ///     instead of live BaseItem objects.
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="itemStudiosLookup">Precomputed itemId ? studios mapping built once from all previous results.</param>
@@ -62,7 +59,6 @@ internal static class TrainingFeatureComputer
 
     /// <summary>
     ///     Builds a set of preferred tag names for a user from a precomputed item-to-tags lookup.
-    ///     This mirrors <see cref="PreferenceBuilder.BuildTagPreferenceSet"/> but uses cached data.
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="itemTagsLookup">Precomputed itemId ? tags mapping built once from all previous results.</param>
@@ -105,8 +101,6 @@ internal static class TrainingFeatureComputer
 
     /// <summary>
     ///     Computes temporal affinity for training examples using the actual watch timestamp.
-    ///     Instead of setting temporal features to neutral (0.5), uses the real DayOfWeek/HourOfDay
-    ///     from when the user watched the item. This allows the model to learn temporal weights.
     /// </summary>
     /// <param name="watchedItem">The watched item (may be null for unmatched items).</param>
     /// <param name="candidateGenres">The candidate item's genres.</param>
@@ -129,8 +123,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Core implementation - accepts a pre-built genre set to avoid re-allocating it when
-    ///     computing both DayOfWeek and HourOfDay affinity for the same candidate in one call chain.
+    ///     Core implementation - accepts a pre-built genre set to avoid re-allocating it when computing both DayOfWeek and HourOfDay affinity for the same candidate in one call chain.
     /// </summary>
     internal static double ComputeTrainingTemporalAffinity(
         WatchedItemInfo? watchedItem,
@@ -156,9 +149,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Counts, among the user's watch history in the same temporal bucket as <paramref name="watchDate"/>,
-    ///     how many items share a genre with the candidate. Extracted verbatim from
-    ///     <see cref="ComputeTrainingTemporalAffinity(WatchedItemInfo?, HashSet{string}, UserWatchProfile, bool)"/>; the bucket/genre predicates are unchanged.
+    ///     Counts, among the user's watch history in the same temporal bucket as watchDate, how many items share a genre with the candidate.
     /// </summary>
     /// <param name="watchedItem">The target watched item (excluded to avoid label leakage).</param>
     /// <param name="candidateGenreSet">The candidate's genre set.</param>
@@ -178,18 +169,13 @@ internal static class TrainingFeatureComputer
 
         foreach (var w in userProfile.WatchedItems)
         {
-            // Use HasPlaybackActivity() to match TemporalFeatures.ComputeDayOfWeekAffinity/
-            // ComputeHourOfDayAffinity scoring logic (includes PlayCount > 0 and
-            // PlaybackPositionTicks > 0, not just Played). Ensures consistent temporal
-            // bucket populations between training and scoring.
+            // Use HasPlaybackActivity() to match TemporalFeatures.ComputeDayOfWeekAffinity/ ComputeHourOfDayAffinity scoring logic (includes PlayCount > 0 and PlaybackPositionTicks > 0, not just Played).
             if (!w.HasPlaybackActivity() || !w.LastPlayedDate.HasValue)
             {
                 continue;
             }
 
-            // Exclude the target item itself to prevent label leakage: during live scoring,
-            // the candidate is never in the user's watch history, so including it here would
-            // inflate the temporal affinity signal with its own watch event during training.
+            // Exclude the target item itself to prevent label leakage: during live scoring, the candidate is never in the user's watch history, so including it here would inflate the temporal affinity signal with its own watch event during training.
             if (w.ItemId == watchedItem.ItemId)
             {
                 continue;
@@ -217,9 +203,6 @@ internal static class TrainingFeatureComputer
 
     /// <summary>
     ///     Builds a single aggregated TrainingExample from all episodes of a series.
-    ///     Instead of emitting one example per episode (which skews the dataset toward
-    ///     series with many episodes), this collapses all episodes into one series-level
-    ///     example with averaged/aggregated signals matching Engine.ScoreCandidate() logic.
     /// </summary>
     internal static void AddAggregatedSeriesExample(
         List<TrainingExample> examples,
@@ -250,9 +233,6 @@ internal static class TrainingFeatureComputer
             .FirstOrDefault();
 
         // Aggregated completion: average per-episode completion ratios.
-        // Using ContentScoring.ComputeCompletionRatio per episode (same as Phase 1 series scoring)
-        // instead of binary playedEps/totalEps, so partially watched episodes contribute proportionally
-        // rather than being counted as 0.
         var playedEps = episodes.Count(e => e.Played);
         var completionRatio = episodes.Count > 0
             ? Math.Clamp(
@@ -265,11 +245,7 @@ internal static class TrainingFeatureComputer
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);
 
-        // Series progression boost: hardcoded 0.0 to mirror the live inference path
-        // (Engine.ScoreCandidate writes a constant 0.0 for this channel). Aggregated series
-        // examples describe series the user has already interacted with meaningfully, so the
-        // watchedSeriesIds filter permanently excludes them from live candidate scoring -
-        // emitting a graded value here would train a signal the network can never observe.
+        // Series progression boost: hardcoded 0.0 to mirror the live inference path (Engine.ScoreCandidate writes a constant 0.0 for this channel).
         const double seriesProgressionBoost = 0.0;
 
         // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata).
@@ -297,10 +273,7 @@ internal static class TrainingFeatureComputer
 
         var genreList = allGenres.ToList();
 
-        // Aggregate the new content fields across episodes (union of countries / inherited tags /
-        // writers; first non-empty franchise name). Series lifecycle comes from the representative
-        // episode row. Billing is neutralized (no per-item people/billing cached on WatchedItemInfo),
-        // mirroring the organic branch. All reads are null-safe (setters coalesce null -> []).
+        // Aggregate the new content fields across episodes (union of countries / inherited tags / writers; first non-empty franchise name).
         AggregateSeriesContentFields(
             episodes,
             out var seriesFranchise,
@@ -320,11 +293,7 @@ internal static class TrainingFeatureComputer
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
             IsSeries = true,
-            // Train/serve parity: aggregated series examples are excluded from live scoring by the
-            // watchedSeriesIds filter in Engine.GenerateForUser (a series with meaningful episode
-            // interaction never re-enters the candidate pool). Feeding real per-episode averages
-            // for UserRatingScore / HasUserInteraction therefore trains signals the model can
-            // never see at inference. The engagement label below still carries the positive signal.
+            // Train/serve parity: aggregated series examples are excluded from live scoring by the watchedSeriesIds filter in Engine.GenerateForUser (a series with meaningful episode interaction never re-enters the candidate pool).
             UserRatingScore = 0.5,
             HasUserInteraction = false,
             CompletionRatio = completionRatio,
@@ -344,25 +313,16 @@ internal static class TrainingFeatureComputer
                 .Min() is { } minDate
                 ? ContentScoring.ComputeRecencyScore(minDate)
                 : 0.5,
-            // Language affinity features: neutral (0.5) for aggregated series because
-            // WatchedItemInfo does not carry per-episode stream metadata. The live scoring
-            // path also returns neutral for Series candidates (GetMediaStreams() is empty
-            // on folder-type items), maintaining train/serve parity.
+            // Language affinity features: neutral (0.5) for aggregated series because WatchedItemInfo does not carry per-episode stream metadata.
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
-            // Content-affinity signals aggregated across the series' episodes (same shared helpers as
-            // live scoring). BillingWeightedPeople uses the per-episode billing weights aggregated above,
-            // scored against the user's preferred-people map - matching the live series-candidate path.
+            // Content-affinity signals aggregated across the series' episodes (same shared helpers as live scoring).
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(seriesFranchise, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity([.. seriesInheritedTags], preferredInheritedTags),
             SeriesCompletability = EngineConstants.ComputeSeriesCompletability(true, mostRecent?.SeriesStatus, mostRecent?.EndDate.HasValue ?? false),
             WriterAffinity = SimilarityComputer.ComputeWriterAffinity([.. seriesWriters], preferredWriterWeights),
-            // BillingWeightedPeople is neutralized (0.0) for aggregated-series examples: billed people are
-            // deliberately NOT cached per episode (people are aggregated at series level to avoid guest-cast
-            // noise - see WatchHistoryService, which skips GetPeople for Episodes), so no per-episode billing
-            // exists to aggregate here. A watched (non-favourite) series therefore contributes neutral billing;
-            // favourite series carry real series-level billing via their synthetic WatchedItemInfo (organic path).
+            // BillingWeightedPeople is neutralized (0.0) for aggregated-series examples: billed people are deliberately NOT cached per episode (people are aggregated at series level to avoid guest-cast noise - see WatchHistoryService, which skips GetPeople for Episodes), so no per-episode.
             BillingWeightedPeople = 0.0,
             GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(genreList, null, genreStudioIdf)
         };
@@ -374,13 +334,7 @@ internal static class TrainingFeatureComputer
         features.GenreDominanceRatio = domRatio;
         features.GenreAffinityGap = affGap;
 
-        // Label based on aggregated completion:
-        // - No episodes played (all favorite-only): 0.65 (explicit interest)
-        // - Low completion (started but abandoned most episodes): AbandonedLabel (0.0)
-        // - Normal completion: engagement-proportional (0.5-0.85)
-        // When playedEps == 0 and no episode has playback progress or favorites,
-        // completionRatio is 0.0 -> ComputeEngagementLabel yields WatchedLabelFloor (0.5).
-        // This case implies PlayCount > 0 only items from HasMeaningfulInteraction() filtering.
+        // Label based on aggregated completion: - No episodes played (all favorite-only): 0.65 (explicit interest) - Low completion (started but abandoned most episodes): AbandonedLabel (0.0) - Normal completion: engagement-proportional (0.5-0.85) When playedEps == 0 and no episode has.
         var label = playedEps switch
         {
             0 when episodes.Any(e => e.PlaybackPositionTicks > 0) => completionRatio <
@@ -402,8 +356,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Collects the union of non-blank genres across all episodes and the first available production
-    ///     year. Extracted verbatim from <see cref="AddAggregatedSeriesExample"/>.
+    ///     Collects the union of non-blank genres across all episodes and the first available production year.
     /// </summary>
     /// <param name="episodes">The series' episodes.</param>
     /// <param name="representativeYear">Receives the first available episode production year.</param>
@@ -424,9 +377,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Aggregates the content-affinity fields (first non-empty franchise; union of countries,
-    ///     inherited tags, writers) across a series' episodes. Extracted verbatim from
-    ///     <see cref="AddAggregatedSeriesExample"/>.
+    ///     Aggregates the content-affinity fields (first non-empty franchise; union of countries, inherited tags, writers) across a series' episodes.
     /// </summary>
     /// <param name="episodes">The series' episodes.</param>
     /// <param name="seriesFranchise">Receives the first non-empty TMDb collection name.</param>
@@ -469,9 +420,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Computes tag similarity from cached tag lists using Jaccard similarity.
-    ///     This mirrors <see cref="SimilarityComputer.ComputeTagSimilarity"/> but works with
-    ///     <see cref="IReadOnlyList{T}"/> instead of <see cref="MediaBrowser.Controller.Entities.BaseItem"/>.
+    ///     Computes tag similarity from cached tag lists using Jaccard similarity. This mirrors ComputeTagSimilarity but works with IReadOnlyList{T} instead of BaseItem.
     /// </summary>
     internal static double ComputeTagSimilarityFromCache(
         IReadOnlyList<string> candidateTags,
@@ -487,13 +436,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Rebuilds a candidate name -> billing-weight map from the positionally-aligned
-    ///     <see cref="RecommendedItem.PeopleNames"/> / <see cref="RecommendedItem.PeopleWeights"/>
-    ///     cached lists, for the BillingWeightedPeople feature. This is the training-side mirror of the
-    ///     live <c>Engine.ResolveBillingWeightMap</c>, keeping train/serve parity.
-    ///     <para>Returns an empty map (-> neutral 0.0 downstream) when the lists are empty OR their
-    ///     lengths do not match - the latter is the legacy signal for cache entries written before
-    ///     billing weights were persisted, so old data self-neutralizes instead of misaligning.</para>
+    ///     Rebuilds a candidate name -> billing-weight map from the positionally-aligned PeopleNames / PeopleWeights cached lists, for the BillingWeightedPeople feature.
     /// </summary>
     /// <param name="peopleNames">Cached people names.</param>
     /// <param name="peopleWeights">Cached billing weights, aligned positionally to <paramref name="peopleNames"/>.</param>
@@ -527,10 +470,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Computes ContentNearestNeighborScore from cached recommendation data.
-    ///     Mirrors <see cref="ContentScoring.ComputeContentNearestNeighborScore"/> but works with
-    ///     <see cref="IReadOnlyList{T}"/> from cached <see cref="RecommendedItem"/> data.
-    ///     Returns 0.0 when no watched items or candidate metadata is available.
+    ///     Computes ContentNearestNeighborScore from cached recommendation data. Mirrors ComputeContentNearestNeighborScore but works with IReadOnlyList{T} from cached RecommendedItem data.
     /// </summary>
     internal static double ComputeContentNearestNeighborFromCache(
         IReadOnlyList<string> candidateGenres,
@@ -563,9 +503,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Computes SubtitleLanguageAffinity from cached subtitle language data stored on <see cref="RecommendedItem"/>.
-    ///     Delegates to <see cref="ComputeBestLanguageAffinity"/> for the core scoring logic.
-    ///     Returns 0.5 (neutral) when no subtitle language data is available on either side.
+    ///     Computes SubtitleLanguageAffinity from cached subtitle language data stored on RecommendedItem.
     /// </summary>
     internal static double ComputeSubtitleLanguageAffinityFromCache(
         IReadOnlyList<string> candidateSubtitleLanguages,
@@ -585,9 +523,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Computes LanguageAffinity from cached audio language data stored on <see cref="RecommendedItem"/>.
-    ///     Delegates to <see cref="ComputeBestLanguageAffinity"/> for the core scoring logic.
-    ///     Returns 0.5 (neutral) when no language data is available on either side.
+    ///     Computes LanguageAffinity from cached audio language data stored on RecommendedItem.
     /// </summary>
     internal static double ComputeLanguageAffinityFromCache(
         IReadOnlyList<string> candidateAudioLanguages,
@@ -607,11 +543,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Core language affinity scoring logic shared between live scoring (<see cref="Engine.ComputeLanguageAffinity"/>)
-    ///     and training (<see cref="ComputeLanguageAffinityFromCache"/>).
-    ///     Scores how well the candidate's audio languages match the user's language profile.
-    ///     Uses the chosen-vs-forced distinction: primary = 1.0, preferred = 0.85, tolerated = 0.5,
-    ///     known = 0.3, unknown = 0.1.
+    ///     Core language affinity scoring logic shared between live scoring (ComputeLanguageAffinity) and training (ComputeLanguageAffinityFromCache).
     /// </summary>
     /// <param name="candidateLanguages">The candidate's available audio language codes.</param>
     /// <param name="primaryLang">The user's primary (most-watched) language.</param>

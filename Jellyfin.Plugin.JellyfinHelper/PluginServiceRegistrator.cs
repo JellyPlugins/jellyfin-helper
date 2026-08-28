@@ -38,13 +38,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         _ = applicationHost; // Required by interface but unused
 
-        // Hardening for all outbound named clients (Arr / Seerr):
-        //  * MaxResponseContentBufferSize caps how much a response body can buffer, so a
-        //    compromised/MITM'd upstream cannot stream a multi-GB body into a single string and
-        //    OOM the Jellyfin process (Seerr reads used unbounded ReadAsStringAsync).
-        //  * AllowAutoRedirect=false stops a hostile 3xx from redirecting an admin-configured LAN
-        //    request to an arbitrary internal address (blind-SSRF hardening); 3xx then surfaces as a
-        //    non-success status the callers already handle.
+        // Hardening for all outbound named clients (Arr / Seerr): * MaxResponseContentBufferSize caps how much a response body can buffer, so a compromised/MITM'd upstream cannot stream a multi-GB body into a single string and OOM the Jellyfin process (Seerr reads used unbounded.
         const long maxResponseBytes = 100L * 1024 * 1024; // 100 MB, matching ArrIntegration's LimitedStream cap
 
         static HttpMessageHandler NoRedirectHandler() =>
@@ -110,12 +104,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         });
         serviceCollection.AddSingleton(_ =>
         {
-            // The heuristic sub-strategy inside EnsembleScoringStrategy MUST have its genre
-            // penalty disabled (floor = 1.0). The ensemble applies the genre penalty centrally
-            // via ComputeSoftGenrePenalty after blending; passing any value < 1.0 here would
-            // cause double-penalization and is explicitly rejected by EnsembleScoringStrategy's
-            // constructor guard. The config-driven EnsembleGenrePenaltyFloor controls only the
-            // ensemble-level penalty, not this sub-strategy.
+            // The heuristic sub-strategy inside EnsembleScoringStrategy MUST have its genre penalty disabled (floor = 1.0).
             return new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         });
         serviceCollection.AddSingleton(sp =>
@@ -156,17 +145,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();
         serviceCollection.AddSingleton<ISeerrDiscoveryService, SeerrDiscoveryService>();
 
-        // Action filter for surfacing model-binding failures into the plugin log before
-        // [ApiController]'s auto-400 short-circuits the request. Scoped is the recommended
-        // lifetime for filters resolved via [ServiceFilter(...)] - a new instance per request
-        // matches the built-in filter lifecycle and avoids surprises when the filter ever
-        // grows request-scoped dependencies.
+        // Action filter for surfacing model-binding failures into the plugin log before [ApiController]'s auto-400 short-circuits the request.
         serviceCollection.AddScoped<ModelBindingLogFilter>();
 
-        // Re-run the Discovery sidebar injection at server startup (after DI is built and the web
-        // root is mounted). The plugin constructor already injects once, but this hosted service
-        // runs at a safer point in startup and self-heals the disk-write fallback after a Jellyfin web
-        // update overwrites index.html. Injection is idempotent, so running it twice is safe.
+        // Re-run the Discovery sidebar injection at server startup (after DI is built and the web root is mounted).
         serviceCollection.AddHostedService<DiscoverySidebarInjectionService>();
     }
 }

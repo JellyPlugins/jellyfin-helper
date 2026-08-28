@@ -1,10 +1,4 @@
-/**
- * Adversarial Arr/Seerr integration tests: SSRF attempts, non-HTTP schemes,
- * high-byte API keys, and misbehaving upstreams (slow-loris, over-large body,
- * garbage JSON via the mock's sentinel keys). The plugin must degrade to
- * 400/502/504 - never 200 on an SSRF target, never a 500/crash/hang - and never
- * reflect internal content.
- */
+/** * Adversarial Arr/Seerr integration tests: SSRF attempts, non-HTTP schemes, * high-byte API keys, and misbehaving upstreams (slow-loris, over-large body, * garbage JSON via the mock's sentinel keys). */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 
@@ -62,9 +56,7 @@ test('Seerr/Test rejects non-HTTP(S) schemes with the exact message (400)', asyn
 });
 
 test('ArrIntegration/TestConnection rejects non-HTTP(S) schemes with the exact message (400)', async () => {
-  // The Arr endpoint enforces the SAME SSRF scheme guard as Seerr/Test, but was
-  // previously only asserted to be <500. Pin the exact 400 + message + Success:false
-  // so a regression that let a non-HTTP(S) scheme through (or 500'd) is caught.
+  // The Arr endpoint enforces the SAME SSRF scheme guard as Seerr/Test, but was previously only asserted to be <500.
   for (const url of ['ftp://evil', 'file:///etc/passwd', 'javascript:alert(1)', 'gopher://x']) {
     const res = await ctx.post(p('ArrIntegration/TestConnection'), {
       headers: { 'Content-Type': 'application/json' },

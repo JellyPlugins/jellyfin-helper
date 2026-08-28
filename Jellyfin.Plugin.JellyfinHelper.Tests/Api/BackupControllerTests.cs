@@ -193,10 +193,7 @@ public class BackupControllerTests
         var tempDir = CreateTempDir();
         try
         {
-            // Two source files each comfortably under the 10 MB cap so the AnySourceFileOversized
-            // pre-check stays false, but their combined re-serialized backup crosses the cap. This
-            // is the post-serialization gate (case > MaxBackupSizeBytes), distinct from the single
-            // oversized-source-file pre-check exercised elsewhere.
+            // Two source files each comfortably under the 10 MB cap so the AnySourceFileOversized pre-check stays false, but their combined re-serialized backup crosses the cap.
             const int perFileBytes = 6 * 1024 * 1024;
             WriteBaselineJsonAtLeast(
                 Path.Join(tempDir, "jellyfin-helper-growth-baseline.json"),
@@ -234,12 +231,7 @@ public class BackupControllerTests
         var tempDir = CreateTempDir();
         try
         {
-            // A real body whose byte length is >= the warning threshold but < the hard cap, so the
-            // jsonLength-based "Large backup body detected" warning fires. Content-Length matches the
-            // body length so the earlier Content-Length warning path is not what we are measuring.
-            // The padding is insignificant JSON whitespace between tokens: it inflates the byte count
-            // the controller measures without tripping any per-field length validator, so the backup
-            // still deserializes and validates, letting control reach the success path.
+            // A real body whose byte length is >= the warning threshold but < the hard cap, so the jsonLength-based "Large backup body detected" warning fires.
             var whitespace = new string(' ', (int)BackupService.LargeBackupWarningThresholdBytes + (64 * 1024));
             var backupJson = "{" + whitespace + "\"backupVersion\":1,\"useTrash\":false}";
 

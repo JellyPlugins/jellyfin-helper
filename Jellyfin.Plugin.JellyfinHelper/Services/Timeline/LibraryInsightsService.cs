@@ -15,7 +15,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 /// <summary>
 ///     Computes library insights: top-largest directories and recently added/changed media.
-///     Scans top-level subdirectories of each library location from the filesystem.
 /// </summary>
 public sealed class LibraryInsightsService : ILibraryInsightsService
 {
@@ -30,8 +29,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     internal const int TopLargestPerType = 10;
 
     /// <summary>
-    ///     Threshold in hours: if the difference between creation and last-write time
-    ///     is less than this, the entry is considered "added" rather than "changed".
+    ///     Threshold in hours: if the difference between creation and last-write time is less than this, the entry is considered "added" rather than "changed".
     /// </summary>
     internal const int AddedVsChangedThresholdHours = 1;
 
@@ -93,9 +91,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
 
             var collectionType = vf.CollectionType;
 
-            // Skip music, boxset and book libraries - not relevant for size/recency insights
-            // (music/books are many small files, boxsets are logical groupings). These still
-            // count toward the storage growth timeline, which scans raw directory sizes.
+            // Skip music, boxset and book libraries - not relevant for size/recency insights (music/books are many small files, boxsets are logical groupings).
             if (collectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets
                 or CollectionTypeOptions.books)
             {
@@ -170,9 +166,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     }
 
     /// <summary>
-    ///     Evaluates a single top-level subdirectory and, when it qualifies, adds a media entry
-    ///     for it to <paramref name="entries" />. Skips .trickplay/trash folders and directories
-    ///     with no usable creation date or zero size.
+    ///     Evaluates a single top-level subdirectory and, when it qualifies, adds a media entry for it to .
     /// </summary>
     /// <param name="subDirPath">The subdirectory path.</param>
     /// <param name="libraryName">The owning library name.</param>
@@ -299,7 +293,6 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
         var now = DateTime.UtcNow;
         var cutoff = now.AddDays(-RecentDaysWindow);
 
-        // === Largest ===
         // Separate by collection type, take top N per type
         var movieEntries = entries
             .Where(e => IsMovieType(e.CollectionType))
@@ -325,7 +318,6 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
 
         var largestTotalSize = largest.Sum(e => e.Size);
 
-        // === Recent (last 30 days) ===
         var recentQuery = entries
             .Where(e => GetRelevantDate(e) >= cutoff)
             .OrderByDescending(GetRelevantDate)
@@ -337,7 +329,6 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
             ? recentQuery.Take(MaxRecentEntries).ToList()
             : recentQuery;
 
-        // === Library sizes ===
         var librarySizes = entries
             .GroupBy(e => e.LibraryName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Sum(e => e.Size), StringComparer.OrdinalIgnoreCase);
@@ -354,11 +345,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     }
 
     /// <summary>
-    ///     Returns the relevant date for a recent entry: the LATER of created/modified. Using the max
-    ///     (rather than "modified when changed, created when added") guarantees the recency filter can
-    ///     never hide a genuinely new item behind a stale, preserved mtime that predates its created
-    ///     time (common when media is copied with -p / restored from backup - the mtime is older than
-    ///     the moment Jellyfin first saw the file).
+    ///     Returns the relevant date for a recent entry: the LATER of created/modified.
     /// </summary>
     private static DateTime GetRelevantDate(LibraryInsightEntry entry)
     {
@@ -373,10 +360,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     /// <returns>"changed" only when modified is meaningfully AFTER created; otherwise "added".</returns>
     internal static string DetermineChangeType(DateTime createdUtc, DateTime modifiedUtc)
     {
-        // Signed, not Math.Abs: a modified time EARLIER than created (a stale/preserved mtime) is not
-        // a real "change" - it must classify as "added" so GetRelevantDate ranks it by the newer
-        // created time. Only a modified time that is genuinely later than created by the threshold
-        // counts as "changed".
+        // Signed, not Math.Abs: a modified time EARLIER than created (a stale/preserved mtime) is not a real "change" - it must classify as "added" so GetRelevantDate ranks it by the newer created time.
         var hoursAfterCreation = (modifiedUtc - createdUtc).TotalHours;
         return hoursAfterCreation >= AddedVsChangedThresholdHours ? "changed" : "added";
     }
@@ -394,8 +378,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     }
 
     /// <summary>
-    ///     Determines whether a subdirectory should be skipped as a trash folder,
-    ///     matching by leaf name (for relative trash paths) or resolved full path (for absolute trash paths).
+    ///     Determines whether a subdirectory should be skipped as a trash folder, matching by leaf name (for relative trash paths) or resolved full path (for absolute trash paths).
     /// </summary>
     private static bool ShouldSkipAsTrash(string fullName, string dirName, string trashFolderName, string fullTrashPath)
     {
@@ -457,8 +440,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     }
 
     /// <summary>
-    ///     Pushes traversable child directories of <paramref name="current" /> onto the stack,
-    ///     skipping reparse points (symlinks/junctions), .trickplay directories, and trash folders.
+    ///     Pushes traversable child directories of onto the stack, skipping reparse points (symlinks/junctions), .trickplay directories, and trash folders.
     /// </summary>
     /// <param name="current">The directory whose children are being enumerated.</param>
     /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>

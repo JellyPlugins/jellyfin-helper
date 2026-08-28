@@ -9,12 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 
 /// <summary>
-///     Exercises the recursive directory walk inside
-///     <see cref="LibraryInsightsService.GetDirectorySizeAndNewestTime" /> and the pre-1990
-///     creation-time fallbacks. These paths are not touched by the general suite because they
-///     require nested on-disk subdirectories (the walk reads DirectoryInfo.Attributes off the real
-///     filesystem for every child it discovers) plus a scripted IFileSystem to control file sizes
-///     and last-write times.
+///     Exercises the recursive directory walk inside GetDirectorySizeAndNewestTime and the pre-1990 creation-time fallbacks.
 /// </summary>
 public sealed class LibraryInsightsServiceTraversalTests
 {
@@ -134,10 +129,7 @@ public sealed class LibraryInsightsServiceTraversalTests
     [Fact]
     public async Task ComputeInsightsAsync_ChildDirectoryFailingAttributeProbe_IsSkipped_WithoutFailing()
     {
-        // The size walk discovers a nested child that no longer exists on disk. Reading its
-        // DirectoryInfo.Attributes throws a DirectoryNotFoundException (an IOException), which must be
-        // swallowed and the child skipped - so the walk still completes and only the accessible
-        // top-level file's bytes are counted.
+        // The size walk discovers a nested child that no longer exists on disk.
         using var temp = new TempDirectory();
         var mediaDir = temp.CreateSubDirectory("Movie");
         var phantomChild = Path.Join(mediaDir, "GhostSeason");
@@ -274,9 +266,7 @@ public sealed class LibraryInsightsServiceTraversalTests
     // -- Scripted IFileSystem -----------------------------------------
 
     /// <summary>
-    ///     Builds a <see cref="Mock{IFileSystem}" /> over a real on-disk tree, returning real
-    ///     subdirectories (so the walk's DirectoryInfo.Attributes read succeeds) while letting each
-    ///     test inject exact file lengths and last-write times, or make a specific directory throw.
+    ///     Builds a Mock{IFileSystem} over a real on-disk tree, returning real subdirectories (so the walk's DirectoryInfo.Attributes read succeeds) while letting each test inject exact file lengths and last-write times, or make a specific directory throw.
     /// </summary>
     private sealed class ScriptedFileSystem
     {

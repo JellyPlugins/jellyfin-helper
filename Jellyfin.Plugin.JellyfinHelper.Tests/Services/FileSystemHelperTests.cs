@@ -14,8 +14,6 @@ public class FileSystemHelperTests
 {
     private readonly Mock<ILogger> _loggerMock = TestMockFactory.CreateLogger();
 
-    // ===== CalculateDirectorySize Tests =====
-
     /// <summary>Creates a temp directory, runs the action, then deletes it.</summary>
     private static string CreateTempDir()
     {
@@ -137,8 +135,6 @@ public class FileSystemHelperTests
         finally { Directory.Delete(root, true); }
     }
 
-    // ===== IncrementCount Tests =====
-
     [Fact]
     public void IncrementCount_NewKey_SetsToOne()
     {
@@ -165,8 +161,6 @@ public class FileSystemHelperTests
         Assert.Equal(3, dict["H264"]);
     }
 
-    // ===== AccumulateValue Tests =====
-
     [Fact]
     public void AccumulateValue_NewKey_SetsInitialValue()
     {
@@ -182,8 +176,6 @@ public class FileSystemHelperTests
         FileSystemHelper.AccumulateValue(dict, "MKV", 500);
         Assert.Equal(1500, dict["MKV"]);
     }
-
-    // ===== AddPath Tests =====
 
     [Fact]
     public void AddPath_NewKey_CreatesCollectionWithPath()

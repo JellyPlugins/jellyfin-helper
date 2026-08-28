@@ -31,8 +31,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    // ===== Constructor =====
-
     [Fact]
     public void Constructor_AllowsAnyLogger_WithoutThrowing()
     {
@@ -46,8 +44,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.Null(withEnabled);
         Assert.Null(withDisabled);
     }
-
-    // ===== GetRoots =====
 
     [Fact]
     public void GetRoots_ReturnsSuccessfulResult_WithNoErrorAndCannotGoUp()
@@ -113,8 +109,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.NotEmpty(result.Directories);
     }
 
-    // ===== ValidatePath: empty / whitespace / null =====
-
     [Theory]
     [InlineData("")]
     [InlineData(" ")]
@@ -128,8 +122,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_Null_ReturnsEmptyError()
         => Assert.Equal("Path must not be empty.", _service.ValidatePath(null!));
-
-    // ===== ValidatePath: path traversal =====
 
     [Fact]
     public void ValidatePath_ContainsDotDotSegment_ReturnsTraversalError()
@@ -188,8 +180,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.Null(_service.ValidatePath(path));
     }
 
-    // ===== ValidatePath: null bytes =====
-
     [Fact]
     public void ValidatePath_ContainsNullByte_ReturnsInvalidCharsError()
     {
@@ -204,8 +194,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.Equal("Path contains invalid characters.", _service.ValidatePath(path));
     }
 
-    // ===== ValidatePath: absolute vs relative =====
-
     [Theory]
     [InlineData("relative/path")]
     [InlineData("foo")]
@@ -219,8 +207,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         if (!OperatingSystem.IsWindows()) return;
         Assert.Equal("Path must be absolute.", _service.ValidatePath("C:temp"));
     }
-
-    // ===== ValidatePath: sensitive system directories are refused =====
 
     [Fact]
     public void ValidatePath_SensitiveSystemDir_IsRefused_Posix()
@@ -258,8 +244,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
             "This is a protected system folder and cannot be browsed.",
             _service.ValidatePath("/config/data/plugins"));
     }
-
-    // ===== ValidatePath: existence / kind =====
 
     [Fact]
     public void ValidatePath_NonExistentDirectory_ReturnsDoesNotExistError()
@@ -322,8 +306,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.NotNull(result);
     }
 
-    // ===== GetChildren: input validation =====
-
     [Fact]
     public void GetChildren_EmptyPath_ReturnsValidationError()
     {
@@ -362,8 +344,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.Equal("Path must be absolute.", result.Error);
     }
 
-    // ===== GetChildren: non-existent =====
-
     [Fact]
     public void GetChildren_NonExistentPath_ReturnsError()
     {
@@ -380,8 +360,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         var result = _service.GetChildren(filePath);
         Assert.NotNull(result.Error);
     }
-
-    // ===== GetChildren: happy paths =====
 
     [Fact]
     public void GetChildren_EmptyDirectory_ReturnsEmptyListWithCanGoUp()
@@ -556,8 +534,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.Single(result.Directories);
     }
 
-    // ===== GetChildren: filesystem root behavior =====
-
     [Fact]
     public void GetChildren_FilesystemRoot_CanGoUpIsFalseAndParentIsNull()
     {
@@ -572,8 +548,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.False(result.CanGoUp);
         Assert.Null(result.ParentPath);
     }
-
-    // ===== GetChildren: mixed content =====
 
     [Fact]
     public void GetChildren_MixOfDirectoriesAndFiles_OnlyDirsReturned()
@@ -605,8 +579,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         var entry = Assert.Single(result.Directories);
         Assert.True(entry.HasChildren);
     }
-
-    // ===== GetChildren: symlink handling =====
 
     [Fact]
     public void GetChildren_SymlinkToDirectory_IsListedIfSupportedByOs()
@@ -666,8 +638,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         // the invariant we care about is that "valid" is not silently dropped.
     }
 
-    // ===== GetChildren: idempotency =====
-
     [Fact]
     public void GetChildren_CalledTwice_ReturnsSameContentButDifferentInstances()
     {
@@ -685,8 +655,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.False(ReferenceEquals(a.Directories, b.Directories));
     }
 
-    // ===== GetChildren: normalization =====
-
     [Fact]
     public void GetChildren_UnnormalizedButValidPath_NormalizesCurrentPath()
     {
@@ -700,8 +668,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.Equal(Path.GetFullPath(doubled), result.CurrentPath);
     }
 
-    // ===== ValidatePath: extra edge =====
-
     [Fact]
     public void ValidatePath_UncStylePathThatDoesNotResolve_ReturnsAnError()
     {
@@ -714,10 +680,8 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.NotNull(result);
     }
 
-    // ===================================================================
     // Cross-platform GetRoots: force the Unix branch on any host by using
     // the internal test-only constructor overload.
-    // ===================================================================
 
     [Fact]
     public void GetRoots_ForcedUnixBranch_ReturnsSingleSlashEntry()
@@ -753,11 +717,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetRoots_ForcedWindowsBranch_OnAnyHost_ProducesFullyQualifiedDrivePaths()
     {
-        // The Windows branch inside FolderBrowserService relies on Win32 semantics of
-        // DriveInfo (drive letters, VolumeLabel, drive type). On non-Windows hosts this
-        // path can silently degrade to an empty result set, which means Assert.All would
-        // trivially pass without ever exercising the branch. Only assert the strong
-        // contract on Windows; otherwise still cover the "no throw + shape correct" path.
+        // The Windows branch inside FolderBrowserService relies on Win32 semantics of DriveInfo (drive letters, VolumeLabel, drive type).
         var svc = new FolderBrowserService(
             TestMockFactory.CreateLogger<FolderBrowserService>().Object,
             isWindows: true);
@@ -777,22 +737,12 @@ public sealed class FolderBrowserServiceTests : IDisposable
         }
         else
         {
-            // On non-Windows the Windows branch can filter everything out. Only assert
-            // shape (no drives with malformed paths) - this documents that we still
-            // exercise the code without falsely claiming to test drive filtering.
+            // On non-Windows the Windows branch can filter everything out. Only assert shape (no drives with malformed paths) - this documents that we still exercise the code without falsely claiming to test drive filtering.
             Assert.All(result.Directories, e => Assert.False(string.IsNullOrEmpty(e.Path)));
         }
     }
 
-    // ===================================================================
-    // GetChildren: exercise the "!dirInfo.Exists" recovery block by
-    // deleting a directory between ValidatePath and GetChildren.
-    //
-    // Note: we can't reliably drive this from the outside because there is
-    // no delegate hook, but we can force the sequence in a single-threaded
-    // way by using a DirectoryInfo whose target vanishes underneath us.
-    // The cleanest reproduction is a symlink pointing at a deleted target.
-    // ===================================================================
+    // GetChildren: exercise the "!dirInfo.Exists" recovery block by deleting a directory between ValidatePath and GetChildren.
 
     [Fact]
     public void GetChildren_SymlinkToDeletedTarget_ReturnsDoesNotExistError()
@@ -824,11 +774,9 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.NotNull(result.Error);
     }
 
-    // ===================================================================
     // Access-denied path - Windows-only using ACL manipulation.
     // Exercises the "Cannot access this directory" branches in both
     // ValidatePath and GetChildren.
-    // ===================================================================
 
     [Fact]
     public void GetChildren_AccessDeniedDirectory_ReturnsAccessError()
@@ -876,11 +824,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
         {
             var result = _service.ValidatePath(parent);
 
-            // On most Windows environments TryDenyReadAccess blocks the current user and
-            // ValidatePath returns the access error. On runners with elevated privileges
-            // (e.g. SYSTEM/Administrator) the ACL denial may be bypassed, in which case
-            // ValidatePath returns null (no error). Both outcomes are permitted - the
-            // assertion ensures we never return a *different* unexpected error string.
+            // On most Windows environments TryDenyReadAccess blocks the current user and ValidatePath returns the access error.
             Assert.True(
                 result is null or "Cannot access this directory.",
                 $"Unexpected validation result: '{result}'");
@@ -892,8 +836,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     }
 
     /// <summary>
-    /// Windows-only helper that removes the current user's read+list permission on <paramref name="path"/>.
-    /// Returns <c>false</c> if the manipulation is not permitted (e.g. running as an unprivileged CI user).
+    ///     Windows-only helper that removes the current user's read+list permission on path. Returns false if the manipulation is not permitted (e.g.
     /// </summary>
     private static bool TryDenyReadAccess(string path)
     {
@@ -950,8 +893,6 @@ public sealed class FolderBrowserServiceTests : IDisposable
         }
     }
 
-    // ===== GetChildren: POSIX dot-directory visibility contract =====
-
     [Fact]
     public void GetChildren_Posix_HidesUnknownDotDirectoriesButKeepsTrashPrefixes()
     {
@@ -974,22 +915,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.DoesNotContain(".ssh", names);
     }
 
-    // ===== ValidatePath: enabled-logger debug branch on invalid path shape =====
-
     [Fact]
     public void ValidatePath_EnabledLogger_InvalidPathShape_LogsAtDebugAndReturnsInvalidPath()
     {
-        // The default _service uses an enabled logger, so an invalid path shape drives the
-        // outer catch through the IsEnabled(Debug)==true LogDebug branch and must still return
-        // a stable error contract without propagating the exception.
-        //
-        // This is inherently OS-specific. An over-MAX_PATH string is rejected by
-        // Path.GetFullPath on Windows (PathTooLongException BEFORE the existence probe) so the
-        // outer catch fires and returns "Invalid path.". On Linux the same string is a valid
-        // absolute path - GetFullPath accepts it and the length failure only surfaces later as
-        // a plain IOException from the filesystem probe, which the inner catch maps to
-        // "Cannot access this directory." Both are the correct contract for their platform, so
-        // we assert each sharply rather than weakening to a shared, tautological check.
+        // The default _service uses an enabled logger, so an invalid path shape drives the outer catch through the IsEnabled(Debug)==true LogDebug branch and must still return a stable error contract without propagating the exception.
         if (OperatingSystem.IsWindows())
         {
             Assert.Equal("Invalid path.", _service.ValidatePath(@"C:\" + new string('a', 32800)));
@@ -1000,16 +929,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
         }
     }
 
-    // ===== POSIX symlink-escape guard: link inside a browsed dir pointing at a sensitive target =====
-
     [Fact]
     public void GetChildren_Posix_SymlinkPointingAtSensitiveTarget_IsHidden()
     {
-        // A directory link whose OWN name is innocuous but that resolves to a sensitive root
-        // (/etc) must be filtered out of the listing by IsSystemOrHiddenCritical's reparse-point
-        // resolution - otherwise browsing into it would expose /etc's contents. This exercises
-        // the "resolvable link -> sensitive target" branch, distinct from the existing
-        // broken/deleted-target tests which only hit the unresolvable catch.
+        // A directory link whose OWN name is innocuous but that resolves to a sensitive root (/etc) must be filtered out of the listing by IsSystemOrHiddenCritical's reparse-point resolution - otherwise browsing into it would expose /etc's contents.
         if (OperatingSystem.IsWindows()) return;
 
         Directory.CreateDirectory(Path.Combine(_tempRoot, "movies"));
@@ -1039,9 +962,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_Posix_SymlinkPointingAtSensitiveTarget_IsRefused()
     {
-        // ValidatePath's lexical IsSensitiveSystemPath check cannot see through a link whose
-        // own path is innocuous; the ResolveLinkTarget guard must dereference the final target
-        // and refuse a browse INTO a link that lands on /etc.
+        // ValidatePath's lexical IsSensitiveSystemPath check cannot see through a link whose own path is innocuous; the ResolveLinkTarget guard must dereference the final target and refuse a browse INTO a link that lands on /etc.
         if (OperatingSystem.IsWindows()) return;
 
         var link = Path.Combine(_tempRoot, "innocuous-link");
@@ -1064,14 +985,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
             _service.ValidatePath(link));
     }
 
-    // ===== POSIX SafeHiddenPrefixes: case-insensitive match keeps an upper-cased trash dir visible =====
-
     [Fact]
     public void GetChildren_Posix_UpperCaseTrashPrefixDir_StaysVisible()
     {
-        // The SafeHiddenPrefixes comparison uses StringComparison.OrdinalIgnoreCase, so an
-        // upper-cased ".JELLYFIN-TRASH" must remain visible just like the lower-case form.
-        // A purely-ordinal comparison would hide it, so this sharply proves the OrdinalIgnoreCase branch.
+        // The SafeHiddenPrefixes comparison uses StringComparison.OrdinalIgnoreCase, so an upper-cased ".JELLYFIN-TRASH" must remain visible just like the lower-case form.
         if (OperatingSystem.IsWindows()) return;
 
         Directory.CreateDirectory(Path.Combine(_tempRoot, ".JELLYFIN-TRASH"));
@@ -1085,14 +1002,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.DoesNotContain(".ssh", names);
     }
 
-    // ===== POSIX SafeHasSubdirectories: only-child is a hidden dot-dir => HasChildren false =====
-
     [Fact]
     public void GetChildren_Posix_SubdirectoryWithOnlyHiddenChild_HasChildrenFalse()
     {
-        // SafeHasSubdirectories filters children through IsSystemOrHiddenCritical, so a parent
-        // whose ONLY child directory is a hidden dot-dir (.ssh) must report HasChildren=false -
-        // the child exists on disk but is not a *visible* subdirectory.
+        // SafeHasSubdirectories filters children through IsSystemOrHiddenCritical, so a parent whose ONLY child directory is a hidden dot-dir (.ssh) must report HasChildren=false - the child exists on disk but is not a *visible* subdirectory.
         if (OperatingSystem.IsWindows()) return;
 
         var parent = Path.Combine(_tempRoot, "parent");

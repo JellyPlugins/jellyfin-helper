@@ -10,10 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr;
 
 /// <summary>
-///     Cancellation, timeout, and fail-closed error-path tests for
-///     <see cref="SeerrIntegrationService" />. These pin the distinction between a caller
-///     cancellation (must rethrow) and an HTTP-client timeout (must be counted as a failure and
-///     never propagate), plus the header-injection guard on a control-char API key.
+///     Cancellation, timeout, and fail-closed error-path tests for SeerrIntegrationService.
 /// </summary>
 public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
 {
@@ -118,14 +115,10 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
         }
     }
 
-    // ===== Caller cancellation must rethrow, never degrade to a false/"Unknown" result =====
-
     [Fact]
     public async Task TestConnection_CancelledMidFlight_PropagatesOperationCanceled()
     {
-        // The settings GET observes a caller cancellation mid-flight. The
-        // when(cancellationToken.IsCancellationRequested) filter must rethrow so callers can
-        // distinguish a genuine cancel from a "Connection failed" network error.
+        // The settings GET observes a caller cancellation mid-flight. The when(cancellationToken.IsCancellationRequested) filter must rethrow so callers can distinguish a genuine cancel from a "Connection failed" network error.
         using var cts = new CancellationTokenSource();
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
@@ -172,9 +165,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
     [Fact]
     public async Task Cleanup_PageFetchTimesOut_MarksFailedAndBreaks()
     {
-        // An HTTP-client timeout (TaskCanceledException while the caller token is NOT cancelled)
-        // is a page failure, not a cancel: it must count Failed, trip the phaseOneFailed
-        // circuit-breaker so no deletion happens, and log a "Timed out" warning.
+        // An HTTP-client timeout (TaskCanceledException while the caller token is NOT cancelled) is a page failure, not a cancel: it must count Failed, trip the phaseOneFailed circuit-breaker so no deletion happens, and log a "Timed out" warning.
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
             .Setup<Task<HttpResponseMessage>>(
@@ -202,9 +193,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
     [Fact]
     public async Task Cleanup_PageDeserializesToNull_MarksFailedAndBreaks()
     {
-        // A 200 OK whose entire body is JSON null deserializes to a null page. This must fail closed:
-        // count Failed, skip deletion, and log a "null response" warning - never treat a null page as
-        // "nothing to clean".
+        // A 200 OK whose entire body is JSON null deserializes to a null page. This must fail closed: count Failed, skip deletion, and log a "null response" warning - never treat a null page as "nothing to clean".
         var json = "null";
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
 
@@ -227,9 +216,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
     [Fact]
     public async Task Cleanup_TwoExpiredSameTmdbId_ResolvesTitleOnceViaCache()
     {
-        // Two expired pending requests share the same mediaType:tmdbId. The per-run title cache
-        // must serve the second from memory so only one movie-detail GET is issued - redundant
-        // Seerr API calls for an identical key defeat the whole point of the cache.
+        // Two expired pending requests share the same mediaType:tmdbId. The per-run title cache must serve the second from memory so only one movie-detail GET is issued - redundant Seerr API calls for an identical key defeat the whole point of the cache.
         var created = DateTimeOffset.UtcNow.AddDays(-400).ToString("O");
         var page = "{\"pageInfo\":{\"page\":1,\"pages\":1,\"results\":2,\"pageSize\":50},\"results\":["
             + "{\"id\":1,\"createdAt\":\"" + created + "\",\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}},"
@@ -333,9 +320,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
     [Fact]
     public async Task Cleanup_CancelledDuringInterDeleteDelay_BreaksLoop()
     {
-        // The DELETE succeeds but the token is cancelled during that send, so the inter-delete
-        // Task.Delay throws. That catch must BREAK the loop and return the partial result
-        // (Deleted=1) rather than throw out of the method.
+        // The DELETE succeeds but the token is cancelled during that send, so the inter-delete Task.Delay throws.
         var requests = new List<(int, DateTimeOffset)>
         {
             (1, DateTimeOffset.UtcNow.AddDays(-400))
@@ -406,15 +391,11 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
                 cts.Token));
     }
 
-    // ===== Header-injection guard on the API key =====
-
     [Fact]
     [Trait("Category", "Security")]
     public async Task Cleanup_ApiKeyWithControlChars_MarksFailure_NoHttpCall()
     {
-        // A CR/LF-laced API key is a header-injection vector. The control-char guard must reject
-        // it before any request leaves the plugin: map to Failed=1 with nothing checked, and never
-        // touch the handler.
+        // A CR/LF-laced API key is a header-injection vector. The control-char guard must reject it before any request leaves the plugin: map to Failed=1 with nothing checked, and never touch the handler.
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
             .Setup<Task<HttpResponseMessage>>(

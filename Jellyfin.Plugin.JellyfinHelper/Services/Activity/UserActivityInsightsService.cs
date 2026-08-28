@@ -14,8 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 
 /// <summary>
-///     Scans all library items and all users to produce per-item activity summaries
-///     with per-user breakdowns (play count, last watched, completion %, favorites, rating).
+///     Scans all library items and all users to produce per-item activity summaries with per-user breakdowns (play count, last watched, completion %, favorites, rating).
 /// </summary>
 public class UserActivityInsightsService : IUserActivityInsightsService
 {
@@ -124,8 +123,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     }
 
     /// <summary>
-    ///     Reads a single user's data for an item (from the pre-fetched batch, falling back to a
-    ///     per-item lookup) and folds any interaction into the running <paramref name="aggregate" />.
+    ///     Reads a single user's data for an item (from the pre-fetched batch, falling back to a per-item lookup) and folds any interaction into the running .
     /// </summary>
     /// <param name="item">The library item being scanned.</param>
     /// <param name="user">The user whose data is being read.</param>
@@ -291,19 +289,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     }
 
     /// <summary>
-    ///     Runs one batch call per user to pre-load their user data for every library item. A failed
-    ///     batch records <c>null</c> in the outer dictionary, marking "fall back to per-item lookup".
-    ///     <para>
-    ///         Cancellation: <see cref="BatchFallbackHelper.TryRunBatch{T}"/> lets
-    ///         <see cref="OperationCanceledException"/> propagate, discarding the partial
-    ///         <c>result</c>. Invariant: cancellation aborts the whole scan; no partial report shows.
-    ///     </para>
-    ///     <para>
-    ///         <b>Memory trade-off:</b> holds one <see cref="UserItemData"/> dictionary per user for
-    ///         the report duration - peak memory O(users x items) (~5-50 MB on 5 users / 50k items) -
-    ///         amortised by cutting DB roundtrips from users x items to users. Revisit for hundreds of
-    ///         users on very large libraries.
-    ///     </para>
+    ///     Runs one batch call per user to pre-load their user data for every library item.
     /// </summary>
     /// <param name="users">The users to pre-load data for.</param>
     /// <param name="allItems">The library items to load user data against.</param>
@@ -330,9 +316,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                         return null;
                     }
 
-                    // Accept any dictionary shape Jellyfin returns; IReadOnlyDictionary keeps
-                    // the batch immutable to the caller and avoids locking to a concrete return
-                    // type across Jellyfin patch versions.
+                    // Accept any dictionary shape Jellyfin returns; IReadOnlyDictionary keeps the batch immutable to the caller and avoids locking to a concrete return type across Jellyfin patch versions.
                     return batch as IReadOnlyDictionary<Guid, UserItemData>
                            ?? new Dictionary<Guid, UserItemData>(batch);
                 },

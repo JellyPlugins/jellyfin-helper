@@ -5,22 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 
 /// <summary>
-///     Tests for <see cref="DiscoveryScriptTag"/> - the single source of truth for the
-///     Discovery sidebar script injection contract.
-///     Verifies:
-///     <list type="bullet">
-///         <item>Build() produces a well-formed HTML script tag with a URL-escaped version parameter.</item>
-///         <item>RemovalRegex actually matches every tag Build() emits (round-trip integrity).</item>
-///         <item>Edge cases: null / empty / whitespace / special-character versions.</item>
-///         <item>The regex is anchored to <c>plugin="Jellyfin Helper"</c> and does not eat unrelated
-///               script tags (regression against over-broad regexes).</item>
-///     </list>
-///     <para>
-///         <c>DiscoveryScriptTag</c> is <c>internal</c>; access is granted via
-///         <c>InternalsVisibleTo</c> in the production project's <c>.csproj</c>, so the tests
-///         call <c>Build</c> / <c>RemovalRegex</c> directly for compile-time safety instead of
-///         reaching in via reflection.
-///     </para>
+///     Tests for DiscoveryScriptTag - the single source of truth for the Discovery sidebar script injection contract.
 /// </summary>
 public class DiscoveryScriptTagTests
 {
@@ -28,9 +13,7 @@ public class DiscoveryScriptTagTests
 
     private static Regex GetRemovalRegex() => DiscoveryScriptTag.RemovalRegex;
 
-    // -----------------------------------------------------------------------
     // Build()
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void Build_TypicalVersion_ProducesWellFormedScriptTag()
@@ -89,9 +72,7 @@ public class DiscoveryScriptTagTests
         Assert.Contains("version=\"\"", tag, StringComparison.Ordinal);
     }
 
-    // -----------------------------------------------------------------------
     // RemovalRegex round-trip: whatever Build produces, the regex must remove it.
-    // -----------------------------------------------------------------------
 
     [Theory]
     [InlineData("1.0.0")]
@@ -181,9 +162,7 @@ public class DiscoveryScriptTagTests
         Assert.Contains("keep", stripped, StringComparison.Ordinal);
     }
 
-    // -----------------------------------------------------------------------
     // Constants (defensive against accidental rename/typo)
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void PluginName_IsExactlyJellyfinHelper()

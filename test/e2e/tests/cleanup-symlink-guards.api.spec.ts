@@ -1,23 +1,4 @@
-/**
- * Reparse-point / symlink guards in the cleanup STAGES (not the trash purge).
- *
- * The `smaller_fixes` branch hardened every cleanup stage to refuse to act on
- * reparse points (symlinks / junctions): the Trickplay, Subtitle and Empty-Folder
- * tasks now skip a symlinked directory or file instead of deleting it, and the
- * Empty-Folder task carries an "unresolved link" verdict that suppresses deletion
- * of any folder whose emptiness/orphan status can't be proven because it contains
- * a symlinked (or unreadable) subtree.
- *
- * `cleanup-abuse.api.spec.ts` proves the EXTERNAL TARGET of an escaping symlink
- * survives. This spec proves the complementary, previously-untested guarantee:
- * the symlink NODE itself (and its containing folder) survives the stage - AND,
- * crucially, that this safety did not neuter the stage: a genuine orphan sitting
- * right next to the symlink is still removed in the same run. That "right thing
- * still deleted, symlink still kept" pairing is the real regression guard.
- *
- * Requires the container FS (docker exec) and symlink support; skips loudly when
- * either is unavailable rather than passing vacuously.
- */
+/** * Reparse-point / symlink guards in the cleanup STAGES (not the trash purge). */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
 import {
@@ -86,10 +67,7 @@ test.describe.serial('cleanup stages refuse reparse points but still delete genu
   });
 
   test('trickplay: a symlinked orphan .trickplay is skipped, while the real orphan is removed', async () => {
-    // A .trickplay directory that is itself a SYMLINK, with no matching video ->
-    // looks exactly like an orphan the trickplay stage would delete, but the
-    // reparse-point guard must skip it (deleting a symlinked dir could nuke a
-    // linked tree). The genuine Ghost Movie orphan (a real dir) must still go.
+    // A .trickplay directory that is itself a SYMLINK, with no matching video -> looks exactly like an orphan the trickplay stage would delete, but the reparse-point guard must skip it (deleting a symlinked dir could nuke a linked tree).
     const realTarget = `${M}/Link Target Dir (2099)`;
     containerMkdir(realTarget);
     containerWriteFile(`${realTarget}/keep.txt`, 'KEEP');
@@ -120,9 +98,7 @@ test.describe.serial('cleanup stages refuse reparse points but still delete genu
   });
 
   test('subtitle: a symlinked orphan subtitle is skipped, while the real orphan subtitle is removed', async () => {
-    // Mixed Bag (2018) has a video, so the subtitle stage processes the dir. We add
-    // TWO orphan subtitles to it: one a real file, one a SYMLINK. The real orphan
-    // must be deleted; the symlinked one must be skipped (never dereferenced/deleted).
+    // Mixed Bag (2018) has a video, so the subtitle stage processes the dir. We add TWO orphan subtitles to it: one a real file, one a SYMLINK.
     const subTarget = `${M}/Sub Link Target (2099)/target.srt`;
     containerMkdir(`${M}/Sub Link Target (2099)`);
     containerWriteFile(subTarget, 'LINKED-SUB');
@@ -154,18 +130,7 @@ test.describe.serial('cleanup stages refuse reparse points but still delete genu
   });
 
   test('empty-folder: an unresolved symlinked subtree protects the folder, while a genuine orphan is removed', async () => {
-    // A folder that would look empty/orphaned (no video anywhere in its own tree)
-    // BUT contains a symlinked subdirectory. The Empty-Folder stage cannot prove
-    // its orphan status through the link, so the "unresolved link" verdict must
-    // keep the whole folder. Meanwhile the genuine Lonely Sub orphan is removed.
-    //
-    // The link TARGET must live OUTSIDE the media library. If it sat under
-    // /media/Movies it would itself be a top-level folder holding only a non-video
-    // file -- i.e. a genuine orphan the very same Activate run correctly deletes --
-    // and the "target data survives" assertion would fail for a reason unrelated to
-    // the symlink guard. /config is the plugin's own data mount: outside /media,
-    // writable by the non-root container UID in CI, and a distinct subdir from the
-    // /config/jfh-canary canary. Mirrors cleanup-abuse.api.spec.ts.
+    // A folder that would look empty/orphaned (no video anywhere in its own tree) BUT contains a symlinked subdirectory.
     const linkTarget = '/config/jfh-empty-link-target';
     containerWriteFile(`${linkTarget}/data.txt`, 'TARGET');
     test.skip(

@@ -1,18 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * E2E config for the Jellyfin Helper plugin.
- *
- * The stack (Jellyfin 12 + mock Arr/Seerr) is brought up by scripts/run.sh
- * BEFORE Playwright starts. global-setup.ts then completes the first-run
- * wizard, grabs an admin token, creates the library and triggers a scan.
- *
- * Two projects share that setup:
- *   - "api"  - HTTP-level assertions (endpoints, task modes, backup, trends,
- *              hardening/edge cases). No browser.
- *   - "ui"   - Playwright browser tests of the config dashboard.
- *
- * Base URL and token are passed to tests via env (written by global-setup).
+ * E2E config for the Jellyfin Helper plugin. * * The stack (Jellyfin 12 + mock Arr/Seerr) is brought up by scripts/run.sh * BEFORE Playwright starts.
  */
 
 const JELLYFIN_URL = process.env.JELLYFIN_URL ?? 'http://localhost:8096';

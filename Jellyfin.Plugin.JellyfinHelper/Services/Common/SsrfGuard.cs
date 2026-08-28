@@ -6,15 +6,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
 ///     Shared SSRF guard for outbound integration URLs (Arr / Seerr connection tests and API calls).
-///     Blocks well-known cloud instance-metadata endpoints, which are never a legitimate integration
-///     target and are the classic SSRF exfiltration sink.
-///     <para>
-///     RFC-1918 / loopback / link-local addresses are intentionally NOT blocked: Radarr/Sonarr/Seerr
-///     commonly run on the same host or LAN as Jellyfin, so a private-range block would break the
-///     plugin's primary legitimate configuration. This guard is enforced centrally so every code path
-///     (controller endpoints AND the configuration-save path that calls the services directly) is
-///     covered. A per-controller check alone could be bypassed via the service layer.
-///     </para>
 /// </summary>
 internal static class SsrfGuard
 {
@@ -32,12 +23,7 @@ internal static class SsrfGuard
     private static readonly IPAddress GcpImdsV6 = IPAddress.Parse(GcpImdsV6Address);
 
     /// <summary>
-    ///     Returns <see langword="true" /> if <paramref name="host" /> is a well-known cloud
-    ///     instance-metadata endpoint (AWS/Azure IMDS, GCP IPv4/IPv6/DNS, Alibaba).
-    ///     Blocked GCP endpoints: <c>metadata.google.internal</c>, <c>metadata.goog</c>,
-    ///     <c>169.254.169.254</c> (shared with AWS), and <c>fd20:ce::254</c> (GCP IPv6).
-    ///     Also catches IPv4-mapped IPv6 representations such as <c>::ffff:169.254.169.254</c>
-    ///     or the bracketed form <c>[::ffff:169.254.169.254]</c>.
+    ///     Returns true if host is a well-known cloud instance-metadata endpoint (AWS/Azure IMDS, GCP IPv4/IPv6/DNS, Alibaba).
     /// </summary>
     /// <param name="host">The host component of the target URI (e.g. <c>Uri.Host</c>).</param>
     /// <returns><see langword="true" /> if the host must be blocked.</returns>
@@ -48,10 +34,7 @@ internal static class SsrfGuard
             return false;
         }
 
-        // Hostname-based checks (GCP exposes metadata under multiple DNS names).
-        // metadata.goog is the short alias documented by GCP alongside metadata.google.internal.
-        // A single trailing dot is a fully-qualified-domain-name terminator and resolves to the
-        // same host, so strip one before comparing (metadata.goog. == metadata.goog).
+        // Hostname-based checks (GCP exposes metadata under multiple DNS names). metadata.goog is the short alias documented by GCP alongside metadata.google.internal.
         var hostname = host.EndsWith('.') ? host[..^1] : host;
         if (hostname.Equals("metadata.google.internal", StringComparison.OrdinalIgnoreCase)
             || hostname.Equals("metadata.goog", StringComparison.OrdinalIgnoreCase))
@@ -82,9 +65,7 @@ internal static class SsrfGuard
     }
 
     /// <summary>
-    ///     Throws <see cref="ArgumentException" /> if <paramref name="host" /> is a blocked
-    ///     cloud metadata endpoint. Intended for use inside service-layer URL validation so the
-    ///     block cannot be bypassed by callers that skip the controller.
+    ///     Throws ArgumentException if is a blocked cloud metadata endpoint. Intended for use inside service-layer URL validation so the block cannot be bypassed by callers that skip the controller.
     /// </summary>
     /// <param name="host">The host component of the target URI.</param>
     /// <param name="paramName">The parameter name to attribute the exception to.</param>
@@ -97,15 +78,7 @@ internal static class SsrfGuard
     }
 
     /// <summary>
-    ///     Produces a credential-free label for an endpoint URL, safe to echo back to clients and
-    ///     write to logs. A valid HTTP(S) URL can embed user-info credentials
-    ///     (e.g. <c>https://user:password@host</c>); reflecting or logging the raw string would
-    ///     leak the password. This returns only the scheme, host, and port
-    ///     (<see cref="UriComponents.SchemeAndServer" />), dropping any user-info, path, query,
-    ///     and fragment. Only <c>http</c>/<c>https</c> endpoints are accepted; anything else
-    ///     (non-absolute input, a bare path which <see cref="Uri" /> resolves to <c>file://</c> on
-    ///     Unix, or another scheme) falls back to a fixed placeholder so no raw credential-bearing
-    ///     text is ever surfaced.
+    ///     Produces a credential-free label for an endpoint URL, safe to echo back to clients and write to logs.
     /// </summary>
     /// <param name="url">The configured endpoint URL (may contain user-info credentials).</param>
     /// <returns>A scheme+host+port label, or <c>"(invalid URL)"</c> when parsing fails.</returns>

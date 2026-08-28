@@ -6,10 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FolderBrowser;
 
 /// <summary>
-///     Security tests for <see cref="FolderBrowserService" />. Verifies the symlink-escape
-///     guards: a link whose own lexical path is innocuous but which dereferences to a
-///     sensitive system directory must never be browsable or listed, and an unresolvable
-///     (broken/cyclic) reparse point must not abort a listing.
+///     Security tests for FolderBrowserService.
 /// </summary>
 public sealed class FolderBrowserServiceSecurityTests : IDisposable
 {
@@ -38,9 +35,7 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
     [Trait("Category", "Security")]
     public void ValidatePath_SymlinkToSensitiveSystemDir_IsRefusedAsProtected()
     {
-        // A directory link whose own path is innocuous but that resolves to /etc must be
-        // refused: Path.GetFullPath does not dereference the link, so the guard has to
-        // resolve the final target and re-apply the sensitive-path check.
+        // A directory link whose own path is innocuous but that resolves to /etc must be refused: Path.GetFullPath does not dereference the link, so the guard has to resolve the final target and re-apply the sensitive-path check.
         if (OperatingSystem.IsWindows()) return;
 
         var link = Path.Combine(_tempRoot, "peek");
@@ -128,9 +123,7 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
     [Trait("Category", "Security")]
     public void ValidatePath_WindowsSymlinkToSystemRoot_IsRefusedAsProtected()
     {
-        // Windows counterpart of the POSIX symlink-escape test: the link's own path is under
-        // the temp dir (lexically innocuous), but it resolves to C:\Windows. The guard must
-        // dereference the reparse point and re-apply the sensitive-path check.
+        // Windows counterpart of the POSIX symlink-escape test: the link's own path is under the temp dir (lexically innocuous), but it resolves to C:\Windows.
         if (!OperatingSystem.IsWindows()) return;
 
         var link = Path.Combine(_tempRoot, "peek");
@@ -156,9 +149,7 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
     [Trait("Category", "Security")]
     public void GetChildren_WindowsCyclicSymlink_IsHiddenAndDoesNotAbortListing()
     {
-        // Two mutually-referencing directory links cannot be resolved; ResolveLinkTarget throws
-        // and the entry is treated as unlistable/critical. The unresolvable links must be filtered
-        // out without aborting the listing, and the normal sibling must remain visible.
+        // Two mutually-referencing directory links cannot be resolved; ResolveLinkTarget throws and the entry is treated as unlistable/critical.
         if (!OperatingSystem.IsWindows()) return;
 
         Directory.CreateDirectory(Path.Combine(_tempRoot, "ok"));

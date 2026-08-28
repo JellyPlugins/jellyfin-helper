@@ -1,10 +1,4 @@
-/**
- * Recommendations tab: the per-user selector drives per-user data loads, and
- * the collapsible sections open. The tab button is hidden when
- * RecommendationsTaskMode == Deactivate, so we set a non-Deactivate mode here
- * via the API (DryRun - no side effects) rather than relying on leftover state
- * from a prior api spec (which left it Deactivate, making this test skip).
- */
+/** * Recommendations tab: the per-user selector drives per-user data loads, and * the collapsible sections open. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { openDashboard, switchTab } from './_ui-helpers.ts';
 import { apiContext, loadAuth, p } from '../setup/api-client.ts';
@@ -30,11 +24,7 @@ test('Recommendations tab: user selector loads per-user data; sections toggle', 
   const recsBtn = page.locator('.tab-btn[data-tab="recommendations"]');
   await expect(recsBtn).toBeVisible({ timeout: 15_000 });
 
-  // Opening the tab auto-loads the initial user's data: initRecommendationsTab
-  // calls onUserChanged(initialIdx) -> GET Recommendations/WatchProfile/{userId}
-  // (Recommendations.js). Arm the wait BEFORE switching so we catch that request
-  // - the <select> has no placeholder option, so re-selecting index 0 emits no
-  // 'change' event and would fire nothing.
+  // Opening the tab auto-loads the initial user's data: initRecommendationsTab calls onUserChanged(initialIdx) -> GET Recommendations/WatchProfile/{userId} (Recommendations.js).
   const [profileResp] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes('/JellyfinHelper/Recommendations/WatchProfile/'),
@@ -42,10 +32,7 @@ test('Recommendations tab: user selector loads per-user data; sections toggle', 
     ),
     switchTab(page, 'recommendations'),
   ]);
-  // WatchProfile is loaded for the initial user. With a non-Deactivate mode set
-  // in beforeAll, the request must not be gated (503) or malformed (400): it
-  // either returns the profile (200) or, for a user with genuinely no watch
-  // history, a documented 404. Accept only those two; anything else is a bug.
+  // WatchProfile is loaded for the initial user. With a non-Deactivate mode set in beforeAll, the request must not be gated (503) or malformed (400): it either returns the profile (200) or, for a user with genuinely no watch history, a documented 404.
   expect([200, 404], `WatchProfile status ${profileResp.status()}`).toContain(
     profileResp.status(),
   );

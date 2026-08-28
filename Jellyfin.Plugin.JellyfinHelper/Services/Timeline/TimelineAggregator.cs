@@ -5,9 +5,7 @@ using System.Linq;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 /// <summary>
-///     Provides pure, stateless aggregation logic for growth timeline data.
-///     All methods are static and operate on data passed in - no I/O, no dependencies.
-///     Used by <see cref="GrowthTimelineService" /> for timeline computation.
+///     Provides pure, stateless aggregation logic for growth timeline data. All methods are static and operate on data passed in - no I/O, no dependencies.
 /// </summary>
 public static class TimelineAggregator
 {
@@ -54,11 +52,7 @@ public static class TimelineAggregator
     }
 
     /// <summary>
-    ///     Builds incremental timeline entries by comparing the current directory state
-    ///     against the baseline. Baseline directories contribute their full size at their
-    ///     creation date. New directories (created after firstScanTimestamp) also contribute
-    ///     their full size at their creation date. Size changes in baseline directories
-    ///     contribute only the positive diff at the scan timestamp.
+    ///     Builds incremental timeline entries by comparing the current directory state against the baseline.
     /// </summary>
     /// <param name="currentDirs">The currently scanned directories.</param>
     /// <param name="baseline">The baseline from the first scan.</param>
@@ -94,10 +88,7 @@ public static class TimelineAggregator
     }
 
     /// <summary>
-    ///     Folds a single current directory into the incremental entry list: an existing baseline
-    ///     directory contributes a positive/negative delta at the scan time when its size or count
-    ///     changed; a directory not present in the baseline contributes its full size at its creation
-    ///     date.
+    ///     Folds a single current directory into the incremental entry list: an existing baseline directory contributes a positive/negative delta at the scan time when its size or count changed; a directory not present in the baseline contributes its full size at its creation date.
     /// </summary>
     /// <param name="dir">The current directory entry.</param>
     /// <param name="baseline">The baseline from the first scan.</param>
@@ -146,10 +137,7 @@ public static class TimelineAggregator
     }
 
     /// <summary>
-    ///     Updates the baseline with the current directory state for subsequent scans.
-    ///     New directories are added to the baseline. Existing entries are updated with
-    ///     the current size. Removed directories are deleted from the baseline so they
-    ///     do not generate spurious negative diffs on future scans.
+    ///     Updates the baseline with the current directory state for subsequent scans. New directories are added to the baseline.
     /// </summary>
     /// <param name="baseline">The baseline to update.</param>
     /// <param name="currentDirs">The current directory entries.</param>
@@ -245,14 +233,6 @@ public static class TimelineAggregator
 
     /// <summary>
     ///     Merges a current snapshot into an existing timeline using append-only semantics.
-    ///     All existing data points whose bucket date is strictly before the current bucket
-    ///     are preserved as immutable history. The current bucket is replaced (or added)
-    ///     with the actual current total size and count.
-    ///     <para>
-    ///         Note: the last scan within a bucket is authoritative; intra-bucket history
-    ///         is not preserved. Multiple scans within the same bucket overwrite each other,
-    ///         and only the most recent snapshot for that bucket is retained.
-    ///     </para>
     /// </summary>
     /// <param name="existingPoints">The previously persisted data points (chronologically sorted).</param>
     /// <param name="now">The current scan timestamp.</param>
@@ -336,8 +316,7 @@ public static class TimelineAggregator
     }
 
     /// <summary>
-    ///     Removes leading zero-value data points from the timeline, keeping at most one
-    ///     zero point immediately before the first non-zero point as a visual baseline start.
+    ///     Removes leading zero-value data points from the timeline, keeping at most one zero point immediately before the first non-zero point as a visual baseline start.
     /// </summary>
     /// <param name="points">The data points to trim.</param>
     /// <returns>A trimmed list with leading zeros removed.</returns>
@@ -379,10 +358,7 @@ public static class TimelineAggregator
     }
 
     /// <summary>
-    ///     Consolidates data points from a finer granularity into a coarser one.
-    ///     When the time span grows and the granularity upgrades (e.g. daily->weekly),
-    ///     multiple finer-grained points that fall into the same coarser bucket are merged
-    ///     by keeping the last (most recent) point per bucket.
+    ///     Consolidates data points from a finer granularity into a coarser one. When the time span grows and the granularity upgrades (e.g.
     /// </summary>
     /// <param name="points">The data points (sorted chronologically).</param>
     /// <param name="targetGranularity">The target granularity to consolidate into.</param>
@@ -417,10 +393,7 @@ public static class TimelineAggregator
     }
 
     /// <summary>
-    ///     Removes consecutive data points that have identical CumulativeSize and CumulativeFileCount.
-    ///     Only the first point of each "plateau" is kept. The last point is preserved only when it
-    ///     differs from the last already-kept point, so the timeline's end date is not extended with
-    ///     a redundant duplicate.
+    ///     Removes consecutive data points that have identical CumulativeSize and CumulativeFileCount. Only the first point of each "plateau" is kept.
     /// </summary>
     /// <param name="points">The data points (already sorted chronologically).</param>
     /// <returns>A deduplicated list with redundant consecutive points removed.</returns>

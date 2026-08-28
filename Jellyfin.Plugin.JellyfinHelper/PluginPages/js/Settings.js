@@ -1,4 +1,3 @@
-// --- Settings Tab ---
 'use strict';
 
 // Track current language for detecting changes on save
@@ -18,13 +17,7 @@ var _trashPathChangeHandled = false;
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
 
-/**
- * Shared predicate: returns true when Seerr URL and API Key are both non-empty after trimming.
- * Used across render, payload construction, and post-save UI sync to ensure a single source of truth.
- * @param {string} url - The Seerr URL value.
- * @param {string} key - The Seerr API Key value.
- * @returns {boolean}
- */
+/** * Shared predicate: returns true when Seerr URL and API Key are both non-empty after trimming. * Used across render, payload construction, and post-save UI sync to ensure a single source of truth. */
 function isSeerrConfigured(url, key) {
     return !!((url || '').trim() && (key || '').trim());
 }
@@ -137,10 +130,7 @@ function cancelSaveBandReveal() {
     }
 }
 
-// State classes (is-saved etc.) must survive the fade-out because they carry the
-// CSS rule that hides the Save button. If we removed them synchronously on
-// transition to "hidden", the button would flash for one frame while the band
-// fades. Cleanup happens via this timer after the CSS transition completes.
+// State classes (is-saved etc.) must survive the fade-out because they carry the CSS rule that hides the Save button.
 var _saveBandHiddenCleanupTimer = null;
 
 // Slightly longer than the 0.28s CSS transition to survive timing jitter.
@@ -169,13 +159,7 @@ function renderSaveBand(kind) {
         _settingsSavedHideTimer = null;
     }
 
-    // Cancel any pending "unsaved" reveal timer. Every explicit render() call
-    // establishes the authoritative visual state; a stale reveal that fires
-    // afterwards must not overwrite it. Without this cancel, an 'error' render
-    // triggered by a failed quiet-save would be silently replaced by "Unsaved
-    // changes" ~600ms later (the delegated dirty-tracker armed the timer on the
-    // same keystroke that triggered the save, and the failed save never updated
-    // the snapshot, so stillDirty=true when the timer wakes up).
+    // Cancel any pending "unsaved" reveal timer. Every explicit render() call establishes the authoritative visual state; a stale reveal that fires afterwards must not overwrite it.
     if (kind !== 'unsaved') {
         cancelSaveBandReveal();
     }
@@ -223,17 +207,7 @@ function renderSaveBand(kind) {
     }
 }
 
-/**
- * Drives the floating save band from the current dirty state.
- *
- * Rules:
- *   • Untouched form / clean & never changed -> hidden (transparent).
- *   • Unsaved change -> "Unsaved changes" + Save button, revealed after a short
- *     debounce so quick auto-saves flip straight to "saved" without flashing.
- *   • Just saved (after an interaction) -> "All changes saved", auto-fades.
- * A manual save in flight (_saveBandSaving) is left untouched; a transient error
- * stays until the next change or save.
- */
+/** * Drives the floating save band from the current dirty state. * * Rules: * • Untouched form / clean & never changed -> hidden (transparent). */
 function refreshSaveBand() {
     var band = getSaveBand();
     if (!band) return;
@@ -282,23 +256,7 @@ function refreshSaveBand() {
 }
 
 
-// Debounced dirty-check listener on the settings form. The form element itself
-// persists across loadSettings() calls (only innerHTML gets replaced), so we
-// remove previously registered listeners before adding new ones to avoid
-// stacking handlers on repeated reloads.
-//
-// Two exclusive detach mechanisms - only one is ever active in a given runtime
-// because `typeof AbortController === 'function'` is deterministic per browser:
-//   1. Preferred: AbortController (near-universal since ~2020).
-//      Stored in _dirtyTrackingController; abort() detaches both listeners atomically.
-//   2. Legacy fallback: keep the handler+form pair so removeEventListener() can
-//      strip both listeners individually. Stored in _dirtyTrackingHandler/_Form.
-//
-// Test coverage note: the fallback branch is not covered by automated tests (the
-// repo has no JS test framework and modern browsers won't take that branch). The
-// invariant we rely on is "runtime picks one branch and stays there", which makes
-// interleaving impossible - a runtime that lacks AbortController on load will
-// keep lacking it, so mixed-state cleanup is not a real failure mode.
+// Debounced dirty-check listener on the settings form.
 var _dirtyDebounceTimer = null;
 var _dirtyTrackingController = null;
 var _dirtyTrackingHandler = null;
@@ -308,10 +266,7 @@ function attachDirtyTracking() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
 
-    // Detach previous listeners before wiring new ones. Only one of the two
-    // branches below will find non-null state in a given runtime, because
-    // typeof AbortController is deterministic - the other branch's tracking
-    // fields are guaranteed to still be their initial null.
+    // Detach previous listeners before wiring new ones.
     if (_dirtyTrackingController && typeof _dirtyTrackingController.abort === 'function') {
         try { _dirtyTrackingController.abort(); } catch (_e) { /* ignore */ }
         _dirtyTrackingController = null;
@@ -364,11 +319,7 @@ function checkUnsavedAndProceed(onProceed) {
     }));
     d.btnRow.appendChild(createDialogBtn(T('discardChanges', 'Discard Changes'), 'danger', function () {
         removeDialogById('unsavedDialogOverlay');
-        // Discard means the in-memory edits are thrown away and the form is
-        // reverted to the persisted values - not merely that the dirty flag is
-        // cleared. Blank the snapshot first so leaving the tab now doesn't
-        // re-trigger this guard, proceed, then reload the form from the server
-        // so a later return to Settings shows the original (un-edited) values.
+        // Discard means the in-memory edits are thrown away and the form is reverted to the persisted values - not merely that the dirty flag is cleared.
         _settingsSnapshot = '';
         onProceed();
         if (typeof loadSettings === 'function') loadSettings();
@@ -538,10 +489,7 @@ function loadSettings() {
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + escHtml(T('seerrNotConfigured', 'Configure Seerr below to enable this task.')) + '</div>';
         h += '</div>';
 
-        // Trash / Recycle Bin lives inside the Task card because it is exclusively
-        // used by the cleanup tasks configured above. We keep the original
-        // "Trash settings" section-title token (i18n key preserved for tests) but
-        // style it as a subgroup divider via the additional class.
+        // Trash / Recycle Bin lives inside the Task card because it is exclusively used by the cleanup tasks configured above.
         h += '<div class="section-title settings-subgroup-title">' + mi('delete') + escHtml(T('settingsTrashTitle', 'Trash settings')) + '</div>';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + escHtml(T('useTrash', 'Use Trash (Recycle Bin)')) + '</label></div>';
 
@@ -570,7 +518,6 @@ function loadSettings() {
             return arrCollapseButton;
         }
 
-        // --- Seerr Instance ---
         h += '<div class="section-title">' + escHtml(T('settingsSeerrTitle', 'Seerr settings')) + '</div>';
         h += '<div class="help-text">' + escHtml(T('settingsSeerrHelp', 'Connect to Jellyseerr, Overseerr, or Seerr to automatically clean up old media requests.')) + '</div>';
         var seerrHasCfg = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
@@ -591,7 +538,6 @@ function loadSettings() {
         h += '</div>';
         h += '</div></div>';
 
-        // --- Radarr Instances ---
         h += '<div class="section-title">' + escHtml(T('settingsArrTitle', 'Arr stack settings')) + '</div>';
         var radarrInstances = resolveArrInstances(cfg, 'Radarr');
         var radarrCount = radarrInstances.length;
@@ -601,7 +547,6 @@ function loadSettings() {
         h += renderArrInstances('Radarr', radarrInstances);
         h += '</div></div>';
 
-        // --- Sonarr Instances ---
         var sonarrInstances = resolveArrInstances(cfg, 'Sonarr');
         var sonarrCount = sonarrInstances.length;
         h += '<div class="arr-collapsible' + (sonarrCount === 0 ? ' arr-expanded' : '') + '" id="arrCollapsibleSonarr">';
@@ -623,11 +568,7 @@ function loadSettings() {
         h += '<div id="backupMsg" style="margin-top:0.5em;"></div>';
         h += '</div>'; // /Card 4 (Backup)
 
-        // ── Floating save band (fixed, bottom-centre) ──
-        // Always in the viewport regardless of scroll position. Transparent/idle by
-        // default; shows "unsaved" (with the Save button), a spinner while saving,
-        // "saved" (auto-fades), or an error. The button keeps id=btnSaveSettings so
-        // all existing save logic keeps working unchanged.
+        // ── Floating save band (fixed, bottom-centre) ── Always in the viewport regardless of scroll position.
         h += '<div class="settings-save-band" id="settingsSaveBand" role="status" aria-live="polite" aria-hidden="true">';
         h += '<span class="settings-save-band-status"><span class="settings-save-band-icon" aria-hidden="true"></span><span class="settings-save-band-text"></span></span>';
         h += '<button type="button" class="action-btn settings-save-band-btn" id="btnSaveSettings">' + mi('save') + escHtml(T('saveSettings', 'Save Settings')) + '</button>';
@@ -682,10 +623,7 @@ function loadSettings() {
         // Show/hide Recommendations tab based on task mode
         updateRecsTabVisibility(cfg.RecommendationsTaskMode || 'DryRun');
 
-        // Delegated dirty-check on the form: keeps the sticky-toolbar indicator
-        // in sync with any DOM edit - including auto-save fields (they trigger the
-        // change event which the debounced handler picks up, then re-renders the
-        // indicator to "clean" after the snapshot is refreshed by takeSettingsSnapshot).
+        // Delegated dirty-check on the form: keeps the sticky-toolbar indicator in sync with any DOM edit - including auto-save fields (they trigger the change event which the debounced handler picks up, then re-renders the indicator to "clean" after the snapshot is refreshed by.
         attachDirtyTracking();
 
         // Take snapshot after settings are fully rendered (synchronous - all values are set above)
@@ -736,9 +674,7 @@ function buildSettingsPayload() {
         DiscoveryUserAccessEnabled: (function () {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
             if (!checkbox || !checkbox.checked) return false;
-            // Force false when prerequisites are not met (Recommendations must be active + Seerr configured).
-            // This prevents stale "true" from being persisted when the admin disables recommendations
-            // or clears Seerr config while the checkbox was previously enabled.
+            // Force false when prerequisites are not met (Recommendations must be active + Seerr configured). This prevents stale "true" from being persisted when the admin disables recommendations or clears Seerr config while the checkbox was previously enabled.
             var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
             var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
             var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
@@ -773,19 +709,12 @@ function doSaveSettings(payload, options) {
     }
     showTrashPathError(null);
 
-    // Intercept: if trash path changed, show relocation dialog before saving.
-    // This covers all save paths: explicit Save button, auto-save dropdowns, and "Save & Continue" from unsaved-changes dialog.
-    // The _trashPathChangeHandled guard prevents infinite recursion: when showTrashPathChangeDialog()
-    // calls back into doSaveSettings() after the user has made their choice, the guard is set to
-    // true so we skip this check and proceed with the actual save.
+    // Intercept: if trash path changed, show relocation dialog before saving. This covers all save paths: explicit Save button, auto-save dropdowns, and "Save & Continue" from unsaved-changes dialog.
     if (hasTrashPathChanged(payload) && !_trashPathChangeHandled) {
         showTrashPathChangeDialog(payload, options);
         return;
     }
-    // _trashPathChangeHandled is NOT reset here. It is reset to false immediately
-    // inside the onSuccess callback of each guarded doSaveSettings() call in
-    // showTrashPathChangeDialog, so the guard only suppresses the single recursive
-    // call it was set for, and a future path-change triggers the dialog again.
+    // _trashPathChangeHandled is NOT reset here.
 
     if (!quiet) {
         _saveBandSaving = true;
@@ -793,21 +722,11 @@ function doSaveSettings(payload, options) {
         renderSaveBand('saving');
     }
 
-    // PluginLogLevel used to be race-prone here: the Settings form captured it at page load, so a
-    // concurrent change from the Logs tab would be silently overwritten on save. That race is now
-    // closed on the SERVER (ConfigurationController.ApplyRequestToConfig ignores the field on POST;
-    // only PUT /Configuration/LogLevel mutates it). We therefore no longer need a preflight GET -
-    // whatever we send here is discarded server-side and the on-disk value is preserved.
+    // PluginLogLevel used to be race-prone here: the Settings form captured it at page load, so a concurrent change from the Logs tab would be silently overwritten on save.
     postSettingsPayload(payload, quiet, indicatorEl, btn, options);
 }
 
-/**
- * Internal: performs the actual POST once the caller has validated the payload. Extracted from
- * doSaveSettings mainly to keep the trash-path / recursion guards separate from the network call.
- * PluginLogLevel is intentionally NOT rewritten here - the server-side handler
- * (ConfigurationController.ApplyRequestToConfig) ignores that field, so whatever the client sends
- * is preserved server-side. See the block comment in doSaveSettings for the TOCTOU history.
- */
+/** * Internal: performs the actual POST once the caller has validated the payload. Extracted from * doSaveSettings mainly to keep the trash-path / recursion guards separate from the network call. */
 function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
     apiPut('JellyfinHelper/Configuration', payload, function () {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
@@ -845,9 +764,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             options.onSuccess();
         }
     }, function (err) {
-        // Structured diagnostic: try to give the user (and support) a concrete hint
-        // instead of a generic "Failed to save settings." toast. The classification
-        // uses HTTP status code and body shape (HTML => proxy/WAF, JSON => our server).
+        // Structured diagnostic: try to give the user (and support) a concrete hint instead of a generic "Failed to save settings." toast.
         var diag = describeApiError(err);
 
         var errorMsg = '';
@@ -885,26 +802,14 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             if (errText) errText.textContent = buildSaveErrorLabel(diag, errorMsg); // textContent intentional - prevents XSS from server error messages
         }
 
-        // When the HTTP layer looks like something between the browser and Jellyfin
-        // dropped the request (network error, HTML body, 5xx), fire a lightweight
-        // Ping. If Ping succeeds, we KNOW the backend is reachable and the payload
-        // was rejected on purpose - useful signal for the console. If Ping ALSO
-        // fails, we log a clear "backend unreachable" line so infrastructure issues
-        // are unmistakable in the report.
+        // When the HTTP layer looks like something between the browser and Jellyfin dropped the request (network error, HTML body, 5xx), fire a lightweight Ping.
         if (diag.kind === 'network' || diag.kind === 'proxy' || diag.kind === 'server') {
             probeBackendReachability(diag);
         }
     });
 }
 
-/**
- * Compose a compact user-facing error label for the save band.
- * Priority: server-provided message > HTTP status hint > generic fallback.
- *
- * @param {{status:number,statusText:string,kind:string}} diag
- * @param {string} serverMessage - Parsed 'message' field from the JSON error body, or ''.
- * @returns {string}
- */
+/** * Compose a compact user-facing error label for the save band. * Priority: server-provided message > HTTP status hint > generic fallback. */
 function buildSaveErrorLabel(diag, serverMessage) {
     if (serverMessage) return serverMessage;
     if (diag.kind === 'proxy') {
@@ -925,14 +830,7 @@ function buildSaveErrorLabel(diag, serverMessage) {
     return T('settingsError', 'Failed to save settings.');
 }
 
-/**
- * Fires the /Ping endpoint after a failed save to distinguish
- * "backend unreachable" from "backend reachable, payload rejected".
- * Purely informational: writes a diagnostic line to console. Never
- * throws and never blocks any user-visible flow.
- *
- * @param {{status:number,statusText:string,kind:string,snippet:string}} originalDiag
- */
+/** * Fires the /Ping endpoint after a failed save to distinguish * "backend unreachable" from "backend reachable, payload rejected". */
 function probeBackendReachability(originalDiag) {
     try {
         apiGet('JellyfinHelper/Ping', function () {
@@ -1484,13 +1382,7 @@ function attachAutoSaveHandlers() {
     }
 }
 
-/**
- * Shows a small inline indicator AFTER the label text of a checkbox toggle.
- * Used for checkbox auto-save confirmation instead of showAutoSaveIndicatorOverlay
- * which doesn't position correctly for checkboxes.
- * @param {HTMLInputElement} checkbox - The checkbox input element.
- * @param {boolean} [success] - Whether the save succeeded (true) or failed (false). Defaults to true.
- */
+/** * Shows a small inline indicator AFTER the label text of a checkbox toggle. * Used for checkbox auto-save confirmation instead of showAutoSaveIndicatorOverlay * which doesn't position correctly for checkboxes. */
 function showInlineCheckboxIndicator(checkbox, success) {
     if (!checkbox) return;
     var label = checkbox.nextElementSibling;
@@ -1519,13 +1411,7 @@ function showInlineCheckboxIndicator(checkbox, success) {
     }, 2000);
 }
 
-/**
- * Shows a brief inline save indicator after the "Excluded Libraries" label.
- * Uses the same visual pattern as showInlineCheckboxIndicator but targets
- * the label element preceding the library multi-select wrapper.
- * @param {string} wrapperId - The DOM id of the wrapper div (e.g. 'cfgExcludedWrapper').
- * @param {boolean} [success] - Whether the save succeeded (true) or failed (false).
- */
+/** * Shows a brief inline save indicator after the "Excluded Libraries" label. * Uses the same visual pattern as showInlineCheckboxIndicator but targets * the label element preceding the library multi-select wrapper. */
 function showLibraryMultiSelectIndicator(wrapperId, success) {
     var wrapper = document.getElementById(wrapperId);
     if (!wrapper) return;
@@ -1556,7 +1442,6 @@ function showLibraryMultiSelectIndicator(wrapperId, success) {
     }, 2000);
 }
 
-// ===== Library Multi-Select Widget =====
 
 /**
  * Initializes the library multi-select dropdown by fetching available libraries
@@ -1595,13 +1480,7 @@ function parseCommaSeparatedSet(str) {
     return set;
 }
 
-/**
- * Renders a multi-select checkbox list widget inside the given wrapper element.
- * @param {string} wrapperId - The DOM id of the wrapper div.
- * @param {Array} libraries - Array of {name, collectionType} from the API.
- * @param {Object} selectedSet - Object with lowercase keys of currently selected library names.
- * @param {string} type - 'excluded' for styling/ids.
- */
+/** * Renders a multi-select checkbox list widget inside the given wrapper element. * @param {string} wrapperId - The DOM id of the wrapper div. */
 function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     var wrapper = document.getElementById(wrapperId);
     if (!wrapper) return;
@@ -1731,9 +1610,7 @@ function getLibraryMultiSelectValue(wrapperId) {
     for (var i = 0; i < checkboxes.length; i++) {
         if (checkboxes[i].checked) selected.push(checkboxes[i].value);
     }
-    // Preserve previously-excluded library names that are no longer returned by the API
-    // (e.g. renamed or deleted libraries). Without this, those exclusions would be silently
-    // dropped on the next save, potentially causing unexpected cleanup of those libraries.
+    // Preserve previously-excluded library names that are no longer returned by the API (e.g. renamed or deleted libraries).
     var missingValues = wrapper.dataset.missingValues;
     if (missingValues) {
         var parts = missingValues.split(',');
@@ -1803,18 +1680,8 @@ function attachTrashDaysInputHandler() {
     });
 }
 
-/**
- * Validates the trash folder path on the client side before saving.
- * Returns an i18n error message string if invalid, or null if valid.
- * @param {string} path - The trash folder path value.
- * @param {boolean} useTrash - Whether the trash feature is enabled.
- * @returns {string|null}
- */
-// Mirror of the server-side PathValidator.IsSensitiveSystemPath canonical list. Kept in
-// sync with Services/PathValidator.cs - a protected system/app directory that the trash
-// path (and the folder picker) must never point at. Only meaningful for ABSOLUTE paths;
-// a relative path like ".jellyfin-trash" is resolved under each library and is never
-// sensitive. Client-side check is UX only; the server enforces the real boundary.
+/** * Validates the trash folder path on the client side before saving. * Returns an i18n error message string if invalid, or null if valid. */
+// Mirror of the server-side PathValidator.IsSensitiveSystemPath canonical list. Kept in sync with Services/PathValidator.cs - a protected system/app directory that the trash path (and the folder picker) must never point at.
 var SENSITIVE_SYSTEM_ROOTS = [
     '/config', '/cache', '/data', '/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64',
     '/boot', '/proc', '/sys', '/dev', '/var', '/root', '/run',
@@ -1854,11 +1721,7 @@ function validateTrashPath(path, useTrash) {
         return T('trashPathInvalidChars', 'Path contains invalid characters.');
     }
 
-    // 1b. An ABSOLUTE path must not point at a protected system / application directory
-    // (Jellyfin's own /config, /data, /cache, OS roots like /etc, C:\Windows). Mirrors the
-    // shared server-side guard (PathValidator.IsSensitiveSystemPath) so the user gets the
-    // same immediate, inline feedback the picker gives - before the save round-trips and is
-    // rejected with a 400. A relative path (the common ".jellyfin-trash") is never sensitive.
+    // 1b. An ABSOLUTE path must not point at a protected system / application directory (Jellyfin's own /config, /data, /cache, OS roots like /etc, C:\Windows).
     if (isSensitiveSystemPath(trimmed)) {
         return T('trashPathSensitive', 'This is a protected system folder and cannot be used.');
     }
@@ -1943,13 +1806,7 @@ function showTrashPathError(errorMsg) {
     }
 }
 
-/**
- * Checks whether the trash path has changed compared to the last saved value.
- * Only returns true when trash was previously enabled (so old content may exist)
- * AND trash remains enabled AND the path is different.
- * @param {Object} payload - The settings payload to check.
- * @returns {boolean}
- */
+/** * Checks whether the trash path has changed compared to the last saved value. * Only returns true when trash was previously enabled (so old content may exist) * AND trash remains enabled AND the path is different. */
 function hasTrashPathChanged(payload) {
     if (!_wasTrashEnabled) return false;
     if (!payload.UseTrash) return false;
@@ -1959,12 +1816,7 @@ function hasTrashPathChanged(payload) {
     return oldPath !== newPath;
 }
 
-/**
- * Shows a dialog when the trash path has changed, asking the user whether to
- * move existing trash content to the new location, delete it, or cancel.
- * @param {Object} payload - The settings payload to save after the user decides.
- * @param {Object} [options] - Optional doSaveSettings options to forward.
- */
+/** * Shows a dialog when the trash path has changed, asking the user whether to * move existing trash content to the new location, delete it, or cancel. */
 function showTrashPathChangeDialog(payload, options) {
     var saveBtn = document.getElementById('btnSaveSettings');
     var msg = document.getElementById('settingsMsg');

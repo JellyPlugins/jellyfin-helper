@@ -4,9 +4,7 @@ using System.IO;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
 /// <summary>
-///     Link handler for symbolic links (symlinks).
-///     Uses <see cref="ISymlinkHelper" /> for filesystem operations
-///     to enable unit testing without real symlinks.
+///     Link handler for symbolic links (symlinks). Uses ISymlinkHelper for filesystem operations to enable unit testing without real symlinks.
 /// </summary>
 public class SymlinkHandler : ILinkHandler
 {

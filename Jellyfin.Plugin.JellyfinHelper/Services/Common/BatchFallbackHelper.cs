@@ -4,24 +4,12 @@ using System.Linq;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
-///     Shared "try batch, fall back per-item" pattern used by
-///     <see cref="Recommendation.Engine.SimilarityComputer"/>,
-///     <see cref="Recommendation.WatchHistory.WatchHistoryService"/> and
-///     <see cref="Activity.UserActivityInsightsService"/>, each wrapping a Jellyfin 12+
-///     batch API that must degrade to per-item calls on failure. Centralising the
-///     try/catch guarantees <see cref="OperationCanceledException"/> is always re-thrown
-///     (two call sites forgot to before this was extracted).
+///     Shared "try batch, fall back per-item" pattern used by SimilarityComputer, WatchHistoryService and UserActivityInsightsService, each wrapping a Jellyfin 12+ batch API that must degrade to per-item calls on failure.
 /// </summary>
 internal static class BatchFallbackHelper
 {
     /// <summary>
-    ///     Runs <paramref name="batchCall"/> and returns its result. On a non-fatal,
-    ///     non-cancellation exception, <paramref name="onFailure"/> fires and
-    ///     <paramref name="fallbackValue"/> is returned so the caller can take the per-item path.
-    ///     <para>
-    ///         Cancellation is not caught: a cancel means stop, not slow-path through
-    ///         thousands of items. Same for OOM / stack overflow, which are unrecoverable.
-    ///     </para>
+    ///     Runs batchCall and returns its result. On a non-fatal, non-cancellation exception, onFailure fires and fallbackValue is returned so the caller can take the per-item path.
     /// </summary>
     /// <typeparam name="T">Return type of the batch call.</typeparam>
     /// <param name="batchCall">The batch operation to run.</param>
@@ -53,19 +41,12 @@ internal static class BatchFallbackHelper
         }
         catch (AggregateException agg) when (ContainsOperationCanceled(agg))
         {
-            // A Task-based batch call awaiting internally can surface cancellation wrapped
-            // in AggregateException (Task.Wait / Task.Result). The naked catch above misses
-            // that shape, letting graceful degradation swallow the cancel. Rethrow the inner
-            // OCE to preserve the caller's cancellation contract.
-            // Known limitation: with multiple OCEs, the first is rethrown and its
-            // CancellationToken may differ from the caller's.
+            // A Task-based batch call awaiting internally can surface cancellation wrapped in AggregateException (Task.Wait / Task.Result).
             throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            // Callers must always get fallbackValue back on non-cancellation failures. If
-            // onFailure itself throws (e.g. a broken logger), swallow it so it can't break
-            // the graceful-degradation contract all three call sites rely on.
+            // Callers must always get fallbackValue back on non-cancellation failures. If onFailure itself throws (e.g.
             try
             {
                 onFailure(ex);
@@ -77,10 +58,7 @@ internal static class BatchFallbackHelper
             }
             catch (AggregateException agg) when (ContainsOperationCanceled(agg))
             {
-                // Async loggers can wrap cancellation in AggregateException. Unwrap and
-                // rethrow the inner OCE to preserve the cancellation contract.
-                // Known limitation: with multiple OCEs, the first is rethrown and its
-                // CancellationToken may differ from the caller's.
+                // Async loggers can wrap cancellation in AggregateException. Unwrap and rethrow the inner OCE to preserve the cancellation contract.
                 throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
             }
             catch (Exception callbackEx) when (!callbackEx.IsFatal())
@@ -94,10 +72,7 @@ internal static class BatchFallbackHelper
     }
 
     /// <summary>
-    ///     True if the aggregate (flattened) contains at least one
-    ///     <see cref="OperationCanceledException"/>. Task-based batch APIs surface
-    ///     cancellation this way; without unwrapping, the outer catch drops the caller
-    ///     into the fallback path.
+    ///     True if the aggregate (flattened) contains at least one OperationCanceledException.
     /// </summary>
     private static bool ContainsOperationCanceled(AggregateException agg)
     {

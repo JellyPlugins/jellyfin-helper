@@ -12,9 +12,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
-///     Abstract base class for library cleanup tasks that follow a common execution pattern:
-///     load config -> log start -> iterate library locations -> process each location -> log summary -> record cleanup.
-///     Concrete subclasses only need to implement the location-specific scanning and cleanup logic.
+///     Abstract base class for library cleanup tasks that follow a common execution pattern: load config -> log start -> iterate library locations -> process each location -> log summary -> record cleanup.
 /// </summary>
 public abstract class BaseLibraryCleanupTask
 {
@@ -98,8 +96,7 @@ public abstract class BaseLibraryCleanupTask
     protected abstract TaskMode GetTaskMode();
 
     /// <summary>
-    ///     Determines whether this task is currently in dry-run mode.
-    ///     Returns <see langword="true"/> only when <see cref="GetTaskMode"/> returns <see cref="TaskMode.DryRun"/>.
+    ///     Determines whether this task is currently in dry-run mode. Returns true only when GetTaskMode returns DryRun.
     /// </summary>
     /// <returns>True if dry-run mode is active; otherwise false.</returns>
     protected bool IsDryRun() => CleanupConfigHelper.IsDryRun(GetTaskMode());
@@ -117,10 +114,7 @@ public abstract class BaseLibraryCleanupTask
         CancellationToken cancellationToken);
 
     /// <summary>
-    ///     Executes the cleanup task using the Template Method pattern.
-    ///     Orchestrates: config loading, start logging, library iteration, summary logging, and cleanup recording.
-    ///     The synchronous scan work is offloaded to a thread-pool thread via <see cref="Task.Run(Action)" />
-    ///     so the Jellyfin scheduler thread is never blocked.
+    ///     Executes the cleanup task using the Template Method pattern. Orchestrates: config loading, start logging, library iteration, summary logging, and cleanup recording.
     /// </summary>
     /// <param name="progress">Progress reporter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -202,15 +196,7 @@ public abstract class BaseLibraryCleanupTask
         }
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Filesystem seams (overridable for tests).
-    //
-    // The symlink/junction guards in the concrete tasks read reparse-point attributes with real
-    // System.IO calls, which the mocked IFileSystem model can never trigger. Routing them through
-    // these thin wrappers lets a test subclass drive the guard branches deterministically without
-    // creating real symlinks (which require elevated privileges, unavailable in CI). Production
-    // always runs the real System.IO implementations below.
-    // ---------------------------------------------------------------------------------------------
+    // Filesystem seams (overridable for tests). The symlink/junction guards in the concrete tasks read reparse-point attributes with real System.IO calls, which the mocked IFileSystem model can never trigger.
 
     /// <summary>
     ///     Determines whether <paramref name="path" /> is an existing reparse point
@@ -222,11 +208,7 @@ public abstract class BaseLibraryCleanupTask
         ReparsePointGuard.IsReparsePoint(path);
 
     /// <summary>
-    ///     Determines whether <paramref name="path" /> is a reparse point (symbolic link or
-    ///     junction) irrespective of whether the filesystem classifies the entry as a file or a
-    ///     directory. Use this when inspecting entries returned by file enumeration, because some
-    ///     mounts (e.g. Docker Desktop for Windows bind mounts) surface a directory symlink as a
-    ///     file, which <see cref="IsReparsePoint" /> (directory-only) would miss.
+    ///     Determines whether path is a reparse point (symbolic link or junction) irrespective of whether the filesystem classifies the entry as a file or a directory.
     /// </summary>
     /// <param name="path">The file or directory path to inspect.</param>
     /// <returns><see langword="true" /> if the path is a reparse point; otherwise <see langword="false" />.</returns>

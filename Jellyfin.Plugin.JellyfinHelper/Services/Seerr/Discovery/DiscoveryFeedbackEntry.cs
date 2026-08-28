@@ -49,15 +49,7 @@ public sealed class DiscoveryFeedbackEntry
     public double TmdbRating { get; set; }
 
     /// <summary>
-    ///     Gets or sets the raw TMDb popularity value at the time of discovery.
-    ///     Persisted so the training pipeline can reconstruct the exact
-    ///     <c>PopularityScore</c> feature used at inference via
-    ///     <c>ExternalCandidateFeatureBuilder.NormalizePopularity</c>.
-    ///     Legacy entries written before this field existed deserialize to 0. Training
-    ///     normalises that value identically to inference (<c>NormalizePopularity(0)</c>
-    ///     returns 0.0 on both paths, guaranteeing zero train/serve skew on the feature
-    ///     value itself) and reduces the sample weight by 50% to reflect that popularity
-    ///     was not actually recorded for those rows.
+    ///     Gets or sets the raw TMDb popularity value at the time of discovery. Persisted so the training pipeline can reconstruct the exact PopularityScore feature used at inference via ExternalCandidateFeatureBuilder.NormalizePopularity.
     /// </summary>
     public double Popularity { get; set; }
 
@@ -90,11 +82,7 @@ public sealed class DiscoveryFeedbackEntry
     public bool WasWatched { get; set; }
 
     /// <summary>
-    ///     Gets or sets the UTC timestamp when the item was confirmed watched.
-    ///     Null if not yet watched. Set by <see cref="DiscoveryFeedbackStore.MarkWatched"/>
-    ///     when the item is found in the user's watch history after being requested.
-    ///     Used by retention logic to prevent premature eviction of recently-converted entries,
-    ///     and by training to accurately place the interaction in temporal holdout/cutoff windows.
+    ///     Gets or sets the UTC timestamp when the item was confirmed watched. Null if not yet watched.
     /// </summary>
     public DateTime? WatchedAtUtc { get; set; }
 

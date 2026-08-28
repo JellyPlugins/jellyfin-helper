@@ -101,27 +101,12 @@ public class StatisticsCacheServiceTests : IDisposable
         Assert.True(Directory.Exists(nestedDir));
     }
 
-    // -----------------------------------------------------------------------
-    // Guard branches previously uncovered:
-    //   * LoadLatestResult when the file contains the literal "null" - must
-    //     round-trip to null without surfacing a JsonException to callers.
-    //   * LoadLatestResult on a zero-byte file - same requirement, different
-    //     serializer failure mode (JsonException.NoData).
-    //   * SaveLatestResult when the raw JSON serializes but the atomic write
-    //     hits a directory-missing race - the outer catch must swallow it and
-    //     log a warning without crashing the scheduled task caller.
-    //   * SaveLatestResult with a valid payload after a corrupted previous
-    //     file - the overwrite path must succeed, replacing the corrupt state.
-    // -----------------------------------------------------------------------
+    // Guard branches previously uncovered: * LoadLatestResult when the file contains the literal "null" - must round-trip to null without surfacing a JsonException to callers.
 
     [Fact]
     public void LoadLatestResult_FileContainsLiteralNull_ReturnsNull()
     {
-        // BUG GUARD: JsonSerializer.Deserialize<T>("null") returns default(T) = null.
-        // The helper must return that null without additional error handling
-        // (differs from UserActivityCacheService which logs a warning). This
-        // pins the current "silent null-through" behaviour; if we ever want
-        // to add a warning here, this test tells us we're changing contract.
+        // BUG GUARD: JsonSerializer.Deserialize<T>("null") returns default(T) = null. The helper must return that null without additional error handling (differs from UserActivityCacheService which logs a warning).
         var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
         File.WriteAllText(filePath, "null");
 
@@ -133,10 +118,7 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void LoadLatestResult_EmptyFile_ReturnsNull()
     {
-        // BUG GUARD: zero-byte file from a crashed-mid-write scenario. The catch
-        // filter includes JsonException specifically because System.Text.Json
-        // throws it on empty input. A regression narrowing the filter would
-        // let the exception propagate to the caller and break next-boot recovery.
+        // BUG GUARD: zero-byte file from a crashed-mid-write scenario. The catch filter includes JsonException specifically because System.Text.Json throws it on empty input.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
         File.WriteAllText(filePath, string.Empty);
 
@@ -148,9 +130,7 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void LoadLatestResult_FileContainsWhitespaceOnly_ReturnsNull()
     {
-        // BUG GUARD: whitespace-only file - deserializer sees "no JSON here" and
-        // throws JsonException. Same recovery path as EmptyFile but exercises
-        // a subtly different serializer branch (position > 0 vs = 0).
+        // BUG GUARD: whitespace-only file - deserializer sees "no JSON here" and throws JsonException. Same recovery path as EmptyFile but exercises a subtly different serializer branch (position > 0 vs = 0).
         var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
         File.WriteAllText(filePath, "   \n\t  ");
 
@@ -162,10 +142,7 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void SaveLatestResult_AfterCorruptFile_OverwritesCorruption()
     {
-        // BUG GUARD: SaveLatestResult uses AtomicFile.WriteAllText -> temp-file +
-        // File.Move(overwrite: true). A prior corrupted file must be replaced,
-        // NOT concatenated with. A regression that used File.AppendAllText or
-        // opened in append mode would produce a still-corrupt merged file.
+        // BUG GUARD: SaveLatestResult uses AtomicFile.WriteAllText -> temp-file + File.Move(overwrite: true). A prior corrupted file must be replaced, NOT concatenated with.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
         File.WriteAllText(filePath, "{ this is not valid json");
 
@@ -184,11 +161,7 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void SaveAndLoad_UnicodeStrings_RoundTripsCorrectly()
     {
-        // BUG GUARD: UTF-8 no-BOM (AtomicFile default) must not corrupt multi-byte
-        // sequences. Library names in real deployments include CJK, umlauts, emojis
-        // - a BOM-write regression would produce a garbled first character on read
-        // via any tool that strips BOMs, and a wrong-encoding regression would
-        // mojibake the whole payload.
+        // BUG GUARD: UTF-8 no-BOM (AtomicFile default) must not corrupt multi-byte sequences.
         var stats = new MediaStatisticsResult();
         stats.Libraries.Add(new LibraryStatistics { VideoSize = 42 });
         _service.SaveLatestResult(stats);
@@ -203,11 +176,7 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void LoadLatestResult_ConcurrentReads_DoNotThrow()
     {
-        // BUG GUARD: the `Lock _fileLock` is held during both Save AND Load,
-        // so concurrent LoadLatestResult calls from multiple background tasks
-        // (statistics endpoint + scheduled task overlap) must serialise cleanly.
-        // A regression to a non-reentrant lock or a swapped `SemaphoreSlim` with
-        // a wrong Release ordering would surface as random `SynchronizationLockException`.
+        // BUG GUARD: the `Lock _fileLock` is held during both Save AND Load, so concurrent LoadLatestResult calls from multiple background tasks (statistics endpoint + scheduled task overlap) must serialise cleanly.
         _service.SaveLatestResult(new MediaStatisticsResult());
 
         var tasks = Enumerable.Range(0, 16)
@@ -243,9 +212,7 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void SaveLatestResult_WriteFails_SwallowsExceptionAndDoesNotThrow()
     {
-        // A directory sitting at the exact target file name makes AtomicFile's final
-        // File.Move throw IOException. The best-effort contract requires SaveLatestResult
-        // to log a warning and degrade gracefully so a scheduled scan task never crashes.
+        // A directory sitting at the exact target file name makes AtomicFile's final File.Move throw IOException.
         Directory.CreateDirectory(Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json"));
 
         Assert.Null(Record.Exception(() => _service.SaveLatestResult(new MediaStatisticsResult())));

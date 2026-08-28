@@ -4,30 +4,10 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation;
 
 /// <summary>
-///     Tests the setter guards on <see cref="RecommendedItem"/>.
-///     The class exposes SEVEN collection properties (<see cref="RecommendedItem.Genres"/>,
-///     <see cref="RecommendedItem.PeopleNames"/>, <see cref="RecommendedItem.Studios"/>,
-///     <see cref="RecommendedItem.Tags"/>, <see cref="RecommendedItem.AudioLanguages"/>,
-///     <see cref="RecommendedItem.SubtitleLanguages"/>, and <see cref="RecommendedItem.BoxSetIds"/>)
-///     whose setters MUST coalesce <c>null</c> to an empty list. Without this coalescing:
-///     <list type="bullet">
-///         <item>Cache round-trips through <c>JsonSerializer</c> could set the field to <c>null</c>
-///               when the persisted JSON omits or explicitly nulls the array.</item>
-///         <item>Downstream callers (<c>TrainingDataBuilder</c>, <c>ScoringHelper</c>, etc.) iterate
-///               these lists directly with <c>foreach</c> or <c>Contains</c> - a <c>null</c> would
-///               throw <c>NullReferenceException</c> deep inside a scheduled task.</item>
-///     </list>
-///     <para>
-///         Every collection setter therefore has TWO branches - "value was null" and
-///         "value was non-null". Only the non-null branch is exercised by "happy path"
-///         test suites elsewhere. These tests pin the null branch for each property so
-///         a regression removing the <c>?? []</c> coalescing surfaces immediately.
-///     </para>
+///     Tests the setter guards on RecommendedItem. The class exposes SEVEN collection properties (Genres, PeopleNames, Studios, Tags, AudioLanguages, SubtitleLanguages, and BoxSetIds) whose setters MUST coalesce null to an empty list.
 /// </summary>
 public sealed class RecommendedItemTests
 {
-    // ---------------- Genres ----------------
-
     [Fact]
     public void Genres_NullAssignment_CoalescedToEmpty()
     {
@@ -43,8 +23,6 @@ public sealed class RecommendedItemTests
         var sut = new RecommendedItem { Genres = input };
         Assert.Same(input, sut.Genres);
     }
-
-    // ---------------- PeopleNames ----------------
 
     [Fact]
     public void PeopleNames_NullAssignment_CoalescedToEmpty()
@@ -62,8 +40,6 @@ public sealed class RecommendedItemTests
         Assert.Same(input, sut.PeopleNames);
     }
 
-    // ---------------- Studios ----------------
-
     [Fact]
     public void Studios_NullAssignment_CoalescedToEmpty()
     {
@@ -79,8 +55,6 @@ public sealed class RecommendedItemTests
         var sut = new RecommendedItem { Studios = input };
         Assert.Same(input, sut.Studios);
     }
-
-    // ---------------- Tags ----------------
 
     [Fact]
     public void Tags_NullAssignment_CoalescedToEmpty()
@@ -98,8 +72,6 @@ public sealed class RecommendedItemTests
         Assert.Same(input, sut.Tags);
     }
 
-    // ---------------- AudioLanguages ----------------
-
     [Fact]
     public void AudioLanguages_NullAssignment_CoalescedToEmpty()
     {
@@ -115,8 +87,6 @@ public sealed class RecommendedItemTests
         var sut = new RecommendedItem { AudioLanguages = input };
         Assert.Same(input, sut.AudioLanguages);
     }
-
-    // ---------------- SubtitleLanguages ----------------
 
     [Fact]
     public void SubtitleLanguages_NullAssignment_CoalescedToEmpty()
@@ -134,8 +104,6 @@ public sealed class RecommendedItemTests
         Assert.Same(input, sut.SubtitleLanguages);
     }
 
-    // ---------------- BoxSetIds ----------------
-
     [Fact]
     public void BoxSetIds_NullAssignment_CoalescedToEmpty()
     {
@@ -152,15 +120,10 @@ public sealed class RecommendedItemTests
         Assert.Same(input, sut.BoxSetIds);
     }
 
-    // ---------------- Reassignment semantics ----------------
-
     [Fact]
     public void Collections_ReassignFromNonNullToNull_ReplacesWithEmpty()
     {
-        // An earlier draft used init-only assignment and silently
-        // dropped subsequent nulls. The current setter must actively replace the
-        // backing field so a caller that re-nulls a previously populated collection
-        // observes the coalesced empty list, not the stale non-null value.
+        // An earlier draft used init-only assignment and silently dropped subsequent nulls.
         var sut = new RecommendedItem { Genres = ["Action"] };
         Assert.Single(sut.Genres);
 
@@ -169,8 +132,6 @@ public sealed class RecommendedItemTests
         Assert.NotNull(sut.Genres);
         Assert.Empty(sut.Genres);
     }
-
-    // ---------------- Defaults ----------------
 
     [Fact]
     public void Defaults_AllCollectionsAreEmptyNotNull()

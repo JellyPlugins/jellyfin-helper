@@ -8,33 +8,16 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for the user-resolution and quality-profile-list helpers on <see cref="SeerrDiscoveryService"/>:
-///     <c>FindSeerrUserByJellyfinId</c> and <c>BuildAllowedProfileList</c>.
-///     <para>
-///         These helpers form the security-critical join between a Jellyfin user identity and
-///         their Seerr counterpart, and control which Radarr/Sonarr quality profiles a user is
-///         allowed to see in the request UI. Regressions here can produce two very bad outcomes:
-///         (1) the wrong Seerr user gets matched, so requests are attributed to somebody else's
-///         account; (2) the profile list over-grants access to profiles the user shouldn't see.
-///         The tests below pin both invariants with defensive golden vectors.
-///     </para>
+///     Tests for the user-resolution and quality-profile-list helpers on SeerrDiscoveryService: FindSeerrUserByJellyfinId and BuildAllowedProfileList.
 /// </summary>
 public sealed class SeerrDiscoveryServiceUserResolutionTests
 {
-    // ============================================================================
-    // FindSeerrUserByJellyfinId
-    //   • Match uses Guid.ToString("N") normalisation (32-char lowercase, no hyphens).
-    //   • Accepts SeerrUser.JellyfinUserId in BOTH 32-char and 36-char (hyphenated) forms.
-    //   • Case-insensitive equality on both sides.
-    //   • Empty Guid and empty user-list short-circuit to null.
-    // ============================================================================
+    // FindSeerrUserByJellyfinId • Match uses Guid.ToString("N") normalisation (32-char lowercase, no hyphens).
 
     [Fact]
     public void FindSeerrUserByJellyfinId_EmptyGuid_ReturnsNull()
     {
-        // Empty Guid is a sentinel for "no user identified" and must never match a real Seerr user,
-        // otherwise a request could be silently attributed to whichever user happens to sit at
-        // position 0 of the Seerr roster.
+        // Empty Guid is a sentinel for "no user identified" and must never match a real Seerr user, otherwise a request could be silently attributed to whichever user happens to sit at position 0 of the Seerr roster.
         var users = new List<SeerrUser>
         {
             new() { Id = 1, JellyfinUserId = "00000000000000000000000000000000" }
@@ -82,9 +65,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     [Fact]
     public void FindSeerrUserByJellyfinId_32CharMatch_UpperCase_ReturnsUser()
     {
-        // BUG GUARD: case-insensitive matching. Seerr occasionally stores IDs uppercased -
-        // the fast path (32 chars) must not require lowercase, otherwise every uppercase-storing
-        // Seerr instance would report ALL users as "not linked to Seerr".
+        // BUG GUARD: case-insensitive matching. Seerr occasionally stores IDs uppercased - the fast path (32 chars) must not require lowercase, otherwise every uppercase-storing Seerr instance would report ALL users as "not linked to Seerr".
         var guid = Guid.Parse("aabbccdd-1122-3344-5566-778899aabbcc");
         var users = new List<SeerrUser>
         {
@@ -126,9 +107,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     [Fact]
     public void FindSeerrUserByJellyfinId_WrongLengthId_IsSkipped()
     {
-        // BUG GUARD: an ID that is neither 32 nor 36 chars long is not a valid Guid representation
-        // and must be silently skipped, not passed to the comparison path (which could produce
-        // false matches on partial substrings if the normalisation ever regressed).
+        // BUG GUARD: an ID that is neither 32 nor 36 chars long is not a valid Guid representation and must be silently skipped, not passed to the comparison path (which could produce false matches on partial substrings if the normalisation ever regressed).
         var guid = Guid.Parse("11111111-2222-3333-4444-555555555555");
         var users = new List<SeerrUser>
         {
@@ -169,13 +148,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
         Assert.Equal(1, result!.Id);
     }
 
-    // ============================================================================
-    // BuildAllowedProfileList
-    //   • filterToDefault=true: emit only the server's ActiveProfileId per server.
-    //   • filterToDefault=false: emit every profile × every distinct root folder per server.
-    //   • Falls back to ActiveDirectory when RootFolders is empty (backward compat).
-    //   • IsDefault is set correctly per emitted entry.
-    // ============================================================================
+    // BuildAllowedProfileList • filterToDefault=true: emit only the server's ActiveProfileId per server. • filterToDefault=false: emit every profile × every distinct root folder per server.
 
     [Fact]
     public void BuildAllowedProfileList_NoServers_ReturnsEmpty()
@@ -201,10 +174,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     [Fact]
     public void BuildAllowedProfileList_FilterToDefault_ActiveProfileMissing_SkipsServer()
     {
-        // BUG GUARD: when Seerr reports an ActiveProfileId that doesn't exist in Profiles,
-        // we MUST NOT synthesize one from Profiles[0]. The doc explicitly says this is safer
-        // (falls back to Seerr's own server defaults). A refactor that "helpfully" picks Profiles[0]
-        // could over-grant a random profile.
+        // BUG GUARD: when Seerr reports an ActiveProfileId that doesn't exist in Profiles, we MUST NOT synthesize one from Profiles[0].
         var server = MakeServer(
             id: 1, name: "Radarr-1", activeProfileId: 999,
             profiles: [MakeProfile(100, "HD")]);
@@ -252,9 +222,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     [Fact]
     public void BuildAllowedProfileList_FullList_EmptyPathsRootFolder_IsSkipped()
     {
-        // Root folder entries with empty paths must be filtered out before the Cartesian
-        // product. Emitting `RootFolder=""` in the advanced-user path would defeat the
-        // "exact-match triple" validation in SubmitMyRequest for that entry.
+        // Root folder entries with empty paths must be filtered out before the Cartesian product. Emitting `RootFolder=""` in the advanced-user path would defeat the "exact-match triple" validation in SubmitMyRequest for that entry.
         var server = MakeServer(
             id: 1, name: "Radarr-1", activeProfileId: 100,
             profiles: [MakeProfile(100, "HD")],
@@ -340,9 +308,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
         Assert.False(secondaryEntry.IsDefault);
     }
 
-    // ============================================================================
     // Test helpers - small factory functions to keep test bodies focused on assertions.
-    // ============================================================================
 
     private static SeerrServiceInfo MakeServer(
         int id,
@@ -380,9 +346,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     private static SeerrQualityProfile MakeProfile(int id, string name)
         => new() { Id = id, Name = name };
 
-    // ============================================================================
     // Reflection glue
-    // ============================================================================
 
     private static SeerrUser? Invoke(IReadOnlyList<SeerrUser> seerrUsers, Guid jellyfinUserId)
     {

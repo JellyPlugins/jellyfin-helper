@@ -12,10 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 
 /// <summary>
-///     Tests for the failure and edge-case paths of <see cref="BackupService"/>: partial-apply
-///     warnings when a config mutation throws after a file write, directory creation on save,
-///     save-failure handling, and the size/DoS + corrupt-JSON guards in the source-file loader.
-///     These paths are deliberately not exercised by the happy-path restore/create tests.
+///     Tests for the failure and edge-case paths of BackupService: partial-apply warnings when a config mutation throws after a file write, directory creation on save, save-failure handling, and the size/DoS + corrupt-JSON guards in the source-file loader.
 /// </summary>
 public sealed class BackupServiceErrorHandlingTests : IDisposable
 {
@@ -83,9 +80,7 @@ public sealed class BackupServiceErrorHandlingTests : IDisposable
     [Fact]
     public void RestoreBackup_ConfigMutationThrowsAfterFileWrite_RethrowsAndWarnsPartialApply()
     {
-        // The timeline file is written first, so once RestoreConfiguration throws the restore
-        // is in a partially-applied state. The service must surface that with a warning naming
-        // both data files and must re-throw the original exception rather than swallow it.
+        // The timeline file is written first, so once RestoreConfiguration throws the restore is in a partially-applied state.
         var pluginLogMock = new Mock<IPluginLogService>();
         var liveConfig = new PluginConfiguration();
         var configMock = new Mock<IPluginConfigurationService>();
@@ -151,9 +146,7 @@ public sealed class BackupServiceErrorHandlingTests : IDisposable
     [Fact]
     public void RestoreBackup_SaveFails_ReturnsFalseAndDoesNotMarkRestored()
     {
-        // Place a regular file where the data-path directory should be so Directory.CreateDirectory
-        // throws an IOException that SaveJsonFile catches: the write must report failure, the
-        // restored flag must stay false, and the error must be logged - not silently dropped.
+        // Place a regular file where the data-path directory should be so Directory.CreateDirectory throws an IOException that SaveJsonFile catches: the write must report failure, the restored flag must stay false, and the error must be logged - not silently dropped.
         var filePosingAsDataPath = Path.Join(_tempDir, "iam-a-file");
         File.WriteAllText(filePosingAsDataPath, "not a directory");
 

@@ -10,8 +10,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 [Collection("ConfigOverride")]
 public class I18NServiceTests : IDisposable
 {
-    // ===== configPage.html <-> I18nService sync tests =====
-
     private static readonly Regex CallRegex = new(@"T\(\s*'([^']+)'", RegexOptions.Compiled);
     private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();
 
@@ -27,8 +25,6 @@ public class I18NServiceTests : IDisposable
         _log.TestMinLevelOverride = null;
     }
 
-    // ===== SupportedLanguages Tests =====
-
     [Fact]
     public void SupportedLanguages_ContainsExpectedLanguages()
     {
@@ -43,8 +39,6 @@ public class I18NServiceTests : IDisposable
         Assert.Contains("sv", languages);
         Assert.Equal(8, languages.Count);
     }
-
-    // ===== GetTranslations Tests =====
 
     [Fact]
     public void GetTranslations_NullLanguage_FallsBackToEnglish()
@@ -240,8 +234,6 @@ public class I18NServiceTests : IDisposable
             $"Language '{lang}' is missing the following keys present in English: {string.Join(", ", missingInLang)}");
     }
 
-    // ===== No extra keys in non-EN languages =====
-
     [Theory]
     [InlineData("de")]
     [InlineData("fr")]
@@ -261,8 +253,6 @@ public class I18NServiceTests : IDisposable
             extraKeys.Count == 0,
             $"Language '{lang}' has extra keys not in English: {string.Join(", ", extraKeys)}");
     }
-
-    // ===== No empty or whitespace values in any language =====
 
     [Theory]
     [InlineData("en")]
@@ -287,8 +277,6 @@ public class I18NServiceTests : IDisposable
             emptyKeys.Count == 0,
             $"Language '{lang}' has empty/whitespace values for keys: {string.Join(", ", emptyKeys)}");
     }
-
-    // ===== Singular/Plural pairs must both exist =====
 
     [Theory]
     [InlineData("en")]
@@ -327,8 +315,6 @@ public class I18NServiceTests : IDisposable
         }
     }
 
-    // ===== Translations should actually differ from English (smoke test for real translation) =====
-
     [Theory]
     [InlineData("de")]
     [InlineData("fr")]
@@ -344,8 +330,6 @@ public class I18NServiceTests : IDisposable
 
         Assert.NotEqual(english["scanLibraries"], translations["scanLibraries"]);
     }
-
-    // ===== Keys that are expected to be the same across languages (technical terms) =====
 
     [Theory]
     [InlineData("en")]
@@ -363,8 +347,6 @@ public class I18NServiceTests : IDisposable
         // These are technical terms that should not be translated
         Assert.Equal("URL", translations["url"]);
     }
-
-    // ===== EnglishHasAllExpectedKeys should include new keys =====
 
     [Fact]
     public void GetTranslations_EnglishHasNewSingularAndLoadErrorKeys()
@@ -384,8 +366,6 @@ public class I18NServiceTests : IDisposable
         }
     }
 
-    // ===== settingsError and settingsLoadError should have different values =====
-
     [Theory]
     [InlineData("en")]
     [InlineData("de")]
@@ -403,8 +383,6 @@ public class I18NServiceTests : IDisposable
         Assert.True(translations.ContainsKey("settingsLoadError"), $"'{lang}' missing settingsLoadError");
         Assert.NotEqual(translations["settingsError"], translations["settingsLoadError"]);
     }
-
-    // ===== Logging integration tests =====
 
     [Fact]
     public void GetTranslations_UnknownLanguage_LogsDebugFallback()
@@ -428,8 +406,6 @@ public class I18NServiceTests : IDisposable
         Assert.DoesNotContain(entries, e => e.Level == "ERROR");
     }
 
-    // ===== Key count consistency - all languages have same count =====
-
     [Theory]
     [InlineData("de")]
     [InlineData("fr")]
@@ -445,8 +421,6 @@ public class I18NServiceTests : IDisposable
 
         Assert.Equal(english.Count, translations.Count);
     }
-
-    // ===== Concurrency / Lazy<> pattern tests =====
 
     [Fact]
     public async Task GetTranslations_ConcurrentCalls_LoadFromResourceCalledOnce()

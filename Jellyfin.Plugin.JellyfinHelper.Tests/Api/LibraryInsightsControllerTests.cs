@@ -86,9 +86,7 @@ public class LibraryInsightsControllerTests
     [Fact]
     public async Task GetInsightsAsync_ReturnsCachedResult_WhenPopulatedByConcurrentCallDuringLockWait()
     {
-        // Two callers miss the initial cache check and race for CacheFillLock. The winner must
-        // compute+cache once while the loser, blocked in WaitAsync, then hits the double-check
-        // (line 66) and returns the already-cached value instead of scanning the filesystem again.
+        // Two callers miss the initial cache check and race for CacheFillLock. The winner must compute+cache once while the loser, blocked in WaitAsync, then hits the double-check (line 66) and returns the already-cached value instead of scanning the filesystem again.
         var started = new TaskCompletionSource();
         var gate = new TaskCompletionSource();
         var callCount = 0;

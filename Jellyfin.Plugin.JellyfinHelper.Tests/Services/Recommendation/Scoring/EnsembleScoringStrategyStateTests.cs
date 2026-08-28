@@ -7,10 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Tests for ensemble state persistence and restoration in <see cref="EnsembleScoringStrategy"/>:
-///     the state-path derivation fallback, the load-time guards (size, null, schema mismatch,
-///     empty state, over-ceiling neural beta), the I/O and JSON error fallbacks, and the
-///     non-critical save-failure path.
+///     Tests for ensemble state persistence and restoration in EnsembleScoringStrategy: the state-path derivation fallback, the load-time guards (size, null, schema mismatch, empty state, over-ceiling neural beta), the I/O and JSON error fallbacks, and the non-critical save-failure path.
 /// </summary>
 public sealed class EnsembleScoringStrategyStateTests : IDisposable
 {
@@ -268,9 +265,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
     [Fact]
     public void Train_StatePathUnwritable_SaveIOExceptionSwallowed()
     {
-        // A file occupies a path segment that the save needs to be a directory, so
-        // Directory.CreateDirectory / the atomic write raises IOException. Training must
-        // still succeed and not throw despite the save failure.
+        // A file occupies a path segment that the save needs to be a directory, so Directory.CreateDirectory / the atomic write raises IOException.
         var blockingFile = Path.Join(_tempDir, "blocker");
         File.WriteAllText(blockingFile, "x");
         var unwritableStatePath = Path.Join(blockingFile, "nested", "ensemble_state.json");
@@ -295,13 +290,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
     [Fact]
     public void Train_ReadOnlyStateFile_SaveUnauthorizedAccessSwallowed()
     {
-        // Force the save to fail in a way that is denied on BOTH Windows and Linux. A read-only
-        // file attribute is not a reliable cross-platform denial: on Linux, especially as root in
-        // CI, the write is not blocked and no warning would fire. Instead we make the state path an
-        // existing *directory* - AtomicFile writes its temp file fine, but File.Exists(statePath)
-        // is false for a directory so it takes the File.Move branch, and moving a file onto an
-        // existing directory name throws IOException on both platforms. Training must still succeed
-        // and only log a warning.
+        // Force the save to fail in a way that is denied on BOTH Windows and Linux. A read-only file attribute is not a reliable cross-platform denial: on Linux, especially as root in CI, the write is not blocked and no warning would fire.
         Directory.CreateDirectory(StatePath);
 
         var logger = new Mock<ILogger>();

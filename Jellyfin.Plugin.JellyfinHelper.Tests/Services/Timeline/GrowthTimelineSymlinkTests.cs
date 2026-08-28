@@ -6,9 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 
 /// <summary>
-///     Tests that <see cref="GrowthTimelineService.GetDirectorySize" /> skips child-directory
-///     symlinks and junction points during recursion, preventing StackOverflowException
-///     from circular directory structures (A -> B -> A). The caller-supplied root is followed.
+///     Tests that GetDirectorySize skips child-directory symlinks and junction points during recursion, preventing StackOverflowException from circular directory structures (A -> B -> A).
 /// </summary>
 public class GrowthTimelineSymlinkTests : IDisposable
 {
@@ -64,9 +62,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
-            // Symlink creation requires elevated privileges on some Windows configurations.
-            // xUnit 2.x has no Assert.Skip - early return keeps the test green but un-asserted,
-            // which is acceptable: the test runs and asserts on runners that support symlinks.
+            // Symlink creation requires elevated privileges on some Windows configurations. xUnit 2.x has no Assert.Skip - early return keeps the test green but un-asserted, which is acceptable: the test runs and asserts on runners that support symlinks.
             _ = ex;
             return;
         }
@@ -118,9 +114,6 @@ public class GrowthTimelineSymlinkTests : IDisposable
     public void GetDirectorySize_RootIsSymlink_CountsFilesInsideTarget()
     {
         // Library roots can be symlinks (e.g. network mounts, bind mounts).
-        // GetDirectorySize must traverse them so that timeline statistics are correct.
-        // The ReparsePoint guard only applies to *sub*directories discovered during recursion
-        // to prevent cycles - it intentionally does not skip the caller-supplied root.
         var realDir = Path.Join(_testRoot, "real_root_target");
         var linkDir = Path.Join(_testRoot, "symlink_root");
         Directory.CreateDirectory(realDir);
@@ -261,10 +254,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
     // ── Minimal IFileSystem adapter that reads from the real filesystem ───────
 
     /// <summary>
-    ///     Thin adapter that delegates <c>GetFiles</c> and <c>GetDirectories</c> to the
-    ///     real filesystem so the symlink tests can create actual reparse points on disk.
-    ///     All other members throw <see cref="NotImplementedException" /> - they are never
-    ///     called by <see cref="GrowthTimelineService.GetDirectorySize" />.
+    ///     Thin adapter that delegates GetFiles and GetDirectories to the real filesystem so the symlink tests can create actual reparse points on disk.
     /// </summary>
     private sealed class RealFileSystemAdapter : IFileSystem
     {

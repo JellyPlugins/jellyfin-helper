@@ -11,9 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 /// <summary>
-///     File-based persistence for discovery feedback data.
-///     Stores per-user interaction history (shown, dismissed, requested, watched)
-///     in a JSON file for consumption by the training data builder.
+///     File-based persistence for discovery feedback data. Stores per-user interaction history (shown, dismissed, requested, watched) in a JSON file for consumption by the training data builder.
 /// </summary>
 public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 {
@@ -32,8 +30,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     private const int MaxEntriesPerUser = 200;
 
     /// <summary>
-    ///     Maximum age (in days) of feedback entries before they are evicted.
-    ///     Entries older than this are removed during save to prevent stale data accumulation.
+    ///     Maximum age (in days) of feedback entries before they are evicted. Entries older than this are removed during save to prevent stale data accumulation.
     /// </summary>
     private const int MaxEntryAgeDays = 365;
 
@@ -147,10 +144,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <summary>
-    ///     Backfills metadata on an existing placeholder entry (created by RecordDismissed/RecordRequested
-    ///     before RecordShown ran) or an entry missing enriched data (e.g., KnownPeople not available
-    ///     on first generation but enriched on a subsequent run). Each field is merged individually
-    ///     to avoid overwriting already-populated fields with empty/default values.
+    ///     Backfills metadata on an existing placeholder entry (created by RecordDismissed/RecordRequested before RecordShown ran) or an entry missing enriched data (e.g., KnownPeople not available on first generation but enriched on a subsequent run).
     /// </summary>
     /// <param name="existing">The existing feedback entry to backfill in place.</param>
     /// <param name="item">The freshly shown recommendation providing candidate values.</param>
@@ -189,8 +183,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <summary>
-    ///     Backfills the score, popularity, and known-people fields of an existing entry. Extracted
-    ///     verbatim from <see cref="BackfillExistingEntry"/> to keep each merge routine focused.
+    ///     Backfills the score, popularity, and known-people fields of an existing entry. Extracted verbatim from BackfillExistingEntry to keep each merge routine focused.
     /// </summary>
     /// <param name="existing">The existing feedback entry to backfill in place.</param>
     /// <param name="item">The freshly shown recommendation providing candidate values.</param>
@@ -397,13 +390,6 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
     /// <summary>
     ///     Loads the feedback data from the in-memory cache or disk and returns a deep copy.
-    ///     Must be called under <see cref="_fileLock"/>.
-    ///     <para>
-    ///         Always returns a deep copy so callers may freely mutate the returned list
-    ///         (add/remove entries, modify nested properties) without corrupting the shared
-    ///         <see cref="_memoryCache"/>. <see cref="SaveInternal"/> atomically swaps
-    ///         <see cref="_memoryCache"/> to the post-eviction copy on a successful disk write.
-    ///     </para>
     /// </summary>
     private List<DiscoveryFeedbackResult> LoadInternal()
     {
@@ -455,9 +441,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <summary>
-    ///     Saves the feedback data to disk using atomic write (temp file + move).
-    ///     Applies eviction rules before saving.
-    ///     Must be called under <see cref="_fileLock"/>.
+    ///     Saves the feedback data to disk using atomic write (temp file + move). Applies eviction rules before saving.
     /// </summary>
     private void SaveInternal(List<DiscoveryFeedbackResult> data)
     {
@@ -465,9 +449,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         // The copy is swapped into _memoryCache atomically after a successful disk write.
         var workingCopy = data.Select(CloneResult).ToList();
 
-        // Eviction: remove entries older than MaxEntryAgeDays and cap per-user count.
-        // Use the latest interaction timestamp (not just ShownAtUtc) to prevent evicting
-        // entries that were recently dismissed or requested but originally shown long ago.
+        // Eviction: remove entries older than MaxEntryAgeDays and cap per-user count. Use the latest interaction timestamp (not just ShownAtUtc) to prevent evicting entries that were recently dismissed or requested but originally shown long ago.
         var cutoff = DateTime.UtcNow.AddDays(-MaxEntryAgeDays);
         foreach (var userResult in workingCopy)
         {
@@ -497,27 +479,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
             var json = JsonSerializer.Serialize(workingCopy, JsonOptions);
 
-            // Use AtomicFile so a transient sharing violation on the final File.Move
-            // (typical when an AV scanner or the Search indexer briefly holds the file
-            // handle) gets a bounded retry with backoff. AtomicFile also handles
-            // temp-file cleanup internally.
+            // Use AtomicFile so a transient sharing violation on the final File.Move (typical when an AV scanner or the Search indexer briefly holds the file handle) gets a bounded retry with backoff.
             AtomicFile.WriteAllText(_filePath, json);
 
             // Atomically replace the live cache with the post-eviction copy.
             _memoryCache = workingCopy;
         }
 
-        // Broader filter than plain IOException / UnauthorizedAccessException / JsonException
-        // because AtomicFile.WriteAllText can also surface SecurityException,
-        // NotSupportedException and ArgumentException (malformed path characters from OS layer).
-        // Best-effort save must degrade gracefully for every one of those rather than crashing
-        // the calling task or request. Matches the filter used in StatisticsCacheService.
-        //
-        // Not covered by unit tests: reliably provoking SecurityException / NotSupportedException
-        // in-process requires filesystem edge cases (locked-down user accounts, exotic path
-        // syntax on non-Windows) that a portable xUnit run cannot reproduce. The handler body
-        // is shape-identical for all six exception types (log + invalidate cache, no partial
-        // writes to on-disk state), so extending the filter cannot introduce a new failure mode.
+        // Broader filter than plain IOException / UnauthorizedAccessException / JsonException because AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException and ArgumentException (malformed path characters from OS layer).
         catch (Exception ex) when (ex is IOException
                                     or UnauthorizedAccessException
                                     or JsonException
@@ -593,9 +562,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <summary>
-    ///     Returns the most recent activity timestamp for a feedback entry.
-    ///     Used by eviction logic to retain entries with recent interactions
-    ///     even if their original <see cref="DiscoveryFeedbackEntry.ShownAtUtc"/> is old.
+    ///     Returns the most recent activity timestamp for a feedback entry. Used by eviction logic to retain entries with recent interactions even if their original ShownAtUtc is old.
     /// </summary>
     private static DateTime GetLatestActivityUtc(DiscoveryFeedbackEntry entry)
     {

@@ -1,14 +1,4 @@
-/**
- * Recommendations -> playlist lifecycle. The named "Deactivate purges playlists"
- * and "sync-off purges" branches are only status-checked today, so a no-op purge
- * passes. Here we prove creation, then purge, via the Jellyfin playlist API and
- * the on-disk recommendation cache.
- *
- * Honest caveat: recommendation GENERATION depends on the ML engine finding
- * something to recommend from the (small, freshly-scanned) fake library. If a
- * run produces zero playlists we SKIP the purge assertion with a clear message
- * rather than assert vacuously - a green purge test against nothing is worthless.
- */
+/** * Recommendations -> playlist lifecycle. The named "Deactivate purges playlists" * and "sync-off purges" branches are only status-checked today, so a no-op purge * passes. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, sleep } from '../setup/api-client.ts';
 import { hasDocker, execInContainer } from '../setup/fs-assert.ts';
@@ -44,16 +34,7 @@ async function managedPlaylistCount(): Promise<number> {
 
 test.describe.serial('recommendations playlist create → purge', () => {
   test.beforeAll(async () => {
-    // Start from a clean slate: a prior run (or the earlier full suite against a
-    // persisted /config) can leave managed playlists on disk, which would make
-    // the create/purge deltas ambiguous. A Deactivate run purges them.
-    //
-    // Robust purge: on a loaded CI box the delete + library-refresh can lag well
-    // past a single task cycle, so we RE-RUN the Deactivate cleanup inside the
-    // poll loop (not just once) until the managed count reaches zero, matching the
-    // budget of the in-test purge assertion below. If it still can't reach a clean
-    // baseline we fail loudly here rather than let the test assert on a dirty state
-    // (which would otherwise look like a product bug in the create path).
+    // Start from a clean slate: a prior run (or the earlier full suite against a persisted /config) can leave managed playlists on disk, which would make the create/purge deltas ambiguous.
     await putConfig({ RecommendationsTaskMode: 'Deactivate', SyncRecommendationsToPlaylist: false });
     let baseline = await managedPlaylistCount();
     for (let i = 0; i < 10 && baseline > 0; i++) {

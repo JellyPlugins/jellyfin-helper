@@ -30,9 +30,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class ConfigurationController : ControllerBase
 {
-    // Single source of truth for accepted plugin log levels. Previously duplicated between
-    // UpdateLogLevel and ApplyRequestToConfig; hoisted to a shared constant so adding /
-    // removing a level touches one place instead of two that could silently drift.
+    // Single source of truth for accepted plugin log levels. Previously duplicated between UpdateLogLevel and ApplyRequestToConfig; hoisted to a shared constant so adding / removing a level touches one place instead of two that could silently drift.
     private static readonly string[] ValidLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
 
     private readonly IArrIntegrationService _arrService;
@@ -76,13 +74,7 @@ public class ConfigurationController : ControllerBase
     }
 
     /// <summary>
-    ///     Gets the current plugin configuration.
-    ///     API keys are replaced with a fixed-length masked placeholder
-    ///     (<see cref="ConfigurationResponse.ApiKeyMask"/>) so they
-    ///     never leave the server in plain text. Clients that need to change a key must
-    ///     send the real value via POST /Configuration; receiving the mask means the key
-    ///     is already set. Sending the mask back via POST is a no-op - the real stored
-    ///     key is preserved.
+    ///     Gets the current plugin configuration. API keys are replaced with a fixed-length masked placeholder (ApiKeyMask) so they never leave the server in plain text.
     /// </summary>
     /// <returns>The masked plugin configuration response.</returns>
     [HttpGet]
@@ -95,9 +87,6 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Gets the list of available Jellyfin libraries (virtual folders) for the multi-select UI.
-    ///     Returns only libraries that are eligible for cleanup (excludes music, boxsets, and
-    ///     collection-like libraries). The user's ExcludedLibraries setting is NOT applied here
-    ///     because users need to see currently-excluded libraries to uncheck them.
     /// </summary>
     /// <returns>A list of library names.</returns>
     [HttpGet("Libraries")]
@@ -144,7 +133,6 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Updates only the plugin log level without touching any other configuration fields.
-    ///     This avoids race conditions when the Logs tab changes the level while Settings may be open.
     /// </summary>
     /// <param name="request">The log level update request containing the new level.</param>
     /// <returns>A status result.</returns>
@@ -153,9 +141,7 @@ public class ConfigurationController : ControllerBase
     [ProducesResponseType(typeof(LogLevelResponse), StatusCodes.Status400BadRequest)]
     public ActionResult UpdateLogLevel([FromBody] LogLevelUpdateRequest request)
     {
-        // A literal `null` JSON body binds `request` to null on this [ApiController]
-        // (this endpoint has no ModelBindingLogFilter, unlike the main PUT), so guard
-        // explicitly to return a clean 400 instead of a NullReferenceException -> 500.
+        // A literal `null` JSON body binds `request` to null on this [ApiController] (this endpoint has no ModelBindingLogFilter, unlike the main PUT), so guard explicitly to return a clean 400 instead of a NullReferenceException -> 500.
         if (request is null)
         {
             return BadRequest(new LogLevelResponse { Message = "Request body is required." });
@@ -184,9 +170,7 @@ public class ConfigurationController : ControllerBase
     }
 
     /// <summary>
-    ///     Updates the plugin configuration. After saving, performs connection tests
-    ///     against all configured Arr instances and logs warnings for unreachable ones.
-    ///     The configuration is always saved regardless of connection test results.
+    ///     Updates the plugin configuration. After saving, performs connection tests against all configured Arr instances and logs warnings for unreachable ones.
     /// </summary>
     /// <param name="request">The configuration update request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -199,15 +183,7 @@ public class ConfigurationController : ControllerBase
         [FromBody] ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
     {
-        // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which
-        // runs with Order = int.MinValue so it fires *before* [ApiController]'s built-in
-        // ModelStateInvalidFilter. Any 400 for a malformed payload therefore comes with a
-        // matching WARNING entry in the plugin log - see ModelBindingLogFilter for the details.
-        //
-        // Defense-in-depth: if someone ever detaches the filter, we still want to reject a
-        // null request rather than NRE. The log line is intentionally absent here because the
-        // filter is the single source of truth for that diagnostic - we don't want duplicate
-        // entries if both paths ever fire together.
+        // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which runs with Order = int.MinValue so it fires *before* [ApiController]'s built-in ModelStateInvalidFilter.
         if (request is null)
         {
             return BadRequest(new { message = "Request body is required." });
@@ -225,9 +201,7 @@ public class ConfigurationController : ControllerBase
             return BadRequest(new { message = validationError });
         }
 
-        // Apply request values to the existing config (preserves accumulated statistics and internal state)
-        // Both the read and the mutation must happen inside ReadAndMutate so no other caller
-        // can interleave its own writes between GetConfiguration and SaveConfiguration.
+        // Apply request values to the existing config (preserves accumulated statistics and internal state) Both the read and the mutation must happen inside ReadAndMutate so no other caller can interleave its own writes between GetConfiguration and SaveConfiguration.
         PluginConfiguration config = null!;
         string persistedLogLevel = string.Empty;
         _configService.ReadAndMutate(cfg =>
@@ -243,9 +217,7 @@ public class ConfigurationController : ControllerBase
         // After saving, test all configured instance connections and log warnings
         var warnings = await TestAllConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
 
-        // Surface the dropped PluginLogLevel so the client doesn't think the change stuck.
-        // The Settings POST intentionally does not mutate the log level (owned by the Logs tab);
-        // callers that need to change it must use PUT /Configuration/LogLevel.
+        // Surface the dropped PluginLogLevel so the client doesn't think the change stuck. The Settings POST intentionally does not mutate the log level (owned by the Logs tab); callers that need to change it must use PUT /Configuration/LogLevel.
         if (!string.IsNullOrWhiteSpace(request.PluginLogLevel))
         {
             var requested = request.PluginLogLevel.Trim().ToUpperInvariant();
@@ -269,10 +241,7 @@ public class ConfigurationController : ControllerBase
             }
         }
 
-        // Warn (do not block) when ExcludedLibraries names libraries that do not currently exist.
-        // A stale/typo'd name is benign at runtime (it simply never matches during cleanup) but
-        // surfacing it helps the admin catch a mistake. Libraries can be renamed/removed and later
-        // re-added, so this is advisory only and never rejects the save.
+        // Warn (do not block) when ExcludedLibraries names libraries that do not currently exist. A stale/typo'd name is benign at runtime (it simply never matches during cleanup) but surfacing it helps the admin catch a mistake.
         if (!string.IsNullOrWhiteSpace(request.ExcludedLibraries))
         {
             var excluded = CleanupConfigHelper.ParseCommaSeparated(request.ExcludedLibraries);
@@ -296,7 +265,6 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Tests all configured instance connections (Arr + Seerr) and returns warnings for unreachable ones.
-    ///     Results are also logged to the PluginLogs so they appear in the log viewer.
     /// </summary>
     /// <param name="request">The configuration request containing instances to test.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -347,9 +315,7 @@ public class ConfigurationController : ControllerBase
         // the raw URL can embed user-info credentials (https://user:password@host).
         var seerrLabel = Services.Common.SsrfGuard.SafeEndpointLabel(seerrUrl);
 
-        // When the client echoes back the mask sentinel, the key was not changed - skip the test.
-        // ApplyRequestToConfig already preserved the real stored key; using the mask as a live
-        // credential would produce a guaranteed 401 from Seerr and a misleading warning.
+        // When the client echoes back the mask sentinel, the key was not changed - skip the test. ApplyRequestToConfig already preserved the real stored key; using the mask as a live credential would produce a guaranteed 401 from Seerr and a misleading warning.
         if (ApiKeyMaskResolver.IsMask(seerrApiKey))
         {
             return;
@@ -368,10 +334,7 @@ public class ConfigurationController : ControllerBase
             }
             else
             {
-                // Generic client-facing warning; the upstream `message` (which can reveal
-                // reachability/credential details) is logged server-side only. Matches the
-                // dedicated Seerr connection-test endpoint's behaviour. Uses the credential-safe
-                // label so a user-info password in the URL is never reflected or logged.
+                // Generic client-facing warning; the upstream `message` (which can reveal reachability/credential details) is logged server-side only.
                 warnings.Add($"Seerr instance ({seerrLabel}) is not reachable. Verify the URL and API Key.");
                 _pluginLog.LogWarning("API", $"Seerr instance ({seerrLabel}) is not reachable: {message}", logger: _logger);
             }
@@ -383,9 +346,6 @@ public class ConfigurationController : ControllerBase
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
         {
             // Handles network errors, timeouts, and non-token OperationCanceledException (e.g., HttpClient timeout).
-            // Return a GENERIC warning to the client. The raw ex.Message can reflect upstream reachability
-            // (e.g. "connection refused" vs "no such host") and turn the save endpoint into an internal-network
-            // oracle. The detailed exception is logged server-side only.
             warnings.Add($"Connection test failed for Seerr ({seerrLabel}). Verify the URL and API Key.");
             _pluginLog.LogWarning("API", $"Connection test failed for Seerr ({seerrLabel}): {ex.Message}", ex, _logger);
         }
@@ -409,9 +369,7 @@ public class ConfigurationController : ControllerBase
             return;
         }
 
-        // ConfigurationRequestValidator.Validate (run before this method) already rejects lists
-        // longer than the allowed maximum, so this cap is a runtime no-op; it makes the loop bound
-        // provably constant for taint analysis and guards against an unbounded test fan-out.
+        // ConfigurationRequestValidator.Validate (run before this method) already rejects lists longer than the allowed maximum, so this cap is a runtime no-op; it makes the loop bound provably constant for taint analysis and guards against an unbounded test fan-out.
         const int MaxInstances = 3;
         var count = Math.Min(instances.Count, MaxInstances);
         for (var i = 0; i < count; i++)
@@ -422,9 +380,7 @@ public class ConfigurationController : ControllerBase
                 continue;
             }
 
-            // Skip the live test when the client echoed back the mask sentinel - same guard as
-            // TestSeerrConnectionAsync. Sending the mask to Radarr/Sonarr produces a 401 and a
-            // spurious warning even though the real stored key is perfectly valid.
+            // Skip the live test when the client echoed back the mask sentinel - same guard as TestSeerrConnectionAsync.
             if (ApiKeyMaskResolver.IsMask(instance.ApiKey))
             {
                 continue;
@@ -470,9 +426,7 @@ public class ConfigurationController : ControllerBase
             }
             else
             {
-                // Generic client-facing warning; the upstream `message` (which can reveal
-                // reachability details) is logged server-side only. The credential-safe label
-                // strips any user-info password embedded in instance.Url.
+                // Generic client-facing warning; the upstream `message` (which can reveal reachability details) is logged server-side only.
                 var urlLabel = Services.Common.SsrfGuard.SafeEndpointLabel(instance.Url);
                 warnings.Add($"{typeName} instance '{label}' ({urlLabel}) is not reachable. Verify the URL and API Key.");
                 _pluginLog.LogWarning("API", $"{typeName} instance '{label}' ({urlLabel}) is not reachable: {message}", logger: _logger);
@@ -497,7 +451,6 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Maps all user-editable fields from the update request onto the existing plugin configuration.
-    ///     Preserves accumulated statistics and internal state that are not part of the request.
     /// </summary>
     /// <param name="request">The incoming configuration update request.</param>
     /// <param name="config">The existing plugin configuration to update.</param>
@@ -550,9 +503,7 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value.
-        // Trim before comparing so a client that pads the sentinel (e.g. " <mask> ") is still recognised
-        // correctly and never overwrites the real stored key with a literal copy of the mask.
+        // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value. Trim before comparing so a client that pads the sentinel (e.g.
         if (!ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
         {
             config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
@@ -564,10 +515,7 @@ public class ConfigurationController : ControllerBase
 
         NormalizePluginLogLevel(config);
 
-        // Update Radarr instances (clear + re-add from request).
-        // Snapshot existing instances BEFORE clearing so the sentinel guard can look up
-        // the stored key by Name+Url rather than positional index. Index-based restoration
-        // would silently assign the wrong key when the admin removes or reorders instances.
+        // Update Radarr instances (clear + re-add from request). Snapshot existing instances BEFORE clearing so the sentinel guard can look up the stored key by Name+Url rather than positional index.
         config.RadarrInstances = RebuildArrInstances(request.RadarrInstances, config.RadarrInstances);
 
         // Update Sonarr instances (clear + re-add from request).
@@ -576,8 +524,7 @@ public class ConfigurationController : ControllerBase
     }
 
     /// <summary>
-    ///     Applies the ML ensemble tuning fields (alpha bounds and genre-penalty floor) from the request,
-    ///     clamping each to the valid [0,1] range and enforcing the <c>min &lt;= max</c> invariant.
+    ///     Applies the ML ensemble tuning fields (alpha bounds and genre-penalty floor) from the request, clamping each to the valid [0,1] range and enforcing the min &lt;= max invariant.
     /// </summary>
     /// <param name="request">The incoming configuration update request.</param>
     /// <param name="config">The existing plugin configuration to update.</param>
@@ -613,13 +560,6 @@ public class ConfigurationController : ControllerBase
     private static void NormalizePluginLogLevel(PluginConfiguration config)
     {
         // PluginLogLevel is owned by the Logs tab and mutated exclusively via PUT /Configuration/LogLevel.
-        // The Settings POST payload is intentionally IGNORED for this field to close a TOCTOU race
-        // where the Settings page had captured a stale value at page load, then overwrote a
-        // concurrently-changed level (from the Logs tab or another admin session) on save.
-        // Keeping the merge server-side eliminates the need for a client-side preflight GET and
-        // guarantees the invariant regardless of which caller sends the POST. Legacy configs that
-        // arrive with an invalid persisted level are normalized to "INFO" as a self-healing
-        // fallback so downstream log-filtering code never has to deal with garbage.
         if (string.IsNullOrWhiteSpace(config.PluginLogLevel)
             || Array.IndexOf(ValidLogLevels, config.PluginLogLevel.Trim().ToUpperInvariant()) < 0)
         {
@@ -633,9 +573,7 @@ public class ConfigurationController : ControllerBase
     }
 
     /// <summary>
-    ///     Rebuilds an Arr instance list from the request, preserving stored API keys when the client
-    ///     echoes back the mask sentinel. The previous instances are snapshotted before clearing so the
-    ///     sentinel guard can look up the stored key by Name+URL rather than positional index.
+    ///     Rebuilds an Arr instance list from the request, preserving stored API keys when the client echoes back the mask sentinel.
     /// </summary>
     /// <param name="requestInstances">The instances from the incoming request (may be null).</param>
     /// <param name="existingInstances">The currently stored instances (may be null).</param>
@@ -660,20 +598,13 @@ public class ConfigurationController : ControllerBase
     }
 
     /// <summary>
-    ///     Resolves the API key for an incoming <see cref="ArrInstanceConfig"/> from a configuration update.
-    ///     When the client echoes back the mask sentinel (<see cref="ConfigurationResponse.ApiKeyMask"/>),
-    ///     the stored key is recovered by matching on Name+URL first (handles same-URL collision),
-    ///     then URL only (handles renames - admin keeps key without re-entering).
-    ///     When the client sends a real key, that value is used as-is.
+    ///     Resolves the API key for an incoming ArrInstanceConfig from a configuration update.
     /// </summary>
     private static string ResolveApiKey(
         ArrInstanceConfig incoming,
         List<ArrInstanceConfig> previousInstances)
     {
-        // Delegates to the shared resolver so the save path and the stateless Test-Connection
-        // endpoints (ArrIntegrationController / SeerrController) use one implementation of the
-        // mask-sentinel semantics. Behaviour is unchanged: non-mask keys pass through as-is,
-        // the mask recovers the stored key by Name+URL then URL-only fallback.
+        // Delegates to the shared resolver so the save path and the stateless Test-Connection endpoints (ArrIntegrationController / SeerrController) use one implementation of the mask-sentinel semantics.
         return ApiKeyMaskResolver.ResolveArrKey(
             incoming.ApiKey,
             incoming.Url,

@@ -17,16 +17,12 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 
 /// <summary>
-///     Creates and manages per-user recommendation playlists in Jellyfin.
-///     Playlists are identified by a well-known name prefix so they can be
-///     found and replaced on each scheduled run.
+///     Creates and manages per-user recommendation playlists in Jellyfin. Playlists are identified by a well-known name prefix so they can be found and replaced on each scheduled run.
 /// </summary>
 public sealed class RecommendationPlaylistService : IRecommendationPlaylistService
 {
     /// <summary>
-    ///     The prefix used to identify recommendation playlists managed by this plugin.
-    ///     This prefix is used for searching existing playlists to delete before recreation.
-    ///     The full playlist name includes a dynamic date suffix.
+    ///     The prefix used to identify recommendation playlists managed by this plugin. This prefix is used for searching existing playlists to delete before recreation.
     /// </summary>
     internal const string PlaylistNamePrefix = "🎬 Recommended";
 
@@ -94,11 +90,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     continue;
                 }
 
-                // Create new playlist with items in score-ranked order.
-                // Series items are resolved to their first episode to prevent Jellyfin's
-                // PlaylistManager from expanding the entire series into individual episodes.
-                // Items that cannot be resolved (e.g., empty series) are skipped,
-                // so we pass the full list and let the resolver collect up to maxResults playable items.
+                // Create new playlist with items in score-ranked order. Series items are resolved to their first episode to prevent Jellyfin's PlaylistManager from expanding the entire series into individual episodes.
                 var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count);
 
                 if (itemIds.Length == 0)
@@ -222,10 +214,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     }
 
     /// <summary>
-    ///     Builds the playlist name personalized with the user's display name.
-    ///     This ensures each user gets a uniquely named playlist on disk,
-    ///     preventing Jellyfin from auto-suffixing duplicate folder names.
-    ///     Example: "🎬 Recommended for Alice".
+    ///     Builds the playlist name with the user's display name so each user gets a uniquely named playlist on disk.
     /// </summary>
     /// <param name="userName">The user's display name.</param>
     /// <returns>The full playlist name.</returns>
@@ -235,24 +224,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     }
 
     /// <summary>
-    ///     Resolves recommendation item IDs into playable playlist item IDs.
-    ///     <para>
-    ///         Jellyfin's <see cref="IPlaylistManager"/> expands container items (Series, Seasons)
-    ///         into all their child episodes when added to a playlist. This means adding a Series ID
-    ///         results in every single episode appearing individually in the playlist.
-    ///     </para>
-    ///     <para>
-    ///         To prevent this, Series recommendations are resolved to their first episode (S01E01).
-    ///         This gives the user a single representative entry per series that they can navigate
-    ///         from, rather than flooding the playlist with hundreds of episodes.
-    ///     </para>
-    ///     <para>
-    ///         Movies and other non-series items are passed through unchanged.
-    ///         Items that cannot be resolved (empty series, missing media) are skipped.
-    ///         The method iterates through the full ranked list until <paramref name="maxItems"/>
-    ///         playable items have been collected, ensuring the playlist always reaches the
-    ///         desired count when enough candidates are available.
-    ///     </para>
+    ///     Resolves recommendation item IDs into playable playlist item IDs. Jellyfin's IPlaylistManager expands container items (Series, Seasons) into all their child episodes when added to a playlist.
     /// </summary>
     /// <param name="recommendations">The score-ranked recommendations to resolve.</param>
     /// <param name="maxItems">Maximum number of playable items to collect.</param>
@@ -312,10 +284,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     }
 
     /// <summary>
-    ///     Finds the first episode of a series by querying the library for all episodes
-    ///     belonging to the given series ID, then sorting by season and episode index in memory.
-    ///     In-memory sorting is used because Jellyfin's <c>InternalItemsQuery</c> does not
-    ///     reliably support <c>OrderBy</c> with <c>ParentIndexNumber</c> across all database backends.
+    ///     Finds the first episode of a series by querying the library for all episodes belonging to the given series ID, then sorting by season and episode index in memory.
     /// </summary>
     /// <param name="seriesId">The Jellyfin series item ID.</param>
     /// <returns>The ID of the first episode, or null if no episodes exist.</returns>
@@ -329,9 +298,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 IsFolder = false
             });
 
-        // Filter to real Episode objects and deprioritize specials (season 0) so the playlist
-        // resolves to an actual playable pilot episode (e.g. S01E01) rather than S00E01.
-        // The query already uses IsFolder=false which excludes container items.
+        // Filter to real Episode objects and deprioritize specials (season 0) so the playlist resolves to an actual playable pilot episode (e.g.
         var first = episodes
             .OfType<Episode>()
             .Where(e => !string.IsNullOrEmpty(e.Path))
@@ -344,8 +311,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     }
 
     /// <summary>
-    ///     Finds and removes all recommendation playlists owned by the specified user.
-    ///     Identifies managed playlists by the <see cref="PlaylistNamePrefix"/> prefix.
+    ///     Finds and removes all recommendation playlists owned by the specified user. Identifies managed playlists by the PlaylistNamePrefix prefix.
     /// </summary>
     /// <param name="userId">The user ID whose playlists to remove.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -375,9 +341,6 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var expectedName = BuildPlaylistName(user.Username);
 
         // Load ALL playlists visible to this user without SearchTerm filtering.
-        // Jellyfin's search index does not reliably match Unicode characters (emoji prefix),
-        // which caused old playlists to survive deletion and accumulate with suffixed names
-        // like "Recommended for you1", "Recommended for you11", etc.
         var existingPlaylists = _libraryManager.GetItemList(
             new InternalItemsQuery
             {
@@ -412,19 +375,14 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     }
 
     /// <summary>
-    ///     Returns true when the playlist name is one of ours: an exact match to
-    ///     <paramref name="expectedName"/>, or that name plus a numeric dedupe suffix. Extracted verbatim
-    ///     from <see cref="RemoveUserPlaylistsExcept"/>.
+    ///     Returns true when the playlist name is one of ours: an exact match to , or that name plus a numeric dedupe suffix.
     /// </summary>
     /// <param name="playlist">The candidate playlist item.</param>
     /// <param name="expectedName">The managed playlist name for this user.</param>
     /// <returns><c>true</c> when the playlist is a managed one.</returns>
     private static bool IsManagedPlaylistName(BaseItem playlist, string expectedName)
     {
-        // Match our managed playlists by exact name or exact name + numeric dedupe suffix
-        // (e.g. "🎬 Recommended for Alice1"). Using StartsWith alone would match
-        // "🎬 Recommended for Al" against "🎬 Recommended for Alice", potentially
-        // deleting another user's playlist.
+        // Match our managed playlists by exact name or exact name + numeric dedupe suffix (e.g. "🎬 Recommended for Alice1").
         return playlist.Name is not null
             && (
                 string.Equals(playlist.Name, expectedName, StringComparison.Ordinal)
@@ -437,26 +395,14 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     }
 
     /// <summary>
-    ///     Deletes a single managed playlist resiliently, falling back to a DB-only delete plus
-    ///     best-effort folder removal when the file-location delete throws. Extracted verbatim from the
-    ///     per-playlist body of <see cref="RemoveUserPlaylistsExcept"/>; the hardening behaviour is unchanged.
+    ///     Deletes a single managed playlist resiliently, falling back to a DB-only delete plus best-effort folder removal when the file-location delete throws.
     /// </summary>
     /// <param name="playlist">The playlist to remove.</param>
     /// <param name="userId">The owning user id (for logging).</param>
     /// <returns><c>true</c> when the playlist was removed (directly or via fallback).</returns>
     private bool TryRemovePlaylist(BaseItem playlist, Guid userId)
     {
-        // Delete the playlist resiliently. Two hardening points learned from an
-        // orphaned-folder case:
-        //   1. Per-playlist try/catch - a single failure must not abort deleting the
-        //      user's other managed playlists (the caller's catch is per-USER).
-        //   2. DeleteFileLocation=true can THROW when the on-disk playlist folder is
-        //      missing or its path drifted (Jellyfin appends a "1" dedupe suffix when a
-        //      stale folder lingers, so the item's Path may not match a deletable
-        //      location). If it throws, fall back to removing just the DB item
-        //      (DeleteFileLocation=false) so the playlist stops being re-imported on the
-        //      next scan, then best-effort delete the folder ourselves. Leaving the DB
-        //      row behind is what let a "purged" playlist resurrect.
+        // Delete the playlist resiliently. Two hardening points learned from an orphaned-folder.
         try
         {
             _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = true });
@@ -481,12 +427,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 fellBack = true;
                 var path = playlist.Path;
 
-                // playlist.Path is DB-sourced and, when a playlist's on-disk folder has
-                // drifted, may not point where we expect. Before recursively deleting it,
-                // confirm it resolves strictly INSIDE Jellyfin's own playlists root - never
-                // the root itself, and never a system/sensitive location. This keeps a
-                // fallback delete from ever escaping to /config, an OS dir, or another
-                // library because of a stale/hostile path.
+                // playlist.Path is DB-sourced and, when a playlist's on-disk folder has drifted, may not point where we expect.
                 var playlistsRoot = _playlistManager.GetPlaylistsFolder()?.Path;
                 if (!string.IsNullOrEmpty(path)
                     && !string.IsNullOrEmpty(playlistsRoot)

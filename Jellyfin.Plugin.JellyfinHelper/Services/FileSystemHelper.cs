@@ -6,16 +6,12 @@ using System.IO;
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
-///     Reusable filesystem operations with error handling.
-///     All methods gracefully handle <see cref="IOException" /> and <see cref="UnauthorizedAccessException" />
-///     by skipping silently (best-effort), ensuring that inaccessible directories never crash the caller.
+///     Reusable filesystem operations with error handling. All methods gracefully handle IOException and UnauthorizedAccessException by skipping silently (best-effort), ensuring that inaccessible directories never crash the caller.
 /// </summary>
 public static class FileSystemHelper
 {
     /// <summary>
-    ///     Calculates the total size of all files in a directory tree (iterative, no recursion).
-    ///     Symlinks and junction points are skipped to prevent cycles.
-    ///     Inaccessible directories are silently skipped.
+    ///     Calculates the total size of all files in a directory tree (iterative, no recursion). Symlinks and junction points are skipped to prevent cycles.
     /// </summary>
     /// <param name="path">The root directory path.</param>
     /// <returns>The total size in bytes.</returns>

@@ -14,23 +14,10 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
-///     A scheduled task to clean up orphaned subtitle files (.srt, .ass, .sub, etc.)
-///     that no longer have a corresponding video file with the same base name.
+///     A scheduled task to clean up orphaned subtitle files (.srt, .ass, .sub, etc.) that no longer have a corresponding video file with the same base name.
 /// </summary>
 /// <remarks>
-///     <para>
-///         Subtitle files typically follow a naming convention where the base name matches the video file:
-///         <c>Movie Name (2021).mkv</c> -> <c>Movie Name (2021).en.srt</c> or <c>Movie Name (2021).srt</c>.
-///     </para>
-///     <para>
-///         This task scans all directories recursively and for each subtitle file, checks whether any video
-///         file with a matching base name exists in the same directory. The matching is flexible:
-///         <c>Movie.en.srt</c> matches <c>Movie.mkv</c> because we strip language suffixes from the subtitle name.
-///     </para>
-///     <para>
-///         Note: Only subtitle files are cleaned. Images like <c>backdrop.jpg</c>, <c>poster.jpg</c> etc.
-///         are NOT touched because they typically don't follow the video-name pattern and serve the entire folder.
-///     </para>
+///     Subtitle files typically follow a naming convention where the base name matches the video file: Movie Name (2021).mkv -> Movie Name (2021).en.srt or Movie Name (2021).srt.
 /// </remarks>
 public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 {
@@ -131,10 +118,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Applies the per-directory guards (trickplay skip, trash-tree skip, reparse-point skip),
-    ///     lists the files, and builds the video base-name set. Verbatim extraction of the head of the
-    ///     directory loop body in <see cref="ProcessLocation" />: each original <c>continue</c> becomes
-    ///     <c>return false</c> (skip this directory). No path/extension guard, ordering, or condition is changed.
+    ///     Applies the per-directory guards (trickplay skip, trash-tree skip, reparse-point skip), lists the files, and builds the video base-name set.
     /// </summary>
     /// <param name="dirPath">The directory to prepare.</param>
     /// <param name="normalizedTrash">The normalized trash path (no trailing separator).</param>
@@ -171,10 +155,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             return false;
         }
 
-        // Symlink-traversal guard: FileInfo.LinkTarget below only inspects the FINAL
-        // subtitle file, so a symlinked ANCESTOR directory could still redirect our
-        // File.Delete into a real media tree. Skip any directory that is itself a reparse
-        // point (symlink/junction). We only ever clean subtitles inside real directories.
+        // Symlink-traversal guard: FileInfo.LinkTarget below only inspects the FINAL subtitle file, so a symlinked ANCESTOR directory could still redirect our File.Delete into a real media tree.
         try
         {
             if (IsReparsePoint(dirPath))
@@ -205,9 +186,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             videoBaseNames.Add(Path.GetFileNameWithoutExtension(file.FullName));
         }
 
-        // If there are no videos in this directory at all, skip - subtitles here
-        // are likely managed by the folder itself (season folder, etc.)
-        // The EmptyMediaFolder task handles entire orphaned folders.
+        // If there are no videos in this directory at all, skip - subtitles here are likely managed by the folder itself (season folder, etc.) The EmptyMediaFolder task handles entire orphaned folders.
         if (videoBaseNames.Count == 0)
         {
             return false;
@@ -217,10 +196,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Processes a single subtitle file: verbatim extraction of the per-file body of the
-    ///     subtitle loop in <see cref="ProcessLocation" />. Behaviour is identical — each original
-    ///     <c>continue</c> becomes a <c>return (0, 0)</c> (skip, nothing deleted). No TaskMode gate,
-    ///     orphan-detection condition, path/extension guard, delete/trash decision, or ordering is changed.
+    ///     Processes a single subtitle file. Extracted from the loop in <see cref="ProcessLocation"/>, behavior is identical.
     /// </summary>
     /// <param name="file">The candidate file entry from the directory listing.</param>
     /// <param name="videoBaseNames">The set of video base names present in the same directory.</param>
@@ -259,15 +235,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             return (0, 0);
         }
 
-        // Symlink guard for ALL modes (dry-run, trash, hard-delete): a subtitle that is
-        // itself a reparse point (symlink/junction) is never counted, never trashed, and
-        // never deleted. On NAS setups the subtitle may be a link whose target lives in a
-        // foreign tree; deleting or trashing the link relocates/removes the reference while
-        // the target stays behind. Hoisted above the mode branches (mutually exclusive per
-        // iteration) so a single check covers all three and dry-run output matches the real
-        // run. Uses IsReparsePointAnyType because a directory-typed link can surface as a
-        // file entry on some mounts. A stat failure is treated as "skip" (fail closed) and
-        // must not surface as a misleading delete error.
+        // Symlink guard for ALL modes (dry-run, trash, hard-delete): a subtitle that is itself a reparse point (symlink/junction) is never counted, never trashed, and never deleted.
         bool subtitleIsReparsePoint;
         try
         {
@@ -325,17 +293,6 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
     /// <summary>
     ///     Extracts the base name of a subtitle file, stripping language and format suffixes.
-    ///     For example:
-    ///     "Movie Name (2021).en.srt" -> "Movie Name (2021)"
-    ///     "Movie Name (2021).en.forced.srt" -> "Movie Name (2021)"
-    ///     "Movie Name (2021).srt" -> "Movie Name (2021)"
-    ///     "Movie Name (2021).de.hi.ass" -> "Movie Name (2021)"
-    ///     "Movie Name (2021).es-MX.srt" -> "Movie Name (2021)"
-    ///     "Movie Name (2021).pt-BR.forced.srt" -> "Movie Name (2021)"
-    ///     "Movie Name (2021).zh-Hans.srt" -> "Movie Name (2021)".
-    ///     If the stripped result does not match any known video base name, falls back to
-    ///     the original unsplit name (i.e., the filename without its subtitle extension)
-    ///     to avoid false-orphan detection when the movie title itself contains language codes.
     /// </summary>
     /// <param name="filePath">The full path to the subtitle file.</param>
     /// <param name="videoBaseNames">The set of video base names present in the same directory.</param>
@@ -363,10 +320,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         // Rejoin the parts up to endIndex
         var candidateBase = string.Join('.', parts, 0, endIndex + 1);
 
-        // Verify the stripped candidate actually matches a video file in the directory.
-        // If the movie title itself contains something that looks like a language code
-        // (e.g. "en.mkv"), stripping would produce a wrong base name. Fall back to the
-        // original unsplit name so that the caller's videoBaseNames lookup stays accurate.
+        // Verify the stripped candidate actually matches a video file in the directory. If the movie title itself contains something that looks like a language code (e.g.
         if (videoBaseNames.Contains(candidateBase))
         {
             return candidateBase;
@@ -377,9 +331,6 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
     /// <summary>
     ///     Determines whether a string segment is a known subtitle suffix (language code or flag).
-    ///     Supports simple codes (e.g., "en", "eng", "forced") as well as BCP-47 regional/script
-    ///     tags (e.g., "es-MX", "pt-BR", "zh-Hans", "sr-Latn").
-    ///     Uses explicit allowlists to avoid false positives with non-language segments like "DTS", "HDR", etc.
     /// </summary>
     /// <param name="segment">The dot-separated segment to check.</param>
     /// <returns>True if the segment is a recognized subtitle suffix; otherwise false.</returns>
@@ -396,13 +347,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             return true;
         }
 
-        // BCP-47 regional/script tags: "es-MX", "pt-BR", "zh-Hans", "sr-Latn", "en-US",
-        // "es-419", "zh-Hans-TW", etc.
-        // Supported formats:
-        //   {lang}-{region}         e.g. en-US, pt-BR
-        //   {lang}-{3-digit-region} e.g. es-419
-        //   {lang}-{script}         e.g. zh-Hans, sr-Latn
-        //   {lang}-{script}-{region} e.g. zh-Hans-TW
+        // BCP-47 regional/script tags: "es-MX", "pt-BR", "zh-Hans", "sr-Latn", "en-US", "es-419", "zh-Hans-TW", etc.
         var subtags = segment.Split('-');
         if (subtags.Length < 2 || subtags.Length > 3)
         {
@@ -438,9 +383,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Returns all subdirectories under <paramref name="libraryPath" /> using an explicit stack
-    ///     so that a single unreadable directory does not abort the scan and there is no
-    ///     per-call recursion depth risk on deep trees.
+    ///     Returns all subdirectories under using an explicit stack so that a single unreadable directory does not abort the scan and there is no per-call recursion depth risk on deep trees.
     /// </summary>
     private List<string> TryGetSubdirectories(string libraryPath)
     {
@@ -448,11 +391,6 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         var stack = new Stack<string>();
 
         // Reject a reparse-point (symlink/junction) library ROOT before enumerating its children.
-        // FileSystem.GetDirectories(libraryPath) returns the children as ordinary paths, and the
-        // root itself is never pushed onto the stack, so the per-directory reparse guard in
-        // ProcessLocation never sees the symlinked ancestor. Without this check the children of a
-        // symlinked root would be traversed and cleaned inside a foreign tree. A stat failure is
-        // treated as "do not traverse" (fail closed).
         if (!IsTraversableLibraryRoot(libraryPath))
         {
             return result;
@@ -466,11 +404,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             var current = stack.Pop();
             result.Add(current);
 
-            // Do not enumerate children of reparse-point (symlink/junction) directories.
-            // The per-directory guard in the caller already skips processing their content;
-            // not traversing here prevents following links into foreign trees before that
-            // guard has a chance to run. A stat failure is treated as "do not traverse"
-            // (fail closed) so a single unreadable entry does not abort the whole scan.
+            // Do not enumerate children of reparse-point (symlink/junction) directories. The per-directory guard in the caller already skips processing their content; not traversing here prevents following links into foreign trees before that guard has a chance to run.
             bool currentIsReparsePoint;
             try
             {
@@ -494,8 +428,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Returns <c>true</c> when the library root may be traversed (it exists and is not a
-    ///     reparse point). A stat failure is treated as "do not traverse" (fail closed).
+    ///     Returns true when the library root may be traversed (it exists and is not a reparse point).
     /// </summary>
     private bool IsTraversableLibraryRoot(string libraryPath)
     {
@@ -517,9 +450,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Pushes the direct child directories of <paramref name="directory"/> onto
-    ///     <paramref name="stack"/>. An enumeration failure is logged and swallowed so a single
-    ///     unreadable directory does not abort the scan.
+    ///     Pushes the direct child directories of onto . An enumeration failure is logged and swallowed so a single unreadable directory does not abort the scan.
     /// </summary>
     private void PushChildDirectories(string directory, Stack<string> stack)
     {

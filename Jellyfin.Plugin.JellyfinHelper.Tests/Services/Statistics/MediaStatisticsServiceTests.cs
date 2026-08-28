@@ -855,8 +855,6 @@ public class MediaStatisticsServiceTests
         Assert.Equal(2175, stats.TotalSize);
     }
 
-    // ===== Container Format Tracking Tests =====
-
     [Fact]
     public void CalculateStatistics_VideoFiles_TracksContainerFormats()
     {
@@ -896,8 +894,6 @@ public class MediaStatisticsServiceTests
         Assert.Contains(TestPath("media", "movies", "Film3.mp4"), stats.ContainerFormatPaths["MP4"]);
     }
 
-    // ===== Audio Codec Tracking in Statistics =====
-
     [Fact]
     public void CalculateStatistics_AudioFiles_TracksMusicAudioCodecs()
     {
@@ -936,8 +932,6 @@ public class MediaStatisticsServiceTests
         Assert.Contains(TestPath("media", "music", "Song2.flac"), stats.MusicAudioCodecPaths["FLAC"]);
         Assert.Contains(TestPath("media", "music", "Song3.mp3"), stats.MusicAudioCodecPaths["MP3"]);
     }
-
-    // ===== Health Check Tests =====
 
     [Fact]
     public void CalculateStatistics_VideoWithoutSubtitles_CountedInHealthCheck()
@@ -1259,8 +1253,6 @@ public class MediaStatisticsServiceTests
         Assert.Empty(tvStats.VideosWithoutNfoPaths);
     }
 
-    // ===== Audio Codec Tracking from Video Filenames =====
-
     [Fact]
     public void CalculateStatistics_VideoWithAudioCodecInFilename_TracksVideoAudioCodecs()
     {
@@ -1353,8 +1345,6 @@ public class MediaStatisticsServiceTests
         Assert.Equal(5_000_000, stats.MusicAudioCodecSizes["Vorbis"]);
     }
 
-    // ===== Resolution & Codec Tracking in Statistics =====
-
     [Fact]
     public void CalculateStatistics_VideoWithCodecInFilename_TracksVideoCodecs()
     {
@@ -1386,8 +1376,6 @@ public class MediaStatisticsServiceTests
         Assert.Equal(2, stats.VideoCodecs["Unknown"]);
         Assert.Equal(2, stats.Resolutions["Unknown"]);
     }
-
-    // ===== MediaStatisticsResult Aggregation Tests =====
 
     [Fact]
     public void MediaStatisticsResult_Aggregation_SumsCorrectly()
@@ -1434,8 +1422,6 @@ public class MediaStatisticsServiceTests
         Assert.Equal(22, result.TotalAudioFileCount);
     }
 
-    // ===== PathValidator Tests =====
-
     [Theory]
     [InlineData(null, false)]
     [InlineData("", false)]
@@ -1477,8 +1463,6 @@ public class MediaStatisticsServiceTests
     {
         Assert.Equal("report.csv", PathValidator.SanitizeFileName("report.csv"));
     }
-
-    // ===== MediaExtensions Codec Mapping Tests =====
 
     [Fact]
     public void MediaExtensions_AudioExtensionToCodec_KeysAreLowercaseDotPrefixed()
@@ -1656,8 +1640,6 @@ public class MediaStatisticsServiceTests
         Assert.Equal(1, movieStats.VideosWithoutImages);
         Assert.Equal(1, movieStats.VideosWithoutNfo);
     }
-
-    // ===== Codec Library Separation Tests =====
 
     [Fact]
     public void CalculateStatistics_MusicLibrary_DoesNotPopulateVideoCodecs()
@@ -1926,8 +1908,6 @@ public class MediaStatisticsServiceTests
         Assert.Contains("MKV", result.TotalContainerFormats.Keys);
     }
 
-    // ===== Trickplay Sizing Resilience Tests =====
-
     [Fact]
     public void CalculateStatistics_TrickplayGetFilesThrowsIoException_TreatsSizeAsZeroAndContinues()
     {
@@ -2005,12 +1985,8 @@ public class MediaStatisticsServiceTests
     }
 }
 
-// ===== Embedded Subtitle Detection Tests =====
-
 /// <summary>
-/// Tests for embedded subtitle detection in video files (e.g. MKV with built-in subtitle streams).
-/// Uses a testable subclass that overrides <see cref="MediaStatisticsService.HasEmbeddedSubtitles"/>
-/// to avoid relying on Jellyfin's internal media source infrastructure.
+///     Tests for embedded subtitle detection in video files (e.g. MKV with built-in subtitle streams).
 /// </summary>
 public class EmbeddedSubtitleDetectionTests
 {
@@ -2312,9 +2288,7 @@ public class EmbeddedSubtitleDetectionTests
     }
 
     /// <summary>
-    /// Testable subclass that overrides <see cref="MediaStatisticsService.HasEmbeddedSubtitles"/>
-    /// and <see cref="MediaStatisticsService.BuildItemLookup"/> to allow controlling embedded
-    /// subtitle detection and metadata lookup without Jellyfin's runtime infrastructure.
+    ///     Testable subclass that overrides HasEmbeddedSubtitles and BuildItemLookup to allow controlling embedded subtitle detection and metadata lookup without Jellyfin's runtime infrastructure.
     /// </summary>
     private sealed class TestableMediaStatisticsService(
         ILibraryManager libraryManager,
@@ -2341,16 +2315,11 @@ public class EmbeddedSubtitleDetectionTests
     }
 }
 
-// ===== Classify Method Unit Tests =====
-
 /// <summary>
-/// Unit tests for the static classifier methods in <see cref="MediaStatisticsService"/>.
-/// These methods map raw MediaStream codec/resolution/range data into display labels.
+///     Unit tests for the static classifier methods in MediaStatisticsService. These methods map raw MediaStream codec/resolution/range data into display labels.
 /// </summary>
 public class ClassifyMethodTests
 {
-    // === ClassifyVideoCodec ===
-
     [Theory]
     [InlineData("hevc", "HEVC")]
     [InlineData("HEVC", "HEVC")]
@@ -2390,8 +2359,6 @@ public class ClassifyMethodTests
     {
         Assert.Equal("SOMECODEC", MediaStatisticsService.ClassifyVideoCodec("somecodec"));
     }
-
-    // === ClassifyResolution ===
 
     [Theory]
     [InlineData(7680, 4320, "8K")]
@@ -2451,8 +2418,6 @@ public class ClassifyMethodTests
         Assert.Equal("576p", MediaStatisticsService.ClassifyResolution(576, 720));
     }
 
-    // === ClassifyDynamicRange ===
-
     [Theory]
     [InlineData(VideoRangeType.DOVI, VideoRange.Unknown, "Dolby Vision")]
     [InlineData(VideoRangeType.DOVIWithHDR10, VideoRange.Unknown, "Dolby Vision")]
@@ -2488,8 +2453,6 @@ public class ClassifyMethodTests
     {
         Assert.Equal("Unknown", MediaStatisticsService.ClassifyDynamicRange(null));
     }
-
-    // === ClassifyAudioCodec ===
 
     [Theory]
     [InlineData("truehd", null, "TrueHD")]
@@ -2554,11 +2517,8 @@ public class ClassifyMethodTests
     }
 }
 
-// ===== Metadata Extraction Integration Tests =====
-
 /// <summary>
-/// Integration tests that verify video and music metadata extraction from Jellyfin
-/// MediaStream data, using a testable subclass with pre-populated item lookups.
+///     Integration tests that verify video and music metadata extraction from Jellyfin MediaStream data, using a testable subclass with pre-populated item lookups.
 /// </summary>
 public class MetadataExtractionTests
 {
@@ -2878,7 +2838,7 @@ public class MetadataExtractionTests
         Assert.Equal(2, stats.Resolutions["4K"]);
         Assert.Equal(1, stats.Resolutions["1080p"]);
 
-        // Dynamic ranges – VideoRangeType is read-only on MediaStream, so all default to SDR
+        // Dynamic ranges , VideoRangeType is read-only on MediaStream, so all default to SDR
         // (specific DynamicRange classification is covered by ClassifyDynamicRange unit tests)
         Assert.Equal(3, stats.DynamicRanges["SDR"]);
 
@@ -3015,8 +2975,6 @@ public class MetadataExtractionTests
         // Container format still works (from file extension, not streams)
         Assert.Equal(1, stats.ContainerFormats["MKV"]);
     }
-
-    // ===== Per-File FindByPath Fallback Tests =====
 
     [Fact]
     public void CalculateStatistics_VideoNotInLookup_FallsBackToFindByPath()

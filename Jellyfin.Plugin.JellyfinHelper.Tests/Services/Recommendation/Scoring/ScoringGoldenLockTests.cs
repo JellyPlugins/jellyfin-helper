@@ -8,20 +8,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Behavior-lock ("golden") test that pins the exact numeric output of the deterministic
-///     scoring strategies. It fills a large batch of <see cref="CandidateFeatures" /> with
-///     seed-deterministic values (via reflection over every public settable property, so it
-///     covers all 38 features regardless of which one a refactor touches), scores each with the
-///     Heuristic, Learned and Neural strategies, and reduces every score to a single digest
-///     string. Any change in scoring math — the kind a pure structural S3776 refactor must NOT
-///     introduce — changes the digest and fails the test. This guards behavior independently of
-///     whatever the feature-specific unit tests happen to cover.
+///     Behavior-lock ("golden") test that pins the exact numeric output of the deterministic scoring strategies.
 /// </summary>
 public class ScoringGoldenLockTests
 {
-    // Deterministic digest of Heuristic+Learned+Neural scores over 500 seeded feature vectors.
-    // If a behavior-preserving refactor changes this, the refactor changed behavior. Regenerate
-    // ONLY when an intentional scoring-math change is made (and review the diff carefully).
+    // Deterministic digest of Heuristic+Learned+Neural scores over 500 seeded feature vectors. If a behavior-preserving refactor changes this, the refactor changed behavior.
     private const string ExpectedDigest = "C92AFA7751C77E7FE07513C01094B4A0CB4650B67B2515C93C6C0B53E2FEF940";
 
     [Fact]
@@ -29,9 +20,7 @@ public class ScoringGoldenLockTests
     {
         var digest = ComputeDigest();
 
-        // If this fails, a change altered scoring output. For a deliberate scoring-math change,
-        // regenerate ExpectedDigest from the new value (after reviewing the diff); otherwise the
-        // refactor was not behavior-preserving and must be fixed.
+        // If this fails, a change altered scoring output. For a deliberate scoring-math change, regenerate ExpectedDigest from the new value (after reviewing the diff); otherwise the refactor was not behavior-preserving and must be fixed.
         Assert.Equal(ExpectedDigest, digest);
     }
 
@@ -45,9 +34,7 @@ public class ScoringGoldenLockTests
             typeof(CandidateFeatures).GetProperties(BindingFlags.Public | BindingFlags.Instance),
             static p => p.CanWrite);
 
-        // Reflection does NOT guarantee a stable GetProperties() order across runtimes/platforms,
-        // so sort by name to make the seed-to-feature assignment (and thus the digest) identical
-        // on Windows and the Linux CI runner. Without this the digest is platform-dependent.
+        // Reflection does NOT guarantee a stable GetProperties() order across runtimes/platforms, so sort by name to make the seed-to-feature assignment (and thus the digest) identical on Windows and the Linux CI runner.
         Array.Sort(settableDoubles, static (a, b) => string.CompareOrdinal(a.Name, b.Name));
 
         var sb = new StringBuilder();
@@ -58,11 +45,7 @@ public class ScoringGoldenLockTests
             var l = learned.Score(features);
             var n = neural.Score(features);
 
-            // Round to 9 decimals before hashing. This test locks the SCORING LOGIC against
-            // accidental changes from structural refactors — it is not meant to detect sub-ULP
-            // floating-point differences between x64 Windows (dev) and Linux (CI), which can arise
-            // from JIT vectorization. Any real logic change moves a score by far more than 1e-9,
-            // so rounding keeps the guard strict while making the digest platform-stable.
+            // Round to 9 decimals before hashing.
             sb.Append(h.ToString("F9", CultureInfo.InvariantCulture)).Append('|')
               .Append(l.ToString("F9", CultureInfo.InvariantCulture)).Append('|')
               .Append(n.ToString("F9", CultureInfo.InvariantCulture)).Append(';');

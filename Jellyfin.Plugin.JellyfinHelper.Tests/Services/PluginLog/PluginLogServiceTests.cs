@@ -9,9 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.PluginLog;
 
 /// <summary>
-///     Unit tests for <see cref="PluginLogService" />.
-///     All tests use unique source markers (e.g. "__PLT_TestName__") and filter by source
-///     to avoid interference from parallel test classes that also write to the shared static buffer.
+///     Unit tests for PluginLogService. All tests use unique source markers (e.g.
 /// </summary>
 [Collection("ConfigOverride")]
 public class PluginLogServiceTests : IDisposable
@@ -37,8 +35,6 @@ public class PluginLogServiceTests : IDisposable
         _sut.TestMinLevelOverride = null;
     }
 
-    // ===== LogDebug =====
-
     /// <summary>
     ///     Verifies that LogDebug adds an entry with level DEBUG and correct fields.
     /// </summary>
@@ -58,7 +54,6 @@ public class PluginLogServiceTests : IDisposable
 
     /// <summary>
     ///     Verifies that LogDebug entries are filtered out by AddEntry when MinLevel is INFO.
-    ///     This is the critical test: AddEntry should NOT store DEBUG when config level is INFO.
     /// </summary>
     [Fact]
     public void LogDebug_NotStored_WhenMinLevelIsInfo()
@@ -147,8 +142,6 @@ public class PluginLogServiceTests : IDisposable
         var ex = Record.Exception(() => _sut.LogDebug("__PLT__", "No crash"));
         Assert.Null(ex);
     }
-
-    // ===== LogInfo =====
 
     /// <summary>
     ///     Verifies that LogInfo adds an entry with level INFO and correct fields.
@@ -259,8 +252,6 @@ public class PluginLogServiceTests : IDisposable
         Assert.Null(ex);
     }
 
-    // ===== LogWarning =====
-
     /// <summary>
     ///     Verifies that LogWarning adds an entry with level WARN.
     /// </summary>
@@ -367,8 +358,6 @@ public class PluginLogServiceTests : IDisposable
             Times.Once);
     }
 
-    // ===== LogError =====
-
     /// <summary>
     ///     Verifies that LogError adds an entry with level ERROR.
     /// </summary>
@@ -469,8 +458,6 @@ public class PluginLogServiceTests : IDisposable
         Assert.Null(ex);
     }
 
-    // ===== AddEntry MinLevel Filtering (cross-level matrix) =====
-
     /// <summary>
     ///     Verifies that only ERROR is stored when configured MinLevel is ERROR.
     /// </summary>
@@ -554,7 +541,6 @@ public class PluginLogServiceTests : IDisposable
 
     /// <summary>
     ///     Verifies that ILogger dual-logging still happens even when AddEntry filters out the entry.
-    ///     The ILogger should always receive the message regardless of plugin buffer level.
     /// </summary>
     [Fact]
     public void LogDebug_StillForwardsToILogger_EvenWhenFilteredFromBuffer()
@@ -605,11 +591,7 @@ public class PluginLogServiceTests : IDisposable
             Times.Once);
     }
 
-    // ===== IsEnabled Guard (CA1873) =====
-    // These lock in the contract of the IsEnabled(...) guards introduced with Jellyfin 12+
-    // and .NET 10 CA1873. When the ILogger reports the level as disabled, no forwarding
-    // occurs even though the in-memory buffer still stores the entry. Without these tests
-    // the guard could be silently removed without any assertion failing.
+    // These lock in the contract of the IsEnabled(...) guards introduced with Jellyfin 12+ and .NET 10 CA1873.
 
     /// <summary>
     ///     Verifies that LogDebug does NOT forward to ILogger when IsEnabled(Debug) is false,
@@ -718,8 +700,6 @@ public class PluginLogServiceTests : IDisposable
         Assert.Single(entries);
     }
 
-    // ===== GetConfiguredMinLevel =====
-
     /// <summary>
     ///     Verifies that GetConfiguredMinLevel returns the override when set.
     /// </summary>
@@ -742,8 +722,6 @@ public class PluginLogServiceTests : IDisposable
         var level = _sut.GetConfiguredMinLevel();
         Assert.Equal("INFO", level);
     }
-
-    // ===== GetEntries Filtering =====
 
     /// <summary>
     ///     Verifies that entries are returned newest-first.
@@ -895,8 +873,6 @@ public class PluginLogServiceTests : IDisposable
         Assert.Contains(entries, e => e.Source == src);
     }
 
-    // ===== Clear =====
-
     /// <summary>
     ///     Verifies that Clear removes all entries.
     /// </summary>
@@ -924,8 +900,6 @@ public class PluginLogServiceTests : IDisposable
         var ex = Record.Exception(() => _sut.Clear());
         Assert.Null(ex);
     }
-
-    // ===== Ring Buffer =====
 
     /// <summary>
     ///     Verifies that the ring buffer respects MaxEntries by not exceeding the maximum count.
@@ -968,8 +942,6 @@ public class PluginLogServiceTests : IDisposable
         Assert.DoesNotContain(allEntries, e => e.Message == "Message 49");
     }
 
-    // ===== Timestamp =====
-
     /// <summary>
     ///     Verifies that the entry timestamp is set to a recent UTC value.
     /// </summary>
@@ -984,8 +956,6 @@ public class PluginLogServiceTests : IDisposable
         var entry = _sut.GetEntries(source: src).First();
         Assert.InRange(entry.Timestamp, before, after);
     }
-
-    // ===== ExportAsText =====
 
     /// <summary>
     ///     Verifies that ExportAsText produces valid output with correct header and content.
@@ -1077,8 +1047,6 @@ public class PluginLogServiceTests : IDisposable
         Assert.Contains("UTC", text, StringComparison.Ordinal);
     }
 
-    // ===== GetLevelIndex =====
-
     /// <summary>
     ///     Verifies GetLevelIndex for known and unknown levels.
     /// </summary>
@@ -1102,8 +1070,6 @@ public class PluginLogServiceTests : IDisposable
     {
         Assert.Equal(expectedIndex, PluginLogService.GetLevelIndex(level));
     }
-
-    // ===== Edge Cases =====
 
     /// <summary>
     ///     Verifies that logging with empty source does not throw.
@@ -1159,14 +1125,8 @@ public class PluginLogServiceTests : IDisposable
         Assert.Equal(2, _sut.GetEntries(source: src).Count);
     }
 
-    // ===== Dynamic Log Level Change (mid-flight) =====
-
     /// <summary>
-    ///     Verifies that changing the log level at runtime takes effect immediately
-    ///     without restart. This simulates a user changing PluginLogLevel in Settings
-    ///     and saving - the very next log call should respect the new level.
-    ///     GetConfiguredMinLevel() reads plugin.Configuration.PluginLogLevel live
-    ///     on every AddEntry call (no caching), so changes are instant.
+    ///     Verifies that changing the log level at runtime takes effect immediately without restart.
     /// </summary>
     [Fact]
     public void LogLevel_ChangeMidFlight_TakesEffectImmediately()
@@ -1254,12 +1214,8 @@ public class PluginLogServiceTests : IDisposable
         Assert.Equal("stored", entries[0].Message);
     }
 
-    // ===== Constructor Guard & DI Integration =====
-
     /// <summary>
-    ///     Verifies that the constructor throws <see cref="ArgumentNullException" />
-    ///     when <c>null</c> is passed for <see cref="IPluginConfigurationService" />.
-    ///     This guards against misconfigured DI containers.
+    ///     Verifies that the constructor throws ArgumentNullException when null is passed for IPluginConfigurationService.
     /// </summary>
     [Fact]
     public void Constructor_NullConfigService_ThrowsArgumentNullException()
@@ -1268,9 +1224,7 @@ public class PluginLogServiceTests : IDisposable
     }
 
     /// <summary>
-    ///     Verifies that <see cref="PluginLogService" /> reads the configured log level
-    ///     from <see cref="IPluginConfigurationService" /> when no test override is set.
-    ///     This ensures the DI wiring is actually used at runtime.
+    ///     Verifies that PluginLogService reads the configured log level from IPluginConfigurationService when no test override is set.
     /// </summary>
     [Fact]
     public void GetConfiguredMinLevel_ReadsFromConfigService_WhenNoOverride()
@@ -1283,9 +1237,7 @@ public class PluginLogServiceTests : IDisposable
     }
 
     /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreatePluginLogService" /> with a custom
-    ///     configuration correctly wires the log level through <see cref="IPluginConfigurationService" />.
-    ///     DEBUG entries should be filtered when config says ERROR.
+    ///     Verifies that CreatePluginLogService with a custom configuration correctly wires the log level through IPluginConfigurationService.
     /// </summary>
     [Fact]
     public void CreatePluginLogService_WithCustomConfig_RespectsLogLevel()
@@ -1306,8 +1258,7 @@ public class PluginLogServiceTests : IDisposable
     }
 
     /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreatePluginLogService" /> with default config
-    ///     uses "INFO" as the default log level (matching <see cref="PluginConfiguration" /> default).
+    ///     Verifies that CreatePluginLogService with default config uses "INFO" as the default log level (matching PluginConfiguration default).
     /// </summary>
     [Fact]
     public void CreatePluginLogService_DefaultConfig_UsesInfoLevel()

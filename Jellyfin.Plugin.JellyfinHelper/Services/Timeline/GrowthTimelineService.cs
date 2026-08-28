@@ -16,12 +16,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 /// <summary>
-///     Computes a cumulative growth timeline based on media file creation dates.
-///     Uses a baseline snapshot from the first scan to enable accurate diff-based
-///     growth tracking on subsequent scans.
-///     Automatically selects the best granularity (daily/weekly/monthly/quarterly/yearly)
-///     depending on the time span between the oldest file and today.
-///     Pure aggregation logic is delegated to <see cref="TimelineAggregator" />.
+///     Computes a cumulative growth timeline based on media file creation dates. Uses a baseline snapshot from the first scan to enable accurate diff-based growth tracking on subsequent scans.
 /// </summary>
 public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 {
@@ -37,9 +32,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     // Guards individual file I/O operations (load/save).
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
-    // Guards the entire load-compute-save sequence so two concurrent invocations of
-    // ComputeTimelineAsync cannot both read the same baseline and then overwrite each
-    // other's results (TOCTOU on the baseline/timeline files).
+    // Guards the entire load-compute-save sequence so two concurrent invocations of ComputeTimelineAsync cannot both read the same baseline and then overwrite each other's results (TOCTOU on the baseline/timeline files).
     private readonly SemaphoreSlim _computeLock = new(1, 1);
 
     private readonly IFileSystem _fileSystem;
@@ -85,14 +78,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Computes the growth timeline by scanning top-level media directories.
-    ///     On the first scan, creates a baseline snapshot and builds a historical timeline
-    ///     from directory creation dates. On subsequent scans, uses an append-only snapshot
-    ///     approach: all previously persisted data points are treated as immutable history,
-    ///     and only the current time-bucket is updated with the actual total size/count.
-    ///     This ensures that deleting files whose creation dates lie in the past does NOT
-    ///     retroactively alter historical data points - the deletion shows up as a drop
-    ///     at the current point in time.
+    ///     Computes the growth timeline by scanning top-level media directories. On the first scan, creates a baseline snapshot and builds a historical timeline from directory creation dates.
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The growth timeline result.</returns>
@@ -102,10 +88,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Serialise the entire read-compute-write sequence. Without this gate two concurrent
-        // callers (e.g. a scheduled task and an API-triggered scan) both read the same baseline,
-        // compute independently, and the second SaveBaseline/SaveTimeline call silently discards
-        // the first caller's updates (TOCTOU on the persisted files).
+        // Serialise the entire read-compute-write sequence. Without this gate two concurrent callers (e.g.
         await _computeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -140,15 +123,10 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Trim leading zero-value data points but keep one zero just before the first non-zero
-            // as a visual baseline start. This avoids long flat 0-lines for historical buckets
-            // before any media existed, while still showing a library rebuild (drop to 0 then rise).
+            // Trim leading zero-value data points but keep one zero just before the first non-zero as a visual baseline start.
             dataPoints = TimelineAggregator.TrimLeadingZeros(dataPoints);
 
-            // Consolidate data points into the current granularity.
-            // When the time span grows (e.g. from <90 days to >90 days), the granularity
-            // upgrades (daily->weekly). Previously stored finer-grained points are merged
-            // into the coarser buckets so the persisted file stays compact.
+            // Consolidate data points into the current granularity. When the time span grows (e.g.
             var finalGranularity = dataPoints.Count > 0
                 ? TimelineAggregator.DetermineGranularity(dataPoints[0].Date, now)
                 : "monthly";
@@ -200,9 +178,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Builds the result for a scan that found no media directories. Persists a 0-snapshot so the
-    ///     timeline reflects the empty state instead of showing stale data from a previous scan; when
-    ///     there is no prior timeline, returns an empty monthly result.
+    ///     Builds the result for a scan that found no media directories. Persists a 0-snapshot so the timeline reflects the empty state instead of showing stale data from a previous scan; when there is no prior timeline, returns an empty monthly result.
     /// </summary>
     /// <param name="now">The current scan timestamp.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
@@ -254,8 +230,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Discards legacy baselines that used grouped keys (containing a '|' separator). These are
-    ///     incompatible with the per-directory format and would produce incorrect diffs.
+    ///     Discards legacy baselines that used grouped keys (containing a '|' separator). These are incompatible with the per-directory format and would produce incorrect diffs.
     /// </summary>
     /// <param name="baseline">The loaded baseline (may be null).</param>
     /// <returns>The baseline unchanged, or <see langword="null"/> when a legacy baseline was discarded.</returns>
@@ -278,8 +253,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     First scan: creates and persists a baseline from the current directories and builds the
-    ///     initial historical timeline from their creation dates and current sizes.
+    ///     First scan: creates and persists a baseline from the current directories and builds the initial historical timeline from their creation dates and current sizes.
     /// </summary>
     /// <param name="currentDirs">The currently scanned directories.</param>
     /// <param name="now">The current scan timestamp.</param>
@@ -290,7 +264,6 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         DateTime now,
         CancellationToken cancellationToken)
     {
-        // === FIRST SCAN: Create baseline and build historical timeline ===
         _pluginLog.LogInfo(
             LogSource,
             $"First scan: creating baseline with {currentDirs.Count} directory entries.",
@@ -332,10 +305,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Subsequent scan: builds data points using append-only semantics when a timeline exists
-    ///     (historical points immutable, only the current bucket updated), or falls back to historical
-    ///     reconstruction from the baseline when no timeline exists. Updates and persists the baseline
-    ///     with the current state for the next scan.
+    ///     Subsequent scan: builds data points using append-only semantics when a timeline exists (historical points immutable, only the current bucket updated), or falls back to historical reconstruction from the baseline when no timeline exists.
     /// </summary>
     /// <param name="currentDirs">The currently scanned directories.</param>
     /// <param name="baseline">The existing baseline.</param>
@@ -348,10 +318,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         DateTime now,
         CancellationToken cancellationToken)
     {
-        // === SUBSEQUENT SCAN: Append-only snapshot ===
-        // Historical data points are immutable. We only update the current bucket
-        // with the actual current total size/count. This prevents deletions of old
-        // files from retroactively altering past data points.
+        // Historical data points are immutable. We only update the current bucket with the actual current total size/count.
         cancellationToken.ThrowIfCancellationRequested();
 
         var existingTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
@@ -448,9 +415,6 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
     /// <summary>
     ///     Collects top-level media directory entries (path, creation date, total size) from all libraries.
-    ///     Each top-level subdirectory in a library (e.g. a movie folder or TV show folder)
-    ///     becomes one entry using its directory creation date and the total size of all files within.
-    ///     Files directly in a library root are also collected as individual entries.
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     private List<DirectoryEntry> CollectDirectoryEntries(CancellationToken cancellationToken)
@@ -491,8 +455,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Scans a single (non-reparse-point) library root for top-level media directories and loose
-    ///     media files, appending the resulting entries to <paramref name="entries" />.
+    ///     Scans a single (non-reparse-point) library root for top-level media directories and loose media files, appending the resulting entries to .
     /// </summary>
     /// <param name="location">The library root path.</param>
     /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
@@ -533,9 +496,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Evaluates a single top-level subdirectory and, when it qualifies, adds a directory entry
-    ///     for it to <paramref name="entries" />. Skips .trickplay/trash folders, reparse points, and
-    ///     directories with no usable creation date or zero total size.
+    ///     Evaluates a single top-level subdirectory and, when it qualifies, adds a directory entry for it to .
     /// </summary>
     /// <param name="subDirPath">The subdirectory path.</param>
     /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
@@ -557,9 +518,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             return;
         }
 
-        // Skip symlinks/junctions at the top level to prevent double-counting
-        // media that resides in another library or pulling external trees into
-        // the timeline. Child directories are checked inside GetDirectorySize().
+        // Skip symlinks/junctions at the top level to prevent double-counting media that resides in another library or pulling external trees into the timeline.
         try
         {
             var topLevelAttrs = new DirectoryInfo(subDirPath).Attributes;
@@ -577,12 +536,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             return;
         }
 
-        // Use directory creation date as "when this media was added". The timestamps
-        // must come from a live stat (Directory.Get*TimeUtc), NOT from the
-        // FileSystemMetadata the enumeration returned: Jellyfin's IFileSystem does not
-        // reliably populate those on every platform (they can come back as the
-        // DateTime.MinValue default), which would skip every entry. Skip only when no
-        // sane date can be derived from a real stat.
+        // Use directory creation date as "when this media was added".
         var createdUtc = ResolveEntryDateUtc(
             Directory.GetCreationTimeUtc(subDirPath),
             Directory.GetLastWriteTimeUtc(subDirPath));
@@ -611,8 +565,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Evaluates a single loose file in a library root and, when it is recognised media with a
-    ///     usable date, adds a directory entry for it to <paramref name="entries" />.
+    ///     Evaluates a single loose file in a library root and, when it is recognised media with a usable date, adds a directory entry for it to .
     /// </summary>
     /// <param name="file">The file metadata.</param>
     /// <param name="entries">The entry list to append to.</param>
@@ -647,9 +600,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Determines whether a directory should be skipped during traversal.
-    ///     Matches .trickplay directories and trash directories by leaf name (relative paths)
-    ///     or resolved full path (absolute paths).
+    ///     Determines whether a directory should be skipped during traversal. Matches .trickplay directories and trash directories by leaf name (relative paths) or resolved full path (absolute paths).
     /// </summary>
     private static bool ShouldSkipDirectory(
         string fullName,
@@ -675,11 +626,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Resolves the "added" date for a timeline entry from a live stat's creation/last-write
-    ///     timestamps. Single source of truth for the historical rule, shared by the directory and
-    ///     loose-file paths: prefer creation time; if it is a pre-1990 sentinel (filesystems that do
-    ///     not track creation time, e.g. Linux ext4, report a near-epoch value), fall back to
-    ///     last-write time; if both are pre-1990 the date is unusable and the caller skips the entry.
+    ///     Resolves the "added" date for a timeline entry from a live stat's creation/last-write timestamps.
     /// </summary>
     /// <param name="creationTimeUtc">The entry's creation timestamp (UTC).</param>
     /// <param name="lastWriteTimeUtc">The entry's last-write timestamp (UTC).</param>
@@ -700,10 +647,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Calculates the total size of all files within a directory tree (iterative, stack-based).
-    ///     Symlinks and junction points are skipped to prevent cycles. The explicit stack eliminates
-    ///     the StackOverflowException risk that a recursive implementation would carry on very deep
-    ///     or pathologically wide library trees.
+    ///     Calculates the total size of all files within a directory tree (iterative, stack-based). Symlinks and junction points are skipped to prevent cycles.
     /// </summary>
     /// <param name="directoryPath">The directory to measure.</param>
     /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
@@ -748,8 +692,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Pushes traversable child directories of <paramref name="current" /> onto the stack,
-    ///     skipping .trickplay/trash folders and reparse points (symlinks/junctions) to prevent cycles.
+    ///     Pushes traversable child directories of onto the stack, skipping .trickplay/trash folders and reparse points (symlinks/junctions) to prevent cycles.
     /// </summary>
     /// <param name="current">The directory whose children are being enumerated.</param>
     /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>

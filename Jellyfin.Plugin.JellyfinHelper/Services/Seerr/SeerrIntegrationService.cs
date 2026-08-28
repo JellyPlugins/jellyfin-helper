@@ -13,7 +13,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 
 /// <summary>
 ///     Provides integration with Jellyseerr/Overseerr/Seerr instances for request cleanup.
-///     Uses the Overseerr API v1 which is compatible with all three forks.
 /// </summary>
 public sealed class SeerrIntegrationService : ISeerrIntegrationService
 {
@@ -179,10 +178,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     }
 
     /// <summary>
-    ///     Phase 1 of expired-request cleanup: paginates through all Seerr requests and collects the
-    ///     ones that are expired and deletable. Returns the collected expired requests together with a
-    ///     flag indicating whether pagination completed cleanly; when the flag is <see langword="true"/>
-    ///     the caller must skip deletion to avoid acting on an incomplete snapshot.
+    ///     Phase 1 of expired-request cleanup: paginates through all Seerr requests and collects the ones that are expired and deletable.
     /// </summary>
     /// <param name="client">The HTTP client to use.</param>
     /// <param name="baseUri">The validated Seerr base URI.</param>
@@ -274,9 +270,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     }
 
     /// <summary>
-    ///     Processes a single expired request in Phase 2: validates its Id, resolves the media
-    ///     title, and either logs (dry run) or deletes it. Returns <see langword="true" /> when the
-    ///     caller's loop should break (cancellation during the inter-call delay).
+    ///     Processes a single expired request in Phase 2: validates its Id, resolves the media title, and either logs (dry run) or deletes it.
     /// </summary>
     private async Task<bool> ProcessExpiredRequestAsync(
         SeerrExpiredRequestContext context,
@@ -287,9 +281,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     {
         var result = context.Result;
 
-        // Guard against invalid IDs from deserialization failures.
-        // request.Id == 0 (default int) when JSON deserialization returns no value,
-        // and api/v1/request/0 is a valid but entirely unintended Seerr endpoint.
+        // Guard against invalid IDs from deserialization failures. request.Id == 0 (default int) when JSON deserialization returns no value, and api/v1/request/0 is a valid but entirely unintended Seerr endpoint.
         if (request.Id <= 0)
         {
             _pluginLog.LogWarning(
@@ -330,7 +322,6 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
     /// <summary>
     ///     Issues the DELETE call for a single expired request and applies the inter-call delay.
-    ///     Returns <see langword="true" /> when the caller's loop should break (cancellation during the delay).
     /// </summary>
     private async Task<bool> DeleteExpiredRequestAsync(
         SeerrExpiredRequestContext context,
@@ -384,9 +375,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 _logger);
         }
 
-        // Small delay between DELETE calls to avoid overwhelming the Seerr API.
-        // Break on cancellation so the caller receives partial results with an accurate
-        // count rather than silently skipping remaining items without indication.
+        // Small delay between DELETE calls to avoid overwhelming the Seerr API. Break on cancellation so the caller receives partial results with an accurate count rather than silently skipping remaining items without indication.
         try
         {
             await Task.Delay(100, cancellationToken).ConfigureAwait(false);
@@ -400,17 +389,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     }
 
     /// <summary>
-    ///     Determines whether a request is both genuinely expired (fail-closed age guard) and of a
-    ///     status that is safe to delete (allowlist of PENDING/DECLINED). Behaviourally identical to
-    ///     the inline guards it replaces.
+    ///     Determines whether a request is both genuinely expired (fail-closed age guard) and of a status that is safe to delete (allowlist of PENDING/DECLINED).
     /// </summary>
     private static bool IsExpiredAndDeletable(SeerrRequest request, DateTimeOffset cutoffDate)
     {
-        // Fail CLOSED on unknown creation date: only delete when we have a genuinely parsed,
-        // non-default timestamp strictly older than the cutoff. A missing/null createdAt
-        // (fork / reshaped API / reverse proxy) deserializes to null and MUST be preserved -
-        // otherwise brand-new requests get deleted and the maxAgeDays safety is bypassed.
-        // A future-dated timestamp is likewise not "expired".
+        // Fail CLOSED on unknown creation date: only delete when we have a genuinely parsed, non-default timestamp strictly older than the cutoff.
         var createdAt = request.CreatedAt;
         if (createdAt is null
             || createdAt.Value == default
@@ -420,20 +403,12 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             return false;
         }
 
-        // Allowlist, not denylist: only PENDING (1) and DECLINED (3) requests are ever safe
-        // to delete. A denylist ("skip 2/4/5") fails OPEN - a missing status field
-        // (deserializes to 0) or a future/unknown Seerr status code would fall through and be
-        // deleted. Approved/available/failed/completed and any unrecognized status must be
-        // preserved, since Seerr uses them to track downloads and deleting them can trigger
-        // duplicate re-requests. (Current Jellyseerr: 1=pending, 2=approved, 3=declined,
-        // 4=failed, 5=completed.)
+        // Allowlist, not denylist: only PENDING (1) and DECLINED (3) requests are ever safe to delete. A denylist ("skip 2/4/5") fails OPEN - a missing status field (deserializes to 0) or a future/unknown Seerr status code would fall through and be deleted.
         return request.Status is (1 or 3);
     }
 
     /// <summary>
-    ///     Fetches and deserializes a single page of Seerr requests, applying the same failure
-    ///     logging and <see cref="SeerrCleanupResult.Failed" /> accounting as before. Returns the
-    ///     deserialized page and a flag indicating the pagination loop should stop due to failure.
+    ///     Fetches and deserializes a single page of Seerr requests, applying the same failure logging and Failed accounting as before.
     /// </summary>
     private async Task<(SeerrRequestPage? Page, bool FetchFailed)> FetchRequestPageAsync(
         HttpClient client,
@@ -484,8 +459,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     }
 
     /// <summary>
-    ///     Resolves the human-readable title for a media item, using a per-run cache to avoid
-    ///     redundant API calls when the same TMDB ID appears in multiple requests.
+    ///     Resolves the human-readable title for a media item, using a per-run cache to avoid redundant API calls when the same TMDB ID appears in multiple requests.
     /// </summary>
     /// <param name="client">The configured HTTP client.</param>
     /// <param name="baseUri">The normalised base URI of the Seerr instance.</param>
@@ -573,9 +547,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     }
 
     /// <summary>
-    ///     Validates the base URL and API key, returning the factory-managed HTTP client and
-    ///     the normalised base URI. The API key is passed back so callers can attach it per-request
-    ///     instead of mutating the shared client's DefaultRequestHeaders.
+    ///     Validates the base URL and API key, returning the factory-managed HTTP client and the normalised base URI.
     /// </summary>
     private (HttpClient Client, Uri BaseUri, string ApiKey) ValidateAndGetClient(string baseUrl, string apiKey)
     {
@@ -585,9 +557,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             throw new UriFormatException("Invalid Seerr base URL.");
         }
 
-        // Central SSRF guard: block cloud metadata endpoints on EVERY path that reaches the network,
-        // including the configuration-save path which calls TestConnectionAsync directly (bypassing
-        // the controller-level check).
+        // Central SSRF guard: block cloud metadata endpoints on EVERY path that reaches the network, including the configuration-save path which calls TestConnectionAsync directly (bypassing the controller-level check).
         SsrfGuard.ThrowIfCloudMetadataHost(parsedBaseUrl.Host, nameof(baseUrl));
 
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -610,8 +580,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     }
 
     /// <summary>
-    ///     Builds an <see cref="HttpRequestMessage" /> for the given method and relative path,
-    ///     attaching the API key per-request so the shared factory-managed client is not mutated.
+    ///     Builds an HttpRequestMessage for the given method and relative path, attaching the API key per-request so the shared factory-managed client is not mutated.
     /// </summary>
     private static HttpRequestMessage BuildRequest(HttpMethod method, Uri baseUri, string relPath, string apiKey)
     {
@@ -622,9 +591,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     }
 
     /// <summary>
-    ///     Groups the connection details and shared result accumulator threaded through the
-    ///     Phase 2 expired-request processing helpers, keeping their parameter counts within
-    ///     bounds without changing behaviour.
+    ///     Groups the connection details and shared result accumulator threaded through the Phase 2 expired-request processing helpers, keeping their parameter counts within bounds without changing behaviour.
     /// </summary>
     /// <param name="Client">The Seerr <see cref="HttpClient" />.</param>
     /// <param name="BaseUri">The normalized Seerr base URI.</param>

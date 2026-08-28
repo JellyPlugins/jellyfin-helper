@@ -50,10 +50,7 @@ public sealed class UserWatchProfile
     public int WatchedSeriesCount { get; set; }
 
     /// <summary>
-    ///     Gets or sets the total unique content runtime in ticks (sum of runtime for each
-    ///     distinct played item, counted once regardless of <c>PlayCount</c>).
-    ///     This represents "how much unique content was consumed", not "total time spent watching"
-    ///     which would require multiplying by re-watch count.
+    ///     Gets or sets the total unique content runtime in ticks (sum of runtime for each distinct played item, counted once regardless of PlayCount).
     /// </summary>
     public long TotalWatchTimeTicks { get; set; }
 
@@ -63,9 +60,7 @@ public sealed class UserWatchProfile
     public DateTime? LastActivityDate { get; set; }
 
     /// <summary>
-    ///     Gets or sets the genre distribution (genre name to watch count).
-    ///     The setter preserves <see cref="StringComparer.OrdinalIgnoreCase"/> to ensure
-    ///     genre aggregation is always case-insensitive, even when a new dictionary is assigned.
+    ///     Gets or sets the genre distribution (genre name to watch count). The setter preserves OrdinalIgnoreCase to ensure genre aggregation is always case-insensitive, even when a new dictionary is assigned.
     /// </summary>
     public Dictionary<string, int> GenreDistribution
     {
@@ -82,9 +77,6 @@ public sealed class UserWatchProfile
 
     /// <summary>
     ///     Gets the set of series IDs that the user has marked as favorite at the series level.
-    ///     In Jellyfin, users can favorite a whole series (not just individual episodes).
-    ///     This set captures those series-level favorites so that the recommendation engine
-    ///     can treat them as positive signals even when no individual episode is favorited.
     /// </summary>
     public HashSet<Guid> FavoriteSeriesIds { get; init; } = [];
 
@@ -94,11 +86,7 @@ public sealed class UserWatchProfile
     public double AverageCommunityRating { get; set; }
 
     /// <summary>
-    ///     Gets or sets the user's maximum allowed parental rating value.
-    ///     Corresponds to the Jellyfin user setting <c>MaxParentalRating</c>.
-    ///     When set, recommendation candidates with <c>InheritedParentalRatingValue</c>
-    ///     exceeding this value are excluded from scoring.
-    ///     Null means no restriction (the user can see all content).
+    ///     Gets or sets the user's maximum allowed parental rating value. Corresponds to the Jellyfin user setting MaxParentalRating.
     /// </summary>
     public int? MaxParentalRating { get; set; }
 
@@ -113,11 +101,7 @@ public sealed class UserWatchProfile
     }
 
     /// <summary>
-    ///     Gets or sets the audio language preference profile.
-    ///     Maps normalized ISO 639-1 language codes to chosen/forced counts.
-    ///     Built by analyzing which audio tracks the user selected vs. which were available.
-    ///     Key distinction: "chosen" (user had alternatives) vs. "forced" (only option).
-    ///     Setter preserves <see cref="StringComparer.OrdinalIgnoreCase"/> and coalesces null.
+    ///     Gets or sets the audio language preference profile. Maps normalized ISO 639-1 language codes to chosen/forced counts.
     /// </summary>
     public Dictionary<string, LanguageProfileEntry> LanguageProfile
     {
@@ -135,26 +119,17 @@ public sealed class UserWatchProfile
 
     /// <summary>
     ///     Gets the user's primary audio language (highest weighted score), or null if no data.
-    ///     Excluded from JSON serialization to avoid redundant data in API responses.
-    ///     Computed lazily and cached to avoid repeated LINQ evaluation.
-    ///     Note: the cache is invalidated when <see cref="LanguageProfile"/> is reassigned via
-    ///     its setter, but not when entries are mutated in-place on the underlying dictionary.
-    ///     Callers must reassign <see cref="LanguageProfile"/> to guarantee cache coherence
-    ///     after in-place modifications.
     /// </summary>
-    /// <remarks>WARNING: This cache is only invalidated when <see cref="LanguageProfile"/> is reassigned.
-    /// In-place mutation of LanguageProfileEntry objects will produce stale values. Always reassign the property after mutation.</remarks>
+    /// <remarks>
+    ///     WARNING: This cache is only invalidated when LanguageProfile is reassigned. In-place mutation of LanguageProfileEntry objects will produce stale values.
+    /// </remarks>
     [JsonIgnore]
     public string? PrimaryLanguage => _primaryLanguage ??= LanguageProfile.Count > 0
         ? LanguageProfile.MaxBy(kv => kv.Value.WeightedScore).Key
         : null;
 
     /// <summary>
-    ///     Gets the set of languages the user has actively chosen (ChosenCount &gt; 0).
-    ///     These represent true preferences - the user had alternatives and picked this language.
-    ///     Excluded from JSON serialization to avoid redundant data in API responses.
-    ///     Computed lazily and cached to avoid repeated collection allocation.
-    ///     Returns a read-only view to prevent external mutation of cached state.
+    ///     Gets the set of languages the user has actively chosen (ChosenCount &gt; 0). These represent true preferences - the user had alternatives and picked this language.
     /// </summary>
     [JsonIgnore]
     public IReadOnlySet<string> PreferredLanguages => _preferredLanguages ??= new(
@@ -162,11 +137,7 @@ public sealed class UserWatchProfile
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    ///     Gets the set of languages the user has only used when forced (no alternatives).
-    ///     These represent tolerance, not preference.
-    ///     Excluded from JSON serialization to avoid redundant data in API responses.
-    ///     Computed lazily and cached to avoid repeated collection allocation.
-    ///     Returns a read-only view to prevent external mutation of cached state.
+    ///     Gets the set of languages the user has only used when forced (no alternatives). These represent tolerance, not preference.
     /// </summary>
     [JsonIgnore]
     public IReadOnlySet<string> ToleratedLanguages => _toleratedLanguages ??= new(
@@ -174,10 +145,7 @@ public sealed class UserWatchProfile
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    ///     Gets or sets the subtitle language preference profile.
-    ///     Maps normalized ISO 639-1 language codes to chosen/forced counts for subtitle tracks.
-    ///     Built by analyzing which subtitle tracks the user selected vs. which were available.
-    ///     Setter preserves <see cref="StringComparer.OrdinalIgnoreCase"/> and coalesces null.
+    ///     Gets or sets the subtitle language preference profile. Maps normalized ISO 639-1 language codes to chosen/forced counts for subtitle tracks.
     /// </summary>
     public Dictionary<string, LanguageProfileEntry> SubtitleLanguageProfile
     {
@@ -195,8 +163,6 @@ public sealed class UserWatchProfile
 
     /// <summary>
     ///     Gets the user's primary subtitle language (highest weighted score), or null if no data.
-    ///     Excluded from JSON serialization to avoid redundant data in API responses.
-    ///     Computed lazily and cached to avoid repeated LINQ evaluation.
     /// </summary>
     [JsonIgnore]
     public string? PrimarySubtitleLanguage => _primarySubtitleLanguage ??= SubtitleLanguageProfile.Count > 0
@@ -205,10 +171,6 @@ public sealed class UserWatchProfile
 
     /// <summary>
     ///     Gets the set of subtitle languages the user has actively chosen (ChosenCount &gt; 0).
-    ///     These represent true preferences - the user had alternatives and picked this subtitle language.
-    ///     Excluded from JSON serialization to avoid redundant data in API responses.
-    ///     Computed lazily and cached to avoid repeated collection allocation.
-    ///     Returns a read-only view to prevent external mutation of cached state.
     /// </summary>
     [JsonIgnore]
     public IReadOnlySet<string> PreferredSubtitleLanguages => _preferredSubtitleLanguages ??= new(
@@ -217,10 +179,6 @@ public sealed class UserWatchProfile
 
     /// <summary>
     ///     Gets the set of subtitle languages the user has only used when forced (no alternatives).
-    ///     These represent tolerance, not preference.
-    ///     Excluded from JSON serialization to avoid redundant data in API responses.
-    ///     Computed lazily and cached to avoid repeated collection allocation.
-    ///     Returns a read-only view to prevent external mutation of cached state.
     /// </summary>
     [JsonIgnore]
     public IReadOnlySet<string> ToleratedSubtitleLanguages => _toleratedSubtitleLanguages ??= new(
@@ -228,12 +186,7 @@ public sealed class UserWatchProfile
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    ///     Gets or sets the people (actors/directors) preference profile.
-    ///     Maps person names to the number of distinct items featuring that person
-    ///     that the user has watched or favorited.
-    ///     Built by analyzing <c>BaseItem.People</c> metadata for each watched item.
-    ///     Only includes persons with role type "Actor" or "Director".
-    ///     Setter preserves <see cref="StringComparer.OrdinalIgnoreCase"/> and coalesces null.
+    ///     Gets or sets the people (actors/directors) preference profile. Maps person names to the number of distinct items featuring that person that the user has watched or favorited.
     /// </summary>
     public Dictionary<string, int> PeopleProfile
     {
@@ -248,12 +201,7 @@ public sealed class UserWatchProfile
     }
 
     /// <summary>
-    ///     Gets the user's top preferred people (actors/directors) ordered by frequency.
-    ///     Returns the names of people who appear most frequently across the user's
-    ///     watched and favorited items. Limited to those appearing in at least 2 items
-    ///     to filter out noise from single-watch appearances.
-    ///     Excluded from JSON serialization to avoid redundant data in API responses.
-    ///     Computed lazily and cached to avoid repeated collection allocation.
+    ///     Gets the user's top preferred people (actors/directors) ordered by frequency. Returns the names of people who appear most frequently across the user's watched and favorited items.
     /// </summary>
     [JsonIgnore]
     public IReadOnlyList<string> TopPeople => _topPeople ??= PeopleProfile.Count > 0

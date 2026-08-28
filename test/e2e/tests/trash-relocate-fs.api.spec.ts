@@ -1,22 +1,4 @@
-/**
- * Behavioural filesystem tests for POST /Trash/Relocate - the four
- * absolute/relative quadrants - plus the POST /Trash/CheckAccess success path.
- *
- * The existing trash specs cover only Relocate's REFUSAL/error branches and a
- * loose rel->rel "or degrades cleanly" call that seeds nothing and asserts no FS
- * state. These tests seed REAL trash content and prove the move happened on disk:
- * Moved > 0 / Failed == 0, the source is emptied (its now-empty folder removed),
- * and the destination holds exactly the moved entry with byte-identical content
- * (sha256). Relocate moves each child entry of the trash folder (dirs + files)
- * and removes the source folder once empty (TrashService.RelocateTrashContents).
- *
- * Path model: libraries are /media/Movies and /media/Shows. A path strictly
- * inside a library root is always a permitted trash target; a relative path is
- * resolved per-library. Absolute cases use one library (/media/Movies) so the
- * move is a single, unambiguous relocation.
- *
- * Requires the container FS (docker exec); skips loudly when unavailable.
- */
+/** * Behavioural filesystem tests for POST /Trash/Relocate - the four * absolute/relative quadrants - plus the POST /Trash/CheckAccess success path. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 import {

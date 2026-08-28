@@ -20,8 +20,6 @@ public class CleanupConfigHelperTests
         return new CleanupConfigHelper(configServiceMock.Object);
     }
 
-    // ===== GetConfig =====
-
     [Fact]
     public void GetConfig_ReturnsDefaultConfig_WhenPluginNotInitialized()
     {
@@ -43,8 +41,6 @@ public class CleanupConfigHelperTests
         Assert.Equal(7, result.OrphanMinAgeDays);
         Assert.True(result.UseTrash);
     }
-
-    // ===== TaskMode Getters =====
 
     [Theory]
     [InlineData(TaskMode.Activate)]
@@ -89,8 +85,6 @@ public class CleanupConfigHelperTests
         var helper = CreateHelper(cfg);
         Assert.Equal(mode, helper.GetLinkRepairTaskMode());
     }
-
-    // ===== IsDryRun Instance Methods =====
 
     [Fact]
     public void IsDryRunTrickplay_ReturnsTrue_WhenDryRun()
@@ -181,8 +175,6 @@ public class CleanupConfigHelperTests
         Assert.False(CreateHelper(cfg).IsDryRunLinkRepair());
     }
 
-    // ===== Static IsDryRun =====
-
     [Fact]
     public void IsDryRun_ActivateMode_ReturnsFalse()
     {
@@ -202,8 +194,6 @@ public class CleanupConfigHelperTests
         // IsDryRun correctly returns false - only DryRun mode returns true.
         Assert.False(CleanupConfigHelper.IsDryRun(TaskMode.Deactivate));
     }
-
-    // ===== ParseCommaSeparated =====
 
     [Fact]
     public void ParseCommaSeparated_EmptyInput_ReturnsEmpty()
@@ -239,8 +229,6 @@ public class CleanupConfigHelperTests
         Assert.Contains("b", result);
         Assert.Contains("c", result);
     }
-
-    // ===== GetTrashPath =====
 
     [Fact]
     public void GetTrashPath_DefaultsToJellyfinTrash_WhenEmpty()
@@ -334,8 +322,6 @@ public class CleanupConfigHelperTests
             Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             result.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
     }
-
-    // ===== GetFilteredLibraryLocations =====
 
     [Fact]
     public void GetFilteredLibraryLocations_ThrowsOnNull()
@@ -539,8 +525,6 @@ public class CleanupConfigHelperTests
         Assert.Single(result);
     }
 
-    // ===== IsOldEnoughForDeletion =====
-
     [Fact]
     public void IsOldEnoughForDeletion_ZeroDays_AlwaysTrue()
     {
@@ -577,11 +561,7 @@ public class CleanupConfigHelperTests
     [Fact]
     public void IsOldEnoughForDeletion_UsesEarlierOf_CreationTime_And_LastWriteTime()
     {
-        // The guard picks min(CreationTime, LastWriteTime) so that a directory whose
-        // LastWriteTime was bumped recently is still considered old if it was created
-        // long ago - and vice versa.  We can only control LastWriteTime reliably in a
-        // test, so we verify the LastWriteTime branch: a directory created just now but
-        // whose LastWriteTime is back-dated to > MinAgeDays ago must return true.
+        // The guard picks min(CreationTime, LastWriteTime) so that a directory whose LastWriteTime was bumped recently is still considered old if it was created long ago - and vice versa.
         var cfg = new PluginConfiguration { OrphanMinAgeDays = 30 };
         var helper = CreateHelper(cfg);
         var tempDir = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -604,10 +584,7 @@ public class CleanupConfigHelperTests
     [Fact]
     public void IsOldEnoughForDeletion_Pre1980Timestamp_ReturnsFalse()
     {
-        // Timestamps before 1980 are treated as corrupted (FAT filesystem epoch artefacts,
-        // clock-drift on embedded hardware, etc.).  The guard rejects them to prevent a
-        // directory with a bogus creation time from being considered arbitrarily old and
-        // therefore eligible for immediate deletion.
+        // Timestamps before 1980 are treated as corrupted (FAT filesystem epoch artefacts, clock-drift on embedded hardware, etc.).
         var cfg = new PluginConfiguration { OrphanMinAgeDays = 1 };
         var helper = CreateHelper(cfg);
         var tempDir = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -624,8 +601,6 @@ public class CleanupConfigHelperTests
             Directory.Delete(tempDir);
         }
     }
-
-    // ===== IsFileOldEnoughForDeletion =====
 
     [Fact]
     public void IsFileOldEnoughForDeletion_ZeroDays_AlwaysTrue()
@@ -658,8 +633,6 @@ public class CleanupConfigHelperTests
             File.Delete(tempFile);
         }
     }
-
-    // ===== GetExistingTrashFoldersForPath =====
 
     [Fact]
     public void GetExistingTrashFoldersForPath_ThrowsOnNullLibraryManager()
@@ -765,14 +738,7 @@ public class CleanupConfigHelperTests
     [Fact]
     public void GetExistingTrashFoldersForPath_RelativePathEscape_IsRejected()
     {
-        // "../../etc" tries to escape the library root - must never be reported as valid trash.
-        //
-        // To make the test meaningful we ALSO materialise the target of the escape (a
-        // sibling directory next to the library root that actually exists). Without this
-        // extra step the test could pass simply because the resolved path happens not to
-        // exist on the CI runner, which would let a regression that dropped the containment
-        // check ship silently. With the sibling in place, only the containment guard can
-        // keep this test green.
+        // "../../etc" tries to escape the library root - must never be reported as valid trash. To make the test meaningful we ALSO materialise the target of the escape (a sibling directory next to the library root that actually exists).
         var helper = CreateHelper();
         var parent = Path.Join(Path.GetTempPath(), "jfh-esc-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(parent);
@@ -788,18 +754,13 @@ public class CleanupConfigHelperTests
                 new VirtualFolderInfo { Name = "L", Locations = [lib] }
             ]);
 
-            // Craft a relative path that ACTUALLY resolves to escapedSibling from lib.
-            // e.g. "../outside-lib" resolves out of the library root - the guard must
-            // still refuse to report it as a trash candidate even though the destination
-            // path physically exists.
+            // Craft a relative path that ACTUALLY resolves to escapedSibling from lib. e.g.
             var relativeEscape = ".." + Path.DirectorySeparatorChar + "outside-lib";
 
             var result = helper.GetExistingTrashFoldersForPath(lm.Object, relativeEscape);
             Assert.Empty(result);
 
-            // Sanity: prove the target directory really is reachable via that relative path.
-            // If Path.GetRelativePath ever changes semantics, this Assert catches it before
-            // the containment test degenerates into a vacuous "path doesn't exist" pass.
+            // Sanity: prove the target directory really is reachable via that relative path. If Path.GetRelativePath ever changes semantics, this Assert catches it before the containment test degenerates into a vacuous "path doesn't exist" pass.
             var resolved = Path.GetFullPath(Path.Combine(lib, relativeEscape));
             Assert.Equal(Path.GetFullPath(escapedSibling), resolved);
             Assert.True(Directory.Exists(resolved), "escaped sibling must exist so the test isn't vacuous");
@@ -857,8 +818,6 @@ public class CleanupConfigHelperTests
         Assert.DoesNotContain(location, result);
     }
 
-    // ===== IsCollectionsPath =====
-
     [Theory]
     [InlineData("/config/data/collections", true)]
     [InlineData("/config/data/collections/", true)]
@@ -876,14 +835,10 @@ public class CleanupConfigHelperTests
         Assert.Equal(expected, CleanupConfigHelper.IsCollectionsPath(path));
     }
 
-    // ===== IsFileOldEnoughForDeletion pre-1980 guard =====
-
     [Fact]
     public void IsFileOldEnoughForDeletion_Pre1980Timestamp_ReturnsFalse()
     {
-        // A file whose timestamps predate 1980 is treated as corrupted (FAT epoch / clock drift).
-        // Mirrors the directory pre-1980 guard: a bogus old timestamp must not make the file
-        // look arbitrarily old and thus immediately eligible for deletion.
+        // A file whose timestamps predate 1980 is treated as corrupted (FAT epoch / clock drift). Mirrors the directory pre-1980 guard: a bogus old timestamp must not make the file look arbitrarily old and thus immediately eligible for deletion.
         var cfg = new PluginConfiguration { OrphanMinAgeDays = 1 };
         var helper = CreateHelper(cfg);
         var tempFile = Path.GetTempFileName();
@@ -900,17 +855,11 @@ public class CleanupConfigHelperTests
         }
     }
 
-    // ===== GetTrashPath unresolvable-path fallbacks =====
-
     [Fact]
     public void GetTrashPath_AbsolutePathThatCannotBeResolved_FallsBackToDefault()
     {
         var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
-        // Build a genuinely fully-qualified path off the real filesystem root ("C:\" on Windows,
-        // "/" on Linux) and embed a NUL. IsPathFullyQualified stays true on both OSes, but the NUL
-        // makes GetFullPath throw ArgumentException inside the absolute branch on both platforms.
-        // ("C:\<40000 chars>" is only fully-qualified-and-throwing on Windows; on Linux it is a
-        // valid relative name, so it would take the relative branch and never hit the fallback.)
+        // Build a genuinely fully-qualified path off the real filesystem root ("C:\" on Windows, "/" on Linux) and embed a NUL.
         var fsRoot = Path.GetPathRoot(Path.GetFullPath(root))!;
         var cfg = new PluginConfiguration { TrashFolderPath = Path.Join(fsRoot, "bad\0dir") };
         var helper = CreateHelper(cfg);
@@ -929,8 +878,6 @@ public class CleanupConfigHelperTests
         var result = helper.GetTrashPath(root);
         Assert.Equal(Path.GetFullPath(Path.Join(root, ".jellyfin-trash")), result);
     }
-
-    // ===== GetExistingTrashFoldersForPath invalid-path handling =====
 
     [Fact]
     public void GetExistingTrashFoldersForPath_UnresolvableLibraryRoot_IsSkipped_AndValidResultReturned()

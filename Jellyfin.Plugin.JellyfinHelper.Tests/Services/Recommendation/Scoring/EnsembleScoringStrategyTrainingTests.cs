@@ -6,9 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Tests for the training-driven alpha/beta schedules in <see cref="EnsembleScoringStrategy"/>:
-///     the validation-loss quality gate (full progression, soft dampening, freeze), the neural
-///     trend decay, and the training-complete diagnostics log.
+///     Tests for the training-driven alpha/beta schedules in EnsembleScoringStrategy: the validation-loss quality gate (full progression, soft dampening, freeze), the neural trend decay, and the training-complete diagnostics log.
 /// </summary>
 public sealed class EnsembleScoringStrategyTrainingTests
 {
@@ -83,9 +81,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
     [Fact]
     public void Train_ValidationLossAboveThreshold_SoftDampensAlphaProportionally()
     {
-        // Seek a deterministic noisy dataset whose learned validation loss lands in the
-        // soft-dampening band (threshold, ceiling). If found, pin the exact dampened alpha
-        // derived from the OBSERVED loss so the assertion can never be circular.
+        // Seek a deterministic noisy dataset whose learned validation loss lands in the soft-dampening band (threshold, ceiling).
         for (var seed = 1; seed <= 60; seed++)
         {
             var ensemble = new EnsembleScoringStrategy();

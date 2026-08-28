@@ -7,20 +7,11 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Training;
 
 /// <summary>
-///     Tests for <see cref="TrainingFeatureComputer"/>, the shared training-time feature
-///     helpers that must remain in lock-step with the live scoring path. These tests focus on:
-///     <list type="bullet">
-///         <item>Case-insensitive de-duplication in the studio/tag preference builders.</item>
-///         <item>The "same item is excluded from its own temporal signal" label-leakage guard.</item>
-///         <item>Language affinity precedence (primary &gt; preferred &gt; tolerated &gt; known &gt; unknown).</item>
-///         <item>Neutral fallbacks when either side of a language comparison is empty.</item>
-///     </list>
+///     Tests for TrainingFeatureComputer, the shared training-time feature helpers that must remain in lock-step with the live scoring path.
 /// </summary>
 public class TrainingFeatureComputerTests
 {
-    // -----------------------------------------------------------------------
     // BuildStudioPreferenceSetFromCache
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void BuildStudioPreferenceSetFromCache_EmptyProfile_ReturnsEmpty()
@@ -155,9 +146,7 @@ public class TrainingFeatureComputerTests
         Assert.Contains("ItemStudio", result);
     }
 
-    // -----------------------------------------------------------------------
     // BuildTagPreferenceSetFromCache
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void BuildTagPreferenceSetFromCache_SkipsItemsWithoutMeaningfulInteraction()
@@ -196,16 +185,12 @@ public class TrainingFeatureComputerTests
         var result = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookup);
 
         Assert.Equal(2, result.Count);
-        // Exact stored form: first-insert wins for dedup, tags kept in original casing.
-        // "Cyberpunk" (from itemId) wins over "CYBERPUNK" (from seriesId).
-        // "Dystopia" stored as-is from seriesId input.
+        // Exact stored form: first-insert wins for dedup, tags kept in original casing. "Cyberpunk" (from itemId) wins over "CYBERPUNK" (from seriesId).
         Assert.True(result.Contains("Cyberpunk", StringComparer.Ordinal), "Expected exact casing 'Cyberpunk'");
         Assert.True(result.Contains("Dystopia", StringComparer.Ordinal), "Expected exact casing 'Dystopia'");
     }
 
-    // -----------------------------------------------------------------------
     // ComputeTagSimilarityFromCache
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputeTagSimilarityFromCache_EmptyCandidate_ReturnsZero()
@@ -248,9 +233,7 @@ public class TrainingFeatureComputerTests
         Assert.Equal(1.0 / 3.0, result, precision: 5);
     }
 
-    // -----------------------------------------------------------------------
     // ComputeContentNearestNeighborFromCache
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputeContentNearestNeighborFromCache_EmptyWatchedGenres_ReturnsZero()
@@ -293,9 +276,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void ComputeContentNearestNeighborFromCache_PropagatesToContentScoring_NonZeroForOverlap()
     {
-        // The exact score is delegated to ContentScoring, but with an exact genre overlap
-        // the return value must be in the valid [0, 1] range and non-zero (positive signal).
-        // Parallel-array invariant: all three watched-* lists share length (one watched item).
+        // The exact score is delegated to ContentScoring, but with an exact genre overlap the return value must be in the valid [0, 1] range and non-zero (positive signal).
         var watchedGenres = new List<HashSet<string>>
         {
             new(StringComparer.OrdinalIgnoreCase) { "Action", "Thriller" }
@@ -317,11 +298,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void ComputeContentNearestNeighborFromCache_ParallelArrayInvariantHonored()
     {
-        // Locks in the contract that all three parallel-array lists must be the
-        // same length. If a future refactor drops the parallel-array precondition and only
-        // pads one dimension, this test still passes (multi-item, symmetric lists) so we
-        // add an additional test that exercises the person/studio dimension too and proves
-        // the caller wired all three axes through.
+        // Locks in the contract that all three parallel-array lists must be the same length.
         var watchedGenres = new List<HashSet<string>>
         {
             new(StringComparer.OrdinalIgnoreCase) { "Action" },
@@ -351,9 +328,7 @@ public class TrainingFeatureComputerTests
         Assert.Equal(1.0, result, precision: 10);
     }
 
-    // -----------------------------------------------------------------------
     // ComputeBestLanguageAffinity
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputeBestLanguageAffinity_NoLanguages_ReturnsUnknownFloor()
@@ -468,9 +443,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void ComputeBestLanguageAffinity_EarlyExitOnPrimary_DoesNotEvaluateExtraCandidates()
     {
-        // Behavioural bug guard: once primary=1.0 has been hit, the loop must break.
-        // We can't observe short-circuiting directly, but we can prove the return value is
-        // 1.0 even when the following candidate would deliver a lower score (0.85).
+        // Behavioural bug guard: once primary=1.0 has been hit, the loop must break. We can't observe short-circuiting directly, but we can prove the return value is 1.0 even when the following candidate would deliver a lower score (0.85).
         var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "de" };
         var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(
             new[] { "en", "de" },
@@ -481,9 +454,7 @@ public class TrainingFeatureComputerTests
         Assert.Equal(1.0, result);
     }
 
-    // -----------------------------------------------------------------------
     // ComputeLanguageAffinityFromCache / ComputeSubtitleLanguageAffinityFromCache
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputeLanguageAffinityFromCache_EmptyCandidateOrProfile_ReturnsNeutral()
@@ -544,9 +515,7 @@ public class TrainingFeatureComputerTests
         Assert.Equal(1.0, TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(new[] { "ja" }, profile));
     }
 
-    // -----------------------------------------------------------------------
     // ComputeTrainingTemporalAffinity
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void ComputeTrainingTemporalAffinity_NullWatchedItem_ReturnsNeutral()
@@ -704,9 +673,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void ComputeTrainingTemporalAffinity_HourBucket_RespectsTemporalFeaturesGetTimeBucket()
     {
-        // When isDay=false, only items in the SAME hour bucket (afternoon 12-17 for hour=12) count.
-        // Items in a different bucket (evening 18+) must be excluded, proving the bucketing logic
-        // agrees with TemporalFeatures.GetTimeBucket.
+        // When isDay=false, only items in the SAME hour bucket (afternoon 12-17 for hour=12) count. Items in a different bucket (evening 18+) must be excluded, proving the bucketing logic agrees with TemporalFeatures.GetTimeBucket.
         var saturday12h = new DateTime(2026, 1, 3, 12, 0, 0, DateTimeKind.Utc);
         var saturday20h = new DateTime(2026, 1, 3, 20, 0, 0, DateTimeKind.Utc);
         var profile = new UserWatchProfile();
@@ -748,15 +715,7 @@ public class TrainingFeatureComputerTests
         Assert.Equal(1.0, result);
     }
 
-    // -----------------------------------------------------------------------
-    // AddAggregatedSeriesExample - the biggest uncovered slab of this file (0%).
-    //
-    // Business meaning: an episode-heavy series would otherwise flood the training data with
-    // one row per episode, biasing the model toward series with many episodes. This helper
-    // collapses episodes into a single series-level training example. The tests below drive
-    // each label branch (fully watched, favorite-only, abandoned, partially watched) and
-    // verify the wire-up of studios / tags / people / temporal features.
-    // -----------------------------------------------------------------------
+    // AddAggregatedSeriesExample - the biggest uncovered slab of this file (0%). Business meaning: an episode-heavy series would otherwise flood the training data with one row per episode, biasing the model toward series with many episodes.
 
     private static PreferenceBuilder.GenreExposureAnalysis BuildExposure(
         Dictionary<string, double> genrePreferences,
@@ -878,9 +837,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void AddAggregatedSeriesExample_FavoriteOnlyNoPlayback_UsesFavoriteLabel()
     {
-        // When a series has zero played episodes but at least one favourite,
-        // the label must be 0.65 (explicit-interest signal) - NOT the abandoned label (0.0).
-        // A regression here would silently teach the model that favourited series are bad.
+        // When a series has zero played episodes but at least one favourite, the label must be 0.65 (explicit-interest signal) - NOT the abandoned label (0.0).
         var (seriesId, profile, episodes) = BuildSeriesEpisodes(
             totalEpisodes: 3, playedEpisodes: 0, anyFavorite: true, anyPartial: false);
         var examples = new List<TrainingExample>();
@@ -917,10 +874,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void AddAggregatedSeriesExample_StartedButAbandoned_UsesAbandonedLabel()
     {
-        // When playedEps == 0 AND at least one episode has PlaybackPositionTicks > 0
-        // (started but abandoned) AND the average completion ratio is below the abandoned
-        // threshold, the label must be AbandonedLabel (0.0). A regression here would
-        // silently keep training on abandoned series as if they were desirable.
+        // When playedEps == 0 AND at least one episode has PlaybackPositionTicks > 0 (started but abandoned) AND the average completion ratio is below the abandoned threshold, the label must be AbandonedLabel (0.0).
         var (seriesId, profile, episodes) = BuildSeriesEpisodes(
             totalEpisodes: 3, playedEpisodes: 0, anyFavorite: false, anyPartial: true);
         var examples = new List<TrainingExample>();
@@ -957,10 +911,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void AddAggregatedSeriesExample_UsesMostRecentEpisodeAsTemporalAnchor()
     {
-        // The temporal features (DayOfWeekAffinity / HourOfDayAffinity /
-        // IsWeekend) must be derived from the most-recently-watched episode. If someone
-        // silently switches to FirstOrDefault or a "first episode" reference, the temporal
-        // signal would degrade for series watched over long time spans.
+        // The temporal features (DayOfWeekAffinity / HourOfDayAffinity / IsWeekend) must be derived from the most-recently-watched episode.
         var seriesId = Guid.NewGuid();
         var profile = new UserWatchProfile { UserId = Guid.NewGuid(), UserName = "spread-user" };
         var episodes = new List<WatchedItemInfo>();
@@ -1060,11 +1011,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void AddAggregatedSeriesExample_AggregatesEpisodeContentFieldsIntoSeriesAffinities()
     {
-        // The four per-episode content fields (franchise, production countries, inherited tags,
-        // writers) must be aggregated across episodes and scored against the user's preference maps.
-        // Every other series test leaves these at their empty defaults, so the aggregation loop
-        // never runs and each affinity stays a false 0.0. Populate them here and require the
-        // resulting features to be non-neutral, proving the collect-and-score wire-up is live.
+        // The four per-episode content fields (franchise, production countries, inherited tags, writers) must be aggregated across episodes and scored against the user's preference maps.
         var (seriesId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 3, playedEpisodes: 3);
 
         episodes[0].TmdbCollectionName = "MarvelVerse"; // franchise: first non-empty name wins

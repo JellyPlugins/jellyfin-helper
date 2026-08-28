@@ -21,22 +21,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     Tests for <see cref="ModelBindingLogFilter" />.
 /// </summary>
 /// <remarks>
-///     <para>
-///         These tests drive the filter through <see cref="IAsyncActionFilter.OnActionExecutionAsync" />
-///         with hand-rolled <see cref="ActionExecutingContext" /> instances. That is deliberate -
-///         previous versions of this test suite drove the equivalent logic through
-///         <see cref="ConfigurationController.UpdateConfigurationAsync" /> directly, which bypassed the
-///         MVC pipeline and therefore <em>never exercised the short-circuit path that actually fires
-///         in production</em>. Testing the filter as a unit gives us confidence that the
-///         <see cref="IPluginLogService" /> WARNING lands whenever ASP.NET Core's model binder rejects a
-///         payload, without depending on a full <c>TestServer</c> or in-memory host.
-///     </para>
-///     <para>
-///         Coupling contract: the filter must run <em>before</em> <c>[ApiController]</c>'s auto-400 -
-///         see the <c>Order = int.MinValue</c> constant on the filter class. That ordering is verified
-///         separately (see <c>Order_IsMinValue_SoRunsBeforeApiControllerAuto400</c>) so a future refactor
-///         that quietly bumps the value fails loudly here instead of silently in prod.
-///     </para>
+///     These tests drive the filter through OnActionExecutionAsync with hand-rolled ActionExecutingContext instances.
 /// </remarks>
 public class ModelBindingLogFilterTests
 {
@@ -47,10 +32,7 @@ public class ModelBindingLogFilterTests
         => new(_pluginLogMock.Object, _loggerMock.Object);
 
     /// <summary>
-    ///     Builds a minimal <see cref="ActionExecutingContext" /> that mirrors what MVC hands to a filter
-    ///     during a real request. We supply only the fields the filter actually reads
-    ///     (<see cref="ModelStateDictionary" /> + <see cref="ActionExecutingContext.ActionArguments" />)
-    ///     so the tests stay decoupled from unrelated MVC plumbing.
+    ///     Builds a minimal ActionExecutingContext that mirrors what MVC hands to a filter during a real request.
     /// </summary>
     private static ActionExecutingContext CreateExecutingContext(
         Action<Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary>? seedModelState = null,
@@ -170,12 +152,7 @@ public class ModelBindingLogFilterTests
     }
 
     /// <summary>
-    ///     Contract test: the filter MUST have <see cref="int.MinValue" /> as its execution order so it
-    ///     runs before <c>[ApiController]</c>'s built-in <c>ModelStateInvalidFilter</c>
-    ///     (which uses <c>Order = int.MinValue + 100</c>). Bumping this value would silently disable the
-    ///     plugin-log diagnostic - the built-in filter would short-circuit first with its generic 400 and
-    ///     ours would never fire. That regression is invisible at runtime (still returns 400) so we lock
-    ///     the order value here.
+    ///     Contract test: the filter MUST have MinValue as its execution order so it runs before [ApiController]'s built-in ModelStateInvalidFilter (which uses Order = int.MinValue + 100).
     /// </summary>
     [Fact]
     public void Order_IsMinValue_SoRunsBeforeApiControllerAuto400()
@@ -184,41 +161,20 @@ public class ModelBindingLogFilterTests
         Assert.Equal(int.MinValue, filter.Order);
     }
 
-    // ==================================================================================
-    // Branch-coverage tests for the error-string composition helpers on the ModelState
-    // path. The `bindingErrors` join produces different strings depending on which of
-    // the three fallback branches inside the SelectMany-Select projection fires:
-    //   1. ErrorMessage present                   -> use ErrorMessage verbatim
-    //   2. ErrorMessage empty + Exception present  -> use Exception.Message
-    //   3. ErrorMessage empty + Exception null     -> literal "invalid"
-    // The main Invalid_ModelState_* test above only exercises branch 1. The next two
-    // tests pin branches 2 and 3 so an accidental refactor of the ternary is caught.
-    // ==================================================================================
+    // Branch-coverage tests for the error-string composition helpers on the ModelState path. The `bindingErrors` join produces different strings depending on which of the three fallback branches inside the SelectMany-Select projection fires: 1.
 
     [Fact]
     public async Task Invalid_ModelState_EmptyErrorMessage_UsesExceptionMessageInLog()
     {
-        // Arrange: simulate what ASP.NET's built-in binders produce when a JSON parse
-        // fails - an entry with no ErrorMessage but a JsonException attached. Every
-        // overload of ModelStateDictionary.AddModelError / TryAddModelError that accepts
-        // an Exception also requires a ModelMetadata argument whose provider chain is
-        // version-specific across the Microsoft.AspNetCore.* NuGet packages. Rather than
-        // couple this test to a specific framework version, we construct the ModelError
-        // ourselves and push it into the ModelStateEntry.Errors collection directly -
-        // that's exactly the shape MVC's InputFormatterException path produces and lets
-        // us pin the "ErrorMessage empty -> use Exception.Message" branch of the filter
-        // without pulling in additional Microsoft.AspNetCore.Mvc.Core test internals.
+        // Simulate JSON parse failure with empty ErrorMessage but attached exception.
+        // Construct ModelError directly to avoid coupling to framework version.
         var context = CreateExecutingContext(seedModelState: ms =>
         {
             // Seed the key so ModelStateEntry exists (SetModelValue creates the entry
             // even with a "phantom" raw value - we never read it back).
             ms.SetModelValue("SeerrUrl", rawValue: null, attemptedValue: null);
             ms["SeerrUrl"]!.Errors.Add(new ModelError(new InvalidOperationException("json parse error")));
-            // MVC marks the entry Invalid when an error is pushed via AddModelError; doing
-            // it manually here keeps ModelState.IsValid == false so the filter's outer
-            // guard fires. Without this the ModelState reads as Valid despite having an
-            // Errors entry (a subtle framework quirk that would give a green test for the
-            // wrong reason).
+            // Keep IsValid false so the outer guard fires. Directly adding an error otherwise leaves IsValid true.
             ms["SeerrUrl"]!.ValidationState = ModelValidationState.Invalid;
         });
 
@@ -253,11 +209,7 @@ public class ModelBindingLogFilterTests
     [Fact]
     public async Task Invalid_ModelState_EmptyErrorAndNoException_UsesInvalidFallback()
     {
-        // Arrange: unusual but defensively-guarded case - a ModelError with empty
-        // ErrorMessage AND no attached Exception. Framework code doesn't normally emit
-        // this shape, but a custom binder or a defensive AddModelError("", "") upstream
-        // could. The filter's third fallback branch must produce the literal "invalid"
-        // so the log entry is still parseable and not just "field: ".
+        // Arrange: unusual but defensively-guarded case - a ModelError with empty ErrorMessage AND no attached Exception.
         var context = CreateExecutingContext(seedModelState: ms => ms.AddModelError("TrashRetentionDays", string.Empty));
 
         var nextCalled = false;
@@ -289,9 +241,7 @@ public class ModelBindingLogFilterTests
     [Fact]
     public async Task Invalid_ModelState_MultipleErrors_AllJoinedWithSemicolon()
     {
-        // Arrange: multi-field validation failures must all land in a single log entry
-        // (admins should not have to correlate multiple warnings for one request). Also
-        // pins the exact "; " separator so a client-side split-on-";" continues to work.
+        // Arrange: multi-field validation failures must all land in a single log entry (admins should not have to correlate multiple warnings for one request).
         var context = CreateExecutingContext(seedModelState: ms =>
         {
             ms.AddModelError("SeerrCleanupAgeDays", "The value 'null' is not valid.");
@@ -315,11 +265,7 @@ public class ModelBindingLogFilterTests
     [Fact]
     public async Task ModelState_TakesPrecedenceOverNullArgument()
     {
-        // Arrange: what happens when BOTH conditions fire? The filter must short-circuit on
-        // ModelState first (documented order) - otherwise a bad payload with a null-body
-        // parse failure would get the misleading "Request body is required" message
-        // instead of the actual field-level error surface. Pinning the branch order here
-        // prevents a future refactor from swapping the two if-blocks.
+        // Arrange: what happens when BOTH conditions fire? The filter must short-circuit on ModelState first (documented order) - otherwise a bad payload with a null-body parse failure would get the misleading "Request body is required" message instead of the actual field-level error.
         var context = CreateExecutingContext(
             seedModelState: ms => ms.AddModelError("SeerrCleanupAgeDays", "The value 'null' is not valid."),
             actionArguments: new Dictionary<string, object?> { ["request"] = null });
@@ -350,11 +296,7 @@ public class ModelBindingLogFilterTests
     [Fact]
     public async Task Multiple_ActionArguments_OneNull_StillShortCircuits()
     {
-        // Arrange: a controller action with multiple bound parameters - e.g. [FromBody]
-        // request + [FromQuery] token + CancellationToken. Even if only ONE argument is null,
-        // the filter must reject: the semantics are "any argument being null indicates a
-        // failed bind that would NRE inside the action". Pinning `Any(v => v is null)`
-        // vs `.All` explicitly here.
+        // Arrange: a controller action with multiple bound parameters - e.g. [FromBody] request + [FromQuery] token + CancellationToken.
         var context = CreateExecutingContext(actionArguments: new Dictionary<string, object?>
         {
             ["request"] = new object(),       // ok
@@ -382,12 +324,7 @@ public class ModelBindingLogFilterTests
     [Fact]
     public async Task Empty_ActionArguments_TreatedAsValid()
     {
-        // Arrange: pathological case - MVC hands us a request with no action arguments at all
-        // (parameterless action, or all parameters bound from services rather than the body).
-        // `Any(v => v is null)` on an empty enumerable returns false, so the filter must
-        // treat this as valid and forward to next(). Pinning it explicitly guards against a
-        // future refactor that switches to `.All` or adds a `.Count == 0` guard which would
-        // invert the semantics.
+        // Arrange: pathological case - MVC hands us a request with no action arguments at all (parameterless action, or all parameters bound from services rather than the body).
         var context = CreateExecutingContext(actionArguments: new Dictionary<string, object?>());
 
         var nextCalled = false;
@@ -416,10 +353,6 @@ public class ModelBindingLogFilterTests
     public async Task Valid_Request_Propagates_NextException()
     {
         // Contract: the filter is a diagnostic gate, NOT a global exception handler.
-        // If the wrapped action throws (or another downstream filter does), the exception
-        // must bubble up unaltered - otherwise a bug in the action would be silently
-        // swallowed and the response left in an undefined state. Pinning this contract
-        // here prevents a future well-meaning try/catch from being added around next().
         var context = CreateExecutingContext();
 
         var thrown = new InvalidOperationException("action blew up");
@@ -444,12 +377,7 @@ public class ModelBindingLogFilterTests
     [Fact]
     public void Filter_IsRegistrable_AsScoped_ViaDi()
     {
-        // Contract: the filter is consumed via [ServiceFilter(typeof(ModelBindingLogFilter))]
-        // on the controller action, which requires the concrete type to be resolvable from
-        // the service container. Scoped lifetime is the recommended default for filters
-        // resolved via [ServiceFilter] (matches the built-in filter lifecycle). This test
-        // exercises the exact registration path from PluginServiceRegistrator so a lifetime
-        // regression (e.g. AddSingleton by accident) fails here instead of at runtime.
+        // Contract: the filter is consumed via [ServiceFilter(typeof(ModelBindingLogFilter))] on the controller action, which requires the concrete type to be resolvable from the service container.
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
         services.AddScoped<ModelBindingLogFilter>();
         services.AddSingleton(_pluginLogMock.Object);

@@ -28,7 +28,6 @@ public class SeerrControllerTests
 
     /// <summary>
     ///     Builds a controller wired to a config helper returning the supplied configuration.
-    ///     The shared <see cref="_seerrService"/> mock is reused so setups/verifications apply.
     /// </summary>
     private SeerrController CreateController(PluginConfiguration config)
     {
@@ -133,9 +132,7 @@ public class SeerrControllerTests
         Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
         var payload = Assert.IsType<ConnectionTestResponse>(objectResult.Value);
         Assert.False(payload.Success);
-        // The detailed upstream reason ("Auth failed") is logged server-side but MUST NOT be
-        // reflected to the client: reflecting the raw upstream status/reason turns this endpoint
-        // into an internal-reachability oracle. A generic failure message is returned instead.
+        // The detailed upstream reason ("Auth failed") is logged server-side but MUST NOT be reflected to the client: reflecting the raw upstream status/reason turns this endpoint into an internal-reachability oracle.
         Assert.Equal("Connection failed. Please verify URL and API Key and try again.", payload.Message);
         Assert.DoesNotContain("Auth failed", payload.Message, StringComparison.Ordinal);
     }
@@ -173,8 +170,6 @@ public class SeerrControllerTests
         Assert.False(payload.Success);
         Assert.Contains("timed out", payload.Message);
     }
-
-    // ---------- Masked-key sentinel resolution ----------
 
     [Fact]
     public async Task TestConnection_MaskWithMatchingStoredUrl_UsesRealStoredKey()

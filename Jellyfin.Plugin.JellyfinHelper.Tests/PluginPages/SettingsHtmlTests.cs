@@ -255,8 +255,6 @@ public class SettingsHtmlTests : ConfigPageTestBase
         }
     }
 
-    // ===== Seerr settings UI tests =====
-
     [Fact]
     public void Html_ContainsSeerrSection()
     {

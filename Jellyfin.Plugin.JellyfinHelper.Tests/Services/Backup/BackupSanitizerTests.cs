@@ -107,8 +107,6 @@ public class BackupSanitizerTests
         Assert.Null(data.SeerrCleanupAgeDays);
     }
 
-    // ===== Baseline directory trimming =====
-
     private static BackupData MakeBaselineBackup(int directoryCount)
     {
         var data = new BackupData();
@@ -172,14 +170,10 @@ public class BackupSanitizerTests
         Assert.DoesNotContain(oldestKey, data.GrowthBaseline!.Directories.Keys);
     }
 
-    // ===== Negative-value clamping (corruption cannot enter the cache) =====
-
     [Fact]
     public void Sanitize_TimelineNegativeCumulativeValues_ClampedToZero()
     {
-        // A cumulative byte size / file count is physically non-negative. A hostile or
-        // corrupt backup must not be able to plant a negative that is written verbatim to
-        // the cache and surfaces on GET GrowthTimeline (and survives a recompute).
+        // A cumulative byte size / file count is physically non-negative. A hostile or corrupt backup must not be able to plant a negative that is written verbatim to the cache and surfaces on GET GrowthTimeline (and survives a recompute).
         var data = new BackupData
         {
             GrowthTimeline = new GrowthTimelineResult()
@@ -234,8 +228,6 @@ public class BackupSanitizerTests
         Assert.Equal(0, entry.Size);
         Assert.Equal(0, entry.Count);
     }
-
-    // ===== TruncateString: UTF-16 surrogate-pair safety =====
 
     [Fact]
     public void TruncateString_NullOrEmpty_ReturnsEmpty()

@@ -8,9 +8,7 @@ using Moq;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 
 /// <summary>
-/// Base class for cleanup-related scheduled task tests.
-/// Provides mock-based <see cref="ICleanupConfigHelper"/>, <see cref="ICleanupTrackingService"/>,
-/// and <see cref="ITrashService"/> instances, along with a default <see cref="PluginConfiguration"/>.
+///     Base class for cleanup-related scheduled task tests. Provides mock-based ICleanupConfigHelper, ICleanupTrackingService, and ITrashService instances, along with a default PluginConfiguration.
 /// </summary>
 public abstract class CleanupTaskTestBase : IDisposable
 {
@@ -58,11 +56,7 @@ public abstract class CleanupTaskTestBase : IDisposable
         MockConfigHelper.Setup(x => x.IsDryRunOrphanedSubtitles()).Returns(() => Config.OrphanedSubtitleTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsDryRunLinkRepair()).Returns(() => Config.LinkRepairTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsOldEnoughForDeletion(It.IsAny<string>())).Returns(true);
-        // IsFileOldEnoughForDeletion is a SEPARATE method used by the file-based orphan cleaners
-        // (subtitle cleaner). Without this setup Moq returns the default value (false) for any
-        // file path, which makes the orphan-subtitle branch silently skip every candidate as
-        // "too new". Tests that specifically want to exercise the age gate can override this
-        // to false on their own Mock<ICleanupConfigHelper>.
+        // IsFileOldEnoughForDeletion is a SEPARATE method used by the file-based orphan cleaners (subtitle cleaner).
         MockConfigHelper.Setup(x => x.IsFileOldEnoughForDeletion(It.IsAny<string>())).Returns(true);
         MockConfigHelper.Setup(x => x.GetTrashPath(It.IsAny<string>())).Returns<string>(lib => Path.Join(lib, ".trash"));
         MockConfigHelper.Setup(x => x.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
@@ -90,12 +84,7 @@ public abstract class CleanupTaskTestBase : IDisposable
     }
 
     /// <summary>
-    /// Builds a platform-native absolute test path from segments.
-    /// Ensures <see>
-    ///     <cref>Path.GetDirectoryName</cref>
-    /// </see>
-    /// returns a value
-    /// consistent with the path used in mock setups, regardless of OS.
+    ///     Builds a platform-native absolute test path from segments. Ensures <see> <cref>Path.GetDirectoryName</cref> </see> returns a value consistent with the path used in mock setups, regardless of OS.
     /// </summary>
     protected static string TestPath(params string[] segments)
         => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
@@ -131,8 +120,7 @@ public abstract class CleanupTaskTestBase : IDisposable
     }
 
     /// <summary>
-    /// A synchronous implementation of <see cref="IProgress{T}"/> that invokes the callback immediately.
-    /// Unlike <see cref="Progress{T}"/>, this does not post to a SynchronizationContext.
+    ///     A synchronous implementation of IProgress{T} that invokes the callback immediately.
     /// </summary>
     protected sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
     {

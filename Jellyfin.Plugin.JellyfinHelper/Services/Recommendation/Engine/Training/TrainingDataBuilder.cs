@@ -138,19 +138,12 @@ internal static class TrainingDataBuilder
 
         var recommendedItemIdsByUser = BuildRecommendedItemIdsByUser(previousResults);
 
-        // Stable timestamp anchor for organic items without LastPlayedDate.
-        // Using the earliest recommendation GeneratedAt provides a deterministic value
-        // that doesn't drift across runs (unlike DateTime.UtcNow.AddDays(-90)).
-        // Guard: if previousResults is empty (no prior recommendation runs), use a
-        // conservative fallback 90 days ago. This path is defensive only - BuildExamples()
-        // callers always pass non-empty results from the recommendation store.
+        // Stable timestamp anchor for organic items without LastPlayedDate. Using the earliest recommendation GeneratedAt provides a deterministic value that doesn't drift across runs (unlike DateTime.UtcNow.AddDays(-90)).
         var organicFallbackTimestamp = previousResults.Count > 0
             ? previousResults.Min(r => r.GeneratedAt)
             : DateTime.UtcNow.AddDays(-90);
 
-        // Bundle the immutable, phase-spanning context into a single value so each phase's
-        // entry point takes one parameter instead of ten-plus loose arguments. Purely a
-        // parameter aggregate - behaviour is unchanged.
+        // Bundle the immutable, phase-spanning context into a single value so each phase's entry point takes one parameter instead of ten-plus loose arguments.
         var ctx = new TrainingContext
         {
             PreviousResults = previousResults,
@@ -172,12 +165,7 @@ internal static class TrainingDataBuilder
 
         var randomNegativeCount = EmitRandomNegativeExamples(ctx);
 
-        // === Phase 4: Discovery feedback examples (shown/dismissed/requested/watched) ===
-        // Discovery items are external (not in library); their interactions give explicit signals -
-        // requests are strong positives, dismissals negatives. Added only when feedback is available.
-        // Kept as a separate counter (not folded into organicCount) so operators can see how much
-        // positive signal comes from external Seerr requests vs. actual watched consumption - mixing
-        // them once made a "205 organic" log look healthy when only 5 items were truly watched.
+        // Discovery items are external (not in library); their interactions give explicit signals - requests are strong positives, dismissals negatives.
         var discoveryCount = 0;
         if (discoveryFeedback is { Count: > 0 })
         {
@@ -202,9 +190,7 @@ internal static class TrainingDataBuilder
     /// </summary>
     private static Dictionary<Guid, HashSet<Guid>> BuildProfileLookup(Collection<UserWatchProfile> allProfiles)
     {
-        // Include both played AND favorited items as positive interactions.
-        // A favorited-but-not-played recommended item signals explicit interest
-        // and should not be labeled as exposure/abandonment.
+        // Include both played AND favorited items as positive interactions. A favorited-but-not-played recommended item signals explicit interest and should not be labeled as exposure/abandonment.
         var profileLookup = new Dictionary<Guid, HashSet<Guid>>();
         foreach (var profile in allProfiles)
         {
@@ -244,7 +230,6 @@ internal static class TrainingDataBuilder
 
     /// <summary>
     ///     Builds a people lookup from cached recommendation data (PeopleNames stored on RecommendedItem).
-    ///     This allows computing PeopleSimilarity during training without re-querying the library.
     /// </summary>
     private static Dictionary<Guid, HashSet<string>> BuildCachedPeopleLookup(
         IReadOnlyList<RecommendationResult> previousResults)
@@ -273,10 +258,6 @@ internal static class TrainingDataBuilder
         out Dictionary<Guid, IReadOnlyList<Guid>> itemBoxSetIdsLookup)
     {
         // Pre-compute itemId ? studios / tags / BoxSet lookups ONCE from all previous results.
-        // This avoids O(users × results × recommendations) rescanning in BuildStudioPreferenceSetFromCache
-        // and BuildTagPreferenceSetFromCache - each user's preference set is now O(watchedItems) instead.
-        // The BoxSet lookup mirrors the shape of Engine's live candidateBoxSetLookup so training and
-        // inference can iterate watched items (organic or recommended) through the same helper.
         itemStudiosLookup = new Dictionary<Guid, IReadOnlyList<string>>();
         itemTagsLookup = new Dictionary<Guid, IReadOnlyList<string>>();
         itemBoxSetIdsLookup = new Dictionary<Guid, IReadOnlyList<Guid>>();
@@ -313,9 +294,7 @@ internal static class TrainingDataBuilder
         out Dictionary<Guid, PerUserArtifacts> perUserCache,
         out Dictionary<Guid, UserWatchProfile> profileById)
     {
-        // Pre-compute per-user artifacts once and cache them. These are reused across
-        // Phase 1 (recommendation feedback), Phase 2 (organic examples), and Phase 3 (random
-        // negatives), avoiding redundant scans of the watched-items list for the same user.
+        // Pre-compute per-user artifacts once and cache them. These are reused across Phase 1 (recommendation feedback), Phase 2 (organic examples), and Phase 3 (random negatives), avoiding redundant scans of the watched-items list for the same user.
         perUserCache = new Dictionary<Guid, PerUserArtifacts>();
 
         // Build a lookup for O(1) profile access by user ID (avoids O(N) FirstOrDefault per result)
@@ -332,9 +311,7 @@ internal static class TrainingDataBuilder
             var pw = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookups.CachedPeopleLookup, seriesEpisodeCounts);
             var ps = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookups.ItemStudiosLookup);
             var pt = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookups.ItemTagsLookup);
-            // The new content-affinity preference maps read directly off WatchedItemInfo's cached
-            // fields, so the SAME PreferenceBuilder functions used at live scoring time apply here -
-            // identical inputs -> identical maps -> train/serve parity by construction.
+            // The new content-affinity preference maps read directly off WatchedItemInfo's cached fields, so the SAME PreferenceBuilder functions used at live scoring time apply here - identical inputs -> identical maps -> train/serve parity by construction.
             var pf = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
             var pc = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
             var pit = PreferenceBuilder.BuildInheritedTagPreferenceSet(profile);
@@ -376,19 +353,11 @@ internal static class TrainingDataBuilder
             // Build series episode lookup for series-level aggregation
             var seriesEpisodeLookup = BuildSeriesEpisodeLookup(userProfile);
 
-            // Build watched genre/people/studio sets for ContentNearestNeighborScore. Mirrors
-            // Engine.GenerateForUser (parallel lists indexed by watched item). Filter on
-            // HasMeaningfulInteraction() to match the live path (PlayCount > 0 / PlaybackPositionTicks > 0,
-            // not just Played || IsFavorite); a narrower filter would shrink the training watched set vs.
-            // inference, skewing ContentNearestNeighborScore.
+            // Build watched genre/people/studio sets for ContentNearestNeighborScore. Mirrors Engine.GenerateForUser (parallel lists indexed by watched item).
             var (watchedGenreSets, watchedPeopleSets, watchedStudioSets) =
                 BuildWatchedContentSets(userProfile, ctx.Lookups);
 
-            // Build per-user watchedBoxSetCounts by iterating the user's watched items directly (matches
-            // Engine.BuildWatchedBoxSetCounts). Uses the global itemBoxSetIdsLookup so organic watches
-            // (never recommended to this user) also contribute BoxSet membership when the item was
-            // recommended to at least one OTHER user and thus has cached BoxSet metadata. Previously only
-            // this user's recommendations counted, systematically under-counting BoxSet progression.
+            // Build per-user watchedBoxSetCounts by iterating the user's watched items directly (matches Engine.BuildWatchedBoxSetCounts).
             var watchedBoxSetCounts = BuildWatchedBoxSetCounts(
                 BuildWatchedIdSet(watchedIds, watchedSeriesIds),
                 ctx.Lookups.ItemBoxSetIdsLookup);
@@ -444,8 +413,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Builds the parallel watched genre/people/studio sets (indexed by meaningfully-interacted
-    ///     watched item) that feed ContentNearestNeighborScore. Shared by Phase 1 and Phase 3.
+    ///     Builds the parallel watched genre/people/studio sets (indexed by meaningfully-interacted watched item) that feed ContentNearestNeighborScore.
     /// </summary>
     private static (List<HashSet<string>> Genre, List<HashSet<string>> People, List<HashSet<string>> Studio)
         BuildWatchedContentSets(UserWatchProfile userProfile, TrainingLookups lookups)
@@ -533,17 +501,6 @@ internal static class TrainingDataBuilder
         var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
         // Compute user-specific signals matching Engine.ScoreCandidate() logic.
-        // Train/serve parity: a Series that a user meaningfully interacted with is filtered
-        // out of the live candidate pool by GenerateForUser's watchedSeriesIds check, so it
-        // never reaches ScoreCandidate. Feeding real per-episode averages here trained
-        // signals the inference path never sees; those channels are now neutralised. The
-        // "series was recommended and later watched" signal survives via the positive
-        // wasWatched label below and via CompletionRatio, which the neural model consumes
-        // as an engagement magnitude rather than a user-interaction gate.
-        //
-        // We still resolve watchedItemForRec from the most recent episode so that temporal
-        // features (DayOfWeek/HourOfDay/IsWeekend) - which do have real inference-time
-        // signal from user-anchored watch times - stay grounded.
         var (userRatingScore, completionRatio, hasUserInteraction) = ResolveRecInteractionSignals(
             rec,
             isSeries,
@@ -559,11 +516,7 @@ internal static class TrainingDataBuilder
             ContentScoring.ComputeCombinedCriticScore(rec.CommunityRating, rec.CriticRating);
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
-        // Series progression boost: hardcoded 0.0 to mirror inference. The live path in
-        // Engine.ScoreCandidate now writes a constant 0.0 for this channel because the
-        // watchedSeriesIds filter upstream removes any series with meaningful interaction
-        // from the candidate pool before scoring. Emitting a non-zero value here would
-        // reintroduce train/serve skew: training would see a boost the inference path never emits.
+        // Series progression boost: hardcoded 0.0 to mirror inference.
         const double seriesProgressionBoost = 0.0;
 
         // Compute PeopleSimilarity from cached data using the weighted overload
@@ -584,10 +537,7 @@ internal static class TrainingDataBuilder
             ? new HashSet<string>(rec.Genres, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Build the COMPLETE feature vector matching Engine.ScoreCandidate() logic
-        // Matches Engine.ScoreCandidate: PremiereDate ?? DateCreated ?? neutral 0.5.
-        // The third fallback covers legacy cache entries from before 2.0.0.3 where
-        // DateCreated was not yet persisted on RecommendedItem.
+        // Build the COMPLETE feature vector matching Engine.ScoreCandidate() logic Matches Engine.ScoreCandidate: PremiereDate ?? DateCreated ?? neutral 0.5.
         double recencyScore;
         if (rec.PremiereDate.HasValue)
         {
@@ -645,9 +595,7 @@ internal static class TrainingDataBuilder
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile),
             CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(rec.BoxSetIds, contentSets.WatchedBoxSetCounts),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile),
-            // Content-affinity signals - SAME shared helpers as live scoring, over the cached
-            // RecommendedItem fields. Missing/legacy fields (null string, empty list) self-neutralize
-            // to 0.0 (or 0.5 for completability) inside the helpers, so old cache entries never crash.
+            // Content-affinity signals - SAME shared helpers as live scoring, over the cached RecommendedItem fields.
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(rec.TmdbCollectionName, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(rec.ProductionCountries, preferredCountries),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(rec.InheritedTags, preferredInheritedTags),
@@ -676,9 +624,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Resolves the (UserRatingScore, CompletionRatio, HasUserInteraction) triple for a Phase 1
-    ///     recommended item, neutralising user-interaction channels for watched series to match
-    ///     inference. May re-anchor <paramref name="watchedItemForRec"/> to the most recent episode.
+    ///     Resolves the (UserRatingScore, CompletionRatio, HasUserInteraction) triple for a Phase 1 recommended item, neutralising user-interaction channels for watched series to match inference.
     /// </summary>
     private static (double UserRatingScore, double CompletionRatio, bool HasUserInteraction)
         ResolveRecInteractionSignals(
@@ -696,17 +642,12 @@ internal static class TrainingDataBuilder
                         .OrderByDescending(e => e.LastPlayedDate)
                         .FirstOrDefault();
 
-                    // Neutralise all user-interaction channels to match inference: the live path
-                    // filters watched series out of the candidate pool entirely, so any series
-                    // candidate at inference has hasUserInteraction=false and completionRatio=0.0.
+                    // Neutralise all user-interaction channels to match inference: the live path filters watched series out of the candidate pool entirely, so any series candidate at inference has hasUserInteraction=false and completionRatio=0.0.
                     return (0.5, 0.0, false);
                 }
 
             case true when wasWatched && watchedItemForRec is null:
-                // Series-level favorite without watched episodes. The live path never sees
-                // this series (favorite pushes it into watchedSeriesIds), so all user-
-                // interaction features must be neutral. The positive intent still flows
-                // through the label branch below.
+                // Series-level favorite without watched episodes. The live path never sees this series (favorite pushes it into watchedSeriesIds), so all user- interaction features must be neutral.
                 return (0.5, 0.0, false);
             default:
                 {
@@ -721,8 +662,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Computes the label for a Phase 1 recommendation-feedback example (watched / abandoned /
-    ///     exposure branches plus the recommendation-influence boost).
+    ///     Computes the label for a Phase 1 recommendation-feedback example (watched / abandoned / exposure branches plus the recommendation-influence boost).
     /// </summary>
     private static double ComputeRecommendationFeedbackLabel(
         CandidateFeatures features,
@@ -733,10 +673,7 @@ internal static class TrainingDataBuilder
     {
         if (wasWatched)
         {
-            // Determine base label based on interaction type:
-            // 1. Favorite-only (no playback): explicit interest signal -> 0.65
-            // 2. Abandoned (started but stopped early): strong negative signal -> 0.0
-            // 3. Normal watch: engagement-proportional label (0.5-0.85)
+            // Determine base label based on interaction type: 1. Favorite-only (no playback): explicit interest signal -> 0.65 2.
             double baseLabel;
             switch (watchedItemForRec)
             {
@@ -781,10 +718,7 @@ internal static class TrainingDataBuilder
     private static Dictionary<Guid, HashSet<Guid>> BuildRecommendedItemIdsByUser(
         IReadOnlyList<RecommendationResult> previousResults)
     {
-        // === Phase 2: Add organic watch examples (watched-but-never-recommended items) ===
-        // Items the user found and watched on their own are strong positive signal the
-        // recommendation-only approach misses, reducing training bias. Per-user recommended sets keep
-        // an item recommended to user A from suppressing user B's organic discovery of the same item.
+        // Items the user found and watched on their own are strong positive signal the recommendation-only approach misses, reducing training bias.
         var recommendedItemIdsByUser = new Dictionary<Guid, HashSet<Guid>>();
         foreach (var prevResult in previousResults)
         {
@@ -827,17 +761,10 @@ internal static class TrainingDataBuilder
             var (seriesEpisodeLookupOrganic, seriesWithOrgEpisodes, watchedItemIds, watchedSeriesIds) =
                 PrescanOrganicWatchedItems(userProfile, recommendedItemIds);
 
-            // === Series aggregation: collapse episodes into one example per series ===
-            // Without aggregation, a series with 50 episodes produces 50 training examples,
-            // massively skewing the dataset toward that series. Instead, group episodes by
-            // SeriesId and emit a single aggregated TrainingExample per series. Standalone
-            // items (movies, series-level favorites without SeriesId) are emitted 1:1 as before.
+            // Without aggregation, a series with 50 episodes produces 50 training examples, massively skewing the dataset toward that series.
             var aggregatedSeriesIds = new HashSet<Guid>();
 
-            // Build per-user BoxSet counts for Phase 2 organic items so that standalone organic
-            // movies/series receive a real CollectionProgressionBoost feature rather than the
-            // hardcoded 0.0 that would create a train/serve skew (the live scoring path always
-            // computes the real boost via Engine.ComputeCollectionProgressionBoostLive).
+            // Build per-user BoxSet counts for Phase 2 organic items so that standalone organic movies/series receive a real CollectionProgressionBoost feature rather than the hardcoded 0.0 that would create a train/serve skew (the live scoring path always computes the real boost via.
             var watchedBoxSetCountsOrganic = BuildWatchedBoxSetCounts(
                 BuildWatchedIdSet(watchedItemIds, watchedSeriesIds),
                 ctx.Lookups.ItemBoxSetIdsLookup);
@@ -863,9 +790,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Single-pass prescan over a user's watched items building the per-series episode lookup,
-    ///     the set of series with organic (never-recommended) episodes, and the watched item/series
-    ///     id sets. Kept behaviour-identical to the previous inline loop.
+    ///     Single-pass prescan over a user's watched items building the per-series episode lookup, the set of series with organic (never-recommended) episodes, and the watched item/series id sets.
     /// </summary>
     private static (Dictionary<Guid, List<WatchedItemInfo>> SeriesEpisodeLookup, HashSet<Guid> SeriesWithOrgEpisodes,
         HashSet<Guid> WatchedItemIds, HashSet<Guid> WatchedSeriesIds)
@@ -905,9 +830,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Processes one watched item for Phase 2, emitting either an aggregated series example or a
-    ///     standalone example (or nothing). Returns the number of examples emitted (0 or 1) so the
-    ///     caller's organicCount stays behaviour-identical.
+    ///     Processes one watched item for Phase 2, emitting either an aggregated series example or a standalone example (or nothing).
     /// </summary>
     private static int ProcessOrganicWatchedItem(
         WatchedItemInfo w,
@@ -979,7 +902,6 @@ internal static class TrainingDataBuilder
             return 0;
         }
 
-        // === Standalone items (movies, series-level favorites without SeriesId) ===
         // Note: w.SeriesId is guaranteed null here because the if (w.SeriesId.HasValue)
         // block above always exits with `continue`. Only non-series items reach this point.
         var collabScore = ContentScoring.ComputeCollaborativeScore(w.ItemId, coOccurrence, collaborativeMax);
@@ -993,18 +915,13 @@ internal static class TrainingDataBuilder
 
         var isSeries = string.Equals(w.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
-        // If this standalone series has episode rows in the organic set, skip it -
-        // the episode-based aggregation path (above) produces richer training signals.
-        // Without this guard, iteration order could cause the standalone row to "win"
-        // the aggregatedSeriesIds race and suppress episode-level aggregation.
+        // If this standalone series has episode rows in the organic set, skip it - the episode-based aggregation path (above) produces richer training signals.
         if (isSeries && seriesWithOrgEpisodes.Contains(w.ItemId))
         {
             return 0;
         }
 
-        // If this standalone item is a Series object (w.SeriesId == null, w.ItemType == "Series")
-        // and the series was already emitted via the aggregation path above (episode rows with matching
-        // SeriesId), skip to avoid double-counting the same series with two training examples.
+        // If this standalone item is a Series object (w.SeriesId == null, w.ItemType == "Series") and the series was already emitted via the aggregation path above (episode rows with matching SeriesId), skip to avoid double-counting the same series with two training examples.
         if (isSeries && aggregatedSeriesIds.Contains(w.ItemId))
         {
             return 0;
@@ -1063,11 +980,7 @@ internal static class TrainingDataBuilder
         var studioMatch = false;
         var tagSimilarity = 0.0;
 
-        // Resolve the item's studios once: used for BOTH StudioMatch and the genre/studio IDF
-        // prior below. The live scoring path feeds candidate.Studios into
-        // ComputeGenreStudioIdfPrior, so the organic training path must feed the same real
-        // studios (not null) or the prior's studio-rarity contribution silently differs
-        // between train and serve.
+        // Resolve the item's studios once: used for BOTH StudioMatch and the genre/studio IDF prior below.
         lookups.ItemStudiosLookup.TryGetValue(w.ItemId, out var organicStudios);
 
         if (organicStudios is { Count: > 0 })
@@ -1080,11 +993,7 @@ internal static class TrainingDataBuilder
             tagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(organicTags, preferredTagsOrganic);
         }
 
-        // Series progression boost: hardcoded 0.0. Standalone organic series rows never
-        // re-enter the live candidate pool (watchedSeriesIds pushes them out in
-        // Engine.GenerateForUser), so any non-zero value here would produce a
-        // distribution the neural network never sees at inference. Kept as a named local
-        // to preserve the surrounding assignment shape.
+        // Series progression boost: hardcoded 0.0.
         const double seriesProgressionBoost = 0.0;
 
         // Null-safe genre access for deserialized cache objects
@@ -1100,20 +1009,14 @@ internal static class TrainingDataBuilder
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(wGenres, genrePreferences),
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
-            // Use content release year for recency (not watch date) to match Phase 1 semantics.
-            // Phase 1 uses rec.PremiereDate; organic items lack premiere metadata so
-            // approximate via ProductionYear, falling back to neutral 0.5.
+            // Use content release year for recency (not watch date) to match Phase 1 semantics. Phase 1 uses rec.PremiereDate; organic items lack premiere metadata so approximate via ProductionYear, falling back to neutral 0.5.
             RecencyScore = w.Year is { } recY and >= 1 and <= 9999
                 ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc))
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
             GenreCount = wGenres.Count,
             IsSeries = isSeries,
-            // Train/serve parity: at inference these organic items are unwatched candidates
-            // (candidate.Id not in watchedItemLookup), so UserRatingScore is the neutral 0.5
-            // default from ComputeUserRatingScore(null) and HasUserInteraction is false. Feeding
-            // real w.UserRating / true here would skew the feature distribution; the "user liked
-            // this" signal is already carried by the positive Label below.
+            // Train/serve parity: at inference these organic items are unwatched candidates (candidate.Id not in watchedItemLookup), so UserRatingScore is the neutral 0.5 default from ComputeUserRatingScore(null) and HasUserInteraction is false.
             UserRatingScore = 0.5,
             HasUserInteraction = false,
             CompletionRatio = completionRatio,
@@ -1123,11 +1026,7 @@ internal static class TrainingDataBuilder
             CollectionProgressionBoost = lookups.ItemBoxSetIdsLookup.TryGetValue(w.ItemId, out var orgBoxSetIds2)
                 ? ComputeCollectionProgressionBoostWithCounts(orgBoxSetIds2, watchedBoxSetCountsOrganic)
                 : 0.0,
-            // Popularity prior: identical composition to Phase 1, Phase 3 and the live scoring
-            // path (collaborative + critic blend). Previously omitted here, leaving organic
-            // examples at the 0.0 default while every other path fed a real value - a
-            // train/serve skew on this dimension. collabScore/combinedCriticScore are the same
-            // locals already feeding CollaborativeScore/CombinedCriticScore above.
+            // Popularity prior: identical composition to Phase 1, Phase 3 and the live scoring path (collaborative + critic blend).
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: true),
             HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: false),
@@ -1136,16 +1035,10 @@ internal static class TrainingDataBuilder
             LibraryAddedRecency = w.DateCreated.HasValue
                 ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value)
                 : 0.5,
-            // Organic standalone items lack per-item stream metadata (AudioLanguages/SubtitleLanguages
-            // are only cached on RecommendedItem from Phase 1). Use neutral 0.5 to match the live
-            // scoring path which also returns 0.5 when stream data is unavailable, preventing
-            // train/serve skew on these two dimensions.
+            // Organic standalone items lack per-item stream metadata (AudioLanguages/SubtitleLanguages are only cached on RecommendedItem from Phase 1).
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
-            // Content-affinity signals from WatchedItemInfo's cached fields, using the SAME shared
-            // helpers as live scoring. BillingWeightedPeople now reads the cached PeopleNames/
-            // PeopleWeights (billing weights persisted at watch-history build) so organic examples
-            // carry the same real value the live path computes - closing the prior 0.0 skew.
+            // Content-affinity signals from WatchedItemInfo's cached fields, using the SAME shared helpers as live scoring.
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(w.TmdbCollectionName, preferredFranchisesOrganic),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(w.ProductionCountries, preferredCountriesOrganic),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(w.InheritedTags, preferredInheritedTagsOrganic),
@@ -1163,9 +1056,7 @@ internal static class TrainingDataBuilder
         features.GenreDominanceRatio = organicDomRatio;
         features.GenreAffinityGap = organicAffGap;
 
-        // Organic watches are strong positive signals - label based on completion.
-        // Favorite-only items (not played, no playback progress) get an explicit positive label.
-        // Items started but abandoned (not played, but has playback progress) get a negative label.
+        // Organic watches are strong positive signals - label based on completion. Favorite-only items (not played, no playback progress) get an explicit positive label.
         var label = w switch
         {
             { Played: false, PlaybackPositionTicks: > 0 } when completionRatio <
@@ -1190,16 +1081,9 @@ internal static class TrainingDataBuilder
     /// <returns>The number of random-negative examples emitted.</returns>
     private static int EmitRandomNegativeExamples(TrainingContext ctx)
     {
-        // === Phase 3: Random negative sampling (cross-user items the user never interacted with) ===
-        // Phase 1 negatives are only items the system recommended to THIS user (exposure bias); Phase 2
-        // adds only positives. Without true negatives the model lacks a "baseline irrelevant" class and
-        // may overfit its own recommendation distribution. Cross-user negatives sample items recommended
-        // to OTHER users that this user never touched - genuine "irrelevant for this user" examples with
-        // full metadata available.
+        // Phase 1 negatives are only items the system recommended to THIS user (exposure bias); Phase 2 adds only positives.
         var randomNegativeCount = 0;
-        // Deduplicate by ItemId to prevent popular titles (recommended to multiple users)
-        // from appearing multiple times in candidateNegatives, which would overweight them
-        // as negatives purely because they were widely recommended elsewhere.
+        // Deduplicate by ItemId to prevent popular titles (recommended to multiple users) from appearing multiple times in candidateNegatives, which would overweight them as negatives purely because they were widely recommended elsewhere.
         var seenNegItemIds = new HashSet<Guid>();
         var allRecommendedItems = new List<RecommendedItem>();
         foreach (var prevResult in ctx.PreviousResults)
@@ -1221,8 +1105,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Emits the Phase 3 cross-user random-negative examples for a single user. Returns the number
-    ///     of examples emitted. Kept behaviour-identical to the previous inline per-user body.
+    ///     Emits the Phase 3 cross-user random-negative examples for a single user. Returns the number of examples emitted.
     /// </summary>
     private static int ProcessUserRandomNegatives(
         UserWatchProfile userProfile,
@@ -1254,12 +1137,7 @@ internal static class TrainingDataBuilder
         var (watchedGenreSetsNeg, watchedPeopleSetsNeg, watchedStudioSetsNeg) =
             BuildWatchedContentSets(userProfile, lookups);
 
-        // Build a per-user watchedBoxSetCounts lookup by iterating this user's watched items
-        // directly and resolving BoxSet membership through the global itemBoxSetIdsLookup.
-        // Matches Engine.BuildWatchedBoxSetCounts so organic watches also contribute counts
-        // whenever the item was recommended to at least one other user (so we have BoxSet
-        // metadata for it). This closes the earlier train/serve gap where Phase 3 only saw
-        // items recommended to this user's neighbours in the recommendation set.
+        // Build a per-user watchedBoxSetCounts lookup by iterating this user's watched items directly and resolving BoxSet membership through the global itemBoxSetIdsLookup.
         var watchedBoxSetCountsNeg = BuildWatchedBoxSetCounts(
             BuildWatchedIdSet(userWatchedIds, userWatchedSeriesIds),
             lookups.ItemBoxSetIdsLookup);
@@ -1397,16 +1275,10 @@ internal static class TrainingDataBuilder
                 contentSets.WatchedPeopleSets,
                 contentSets.WatchedStudioSets),
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile),
-            // Same diminishing-returns formula as inference
-            // (Engine.ComputeCollectionProgressionBoostLive), via the per-user
-            // watchedBoxSetCountsNeg built above. Eliminates the prior train/serve divergence
-            // where Phase 3 emitted 0.0/0.3/0.5 while inference emitted 0.3/0.5/0.7/0.9. An
-            // empty dictionary yields 0.0, the correct signal.
+            // Same diminishing-returns formula as inference (Engine.ComputeCollectionProgressionBoostLive), via the per-user watchedBoxSetCountsNeg built above.
             CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(neg.BoxSetIds, contentSets.WatchedBoxSetCounts),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile),
-            // Content-affinity signals - same shared helpers, over the cached RecommendedItem
-            // negative sample. neg carries the full field set (incl. PeopleWeights), so billing
-            // is real here (unlike the organic branch). Empty/legacy fields self-neutralize.
+            // Content-affinity signals - same shared helpers, over the cached RecommendedItem negative sample. neg carries the full field set (incl.
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(neg.TmdbCollectionName, preferredFranchisesNeg),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(neg.ProductionCountries, preferredCountriesNeg),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(neg.InheritedTags, preferredInheritedTagsNeg),
@@ -1436,7 +1308,6 @@ internal static class TrainingDataBuilder
 
     /// <summary>
     ///     Builds the union of watched item IDs and watched series IDs for BoxSet-count computation.
-    ///     Shared by Phase 1 and Phase 3 to avoid duplicating the null-safe union pattern.
     /// </summary>
     private static HashSet<Guid> BuildWatchedIdSet(HashSet<Guid> watchedIds, HashSet<Guid>? watchedSeriesIds)
     {
@@ -1450,21 +1321,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Computes CollectionProgressionBoost using the same diminishing-returns formula as
-    ///     <see cref="Engine.ComputeCollectionProgressionBoostLive"/>, via a pre-built
-    ///     <paramref name="watchedBoxSetCounts"/> dictionary (built once per user by iterating the user's
-    ///     watched items through the global BoxSet lookup) for train/serve parity.
-    ///     <para>
-    ///         <c>internal</c> (not <c>private</c>) so the test assembly can call it directly via
-    ///         <c>InternalsVisibleTo</c> without reflection.
-    ///     </para>
-    ///     <para>
-    ///         The formula <c>0.3 + (n-1) × 0.2, clamped [0,1]</c> lives centrally in
-    ///         <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/>; both this training
-    ///         path and <see cref="Engine.ComputeCollectionProgressionBoostLive"/> call it, making
-    ///         copy-drift architecturally impossible. The 16 <c>CollectionProgressionBoostTests</c>
-    ///         therefore protect both callers.
-    ///     </para>
+    ///     Computes CollectionProgressionBoost using the same diminishing-returns formula as ComputeCollectionProgressionBoostLive, via a pre-built watchedBoxSetCounts dictionary (built once per user by iterating the user's watched items through the global BoxSet.
     /// </summary>
     /// <param name="boxSetIds">The cached BoxSet IDs for the candidate item.</param>
     /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID -> watched member count mapping.</param>
@@ -1479,9 +1336,6 @@ internal static class TrainingDataBuilder
         }
 
         // Find the best progression signal across all BoxSets the candidate belongs to.
-        // The formula itself is delegated to the shared helper in EngineConstants so the live
-        // inference path (Engine.ComputeCollectionProgressionBoostLive) uses exactly the same
-        // implementation - guaranteeing train/serve parity by construction.
         var bestBoost = 0.0;
         foreach (var boxSetId in boxSetIds)
         {
@@ -1501,9 +1355,7 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Groups the read-only, always-passed-together item-metadata lookups and the library-wide
-    ///     genre/studio IDF table so they travel through the phase builders as a single value rather
-    ///     than five loose parameters. Behaviour-neutral: purely a parameter aggregate.
+    ///     Groups the read-only, always-passed-together item-metadata lookups and the library-wide genre/studio IDF table so they travel through the phase builders as a single value rather than five loose parameters.
     /// </summary>
     private readonly record struct TrainingLookups(
         Dictionary<Guid, HashSet<string>> CachedPeopleLookup,
@@ -1513,9 +1365,7 @@ internal static class TrainingDataBuilder
         IReadOnlyDictionary<string, double>? GenreStudioIdf);
 
     /// <summary>
-    ///     Groups the per-user parallel watched-content sets (genre/people/studio, indexed by watched
-    ///     item) and the per-user watched-BoxSet count map that feed the Phase 1/Phase 3 example
-    ///     builders. Behaviour-neutral: purely a parameter aggregate.
+    ///     Groups the per-user parallel watched-content sets (genre/people/studio, indexed by watched item) and the per-user watched-BoxSet count map that feed the Phase 1/Phase 3 example builders.
     /// </summary>
     private readonly record struct WatchedContentSets(
         List<HashSet<string>> WatchedGenreSets,
@@ -1524,8 +1374,7 @@ internal static class TrainingDataBuilder
         Dictionary<Guid, int> WatchedBoxSetCounts);
 
     /// <summary>
-    ///     Immutable, phase-spanning context threaded through the Phase 1/2/3 entry points so each takes
-    ///     a single argument instead of a long loose parameter list. Behaviour-neutral parameter aggregate.
+    ///     Immutable, phase-spanning context threaded through the Phase 1/2/3 entry points so each takes a single argument instead of a long loose parameter list.
     /// </summary>
     private readonly record struct TrainingContext
     {

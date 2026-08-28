@@ -12,26 +12,10 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Adaptive ML scoring strategy using a linear model with learned weights.
-///     Learns personalized feature weights from user watch history via stochastic gradient descent (SGD).
-///     Genre-mismatch penalties are NOT applied here - they are handled centrally by the
-///     ensemble layer to avoid double-penalization.
-///     No external ML dependencies required - pure C# implementation.
+///     Adaptive ML scoring strategy using a linear model with learned weights. Learns personalized feature weights from user watch history via stochastic gradient descent (SGD).
 /// </summary>
 /// <remarks>
 ///     Architecture: 31 input features -> 31 weights + 1 bias -> clamp(0,1) -> score (0-1).
-///     Features include genre similarity, collaborative score, combined critic score, recency,
-///     year proximity, genre count, series flag, 2 interaction terms (genre×critic, genre×collab),
-///     user rating, completion ratio, abandoned flag, has-interaction flag, people similarity,
-///     studio match, series progression boost, popularity, temporal features (day-of-week,
-///     hour-of-day, weekend), tag similarity, 2 cross-feature interaction terms (people×genre,
-///     recency×critic), 3 genre exposure features (underexposure, dominance ratio, affinity gap),
-///     library-added recency, content nearest-neighbor score, language affinity,
-///     collection progression boost, and subtitle language affinity.
-///     Training: MSE loss with L2 regularization, sample weighting (temporal decay), Z-score feature
-///     standardization (at both training and scoring time), and early stopping. K-fold
-///     cross-validation computes standardization stats per-fold from the training fold only, avoiding
-///     leakage into normalization. Weights persist to disk so they survive server restarts.
 /// </remarks>
 public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrategy
 {
@@ -78,18 +62,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     internal const int MinExamplesForStandardization = 10;
 
     /// <summary>
-    ///     Current schema version for persisted weights. Increment when the feature set or
-    ///     weight semantics change so that stale weights are discarded on load. A
-    ///     changed <see cref="CandidateFeatures.FeatureCount"/> is already caught independently by
-    ///     the array-length check on load, so a persisted array from a different feature set is
-    ///     discarded regardless of this value.
+    ///     Current schema version for persisted weights. Increment when the feature set or weight semantics change so that stale weights are discarded on load.
     /// </summary>
     internal const int CurrentWeightsVersion = 2;
 
     /// <summary>
-    ///     Cached JSON serializer options for weight persistence.
-    ///     Compact (non-indented) output - the file is machine-read
-    ///     only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.
+    ///     Cached JSON serializer options for weight persistence. Compact (non-indented) output - the file is machine-read only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.
     /// </summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 
@@ -105,8 +83,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     private double[] _weights;
 
     /// <summary>
-    ///     Persisted Z-score standardization statistics. When non-null, scoring applies
-    ///     the same standardization that was used during training to ensure consistency.
+    ///     Persisted Z-score standardization statistics. When non-null, scoring applies the same standardization that was used during training to ensure consistency.
     /// </summary>
     private double[]? _featureMeans;
 
@@ -142,9 +119,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     public string NameKey => "strategyLearned";
 
     /// <summary>
-    ///     Gets the validation loss from the last training run.
-    ///     Used by <see cref="EnsembleScoringStrategy"/> to gate alpha progression.
-    ///     Returns <see cref="double.NaN"/> if no training has been performed.
+    ///     Gets the validation loss from the last training run. Used by EnsembleScoringStrategy to gate alpha progression.
     /// </summary>
     internal double LastValidationLoss
     {
@@ -158,9 +133,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Gets the Precision@K from the last training run.
-    ///     Measures what fraction of top-K predicted items are actually relevant.
-    ///     Returns <see cref="double.NaN"/> if no training has been performed.
+    ///     Gets the Precision@K from the last training run. Measures what fraction of top-K predicted items are actually relevant.
     /// </summary>
     internal double LastPrecisionAtK
     {
@@ -174,9 +147,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Gets the Recall@K from the last training run.
-    ///     Measures what fraction of all relevant items appear in the top-K predictions.
-    ///     Returns <see cref="double.NaN"/> if no training has been performed.
+    ///     Gets the Recall@K from the last training run. Measures what fraction of all relevant items appear in the top-K predictions.
     /// </summary>
     internal double LastRecallAtK
     {
@@ -190,9 +161,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Gets the NDCG@K from the last training run.
-    ///     Measures ranking quality by rewarding relevant items at higher positions.
-    ///     Returns <see cref="double.NaN"/> if no training has been performed.
+    ///     Gets the NDCG@K from the last training run. Measures ranking quality by rewarding relevant items at higher positions.
     /// </summary>
     internal double LastNdcgAtK
     {
@@ -310,10 +279,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Capture a consistent reference time for temporal decay within this batch
         var referenceTime = DateTime.UtcNow;
 
-        // Pre-compute all feature vectors ONCE before training.
-        // These are the RAW (unstandardized) vectors used as the source of truth.
-        // Standardization is applied per-fold (K-fold) and on all data (final pass)
-        // by cloning into working copies, keeping rawVectors pristine.
+        // Pre-compute all feature vectors ONCE before training. These are the RAW (unstandardized) vectors used as the source of truth.
         var rawVectors = new double[examples.Count][];
         var effectiveWeights = new double[examples.Count];
 
@@ -323,18 +289,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             effectiveWeights[i] = examples[i].ComputeEffectiveWeight(referenceTime);
         }
 
-        // Determine whether standardization should be applied at all.
-        // Thread-safety note: featureMeans/featureStdDevs are computed from local
-        // data (no shared state), then assigned to instance fields INSIDE the lock below.
-        // Score()/ScoreWithExplanation() read these fields under the same lock.
+        // Determine whether standardization should be applied at all. Thread-safety note: featureMeans/featureStdDevs are computed from local data (no shared state), then assigned to instance fields INSIDE the lock below.
         var useStandardization = examples.Count >= MinExamplesForStandardization;
 
         lock (_syncRoot)
         {
-            // Handle standardization transition: if we're applying standardization for the
-            // first time but weights were previously trained on raw (unstandardized) features,
-            // reset to defaults. Without this, the old weights would produce wildly wrong
-            // predictions on the now-standardized inputs until gradient descent corrects them.
+            // Handle standardization transition: if we're applying standardization for the first time but weights were previously trained on raw (unstandardized) features, reset to defaults.
             var standardizationModeChanged = useStandardization != (_featureMeans is not null);
             if (standardizationModeChanged)
             {
@@ -385,7 +345,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     ref kFoldLossCount);
             }
 
-            // === Final training on ALL data (no validation holdout) ===
             RunFinalTrainingPass(
                 examples,
                 rawVectors,
@@ -399,14 +358,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             LogFeatureImportance();
         } // release _syncRoot before disk I/O and ranking metrics to avoid blocking concurrent Score() calls
 
-        // Compute ranking metrics OUTSIDE the lock - ComputeAll() calls Score() internally,
-        // which acquires _syncRoot. System.Threading.Lock is NOT reentrant - this call MUST
-        // remain outside _syncRoot. Moving it inside the lock would cause a LockRecursionException.
-        // This mirrors the pattern used by NeuralScoringStrategy.Train().
-        //
-        // Prefer the caller-supplied held-out slice so the ensemble's quality snapshot reports
-        // out-of-sample numbers. If the caller passed nothing (or too little to be meaningful)
-        // we fall back to fit-on-training so metrics are still populated.
+        // Compute ranking metrics OUTSIDE the lock - ComputeAll() calls Score() internally, which acquires _syncRoot.
         var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         lock (_syncRoot)
@@ -416,10 +368,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             _lastNdcgAtK = nAtK;
         }
 
-        // Persist outside the lock - TrySaveWeights() takes its own lock for
-        // a brief snapshot, then performs serialization and file I/O without
-        // holding the scoring lock. This prevents slow disk writes from blocking
-        // all concurrent Score()/ScoreWithExplanation() callers.
+        // Persist outside the lock - TrySaveWeights() takes its own lock for a brief snapshot, then performs serialization and file I/O without holding the scoring lock.
         TrySaveWeights();
 
         return true;
@@ -427,9 +376,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Runs k-fold cross-validation for reliable loss estimation.
-    ///     Extracted verbatim from the k-fold block of <see cref="Train(IReadOnlyList{TrainingExample}, IReadOnlyList{TrainingExample})"/>;
-    ///     fold boundaries, per-fold standardization (training-fold-only statistics), weight resets,
-    ///     and the loss accumulation order are unchanged. Must be called under lock.
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <param name="rawVectors">The pristine (unstandardized) feature vectors, never mutated here.</param>
@@ -449,10 +395,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         ref double kFoldLossSum,
         ref int kFoldLossCount)
     {
-        // === K-fold cross-validation for reliable loss estimation ===
-        // Each fold computes standardization statistics from its TRAINING fold only,
-        // preventing validation data from leaking into the feature normalization.
-        // rawVectors is never mutated - each fold clones into working copies.
+        // Each fold computes standardization statistics from its TRAINING fold only, preventing validation data from leaking into the feature normalization.
         var foldSize = examples.Count / KFoldCount;
         var savedWeights = (double[])_weights.Clone();
         var savedBias = _bias;
@@ -479,9 +422,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             // does not mutate the originals (needed for subsequent folds + final pass).
             var foldVectors = CloneVectors(rawVectors);
 
-            // Per-fold standardization: compute statistics from TRAINING fold only,
-            // then apply to BOTH train and validation vectors using the same stats.
-            // This prevents validation data from influencing the normalization.
+            // Per-fold standardization: compute statistics from TRAINING fold only, then apply to BOTH train and validation vectors using the same stats.
             if (useStandardization)
             {
                 var trainOnly = new double[foldTrainIndices.Length][];
@@ -517,11 +458,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Runs the final warm-started training pass on ALL data (no validation holdout) and persists
-    ///     the resulting validation loss and standardization statistics.
-    ///     Extracted verbatim from the final-pass block of <see cref="Train(IReadOnlyList{TrainingExample}, IReadOnlyList{TrainingExample})"/>;
-    ///     the full-dataset standardization, warm-start semantics, SGD call, and field assignments are
-    ///     unchanged. Must be called under lock.
+    ///     Runs the final warm-started training pass on ALL data (no validation holdout) and persists the resulting validation loss and standardization statistics.
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <param name="rawVectors">The pristine (unstandardized) feature vectors, never mutated here.</param>
@@ -549,21 +486,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         if (useStandardization)
         {
-            // Intentional trade-off: stats here are computed from the FULL dataset, whereas each
-            // k-fold fold used its training-fold subset only (to prevent leakage). So the mean/stddev
-            // the deployed model uses (persisted below) differ slightly from the per-fold stats behind
-            // the k-fold loss estimate: the k-fold loss is under fold-only normalization, inference
-            // under full-dataset normalization. Negligible when the dataset is representative.
+            // Intentional trade-off: stats here are computed from the FULL dataset, whereas each k-fold fold used its training-fold subset only (to prevent leakage).
             (featureMeans, featureStdDevs) = ComputeFeatureStatistics(finalVectors);
             StandardizeVectors(finalVectors, featureMeans, featureStdDevs);
         }
 
-        // Warm-start final pass: begin from the previously-learned weights (restored above
-        // from savedWeights) rather than resetting to defaults. This lets each Train() call
-        // refine the model incrementally instead of discarding all accumulated learning.
-        // Only reset to defaults when standardizationModeChanged was true (handled earlier,
-        // at which point savedWeights already holds defaults).
-        // _weights and _bias are already set to savedWeights/savedBias from the restore above.
+        // Warm-start final pass: begin from the previously-learned weights (restored above from savedWeights) rather than resetting to defaults.
         var finalLoss = TrainSingleSplit(
             examples,
             finalVectors,
@@ -587,7 +515,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Computes Z-score statistics (mean, stddev) for each feature across all training vectors.
-    ///     Uses Bessel's correction (n-1 denominator) for unbiased sample standard deviation.
     /// </summary>
     /// <param name="vectors">The pre-computed feature vectors.</param>
     /// <returns>A tuple of (means, stdDevs) arrays indexed by feature.</returns>
@@ -676,10 +603,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Creates a deep clone of a jagged vector array.
-    ///     Used to create per-fold/per-split working copies so that in-place standardization
-    ///     does not mutate the raw (unstandardized) source vectors.
-    ///     Shared by both <see cref="LearnedScoringStrategy"/> and <see cref="NeuralScoringStrategy"/>.
+    ///     Creates a deep clone of a jagged vector array. Used to create per-fold/per-split working copies so that in-place standardization does not mutate the raw (unstandardized) source vectors.
     /// </summary>
     /// <param name="source">The source vectors to clone.</param>
     /// <returns>A new array with independently cloned inner arrays.</returns>
@@ -722,10 +646,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Trains a single train/validation split with optional early stopping.
-    ///     Returns the best observed validation loss when early stopping was used and improved at
-    ///     least once; otherwise returns the final-epoch training loss (when early stopping is
-    ///     disabled, validation is absent, or no improvement was ever recorded).
-    ///     Modifies _weights and _bias in-place. Must be called under lock.
     /// </summary>
     private double TrainSingleSplit(
         IReadOnlyList<TrainingExample> examples,
@@ -785,9 +705,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Applies a single SGD weight/bias update for one training example.
-    ///     Extracted verbatim from the per-example inner loop of <see cref="TrainSingleSplit"/>;
-    ///     the sample-weight floor, saturation guard, gradient computation, L2 regularization,
-    ///     and clamp bounds are unchanged. Modifies _weights and _bias in-place. Must be called under lock.
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <param name="precomputedVectors">The per-example feature vectors (possibly standardized).</param>
@@ -813,12 +730,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         var predicted = Math.Clamp(z, 0.0, 1.0);
         var error = (predicted - examples[idx].Label) * sampleWeight;
 
-        // Saturation guard: skip gradient update when the raw score is already
-        // clamped AND the gradient would push it further into saturation.
-        // z <= 0 with error > 0 means predicted < label but score is floored - no escape possible.
-        // z >= 1 with error < 0 means predicted > label but score is ceilinged - no escape possible.
-        // The opposite combinations (z <= 0 && error < 0, z >= 1 && error > 0) ARE correctable
-        // because the gradient pulls the raw score back into the [0, 1] range.
+        // Saturation guard: skip gradient update when the raw score is already clamped AND the gradient would push it further into saturation.
         if ((z <= 0 && error > 0) || (z >= 1 && error < 0))
         {
             return;
@@ -838,9 +750,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Evaluates the early-stopping criterion after an epoch, tracking the best-so-far weights.
-    ///     Extracted verbatim from the early-stopping block of <see cref="TrainSingleSplit"/>;
-    ///     the validation-loss computation, improvement threshold, patience accounting, and
-    ///     best-weight snapshot/restore semantics are unchanged. Must be called under lock.
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <param name="precomputedVectors">The per-example feature vectors (possibly standardized).</param>
@@ -892,7 +801,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Computes the weighted training loss across all examples (used when no validation split).
-    ///     Iterates directly by index to avoid allocating a scratch index array.
     /// </summary>
     private static double ComputeTrainingLoss(
         IReadOnlyList<TrainingExample> examples,
@@ -917,9 +825,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Logs per-feature importance based on absolute weight magnitudes.
-    ///     For a linear model, |weight[f]| directly indicates feature f's influence on the score.
-    ///     Must be called under lock.
+    ///     Logs per-feature importance based on absolute weight magnitudes. For a linear model, |weight[f]| directly indicates feature f's influence on the score.
     /// </summary>
     private void LogFeatureImportance()
     {
@@ -999,8 +905,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Guards against corrupted/replaced oversized weights files before reading into memory.
-    ///     Extracted verbatim from the size-guard block of <see cref="TryLoadWeights"/>; the 5 MB
-    ///     ceiling and the warning log are unchanged.
     /// </summary>
     /// <param name="weightsPath">The path to the persisted weights file.</param>
     /// <returns>True if the file is within the size limit and safe to read; otherwise false.</returns>
@@ -1022,10 +926,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Validates and applies deserialized weights to the instance fields, resetting to defaults
-    ///     on version mismatch, non-finite values, or mismatched standardization statistics.
-    ///     Extracted verbatim from the apply block of <see cref="TryLoadWeights"/>; the version/length
-    ///     checks, finiteness validation, lock scope, and field assignments are unchanged.
+    ///     Validates and applies deserialized weights to the instance fields, resetting to defaults on version mismatch, non-finite values, or mismatched standardization statistics.
     /// </summary>
     /// <param name="data">The deserialized weights container, or null if deserialization returned null.</param>
     private void ApplyLoadedWeights(WeightsData? data)
@@ -1039,9 +940,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                                data.FeatureStdDevs.Length == CandidateFeatures.FeatureCount;
             var bothNullOrBothPresent = (data.FeatureMeans is null) == (data.FeatureStdDevs is null);
 
-            // Validate all loaded values are finite (not NaN/Infinity).
-            // A corrupt-but-parseable JSON could contain NaN values that would
-            // silently produce wrong scores without causing obvious failures.
+            // Validate all loaded values are finite (not NaN/Infinity). A corrupt-but-parseable JSON could contain NaN values that would silently produce wrong scores without causing obvious failures.
             if (!AllFinite(data.Weights) || !double.IsFinite(data.Bias))
             {
                 _logger?.LogWarning(
@@ -1049,10 +948,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 return;
             }
 
-            // Lock field assignments for consistency with Score()/Train() which
-            // read these fields under the same lock. While TryLoadWeights() is
-            // currently only called from the constructor (before the object is shared),
-            // the lock ensures correctness if the call site ever changes.
+            // Lock field assignments for consistency with Score()/Train() which read these fields under the same lock.
             lock (_syncRoot)
             {
                 if (meansValid && stdDevsValid && bothNullOrBothPresent
@@ -1067,9 +963,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 }
                 else
                 {
-                    // Mismatched stats - can't safely apply loaded weights either, because
-                    // they may have been trained in standardized space. Reset everything
-                    // to defaults and let the next Train() call re-fit from scratch.
+                    // Mismatched stats - can't safely apply loaded weights either, because they may have been trained in standardized space.
                     _weights = DefaultWeights.CreateWeightArray();
                     _bias = DefaultWeights.Bias;
                     _trainingGeneration = 0;
@@ -1130,12 +1024,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 json = JsonSerializer.Serialize(data, SerializerOptions);
             }
 
-            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the final File.Move
-            // gets a bounded retry instead of silently dropping the save (it also cleans up temp files).
-            // Besides IOException / UnauthorizedAccessException, AtomicFile can surface on its final
-            // attempt: SecurityException (CAS/SELinux), NotSupportedException (invalid path chars), and
-            // ArgumentException (reserved device names on Windows). All are treated the same - non-critical,
-            // logged, swallowed - so a failed weight save never brings down the best-effort training pipeline.
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the final File.Move gets a bounded retry instead of silently dropping the save (it also cleans up temp files).
             AtomicFile.WriteAllText(_weightsPath, json);
         }
         catch (IOException ex)

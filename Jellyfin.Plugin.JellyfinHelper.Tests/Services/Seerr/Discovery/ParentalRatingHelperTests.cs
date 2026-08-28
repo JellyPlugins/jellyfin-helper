@@ -63,8 +63,6 @@ public class ParentalRatingHelperTests
         Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 120));
     }
 
-    // === CRITICAL: Adult Animation Tests (American Dad, Family Guy) ===
-
     [Fact]
     public void ShouldExclude_AnimationOnly_ChildAccount_ReturnsTrue()
     {

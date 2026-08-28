@@ -35,9 +35,7 @@ public sealed class TrainingExample
     }
 
     /// <summary>
-    ///     Gets or sets the sample weight for this training example (0-1).
-    ///     Higher weights mean the example has more influence during training.
-    ///     Default is 1.0. Values are clamped to [0, 1].
+    ///     Gets or sets the sample weight for this training example (0-1). Higher weights mean the example has more influence during training.
     /// </summary>
     public double SampleWeight
     {
@@ -47,8 +45,6 @@ public sealed class TrainingExample
 
     /// <summary>
     ///     Gets or sets the UTC timestamp when the recommendation that produced this example was generated.
-    ///     Used for temporal decay weighting - newer examples are more relevant.
-    ///     Values are normalized to <see cref="DateTimeKind.Utc"/> on assignment.
     /// </summary>
     public DateTime GeneratedAtUtc
     {

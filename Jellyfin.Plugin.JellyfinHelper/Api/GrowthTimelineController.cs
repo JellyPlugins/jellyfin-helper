@@ -38,10 +38,7 @@ public class GrowthTimelineController : ControllerBase
     }
 
     /// <summary>
-    ///     Gets the library growth timeline based on media file creation dates.
-    ///     Returns the cached timeline if available, otherwise computes it.
-    ///     The timeline uses automatic granularity (daily/weekly/monthly/quarterly/yearly)
-    ///     based on the age of the oldest media file.
+    ///     Gets the library growth timeline based on media file creation dates. Returns the cached timeline if available, otherwise computes it.
     /// </summary>
     /// <param name="forceRefresh">Set to true to force recomputation instead of using cached data.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

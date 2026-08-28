@@ -10,8 +10,6 @@ public sealed class TimelineAggregatorTests
 {
     private static readonly DateTime Now = new(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    // ===== DetermineGranularity =====
-
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -68,8 +66,6 @@ public sealed class TimelineAggregatorTests
         Assert.Equal("daily", TimelineAggregator.DetermineGranularity(Now, Now));
     }
 
-    // ===== GenerateBucketStarts =====
-
     [Fact]
     public void GenerateBucketStarts_Daily_ProducesOneBucketPerDay()
     {
@@ -111,14 +107,10 @@ public sealed class TimelineAggregatorTests
         Assert.Null(ex);
     }
 
-    // ===== BuildCumulativeTimeline =====
-
     [Fact]
     public void BuildCumulativeTimeline_LargeCountDeltas_NoOverflow()
     {
-        // Arrange: two entries whose CountDelta values together exceed int.MaxValue.
-        // int.MaxValue = 2_147_483_647; we use two entries each carrying that value,
-        // so the expected cumulative total is 2L * int.MaxValue = 4_294_967_294.
+        // Arrange: two entries whose CountDelta values together exceed int.MaxValue. int.MaxValue = 2_147_483_647; we use two entries each carrying that value, so the expected cumulative total is 2L * int.MaxValue = 4_294_967_294.
         var earliest = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var now = new DateTime(2025, 1, 31, 0, 0, 0, DateTimeKind.Utc);
 
@@ -140,8 +132,6 @@ public sealed class TimelineAggregatorTests
         Assert.Equal(expectedTotal, lastPoint.CumulativeFileCount);
     }
 
-    // ===== DeduplicateConsecutivePoints =====
-
     [Fact]
     public void DeduplicateConsecutivePoints_LastPointEqualsSecondToLast_NotDuplicated()
     {
@@ -161,10 +151,8 @@ public sealed class TimelineAggregatorTests
         Assert.Equal(Now.AddDays(-2), result[0].Date);
         Assert.Equal(Now.AddDays(-1), result[1].Date);
         Assert.Equal(100, result[1].CumulativeSize);
-        Assert.Equal(10,  result[1].CumulativeFileCount);
+        Assert.Equal(10, result[1].CumulativeFileCount);
     }
-
-    // ===== BuildIncrementalEntries =====
 
     [Fact]
     public void BuildIncrementalEntries_MixedBaselineChangeNewAndDeleted_EmitsCorrectDeltas()
@@ -265,8 +253,6 @@ public sealed class TimelineAggregatorTests
         Assert.Contains(entries, e => e.CreatedUtc == Now && e.Size == 0 && e.CountDelta == 2);
     }
 
-    // ===== UpdateBaseline =====
-
     [Fact]
     public void UpdateBaseline_AddsNewUpdatesExistingRemovesMissing_MutatesBaseline()
     {
@@ -305,8 +291,6 @@ public sealed class TimelineAggregatorTests
         Assert.Equal(6, y.Count);
     }
 
-    // ===== BuildCumulativeTimeline (inverted range) =====
-
     [Fact]
     public void BuildCumulativeTimeline_EarliestAfterNow_ReturnsEmpty()
     {
@@ -321,8 +305,6 @@ public sealed class TimelineAggregatorTests
 
         Assert.Empty(points);
     }
-
-    // ===== GetBucketStart =====
 
     [Theory]
     [InlineData(2, 1)]   // Feb -> Q1 starts Jan
@@ -353,8 +335,6 @@ public sealed class TimelineAggregatorTests
         Assert.Equal(DateTimeKind.Utc, start.Kind);
     }
 
-    // ===== GenerateBucketStarts (quarterly / yearly advance) =====
-
     [Fact]
     public void GenerateBucketStarts_QuarterlyAndYearly_AdvanceByQuarterAndYear()
     {
@@ -377,8 +357,6 @@ public sealed class TimelineAggregatorTests
             Assert.Equal(yearly[i - 1].Day, yearly[i].Day);
         }
     }
-
-    // ===== TrimLeadingZeros =====
 
     [Fact]
     public void TrimLeadingZeros_EmptyInput_ReturnsEmpty()
@@ -411,8 +389,6 @@ public sealed class TimelineAggregatorTests
         Assert.Equal(Now.AddDays(-1), result[1].Date);
     }
 
-    // ===== ConsolidateToGranularity =====
-
     [Fact]
     public void ConsolidateToGranularity_MultipleDailyPointsPerMonth_KeepsLastPerBucket()
     {
@@ -442,8 +418,6 @@ public sealed class TimelineAggregatorTests
         Assert.Equal(400, result[1].CumulativeSize);
         Assert.Equal(4, result[1].CumulativeFileCount);
     }
-
-    // ===== DeduplicateConsecutivePoints (distinct tail) =====
 
     [Fact]
     public void DeduplicateConsecutivePoints_LastPointDiffersFromTail_IsAppended()

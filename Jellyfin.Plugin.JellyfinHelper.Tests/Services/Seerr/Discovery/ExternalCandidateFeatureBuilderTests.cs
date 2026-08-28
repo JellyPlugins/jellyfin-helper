@@ -7,28 +7,13 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for <see cref="ExternalCandidateFeatureBuilder"/> covering the discovery
-///     train/serve consistency fixes:
-///     <list type="bullet">
-///         <item>
-///             Genre-exposure features (GenreUnderexposure / GenreDominanceRatio /
-///             GenreAffinityGap) are now computed at inference time to match the discovery
-///             training pipeline instead of staying at 0.0.
-///         </item>
-///         <item>
-///             PopularityScore is derived from the raw TMDb popularity via the shared
-///             <see cref="ExternalCandidateFeatureBuilder.NormalizePopularity"/> helper, both
-///             at inference and (for newly recorded entries) at training time.
-///         </item>
-///     </list>
+///     Tests for ExternalCandidateFeatureBuilder covering the discovery train/serve consistency fixes: Genre-exposure features (GenreUnderexposure / GenreDominanceRatio / GenreAffinityGap) are now computed at inference time to match the discovery training pipeline instead of staying at 0.0.
 /// </summary>
 public sealed class ExternalCandidateFeatureBuilderTests
 {
     // TMDb movie genre id 28 maps to the Jellyfin genre "Action" (see TmdbGenreMap).
     private const int ActionTmdbGenreId = 28;
     private const string ActionGenre = "Action";
-
-    // === NormalizePopularity ===
 
     [Theory]
     [InlineData(0.0, 0.0)]      // zero -> neutral zero
@@ -156,8 +141,6 @@ public sealed class ExternalCandidateFeatureBuilderTests
         Assert.Equal(0.75, features.PopularityScore, 6); // 150 / 200
     }
 
-    // === Train/serve consistency (the crown-jewel guard) ===
-
     [Fact]
     public void Build_And_TrainingBuilder_AgreeOnPopularityAndExposure()
     {
@@ -169,7 +152,6 @@ public sealed class ExternalCandidateFeatureBuilderTests
 
         const double rawPopularity = 120.0;
 
-        // --- Inference features (what the ensemble scores at discovery time) ---
         var candidate = new TmdbDiscoverItem
         {
             Id = 603,
@@ -188,7 +170,6 @@ public sealed class ExternalCandidateFeatureBuilderTests
             avgYear,
             genreExposure);
 
-        // --- Training features (what the model is fit against) ---
         var feedback = new DiscoveryFeedbackResult { UserId = userId };
         feedback.Entries.Add(new DiscoveryFeedbackEntry
         {
@@ -232,25 +213,6 @@ public sealed class ExternalCandidateFeatureBuilderTests
     public void TrainingBuilder_LegacyEntryWithoutPopularity_MatchesInferenceAndDownweighted()
     {
         // Entries persisted before the Popularity field existed have Popularity == 0.
-        //
-        // Three-step contract evolution - this test asserts the current (v3) contract
-        // and explicitly rules out regressions to either earlier failure mode:
-        //
-        //   * v1 (initial, broken): the fallback used entry.Score (the model's own past
-        //     prediction) when Popularity was missing -> auto-regression target leak.
-        //   * v2 (attempted fix): fallback returned 0.5 to break the target leak. But
-        //     ExternalCandidateFeatureBuilder.NormalizePopularity(0) returns 0.0 at
-        //     inference, so training was handing the model 0.5 for the exact same input
-        //     the live path would score as 0.0 -> different bug, same root cause
-        //     (train/serve divergence).
-        //   * v3 (current): route through NormalizePopularity(entry.Popularity) directly.
-        //     Legacy rows produce PopularityScore==0.0, bit-identical to inference. The
-        //     halved sample weight remains as an ORTHOGONAL provenance signal (reduced
-        //     gradient) that does not distort the feature space.
-        //
-        // Assertions below pin all three invariants: (a) feature value matches inference,
-        // (b) no regression to v1 (entry.Score), (c) no regression to v2 (0.5), and (d)
-        // the provenance down-weighting is still applied.
         var userId = Guid.NewGuid();
         var profile = BuildActionHeavyProfile(userId);
 
@@ -338,9 +300,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
     }
 
     /// <summary>
-    ///     Builds a watch profile with enough Action history to yield a valid genre-exposure
-    ///     analysis (>= <see cref="EngineConstants.MinWatchCountForGenreExposure"/> items) where
-    ///     Action is the dominant genre.
+    ///     Builds a watch profile with enough Action history to yield a valid genre-exposure analysis (>= MinWatchCountForGenreExposure items) where Action is the dominant genre.
     /// </summary>
     private static UserWatchProfile BuildActionHeavyProfile(Guid? userId = null)
     {
@@ -361,5 +321,3 @@ public sealed class ExternalCandidateFeatureBuilderTests
         return profile;
     }
 }
-
-

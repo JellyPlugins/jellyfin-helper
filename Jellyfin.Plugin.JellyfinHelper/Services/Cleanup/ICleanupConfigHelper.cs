@@ -5,9 +5,7 @@ using MediaBrowser.Controller.Library;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 
 /// <summary>
-/// Provides access to cleanup-related plugin configuration.
-/// Applies configuration rules like library filtering, orphan age checking,
-/// trash/delete resolution, and task mode queries.
+///     Provides access to cleanup-related plugin configuration. Applies configuration rules like library filtering, orphan age checking, trash/delete resolution, and task mode queries.
 /// </summary>
 public interface ICleanupConfigHelper
 {
@@ -95,9 +93,7 @@ public interface ICleanupConfigHelper
     string GetTrashPath(string libraryRootPath);
 
     /// <summary>
-    /// Gets the list of existing trash folder paths on disk for a given trash folder path setting.
-    /// Handles both relative (per-library) and absolute (single) trash paths.
-    /// Used to check whether trash content exists at a specific path before a configuration change is applied.
+    ///     Gets the list of existing trash folder paths on disk for a given trash folder path setting.
     /// </summary>
     /// <param name="libraryManager">The library manager for resolving library locations.</param>
     /// <param name="trashFolderPath">The trash folder path to query (may be relative or absolute).</param>

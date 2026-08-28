@@ -12,15 +12,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 /// <summary>
-///     Handles persistence of discovery results to the plugin data directory.
-///     Mirrors the pattern used by <see cref="Recommendation.RecommendationCacheService"/>.
-///     <para>
-///         <b>Synchronisation:</b> a single <see cref="SemaphoreSlim"/> (not a plain <c>lock</c>)
-///         serialises both synchronous callers (scheduled tasks, <see cref="Save"/>) and async
-///         request callers (<see cref="MarkAsRequestedAsync(int, string, CancellationToken)"/> /
-///         <see cref="RemoveItemAsync"/>) through one mutex. Two separate primitives would let a
-///         background <c>Save</c> race a live HTTP mutation of the same in-memory cache.
-///     </para>
+///     Handles persistence of discovery results to the plugin data directory. Mirrors the pattern used by RecommendationCacheService.
 /// </summary>
 public sealed class DiscoveryCacheService : IDisposable
 {
@@ -41,11 +33,7 @@ public sealed class DiscoveryCacheService : IDisposable
     private readonly string _filePath;
 
     /// <summary>
-    ///     Serialises access to <see cref="_memoryCache"/> and the on-disk file. A
-    ///     <see cref="SemaphoreSlim"/> (rather than <c>lock</c>) is required because the
-    ///     new async request-path methods await file I/O while holding the mutex, and the
-    ///     .NET <c>lock</c> statement does not permit an <c>await</c> inside the guarded region.
-    ///     Initialised with a capacity of 1 so it functions as a straight mutual-exclusion lock.
+    ///     Serialises access to _memoryCache and the on-disk file.
     /// </summary>
     private readonly SemaphoreSlim _fileLock = new(initialCount: 1, maxCount: 1);
     private readonly IPluginLogService _pluginLog;
@@ -53,9 +41,6 @@ public sealed class DiscoveryCacheService : IDisposable
 
     /// <summary>
     ///     In-memory cache of discovery results. Avoids reading from disk on every API call.
-    ///     Invalidated on <see cref="Save"/> and <see cref="MarkAsRequested"/>.
-    ///     Typed as <c>List</c> (not <c>IReadOnlyList</c>) because <see cref="MarkAsRequested"/>
-    ///     mutates individual recommendation items in-place.
     /// </summary>
     private List<DiscoveryResult>? _memoryCache;
 
@@ -104,16 +89,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Loads cached discovery results. Returns a deep-copied snapshot of the in-memory cache
-    ///     if available, otherwise reads from disk and populates the cache first.
-    ///     <para>
-    ///         <b>Deep copy guarantee:</b> every returned <see cref="DiscoveryResult"/> and nested
-    ///         <see cref="DiscoveryRecommendation"/> is a detached clone via
-    ///         <see cref="DiscoveryResult.Clone"/>, so callers may mutate them without affecting the
-    ///         live <see cref="_memoryCache"/> or on-disk file. Authoritative mutations (e.g.
-    ///         <see cref="MarkAsRequested"/>) must still go through this service to update cache and
-    ///         file atomically under <see cref="_fileLock"/>.
-    ///     </para>
+    ///     Loads cached discovery results. Returns a deep-copied snapshot of the in-memory cache if available, otherwise reads from disk and populates the cache first.
     /// </summary>
     /// <returns>A deep-copied list of discovery results, or an empty list if the file does not exist or is invalid.</returns>
     public IReadOnlyList<DiscoveryResult> Load()
@@ -148,21 +124,12 @@ public sealed class DiscoveryCacheService : IDisposable
 
     /// <summary>
     ///     Removes a specific TMDb item from the specified user's cached recommendation list.
-    ///     Called when a user dismisses an item - ensures the item disappears immediately
-    ///     (not just on the next scheduled task run) and stays gone across page reloads.
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the item to remove.</param>
     /// <param name="mediaType">The media type ("movie" or "tv").</param>
     /// <param name="userId">The Jellyfin user ID. Only removes from this user's list.</param>
     /// <remarks>
-    ///     Uses <see cref="_fileLock"/> synchronously (matching the <see cref="MarkAsRequested"/>
-    ///     pattern) and calls synchronous I/O, avoiding the sync-over-async pitfall that the
-    ///     previous <c>Task.Run</c> wrapper was designed to work around.
-    ///     Use <see cref="RemoveItemAsync"/> directly on all request-driven paths.
-    ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
-    ///     thread).</b>  The underlying <see cref="RemoveItemLocked"/> is async; bridging
-    ///     async-to-sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
-    ///     Use <see cref="RemoveItemAsync"/> on all request-driven paths.
+    ///     Uses _fileLock synchronously (matching the MarkAsRequested pattern) and calls synchronous I/O, avoiding the sync-over-async pitfall that the previous Task.Run wrapper was designed to work around.
     /// </remarks>
     public void RemoveItem(int tmdbId, string mediaType, Guid userId)
     {
@@ -180,15 +147,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Asynchronous counterpart of <see cref="RemoveItem"/>. Preferred for callers on
-    ///     request-driven paths (e.g. HTTP dismissal handlers) because the underlying atomic
-    ///     write yields to the thread pool during transient-IO retries instead of blocking
-    ///     the caller's request thread with <see cref="Thread.Sleep(int)"/>.
-    ///     <para>
-    ///         Serialises through the exact same <see cref="_fileLock"/> as the synchronous
-    ///         overload, guaranteeing that a background <see cref="Save"/> and a live HTTP
-    ///         dismissal cannot interleave partial writes on the same cache file.
-    ///     </para>
+    ///     Asynchronous counterpart of RemoveItem. Preferred for callers on request-driven paths (e.g.
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the item to remove.</param>
     /// <param name="mediaType">The media type ("movie" or "tv").</param>
@@ -209,10 +168,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Core removal logic shared by <see cref="RemoveItem"/> and <see cref="RemoveItemAsync"/>.
-    ///     Must be called while holding <see cref="_fileLock"/>. Switches between the sync and
-    ///     async atomic-write paths based on <paramref name="useAsyncWrite"/> so the retry
-    ///     back-off in <see cref="AtomicFile"/> yields correctly on the request-driven path.
+    ///     Core removal logic shared by RemoveItem and RemoveItemAsync. Must be called while holding _fileLock.
     /// </summary>
     private async Task RemoveItemLocked(int tmdbId, string mediaType, Guid userId, bool useAsyncWrite, CancellationToken cancellationToken)
     {
@@ -232,14 +188,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 return;
             }
 
-            // Identify items to remove WITHOUT mutating the live cache yet.
-            // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
-            //
-            // We capture each removal candidate's ORIGINAL INDEX alongside the item itself so
-            // that a rollback (transient IO error, cancellation) can reinsert the items at
-            // their original ranking positions. AddRange-based rollback would silently
-            // reorder recommendations - a subsequent Save() would then persist that shuffled
-            // ranking, permanently degrading recommendation quality after a single failure.
+            // Identify items to remove WITHOUT mutating the live cache yet. This avoids leaving _memoryCache in an inconsistent state if persistence fails.
             var recommendations = userResult.Recommendations;
             var itemsToRemove = new List<(int OriginalIndex, DiscoveryRecommendation Item)>();
             for (var i = 0; i < recommendations.Count; i++)
@@ -257,9 +206,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 return;
             }
 
-            // Apply removal in DESCENDING index order so each Remove call does not shift the
-            // indices of items we still need to remove. Ascending order would need index
-            // arithmetic to compensate for the shift and would be trickier to reason about.
+            // Apply removal in DESCENDING index order so each Remove call does not shift the indices of items we still need to remove.
             for (var i = itemsToRemove.Count - 1; i >= 0; i--)
             {
                 recommendations.RemoveAt(itemsToRemove[i].OriginalIndex);
@@ -273,21 +220,12 @@ public sealed class DiscoveryCacheService : IDisposable
                 // internal temp-file cleanup, so no manual .tmp handling required.
                 if (useAsyncWrite)
                 {
-                    // cancellationToken is passed by name because AtomicFile.WriteAllTextAsync
-                    // orders parameters as (path, contents, maxAttempts, cancellationToken)
-                    // to satisfy the CA1068 "CancellationToken is last" convention.
+                    // cancellationToken is passed by name because AtomicFile.WriteAllTextAsync orders parameters as (path, contents, maxAttempts, cancellationToken) to satisfy the CA1068 "CancellationToken is last" convention.
                     await AtomicFile.WriteAllTextAsync(_filePath, updatedJson, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
-                    // This branch is only ever taken
-                    // when the caller is the synchronous RemoveItem overload, which invokes us
-                    // via .GetAwaiter().GetResult() on a background scheduled-task thread.
-                    // Awaiting WriteAllTextAsync in that path would sync-over-async block on
-                    // the same wait handle we're already holding via GetResult, which is both
-                    // pointless (we're already sync) and marginally more expensive than the
-                    // Thread.Sleep-based sync WriteAllText. The async request-driven path uses
-                    // the async branch above.
+                    // This branch is only ever taken when the caller is the synchronous RemoveItem overload, which invokes us via .GetAwaiter().GetResult() on a background scheduled-task thread.
 #pragma warning disable CA1849 // Call async methods when in an async method
                     AtomicFile.WriteAllText(_filePath, updatedJson);
 #pragma warning restore CA1849
@@ -295,19 +233,13 @@ public sealed class DiscoveryCacheService : IDisposable
             }
             catch (OperationCanceledException)
             {
-                // Cancellation on the async path: roll back the in-memory removal so the
-                // caller's view of the cache is consistent with the on-disk state, then
-                // propagate. Same rollback shape as the transient-IO catch below.
+                // Cancellation on the async path: roll back the in-memory removal so the caller's view of the cache is consistent with the on-disk state, then propagate.
                 ReinsertAtOriginalIndices(recommendations, itemsToRemove);
                 throw;
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
-                // Rollback: re-insert removed items at their ORIGINAL positions so the
-                // ranking order is preserved. On next restart the disk state (which still
-                // has the items in their original order) will be loaded, so the user will
-                // see the item again - acceptable for a transient IO failure vs. silent
-                // data loss AND silent reordering.
+                // Rollback: re-insert removed items at their ORIGINAL positions so the ranking order is preserved.
                 ReinsertAtOriginalIndices(recommendations, itemsToRemove);
 
                 _pluginLog.LogWarning(
@@ -321,11 +253,7 @@ public sealed class DiscoveryCacheService : IDisposable
                                        and not OutOfMemoryException
                                        and not StackOverflowException)
         {
-            // Broad filter matches MarkAsRequestedLocked: EnsureLoadedLocked and JsonSerializer
-            // can surface SecurityException, NotSupportedException, and ArgumentException in
-            // addition to IOException / UnauthorizedAccessException / JsonException. Narrowing
-            // the filter would let those escape unlogged with _memoryCache in an unknown state.
-            // OperationCanceledException is excluded so cancellation propagates to the caller.
+            // Broad filter matches MarkAsRequestedLocked: EnsureLoadedLocked and JsonSerializer can surface SecurityException, NotSupportedException, and ArgumentException in addition to IOException / UnauthorizedAccessException / JsonException.
             _pluginLog.LogWarning(
                 LogCategory,
                 $"Could not remove TMDb#{tmdbId} from cache: {ex.Message}",
@@ -342,10 +270,7 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <param name="tmdbId">The TMDb ID of the requested item.</param>
     /// <param name="mediaType">The media type ("movie" or "tv") to match against. Required because TMDb movie and TV IDs are separate namespaces.</param>
     /// <remarks>
-    ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
-    ///     thread).</b>  The underlying <see cref="MarkAsRequestedLocked"/> is async; bridging
-    ///     async-to-sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
-    ///     Use <see cref="MarkAsRequestedAsync(int, string, CancellationToken)"/> on all request-driven paths.
+    ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request thread).</b> The underlying MarkAsRequestedLocked is async; bridging async-to-sync via GetAwaiter().GetResult() inside a SemaphoreSlim can deadlock.
     /// </remarks>
     public void MarkAsRequested(int tmdbId, string mediaType)
     {
@@ -363,15 +288,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Asynchronous counterpart of <see cref="MarkAsRequested"/>. Marks the item as requested
-    ///     for ALL users (admin path). Preferred for callers on request-driven paths because the
-    ///     underlying atomic write yields to the thread pool during transient-IO retries instead
-    ///     of blocking the caller's request thread with <see cref="Thread.Sleep(int)"/>.
-    ///     <para>
-    ///         Serialises through the exact same <see cref="_fileLock"/> as the synchronous
-    ///         overload, guaranteeing that a background <see cref="Save"/> and a live HTTP
-    ///         request-completion cannot interleave partial writes on the same cache file.
-    ///     </para>
+    ///     Asynchronous counterpart of MarkAsRequested. Marks the item as requested for ALL users (admin path).
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the requested item.</param>
     /// <param name="mediaType">The media type ("movie" or "tv") to match against.</param>
@@ -381,14 +298,7 @@ public sealed class DiscoveryCacheService : IDisposable
         => MarkAsRequestedAsync(tmdbId, mediaType, userId: null, cancellationToken);
 
     /// <summary>
-    ///     Asynchronous counterpart of <see cref="MarkAsRequested"/> with optional per-user scoping.
-    ///     When <paramref name="userId"/> has a value, only cache entries belonging to that user are
-    ///     marked; when <c>null</c>, all users' entries are marked (admin path).
-    ///     <para>
-    ///         Serialises through the exact same <see cref="_fileLock"/> as the synchronous
-    ///         overload, guaranteeing that a background <see cref="Save"/> and a live HTTP
-    ///         request-completion cannot interleave partial writes on the same cache file.
-    ///     </para>
+    ///     Asynchronous counterpart of MarkAsRequested with optional per-user scoping. When userId has a value, only cache entries belonging to that user are marked; when null, all users' entries are marked (admin path).
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the requested item.</param>
     /// <param name="mediaType">The media type ("movie" or "tv") to match against.</param>
@@ -412,13 +322,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Core mark-as-requested logic shared by <see cref="MarkAsRequested"/> and
-    ///     <see cref="MarkAsRequestedAsync(int,string,Guid?,CancellationToken)"/>. Must be called
-    ///     while holding <see cref="_fileLock"/>. Switches between the sync and async atomic-write
-    ///     paths based on <paramref name="useAsyncWrite"/> so the retry back-off in
-    ///     <see cref="AtomicFile"/> yields correctly on the request-driven path.
-    ///     When <paramref name="userId"/> has a value, only cache entries for that user are marked;
-    ///     when <c>null</c>, all users' entries are marked (admin path).
+    ///     Core mark-as-requested logic shared by MarkAsRequested and MarkAsRequestedAsync(int,string,Guid?,CancellationToken).
     /// </summary>
     private async Task MarkAsRequestedLocked(int tmdbId, string mediaType, Guid? userId, bool useAsyncWrite, CancellationToken cancellationToken)
     {
@@ -453,17 +357,12 @@ public sealed class DiscoveryCacheService : IDisposable
             // internal temp-file cleanup, so no manual .tmp handling required.
             if (useAsyncWrite)
             {
-                // cancellationToken is passed by name because AtomicFile.WriteAllTextAsync
-                // orders parameters as (path, contents, maxAttempts, cancellationToken)
-                // to satisfy the CA1068 "CancellationToken is last" convention.
+                // cancellationToken is passed by name because AtomicFile.WriteAllTextAsync orders parameters as (path, contents, maxAttempts, cancellationToken) to satisfy the CA1068 "CancellationToken is last" convention.
                 await AtomicFile.WriteAllTextAsync(_filePath, updatedJson, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                // Same rationale as the identical
-                // branch in RemoveItemLocked - the sync branch is only entered from the
-                // synchronous MarkAsRequested overload via .GetAwaiter().GetResult() on a
-                // background thread. Sync-over-async-over-sync would gain nothing.
+                // Same rationale as the identical branch in RemoveItemLocked - the sync branch is only entered from the synchronous MarkAsRequested overload via .GetAwaiter().GetResult() on a background thread.
 #pragma warning disable CA1849 // Call async methods when in an async method
                 AtomicFile.WriteAllText(_filePath, updatedJson);
 #pragma warning restore CA1849
@@ -471,9 +370,7 @@ public sealed class DiscoveryCacheService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // Cancellation on the async path: roll back the in-memory mutations so the
-            // caller's view of the cache is consistent with the on-disk state, then
-            // propagate. Matches the transient-IO rollback below in shape and intent.
+            // Cancellation on the async path: roll back the in-memory mutations so the caller's view of the cache is consistent with the on-disk state, then propagate.
             foreach (var (userIdx, recIdx) in indicesToMark)
             {
                 cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
@@ -483,12 +380,7 @@ public sealed class DiscoveryCacheService : IDisposable
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            // Rollback in-memory mutations on ANY persistence failure. AtomicFile.WriteAllText
-            // can surface more than IOException/UnauthorizedAccessException (e.g. SecurityException,
-            // NotSupportedException, ArgumentException from the OS path layer). Narrowing the
-            // filter here would let those escape with AlreadyRequested=true still applied in
-            // _memoryCache while disk was never updated - a memory/disk divergence that survives
-            // until restart. Matches the broad rollback filter in RemoveItemLocked.
+            // Rollback in-memory mutations on ANY persistence failure. AtomicFile.WriteAllText can surface more than IOException/UnauthorizedAccessException (e.g.
             foreach (var (userIdx, recIdx) in indicesToMark)
             {
                 cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
@@ -503,10 +395,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Scans the cache for recommendation entries matching <paramref name="tmdbId"/> and
-    ///     <paramref name="mediaType"/> that are not yet marked as requested, returning their
-    ///     (user index, recommendation index) coordinates WITHOUT mutating the cache. When
-    ///     <paramref name="userId"/> has a value, only that user's entries are considered.
+    ///     Scans the cache for recommendation entries matching tmdbId and mediaType that are not yet marked as requested, returning their (user index, recommendation index) coordinates WITHOUT mutating the cache.
     /// </summary>
     /// <param name="cache">The live memory cache to scan.</param>
     /// <param name="tmdbId">The TMDb id to match.</param>
@@ -544,23 +433,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Reinserts previously-removed items back into <paramref name="recommendations"/> at
-    ///     their original indices. Used by the rollback paths of <see cref="RemoveItemLocked"/>
-    ///     to preserve ranking order when a persistence failure (or cancellation) forces us to
-    ///     undo an in-memory removal.
-    ///     <para>
-    ///         Iterates in <b>ascending</b> index order because the <c>OriginalIndex</c> values
-    ///         were captured BEFORE any removals. When we reinsert item A at index 3, then item
-    ///         B at index 7, index 7 already refers to the shifted position that includes A -
-    ///         which is exactly what we want. If we iterated in descending order, we'd have to
-    ///         compensate for the shift caused by later reinserts and the arithmetic would drift.
-    ///     </para>
-    ///     <para>
-    ///         Precondition: <paramref name="itemsToRemove"/> was produced by a linear scan of
-    ///         the source list, so its entries are already in ascending index order - no sort
-    ///         needed. The <see cref="List{T}.Insert(int, T)"/> at each captured original index
-    ///         restores the exact pre-removal state.
-    ///     </para>
+    ///     Reinserts previously-removed items back into recommendations at their original indices.
     /// </summary>
     /// <param name="recommendations">The recommendations list currently missing the removed items.</param>
     /// <param name="itemsToRemove">The (originalIndex, item) pairs captured before the removal.</param>
@@ -571,27 +444,14 @@ public sealed class DiscoveryCacheService : IDisposable
         // Ascending order matters - see the XML doc above for why.
         foreach (var (originalIndex, item) in itemsToRemove)
         {
-            // Clamp to Count as a defensive guard: if some other mutation has trimmed the list
-            // since we captured the indices (should be impossible under _fileLock, but the cost
-            // is a single comparison), append instead of throwing an ArgumentOutOfRangeException.
+            // Clamp to Count as a defensive guard: if some other mutation has trimmed the list since we captured the indices (should be impossible under _fileLock, but the cost is a single comparison), append instead of throwing an ArgumentOutOfRangeException.
             var targetIndex = originalIndex <= recommendations.Count ? originalIndex : recommendations.Count;
             recommendations.Insert(targetIndex, item);
         }
     }
 
     /// <summary>
-    ///     Ensures <see cref="_memoryCache"/> is populated from disk if not already loaded.
-    ///     Must be called while holding <see cref="_fileLock"/>.
-    ///     <para>
-    ///         On missing file: initializes to empty list.<br/>
-    ///         On oversized file (&gt; <see cref="MaxFileSizeBytes"/>): deletes the file (best-effort)
-    ///         and initializes to empty list.<br/>
-    ///         On successful read: deserializes JSON and assigns to <see cref="_memoryCache"/>.
-    ///     </para>
-    ///     Callers are responsible for catching <see cref="IOException"/>,
-    ///     <see cref="JsonException"/>, and <see cref="UnauthorizedAccessException"/>
-    ///     if the disk read fails (propagated from <see cref="File.ReadAllText(string)"/>
-    ///     or <see cref="JsonSerializer.Deserialize{TValue}(string, JsonSerializerOptions?)"/>).
+    ///     Ensures _memoryCache is populated from disk if not already loaded. Must be called while holding _fileLock.
     /// </summary>
     private void EnsureLoadedLocked()
     {
@@ -606,7 +466,7 @@ public sealed class DiscoveryCacheService : IDisposable
             return;
         }
 
-        // Hardening: reject oversized files (likely corrupted or tampered).
+        // Reject oversized files (likely corrupted or tampered).
         var fileInfo = new FileInfo(_filePath);
         if (fileInfo.Length > MaxFileSizeBytes)
         {
@@ -653,16 +513,11 @@ public sealed class DiscoveryCacheService : IDisposable
                     Directory.CreateDirectory(directory);
                 }
 
-                // Snapshot first so the serialized JSON and the in-memory cache are
-                // guaranteed to be the same object graph, even if the caller mutates
-                // one of the passed-in DiscoveryResult objects between Serialize and Clone.
+                // Snapshot first so the serialized JSON and the in-memory cache are guaranteed to be the same object graph, even if the caller mutates one of the passed-in DiscoveryResult objects between Serialize and Clone.
                 var snapshot = results.Select(r => r.Clone()).ToList();
                 var json = JsonSerializer.Serialize(snapshot, JsonOptions);
 
-                // Use AtomicFile so a transient sharing violation on the final File.Move
-                // (typical when an AV scanner or the Search indexer briefly holds the file
-                // handle) gets a bounded retry with backoff. AtomicFile also handles
-                // temp-file cleanup internally.
+                // Use AtomicFile so a transient sharing violation on the final File.Move (typical when an AV scanner or the Search indexer briefly holds the file handle) gets a bounded retry with backoff.
                 AtomicFile.WriteAllText(_filePath, json);
 
                 _memoryCache = snapshot;
@@ -675,11 +530,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 return true;
             }
 
-            // Broader filter than IOException/JsonException/UnauthorizedAccessException because
-            // AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException,
-            // and ArgumentException from the OS path layer. Narrowing the filter here would let
-            // those escape and crash the scheduled task. Mirrors the equivalent filter in
-            // RecommendationCacheService.SaveResults (see the comment there for full rationale).
+            // Broader filter than IOException/JsonException/UnauthorizedAccessException because AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException, and ArgumentException from the OS path layer.
             catch (Exception ex) when (ex is IOException
                                         or JsonException
                                         or UnauthorizedAccessException
@@ -703,15 +554,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Releases the <see cref="SemaphoreSlim"/> used to serialise cache access.
-    ///     <para>
-    ///         The DI container (<c>Microsoft.Extensions.DependencyInjection</c>) owns this
-    ///         service's lifetime and will call <see cref="Dispose"/> when the plugin is
-    ///         torn down. No unmanaged resources are held, so a straight <c>SemaphoreSlim.Dispose()</c>
-    ///         is sufficient. Required by CA1001 because we now hold an <see cref="IDisposable"/>
-    ///         field (<see cref="_fileLock"/>) since the switch from <c>Lock</c> to
-    ///         <see cref="SemaphoreSlim"/> to permit async request-path callers.
-    ///     </para>
+    ///     Releases the SemaphoreSlim used to serialise cache access. The DI container (Microsoft.Extensions.DependencyInjection) owns this service's lifetime and will call Dispose when the plugin is torn down.
     /// </summary>
     public void Dispose()
     {

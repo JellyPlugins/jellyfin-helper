@@ -4,10 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 
 /// <summary>
-///     Integration tests for the production <see cref="SymlinkHelper"/> against a real filesystem.
-///     Every test gets its own isolated temp directory to prevent cross-contamination.
-///     Tests that require symlink creation privileges gracefully skip when unsupported
-///     (Windows without Developer Mode / admin, some containerised CI runners).
+///     Integration tests for the production SymlinkHelper against a real filesystem. Every test gets its own isolated temp directory to prevent cross-contamination.
 /// </summary>
 public sealed class SymlinkHelperTests : IDisposable
 {
@@ -37,22 +34,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     /// <summary>
-    ///     Attempts to create a throwaway symlink to detect whether the current environment
-    ///     permits symlink creation. Windows requires either Developer Mode enabled or admin
-    ///     privileges; certain sandboxed CI environments also reject them.
-    ///     <para>
-    ///         When this returns <c>false</c>, the calling test performs an early <c>return</c>
-    ///         and the test reports as <b>passed</b> (not skipped) - xUnit 2.9 has no runtime
-    ///         Assert.Skip API, and the currently referenced packages do not include a
-    ///         third-party SkippableFact package. The trade-off is deliberate: a hard
-    ///         <c>Assert.Fail</c> on unsupported environments would break the CI matrix
-    ///         (Windows without Developer Mode / rootless containers), while a
-    ///         <c>throw new SkipException</c> would require adding another package. The
-    ///         escape hatch is validated once via
-    ///         <see cref="SymlinkProbe_MustExecuteAtLeastOnceInLinuxCi"/> so a regression
-    ///         that broke <b>every</b> symlink test on Linux (where symlinks are guaranteed)
-    ///         would still surface loudly.
-    ///     </para>
+    ///     Attempts to create a throwaway symlink to detect whether the current environment permits symlink creation.
     /// </summary>
     private bool SymlinksSupported()
     {
@@ -73,11 +55,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     /// <summary>
-    ///     Meta-test: guarantees that at least one environment in the CI matrix actually
-    ///     exercises the symlink path. On Linux/macOS symlinks are guaranteed to work in
-    ///     a per-test <c>Path.GetTempPath()</c> directory, so if this ever fails there we
-    ///     know the probe itself is broken - before every other symlink test silently
-    ///     degenerates to "passed by skipping".
+    ///     Meta-test: guarantees that at least one environment in the CI matrix actually exercises the symlink path.
     /// </summary>
     [Fact]
     public void SymlinkProbe_MustExecuteAtLeastOnceInLinuxCi()
@@ -97,16 +75,12 @@ public sealed class SymlinkHelperTests : IDisposable
             "downstream symlink test is silently no-op'ing.");
     }
 
-    // -----------------------------------------------------------------------
     // IsSymlink - must never throw on non-existent / permission-denied paths.
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void IsSymlink_NonExistentPath_ReturnsFalse_DoesNotThrow()
     {
-        // An early implementation used FileInfo(...).LinkTarget directly
-        // without an Exists guard, which threw on missing paths - turning a routine
-        // "does this file need repair?" check into a fatal error.
+        // An early implementation used FileInfo(...).LinkTarget directly without an Exists guard, which threw on missing paths - turning a routine "does this file need repair?" check into a fatal error.
         var path = Path.Join(_tempDir, "does-not-exist.txt");
         Assert.False(_sut.IsSymlink(path));
     }
@@ -150,12 +124,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void IsSymlink_BrokenSymlink_ReturnsTrue_OnAllPlatforms()
     {
-        // The whole raison d'être of LinkRepairService is to *repair broken
-        // symlinks*, so IsSymlink MUST detect them. The implementation now uses
-        // File.GetAttributes + FileAttributes.ReparsePoint (rather than FileInfo.Exists +
-        // LinkTarget), which inspects the link node itself and therefore behaves the same
-        // on Windows and POSIX. A regression that reintroduces the old Exists-based gate
-        // would fail this test on Windows.
+        // The whole raison d'être of LinkRepairService is to *repair broken symlinks*, so IsSymlink MUST detect them.
         if (!SymlinksSupported())
         {
             return;
@@ -173,10 +142,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void IsSymlink_RealSymlink_ReturnsTrue_And_Target_IsNot()
     {
-        // This test confirms the public contract: _sut.IsSymlink(link)==true and
-        // _sut.IsSymlink(target)==false for a real symlink pair. Together with
-        // IsSymlink_BrokenSymlink_ReturnsTrue this ensures both sides of the two-condition
-        // predicate fire correctly without testing .NET platform internals directly.
+        // This test confirms the public contract: _sut.IsSymlink(link)==true and _sut.IsSymlink(target)==false for a real symlink pair.
         if (!SymlinksSupported())
         {
             return;
@@ -192,9 +158,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     /// <summary>
-    ///     An empty string is rejected by File.GetAttributes with an
-    ///     ArgumentException on all platforms. IsSymlink must absorb that exception and
-    ///     return false rather than propagating it to the caller.
+    ///     An empty string is rejected by File.GetAttributes with an ArgumentException on all platforms.
     /// </summary>
     [Fact]
     public void IsSymlink_EmptyString_ReturnsFalse_DoesNotThrow()
@@ -205,9 +169,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     /// <summary>
-    ///     A path that exceeds the OS maximum length triggers a
-    ///     PathTooLongException inside File.GetAttributes. IsSymlink must absorb it and
-    ///     return false.
+    ///     A path that exceeds the OS maximum length triggers a PathTooLongException inside File.GetAttributes.
     /// </summary>
     [Fact]
     public void IsSymlink_PathTooLong_ReturnsFalse_DoesNotThrow()
@@ -217,9 +179,7 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.False(_sut.IsSymlink(tooLong));
     }
 
-    // -----------------------------------------------------------------------
     // GetSymlinkTarget
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void GetSymlinkTarget_RegularFile_ReturnsNull()
@@ -237,8 +197,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     /// <summary>
-    ///     An empty string is rejected by FileInfo constructor / LinkTarget
-    ///     accessor with an ArgumentException. GetSymlinkTarget must absorb it and return null.
+    ///     An empty string is rejected by FileInfo constructor / LinkTarget accessor with an ArgumentException.
     /// </summary>
     [Fact]
     public void GetSymlinkTarget_EmptyString_ReturnsNull_DoesNotThrow()
@@ -277,9 +236,7 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.Contains("target.txt", result!, StringComparison.Ordinal);
     }
 
-    // -----------------------------------------------------------------------
     // CreateSymlink
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void CreateSymlink_ValidPaths_CreatesFunctionalSymlink()
@@ -361,12 +318,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void CreateSymlink_LinkPathIsDanglingSymlink_ThrowsIOException()
     {
-        // A broken/dangling symlink already occupies linkPath. The PathExists seam (Path.Exists)
-        // reports the link NODE without following it to the missing target, so the occupancy guard
-        // fires with the specific "already exists" message rather than deferring to
-        // File.CreateSymbolicLink's own error. (We deliberately do not assert File.Exists here: its
-        // result for a dangling link is not portable across runtimes/filesystems, whereas the guard
-        // behaviour under test is.)
+        // A broken/dangling symlink already occupies linkPath.
         if (!SymlinksSupported())
         {
             return;
@@ -381,10 +333,8 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.Contains("already exists", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    // -----------------------------------------------------------------------
     // DeleteSymlink - the interesting one: the guard clause must fail loudly
     // on non-symlinks so we never accidentally delete a real file.
-    // -----------------------------------------------------------------------
 
     [Fact]
     public void DeleteSymlink_ActualSymlink_RemovesLinkButNotTarget()
@@ -463,9 +413,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void ReplaceSymlink_DestIsRealFile_ThrowsAndDoesNotOverwrite()
     {
-        // DATA-LOSS GUARD: if a REAL media file has replaced the symlink at destPath since the scan
-        // (e.g. an import wrote the finished download there), the repair must REFUSE - overwriting it
-        // with the temp symlink would destroy the bytes irreversibly. The real file must be untouched.
+        // DATA-LOSS GUARD: if a REAL media file has replaced the symlink at destPath since the scan (e.g. an import wrote the finished download there), the repair must REFUSE - overwriting it with the temp symlink would destroy the bytes irreversibly.
         if (!SymlinksSupported())
         {
             return;
@@ -490,10 +438,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void ReplaceSymlink_DestIsBrokenSymlink_RepairsSuccessfully()
     {
-        // The LEGITIMATE repair case (renamed target): the symlink at destPath is broken because its
-        // target moved. destPath is still a symbolic link, so the guard allows the move and the link
-        // is repaired to the new target. This is the primary flow the feature exists for and must
-        // NOT be blocked by the data-loss guard.
+        // The LEGITIMATE repair case (renamed target): the symlink at destPath is broken because its target moved.
         if (!SymlinksSupported())
         {
             return;
@@ -560,10 +505,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void ReplaceSymlink_DestVanished_MovesRegularFileSourceIntoPlace()
     {
-        // The scan-time dest was removed before the repair ran. File.GetAttributes throws
-        // FileNotFoundException, the catch treats it as "nothing to lose", and the source is
-        // moved into place. Uses plain files so it needs no symlink privileges and covers the
-        // catch/early-move branch the symlink-gated DestDoesNotExist test skips on Windows.
+        // The scan-time dest was removed before the repair ran. File.GetAttributes throws FileNotFoundException, the catch treats it as "nothing to lose", and the source is moved into place.
         var source = Path.Join(_tempDir, "repair-source.txt");
         File.WriteAllText(source, "moved payload");
         var dest = Path.Join(_tempDir, "gone.txt"); // never created -> vanished
@@ -578,10 +520,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void ReplaceSymlink_DestIsRealFile_ThrowsBeforeAnyMove_OnAllPlatforms()
     {
-        // DATA-LOSS GUARD, privilege-free variant: both source and dest are plain files, so the
-        // guard throws before File.Move without needing any symlink. The symlink-based
-        // DestIsRealFile test is skipped on the Windows coverage host, leaving this branch
-        // uncovered there. The throw must happen before the move so both files stay intact.
+        // DATA-LOSS GUARD, privilege-free variant: both source and dest are plain files, so the guard throws before File.Move without needing any symlink.
         var source = Path.Join(_tempDir, "repair-source.txt");
         File.WriteAllText(source, "repair payload");
         var dest = Path.Join(_tempDir, "real-media.txt");
@@ -596,17 +535,10 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.Equal("repair payload", File.ReadAllText(source));
     }
 
-    // -----------------------------------------------------------------------
-    // Concurrent-replacement (TOCTOU) branches driven deterministically via
-    // filesystem seams. These paths previously carried [ExcludeFromCodeCoverage]
-    // because a real move race cannot be provoked reliably; the seams let a test
-    // subclass simulate each race outcome exactly.
-    // -----------------------------------------------------------------------
+    // Concurrent-replacement (TOCTOU) branches driven deterministically via filesystem seams.
 
     /// <summary>
-    ///     A <see cref="SymlinkHelper" /> whose filesystem primitives are scripted so the TOCTOU
-    ///     branches of <see cref="SymlinkHelper.ReplaceSymlink" /> and
-    ///     <see cref="SymlinkHelper.DeleteSymlink" /> run without any real symlink or move race.
+    ///     A SymlinkHelper whose filesystem primitives are scripted so the TOCTOU branches of ReplaceSymlink and DeleteSymlink run without any real symlink or move race.
     /// </summary>
     private sealed class ScriptedSymlinkHelper : SymlinkHelper
     {
@@ -672,17 +604,13 @@ public sealed class SymlinkHelperTests : IDisposable
         internal override string? GetLinkTarget(string path) => "/some/target";
     }
 
-    // A symlink-looking attribute set: ReparsePoint flag present. Combined with the overridden
-    // GetLinkTarget above, this satisfies IsSymlinkFromAttributes so the move/re-stat control flow
-    // is what the test exercises.
+    // A symlink-looking attribute set: ReparsePoint flag present. Combined with the overridden GetLinkTarget above, this satisfies IsSymlinkFromAttributes so the move/re-stat control flow is what the test exercises.
     private const FileAttributes SymlinkAttrs = FileAttributes.ReparsePoint;
 
     [Fact]
     public void ReplaceSymlink_DestVanishesBetweenMoveAndRestat_RetriesCleanMove()
     {
-        // Scripted race: initial stat says "symlink", the non-overwriting move fails because the
-        // destination exists, but by the re-stat the destination has vanished (FileNotFound). The
-        // helper must fall back to a clean, non-overwriting move rather than an overwrite.
+        // Scripted race: initial stat says "symlink", the non-overwriting move fails because the destination exists, but by the re-stat the destination has vanished (FileNotFound).
         var helper = new ScriptedSymlinkHelper();
         helper.QueueAttributes(SymlinkAttrs, null); // 1st stat: symlink; re-stat: vanished
         helper.MakeFirstMoveFailAsExists();
@@ -697,9 +625,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void ReplaceSymlink_DestBecomesRealFileBetweenMoveAndRestat_ThrowsDataLoss()
     {
-        // Scripted race: initial stat says "symlink", the move fails (dest exists), and the re-stat
-        // now reports a NON-symlink (a real file raced into place). The helper must refuse with a
-        // data-loss error and never attempt the overwriting move.
+        // Scripted race: initial stat says "symlink", the move fails (dest exists), and the re-stat now reports a NON-symlink (a real file raced into place).
         var helper = new ScriptedSymlinkHelper();
         helper.QueueAttributes(SymlinkAttrs, FileAttributes.Normal); // symlink -> real file
         helper.MakeFirstMoveFailAsExists();
@@ -715,9 +641,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void ReplaceSymlink_DestStillSymlinkAfterFailedMove_UsesOverwriteMove()
     {
-        // Scripted race: initial stat says "symlink", the non-overwriting move fails (dest exists),
-        // and the re-stat confirms it is STILL a symlink. The helper must complete via the
-        // single-syscall overwriting move.
+        // Scripted race: initial stat says "symlink", the non-overwriting move fails (dest exists), and the re-stat confirms it is STILL a symlink.
         var helper = new ScriptedSymlinkHelper();
         helper.QueueAttributes(SymlinkAttrs, SymlinkAttrs); // symlink both times
         helper.MakeFirstMoveFailAsExists();
@@ -731,9 +655,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void DeleteSymlink_GetAttributesThrowsAccessError_ThrowsInspectionFailure()
     {
-        // When the attribute read itself fails (permission denied / IO error), the helper must NOT
-        // claim "not a symbolic link" - that would send an operator investigating the wrong cause.
-        // It reports an inspection failure and refuses to delete the unverified entry.
+        // When the attribute read itself fails (permission denied / IO error), the helper must NOT claim "not a symbolic link" - that would send an operator investigating the wrong cause.
         var helper = new ScriptedSymlinkHelper { GetAttributesThrowsUnauthorized = true };
 
         var ex = Assert.Throws<InvalidOperationException>(() => helper.DeleteSymlink("/tmp/whatever"));

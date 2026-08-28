@@ -7,8 +7,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 public class ConfigurationRequestValidatorTests
 {
-    // ===== OrphanMinAgeDays =====
-
     [Fact]
     public void Validate_ReturnsNull_ForValidRequest()
     {
@@ -30,8 +28,6 @@ public class ConfigurationRequestValidatorTests
         Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
 
-    // ===== TrashRetentionDays =====
-
     [Fact]
     public void Validate_ReturnsError_WhenTrashRetentionDaysNegative()
     {
@@ -45,8 +41,6 @@ public class ConfigurationRequestValidatorTests
         var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 7, TrashRetentionDays = 5000 };
         Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
-
-    // ===== Arr Instance Limits =====
 
     [Fact]
     public void Validate_ReturnsError_WhenTooManyRadarrInstances()
@@ -83,8 +77,6 @@ public class ConfigurationRequestValidatorTests
         };
         Assert.Contains("Sonarr", ConfigurationRequestValidator.Validate(req)!);
     }
-
-    // ===== Seerr Validation =====
 
     [Fact]
     public void Validate_ReturnsError_WhenSeerrCleanupAgeDaysTooLow()
@@ -153,8 +145,6 @@ public class ConfigurationRequestValidatorTests
         Assert.Null(ConfigurationRequestValidator.Validate(req));
     }
 
-    // ===== Arr Instance Validation =====
-
     [Fact]
     public void ValidateArrInstances_ReturnsNull_WhenNull()
     {
@@ -209,8 +199,6 @@ public class ConfigurationRequestValidatorTests
         Assert.Null(ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr"));
     }
 
-    // ===== TrashFolderPath =====
-
     [Fact]
     public void ValidateTrashPath_ReturnsNull_ForEmpty()
     {
@@ -262,9 +250,7 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void Validate_ReturnsNull_ForValidTrashPaths_WhenTrashEnabled()
     {
-        // Sanity-check that valid trash paths still pass end-to-end when trash is enabled.
-        // Both relative (default) and absolute paths that pass ValidateTrashPathStrict()
-        // must result in Validate() returning null.
+        // Sanity-check that valid trash paths still pass end-to-end when trash is enabled. Both relative (default) and absolute paths that pass ValidateTrashPathStrict() must result in Validate() returning null.
         var req = new ConfigurationUpdateRequest
         {
             UseTrash = true,
@@ -288,10 +274,7 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void ValidateTrashPath_ProducesWarning_WhileValidateStrict_ProducesError_ForSamePath()
     {
-        // Demonstrates that ValidateTrashPath (advisory) and ValidateTrashPathStrict (blocking)
-        // are separate layers. A path with ".." triggers BOTH: a warning from the advisory method
-        // AND an error from the strict method. This proves Validate() correctly uses only the strict
-        // check - it does not need to suppress warnings because they operate independently.
+        // Demonstrates that ValidateTrashPath (advisory) and ValidateTrashPathStrict (blocking) are separate layers.
         const string escapingPath = "../../escape";
 
         // Advisory method: produces a warning (non-null)
@@ -346,8 +329,6 @@ public class ConfigurationRequestValidatorTests
         Assert.Contains("resolves to the library root itself", warning);
         Assert.Contains(".jellyfin-trash", warning);
     }
-
-    // ===== ValidateTrashPathStrict (blocking validation) =====
 
     [Fact]
     public void ValidateTrashPathStrict_ReturnsNull_WhenTrashDisabled()
@@ -473,8 +454,6 @@ public class ConfigurationRequestValidatorTests
         Assert.Null(ConfigurationRequestValidator.Validate(req));
     }
 
-    // ===== Multi-dot folder names (valid on Linux) =====
-
     [Theory]
     [InlineData("...")]
     [InlineData("....")]
@@ -545,11 +524,7 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void ValidateTrashPathStrict_ReturnsError_WhenPathTooLong()
     {
-        // A single overlong segment clears the char/traversal filters and reaches Path.GetFullPath.
-        // Only Windows enforces MAX_PATH here: GetFullPath throws PathTooLongException, which the
-        // catch converts into a blocking error. POSIX (Linux) has no such length ceiling, so the
-        // same value is a perfectly legal single-segment relative name and GetFullPath succeeds -
-        // there is no cross-platform input that hits this specific catch, so the assertion is gated.
+        // A single overlong segment clears the char/traversal filters and reaches Path.GetFullPath. Only Windows enforces MAX_PATH here: GetFullPath throws PathTooLongException, which the catch converts into a blocking error.
         var longPath = new string('a', 40000);
 
         if (OperatingSystem.IsWindows())

@@ -12,11 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Tests for <see cref="DiscoveryController"/> (admin-level discovery endpoints).
-///     The <see cref="DiscoveryCacheService"/> is instantiated once per test class.
-///     Current tests are stateless (no test mutates the cache), so shared state is safe.
-///     If future tests add cache-mutating scenarios, consider per-test isolation
-///     via a temp-directory-backed cache or mocked <c>IDiscoveryCacheService</c>.
+///     Tests for DiscoveryController (admin-level discovery endpoints). The DiscoveryCacheService is instantiated once per test class.
 /// </summary>
 public class DiscoveryControllerTests : IDisposable
 {
@@ -38,7 +34,8 @@ public class DiscoveryControllerTests : IDisposable
     public void Dispose()
     {
         _cache.Dispose();
-        try { File.Delete(_tempCachePath); } catch (IOException) { }
+        try { File.Delete(_tempCachePath); }
+        catch (IOException) { }
         catch (UnauthorizedAccessException) { }
         GC.SuppressFinalize(this);
     }

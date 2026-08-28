@@ -280,10 +280,7 @@ public class TrashControllerTests : IDisposable
     [Fact]
     public void HasReparsePointAncestor_MissingAncestor_FailsClosed()
     {
-        // Regression guard: DirectoryInfo.Exists returns false (no throw) for a missing
-        // ancestor. The old `Exists && isReparsePoint` short-circuit fell through and reported
-        // the ancestry as safe, letting a later recursive delete run after an incomplete check.
-        // An ancestor that cannot be proven not to be a reparse point must fail closed.
+        // Regression guard: DirectoryInfo.Exists returns false (no throw) for a missing ancestor. The old `Exists && isReparsePoint` short-circuit fell through and reported the ancestry as safe, letting a later recursive delete run after an incomplete check.
         var missingAncestor = Path.Join(_tempPath, "does-not-exist");
         var path = Path.Join(missingAncestor, "child");
 
@@ -446,11 +443,7 @@ public class TrashControllerTests : IDisposable
     [Fact]
     public void DeleteTrashFolders_DeleteThrowsIOException_CountsAsFailedNotDeleted()
     {
-        // A locked file inside the trash dir makes Directory.Delete throw; the controller
-        // must catch it and tally the path as Failed, not propagate or count it Deleted.
-        // The exclusive FileShare.None lock only blocks deletion on Windows; on POSIX the
-        // open handle does not prevent Directory.Delete, so no IOException is thrown and
-        // the contract cannot be exercised. Sibling failure tests gate the same way.
+        // A locked file inside the trash dir makes Directory.Delete throw; the controller must catch it and tally the path as Failed, not propagate or count it Deleted.
         if (!OperatingSystem.IsWindows())
         {
             return;

@@ -1,4 +1,3 @@
-// --- Main / Page Initialization ---
 'use strict';
 
 function initTabs() {
@@ -118,25 +117,21 @@ function renderShell() {
         + '</button>';
     html += '</div>';
 
-    // === OVERVIEW TAB (placeholder until scan) ===
     html += '<div class="tab-content active" id="tab-overview">';
     html += '<div id="overviewContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
         + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
-    // === CODECS TAB (placeholder until scan) ===
     html += '<div class="tab-content" id="tab-codecs">';
     html += '<div id="codecsContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
         + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
-    // === HEALTH TAB (placeholder until scan) ===
     html += '<div class="tab-content" id="tab-health">';
     html += '<div id="healthContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
         + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
-    // === TRENDS TAB ===
     html += '<div class="tab-content" id="tab-trends">';
     html += '<div class="section-title">' + mi('trending_up') + escHtml(T('trendTitle',
         'Library Growth Trend')) + '</div>';
@@ -146,14 +141,12 @@ function renderShell() {
         + escHtml(T('loadingInsights', 'Loading insights…')) + '</div></div>';
     html += '</div>';
 
-    // === SETTINGS TAB ===
     html += '<div class="tab-content" id="tab-settings">';
     html += '<div class="settings-form" id="settingsForm">';
     html += '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div></div>';
     html += '</div>';
     html += '</div>';
 
-    // === ARR TAB ===
     html += '<div class="tab-content" id="tab-arr">';
     html += '<div class="section-title">' + mi('link') + escHtml(T('arrTitle',
         'Arr Stack Integration')) + '</div>';
@@ -163,7 +156,6 @@ function renderShell() {
     html += '</div>';
     html += '</div>';
 
-    // === RECOMMENDATIONS TAB ===
     html += '<div class="tab-content" id="tab-recommendations">';
     html += '<div class="section-title">' + mi('smart_toy') + escHtml(T('recsTitle',
         'Smart Recommendations')) + '</div>';
@@ -172,7 +164,6 @@ function renderShell() {
         + '<p>' + escHtml(T('loadingRecommendations', 'Loading recommendations…')) + '</p></div></div>';
     html += '</div>';
 
-    // === LOGS TAB ===
     html += '<div class="tab-content" id="tab-logs">';
     html += renderLogsTab();
     html += '</div>';
@@ -307,11 +298,7 @@ function initPage() {
         // Load settings and arr buttons immediately (no scan needed)
         loadSettings();
 
-        // Load persisted statistics from server (if any previous scan exists).
-        // When no data exists (204 path), loadLatestStatistics triggers loadStatistics(),
-        // which calls loadTrendData(true) and loadInsightsData() on its own success path.
-        // When data does exist, load trend/insights only if no scan is in-flight to
-        // avoid a double-fetch race with a concurrent loadStatistics() call.
+        // Load persisted statistics from server (if any previous scan exists). When no data exists (204 path), loadLatestStatistics triggers loadStatistics(), which calls loadTrendData(true) and loadInsightsData() on its own success path.
         loadLatestStatistics();
         if (!window.JellyfinHelper._statisticsInFlight) {
             loadTrendData();

@@ -108,8 +108,7 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    ///     Validates the shared <paramref name="minLevel"/> and <paramref name="source"/> query parameters
-    ///     used by both <see cref="GetLogs"/> and <see cref="DownloadLogs"/>.
+    ///     Validates the shared and query parameters used by both GetLogs and DownloadLogs.
     /// </summary>
     /// <returns>An error message string when validation fails, or <c>null</c> when the parameters are valid.</returns>
     private static string? ValidateLogQueryParams(string? minLevel, string? source)

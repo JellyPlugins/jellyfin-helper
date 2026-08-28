@@ -6,9 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Security tests for <see cref="TrashService" />.
-///     Verifies that path traversal, null bytes, and other malicious inputs
-///     are handled safely without escaping intended directories.
+///     Security tests for TrashService. Verifies that path traversal, null bytes, and other malicious inputs are handled safely without escaping intended directories.
 /// </summary>
 public class TrashServiceSecurityTests : IDisposable
 {
@@ -23,8 +21,6 @@ public class TrashServiceSecurityTests : IDisposable
             Directory.Delete(_testRoot, true);
         }
     }
-
-    // ===== Path Traversal: MoveToTrash =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -50,10 +46,7 @@ public class TrashServiceSecurityTests : IDisposable
         // The resolved source is _testRoot/sensitive, which exists, so the move succeeds.
         _trashService.MoveToTrash(traversalSource, trashPath, _loggerMock);
 
-        // Unconditional security assertions:
-        // 1. The sensitive directory no longer exists at its original location (it was moved into trash)
-        //    OR it was not moved but nothing escaped outside _testRoot.
-        // 2. No file or directory was created outside _testRoot.
+        // Unconditional security assertions: 1. The sensitive directory no longer exists at its original location (it was moved into trash) OR it was not moved but nothing escaped outside _testRoot.
         var testRootFull = Path.GetFullPath(_testRoot);
         var trashRoot = Path.GetFullPath(trashPath);
 
@@ -82,9 +75,7 @@ public class TrashServiceSecurityTests : IDisposable
     [Trait("Category", "Security")]
     public void MoveToTrash_PathTraversalResolvesOutsideRoot_IsBlocked()
     {
-        // Use the system temp directory as a source that lives entirely outside _testRoot.
-        // The service must either return an error (0 / negative result) or, if it attempts
-        // the operation, must not move or copy anything outside a safe boundary.
+        // Use the system temp directory as a source that lives entirely outside _testRoot. The service must either return an error (0 / negative result) or, if it attempts the operation, must not move or copy anything outside a safe boundary.
         var outsideSource = Path.GetTempPath();
         var trashPath = Path.Join(_testRoot, "trash_outside");
 
@@ -99,10 +90,7 @@ public class TrashServiceSecurityTests : IDisposable
         // that is outside the configured library/root, returning 0 (or a sentinel).
         var result = _trashService.MoveToTrash(outsideSource, trashPath, _loggerMock);
 
-        // Primary assertion: the service must not have moved the system temp directory
-        // (or any of its contents) into the trash path or anywhere else.
-        // Either the result is 0 (blocked / nothing moved) or – if the service does not
-        // enforce source-root containment – nothing outside _testRoot must have been touched.
+        // Primary assertion: the service must not have moved the system temp directory (or any of its contents) into the trash path or anywhere else.
         var trashRoot = Path.GetFullPath(trashPath);
         if (result != 0)
         {
@@ -147,8 +135,6 @@ public class TrashServiceSecurityTests : IDisposable
         Assert.True(Directory.Exists(resolvedTrashPath), "Trash should be created at resolved path");
     }
 
-    // ===== Path Traversal: MoveFileToTrash =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void MoveFileToTrash_PathTraversalInSource_HandledSafely()
@@ -164,10 +150,7 @@ public class TrashServiceSecurityTests : IDisposable
         // the behavior depends on OS path resolution
         _trashService.MoveFileToTrash(traversalPath, trashPath, _loggerMock);
 
-        // Unconditional security assertions:
-        // 1. The sensitive file still exists at its original location OR was moved into the trash.
-        //    Either way, nothing may escape _testRoot.
-        // 2. No file was created outside _testRoot.
+        // Unconditional security assertions: 1. The sensitive file still exists at its original location OR was moved into the trash.
         var testRootFull = Path.GetFullPath(_testRoot);
         var trashRoot = Path.GetFullPath(trashPath);
 
@@ -208,8 +191,6 @@ public class TrashServiceSecurityTests : IDisposable
         Assert.True(Directory.Exists(resolvedPath));
     }
 
-    // ===== Malicious Trash Item Names: PurgeExpiredTrash =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void PurgeExpiredTrash_TrashItemWithPathTraversalName_DoesNotEscapeTrashFolder()
@@ -217,11 +198,7 @@ public class TrashServiceSecurityTests : IDisposable
         var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
 
-        // Create a directory inside trash with a name that looks like a path traversal attempt.
-        // We keep it inside the trash folder (no actual ".." resolution) so the test stays
-        // isolated within _testRoot and doesn't create directories outside the test sandbox.
-        // PurgeExpiredTrash parses timestamps from directory names - this name has none,
-        // so it should be safely skipped.
+        // Create a directory inside trash with a name that looks like a path traversal attempt. We keep it inside the trash folder (no actual ".." resolution) so the test stays isolated within _testRoot and doesn't create directories outside the test sandbox.
         var maliciousDir = Path.Join(trashPath, "..__..__etc");
         Directory.CreateDirectory(maliciousDir);
 
@@ -258,8 +235,6 @@ public class TrashServiceSecurityTests : IDisposable
         Assert.Equal(0, itemsPurged);
     }
 
-    // ===== ExtractOriginalName: Malicious inputs =====
-
     [Theory]
     [Trait("Category", "Security")]
     [InlineData("20260101-120000_<script>alert(1)</script>")]
@@ -285,8 +260,6 @@ public class TrashServiceSecurityTests : IDisposable
         Assert.False(result.StartsWith("20260101", StringComparison.Ordinal));
     }
 
-    // ===== TryParseTrashTimestamp: Edge cases =====
-
     [Theory]
     [Trait("Category", "Security")]
     [InlineData("99999999-999999_overflow")]
@@ -299,8 +272,6 @@ public class TrashServiceSecurityTests : IDisposable
         var result = TrashService.TryParseTrashTimestamp(input, out _);
         Assert.False(result);
     }
-
-    // ===== GetTrashContents: Large directory =====
 
     [Fact]
     [Trait("Category", "Security")]
@@ -322,8 +293,6 @@ public class TrashServiceSecurityTests : IDisposable
         Assert.Equal(100, result.Count);
     }
 
-    // ===== GetTrashSummary: Symlink/Junction safety =====
-
     [Fact]
     [Trait("Category", "Security")]
     public void GetTrashSummary_EmptyTrash_ReturnsZeroSafely()
@@ -336,8 +305,6 @@ public class TrashServiceSecurityTests : IDisposable
         Assert.Equal(0, totalSize);
         Assert.Equal(0, itemCount);
     }
-
-    // ===== Concurrent collision handling =====
 
     [Fact]
     [Trait("Category", "Security")]

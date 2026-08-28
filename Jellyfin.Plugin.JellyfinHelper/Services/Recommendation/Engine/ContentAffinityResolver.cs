@@ -10,16 +10,7 @@ using MediaBrowser.Controller.Entities.TV;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
 /// <summary>
-///     Shared, library-call-free resolvers for the candidate-invariant content-affinity source data
-///     (TMDb collection, production countries, inherited tags, series lifecycle, writers). Centralising
-///     them here guarantees the live scoring path (<c>Engine</c>), the per-snapshot precompute, and the
-///     watch-history profile build (<c>WatchHistoryService</c>) all extract these fields identically -
-///     which is exactly the train/serve parity contract the content-affinity features depend on.
-///     <para>
-///         All methods are fail-soft: any non-fatal exception or missing metadata yields the neutral
-///         empty/null result, never a throw, so a candidate lacking the underlying metadata is a silent
-///         no-op in scoring rather than a crash.
-///     </para>
+///     Shared, library-call-free resolvers for the candidate-invariant content-affinity source data (TMDb collection, production countries, inherited tags, series lifecycle, writers).
 /// </summary>
 internal static class ContentAffinityResolver
 {
@@ -125,9 +116,7 @@ internal static class ContentAffinityResolver
     }
 
     /// <summary>
-    ///     Extracts distinct writer (screenplay/creator) names from an already-fetched people list
-    ///     (no library call). Shared so the live per-item resolver, the per-snapshot precompute and the
-    ///     watch-history profile build all produce identical writer sets.
+    ///     Extracts distinct writer (screenplay/creator) names from an already-fetched people list (no library call).
     /// </summary>
     /// <param name="people">The item's people, or null.</param>
     /// <returns>Distinct writer names (case-insensitive), or an empty list.</returns>

@@ -13,10 +13,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Playlist;
 
 /// <summary>
-///     Exercises the resilient deletion path in <see cref="RecommendationPlaylistService"/>:
-///     when <c>DeleteItem(DeleteFileLocation=true)</c> throws (a drifted/orphaned on-disk
-///     folder), the service falls back to a DB-item delete and best-effort folder cleanup.
-///     Uses real temp directories so the <c>Directory.Delete</c> branch actually runs.
+///     Exercises the resilient deletion path in RecommendationPlaylistService: when DeleteItem(DeleteFileLocation=true) throws (a drifted/orphaned on-disk folder), the service falls back to a DB-item delete and best-effort folder cleanup.
 /// </summary>
 public sealed class RecommendationPlaylistServiceDeletionFallbackTests : IDisposable
 {

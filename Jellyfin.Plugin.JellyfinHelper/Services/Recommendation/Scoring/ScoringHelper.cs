@@ -3,10 +3,7 @@ using System;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Shared scoring logic used by both <see cref="HeuristicScoringStrategy"/> and
-///     <see cref="LearnedScoringStrategy"/> to eliminate code duplication.
-///     Computes per-feature contributions and builds a <see cref="ScoreExplanation"/>
-///     from a feature vector and a weight array.
+///     Shared scoring logic used by both HeuristicScoringStrategy and LearnedScoringStrategy to eliminate code duplication.
 /// </summary>
 internal static class ScoringHelper
 {
@@ -23,10 +20,7 @@ internal static class ScoringHelper
     internal const double NaNFallbackScore = 0.5;
 
     /// <summary>
-    ///     Computes a soft genre penalty multiplier that ramps linearly from <paramref name="floor"/>
-    ///     (at genreSimilarity = 0) to 1.0 (at genreSimilarity >= <paramref name="threshold"/>).
-    ///     Shared by <see cref="HeuristicScoringStrategy"/> and <see cref="EnsembleScoringStrategy"/>
-    ///     to ensure consistent genre penalty behaviour across all strategies.
+    ///     Computes a soft genre penalty multiplier that ramps linearly from floor (at genreSimilarity = 0) to 1.0 (at genreSimilarity >= threshold).
     /// </summary>
     /// <param name="genreSimilarity">The genre similarity value (0-1).</param>
     /// <param name="floor">The minimum penalty multiplier when genre similarity is 0.</param>
@@ -43,9 +37,7 @@ internal static class ScoringHelper
     }
 
     /// <summary>
-    ///     Computes the raw linear score from a feature vector, weights, and bias.
-    ///     Returns <see cref="NaNFallbackScore"/> if the result is NaN or Infinity,
-    ///     which can occur when weights are corrupted or features contain invalid values.
+    ///     Computes the raw linear score from a feature vector, weights, and bias. Returns NaNFallbackScore if the result is NaN or Infinity, which can occur when weights are corrupted or features contain invalid values.
     /// </summary>
     /// <param name="vector">The feature vector.</param>
     /// <param name="weights">The weight array (same length as vector).</param>
@@ -64,10 +56,7 @@ internal static class ScoringHelper
     }
 
     /// <summary>
-    ///     Guards a score value against NaN and Infinity.
-    ///     Returns <see cref="NaNFallbackScore"/> if the value is not a finite number.
-    ///     This is the centralized guard used by all scoring strategies to prevent
-    ///     NaN propagation through the recommendation pipeline.
+    ///     Guards a score value against NaN and Infinity. Returns NaNFallbackScore if the value is not a finite number.
     /// </summary>
     /// <param name="score">The score to guard.</param>
     /// <returns>The original score if finite, otherwise <see cref="NaNFallbackScore"/>.</returns>
@@ -77,10 +66,7 @@ internal static class ScoringHelper
     }
 
     /// <summary>
-    ///     Safely computes a single feature contribution (value × weight).
-    ///     Returns 0 when the feature index exceeds the vector or weight array length,
-    ///     which can happen when an older/corrupted model is loaded with fewer persisted weights.
-    ///     This mirrors the truncation tolerance of <see cref="ComputeRawScore"/>.
+    ///     Safely computes a single feature contribution (value × weight). Returns 0 when the feature index exceeds the vector or weight array length, which can happen when an older/corrupted model is loaded with fewer persisted weights.
     /// </summary>
     /// <param name="values">The feature vector.</param>
     /// <param name="coeffs">The weight/coefficient array.</param>
@@ -99,9 +85,7 @@ internal static class ScoringHelper
     }
 
     /// <summary>
-    ///     Builds a complete <see cref="ScoreExplanation"/> from a feature vector and weights.
-    ///     Extracts per-feature contributions and determines the dominant signal.
-    ///     All computed values are guarded against NaN/Infinity propagation.
+    ///     Builds a complete ScoreExplanation from a feature vector and weights. Extracts per-feature contributions and determines the dominant signal.
     /// </summary>
     /// <param name="vector">The feature vector (length = <see cref="CandidateFeatures.FeatureCount"/>).</param>
     /// <param name="weights">The weight array.</param>
@@ -125,13 +109,7 @@ internal static class ScoringHelper
         var peopleContrib = GetContribution(vector, weights, FeatureIndex.PeopleSimilarity);
         var studioContrib = GetContribution(vector, weights, FeatureIndex.StudioMatch);
 
-        // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio,
-        // isAbandoned, hasInteraction, seriesProgression, popularity, dayOfWeek, hourOfDay, isWeekend,
-        // tagSimilarity, people×genre, recency×critic, genreExposure features, libraryAddedRecency,
-        // contentNearestNeighbor, languageAffinity, collectionProgressionBoost, subtitleLanguageAffinity)
-        // Each GetContribution already returns 0.0 for non-finite products, so the sum should
-        // always be finite. Use 0.0 (not NaNFallbackScore) as defensive fallback to avoid
-        // injecting a neutral-looking 0.5 into an additive contribution term.
+        // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio, isAbandoned, hasInteraction, seriesProgression, popularity, dayOfWeek, hourOfDay, isWeekend, tagSimilarity, people×genre, recency×critic, genreExposure features, libraryAddedRecency,.
         var interactionSum =
             GetContribution(vector, weights, FeatureIndex.GenreCountNormalized) +
             GetContribution(vector, weights, FeatureIndex.IsSeries) +
@@ -165,10 +143,7 @@ internal static class ScoringHelper
             GetContribution(vector, weights, FeatureIndex.GenreStudioIdfPrior);
         var interactionContrib = double.IsFinite(interactionSum) ? interactionSum : 0.0;
 
-        // Compute FinalScore from the sum of contributions + bias instead of re-calling
-        // ComputeRawScore. This ensures FinalScore is always consistent with the individual
-        // contribution values, even if a corrupted weight produces a non-finite product
-        // (GetContribution returns 0.0 for non-finite, while ComputeRawScore returns 0.5).
+        // Compute FinalScore from the sum of contributions + bias instead of re-calling ComputeRawScore.
         var contributionSum = genreContrib + collabContrib + ratingContrib + recencyContrib +
             yearProxContrib + userRatingContrib + peopleContrib + studioContrib + interactionContrib;
         var rawScore = GuardScore(contributionSum + bias);

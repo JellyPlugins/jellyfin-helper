@@ -14,20 +14,10 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
-///     A scheduled task to clean up orphaned media folders that contain non-metadata files
-///     but absolutely no video files anywhere in their entire directory tree.
-///     Supports configuration-driven library filtering, orphan age, trash/delete mode, and storage tracking.
+///     A scheduled task to clean up orphaned media folders that contain non-metadata files but absolutely no video files anywhere in their entire directory tree.
 /// </summary>
 /// <remarks>
-///     Targets the common case where deleting a movie/episode removes only the video file, leaving
-///     the folder of metadata (.nfo), artwork (.jpg), subtitles (.srt). Scans top-level folders
-///     (direct children of each library root), checking each tree recursively. A folder is orphaned
-///     only if it holds non-metadata files but NO video anywhere in the tree; a single video
-///     anywhere leaves the whole folder untouched (including empty Sonarr "wanted" Season subfolders).
-///     <para>
-///         Skipped: fully empty trees (Radarr/Sonarr placeholders for upcoming media), and folders
-///         holding only metadata/artwork (images, NFO/XML) - also wanted-media placeholders.
-///     </para>
+///     Targets the common case where deleting a movie/episode removes only the video file, leaving the folder of metadata (.nfo), artwork (.jpg), subtitles (.srt).
 /// </remarks>
 public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 {
@@ -75,9 +65,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
         long bytesFreed = 0;
         var config = ConfigHelper.GetConfig();
 
-        // Hoist trash-path computation outside the loop - libraryPath is constant per call.
-        // Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS,
-        // matching the same pattern used by CleanTrickplayTask and CleanOrphanedSubtitlesTask.
+        // Hoist trash-path computation outside the loop - libraryPath is constant per call. Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS, matching the same pattern used by CleanTrickplayTask and CleanOrphanedSubtitlesTask.
         var trashPath = ConfigHelper.GetTrashPath(libraryPath);
         var trashRoot = Path.GetFullPath(trashPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -115,9 +103,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Evaluates a single top-level directory and decides whether it is an orphaned media folder
-    ///     eligible for deletion. Applies every skip guard (trickplay/trash/boxset folders, symlinks,
-    ///     unresolved subtrees, non-orphan content, and minimum orphan age).
+    ///     Evaluates a single top-level directory and decides whether it is an orphaned media folder eligible for deletion.
     /// </summary>
     /// <param name="topDir">The top-level directory to evaluate.</param>
     /// <param name="trashRoot">The normalized trash root path.</param>
@@ -145,9 +131,6 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
         }
 
         // Skip the trash folder and anything nested inside it.
-        // Use full-path prefix comparison (same pattern as CleanTrickplayTask) rather than
-        // a bare name equality check, which breaks when the trash path is multi-segment
-        // or when a previous run has added a timestamp prefix to the folder.
         var normalizedDirPath = Path.GetFullPath(topDir.FullName)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (normalizedDirPath.Equals(trashRoot, pathComparison)
@@ -164,11 +147,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             return false;
         }
 
-        // Symlink guard: NEVER traverse into, or delete, a top-level reparse point
-        // (symlink/junction). Its target may hold live media (Radarr/Sonarr commonly place
-        // symlinked media folders directly under a library root), and this task has no
-        // orphan evidence for an entry it did not analyze. Deleting the link node on age
-        // alone would remove valid library entries. Mirror CleanOrphanedSubtitlesTask: skip.
+        // Symlink guard: NEVER traverse into, or delete, a top-level reparse point (symlink/junction).
         bool topIsReparsePoint;
         try
         {
@@ -195,17 +174,12 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             return false;
         }
 
-        // Check the entire tree in a single pass: does it contain any files at all,
-        // any video files, any audio files, or any non-metadata files?
-        // The accumulated byte count is returned here so that the hard-delete path
-        // does not need a second traversal via CalculateDirectorySize.
+        // Check the entire tree in a single pass: does it contain any files at all, any video files, any audio files, or any non-metadata files? The accumulated byte count is returned here so that the hard-delete path does not need a second traversal via CalculateDirectorySize.
         var (hasAnyFiles, hasVideoFiles, hasAudioFiles, hasNonMetadataFiles, analyzedBytes, hasUnresolvedLink) =
             AnalyzeDirectoryRecursive(topDir.FullName, cancellationToken);
         treeBytes = analyzedBytes;
 
-        // If any subtree was hidden behind a symlink/junction (or an unreadable subdir),
-        // the orphan verdict is unproven: video files could live behind that link. Never
-        // delete such a folder. A false orphan here would destroy real media.
+        // If any subtree was hidden behind a symlink/junction (or an unreadable subdir), the orphan verdict is unproven: video files could live behind that link.
         if (hasUnresolvedLink)
         {
             PluginLog.LogWarning(
@@ -235,9 +209,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             return false;
         }
 
-        // If the folder contains ONLY metadata/artwork files (images + NFO) but no video,
-        // audio, or other files, it's likely a placeholder created by Sonarr/Radarr
-        // for upcoming media, so skip it.
+        // If the folder contains ONLY metadata/artwork files (images + NFO) but no video, audio, or other files, it's likely a placeholder created by Sonarr/Radarr for upcoming media, so skip it.
         if (!hasNonMetadataFiles)
         {
             PluginLog.LogDebug(
@@ -261,8 +233,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Performs the deletion action for a confirmed orphan folder: dry-run report, move-to-trash,
-    ///     or hard delete, updating the running counters accordingly.
+    ///     Performs the deletion action for a confirmed orphan folder: dry-run report, move-to-trash, or hard delete, updating the running counters accordingly.
     /// </summary>
     private void DeleteOrphanFolder(
         FileSystemMetadata topDir,
@@ -298,9 +269,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             PluginLog.LogInfo(TaskName, $"Deleting orphaned media folder: {topDir.FullName}", Logger);
             try
             {
-                // Reuse the byte count already accumulated during the analysis pass
-                // instead of re-traversing the tree with CalculateDirectorySize.
-                // Note: reparse-point directories are already skipped before this point.
+                // Reuse the byte count already accumulated during the analysis pass instead of re-traversing the tree with CalculateDirectorySize.
                 Directory.Delete(topDir.FullName, true);
                 bytesFreed += treeBytes;
                 deletedCount++;
@@ -314,12 +283,6 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
     /// <summary>
     ///     Analyzes a directory tree in a single iterative pass (explicit stack, no recursion depth limit).
-    ///     Returns early as soon as a video file is found anywhere in the subtree.
-    ///     <para>
-    ///         <c>HasUnresolvedLink</c> is set when a reparse-point subdirectory (or a subdirectory
-    ///         that could not be stat'd) was skipped: its contents were NOT analyzed, so the orphan
-    ///         verdict for the whole tree is unproven and the caller must NOT delete the folder.
-    ///     </para>
     /// </summary>
     private (bool HasAnyFiles, bool HasVideoFiles, bool HasAudioFiles, bool HasNonMetadataFiles, long TotalBytes, bool HasUnresolvedLink)
         AnalyzeDirectoryRecursive(string directoryPath, CancellationToken cancellationToken)
@@ -336,9 +299,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
             if (ScanFilesForVideo(current, state))
             {
-                // A video file means the folder is kept regardless. Return 0 bytes: the caller only
-                // uses treeBytes in the hard-delete branch, which never runs when hasVideoFiles==true.
-                // HasUnresolvedLink is irrelevant here.
+                // A video file means the folder is kept regardless. Return 0 bytes: the caller only uses treeBytes in the hard-delete branch, which never runs when hasVideoFiles==true.
                 return (true, true, state.HasAudioFiles, true, 0, false);
             }
 
@@ -349,8 +310,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Enumerates and classifies the files directly under <paramref name="current"/>, updating
-    ///     <paramref name="state"/>. Returns <c>true</c> as soon as a video file is found (short-circuit).
+    ///     Enumerates and classifies the files directly under , updating . Returns true as soon as a video file is found (short-circuit).
     /// </summary>
     private bool ScanFilesForVideo(string current, DirectoryScanState state)
     {
@@ -361,9 +321,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // The files of this directory were not analyzed, so the orphan verdict for the
-            // enclosing tree is unproven (a video could live in the subtree we failed to read).
-            // Fail closed: flag the tree so ProcessLocation suppresses deletion.
+            // The files of this directory were not analyzed, so the orphan verdict for the enclosing tree is unproven (a video could live in the subtree we failed to read).
             state.HasUnresolvedLink = true;
             PluginLog.LogWarning(TaskName, $"Could not list files in: {current}", ex, Logger);
             return false;
@@ -371,15 +329,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
         foreach (var file in files)
         {
-            // A directory symlink can surface as a FILE entry on some mounts (e.g. Docker
-            // Desktop for Windows bind mounts) rather than as a subdirectory. Such an entry
-            // hides a subtree we did not analyze, so the orphan verdict is unproven. Flag it
-            // and never let it contribute to the file/extension classification (following the
-            // link to read a size or an extension would defeat the guard). The directory-classified
-            // case is handled by the reparse-point check in the subdirectory loop below.
-            // A stat failure (IOException/UnauthorizedAccessException from reading the entry's
-            // attributes) also leaves the entry unclassified: fail closed by flagging the tree
-            // rather than letting the exception abort the whole scan.
+            // A directory symlink can surface as a FILE entry on some mounts (e.g. Docker Desktop for Windows bind mounts) rather than as a subdirectory.
             bool fileIsReparsePoint;
             try
             {
@@ -422,9 +372,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Enumerates the subdirectories of <paramref name="current"/> and pushes traversable (non
-    ///     reparse-point) children onto <paramref name="stack"/>, flagging unresolved links on
-    ///     <paramref name="state"/>.
+    ///     Enumerates the subdirectories of and pushes traversable (non reparse-point) children onto , flagging unresolved links on .
     /// </summary>
     private void EnqueueSubdirectories(string current, Stack<string> stack, DirectoryScanState state)
     {
@@ -444,9 +392,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
         foreach (var subDirPath in subDirs.Select(subDir => subDir.FullName))
         {
-            // Skip reparse-point subdirectories to prevent following symlinks or
-            // junctions into foreign trees during recursive analysis. A stat failure is
-            // treated as "do not traverse" (fail closed) and must not abort the scan.
+            // Skip reparse-point subdirectories to prevent following symlinks or junctions into foreign trees during recursive analysis.
             bool subIsReparsePoint;
             try
             {

@@ -1,9 +1,4 @@
-/**
- * Seerr request-cleanup correctness against the mock. Complements the single
- * existing "count dropped" test with: exact-id deletion, status 2/4/5 protection,
- * DryRun non-deletion, and the age-threshold boundary. Uses the mock's exact-id
- * /count hook - no container FS needed, so this runs everywhere.
- */
+/** * Seerr request-cleanup correctness against the mock. Complements the single * existing "count dropped" test with: exact-id deletion, status 2/4/5 protection, * DryRun non-deletion, and the age-threshold boundary. */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask } from '../setup/api-client.ts';
 
@@ -138,9 +133,7 @@ test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
   });
 
   test('page-2 fetch failure mid-pagination deletes nothing (incomplete snapshot guard)', async () => {
-    // Stronger than the force-fail case above: page 1 SUCCEEDS (and would yield
-    // deletable ids 101/102/108), but page 2 fails - so the snapshot is incomplete
-    // and the guard must abort ALL deletions, not just delete what page 1 covered.
+    // Stronger than the force-fail case above: page 1 SUCCEEDS (and would yield deletable ids 101/102/108), but page 2 fails - so the snapshot is incomplete and the guard must abort ALL deletions, not just delete what page 1 covered.
     await armPageTwoFailure();
     const before = await count();
 
@@ -175,15 +168,7 @@ test.describe.serial('Seerr cleanup stage skip-guards', () => {
   });
 
   test('enabled run with Seerr not configured skips with "not configured" and deletes nothing', async () => {
-    // Guard 1 in RunSeerrCleanup: blank SeerrUrl OR SeerrApiKey -> log "Seerr not
-    // configured. Skipping." + report(100) + return, before any upstream call. The
-    // stage is Activate (enabled) so it actually runs and reaches the guard - a
-    // Deactivate run would skip the whole stage and never exercise it.
-    //
-    // We reach the not-configured state by clearing BOTH url + key: the config
-    // validator rejects a URL-set-but-key-blank save (400 "Seerr API key is required
-    // when a Seerr URL is configured"), so an empty key alone is not a persistable
-    // state. Clearing both is the real "not configured" the guard checks for.
+    // Guard 1 in RunSeerrCleanup: blank SeerrUrl OR SeerrApiKey -> log "Seerr not configured. Skipping." + report(100) + return, before any upstream call.
     const before = await count();
     await putConfig({
       SeerrUrl: '',

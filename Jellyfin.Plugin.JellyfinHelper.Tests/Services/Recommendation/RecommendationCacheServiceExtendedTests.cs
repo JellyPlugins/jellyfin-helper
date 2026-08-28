@@ -9,10 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation;
 
 /// <summary>
-///     Extended tests for <see cref="RecommendationCacheService"/> that cover the
-///     defensive branches missed by <c>RecommendationCacheServiceTests</c>: null-argument
-///     guard, directory auto-creation when the DataPath does not yet exist, and load of
-///     a file containing literal <c>"null"</c>.
+///     Extended tests for RecommendationCacheService that cover the defensive branches missed by RecommendationCacheServiceTests: null-argument guard, directory auto-creation when the DataPath does not yet exist, and load of a file containing literal "null".
 /// </summary>
 public sealed class RecommendationCacheServiceExtendedTests : IDisposable
 {
@@ -62,9 +59,7 @@ public sealed class RecommendationCacheServiceExtendedTests : IDisposable
     [Fact]
     public void SaveResults_NonExistentDirectory_CreatesItAutomatically()
     {
-        // BUG GUARD: the service must auto-create the DataPath directory if it does not
-        // exist. Some Jellyfin installations start with an empty data folder tree that
-        // only gets materialised by the first cache write.
+        // BUG GUARD: the service must auto-create the DataPath directory if it does not exist. Some Jellyfin installations start with an empty data folder tree that only gets materialised by the first cache write.
         var nested = Path.Join(_tempDir, "does", "not", "exist", "yet");
         Assert.False(Directory.Exists(nested));
 
@@ -85,9 +80,7 @@ public sealed class RecommendationCacheServiceExtendedTests : IDisposable
     [Fact]
     public void LoadResults_FileContainsLiteralNull_ReturnsNullWithoutThrowing()
     {
-        // BUG GUARD: JsonSerializer.Deserialize returns null for the literal "null" JSON
-        // value. The service must handle this without throwing (it logs a warning) - the
-        // caller then treats it as "no cache".
+        // BUG GUARD: JsonSerializer.Deserialize returns null for the literal "null" JSON value. The service must handle this without throwing (it logs a warning) - the caller then treats it as "no cache".
         var service = CreateService(_tempDir);
         // Seed an empty save so the cache file exists at the right path.
         service.SaveResults(new Collection<RecommendationResult>());

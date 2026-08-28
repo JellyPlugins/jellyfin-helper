@@ -1,4 +1,3 @@
-// --- Arr Integration Tab ---
 'use strict';
 
 var MAX_ARR_INSTANCES = 3;
@@ -54,9 +53,7 @@ function renderArrInstanceRow(type, index, inst) {
     return h;
 }
 
-// Post-render helper: sets API key values on the password inputs for all
-// instances of the given type. Called after form.innerHTML is assigned so
-// the secret never appears as a value attribute in the serialized HTML.
+// Post-render helper: sets API key values on the password inputs for all instances of the given type. Called after form.innerHTML is assigned so the secret never appears as a value attribute in the serialized HTML.
 function setArrInstanceApiKeys(type, instances) {
     if (!instances) { return; }
     for (var i = 0; i < instances.length; i++) {
@@ -139,10 +136,7 @@ function addArrInstance(type) {
     updateArrCollapsibleCount(type);
 }
 
-// Note: This function performs multiple sequential DOM queries and updates.
-// With MAX_ARR_INSTANCES = 3, layout thrashing is not a practical concern.
-// If the instance limit were ever raised significantly, consider batching
-// DOM reads and writes separately to avoid forced reflows.
+// Note: This function performs multiple sequential DOM queries and updates. With MAX_ARR_INSTANCES = 3, layout thrashing is not a practical concern.
 function removeArrInstance(type, index) {
     // Clear all pending test timers for this type to prevent stale callbacks after reindexing
     for (var key in _testTimers) {
@@ -315,9 +309,7 @@ function attachAddHandlers() {
     }
 }
 
-// Cached instance list per Arr type, populated by initArrButtons. Keeps
-// URL + ApiKey out of the DOM (they only live in JS memory) so the compare
-// tab never surfaces credentials as data-* attributes on select options.
+// Cached instance list per Arr type, populated by initArrButtons. Keeps URL + ApiKey out of the DOM (they only live in JS memory) so the compare tab never surfaces credentials as data-* attributes on select options.
 var _arrInstancesCache = {Radarr: [], Sonarr: []};
 
 // Connection-status cache per instance key ("Radarr_0", "Sonarr_1", ...).
@@ -333,14 +325,7 @@ function _arrCacheKey(type, index) {
     return type + '_' + index;
 }
 
-// Paint the status badge inside the select-wrapper for the given type.
-// State enum: 'unknown' (empty), 'testing', 'ok', 'error'.
-//
-// The badge is a live region (role=status + aria-live=polite, set at
-// render time in _renderArrTypeBlock) so assistive tech announces each
-// state transition. The icon itself is aria-hidden (purely decorative);
-// a visually-hidden .arr-status-sr-only sibling carries the localised
-// text that screen readers actually read out.
+// Paint the status badge inside the select-wrapper for the given type. State enum: 'unknown' (empty), 'testing', 'ok', 'error'.
 function _renderArrStatusBadge(type, state) {
     var badge = document.getElementById('arrStatus' + type);
     if (!badge) {
@@ -421,9 +406,7 @@ function refreshArrInstanceStatus(type, index) {
         });
 }
 
-// Render one "type block" (Radarr or Sonarr) with a section header, a
-// single dropdown listing all instances of that type, and a single fixed-
-// width Compare button. Returns HTML string; caller wires up event handlers.
+// Render one "type block" (Radarr or Sonarr) with a section header, a single dropdown listing all instances of that type, and a single fixed- width Compare button.
 function _renderArrTypeBlock(type, icon, instances) {
     var h = '<div class="arr-compare-block">';
     h += '<div class="arr-compare-header">' + icon + '<span>' + escHtml(type) + '</span></div>';
@@ -450,9 +433,7 @@ function initArrButtons(cfg) {
         return;
     }
 
-    // Any previous compare result belongs to a stale instance list; wipe it
-    // so a config change (URL/key edit, instance removed) never leaves an
-    // outdated comparison visible next to the freshly-rendered controls.
+    // Any previous compare result belongs to a stale instance list; wipe it so a config change (URL/key edit, instance removed) never leaves an outdated comparison visible next to the freshly-rendered controls.
     var staleResult = document.getElementById('arrResult');
     if (staleResult) {
         staleResult.innerHTML = '';
@@ -461,14 +442,7 @@ function initArrButtons(cfg) {
     // Reset the result cache so a config change immediately re-tests
     // instead of showing a stale ✓/✗ for a URL that may have changed.
     _arrStatusCache = {};
-    // IMPORTANT: do NOT reset _arrStatusReqSeq - advance it. If we reset
-    // to {} an in-flight request that started before this call would still
-    // hold reqId=1, and the very next refreshArrInstanceStatus() call
-    // would issue reqId=1 again, so the stale-response guard
-    // `reqId !== _arrStatusReqSeq[type]` would erroneously match and let
-    // the old credentials' response overwrite the badge for the new ones.
-    // Bumping each type's sequence guarantees any pending callback holds
-    // a strictly smaller ID than the current one and is rejected.
+    // IMPORTANT: do NOT reset _arrStatusReqSeq - advance it.
     _arrStatusReqSeq.Radarr = (_arrStatusReqSeq.Radarr || 0) + 1;
     _arrStatusReqSeq.Sonarr = (_arrStatusReqSeq.Sonarr || 0) + 1;
 
@@ -506,20 +480,12 @@ function initArrButtons(cfg) {
 
     btnContainer.innerHTML = h;
 
-    // Wire up per-type handlers: change on the dropdown re-runs the health
-    // check for the newly-selected instance (cached 60 s), click on the
-    // Compare button dispatches the comparison. Uses onclick/onchange
-    // assignment (not addEventListener) so a subsequent re-render - e.g.
-    // after settings save - never stacks duplicate listeners on the same
-    // element instance.
+    // Wire up per-type handlers: change on the dropdown re-runs the health check for the newly-selected instance (cached 60 s), click on the Compare button dispatches the comparison.
     _wireArrCompareControls('Radarr', radarrInstances);
     _wireArrCompareControls('Sonarr', sonarrInstances);
 }
 
-// Bind the change + click handlers for one type block and kick off the
-// initial connection check for the currently-selected instance (usually
-// index 0). Extracted from initArrButtons to keep that function focused
-// on rendering the shell.
+// Bind the change + click handlers for one type block and kick off the initial connection check for the currently-selected instance (usually index 0).
 function _wireArrCompareControls(type, instances) {
     if (!instances || instances.length === 0) {
         return;

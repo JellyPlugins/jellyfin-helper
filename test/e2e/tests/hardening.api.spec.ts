@@ -11,9 +11,7 @@ let savedArr: { RadarrInstances: unknown; SonarrInstances: unknown } | null = nu
 
 test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
-  // Snapshot the Arr integration config so the tests below that wipe/replace
-  // RadarrInstances/SonarrInstances can restore it - otherwise a later spec would
-  // inherit an empty SonarrInstances and a throwaway Radarr instance.
+  // Snapshot the Arr integration config so the tests below that wipe/replace RadarrInstances/SonarrInstances can restore it - otherwise a later spec would inherit an empty SonarrInstances and a throwaway Radarr instance.
   const cfg = await ctx.get(p('Configuration')).then((r) => (r.ok() ? r.json() : null));
   if (cfg) {
     savedArr = { RadarrInstances: cfg.RadarrInstances ?? [], SonarrInstances: cfg.SonarrInstances ?? [] };
@@ -28,9 +26,7 @@ test.afterAll(async () => {
   await ctx.dispose();
 });
 
-// Setup helper: applies a config change and FAILS LOUDLY if the save itself
-// didn't succeed - so a broken precondition surfaces as a clear setup error
-// instead of an unrelated downstream assertion failure.
+// Setup helper: applies a config change and FAILS LOUDLY if the save itself didn't succeed - so a broken precondition surfaces as a clear setup error instead of an unrelated downstream assertion failure.
 async function putConfig(body: Record<string, unknown>) {
   const res = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
@@ -135,9 +131,7 @@ test('concurrent HelperCleanup triggers do not corrupt state', async () => {
     OrphanedSubtitleTaskMode: 'DryRun',
     LinkRepairTaskMode: 'DryRun',
   });
-  // Fire the task, then immediately try to run it again while it may be running.
-  // Jellyfin serialises task execution; the second trigger should be a no-op,
-  // and the first must still complete cleanly.
+  // Fire the task, then immediately try to run it again while it may be running. Jellyfin serialises task execution; the second trigger should be a no-op, and the first must still complete cleanly.
   const first = runCleanupTask(ctx, 90_000);
   // A second start attempt (best-effort) - we don't await its own completion.
   const list = await ctx.get('/ScheduledTasks').then((r) => r.json());

@@ -21,12 +21,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Exercises the best-effort persistence and feedback-resilience branches of the discovery
-///     generation task, plus the per-server detail-exception branch of the service-info fetch.
-///     These paths guarantee that a cache write failure, a throwing feedback store, an unexpected
-///     per-user error, or a flaky per-server detail call never corrupts training data or aborts
-///     the whole run.
-///     Belongs to <c>ConfigOverride</c> because it mutates <c>Plugin.Instance.Configuration</c>.
+///     Exercises the best-effort persistence and feedback-resilience branches of the discovery generation task, plus the per-server detail-exception branch of the service-info fetch.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
@@ -136,9 +131,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
     [Fact]
     public async Task GenerateDiscovery_PerUserGenerationThrowsUnexpectedException_LogsAndContinuesOtherUsers()
     {
-        // The first user's first discover query throws an exception NOT in ExecuteDiscoverQuery's
-        // catch filter (InvalidOperationException). It escapes to the per-user try/catch, which
-        // swallows the non-fatal failure and continues with the second user, who still persists.
+        // The first user's first discover query throws an exception NOT in ExecuteDiscoverQuery's catch filter (InvalidOperationException).
         var cache = NewFileCache(out var filePath);
         try
         {
@@ -174,9 +167,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
     [Fact]
     public async Task GenerateDiscovery_CacheSaveFails_SkipsFeedbackRecording()
     {
-        // Point the cache at a path that is actually an existing directory so Save() catches the
-        // IO/UnauthorizedAccess/Argument exception and returns false. On persist failure the run
-        // must skip feedback recording to avoid training on data that never reached disk.
+        // Point the cache at a path that is actually an existing directory so Save() catches the IO/UnauthorizedAccess/Argument exception and returns false.
         var dirPath = Path.Join(Path.GetTempPath(), "JellyfinHelperDiscoveryPersistDir_" + Guid.NewGuid());
         Directory.CreateDirectory(dirPath);
         var cache = new DiscoveryCacheService(
@@ -234,9 +225,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
     [Fact]
     public async Task GetServiceInfoAsync_DetailRequestThrows_KeepsServerWithoutProfiles()
     {
-        // The service list is served normally but the per-server detail request throws a
-        // transport exception. The detail-loop catch logs and keeps the server (without enriched
-        // profiles) - distinct from the existing 500-status detail test.
+        // The service list is served normally but the per-server detail request throws a transport exception. The detail-loop catch logs and keeps the server (without enriched profiles) - distinct from the existing 500-status detail test.
         var cache = NewFileCache(out var filePath);
         try
         {
@@ -276,9 +265,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
 }
 
 /// <summary>
-///     Serves a registered list response but throws a supplied exception when the per-server
-///     detail path is requested. Enables covering the detail-loop exception branch, which the
-///     one-shot <c>ThrowNext</c> on the shared handler cannot target (it fires on the first send).
+///     Serves a registered list response but throws a supplied exception when the per-server detail path is requested.
 /// </summary>
 internal sealed class DetailThrowingHttpHandler : HttpMessageHandler
 {

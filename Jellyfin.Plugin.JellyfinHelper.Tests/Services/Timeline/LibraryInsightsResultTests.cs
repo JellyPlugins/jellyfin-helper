@@ -4,17 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 
 /// <summary>
-///     Tests the null-coalescing setters on <see cref="LibraryInsightsResult"/>.
-///     Three collection properties (<see cref="LibraryInsightsResult.Largest"/>,
-///     <see cref="LibraryInsightsResult.Recent"/>, <see cref="LibraryInsightsResult.LibrarySizes"/>)
-///     each guard against <c>null</c> assignment by falling back to an empty collection.
-///     <para>
-///         Motivation: <see cref="LibraryInsightsResult"/> is serialised into JSON and cached on
-///         disk. A cache file that predates a schema addition (or was hand-edited) can produce
-///         <c>null</c> for any of these fields during deserialisation. Any consumer that iterates
-///         with <c>foreach</c> or calls <c>.Count</c>/<c>.Any()</c> would then throw NRE. The
-///         guards keep the failure mode benign; these tests pin both branches of each guard.
-///     </para>
+///     Tests the null-coalescing setters on LibraryInsightsResult. Three collection properties (Largest, Recent, LibrarySizes) each guard against null assignment by falling back to an empty collection.
 /// </summary>
 public sealed class LibraryInsightsResultTests
 {
@@ -91,9 +81,7 @@ public sealed class LibraryInsightsResultTests
     [Fact]
     public void Reassignment_FromNonNullToNull_ReplacesWithEmpty()
     {
-        // The setter must actively replace the backing field on every
-        // assignment. A "stale-non-null" bug would leak the previous list to callers who
-        // expected the empty coalesced result after clearing.
+        // The setter must actively replace the backing field on every assignment. A "stale-non-null" bug would leak the previous list to callers who expected the empty coalesced result after clearing.
         var sut = new LibraryInsightsResult
         {
             Largest = [new LibraryInsightEntry { Name = "old", Size = 1 }]

@@ -13,9 +13,7 @@ public sealed class LibraryInsightsResult
     private IReadOnlyDictionary<string, long> _librarySizes = new Dictionary<string, long>();
 
     /// <summary>
-    ///     Gets or sets the top largest media directories sorted by size descending.
-    ///     Contains up to 10 movies and 10 TV shows.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized data.
+    ///     Gets or sets the top largest media directories sorted by size descending. Contains up to 10 movies and 10 TV shows.
     /// </summary>
     public IReadOnlyList<LibraryInsightEntry> Largest
     {
@@ -29,9 +27,7 @@ public sealed class LibraryInsightsResult
     public long LargestTotalSize { get; set; }
 
     /// <summary>
-    ///     Gets or sets media directories added or changed within the last 30 days,
-    ///     sorted by the relevant date descending.
-    ///     Setter coalesces null to empty to prevent NRE from deserialized data.
+    ///     Gets or sets media directories added or changed within the last 30 days, sorted by the relevant date descending.
     /// </summary>
     public IReadOnlyList<LibraryInsightEntry> Recent
     {
@@ -41,7 +37,6 @@ public sealed class LibraryInsightsResult
 
     /// <summary>
     ///     Gets or sets the total count of entries added or changed within the last 30 days.
-    ///     This may be larger than <see cref="Recent"/> if more entries exist.
     /// </summary>
     public int RecentTotalCount { get; set; }
 

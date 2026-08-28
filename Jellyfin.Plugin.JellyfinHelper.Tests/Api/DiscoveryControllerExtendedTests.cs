@@ -16,20 +16,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Extended tests for <see cref="DiscoveryController"/> that fill in the gaps left by
-///     <c>DiscoveryControllerTests</c>: happy paths for GetSeerrUsers / GetServiceInfo,
-///     SubmitRequest success path (including MarkAsRequestedAsync integration), the
-///     GetDiscoveryResults filter logic against dismissed/requested items, and behaviour
-///     when the feedback store throws.
-///     <para>
-///         Joined to the <c>ConfigOverride</c> collection because <see cref="DiscoveryCacheService"/>
-///         derives its file path from <c>Plugin.Instance?.DataFolderPath</c>. Concurrent
-///         suites that initialise the singleton (via <see cref="ControllerTestFactory.InitializePluginInstance"/>)
-///         switch the path from the current working directory to a real Data folder in tempdir,
-///         so a fixture that snapshots the wrong file would silently corrupt cache state for
-///         both itself AND unrelated tests. Serialising via the collection guarantees an
-///         initialised Plugin.Instance + a stable DataFolderPath for the whole class.
-///     </para>
+///     Extended tests for DiscoveryController that fill in the gaps left by DiscoveryControllerTests: happy paths for GetSeerrUsers / GetServiceInfo, SubmitRequest success path (including MarkAsRequestedAsync integration), the GetDiscoveryResults filter logic against dismissed/requested items, and.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class DiscoveryControllerExtendedTests : IDisposable
@@ -38,26 +25,14 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock;
     private readonly DiscoveryCacheService _cache;
 
-    // Storage isolation: DiscoveryCacheService derives its file path from
-    // Plugin.Instance?.DataFolderPath at construction time. We initialise the singleton
-    // BEFORE constructing the service so we always resolve against the same well-known
-    // temp directory owned by ControllerTestFactory.InitializePluginInstance - never
-    // against the process's current working directory (which could be shared with any
-    // other test class running in parallel via a different collection).
-    //
-    // The ConfigOverride collection serialises this class with every other suite that
-    // mutates Plugin.Instance.Configuration; combined with ResetPluginConfiguration()
-    // in Dispose, this keeps our cache file firmly under our control from ctor to Dispose.
+    // Storage isolation: DiscoveryCacheService derives its file path from Plugin.Instance?.DataFolderPath at construction time.
     private const string CacheFileName = "jellyfin-helper-discovery-results.json";
     private readonly string _cacheFilePath;
     private readonly byte[]? _originalCacheContents;
 
     public DiscoveryControllerExtendedTests()
     {
-        // Ensure Plugin.Instance is populated so DiscoveryCacheService resolves its file
-        // path against the factory's temp DataFolderPath, not the CWD. This makes the
-        // snapshot / delete below target the correct file regardless of which other
-        // suite ran first (and regardless of whether they mutated the CWD).
+        // Ensure Plugin.Instance is populated so DiscoveryCacheService resolves its file path against the factory's temp DataFolderPath, not the CWD.
         ControllerTestFactory.InitializePluginInstance();
         ControllerTestFactory.ResetPluginConfiguration();
 
@@ -214,11 +189,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "Request submitted successfully."));
 
-        // Seed a matching recommendation so we can prove the persisted state transition,
-        // not just the HTTP result. The controller's success path must also flip the
-        // cached item's AlreadyRequested flag via _cache.MarkAsRequestedAsync - a
-        // regression that drops that call would leave this flag false, and the item
-        // would silently reappear on the next discovery-page refresh.
+        // Seed a matching recommendation so we can prove the persisted state transition, not just the HTTP result.
         var userId = Guid.NewGuid();
         _cache.Save(
         [
@@ -256,9 +227,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     [Fact]
     public async Task PostRequest_RootFolderIsTrimmed_BeforeForwardingToService()
     {
-        // BUG GUARD: leading/trailing whitespace in rootFolder must be stripped before
-        // sending to Seerr - a Seerr backend that strictly matches its known root folders
-        // would reject the request otherwise.
+        // BUG GUARD: leading/trailing whitespace in rootFolder must be stripped before sending to Seerr - a Seerr backend that strictly matches its known root folders would reject the request otherwise.
         string? capturedRootFolder = null;
         _discoveryMock.Setup(d => d.SubmitRequestAsync(
                 It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
@@ -284,9 +253,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     [Fact]
     public async Task PostRequest_WhitespaceOnlyRootFolder_CoalescedToNull()
     {
-        // Contract: whitespace-only rootFolder must be treated as "not specified" (null),
-        // NOT sent as an empty string. This prevents ambiguous requests where Seerr can't
-        // distinguish between "use server default" and "override with empty string".
+        // Contract: whitespace-only rootFolder must be treated as "not specified" (null), NOT sent as an empty string.
         string? capturedRootFolder = "sentinel";
         _discoveryMock.Setup(d => d.SubmitRequestAsync(
                 It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
@@ -332,10 +299,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     [Fact]
     public async Task PostRequest_TildeAtStartAfterWhitespace_ReturnsBadRequest()
     {
-        // rootFolder = "  ~/movies" (with leading whitespace) must still
-        // be rejected. The controller trims first, then checks TrimStart().StartsWith('~'),
-        // so this is a redundancy check. Locking the behaviour here prevents a future
-        // refactor from dropping the TrimStart guard.
+        // rootFolder = " ~/movies" (with leading whitespace) must still be rejected. The controller trims first, then checks TrimStart().StartsWith('~'), so this is a redundancy check.
         var controller = CreateController();
         var dto = new DiscoveryRequestDto
         {
@@ -512,9 +476,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     [Fact]
     public async Task PostRequest_SubmitRequest_PassesCallerUserIdToMarkAsRequested()
     {
-        // Finding #36: DiscoveryController.SubmitRequest must pass the authenticated admin
-        // caller's Jellyfin user ID to MarkAsRequestedAsync (three-argument overload), not
-        // null (which marks ALL users). The mark must be scoped to the caller's cache entry.
+        // DiscoveryController.SubmitRequest must pass the authenticated admin caller's Jellyfin user ID to MarkAsRequestedAsync (three-argument overload), not null (which marks ALL users).
         var adminUserId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
 

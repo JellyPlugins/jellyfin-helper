@@ -4,14 +4,10 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 /// <summary>
-/// Tests for Shared.js - the central utility library used by every plugin page module.
-/// Covers: icons, translation, formatting, escaping, path helpers, aggregate helpers,
-/// pluralize, auto-save indicator, button feedback.
+///     Tests for Shared.js - the central utility library used by every plugin page module.
 /// </summary>
 public class SharedHtmlTests : ConfigPageTestBase
 {
-    // === Material-icon helper ===
-
     [Fact]
     public void Html_ContainsMaterialIconHelperFunction()
     {
@@ -51,8 +47,6 @@ public class SharedHtmlTests : ConfigPageTestBase
         Assert.Contains("EYE", HtmlContent);
     }
 
-    // === Translation helper ===
-
     [Fact]
     public void Html_ContainsTranslationFunction()
     {
@@ -85,15 +79,11 @@ public class SharedHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === CSS variable helper ===
-
     [Fact]
     public void Html_ContainsGetCssVarFunction()
     {
         Assert.Contains("function getCssVar", HtmlContent);
     }
-
-    // === Formatting helpers ===
 
     [Fact]
     public void Html_ContainsFormatBytesFunction()
@@ -140,8 +130,6 @@ public class SharedHtmlTests : ConfigPageTestBase
         Assert.Contains("'" + key + "'", HtmlContent);
     }
 
-    // === HTML escaping ===
-
     [Fact]
     public void Html_ContainsEscHtmlFunction()
     {
@@ -167,8 +155,6 @@ public class SharedHtmlTests : ConfigPageTestBase
             new Regex(@"function\s+escHtml[\s\S]*?" + Regex.Escape(entity)),
             HtmlContent);
     }
-
-    // === Path segment / tree helpers ===
 
     [Theory]
     [InlineData("function getPathSegments")]
@@ -235,9 +221,7 @@ public class SharedHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_TreeToggle_HasKeyboardAccessibility()
     {
-        // renderTreeLevel emits tabindex="0" and role="button" via JS-escaped attributes.
-        // The exact escape sequence in the compiled HTML uses \' (single-quoted attribute values),
-        // so match either form defensively.
+        // renderTreeLevel emits tabindex="0" and role="button" via JS-escaped attributes. The exact escape sequence in the compiled HTML uses \' (single-quoted attribute values), so match either form defensively.
         Assert.Contains("aria-expanded", HtmlContent);
         Assert.Matches(
             new System.Text.RegularExpressions.Regex(@"role\s*=\s*(?:\\?['""])button(?:\\?['""])"),
@@ -246,8 +230,6 @@ public class SharedHtmlTests : ConfigPageTestBase
             new System.Text.RegularExpressions.Regex(@"tabindex\s*=\s*(?:\\?['""])0(?:\\?['""])"),
             HtmlContent);
     }
-
-    // === Aggregate helpers ===
 
     [Theory]
     [InlineData("function aggregateDict")]
@@ -266,8 +248,6 @@ public class SharedHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Pluralize ===
-
     [Fact]
     public void Html_ContainsPluralizeFunction()
     {
@@ -279,8 +259,6 @@ public class SharedHtmlTests : ConfigPageTestBase
     {
         Assert.Matches(new Regex(@"function\s+pluralize[\s\S]*?count\s*===\s*1"), HtmlContent);
     }
-
-    // === Auto-save indicator ===
 
     [Fact]
     public void Html_ContainsAutoSaveIndicatorOverlayFunction()
@@ -299,9 +277,7 @@ public class SharedHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_AutoSaveIndicator_UsesGuardCounterForRaceConditions()
     {
-        // The race-condition guard is a monotonically-incremented counter stored on the
-        // element's dataset (dataset.saveGuard); accessed via the `.dataset` DOM property
-        // rather than get/setAttribute('data-save-guard').
+        // The race-condition guard is a monotonically-incremented counter stored on the element's dataset (dataset.saveGuard); accessed via the `.dataset` DOM property rather than get/setAttribute('data-save-guard').
         Assert.Contains("dataset.saveGuard", HtmlContent);
     }
 
@@ -324,8 +300,6 @@ public class SharedHtmlTests : ConfigPageTestBase
         Assert.Matches(new Regex(@"ok\s*\?\s*2000\s*:\s*3000"), HtmlContent);
     }
 
-    // === Button feedback ===
-
     [Fact]
     public void Html_ContainsShowButtonFeedbackFunction()
     {
@@ -339,8 +313,6 @@ public class SharedHtmlTests : ConfigPageTestBase
             new Regex(@"function\s+showButtonFeedback[\s\S]*?classList\.remove\(\s*['""]success['""]\s*,\s*['""]error['""]"),
             HtmlContent);
     }
-
-    // === API wrappers ===
 
     [Theory]
     [InlineData("function apiGet(")]
@@ -406,8 +378,6 @@ public class SharedHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Dialog helpers ===
-
     [Fact]
     public void Html_ContainsCreateDialogOverlayFunction()
     {
@@ -434,8 +404,6 @@ public class SharedHtmlTests : ConfigPageTestBase
         Assert.Matches(new Regex(@"function\s+createDialogBtn[\s\S]*?['""]danger['""]"), HtmlContent);
         Assert.Matches(new Regex(@"function\s+createDialogBtn[\s\S]*?['""]success['""]"), HtmlContent);
     }
-
-    // === Generic toggle-panel handler ===
 
     [Fact]
     public void Html_ContainsAttachTogglePanelHandlersFunction()
@@ -469,8 +437,6 @@ public class SharedHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    // === Arr instance resolver ===
-
     [Fact]
     public void Html_ContainsResolveArrInstancesFunction()
     {
@@ -482,8 +448,6 @@ public class SharedHtmlTests : ConfigPageTestBase
     {
         Assert.Matches(new Regex(@"function\s+resolveArrInstances[\s\S]*?!cfg[\s\S]*?return\s*\[\]"), HtmlContent);
     }
-
-    // === Donut color palette (used by Codecs charts) ===
 
     [Fact]
     public void Html_ExposesDonutColorPalette()

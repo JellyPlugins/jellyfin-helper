@@ -4,17 +4,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
-///     Tests for path-length safety in <see cref="TrashService.ResolveCollision" />.
-///     Verifies that neither numeric suffixes nor the GUID fallback produce paths
-///     that exceed the OS limit, even on deeply nested directories with long names.
+///     Tests for path-length safety in ResolveCollision. Verifies that neither numeric suffixes nor the GUID fallback produce paths that exceed the OS limit, even on deeply nested directories with long names.
 /// </summary>
 public class TrashServicePathLengthTests : IDisposable
 {
     private readonly string _testRoot = Path.Join(Path.GetTempPath(), $"TrashPathLen-{Guid.NewGuid():N}");
 
     /// <summary>
-    ///     Returns the platform-specific maximum path length, matching the production logic in
-    ///     <see cref="TrashService" /> (259 on Windows, 1023 on macOS, 4095 on Linux).
+    ///     Returns the platform-specific maximum path length, matching the production logic in TrashService (259 on Windows, 1023 on macOS, 4095 on Linux).
     /// </summary>
     private static int GetExpectedMaxPathLength() =>
         OperatingSystem.IsWindows() ? 259 :
@@ -154,9 +151,7 @@ public class TrashServicePathLengthTests : IDisposable
         var separator = Path.DirectorySeparatorChar.ToString();
         var dirPrefixSize = TrashService.MeasureString(_testRoot) + TrashService.MeasureString(separator);
 
-        // Linux NAME_MAX caps a single path component at 255 bytes.
-        // We must stay within that limit so Directory.CreateDirectory succeeds
-        // while still constructing a path that exercises the length-truncation code path.
+        // Linux NAME_MAX caps a single path component at 255 bytes. We must stay within that limit so Directory.CreateDirectory succeeds while still constructing a path that exercises the length-truncation code path.
         var componentLimit = OperatingSystem.IsWindows() ? maxLen - dirPrefixSize : 200;
 
         var nameLen = Math.Min(maxLen - dirPrefixSize, componentLimit);
@@ -205,10 +200,7 @@ public class TrashServicePathLengthTests : IDisposable
     [Fact]
     public void ResolveCollision_MultibyteName_ComponentFitsWithinByteLimit()
     {
-        // On Unix, NAME_MAX is 255 bytes, not 255 characters.
-        // CJK characters like 'あ' are 3 bytes each in UTF-8.
-        // 100 such characters = 300 bytes > 255 byte limit.
-        // This test verifies that the truncation respects byte boundaries.
+        // On Unix, NAME_MAX is 255 bytes, not 255 characters. CJK characters like 'あ' are 3 bytes each in UTF-8.
         if (OperatingSystem.IsWindows())
         {
             return;
@@ -291,9 +283,7 @@ public class TrashServicePathLengthTests : IDisposable
     [Fact]
     public void ResolveCollision_GuidFallback_StaysWithinPathLimit()
     {
-        // This test exercises the GUID fallback by filling 999 numeric suffixes.
-        // We use a short name to avoid filesystem path issues while still
-        // verifying that the returned path respects the length constraint.
+        // This test exercises the GUID fallback by filling 999 numeric suffixes. We use a short name to avoid filesystem path issues while still verifying that the returned path respects the length constraint.
         Directory.CreateDirectory(_testRoot);
 
         var baseName = Path.Join(_testRoot, "x");
@@ -322,9 +312,7 @@ public class TrashServicePathLengthTests : IDisposable
     [Fact]
     public void ResolveCollision_DirectoryBudgetExhausted_ThrowsIOException()
     {
-        // When the directory component alone measures at or beyond the OS path limit,
-        // no child name (not even one character) can fit, so ResolveCollision must fail
-        // fast rather than hand back an over-budget path that breaks Directory.Move later.
+        // When the directory component alone measures at or beyond the OS path limit, no child name (not even one character) can fit, so ResolveCollision must fail fast rather than hand back an over-budget path that breaks Directory.Move later.
         var maxLen = GetExpectedMaxPathLength();
         var separator = Path.DirectorySeparatorChar.ToString();
         var oversizedDir = _testRoot + separator + new string('a', maxLen);
@@ -339,9 +327,7 @@ public class TrashServicePathLengthTests : IDisposable
     [Fact]
     public void ResolveCollision_LongTimestampedName_PreservesParseablePrefix()
     {
-        // A trash entry whose original-name portion overflows the per-component budget must keep
-        // its "yyyyMMdd-HHmmss_" prefix intact - only the tail is truncated - otherwise
-        // TryParseTrashTimestamp would reject it and retention/UI would silently break.
+        // A trash entry whose original-name portion overflows the per-component budget must keep its "yyyyMMdd-HHmmss_" prefix intact - only the tail is truncated - otherwise TryParseTrashTimestamp would reject it and retention/UI would silently break.
         var maxLen = GetExpectedMaxPathLength();
         var separator = Path.DirectorySeparatorChar.ToString();
         var budget = maxLen - TrashService.MeasureString(_testRoot) - TrashService.MeasureString(separator);
@@ -373,9 +359,7 @@ public class TrashServicePathLengthTests : IDisposable
         var maxLen = GetExpectedMaxPathLength();
         var separator = Path.DirectorySeparatorChar.ToString();
 
-        // Build a directory (as a string only - never created on disk) whose measured length leaves a
-        // per-component budget of 8: positive so ResolveCollision does not fail fast, yet below the
-        // 16-unit prefix so EnsurePathLength hits the refuse branch.
+        // Build a directory (as a string only - never created on disk) whose measured length leaves a per-component budget of 8: positive so ResolveCollision does not fail fast, yet below the 16-unit prefix so EnsurePathLength hits the refuse branch.
         var targetDirLen = maxLen - 9; // maxLen - budget(8) - separator(1)
         var padLen = targetDirLen - TrashService.MeasureString(_testRoot) - TrashService.MeasureString(separator);
         if (padLen <= 0)

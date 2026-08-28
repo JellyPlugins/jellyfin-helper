@@ -1,10 +1,4 @@
-/**
- * Adversarial cleanup tests - prove the cleanup stages never delete data OUTSIDE
- * the media library, honour excluded libraries (incl. the trailing trash purge),
- * and document the unlisted-codec false-orphan edge.
- *
- * Requires the container FS; skips loudly when Docker is unreachable.
- */
+/** * Adversarial cleanup tests - prove the cleanup stages never delete data OUTSIDE * the media library, honour excluded libraries (incl. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
 import {
@@ -57,11 +51,7 @@ test.describe.serial('cleanup never escapes the media library', () => {
   test.beforeEach(() => {
     ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
     regenFixtures();
-    // Seed under /config (the plugin's own data mount) rather than /srv: /config is
-    // writable by the non-root container UID in CI, whereas /srv lives on the
-    // container's root-owned rootfs and the seed silently fails there (skipping the
-    // test). /config is still OUTSIDE the media library, so the symlink-escape guard
-    // is exercised for real. Distinct subdir from the /config/jfh-canary canary.
+    // Seed under /config (the plugin's own data mount) rather than /srv: /config is writable by the non-root container UID in CI, whereas /srv lives on the container's root-owned rootfs and the seed silently fails there (skipping the test).
     containerWriteFile('/config/jfh-external/secret.mkv', 'EXTERNAL-DATA');
   });
 
@@ -71,13 +61,7 @@ test.describe.serial('cleanup never escapes the media library', () => {
   });
 
   test('an orphan-looking folder containing a symlink out of the library does not delete the target', async () => {
-    // A folder whose only "content" is a symlink to an external dir. Whatever the
-    // cleanup decides about the folder, the EXTERNAL target's data must survive.
-    // (The external target is seeded once in beforeEach.)
-    // On CI the container runs as a non-root UID; /config is the writable data
-    // mount (unlike /srv on the root-owned rootfs). If the external seed still
-    // didn't land, skip loudly rather than assert on a phantom file (which would
-    // look like a data-loss failure when nothing was ever created).
+    // A folder whose only "content" is a symlink to an external dir. Whatever the cleanup decides about the folder, the EXTERNAL target's data must survive.
     test.skip(
       !containerFileExists('/config/jfh-external/secret.mkv'),
       '/config/jfh-external not writable in this environment - cannot seed the external target',

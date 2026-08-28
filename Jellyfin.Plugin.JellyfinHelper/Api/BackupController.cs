@@ -47,11 +47,7 @@ public class BackupController : ControllerBase
     }
 
     /// <summary>
-    ///     Exports the plugin configuration and historical data as a backup JSON file.
-    ///     Includes configuration preferences, Arr integration settings, growth timeline,
-    ///     and statistics history. Cleanup statistics are excluded (they reset on fresh installations).
-    ///     By default API keys are omitted from the export. Pass <c>includeSecrets=true</c> to
-    ///     include plaintext credentials - store the resulting file securely.
+    ///     Exports the plugin configuration and historical data as a backup JSON file. Includes configuration preferences, Arr integration settings, growth timeline, and statistics history.
     /// </summary>
     /// <param name="includeSecrets">
     ///     When <c>true</c>, API key values are included in the backup.
@@ -110,10 +106,7 @@ public class BackupController : ControllerBase
             $"Backup exported ({FormatBackupSize(bytes.LongLength)}, timelinePoints={backup.GrowthTimeline?.DataPoints.Count ?? 0}, baselineDirs={backup.GrowthBaseline?.Directories.Count ?? 0})",
             _logger);
 
-        // Audit: only now, after all size/validation checks have passed and the file is about to
-        // leave the server, record a secrets-included export. Logging earlier would falsely claim
-        // "credentials exported" even when the request was subsequently rejected (e.g. oversize)
-        // and no file ever left the server.
+        // Audit: only now, after all size/validation checks have passed and the file is about to leave the server, record a secrets-included export.
         if (includeSecrets && backup.ContainsSecrets)
         {
             _pluginLog.LogWarning(
@@ -127,8 +120,6 @@ public class BackupController : ControllerBase
 
     /// <summary>
     ///     Imports a backup JSON payload to restore plugin configuration and historical data.
-    ///     Validates the payload to prevent malicious or corrupt data from being imported.
-    ///     Accepts the backup JSON directly in the request body (Content-Type: application/json).
     /// </summary>
     /// <returns>A result indicating success with validation details and restore summary.</returns>
     [HttpPost("Import")]
@@ -246,8 +237,6 @@ public class BackupController : ControllerBase
 
     /// <summary>
     ///     Rejects the request early based on the Content-Length header before the body is read.
-    ///     Only acts when Content-Length is explicitly provided; absent headers (chunked transfer
-    ///     encoding) fall through to the streaming size-enforcement in <see cref="ReadBodyWithSizeLimitAsync" />.
     /// </summary>
     /// <returns>A <c>BadRequest</c> result when the header is too large; otherwise <c>null</c>.</returns>
     private BadRequestObjectResult? RejectByContentLength()

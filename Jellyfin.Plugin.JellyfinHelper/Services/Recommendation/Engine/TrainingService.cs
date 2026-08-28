@@ -21,9 +21,7 @@ internal sealed class TrainingService : IDisposable
     private const string LogSource = "Recommendations";
 
     /// <summary>
-    ///     Non-blocking gate to prevent concurrent Train() invocations.
-    ///     The scheduled task serializes calls, but this guard ensures correctness
-    ///     if Train() is ever invoked from multiple paths simultaneously.
+    ///     Non-blocking gate to prevent concurrent Train() invocations. The scheduled task serializes calls, but this guard ensures correctness if Train() is ever invoked from multiple paths simultaneously.
     /// </summary>
     private readonly SemaphoreSlim _trainGate = new(1, 1);
 
@@ -60,7 +58,6 @@ internal sealed class TrainingService : IDisposable
 
     /// <summary>
     ///     Trains the active scoring strategy using implicit feedback from previous recommendations.
-    ///     Compares previously recommended items against current watch data.
     /// </summary>
     /// <param name="strategy">The scoring strategy to train.</param>
     /// <param name="previousResults">The recommendation results from the previous run.</param>
@@ -137,9 +134,7 @@ internal sealed class TrainingService : IDisposable
             TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, cancellationToken);
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
-        // Separate discovery from organic in the log so operators can see whether positive
-        // signal comes from actual watched consumption or external Seerr requests. Previously
-        // both were folded into "organic" which hid unhealthy training-data mixes.
+        // Separate discovery from organic in the log so operators can see whether positive signal comes from actual watched consumption or external Seerr requests.
         _pluginLog.LogInfo(
             LogSource,
             $"Built {examples.Count} training examples ({positiveCount} positive, " +
@@ -153,15 +148,10 @@ internal sealed class TrainingService : IDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // === Held-out validation split ===
-        // Reserve the most recent 10% of examples (by GeneratedAtUtc) as held-out validation, train on
-        // the remaining 90%, for honest generalization metrics instead of optimistic training-set fit.
-        // Fallback: with <20 examples, skip the split and train on all (metrics become training-set).
+        // Reserve the most recent 10% of examples (by GeneratedAtUtc) as held-out validation, train on the remaining 90%, for honest generalization metrics instead of optimistic training-set fit.
         SplitHeldOut(trainingExamples, out var trainSplit, out var heldOutSplit);
 
-        // Pass the held-out slice into the strategy so the metrics it publishes (used by the
-        // ensemble's quality gate + trend analyser) come from the same out-of-sample set the
-        // log line below reports. This keeps the two sources of truth in sync.
+        // Pass the held-out slice into the strategy so the metrics it publishes (used by the ensemble's quality gate + trend analyser) come from the same out-of-sample set the log line below reports.
         var trained = strategy is ITrainableStrategy trainable
             && trainable.Train(trainSplit, heldOutSplit.Count >= 2 ? heldOutSplit : null);
 
@@ -197,8 +187,7 @@ internal sealed class TrainingService : IDisposable
     }
 
     /// <summary>
-    ///     Loads discovery feedback for training, best-effort. Extracted verbatim from
-    ///     <see cref="TrainCore"/>; returns <c>null</c> when the store is absent or throws.
+    ///     Loads discovery feedback for training, best-effort. Extracted verbatim from TrainCore; returns null when the store is absent or throws.
     /// </summary>
     /// <returns>The discovery feedback results, or <c>null</c>.</returns>
     private IReadOnlyList<DiscoveryFeedbackResult>? LoadDiscoveryFeedback()
@@ -228,9 +217,7 @@ internal sealed class TrainingService : IDisposable
     }
 
     /// <summary>
-    ///     Applies incremental-training example selection: keeps recent examples and reservoir-samples a
-    ///     fraction of the older ones. Extracted verbatim from <see cref="TrainCore"/>; the cutoff,
-    ///     sample ratio, and Fisher-Yates partial shuffle are unchanged.
+    ///     Applies incremental-training example selection: keeps recent examples and reservoir-samples a fraction of the older ones.
     /// </summary>
     /// <param name="examples">All built training examples.</param>
     /// <param name="previousResults">The previous-run recommendation results (for the recency cutoff).</param>
@@ -290,7 +277,6 @@ internal sealed class TrainingService : IDisposable
 
     /// <summary>
     ///     Splits the training examples into a train split and a most-recent held-out validation split.
-    ///     Extracted verbatim from <see cref="TrainCore"/>; the 20-example floor and 10% fraction are unchanged.
     /// </summary>
     /// <param name="trainingExamples">The examples to split.</param>
     /// <param name="trainSplit">Receives the training split.</param>

@@ -15,31 +15,18 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Extended branch coverage for <see cref="BackupController.ImportBackupAsync"/> beyond
-///     what <see cref="BackupControllerTests"/> already exercises. Focuses on the malformed-JSON,
-///     invalid-structure, and validation-failure branches that were previously uncovered.
-///     <para>
-///         These tests deliberately push the controller through pathways that a real client
-///         would only hit if the client is buggy, hostile, or the file is corrupted mid-upload -
-///         situations where a silent partial import would be worst-case for user data integrity.
-///     </para>
+///     Extended branch coverage for ImportBackupAsync beyond what BackupControllerTests already exercises.
 /// </summary>
 public class BackupControllerExtendedTests
 {
     private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();
 
-    // ================================================================================================
     // Malformed JSON - must fail with 400 + informative message; MUST NOT crash the controller.
-    // ================================================================================================
 
     [Fact]
     public async Task ImportBackup_WhenBodyContainsMalformedJson_ReturnsBadRequestWithoutCrashing()
     {
-        // BUG GUARD: a hand-edited backup with a stray comma is the most common corruption
-        // scenario. In this implementation DeserializeBackup swallows JsonException and returns
-        // null, so the surface response is the "Could not parse JSON structure" 400 rather than
-        // the outer catch(JsonException) branch. Either way, the controller MUST NOT propagate
-        // an unhandled exception (which would surface as an ugly 500 to the frontend).
+        // BUG GUARD: a hand-edited backup with a stray comma is the most common corruption scenario.
         _log.Clear();
         var tempDir = CreateTempDir();
         try
@@ -54,9 +41,6 @@ public class BackupControllerExtendedTests
             Assert.Contains("Invalid backup file", payloadJson, StringComparison.Ordinal);
 
             // Either surface response is acceptable - both cover the "corrupted JSON" contract.
-            // The important guarantee is 400, not 500, and a client-visible "Invalid backup file"
-            // prefix so the frontend can display a consistent error banner regardless of which
-            // branch the parse failure took.
             var acceptable = payloadJson.Contains("Could not parse JSON structure", StringComparison.Ordinal)
                              || payloadJson.Contains("could not be parsed", StringComparison.Ordinal);
             Assert.True(
@@ -70,16 +54,12 @@ public class BackupControllerExtendedTests
         }
     }
 
-    // ================================================================================================
     // Structurally valid JSON that fails to deserialize into BackupData - must return 400.
-    // ================================================================================================
 
     [Fact]
     public async Task ImportBackup_WhenBodyIsJsonLiteralNull_ReturnsBadRequestWithInvalidStructureMessage()
     {
-        // BUG GUARD: DeserializeBackup returns null when the payload deserializes to a null
-        // reference (JSON literal "null"). Without the explicit null guard the RestoreBackup
-        // call downstream would fail on a NullReferenceException - a 500, not a 400.
+        // BUG GUARD: DeserializeBackup returns null when the payload deserializes to a null reference (JSON literal "null").
         _log.Clear();
         var tempDir = CreateTempDir();
         try
@@ -100,27 +80,20 @@ public class BackupControllerExtendedTests
         }
     }
 
-    // ================================================================================================
     // Actual streamed body exceeds limit even though Content-Length was under the cap.
     // Covers the "totalBytes > MaxBackupSizeBytes" chunk-loop branch that Content-Length checks miss.
-    // ================================================================================================
 
     [Fact]
     public async Task ImportBackup_WhenActualBodyExceedsLimit_ReturnsBadRequestFromChunkLoop()
     {
-        // BUG GUARD: a hostile client can lie in Content-Length and send more. Or, more
-        // realistically, a chunked-transfer request has no Content-Length at all. The chunk
-        // loop's inline size check is the only defence - if it ever regresses to unbounded
-        // buffering, memory exhaustion becomes trivially exploitable.
+        // BUG GUARD: a hostile client can lie in Content-Length and send more. Or, more realistically, a chunked-transfer request has no Content-Length at all.
         _log.Clear();
         var tempDir = CreateTempDir();
         try
         {
             // Body exceeds MaxBackupSizeBytes but we omit Content-Length so the pre-check passes.
             var oversized = new string('a', (int)BackupService.MaxBackupSizeBytes + 100);
-            // Pass contentLength: 0 so the early Content-Length guard does NOT reject before
-            // the chunk loop runs. HttpContext.Request.ContentLength = 0 makes the pre-check
-            // a no-op and forces the chunk-loop path to be exercised.
+            // Pass contentLength: 0 so the early Content-Length guard does NOT reject before the chunk loop runs. HttpContext.Request.ContentLength = 0 makes the pre-check a no-op and forces the chunk-loop path to be exercised.
             var controller = CreateControllerWithJsonBody(tempDir, oversized, contentLength: 0);
 
             var result = await controller.ImportBackupAsync();
@@ -142,17 +115,12 @@ public class BackupControllerExtendedTests
         }
     }
 
-    // ================================================================================================
     // Whitespace-only body - must be treated as "empty" (currently is, via IsNullOrWhiteSpace).
-    // ================================================================================================
 
     [Fact]
     public async Task ImportBackup_WhenBodyIsWhitespaceOnly_ReturnsBadRequest()
     {
-        // BUG GUARD: an accidental drag-and-drop of a blank file (only a BOM or a newline)
-        // must be rejected with the same "No backup data provided" message as a truly-empty
-        // body. Any regression to IsNullOrEmpty would let the whitespace pass to DeserializeBackup
-        // and surface a confusing JsonException instead.
+        // BUG GUARD: an accidental drag-and-drop of a blank file (only a BOM or a newline) must be rejected with the same "No backup data provided" message as a truly-empty body.
         _log.Clear();
         var tempDir = CreateTempDir();
         try
@@ -172,18 +140,13 @@ public class BackupControllerExtendedTests
         }
     }
 
-    // ================================================================================================
     // Cancellation: request abort during body read must propagate as OperationCanceledException,
     // not be swallowed by the I/O catch block and returned as a 400 "Failed to read body".
-    // ================================================================================================
 
     [Fact]
     public async Task ImportBackup_WhenRequestCancelledDuringBodyRead_ThrowsOperationCanceledException()
     {
-        // OperationCanceledException escaped the inner I/O catch
-        // (which only caught IOException/ObjectDisposedException/DecoderFallbackException) and
-        // then also escaped the outer typed catches, surfacing as an unhandled exception.
-        // (log + 499/cancellation response) rather than silently eating the cancellation.
+        // OperationCanceledException escaped the inner I/O catch (which only caught IOException/ObjectDisposedException/DecoderFallbackException) and then also escaped the outer typed catches, surfacing as an unhandled exception.
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
@@ -204,9 +167,7 @@ public class BackupControllerExtendedTests
         }
     }
 
-    // ================================================================================================
     // Non-JSON Content-Type - the controller must reject before touching the body.
-    // ================================================================================================
 
     [Fact]
     public async Task ImportBackup_WhenContentTypeIsNotJson_ReturnsBadRequest()
@@ -243,16 +204,12 @@ public class BackupControllerExtendedTests
         }
     }
 
-    // ================================================================================================
     // Body read fails with a non-cancellation I/O error - must map to a clean 400, not escape as 500.
-    // ================================================================================================
 
     [Fact]
     public async Task ImportBackup_WhenBodyReadThrowsIOException_ReturnsBadRequestFailedToRead()
     {
-        // A disk/socket failure mid-read is a real, non-hostile condition. It is NOT a cancellation,
-        // so it must be caught by the inner typed catch and surfaced as a client-friendly 400 rather
-        // than an opaque 500.
+        // A disk/socket failure mid-read is a real, non-hostile condition. It is NOT a cancellation, so it must be caught by the inner typed catch and surfaced as a client-friendly 400 rather than an opaque 500.
         _log.Clear();
         var tempDir = CreateTempDir();
         try
@@ -285,17 +242,13 @@ public class BackupControllerExtendedTests
         }
     }
 
-    // ================================================================================================
     // Deserializable backup that fails hard validation - must return 400 with the errors surfaced,
     // and log both the per-error detail and the aggregate rejection.
-    // ================================================================================================
 
     [Fact]
     public async Task ImportBackup_WhenBackupFailsValidation_ReturnsBadRequestWithErrorsAndWarnings()
     {
-        // An unsupported backupVersion parses fine but is a hard validation error, so IsValid is
-        // false and the restore must be refused - a partial import of an unknown-format backup is
-        // the worst case for data integrity.
+        // An unsupported backupVersion parses fine but is a hard validation error, so IsValid is false and the restore must be refused - a partial import of an unknown-format backup is the worst case for data integrity.
         _log.Clear();
         var tempDir = CreateTempDir();
         try
@@ -327,14 +280,10 @@ public class BackupControllerExtendedTests
         }
     }
 
-    // ================================================================================================
     // Reflection glue
-    // ================================================================================================
 
     /// <summary>
-    ///     A request-body stream whose read throws <see cref="IOException"/> to simulate a disk or
-    ///     socket failure mid-upload. Only <c>ReadAsync</c> needs to fault for the controller's
-    ///     chunk loop to hit the inner typed catch.
+    ///     A request-body stream whose read throws IOException to simulate a disk or socket failure mid-upload.
     /// </summary>
     private sealed class ThrowingBodyStream : Stream
     {

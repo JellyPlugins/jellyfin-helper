@@ -16,10 +16,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Tests for <see cref="ConfigurationController" />.
-///     All tests use mocked <see cref="IPluginConfigurationService" /> - no
-///     <c>Plugin.Instance</c> singleton is required, which eliminates flaky
-///     behaviour caused by shared static state during parallel test execution.
+///     Tests for ConfigurationController. All tests use mocked IPluginConfigurationService - no Plugin.Instance singleton is required, which eliminates flaky behaviour caused by shared static state during parallel test execution.
 /// </summary>
 public class ConfigurationControllerTests
 {
@@ -81,13 +78,7 @@ public class ConfigurationControllerTests
     }
 
     /// <summary>
-    ///     Locks the deliberate design decision documented on
-    ///     <c>ConfigurationController.ApplyRequestToConfig</c>: the Settings POST payload
-    ///     MUST NOT be able to overwrite <see cref="PluginConfiguration.PluginLogLevel" />.
-    ///     The field is owned exclusively by the Logs tab (PUT /Configuration/LogLevel) to
-    ///     close a TOCTOU race where the Settings page had captured a stale value at page
-    ///     load and would clobber a concurrent change from the Logs tab or another admin
-    ///     session on save.
+    ///     Locks the deliberate design decision documented on ConfigurationController.ApplyRequestToConfig: the Settings POST payload MUST NOT be able to overwrite PluginLogLevel.
     /// </summary>
     [Fact]
     public async Task UpdateConfiguration_PluginLogLevel_IsIgnoredByDesignAndSurfacesWarning()
@@ -214,9 +205,7 @@ public class ConfigurationControllerTests
 
         var restored = JsonSerializer.Deserialize<PluginConfiguration>(json, jsonOptions);
         Assert.NotNull(restored);
-        // ConfigurationResponse uses IReadOnlyList<MaskedArrInstanceConfig>, not List<ArrInstanceConfig>,
-        // so direct deserialization into PluginConfiguration will not populate instance lists.
-        // Verify counts via the response object directly.
+        // ConfigurationResponse uses IReadOnlyList<MaskedArrInstanceConfig>, not List<ArrInstanceConfig>, so direct deserialization into PluginConfiguration will not populate instance lists.
         Assert.Equal(3, configResponse.RadarrInstances.Count);
         Assert.Equal(2, configResponse.SonarrInstances.Count);
     }
@@ -249,8 +238,6 @@ public class ConfigurationControllerTests
         Assert.Contains("Bad-Radarr", json);
         Assert.Contains("not reachable", json);
     }
-
-    // ===== UpdateLogLevel Tests =====
 
     [Fact]
     public void UpdateLogLevel_ValidLevel_PersistsAndReturnsOk()
@@ -370,9 +357,7 @@ public class ConfigurationControllerTests
     [Fact]
     public void GetConfiguration_ApiKeysAreMasked()
     {
-        // BUG GUARD: the GET endpoint must NEVER return plain-text API keys.
-        // Any non-empty key must be replaced with the mask constant; only truly
-        // empty keys (not yet configured) should come back as empty string.
+        // BUG GUARD: the GET endpoint must NEVER return plain-text API keys. Any non-empty key must be replaced with the mask constant; only truly empty keys (not yet configured) should come back as empty string.
         _config.SeerrApiKey = "real-seerr-secret";
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r:7878", ApiKey = "real-radarr-key" });
         _config.SonarrInstances.Add(new ArrInstanceConfig { Name = "S1", Url = "http://s:8989", ApiKey = string.Empty });
@@ -400,14 +385,10 @@ public class ConfigurationControllerTests
         Assert.Equal(string.Empty, response.SeerrApiKey);
     }
 
-    // ===== GetAvailableLibraries Tests =====
-
     [Fact]
     public void GetAvailableLibraries_FiltersOutMusicBoxsetsAndCollections()
     {
-        // BUG GUARD: cleanup never processes music/boxsets, so the picker must not offer them.
-        // Additionally, name-based fallback catches manually-created "Collection" folders that
-        // slipped through the enum classification (e.g. legacy libraries migrated from older Jellyfin).
+        // BUG GUARD: cleanup never processes music/boxsets, so the picker must not offer them. Additionally, name-based fallback catches manually-created "Collection" folders that slipped through the enum classification (e.g.
         var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
         libraryManagerMock.Setup(lm => lm.GetVirtualFolders()).Returns(
         [
@@ -510,8 +491,6 @@ public class ConfigurationControllerTests
             $"Expected Alpha < beta < Zeta but got positions {alphaIdx}, {betaIdx}, {zetaIdx}");
     }
 
-    // ===== TestArrInstanceGroupAsync: Sonarr coverage =====
-
     [Fact]
     public async Task UpdateConfiguration_UnreachableSonarr_ReturnsWarning()
     {
@@ -521,7 +500,7 @@ public class ConfigurationControllerTests
 
         var request = new ConfigurationUpdateRequest
         {
-            SonarrInstances = [ new ArrInstanceConfig { Name = "BadSonarr", Url = "http://s1:8989", ApiKey = "sk1" } ]
+            SonarrInstances = [new ArrInstanceConfig { Name = "BadSonarr", Url = "http://s1:8989", ApiKey = "sk1" }]
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -555,9 +534,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_ArrInstanceWithEmptyCredentials_IsSkipped()
     {
-        // Instances without url or apiKey must not trigger a connection test at all -
-        // otherwise every save produces a spurious "instance unreachable" warning for
-        // partially-filled rows the admin hasn't finished configuring yet.
+        // Instances without url or apiKey must not trigger a connection test at all - otherwise every save produces a spurious "instance unreachable" warning for partially-filled rows the admin hasn't finished configuring yet.
         var request = new ConfigurationUpdateRequest
         {
             RadarrInstances =
@@ -575,10 +552,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_ArrTestThrows_ExceptionSurfacesAsWarning()
     {
-        // Contract: HttpRequestException / TimeoutException must be caught and reported as
-        // a warning - the config save must NOT fail because of unreachable Arr instances.
-        // The client-facing warning identifies the instance but must NOT leak the raw exception
-        // detail (reachability oracle); that detail is logged server-side only.
+        // Contract: HttpRequestException / TimeoutException must be caught and reported as a warning - the config save must NOT fail because of unreachable Arr instances.
         _arrServiceMock
             .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("network down"));
@@ -598,8 +572,6 @@ public class ConfigurationControllerTests
         // The raw exception message must not be reflected to the client.
         Assert.DoesNotContain("network down", json, StringComparison.Ordinal);
     }
-
-    // ===== TestSeerrConnectionAsync coverage =====
 
     [Fact]
     public async Task UpdateConfiguration_SeerrConfigured_HappyPath_NoWarnings()
@@ -683,8 +655,6 @@ public class ConfigurationControllerTests
             Times.Never);
     }
 
-    // ===== ExcludedLibraries validation warning (advisory, never blocks the save) =====
-
     // Builds a controller whose library manager reports the given virtual-folder names, exposing
     // the plugin-log mock so tests can assert an advisory warning was (or was not) logged.
     private ConfigurationController CreateControllerWithLibraries(
@@ -765,9 +735,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SeerrCleanupAgeDays_TooLarge_ReturnsBadRequest()
     {
-        // BUG GUARD: The validator MUST reject SeerrCleanupAgeDays > 3650 with 400 (hard-fail),
-        // NOT silently clamp. Silent clamping would let a malicious/buggy client persist
-        // absurd retention values without any feedback that the input was clipped.
+        // BUG GUARD: The validator MUST reject SeerrCleanupAgeDays > 3650 with 400 (hard-fail), NOT silently clamp.
         _seerrServiceMock
             .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
@@ -808,9 +776,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SeerrCleanupAgeDays_ClampedWhenSeerrDisabled_DoesNotValidate()
     {
-        // When Seerr is disabled (no URL), the age validator MUST be skipped so that clients
-        // sending a legacy non-zero age don't get a BadRequest - the code silently forces the
-        // stored value to 0. This test locks the "validator skips when Seerr disabled" contract.
+        // When Seerr is disabled (no URL), the age validator MUST be skipped so that clients sending a legacy non-zero age don't get a BadRequest - the code silently forces the stored value to 0.
         var request = new ConfigurationUpdateRequest
         {
             SeerrUrl = string.Empty,
@@ -836,8 +802,6 @@ public class ConfigurationControllerTests
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.Equal(0, _config.SeerrCleanupAgeDays);
     }
-
-    // ===== ApplyRequestToConfig edge cases =====
 
     [Fact]
     public async Task UpdateConfiguration_OrphanMinAgeDays_TooLarge_ReturnsBadRequest()
@@ -875,14 +839,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_NullTrashFolderPath_DefaultsToJellyfinTrash()
     {
-        // Verifies the null-guard in ApplyRequestToConfig: `string.IsNullOrWhiteSpace(...)` handles
-        // an explicit null gracefully by falling back to ".jellyfin-trash". `null!` suppresses the
-        // nullable-analysis warning - the DTO property is non-nullable in the C# type system, but
-        // production JSON payloads may legitimately deserialize as null.
-        //
-        // We seed a NON-default value first so a regression that bypasses ApplyRequestToConfig
-        // (early return, wrong branch, etc.) cannot silently pass just because ".jellyfin-trash"
-        // is also the constructor default.
+        // Verifies the null-guard in ApplyRequestToConfig: `string.IsNullOrWhiteSpace(...)` handles an explicit null gracefully by falling back to ".jellyfin-trash".
         _config.TrashFolderPath = "custom-trash";
         var request = new ConfigurationUpdateRequest { TrashFolderPath = null! };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
@@ -893,9 +850,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_WhitespaceLanguage_DefaultsToEnglish()
     {
-        // Same rationale as the null-TrashFolderPath test above: seed a non-default value
-        // ("de") so we can prove the whitespace payload actually reached the defaulting
-        // branch instead of leaving the field untouched.
+        // Same rationale as the null-TrashFolderPath test above: seed a non-default value ("de") so we can prove the whitespace payload actually reached the defaulting branch instead of leaving the field untouched.
         _config.Language = "de";
         var request = new ConfigurationUpdateRequest { Language = "   " };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
@@ -1118,9 +1073,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelSeerrApiKey_PreservesStoredKey()
     {
-        // Contract: when the client echoes the mask sentinel for SeerrApiKey the POST must leave
-        // the real stored key untouched. This is the round-trip case: GET -> UI shows the mask
-        // -> user saves without changing the key -> POST receives the mask -> key must not change.
+        // Contract: when the client echoes the mask sentinel for SeerrApiKey the POST must leave the real stored key untouched.
         _config.SeerrApiKey = "original-secret";
         _config.SeerrUrl = "https://seerr.example.com";
 
@@ -1160,9 +1113,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelRadarrApiKey_PreservesStoredKey()
     {
-        // Contract: GET masks Radarr keys with the mask sentinel. When the user saves Settings
-        // without touching the key field the browser echoes the mask back. The POST must leave the
-        // real stored key untouched - identical to the Seerr sentinel contract.
+        // Contract: GET masks Radarr keys with the mask sentinel. When the user saves Settings without touching the key field the browser echoes the mask back.
         _config.RadarrInstances.Add(new ArrInstanceConfig
         {
             Name = "R1",
@@ -1276,20 +1227,10 @@ public class ConfigurationControllerTests
         Assert.Equal("key-r2", _config.RadarrInstances[1].ApiKey);
     }
 
-    // ===== Diagnostic logging for rejected saves =====
-
-    // Model-binding diagnostics (invalid ModelState / null request body) are exercised in
-    // ModelBindingLogFilterTests. Those failures are handled by ModelBindingLogFilter which runs
-    // *before* the action method - driving them through UpdateConfigurationAsync() directly (as
-    // this test file did originally) bypasses the MVC pipeline and gives a false-positive green
-    // even when the production code path is broken. See ModelBindingLogFilterTests for the real
-    // contract.
+    // Model-binding diagnostics (invalid ModelState / null request body) are exercised in ModelBindingLogFilterTests.
 
     /// <summary>
-    ///     Validator-level errors (as opposed to model-binding
-    ///     errors) must also produce a plugin-log entry. Previously the response
-    ///     carried a helpful message but the log stayed silent, which meant a user
-    ///     running with debug logging still couldn't see the rejection reason.
+    ///     Validator-level errors (as opposed to model-binding errors) must also produce a plugin-log entry.
     /// </summary>
     [Fact]
     public async Task UpdateConfiguration_ValidatorRejects_LogsWarning()
@@ -1336,7 +1277,9 @@ public class ConfigurationControllerTests
     {
         _config.RadarrInstances.Add(new ArrInstanceConfig
         {
-            Name = "Radarr", Url = "http://radarr.local", ApiKey = "real-radarr-key"
+            Name = "Radarr",
+            Url = "http://radarr.local",
+            ApiKey = "real-radarr-key"
         });
 
         var request = new ConfigurationUpdateRequest
@@ -1358,9 +1301,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelRadarrApiKey_ReorderedInstances_ResolvesKeyByNameUrl()
     {
-        // Sentinel restoration must match by Name+Url, not position.
-        // When the admin reorders instances while leaving keys masked, each instance must
-        // get back its OWN stored key - not the key at its previous positional index.
+        // Sentinel restoration must match by Name+Url, not position. When the admin reorders instances while leaving keys masked, each instance must get back its OWN stored key - not the key at its previous positional index.
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "A", Url = "http://a:7878", ApiKey = "key-A" });
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "B", Url = "http://b:7878", ApiKey = "key-B" });
 
@@ -1385,9 +1326,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelRadarrApiKey_RemovedInstance_SurvivorKeepsOwnKey()
     {
-        // When the admin removes instance[0] and leaves instance[1] masked,
-        // the positional approach would restore the key of the removed instance into the surviving one.
-        // The Name+Url approach correctly gives the surviving instance its own key.
+        // When the admin removes instance[0] and leaves instance[1] masked, the positional approach would restore the key of the removed instance into the surviving one.
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Removed", Url = "http://removed:7878", ApiKey = "key-removed" });
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Kept", Url = "http://kept:7878", ApiKey = "key-kept" });
 
@@ -1432,10 +1371,7 @@ public class ConfigurationControllerTests
     }
 
     /// <summary>
-    ///     When the admin renames a Radarr instance (Name changes)
-    ///     but keeps the same URL, and the client echoes the mask sentinel for the key, the
-    ///     stored key must be preserved. The lookup matches by URL, so a rename alone must not
-    ///     clear the API key.
+    ///     When the admin renames a Radarr instance (Name changes) but keeps the same URL, and the client echoes the mask sentinel for the key, the stored key must be preserved.
     /// </summary>
     [Fact]
     public async Task ApplyRequestToConfig_RenameRadarrInstance_WithSentinel_PreservesApiKey()
@@ -1506,9 +1442,7 @@ public class ConfigurationControllerTests
     }
 
     /// <summary>
-    ///     When the URL changes, the sentinel
-    ///     cannot find a prior match and must NOT restore a stale key - the result must be an
-    ///     empty API key, signalling that the new instance needs its real key supplied.
+    ///     When the URL changes, the sentinel cannot find a prior match and must NOT restore a stale key - the result must be an empty API key, signalling that the new instance needs its real key supplied.
     /// </summary>
     [Fact]
     public async Task ApplyRequestToConfig_ChangeRadarrUrl_WithSentinel_ClearsApiKey()
@@ -1520,9 +1454,7 @@ public class ConfigurationControllerTests
             ApiKey = "real-key"
         });
 
-        // URL changed: no prior entry at the new URL, so sentinel cannot restore a key.
-        // The validator rejects a URL-present + empty-key combo, so supply a real key here
-        // to let the request through validation - then assert the stored key was not the sentinel.
+        // URL changed: no prior entry at the new URL, so sentinel cannot restore a key. The validator rejects a URL-present + empty-key combo, so supply a real key here to let the request through validation - then assert the stored key was not the sentinel.
         var request = new ConfigurationUpdateRequest
         {
             RadarrInstances =
@@ -1549,7 +1481,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task ApplyRequestToConfig_TwoRadarrInstancesSameUrl_SentinelRestoresCorrectKey()
     {
-        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Primary",   Url = "http://radarr:7878", ApiKey = "key-primary" });
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Primary", Url = "http://radarr:7878", ApiKey = "key-primary" });
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Secondary", Url = "http://radarr:7878", ApiKey = "key-secondary" });
 
         var request = new ConfigurationUpdateRequest
@@ -1565,13 +1497,11 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Equal(2, _config.RadarrInstances.Count);
-        var primary   = _config.RadarrInstances.First(i => i.Name == "Primary");
+        var primary = _config.RadarrInstances.First(i => i.Name == "Primary");
         var secondary = _config.RadarrInstances.First(i => i.Name == "Secondary");
-        Assert.Equal("key-primary",   primary.ApiKey);
+        Assert.Equal("key-primary", primary.ApiKey);
         Assert.Equal("key-secondary", secondary.ApiKey);
     }
-
-    // ===== Null-body / null-list guards =====
 
     [Fact]
     public void UpdateLogLevel_NullRequestBody_ReturnsBadRequest()
@@ -1652,8 +1582,6 @@ public class ConfigurationControllerTests
         Assert.True(_config.DiscoveryUserAccessEnabled);
     }
 
-    // ===== Cancellation: token cancellation is silent, distinct from network-error warnings =====
-
     [Fact]
     public async Task UpdateConfiguration_SeerrTestCancelled_SwallowsWithoutWarning()
     {
@@ -1713,9 +1641,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_EnsembleAlphaMinExceedsMax_SwapsToKeepBandOrdered()
     {
-        // Both values are in [0,1] so the range guards leave them alone. Each setter normalizes on
-        // assignment by swapping when min > max, so an inverted request can never persist an inverted
-        // band - whatever the exact endpoints, min must end up <= max.
+        // Both values are in [0,1] so the range guards leave them alone. Each setter normalizes on assignment by swapping when min > max, so an inverted request can never persist an inverted band - whatever the exact endpoints, min must end up <= max.
         var request = new ConfigurationUpdateRequest
         {
             EnsembleAlphaMin = 0.8,

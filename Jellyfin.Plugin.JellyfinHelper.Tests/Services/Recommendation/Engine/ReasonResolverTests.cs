@@ -7,11 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Comprehensive tests for the internal <see cref="ReasonResolver" /> reason-inference logic.
-///     Exercises every branch of <c>DetermineReason</c>, the private resolvers, and the response
-///     stripping helper. The threshold constants inside <c>EngineConstants</c> are treated as
-///     the contract under test - if a maintainer lowers <c>ReasonScoreThreshold</c> or raises
-///     <c>HighRatingThreshold</c>, these tests should be updated deliberately.
+///     Comprehensive tests for the internal ReasonResolver reason-inference logic. Exercises every branch of DetermineReason, the private resolvers, and the response stripping helper.
 /// </summary>
 public class ReasonResolverTests
 {
@@ -52,8 +48,6 @@ public class ReasonResolverTests
             FinalScore = 0.5,
             StrategyName = "Test"
         };
-
-    // === Combination reasons ===
 
     [Fact]
     public void GenrePlusPeople_WithMatchedPerson_ReturnsNamedCombo()
@@ -116,8 +110,6 @@ public class ReasonResolverTests
         Assert.Contains("Trending", reason);
         Assert.Null(related);
     }
-
-    // === Single-signal reasons ===
 
     [Fact]
     public void DominantCollaborative_ReturnsCollaborative()
@@ -346,8 +338,6 @@ public class ReasonResolverTests
         Assert.Equal("reasonPeople", key);
     }
 
-    // === Studio branch ===
-
     [Fact]
     public void DominantStudio_WithMatchedStudio_ReturnsNamed()
     {
@@ -433,8 +423,6 @@ public class ReasonResolverTests
         Assert.Null(related);
     }
 
-    // === Case sensitivity of dominant signal ===
-
     [Fact]
     public void DominantSignal_Uppercase_MatchesIgnoreCase()
     {
@@ -445,8 +433,6 @@ public class ReasonResolverTests
 
         Assert.Equal("reasonRecent", key);
     }
-
-    // === StripWatchedItemsForResponse ===
 
     [Fact]
     public void StripWatchedItemsForResponse_ClearsList_KeepsAggregates()

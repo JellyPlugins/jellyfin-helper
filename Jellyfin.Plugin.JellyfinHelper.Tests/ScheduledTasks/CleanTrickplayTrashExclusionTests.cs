@@ -11,10 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 /// <summary>
-///     Tests that <see cref="CleanTrickplayTask"/> correctly excludes the trash folder
-///     from its recursive directory scan. Without this exclusion, previously trashed
-///     .trickplay folders would be re-detected as orphans on every scheduled run,
-///     accumulating timestamp prefixes until the path exceeds PATH_MAX.
+///     Tests that CleanTrickplayTask correctly excludes the trash folder from its recursive directory scan.
 /// </summary>
 public class CleanTrickplayTrashExclusionTests : CleanupTaskTestBase
 {

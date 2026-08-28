@@ -6,9 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class ArrTestConnectionRequest
 {
     /// <summary>
-    ///     Gets the display name of the instance being tested. Optional; used only to disambiguate
-    ///     the stored key when the API key is the masked sentinel and two stored instances share the
-    ///     same URL. Ignored when a real (non-mask) key is supplied.
+    ///     Gets the display name of the instance being tested. Optional; used only to disambiguate the stored key when the API key is the masked sentinel and two stored instances share the same URL.
     /// </summary>
     public string? Name { get; init; }
 
@@ -18,9 +16,7 @@ public class ArrTestConnectionRequest
     public string? Url { get; init; }
 
     /// <summary>
-    ///     Gets the API key. May be the masked sentinel (<see cref="ConfigurationResponse.ApiKeyMask"/>)
-    ///     when the client is testing an already-stored key without changing it; in that case the real
-    ///     key is resolved server-side from the persisted configuration and the mask is never forwarded.
+    ///     Gets the API key. May be the masked sentinel (ApiKeyMask) when the client is testing an already-stored key without changing it; in that case the real key is resolved server-side from the persisted configuration and the mask is never forwarded.
     /// </summary>
     public string? ApiKey { get; init; }
 }

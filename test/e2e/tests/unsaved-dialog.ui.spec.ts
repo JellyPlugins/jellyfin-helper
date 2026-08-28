@@ -1,15 +1,4 @@
-/**
- * Unsaved-changes dialog - the explicitly requested behaviour: change a setting
- * (e.g. the retention/days number), do NOT save, then try to leave the settings
- * tab -> the "unsaved changes" dialog must appear. Counter-checks: after saving,
- * no dialog; Cancel keeps you on the tab with the change intact; Discard leaves.
- *
- * Selectors (from the UI map):
- *   - dirty band:        #settingsSaveBand (class .is-unsaved when dirty)
- *   - save button:       #btnSaveSettings
- *   - unsaved dialog:    #unsavedDialogOverlay (Cancel / Discard / Save&Continue)
- *   - a numeric field:   #cfgTrashDays (needs Use Trash on) / #cfgOrphanAge
- */
+/** * Unsaved-changes dialog - the explicitly requested behaviour: change a setting * (e.g. the retention/days number), do NOT save, then try to leave the settings * tab -> the "unsaved changes" dialog must appear. */
 import { test, expect, type Page } from '@playwright/test';
 import { openDashboard, switchTab } from './_ui-helpers.ts';
 
@@ -46,9 +35,7 @@ test('leaving the settings tab while dirty shows the unsaved-changes dialog', as
   const dialog = page.locator('#unsavedDialogOverlay');
   await expect(dialog, 'unsaved-changes dialog must appear').toBeVisible({ timeout: 5000 });
 
-  // Cancel keeps us on settings with the change intact. Check count() first (like the
-  // Discard lookup below) rather than click().catch() - otherwise a locale mismatch
-  // would burn the full ~30s default click timeout before the fallback runs.
+  // Cancel keeps us on settings with the change intact. Check count() first (like the Discard lookup below) rather than click().catch() - otherwise a locale mismatch would burn the full ~30s default click timeout before the fallback runs.
   const cancelBtn = dialog.getByRole('button').filter({ hasText: /cancel|abbrechen/i }).first();
   if (await cancelBtn.count()) {
     await cancelBtn.click();
@@ -63,12 +50,7 @@ test('after saving, leaving the tab does NOT show the dialog', async ({ page }) 
   await openSettings(page);
   await makeDirty(page);
 
-  // Save via the band button, and wait for the PUT to actually complete - not
-  // just for the band to drop is-unsaved. The band flips out of is-unsaved the
-  // instant saving STARTS (renderSaveBand('saving')), but the dirty-baseline
-  // snapshot only updates after the PUT /Configuration succeeds. Switching tabs
-  // in that window would still be seen as dirty and (correctly) pop the dialog -
-  // a test race, not an app bug.
+  // Save via the band button, and wait for the PUT to actually complete - not just for the band to drop is-unsaved.
   const [saveResp] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes('/JellyfinHelper/Configuration') && r.request().method() === 'PUT',

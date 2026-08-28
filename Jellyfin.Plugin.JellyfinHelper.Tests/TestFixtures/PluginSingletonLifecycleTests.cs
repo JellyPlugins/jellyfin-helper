@@ -4,8 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 
 /// <summary>
-///     Verifies the <see cref="Plugin.Instance"/> singleton lifecycle managed by
-///     <see cref="ControllerTestFactory"/>: initialize, teardown, reset, and idempotency.
+///     Verifies the Instance singleton lifecycle managed by ControllerTestFactory: initialize, teardown, reset, and idempotency.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class PluginSingletonLifecycleTests : IDisposable

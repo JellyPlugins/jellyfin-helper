@@ -9,8 +9,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 /// </summary>
 public class CleanOrphanedSubtitlesTaskTests
 {
-    // === GetSubtitleBaseName: simple language codes and flags ===
-
     [Theory]
     [InlineData("/movies/Movie Name (2021).en.srt", "Movie Name (2021)")]
     [InlineData("/movies/Movie Name (2021).srt", "Movie Name (2021)")]
@@ -65,8 +63,6 @@ public class CleanOrphanedSubtitlesTaskTests
         Assert.Equal("The Movie (2023)", result);
     }
 
-    // === False-positive regression tests ===
-
     [Theory]
     [InlineData("/movies/Movie.S01E01.srt", "Movie.S01E01")]
     [InlineData("/movies/Movie.720p.srt", "Movie.720p")]
@@ -77,8 +73,6 @@ public class CleanOrphanedSubtitlesTaskTests
         var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
-
-    // === GetSubtitleBaseName: BCP-47 regional tags ===
 
     [Theory]
     [InlineData("/movies/Movie Name (2021).es-MX.srt", "Movie Name (2021)")]
@@ -98,8 +92,6 @@ public class CleanOrphanedSubtitlesTaskTests
         Assert.Equal(expected, result);
     }
 
-    // === GetSubtitleBaseName: BCP-47 script subtags ===
-
     [Theory]
     [InlineData("/movies/Movie Name (2021).zh-Hans.srt", "Movie Name (2021)")]
     [InlineData("/movies/Movie Name (2021).zh-Hant.srt", "Movie Name (2021)")]
@@ -110,8 +102,6 @@ public class CleanOrphanedSubtitlesTaskTests
         var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
-
-    // === GetSubtitleBaseName: BCP-47 tags combined with flags ===
 
     [Theory]
     [InlineData("/movies/Movie Name (2021).es-MX.forced.srt", "Movie Name (2021)")]
@@ -142,10 +132,7 @@ public class CleanOrphanedSubtitlesTaskTests
     [Fact]
     public void GetSubtitleBaseName_RealWorldBugReport_SpanishLatino()
     {
-        // Subtitle: Rocky (1976) [...][DTS-HD MA 5.1][...]-seleZen.es-MX.srt
-        // Video:    Rocky (1976) [...][DTS-HD MA 5.1][...]-seleZen.mkv
-        // The dot in "5.1" splits the filename but both files split identically.
-        // After stripping "es-MX" the subtitle base must equal the video base.
+        // Subtitle: Rocky (1976) [...][DTS-HD MA 5.1][...]-seleZen.es-MX.srt Video: Rocky (1976) [...][DTS-HD MA 5.1][...]-seleZen.mkv The dot in "5.1" splits the filename but both files split identically.
         const string subtitlePath =
             "/data/media/movies/Rocky (1976)/Rocky (1976) [tmdbid-1366] - [Remux-2160p][DTS-HD MA 5.1][DV HDR10][h265]-seleZen.es-MX.srt";
 
@@ -155,8 +142,6 @@ public class CleanOrphanedSubtitlesTaskTests
         var subtitleBase = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(subtitlePath, new HashSet<string> { videoBaseName });
         Assert.Equal(videoBaseName, subtitleBase);
     }
-
-    // === IsSubtitleSuffix: direct unit tests ===
 
     [Theory]
     [InlineData("en", true)]
@@ -230,8 +215,6 @@ public class CleanOrphanedSubtitlesTaskTests
         Assert.Equal(expected, result);
     }
 
-    // === Edge case: 3-letter language code with region ===
-
     [Theory]
     [InlineData("spa-MX", true)]
     [InlineData("por-BR", true)]
@@ -244,8 +227,6 @@ public class CleanOrphanedSubtitlesTaskTests
         var result = CleanOrphanedSubtitlesTask.IsSubtitleSuffix(segment);
         Assert.Equal(expected, result);
     }
-
-    // === Three-subtag {lang}-{script}-{region} tags ===
 
     [Theory]
     [InlineData("zh-Hans-TW")]

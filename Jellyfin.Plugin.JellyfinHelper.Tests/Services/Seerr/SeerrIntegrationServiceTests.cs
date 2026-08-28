@@ -141,8 +141,6 @@ public class SeerrIntegrationServiceTests : IDisposable
         }
     }
 
-    // ===== TestConnectionAsync =====
-
     [Fact]
     public async Task TestConnection_Success_ReturnsTrueWithTitle()
     {
@@ -289,8 +287,6 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.NotNull(capturedRequest);
         Assert.Contains("api/v1/settings/main", capturedRequest!.RequestUri!.ToString());
     }
-
-    // ===== CleanupExpiredRequestsAsync =====
 
     [Fact]
     public async Task Cleanup_NoRequests_ReturnsZeroCounts()
@@ -514,7 +510,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(1, result.Deleted);
     }
 
-    // Fail-CLOSED on unknown creation date (audit finding seerr-external-1). A missing/null/default/
+    // Fail-CLOSED on unknown creation date. A missing/null/default/
     // future createdAt must NEVER be treated as expired - non-dry-run so a regression would DELETE.
 
     private static string MakeRawRequestPage(string requestObjectJson, int totalResults = 1) =>
@@ -663,8 +659,6 @@ public class SeerrIntegrationServiceTests : IDisposable
             Times.AtLeastOnce);
     }
 
-    // ===== DTO / Model Tests =====
-
     [Fact]
     public void SeerrCleanupResult_DefaultValues()
     {
@@ -758,8 +752,6 @@ public class SeerrIntegrationServiceTests : IDisposable
     {
         Assert.Equal(50, SeerrIntegrationService.PageSize);
     }
-
-    // ===== Title Resolution in Cleanup Logs =====
 
     [Fact]
     public async Task Cleanup_DryRun_LogsResolvedTitle()
@@ -905,9 +897,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             Times.Once);
     }
 
-    // =========================================================================
     // Error-path & bug-surface coverage
-    // =========================================================================
 
     [Fact]
     public async Task Cleanup_InvalidBaseUrl_MarksFailure_DoesNotThrow()
@@ -976,9 +966,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     [Fact]
     public async Task Cleanup_ResponseMissingPageInfo_MarksFailedAndBreaks()
     {
-        // BUG SURFACE: a response with results but no pageInfo used to loop forever
-        // (skip never advanced because pageInfo.Results was undefined). The guard clause
-        // now marks it as Failed and breaks the loop.
+        // BUG SURFACE: a response with results but no pageInfo used to loop forever (skip never advanced because pageInfo.Results was undefined).
         var json = JsonSerializer.Serialize(new
         {
             pageInfo = (object?)null,
@@ -1021,9 +1009,7 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var title = await service.ResolveMediaTitleAsync(httpClient, baseUri, ApiKey, null, CancellationToken.None);
         Assert.Equal("Unknown", title);
-        // Sentinel-exception observation alone is insufficient: a future broad catch could
-        // swallow it and still return "Unknown". An explicit Times.Never verify ensures
-        // the short-circuit really happens BEFORE the handler is touched.
+        // Sentinel-exception observation alone is insufficient: a future broad catch could swallow it and still return "Unknown".
         mock.Protected().Verify(
             "SendAsync",
             Times.Never(),
@@ -1129,9 +1115,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     [Fact]
     public async Task TestConnection_ApiKeyWithInternalSpace_DoesNotThrow()
     {
-        // RFC 7230 forbids whitespace inside header values - Add() throws FormatException.
-        // TryAddWithoutValidation() must silently pass it through so the server can reject
-        // the key with a proper HTTP error instead of crashing the plugin.
+        // RFC 7230 forbids whitespace inside header values - Add() throws FormatException. TryAddWithoutValidation() must silently pass it through so the server can reject the key with a proper HTTP error instead of crashing the plugin.
         var handler = CreateMockHandler(HttpStatusCode.Unauthorized, string.Empty);
         var service = CreateService(handler.Object, out _, out _);
 
@@ -1151,16 +1135,10 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ===== Pagination behaviour =====
-
     [Fact]
     public async Task CleanupExpiredRequests_PartialPageResponse_UsesPageSizeForOffset()
     {
-        // Arrange: first page returns 30 results (< PageSize=50) but pageInfo.Results=80
-        // so hasMore is true after page 1 (skip=0 < 80).  The second page fetch must use
-        // skip=50 (PageSize), NOT skip=30 (page1.Results.Count).
-        // This verifies that skip is advanced by the constant PageSize, not by the
-        // variable number of items actually returned in a page.
+        // Arrange: first page returns 30 results (< PageSize=50) but pageInfo.Results=80 so hasMore is true after page 1 (skip=0 < 80).
 
         var page1Requests = Enumerable.Range(1, 30)
             .Select(i => (i, DateTimeOffset.UtcNow.AddDays(-10))) // young - not expired
@@ -1253,8 +1231,6 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(0, result.ExpiredFound);
     }
 
-    // ===== Cleanup must not delete approved/available requests =====
-
     [Fact]
     public async Task Cleanup_ApprovedRequest_IsNotDeleted()
     {
@@ -1329,16 +1305,12 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(2, result.Deleted);
     }
 
-    // ===== Available/partially-available requests (status 4, 5) must never be deleted =====
-
     [Theory]
     [InlineData(4)] // available
     [InlineData(5)] // partially available
     public async Task Cleanup_AvailableOrPartiallyAvailableRequest_IsNotDeleted(int status)
     {
-        // Requests with status=4 (available) or status=5 (partially available) represent
-        // content that has already been downloaded. Deleting them would break status tracking
-        // and could trigger unwanted re-requests.
+        // Requests with status=4 (available) or status=5 (partially available) represent content that has already been downloaded.
         var json = JsonSerializer.Serialize(new
         {
             pageInfo = new { page = 1, pages = 1, results = 1, pageSize = 50 },
@@ -1371,19 +1343,10 @@ public class SeerrIntegrationServiceTests : IDisposable
             ItExpr.IsAny<CancellationToken>());
     }
 
-    // ===== phaseOneFailed circuit-breaker =====
-
     [Fact]
     public async Task Cleanup_Page2FetchFails_SkipsDeletion_EvenWhenPage1HadExpiredItems()
     {
-        // This test pins the most critical safety guarantee in the service: when Phase 1
-        // pagination does not complete cleanly, Phase 2 must not delete anything - acting
-        // on a partial snapshot would permanently remove requests whose expiry status could
-        // not be confirmed from the missing pages.
-        //
-        // Setup: page 1 returns two expired, pending (deletable) requests with totalResults=100
-        // so the service knows there is a page 2.  The page 2 GET throws HttpRequestException.
-        // Expected: result.Deleted == 0 and no DELETE request is ever sent.
+        // This test pins the most critical safety guarantee in the service: when Phase 1 pagination does not complete cleanly, Phase 2 must not delete anything - acting on a partial snapshot would permanently remove requests whose expiry status could not be confirmed from the missing.
 
         var page1 = JsonSerializer.Serialize(new
         {

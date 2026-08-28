@@ -21,8 +21,6 @@ public class SymlinkHandlerTests
         _handler = new SymlinkHandler(_symlinkHelper.Object);
     }
 
-    // ===== CanHandle =====
-
     [Fact]
     public void CanHandle_SymlinkFile_ReturnsTrue()
     {
@@ -46,8 +44,6 @@ public class SymlinkHandlerTests
 
         _symlinkHelper.Verify(h => h.IsSymlink("/some/path"), Times.Once);
     }
-
-    // ===== ReadTarget =====
 
     [Fact]
     public void ReadTarget_ReturnsSymlinkTarget()
@@ -76,8 +72,6 @@ public class SymlinkHandlerTests
 
         _symlinkHelper.Verify(h => h.GetSymlinkTarget("/some/path"), Times.Once);
     }
-
-    // ===== WriteTarget - atomic replace path =====
 
     [Fact]
     public void WriteTarget_CreatesAtTempThenReplaces()

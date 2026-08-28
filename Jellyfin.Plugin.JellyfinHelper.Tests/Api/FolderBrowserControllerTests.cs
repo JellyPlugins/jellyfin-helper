@@ -11,10 +11,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Tests for <see cref="FolderBrowserController" />. The controller is a thin wrapper over
-///     <see cref="IFolderBrowserService" /> and <see cref="ILibraryManager" />. We use a real
-///     <see cref="FolderBrowserService" /> (already well-tested) so the controller-layer tests
-///     exercise the actual dispatch logic, not a mock of the whole world.
+///     Tests for FolderBrowserController. The controller is a thin wrapper over IFolderBrowserService and ILibraryManager.
 /// </summary>
 public class FolderBrowserControllerTests
 {
@@ -25,8 +22,6 @@ public class FolderBrowserControllerTests
             TestMockFactory.CreateLogger<FolderBrowserService>().Object);
         return new FolderBrowserController(folderBrowser, libraryManager.Object);
     }
-
-    // === BrowseFolders ===
 
     [Fact]
     public void BrowseFolders_NullPath_ReturnsRoots()
@@ -127,8 +122,6 @@ public class FolderBrowserControllerTests
         var payload = Assert.IsType<FolderBrowseResult>(ok.Value);
         Assert.Contains("..", payload.Error!);
     }
-
-    // === GetLibraryPaths ===
 
     [Fact]
     public void GetLibraryPaths_NoLibraries_ReturnsEmptyList()

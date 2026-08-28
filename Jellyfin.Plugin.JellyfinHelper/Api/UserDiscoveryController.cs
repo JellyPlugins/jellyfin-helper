@@ -18,9 +18,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     User-facing API controller for Seerr Discovery.
-///     Does NOT require admin elevation - any authenticated Jellyfin user can access these endpoints
-///     (gated by the <c>DiscoveryUserAccessEnabled</c> configuration toggle).
+///     User-facing API controller for Seerr Discovery. Does NOT require admin elevation - any authenticated Jellyfin user can access these endpoints (gated by the DiscoveryUserAccessEnabled configuration toggle).
 /// </summary>
 [ApiController]
 [Authorize]
@@ -34,15 +32,10 @@ public sealed class UserDiscoveryController : ControllerBase
     private const string RadarrServiceType = "radarr";
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
 
-    // Guards the rate-limit check-and-update so it is atomic. The controller is instantiated per
-    // request, so an instance lock would not serialize concurrent requests; a shared static lock
-    // does. The critical section is only two IMemoryCache operations, so contention is negligible.
+    // Guards the rate-limit check-and-update so it is atomic. The controller is instantiated per request, so an instance lock would not serialize concurrent requests; a shared static lock does.
     private static readonly object RateLimitGate = new();
 
-    // Generation counter folded into every rate-limit cache key. ClearRateLimitState() bumps it
-    // (under RateLimitGate) so all keys minted by a previous plugin load become unreachable: an
-    // instant logical reset even when the IMemoryCache instance survives a reload, without waiting
-    // for the per-entry TTL to expire (which would otherwise leave a user seeing stale 429s).
+    // Generation counter folded into every rate-limit cache key.
     private static long _rateLimitGeneration;
 
     private readonly IMemoryCache _memoryCache;
@@ -105,10 +98,8 @@ public sealed class UserDiscoveryController : ControllerBase
             return Ok(null);
         }
 
-        // Filter persisted pool: exclude dismissed + requested, serve only next N visible.
-        // Normalize MediaType using the same canonicalization as DiscoveryFeedbackStore:
-        // null/whitespace to "movie", otherwise trimmed lowercase. This ensures dismissed/requested
-        // items are correctly matched regardless of casing differences in cached data.
+        // Filter persisted pool: exclude dismissed/requested, serve next N. Normalize MediaType
+        // like DiscoveryFeedbackStore does so matching is case-insensitive.
         var excluded = BuildExcludedItemKeys(currentUserId);
         var visible = userResult.Recommendations
             .Where(r =>
@@ -209,17 +200,13 @@ public sealed class UserDiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = "serviceType must be 'radarr' or 'sonarr'." });
         }
 
-        // Only expose service infrastructure to users who actually have request permission.
-        // Prevents information disclosure of Radarr/Sonarr server names, paths, and profiles
-        // to users without the Seerr REQUEST permission.
+        // Only expose service infrastructure to users who actually have request permission. Prevents information disclosure of Radarr/Sonarr server names, paths, and profiles to users without the Seerr REQUEST permission.
         var mediaType = serviceType == RadarrServiceType ? MovieMediaType : "tv";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(
             userId.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
         if (!permissions.CanRequest)
         {
-            // Distinguish transient upstream failures (Seerr temporarily unavailable) from
-            // genuine permission denials. Return 503 for transient issues so the client can
-            // retry, rather than silently returning an empty list that looks like "no services".
+            // Distinguish transient upstream failures (Seerr temporarily unavailable) from genuine permission denials.
             if (permissions.IsTransient)
             {
                 return StatusCode(503, new RequestResult
@@ -232,18 +219,13 @@ public sealed class UserDiscoveryController : ControllerBase
             return Ok(Array.Empty<SeerrServiceInfo>());
         }
 
-        // GetUserRequestPermissionsAsync already evaluated CanSelectQualityProfile and
-        // built the allowed profiles list from GetServiceInfoAsync internally.
-        // If no profiles were returned, the user should use server defaults - return empty.
+        // GetUserRequestPermissionsAsync already evaluated CanSelectQualityProfile and built the allowed profiles list from GetServiceInfoAsync internally.
         if (permissions.Profiles.Count == 0)
         {
             return Ok(Array.Empty<SeerrServiceInfo>());
         }
 
-        // Reconstruct the filtered service info directly from the permissions result
-        // to avoid a redundant second GetServiceInfoAsync HTTP round-trip to Seerr.
-        // GetUserRequestPermissionsAsync already called GetServiceInfoAsync internally
-        // and distilled the results into the Profiles list with all needed metadata.
+        // Reconstruct the filtered service info directly from the permissions result to avoid a redundant second GetServiceInfoAsync HTTP round-trip to Seerr.
         var filteredServices = BuildServiceInfoFromProfiles(permissions.Profiles);
         return Ok(filteredServices);
     }
@@ -279,9 +261,7 @@ public sealed class UserDiscoveryController : ControllerBase
     ///     Serves the discovery sidebar JavaScript file as an embedded resource.
     /// </summary>
     /// <remarks>
-    ///     AllowAnonymous is required because the script tag in index.html loads
-    ///     before Jellyfin's authentication context is established. The script itself
-    ///     uses authenticated API calls internally - no sensitive data is exposed here.
+    ///     AllowAnonymous is required because the script tag in index.html loads before Jellyfin's authentication context is established.
     /// </remarks>
     /// <returns>The discovery-sidebar.js content.</returns>
     [HttpGet("script")]
@@ -340,9 +320,7 @@ public sealed class UserDiscoveryController : ControllerBase
         // so whitespace-only strings are not forwarded as meaningless overrides to Seerr.
         var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
 
-        // Per-user rate limit: prevent a single user from flooding Seerr with requests.
-        // IMemoryCache auto-evicts entries after RequestRateLimit, so no manual sweep is needed
-        // and the dictionary cannot grow unbounded across plugin restarts.
+        // Per-user rate limit: prevent a single user from flooding Seerr with requests. IMemoryCache auto-evicts entries after RequestRateLimit, so no manual sweep is needed and the dictionary cannot grow unbounded across plugin restarts.
         if (CheckRateLimit(currentJellyfinUserId, out var retryAfterSeconds))
         {
             Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -374,9 +352,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         if (seerrUserId == null)
         {
-            // At this point GetUserRequestPermissionsAsync already confirmed the user exists
-            // in Seerr (CanRequest=true). A null here indicates a transient cache/network issue
-            // between the two calls - use 502 to signal a retriable upstream failure.
+            // GetUserRequestPermissionsAsync already confirmed the user exists in Seerr.
             return StatusCode(502, new RequestResult
             {
                 Success = false,
@@ -421,11 +397,7 @@ public sealed class UserDiscoveryController : ControllerBase
         var rateLimitExceeded = false;
         retryAfterSeconds = 0;
 
-        // Atomic check-and-update: without the lock, concurrent requests for the same user could
-        // all observe a cache miss (or a stale timestamp) and each write `now`, all passing the
-        // limit and submitting duplicate upstream requests. Serializing the read+write closes that
-        // race so only the first request in a window proceeds. The key includes the current
-        // generation so a ClearRateLimitState() bump invalidates all prior-load entries at once.
+        // Atomic check-and-update: without the lock, concurrent requests for the same user could all observe a cache miss (or a stale timestamp) and each write `now`, all passing the limit and submitting duplicate upstream requests.
         lock (RateLimitGate)
         {
             var rateLimitKey = BuildRateLimitKey(userId);
@@ -452,8 +424,7 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Validates a client-supplied server/profile/root-folder override against the permissions the
-    ///     user is actually allowed to use. Returns a non-null error result when the override is invalid.
+    ///     Validates a client-supplied server/profile/root-folder override against the permissions the user is actually allowed to use.
     /// </summary>
     private ObjectResult? ValidateProfileOverride(DiscoveryRequestDto dto, UserRequestPermissionResult permissions, string? rootFolder)
     {
@@ -482,10 +453,7 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
         }
 
-        // Validate root folder against the matched profile.
-        // When the profile has no specific root folder (empty/null), accept both null and empty
-        // from the client - the request will use Seerr's server default.
-        // When the profile HAS a root folder, the client must provide an exact match.
+        // Validate root folder against the matched profile. When the profile has no specific root folder (empty/null), accept both null and empty from the client - the request will use Seerr's server default.
         var profileHasRootFolder = !string.IsNullOrEmpty(matchedProfile.RootFolder);
         if (profileHasRootFolder)
         {
@@ -505,25 +473,11 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Performs the best-effort local bookkeeping (cache + feedback store) after Seerr has accepted
-    ///     a request. Failures are logged but never surfaced to the caller.
+    ///     Performs the best-effort local bookkeeping (cache + feedback store) after Seerr has accepted a request.
     /// </summary>
     private async Task PersistRequestBookkeepingAsync(DiscoveryRequestDto dto, string mediaType, Guid currentJellyfinUserId)
     {
-        // CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store
-        // updates below. Once Seerr has accepted the request above, the local bookkeeping
-        // MUST run regardless of whether the HTTP client has disconnected - otherwise:
-        //   1. The requested item silently reappears on the next discovery-page refresh
-        //      because MarkAsRequestedAsync never wrote the AlreadyRequested flag.
-        //   2. The DiscoveryFeedbackStore misses a positive-signal training example, so the
-        //      ML model never learns from this successful request.
-        // Both would silently degrade user experience for a client that likely just closed
-        // the tab or lost its connection immediately after clicking "Request".
-        //
-        // Async variant is preferred (over the legacy sync overload) because it releases
-        // the request thread while AtomicFile's transient-IO retries sleep - the sync path
-        // can block for up to ~200 ms on AV/indexer contention, which would starve the
-        // request pool under a burst of user requests.
+        // CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store updates below. Once Seerr has accepted the request above, the local bookkeeping MUST run regardless of whether the HTTP client has disconnected - otherwise: 1.
         try
         {
             await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, currentJellyfinUserId, CancellationToken.None).ConfigureAwait(false);
@@ -584,15 +538,7 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Resets all per-user rate-limit state. Called from <see cref="Plugin"/>'s constructor on
-    ///     every plugin load and from <see cref="Plugin.OnUninstalling"/> so stale entries from a
-    ///     previous plugin load do not leak into a subsequent reload.
-    ///     <para>
-    ///         Rate-limit entries live in an <see cref="IMemoryCache"/> that may outlive a plugin
-    ///         reload. Rather than enumerate and evict keys, we bump a generation counter that is
-    ///         folded into every rate-limit key: all entries minted by the previous generation
-    ///         become unreachable at once, so no user carries a stale 429 window across a reload.
-    ///     </para>
+    ///     Resets all per-user rate-limit state. Called from Plugin's constructor on every plugin load and from OnUninstalling so stale entries from a previous plugin load do not leak into a subsequent reload.
     /// </summary>
     internal static void ClearRateLimitState()
     {
@@ -603,17 +549,7 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Builds the per-user rate-limit cache key. The single source of truth for the key format,
-    ///     shared by the controller and its tests so the two can never drift.
-    ///     <para>
-    ///         The key is namespaced with a plugin-specific prefix because <see cref="_memoryCache"/>
-    ///         is the shared application <see cref="IMemoryCache"/>: a generic <c>ratelimit:</c> prefix
-    ///         could collide with another plugin or Jellyfin component and silently alter rate-limit
-    ///         decisions for real users. The current generation (bumped by
-    ///         <see cref="ClearRateLimitState"/>) is folded in so a reset invalidates all prior keys.
-    ///     </para>
-    ///     Must be called under <see cref="RateLimitGate"/> so the generation read is consistent with
-    ///     the surrounding check-and-update.
+    ///     Builds the per-user rate-limit cache key. The single source of truth for the key format, shared by the controller and its tests so the two can never drift.
     /// </summary>
     /// <param name="jellyfinUserId">The Jellyfin user the request belongs to.</param>
     /// <returns>The fully-qualified, namespaced rate-limit cache key.</returns>
@@ -621,12 +557,7 @@ public sealed class UserDiscoveryController : ControllerBase
         $"JellyfinHelper:discovery:ratelimit:{_rateLimitGeneration}:{jellyfinUserId:N}";
 
     /// <summary>
-    ///     Reconstructs <see cref="SeerrServiceInfo"/> objects directly from the pre-evaluated
-    ///     <see cref="AllowedQualityProfile"/> list without requiring a second Seerr API call.
-    ///     The Profiles list from <see cref="UserRequestPermissionResult"/> already contains
-    ///     all metadata needed by the frontend (ServerId, ServerName, ProfileId, ProfileName,
-    ///     IsDefault, RootFolder) because it was built from the GetServiceInfoAsync result
-    ///     during permission evaluation.
+    ///     Reconstructs SeerrServiceInfo objects directly from the pre-evaluated AllowedQualityProfile list without requiring a second Seerr API call.
     /// </summary>
     /// <param name="allowedProfiles">The user's permitted profiles.</param>
     /// <returns>A list of service info objects grouped by server.</returns>
@@ -641,9 +572,7 @@ public sealed class UserDiscoveryController : ControllerBase
             var firstProfile = profiles[0];
             var defaultProfile = profiles.FirstOrDefault(p => p.IsDefault) ?? firstProfile;
 
-            // Deduplicate quality profiles by ProfileId to prevent duplicates caused by
-            // BuildAllowedProfileList emitting one AllowedQualityProfile entry per
-            // (ProfileId × RootFolder) combination. The frontend only needs distinct profiles.
+            // Deduplicate quality profiles by ProfileId to prevent duplicates caused by BuildAllowedProfileList emitting one AllowedQualityProfile entry per (ProfileId × RootFolder) combination.
             var qualityProfiles = new System.Collections.ObjectModel.Collection<SeerrQualityProfile>(
                 profiles
                     .GroupBy(p => p.ProfileId)
@@ -661,11 +590,7 @@ public sealed class UserDiscoveryController : ControllerBase
                     .Select(path => new SeerrRootFolder { Path = path })
                     .ToList());
 
-            // IsDefault (server-level Seerr "default server" flag) is intentionally not
-            // restored here: AllowedQualityProfile carries only profile-level IsDefault
-            // (active profile+directory combination), not the server-level flag. The
-            // frontend profile-selection popup reads IsDefault from AllowedQualityProfile
-            // via the RequestPermissions endpoint, not from SeerrServiceInfo returned here.
+            // IsDefault (server-level Seerr "default server" flag) is intentionally not restored here: AllowedQualityProfile carries only profile-level IsDefault (active profile+directory combination), not the server-level flag.
             return new SeerrServiceInfo
             {
                 Id = firstProfile.ServerId,

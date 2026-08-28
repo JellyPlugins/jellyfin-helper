@@ -3,9 +3,7 @@ using System.Text.Json.Serialization;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 
 /// <summary>
-/// Represents a single Arr instance in the backup data.
-/// Mirrors <see cref="Configuration.ArrInstanceConfig"/> but as a plain DTO
-/// for safe deserialization and validation.
+///     Represents a single Arr instance in the backup data. Mirrors ArrInstanceConfig but as a plain DTO for safe deserialization and validation.
 /// </summary>
 public class BackupArrInstance
 {

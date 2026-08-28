@@ -75,10 +75,7 @@ test('Seerr connection test succeeds against mock', async () => {
   expect(body.Message).toContain('Jellyseerr');
 });
 
-// === Masked-key Test Connection (regression for the reported "reload -> Test -> Failed" bug) ===
-// After a reload the API-key input holds the fixed-length mask (the real key never leaves the
-// server). Clicking Test Connection then sends the mask; the server MUST resolve it back to the
-// real stored key and perform a real reachability probe, not 401 on the literal mask.
+// === Masked-key Test Connection (regression for the reported "reload -> Test -> Failed" bug) === After a reload the API-key input holds the fixed-length mask (the real key never leaves the server).
 
 test('GET Configuration masks the stored Arr + Seerr keys', async () => {
   const res = await ctx.get(p('Configuration'));
@@ -113,10 +110,7 @@ test('Seerr Test Connection with the masked key resolves the stored key → succ
 });
 
 test('Masked key against an unrelated URL does NOT borrow a stored credential', async () => {
-  // The only stored instance is at mock-arr:9000 (seeded in beforeAll). A mask sent for a
-  // DIFFERENT url (:9001) has no stored instance to resolve against, so the server must fail
-  // the test rather than borrow another instance's key -- and it fails WITHOUT probing upstream
-  // (the mask is never forwarded). We assert a clean non-success + the plugin stays healthy.
+  // The only stored instance is at mock-arr:9000 (seeded in beforeAll).
   const res = await ctx.post(p('ArrIntegration/TestConnection'), {
     headers: { 'Content-Type': 'application/json' },
     data: { Url: 'http://mock-arr:9001', ApiKey: API_KEY_MASK, Name: 'Nonexistent' },
@@ -195,9 +189,7 @@ test('Arr Compare 502 aggregation names the failing instance', async () => {
     expect(res.status()).toBe(502);
     expect(await res.text()).toContain('FailBox');
   } finally {
-    // Restore the working instance even if an assertion above throws, so this
-    // shared backend isn't left pinned to the broken FailBox config for later
-    // tests/files that assume a reachable Radarr.
+    // Restore the working instance even if an assertion above throws, so this shared backend isn't left pinned to the broken FailBox config for later tests/files that assume a reachable Radarr.
     await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
       data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: ARR_URL, ApiKey: 'radarr-key' }] },
@@ -206,11 +198,7 @@ test('Arr Compare 502 aggregation names the failing instance', async () => {
   await assertPluginActive(ctx);
 });
 
-// --- Sonarr Compare error-branch parity with Radarr ------------------------
-// Compare/Sonarr is a duplicated code block from Compare/Radarr; the two can drift
-// independently. Radarr's three error branches are asserted (empty->400,
-// out-of-range->400, failing-instance->502-naming-instance); mirror them for Sonarr
-// so a copy-paste regression (wrong status, missing instance name) can't hide.
+// --- Sonarr Compare error-branch parity with Radarr ------------------------ Compare/Sonarr is a duplicated code block from Compare/Radarr; the two can drift independently.
 
 test('Sonarr Compare with no instances → 400 naming the requirement', async () => {
   await ctx.put(p('Configuration'), {
@@ -259,10 +247,7 @@ test('Sonarr Compare 502 aggregation names the failing instance', async () => {
 });
 
 test('Seerr/Test against a reachable-but-failing upstream → 502 with a generic non-leaking message', async () => {
-  // The mock's 'force-fail' key returns HTTP 500 on every authed call: a REACHABLE
-  // upstream failure (distinct from the dead-port HttpRequestException in hardening).
-  // The controller must return 502 with a fixed generic message and must NOT reflect
-  // the raw upstream error text (internal-reachability-oracle suppression).
+  // The mock's 'force-fail' key returns HTTP 500 on every authed call: a REACHABLE upstream failure (distinct from the dead-port HttpRequestException in hardening).
   const res = await ctx.post(p('Seerr/Test'), {
     headers: { 'Content-Type': 'application/json' },
     data: { Url: SEERR_URL, ApiKey: 'force-fail' },

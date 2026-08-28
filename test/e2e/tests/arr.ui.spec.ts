@@ -1,10 +1,4 @@
-/**
- * ArrIntegration tab: the reachability indicator reacts to the dropdown, and
- * the Compare button renders a comparison result. Requires configured Radarr
- * instances - we set them up here via the API rather than relying on whatever
- * state a prior api spec happened to leave (hardening.api.spec.ts clears
- * RadarrInstances, so relying on leftover state made these tests skip).
- */
+/** * ArrIntegration tab: the reachability indicator reacts to the dropdown, and * the Compare button renders a comparison result. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { openDashboard, switchTab } from './_ui-helpers.ts';
 import { apiContext, loadAuth, p } from '../setup/api-client.ts';
@@ -39,9 +33,7 @@ test('Arr tab: selecting an instance updates the reachability indicator', async 
   await expect(select).toBeVisible({ timeout: 15_000 });
 
   const status = page.locator('#arrStatusRadarr');
-  // Changing the selection triggers a TestConnection; against the mock the status
-  // must reach is-ok. A single assertion both proves the indicator left the pending
-  // state and fails fast (within one 15s window) if it ends up is-error instead.
+  // Changing the selection triggers a TestConnection; against the mock the status must reach is-ok. A single assertion both proves the indicator left the pending state and fails fast (within one 15s window) if it ends up is-error instead.
   await select.selectOption({ index: 0 });
   await expect(status).toHaveClass(/is-ok/, { timeout: 15_000 });
 });

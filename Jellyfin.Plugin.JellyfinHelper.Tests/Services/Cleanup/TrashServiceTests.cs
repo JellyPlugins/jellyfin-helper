@@ -24,8 +24,6 @@ public class TrashServiceTests : IDisposable
         if (Directory.Exists(_testRoot)) Directory.Delete(_testRoot, true);
     }
 
-    // ===== TryParseTrashTimestamp Tests =====
-
     [Fact]
     public void TryParseTrashTimestamp_ValidFormat_ReturnsTrue()
     {
@@ -50,8 +48,6 @@ public class TrashServiceTests : IDisposable
         var result = TrashService.TryParseTrashTimestamp(input!, out _);
         Assert.False(result);
     }
-
-    // ===== MoveToTrash Tests =====
 
     [Fact]
     public void MoveToTrash_NonExistentSource_ReturnsZero()
@@ -85,8 +81,6 @@ public class TrashServiceTests : IDisposable
         Assert.Single(trashDirs);
         Assert.Contains("source_movie", Path.GetFileName(trashDirs[0]));
     }
-
-    // ===== MoveFileToTrash Tests =====
 
     [Fact]
     public void MoveFileToTrash_NonExistentFile_ReturnsZero()
@@ -157,8 +151,6 @@ public class TrashServiceTests : IDisposable
         Assert.Equal(2, trashFiles.Length);
     }
 
-    // ===== PurgeExpiredTrash Tests =====
-
     [Fact]
     public void PurgeExpiredTrash_NonExistentTrashFolder_ReturnsZero()
     {
@@ -223,8 +215,6 @@ public class TrashServiceTests : IDisposable
         Assert.Equal(1, itemsPurged);
         Assert.False(File.Exists(oldFile));
     }
-
-    // ===== Extended PurgeExpiredTrash Tests (Retention Logic) =====
 
     [Fact]
     public void PurgeExpiredTrash_RetentionDaysZero_Disabled_NothingPurged()
@@ -503,8 +493,6 @@ public class TrashServiceTests : IDisposable
         Assert.Equal(500, bytesFreed);
     }
 
-    // ===== GetTrashSummary Tests =====
-
     [Fact]
     public void GetTrashSummary_NonExistentFolder_ReturnsZero()
     {
@@ -512,8 +500,6 @@ public class TrashServiceTests : IDisposable
         Assert.Equal(0, totalSize);
         Assert.Equal(0, itemCount);
     }
-
-    // ===== GetTrashContents Tests =====
 
     [Fact]
     public void GetTrashContents_NonExistentFolder_ReturnsEmptyList()
@@ -658,8 +644,6 @@ public class TrashServiceTests : IDisposable
         Assert.Null(item.PurgesAt);
     }
 
-    // ===== ExtractOriginalName Tests =====
-
     [Theory]
     [InlineData("20260101-120000_MyMovie", "MyMovie")]
     [InlineData("20260315-140000_subtitle.srt", "subtitle.srt")]
@@ -720,9 +704,7 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_ExpiredDirectorySymlink_DeletesLinkOnlyWithZeroBytes()
     {
-        // An expired trash entry that is a directory symlink/junction must have only the
-        // link removed - never the pointed-to data - and it reports 0 bytes freed because
-        // CalculateDirectorySize is skipped for reparse points.
+        // An expired trash entry that is a directory symlink/junction must have only the link removed - never the pointed-to data - and it reports 0 bytes freed because CalculateDirectorySize is skipped for reparse points.
         var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
 
