@@ -1,4 +1,3 @@
-// --- Folder Browser Dialog for Trash Path Selection ---
 // This file adds a server-side folder picker to the Trash Folder Path setting.
 // It hooks into the existing Settings.js by attaching to the Browse button after render.
 'use strict';
@@ -140,11 +139,7 @@ function openFolderBrowserDialog() {
                 input.dispatchEvent(new Event('input', { bubbles: true }));
             }
 
-            // Trigger save. doSaveSettings() handles all cases:
-            // - Path change with old content -> shows relocation dialog (Move/Delete/Cancel)
-            // - Path change without old content -> saves directly
-            // - Initial path set (trash was disabled) -> saves directly
-            // The re-entrancy guard in Settings.js prevents infinite loops.
+            // Trigger save.
             var payload = buildSettingsPayload();
             payload.TrashFolderPath = selectedPath;
             doSaveSettings(payload, {

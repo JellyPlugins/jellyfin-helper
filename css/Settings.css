@@ -1,19 +1,13 @@
 
     /* Settings form styles */
 .settings-form {
-    /* Fill the container width (max 960 px via .stats-container) so the Settings tab
-       matches the responsive behaviour of the other tabs (Overview, Discover, etc.).
-       Individual inputs / selects still use width:100% so nothing overflows. */
+    /* Fill container so Settings matches other tabs. */
     max-width: 100%;
     width: 100%;
     box-sizing: border-box;
 }
 
-/* Guarantee the Settings tab spans the full width of the centered page
-   container. These id-scoped rules (Settings tab only - they cannot affect
-   any other tab) use id specificity to override any narrower max-width that
-   Jellyfin core might apply to inner config-page content. box-sizing keeps
-   fields from overflowing on small / mobile screens. */
+/* Settings tab: force full width via id specificity. */
 /* noinspection CssUnusedSymbol */
 #tab-settings {
     width: 100%;
@@ -252,7 +246,7 @@
     background: rgba(255, 255, 255, 0.09);
 }
 
-/* ===== Library Multi-Select Widget ===== */
+/* Library multi-select widget */
 .library-multiselect-wrapper {
     margin-top: 0.3em;
 }
@@ -366,17 +360,9 @@
     vertical-align: middle;
 }
 
-/* ============================================================
-   Settings redesign - cards + sticky toolbar + responsive grid.
-   All rules below are ADDITIVE. No pre-existing selector changes
-   its behaviour, so autosave overlays, folder browser positioning,
-   and every existing event handler continue to work as before.
-   ============================================================ */
+/* Settings redesign */
 
-/* Floating save band (fixed, bottom-centre). Shows "unsaved" (with Save button),
-   "saving", "saved" (auto-fades), or "error". visibility:hidden in the idle state
-   removes the Save button from the tab order and prevents a "bare button"
-   intermediate frame when hiding. */
+/* Floating save band: shows unsaved/saving/saved/error. */
 /* noinspection CssUnusedSymbol */
 .settings-save-band {
     position: fixed;
@@ -458,9 +444,7 @@
     50%      { opacity: 0.35; }
 }
 
-/* The Save button lives inside the band; shown for unsaved/error, hidden otherwise.
-   It stays compact (proportional to the status text) and never shrinks, so on
-   narrow screens the label truncates and the button never breaks out of the pill. */
+/* Save button inside the band. */
 /* noinspection CssUnusedSymbol */
 .settings-save-band-btn {
     margin: 0;
@@ -494,17 +478,13 @@
     margin-top: 1.2em;
 }
 
-/* The first card in the settings page sits right after #settingsMsg (also a div),
-   so `.settings-card:first-of-type` never matched (the message div is the actual
-   div:first-of-type). Use the adjacent-sibling selector so the reduced top margin
-   is applied to whatever card follows the message row. */
+/* First card after #settingsMsg: use adjacent sibling so margin applies correctly. */
 /* noinspection CssUnusedSymbol */
 #settingsMsg + .settings-card {
     margin-top: 0.4em;
 }
 
-/* Inside a card, the section-title acts as the card header - kill the
-   huge default top margin the section-title uses. */
+/* Card header: remove default top margin. */
 /* noinspection CssUnusedSymbol */
 .settings-card > .section-title:first-child {
     margin-top: 0 !important;

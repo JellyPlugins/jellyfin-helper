@@ -1,7 +1,4 @@
-/* ============================================================
-   CSS Custom Properties - Finding 1, 2, 15
-   Central place for colors, spacing, radii, and breakpoints.
-   ============================================================ */
+/* CSS custom properties */
 :root {
     /* Primary colors */
     --color-primary: #00a4dc;
@@ -71,7 +68,7 @@
     --max-width-dialog: 550px;
 }
 
-/* === Utility classes === */
+/* Utility classes */
 .color-primary {
     color: var(--color-primary);
 }

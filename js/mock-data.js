@@ -215,7 +215,6 @@ return{CurrentPath:path,ParentPath:parentPath,CanGoUp:parentPath!==null,Director
 
 var _uid1="a1b2c3d4-e5f6-7890-abcd-ef1234567890",_uid2="b2c3d4e5-f6a7-8901-bcde-f12345678901";
 
-// --- Seerr Discovery Mock Data ---
 var MOCK_DISCOVERY=[
 {UserId:_uid1,UserName:"Alice",GeneratedAt:new Date(Date.now()-3600000).toISOString(),Recommendations:[
 {TmdbId:693134,MediaType:"movie",Title:"Dune: Part Two",Year:2024,Score:0.92,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Sci-Fi","Adventure"],TmdbRating:8.2,PosterPath:"/8b8R8l88Qje9dn9OE8PY05Nez7.jpg",Overview:"Follow the mythic journey of Paul Atreides as he unites with Chani and the Fremen while on a warpath of revenge against the conspirators who destroyed his family.",AlreadyRequested:false},
