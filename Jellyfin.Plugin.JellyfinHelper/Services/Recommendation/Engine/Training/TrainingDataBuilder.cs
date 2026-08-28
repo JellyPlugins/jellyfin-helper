@@ -1016,10 +1016,10 @@ internal static class TrainingDataBuilder
             YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
             GenreCount = wGenres.Count,
             IsSeries = isSeries,
-            // Train/serve parity: at inference these organic items are unwatched candidates (candidate.Id not in watchedItemLookup), so UserRatingScore is the neutral 0.5 default from ComputeUserRatingScore(null) and HasUserInteraction is false.
+            // At inference this organic item is an unwatched candidate, so interaction signals must be neutral (otherwise the model learns a completion signal that never appears at serve time).
             UserRatingScore = 0.5,
             HasUserInteraction = false,
-            CompletionRatio = completionRatio,
+            CompletionRatio = 0.0,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
             SeriesProgressionBoost = seriesProgressionBoost,

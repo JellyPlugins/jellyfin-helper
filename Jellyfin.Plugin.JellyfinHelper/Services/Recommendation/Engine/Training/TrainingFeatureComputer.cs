@@ -293,10 +293,10 @@ internal static class TrainingFeatureComputer
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
             IsSeries = true,
-            // Train/serve parity: aggregated series examples are excluded from live scoring by the watchedSeriesIds filter in Engine.GenerateForUser (a series with meaningful episode interaction never re-enters the candidate pool).
+            // Aggregated series never re-enter the candidate pool at inference, so interaction signals must stay neutral to avoid training on a completion signal that is always zero at serve time.
             UserRatingScore = 0.5,
             HasUserInteraction = false,
-            CompletionRatio = completionRatio,
+            CompletionRatio = 0.0,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
             SeriesProgressionBoost = seriesProgressionBoost,
