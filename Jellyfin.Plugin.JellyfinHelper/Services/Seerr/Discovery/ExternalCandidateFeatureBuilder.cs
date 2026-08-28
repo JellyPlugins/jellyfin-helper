@@ -75,11 +75,11 @@ internal static class ExternalCandidateFeatureBuilder
             PopularityScore = NormalizePopularity(candidate.Popularity),
             PeopleSimilarity = ComputePeopleSimilarity(candidate, preferredPeople),
 
-            // Neutral signals (no library data available)
+            // External candidates are unwatched by definition, so interaction signals use the same neutral values as library inference (HasInteraction false -> CompletionRatio 0.0).
             CollaborativeScore = 0.5,
             UserRatingScore = 0.5,
             HasUserInteraction = false,
-            CompletionRatio = 0.5,
+            CompletionRatio = 0.0,
             StudioMatch = false,
             SeriesProgressionBoost = 0.0,
             DayOfWeekAffinity = 0.5,

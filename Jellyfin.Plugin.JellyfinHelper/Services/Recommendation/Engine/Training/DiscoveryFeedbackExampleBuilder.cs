@@ -234,11 +234,11 @@ internal static class DiscoveryFeedbackExampleBuilder
             PeopleSimilarity = peopleSimilarity,
             PopularityScore = popularityScore,
 
-            // Neutral signals (not available for external/discovery items)
+            // External items have no watch state, so interaction signals stay neutral and match inference (HasInteraction false -> CompletionRatio 0.0).
             CollaborativeScore = 0.5,
             UserRatingScore = 0.5,
             HasUserInteraction = false,
-            CompletionRatio = 0.5,
+            CompletionRatio = 0.0,
             StudioMatch = false,
             SeriesProgressionBoost = 0.0,
             DayOfWeekAffinity = 0.5,
