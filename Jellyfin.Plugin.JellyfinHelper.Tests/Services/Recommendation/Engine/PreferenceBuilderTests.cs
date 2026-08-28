@@ -186,13 +186,21 @@ public class PreferenceBuilderTests
         {
             profile.WatchedItems.Add(new WatchedItemInfo
             {
-                ItemId = Guid.NewGuid(), SeriesId = dramaSeries, Played = true, LastPlayedDate = now, Genres = ["Drama"]
+                ItemId = Guid.NewGuid(),
+                SeriesId = dramaSeries,
+                Played = true,
+                LastPlayedDate = now,
+                Genres = ["Drama"]
             });
         }
 
         profile.WatchedItems.Add(new WatchedItemInfo
         {
-            ItemId = Guid.NewGuid(), SeriesId = scifiSeries, Played = true, LastPlayedDate = now, Genres = ["SciFi"]
+            ItemId = Guid.NewGuid(),
+            SeriesId = scifiSeries,
+            Played = true,
+            LastPlayedDate = now,
+            Genres = ["SciFi"]
         });
 
         var seriesEpisodeCounts = new Dictionary<Guid, int> { [dramaSeries] = 10, [scifiSeries] = 24 };
@@ -219,7 +227,11 @@ public class PreferenceBuilderTests
         {
             profile.WatchedItems.Add(new WatchedItemInfo
             {
-                ItemId = Guid.NewGuid(), SeriesId = seriesId, Played = true, LastPlayedDate = now, Genres = ["Thriller"]
+                ItemId = Guid.NewGuid(),
+                SeriesId = seriesId,
+                Played = true,
+                LastPlayedDate = now,
+                Genres = ["Thriller"]
             });
         }
 
@@ -599,7 +611,10 @@ public class PreferenceBuilderTests
 
         WatchedItemInfo Played() => new()
         {
-            ItemId = Guid.NewGuid(), SeriesId = series, Played = true, LastPlayedDate = now
+            ItemId = Guid.NewGuid(),
+            SeriesId = series,
+            Played = true,
+            LastPlayedDate = now
         };
 
         WatchedItemInfo PartialStart() => new()
@@ -1032,10 +1047,10 @@ public class PreferenceBuilderTests
         };
 
         var profileNonFav = new UserWatchProfile { WatchedItems = [SciFiRow(false), AnchorRow()] };
-        var profileFav    = new UserWatchProfile { WatchedItems = [SciFiRow(true), AnchorRow()] };
+        var profileFav = new UserWatchProfile { WatchedItems = [SciFiRow(true), AnchorRow()] };
 
         var vecNonFav = PreferenceBuilder.BuildGenrePreferenceVector(profileNonFav, counts);
-        var vecFav    = PreferenceBuilder.BuildGenrePreferenceVector(profileFav, counts);
+        var vecFav = PreferenceBuilder.BuildGenrePreferenceVector(profileFav, counts);
 
         Assert.True(vecNonFav.TryGetValue("SciFi", out var sciFiNonFav));
         Assert.True(vecNonFav.TryGetValue("Anchor", out var anchorNonFav));
@@ -1043,7 +1058,7 @@ public class PreferenceBuilderTests
         Assert.True(vecFav.TryGetValue("Anchor", out var anchorFav));
 
         var ratioNonFav = sciFiNonFav / anchorNonFav;
-        var ratioFav    = sciFiFav    / anchorFav;
+        var ratioFav = sciFiFav / anchorFav;
 
         // Profile B has an additional +3.0 FavoriteGenreBoostFactor additive on the SciFi row, so its SciFi/Anchor ratio will be larger - that is expected and correct.
         Assert.True(ratioNonFav < 1.0,
@@ -1314,14 +1329,20 @@ public class PreferenceBuilderTests
         {
             profile.WatchedItems.Add(new WatchedItemInfo
             {
-                ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = now.AddDays(-i), Genres = ["Action"]
+                ItemId = Guid.NewGuid(),
+                Played = true,
+                LastPlayedDate = now.AddDays(-i),
+                Genres = ["Action"]
             });
         }
 
         // One old, single-play rare-genre row -> tiny normalized share, well under the 2% threshold.
         profile.WatchedItems.Add(new WatchedItemInfo
         {
-            ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = now.AddDays(-3000), Genres = ["Polka"]
+            ItemId = Guid.NewGuid(),
+            Played = true,
+            LastPlayedDate = now.AddDays(-3000),
+            Genres = ["Polka"]
         });
 
         var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
@@ -1364,12 +1385,19 @@ public class PreferenceBuilderTests
 
         WatchedItemInfo SciFiEpisode() => new()
         {
-            ItemId = Guid.NewGuid(), SeriesId = series, Played = true, LastPlayedDate = now, Genres = ["SciFi"]
+            ItemId = Guid.NewGuid(),
+            SeriesId = series,
+            Played = true,
+            LastPlayedDate = now,
+            Genres = ["SciFi"]
         };
 
         WatchedItemInfo Anchor() => new()
         {
-            ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = now, Genres = ["Anchor"]
+            ItemId = Guid.NewGuid(),
+            Played = true,
+            LastPlayedDate = now,
+            Genres = ["Anchor"]
         };
 
         var profileZero = new UserWatchProfile { WatchedItems = [SciFiEpisode(), Anchor()] };

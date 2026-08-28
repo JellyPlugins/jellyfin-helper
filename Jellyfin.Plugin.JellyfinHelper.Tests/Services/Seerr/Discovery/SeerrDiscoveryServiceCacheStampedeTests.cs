@@ -242,6 +242,7 @@ internal sealed class CountingHttpHandler : HttpMessageHandler
     }
 
     /// <summary>Returns the total number of requests received for paths ending with <paramref name="pathSuffix"/>.</summary>
+    /// <returns></returns>
     public int RequestCount(string pathSuffix)
     {
         lock (_lock)

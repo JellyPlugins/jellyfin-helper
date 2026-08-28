@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 
 /// <summary>
 ///     Performance tests for BackupService static methods (Sanitize, Validate).
-///     Run with: dotnet test --filter "Category=Performance"
+///     Run with: dotnet test --filter "Category=Performance".
 /// </summary>
 public class BackupServicePerformanceTests(ITestOutputHelper output)
 {

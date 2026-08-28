@@ -338,10 +338,10 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         // configured live, the live key must be preserved - not wiped.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.RadarrInstances.Add(new ArrInstanceConfig
-            { Name = "R1", Url = "http://r:7878", ApiKey = "live-key" });
+        { Name = "R1", Url = "http://r:7878", ApiKey = "live-key" });
         var backup = MakeMinimalValidBackup();
         backup.RadarrInstances.Add(new BackupArrInstance
-            { Name = "R1", Url = "http://r:7878", ApiKey = string.Empty });
+        { Name = "R1", Url = "http://r:7878", ApiKey = string.Empty });
 
         service.RestoreBackup(backup);
 
@@ -354,10 +354,10 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     {
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SonarrInstances.Add(new ArrInstanceConfig
-            { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-live-key" });
+        { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-live-key" });
         var backup = MakeMinimalValidBackup();
         backup.SonarrInstances.Add(new BackupArrInstance
-            { Name = "S1", Url = "http://s:8989", ApiKey = string.Empty });
+        { Name = "S1", Url = "http://s:8989", ApiKey = string.Empty });
 
         service.RestoreBackup(backup);
 
@@ -368,7 +368,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_ZeroSeerrCleanupAgeDays_IsApplied()
     {
-        // BUG-10 / HARDENING-6: with int?, null means "absent" and 0 is a valid "immediate cleanup" value that MUST be applied.
+        // With int?, null means "absent" and 0 is a valid "immediate cleanup" value that MUST be applied.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrCleanupAgeDays = 45;
         var backup = MakeMinimalValidBackup();
@@ -568,9 +568,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         // Same rationale - Radarr/Sonarr keys must be included for a lossless round-trip.
         var liveConfig = new PluginConfiguration();
         liveConfig.RadarrInstances.Add(new ArrInstanceConfig
-            { Name = "R1", Url = "http://r:7878", ApiKey = "radarr-secret" });
+        { Name = "R1", Url = "http://r:7878", ApiKey = "radarr-secret" });
         liveConfig.SonarrInstances.Add(new ArrInstanceConfig
-            { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-secret" });
+        { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-secret" });
 
         var configMock = new Mock<IPluginConfigurationService>();
         configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
@@ -628,7 +628,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         backup.RadarrInstances.Add(new BackupArrInstance
-            { Name = "R1", Url = "http://r:7878", ApiKey = string.Empty });
+        { Name = "R1", Url = "http://r:7878", ApiKey = string.Empty });
 
         service.RestoreBackup(backup);
 
@@ -799,7 +799,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_FileWriteFails_ConfigStillRestored()
     {
-        // HARDENING-2 ordering: data files are written first, THEN config is updated. If file I/O fails (no timeline/baseline in this backup), RestoreConfiguration must still run - the config restore is independent of data-file success.
+        // Data files are written first, THEN config is updated. If file I/O fails (no timeline/baseline in this backup), RestoreConfiguration must still run - the config restore is independent of data-file success.
         var (service, liveConfig, configMock) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         // No timeline/baseline -> no file writes occur; config restore must still run.
@@ -825,9 +825,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         // Default export (includeSecrets:false) must strip every Arr API key so the file can be shared without leaking plaintext credentials, while leaving the Name/Url intact so a restore can still preserve the live key by name.
         var liveConfig = new PluginConfiguration();
         liveConfig.RadarrInstances.Add(new ArrInstanceConfig
-            { Name = "R1", Url = "http://r:7878", ApiKey = "radarr-secret" });
+        { Name = "R1", Url = "http://r:7878", ApiKey = "radarr-secret" });
         liveConfig.SonarrInstances.Add(new ArrInstanceConfig
-            { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-secret" });
+        { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-secret" });
 
         var configMock = new Mock<IPluginConfigurationService>();
         configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);

@@ -510,7 +510,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(1, result.Deleted);
     }
 
-    // Fail-CLOSED on unknown creation date (audit finding seerr-external-1). A missing/null/default/
+    // Fail-CLOSED on unknown creation date. A missing/null/default/
     // future createdAt must NEVER be treated as expired - non-dry-run so a regression would DELETE.
 
     private static string MakeRawRequestPage(string requestObjectJson, int totalResults = 1) =>

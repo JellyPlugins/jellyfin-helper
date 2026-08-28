@@ -59,7 +59,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void PrecomputeUserWatchSets_IncludesInProgressItems()
     {
-        // REGRESSION GUARD (audit finding collaborative-filter-1): the combined watch set MUST use the same HasMeaningfulInteraction predicate as the engine's routing gate.
+        // REGRESSION GUARD: the combined watch set MUST use the same HasMeaningfulInteraction predicate as the engine's routing gate.
         var inProgress = Guid.NewGuid();
         var rewatched = Guid.NewGuid();
         var profile = new UserWatchProfile

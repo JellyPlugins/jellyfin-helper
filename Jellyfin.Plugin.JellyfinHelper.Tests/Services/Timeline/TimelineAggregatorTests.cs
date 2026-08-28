@@ -151,7 +151,7 @@ public sealed class TimelineAggregatorTests
         Assert.Equal(Now.AddDays(-2), result[0].Date);
         Assert.Equal(Now.AddDays(-1), result[1].Date);
         Assert.Equal(100, result[1].CumulativeSize);
-        Assert.Equal(10,  result[1].CumulativeFileCount);
+        Assert.Equal(10, result[1].CumulativeFileCount);
     }
 
     [Fact]

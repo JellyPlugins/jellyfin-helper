@@ -466,7 +466,7 @@ public sealed class DiscoveryCacheService : IDisposable
             return;
         }
 
-        // Hardening: reject oversized files (likely corrupted or tampered).
+        // Reject oversized files (likely corrupted or tampered).
         var fileInfo = new FileInfo(_filePath);
         if (fileInfo.Length > MaxFileSizeBytes)
         {

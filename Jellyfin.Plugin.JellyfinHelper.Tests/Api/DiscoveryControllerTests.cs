@@ -34,7 +34,8 @@ public class DiscoveryControllerTests : IDisposable
     public void Dispose()
     {
         _cache.Dispose();
-        try { File.Delete(_tempCachePath); } catch (IOException) { }
+        try { File.Delete(_tempCachePath); }
+        catch (IOException) { }
         catch (UnauthorizedAccessException) { }
         GC.SuppressFinalize(this);
     }

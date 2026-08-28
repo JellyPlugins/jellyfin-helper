@@ -742,7 +742,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // preferredPeople (HashSet): used by ReasonResolver to surface a concrete matched-person name
         // in recommendation reasons. Kept as an unweighted set for readable UI output.
         var preferredPeople = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, peopleLookup);
-        // preferredPeopleWeights: v3 (C2) frequency-aware weighting for the ML PeopleSimilarity feature.
+        // preferredPeopleWeights: Frequency-aware weighting for the ML PeopleSimilarity feature.
         var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, peopleLookup, seriesEpisodeCounts);
         // Precompute the top-K average preferred weight ONCE per user so the O(P log P) sort inside
         // ComputePeopleSimilarity does not re-run per candidate.

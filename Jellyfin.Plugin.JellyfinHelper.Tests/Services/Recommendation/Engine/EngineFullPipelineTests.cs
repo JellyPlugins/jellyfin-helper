@@ -100,7 +100,7 @@ public sealed class EngineFullPipelineTests
     [Fact]
     public void GetRecommendations_ColdStart_UnratedItem_TiesKnownMediocre_ButOutranksTrash()
     {
-        // REGRESSION GUARD (audit finding coldstart-05-rating): the cold-start scalar formula must NOT let a fully-unrated candidate outrank a candidate the community explicitly rated poorly.
+        // REGRESSION GUARD: the cold-start scalar formula must NOT let a fully-unrated candidate outrank a candidate the community explicitly rated poorly.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))

@@ -341,7 +341,7 @@ public sealed class SimilarityComputerTests
         library.Verify(l => l.GetPeople(It.IsAny<BaseItem>()), Times.Never);
     }
 
-    // Weighted ComputePeopleSimilarity overload === These tests exercise the weighted-budget denominator introduced in the C2 hardening pass: matched-weight / max(|candidate| × avg(preferredWeight), MinDenominatorFloor).
+    // Weighted ComputePeopleSimilarity overload === These tests exercise the weighted-budget denominator: matched-weight / max(|candidate| × avg(preferredWeight), MinDenominatorFloor).
 
     [Fact]
     public void ComputePeopleSimilarityWeighted_EmptyCandidate_ReturnsZero()
@@ -459,7 +459,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_SparseProfileSingleMatch_DoesNotOvershoot()
     {
-        // v3 C2 hardening pass - Sparse-user overshoot fix.
+        // Sparse-user overshoot fix.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Alice", 2.0 }
@@ -477,7 +477,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_RichProfileMultipleHeavyMatches_PreservesMonotonicOrdering()
     {
-        // v3 C2 hardening pass - Ceiling-compression fix.
+        // Ceiling-compression fix.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < 200; i++)
         {

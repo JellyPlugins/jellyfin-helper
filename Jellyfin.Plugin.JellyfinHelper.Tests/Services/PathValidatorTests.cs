@@ -142,7 +142,7 @@ public class PathValidatorTests
     public void IsPathSafeForDeletion_PathInsideLibraryRoot_Rejected()
     {
         var libraryRoot = Path.Combine(Path.DirectorySeparatorChar.ToString(), "media", "movies");
-        var candidate   = Path.Combine(libraryRoot, "Inception");
+        var candidate = Path.Combine(libraryRoot, "Inception");
         Assert.False(PathValidator.IsPathSafeForDeletion(candidate, [libraryRoot]));
     }
 

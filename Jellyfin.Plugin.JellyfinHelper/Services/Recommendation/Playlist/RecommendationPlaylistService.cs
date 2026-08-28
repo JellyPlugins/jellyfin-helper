@@ -402,7 +402,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <returns><c>true</c> when the playlist was removed (directly or via fallback).</returns>
     private bool TryRemovePlaylist(BaseItem playlist, Guid userId)
     {
-        // Delete the playlist resiliently. Two hardening points learned from an orphaned-folder case: 1.
+        // Delete the playlist resiliently. Two hardening points learned from an orphaned-folder.
         try
         {
             _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = true });

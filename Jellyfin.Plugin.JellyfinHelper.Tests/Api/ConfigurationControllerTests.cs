@@ -500,7 +500,7 @@ public class ConfigurationControllerTests
 
         var request = new ConfigurationUpdateRequest
         {
-            SonarrInstances = [ new ArrInstanceConfig { Name = "BadSonarr", Url = "http://s1:8989", ApiKey = "sk1" } ]
+            SonarrInstances = [new ArrInstanceConfig { Name = "BadSonarr", Url = "http://s1:8989", ApiKey = "sk1" }]
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -1277,7 +1277,9 @@ public class ConfigurationControllerTests
     {
         _config.RadarrInstances.Add(new ArrInstanceConfig
         {
-            Name = "Radarr", Url = "http://radarr.local", ApiKey = "real-radarr-key"
+            Name = "Radarr",
+            Url = "http://radarr.local",
+            ApiKey = "real-radarr-key"
         });
 
         var request = new ConfigurationUpdateRequest
@@ -1479,7 +1481,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task ApplyRequestToConfig_TwoRadarrInstancesSameUrl_SentinelRestoresCorrectKey()
     {
-        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Primary",   Url = "http://radarr:7878", ApiKey = "key-primary" });
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Primary", Url = "http://radarr:7878", ApiKey = "key-primary" });
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Secondary", Url = "http://radarr:7878", ApiKey = "key-secondary" });
 
         var request = new ConfigurationUpdateRequest
@@ -1495,9 +1497,9 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Equal(2, _config.RadarrInstances.Count);
-        var primary   = _config.RadarrInstances.First(i => i.Name == "Primary");
+        var primary = _config.RadarrInstances.First(i => i.Name == "Primary");
         var secondary = _config.RadarrInstances.First(i => i.Name == "Secondary");
-        Assert.Equal("key-primary",   primary.ApiKey);
+        Assert.Equal("key-primary", primary.ApiKey);
         Assert.Equal("key-secondary", secondary.ApiKey);
     }
 

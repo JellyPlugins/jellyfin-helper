@@ -480,7 +480,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return;
             }
 
-            // v12 removal API: static void RemoveTransformation(Guid id). Bind the Guid overload explicitly so we don't accidentally match a same-named method with a different signature, and pass the plugin Id as a Guid (not its string form).
+            // Static void RemoveTransformation(Guid id). Bind the Guid overload explicitly so we don't accidentally match a same-named method with a different signature, and pass the plugin Id as a Guid (not its string form).
             var removeMethod = pluginInterfaceType.GetMethod("RemoveTransformation", new[] { typeof(Guid) });
             if (removeMethod == null)
             {

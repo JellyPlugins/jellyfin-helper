@@ -48,6 +48,7 @@ internal static class EngineTestFactory
     /// <remarks>
     ///     The scoring strategy is a real HeuristicScoringStrategy rather than a mock because Engine never checks the strategy for specific implementations except when it uses reflection on EnsembleScoringStrategy in TrainStrategy.
     /// </remarks>
+    /// <returns></returns>
     internal static EngineHarness Create(IScoringStrategy? strategyOverride = null)
     {
         var watchHistory = new Mock<IWatchHistoryService>();

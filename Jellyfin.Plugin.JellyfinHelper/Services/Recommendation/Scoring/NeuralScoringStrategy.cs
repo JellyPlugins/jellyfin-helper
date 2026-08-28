@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Neural scoring strategy: a four-hidden-layer MLP learning non-linear feature interactions from watch history via backpropagation.
 /// </summary>
 /// <remarks>
-///     Training uses Adam with L2 regularization, Z-score standardization, He/Xavier init, temporal sample weighting, dropout (v3 A2), and early stopping.
+///     Training uses Adam with L2 regularization, Z-score standardization, He/Xavier init, temporal sample weighting, dropout, and early stopping.
 /// </remarks>
 public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {

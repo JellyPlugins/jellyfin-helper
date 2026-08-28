@@ -223,11 +223,12 @@ internal sealed class FailableCountingHttpHandler : HttpMessageHandler
     private readonly int _failFirstN;
     private int _callCount;
 
-    /// <summary>Initialises a handler where every call succeeds.</summary>
+    /// <summary>Initializes a new instance of the <see cref="FailableCountingHttpHandler"/> class.Initialises a handler where every call succeeds.</summary>
     public FailableCountingHttpHandler(HttpStatusCode successStatus, string successBody, int fetchDelayMs)
         : this(failFirstN: 0, successStatus, successBody, fetchDelayMs) { }
 
     /// <summary>
+    /// Initializes a new instance of the <see cref="FailableCountingHttpHandler"/> class.
     ///     Initialises a handler where the first <paramref name="failFirstN"/> calls return
     ///     HTTP 500 and subsequent calls succeed.
     /// </summary>
@@ -239,7 +240,7 @@ internal sealed class FailableCountingHttpHandler : HttpMessageHandler
         _fetchDelayMs = fetchDelayMs;
     }
 
-    /// <summary>Total number of calls that have been dispatched through this handler.</summary>
+    /// <summary>Gets total number of calls that have been dispatched through this handler.</summary>
     public int CallCount => _callCount;
 
     protected override async Task<HttpResponseMessage> SendAsync(
