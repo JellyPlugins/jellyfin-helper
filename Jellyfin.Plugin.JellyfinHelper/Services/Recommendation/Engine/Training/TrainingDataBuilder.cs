@@ -500,13 +500,19 @@ internal static class TrainingDataBuilder
 
         var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
-        // Compute user-specific signals matching Engine.ScoreCandidate() logic.
-        var (userRatingScore, completionRatio, hasUserInteraction) = ResolveRecInteractionSignals(
-            rec,
-            isSeries,
-            wasWatched,
-            seriesEpisodeLookup,
-            ref watchedItemForRec);
+        // Use most recent episode for temporal signals when the candidate is a series
+        if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForSeries))
+        {
+            watchedItemForRec = episodesForSeries
+                .OrderByDescending(e => e.LastPlayedDate)
+                .FirstOrDefault();
+        }
+
+        // Interaction features stay neutral so the model cannot memorize per-item engagement
+        const double userRatingScore = 0.5;
+        const double completionRatio = 0.0;
+        const bool hasUserInteraction = false;
+        var actualCompletionRatio = ContentScoring.ComputeCompletionRatio(watchedItemForRec);
 
         // Compute collaborative score for this specific item
         var collabScore = ContentScoring.ComputeCollaborativeScore(rec.ItemId, coOccurrence, collaborativeMax);
@@ -537,7 +543,6 @@ internal static class TrainingDataBuilder
             ? new HashSet<string>(rec.Genres, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Build the COMPLETE feature vector matching Engine.ScoreCandidate() logic Matches Engine.ScoreCandidate: PremiereDate ?? DateCreated ?? neutral 0.5.
         double recencyScore;
         if (rec.PremiereDate.HasValue)
         {
@@ -606,95 +611,52 @@ internal static class TrainingDataBuilder
             GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(rec.Genres, rec.Studios, lookups.GenreStudioIdf)
         };
 
-        // Genre exposure features: compute from cached per-user analysis
         var (underexposure, dominanceRatio, affinityGap) =
             PreferenceBuilder.ComputeGenreExposureFeatures(rec.Genres, genreExposure);
         features.GenreUnderexposure = underexposure;
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
-        var label = ComputeRecommendationFeedbackLabel(features, wasWatched, isSeries, watchedItemForRec, prevResult);
+        var label = ComputeRecommendationFeedbackLabel(wasWatched, isSeries, watchedItemForRec, prevResult, actualCompletionRatio);
 
         return new TrainingExample
         {
             Features = features,
             Label = label,
-            GeneratedAtUtc = prevResult.GeneratedAt
+            GeneratedAtUtc = prevResult.GeneratedAt,
+            UserId = userProfile.UserId
         };
     }
 
     /// <summary>
-    ///     Resolves the (UserRatingScore, CompletionRatio, HasUserInteraction) triple for a Phase 1 recommended item, neutralising user-interaction channels for watched series to match inference.
-    /// </summary>
-    private static (double UserRatingScore, double CompletionRatio, bool HasUserInteraction)
-        ResolveRecInteractionSignals(
-            RecommendedItem rec,
-            bool isSeries,
-            bool wasWatched,
-            Dictionary<Guid, List<WatchedItemInfo>> seriesEpisodeLookup,
-            ref WatchedItemInfo? watchedItemForRec)
-    {
-        switch (isSeries)
-        {
-            case true when seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForScoring):
-                {
-                    watchedItemForRec = episodesForScoring
-                        .OrderByDescending(e => e.LastPlayedDate)
-                        .FirstOrDefault();
-
-                    // Neutralise all user-interaction channels to match inference: the live path filters watched series out of the candidate pool entirely, so any series candidate at inference has hasUserInteraction=false and completionRatio=0.0.
-                    return (0.5, 0.0, false);
-                }
-
-            case true when wasWatched && watchedItemForRec is null:
-                // Series-level favorite without watched episodes. The live path never sees this series (favorite pushes it into watchedSeriesIds), so all user- interaction features must be neutral.
-                return (0.5, 0.0, false);
-            default:
-                {
-                    var hasUserInteraction = watchedItemForRec is not null;
-                    var userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItemForRec);
-                    var completionRatio = hasUserInteraction
-                        ? ContentScoring.ComputeCompletionRatio(watchedItemForRec)
-                        : 0.0;
-                    return (userRatingScore, completionRatio, hasUserInteraction);
-                }
-        }
-    }
-
-    /// <summary>
-    ///     Computes the label for a Phase 1 recommendation-feedback example (watched / abandoned / exposure branches plus the recommendation-influence boost).
+    ///     Computes the label for a Phase 1 recommendation-feedback example using the actual watch state without leaking it into the feature vector.
     /// </summary>
     private static double ComputeRecommendationFeedbackLabel(
-        CandidateFeatures features,
         bool wasWatched,
         bool isSeries,
         WatchedItemInfo? watchedItemForRec,
-        RecommendationResult prevResult)
+        RecommendationResult prevResult,
+        double actualCompletionRatio)
     {
         if (wasWatched)
         {
-            // Determine base label based on interaction type: 1. Favorite-only (no playback): explicit interest signal -> 0.65 2.
             double baseLabel;
             switch (watchedItemForRec)
             {
                 case { IsFavorite: true, Played: false, PlaybackPositionTicks: <= 0, PlayCount: <= 0 }:
-                // Series-level favorite without episode data
                 case null when isSeries:
-                    baseLabel = 0.65; // Favorite-only: explicit interest without playback
+                    baseLabel = 0.65;
                     break;
                 default:
                     {
-                        // User started the item but abandoned it early - this is a stronger
-                        // negative signal than "never seen" (exposure). Active rejection > passive ignore.
                         baseLabel =
-                            features.CompletionRatio is > 0 and < EngineConstants.AbandonedCompletionThreshold
+                            actualCompletionRatio is > 0 and < EngineConstants.AbandonedCompletionThreshold
                                 ? EngineConstants.AbandonedLabel
-                                : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
+                                : ContentScoring.ComputeEngagementLabel(actualCompletionRatio);
                         break;
                     }
             }
 
-            // Watched shortly after recommendation - boost label (but not abandoned items)
             return baseLabel > EngineConstants.AbandonedLabel
                     && watchedItemForRec?.LastPlayedDate is not null
                     && (watchedItemForRec.LastPlayedDate.Value - prevResult.GeneratedAt).TotalDays
@@ -702,11 +664,6 @@ internal static class TrainingDataBuilder
                     && watchedItemForRec.LastPlayedDate.Value >= prevResult.GeneratedAt
                 ? Math.Max(baseLabel, EngineConstants.RecommendationInfluencedLabel)
                 : baseLabel;
-        }
-
-        if (features.CompletionRatio is > 0 and < EngineConstants.AbandonedCompletionThreshold)
-        {
-            return EngineConstants.AbandonedLabel;
         }
 
         return EngineConstants.ExposureLabel;
@@ -1071,7 +1028,8 @@ internal static class TrainingDataBuilder
             Features = features,
             Label = label,
             GeneratedAtUtc = w.LastPlayedDate ?? organicFallbackTimestamp,
-            SampleWeight = 0.7 // Slightly lower weight than recommended items to avoid overwhelming
+            SampleWeight = 0.7,
+            UserId = userProfile.UserId
         };
     }
 
@@ -1301,8 +1259,8 @@ internal static class TrainingDataBuilder
             Features = features,
             Label = 0.0,
             GeneratedAtUtc = organicFallbackTimestamp,
-            SampleWeight =
-                0.5 // Lower weight than real interactions - we infer irrelevance, not observe it
+            SampleWeight = 0.5,
+            UserId = userProfile.UserId
         };
     }
 

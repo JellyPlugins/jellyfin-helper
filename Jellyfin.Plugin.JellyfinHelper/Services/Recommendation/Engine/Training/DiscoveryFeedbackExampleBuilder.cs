@@ -83,7 +83,8 @@ internal static class DiscoveryFeedbackExampleBuilder
                     Features = features,
                     Label = label,
                     GeneratedAtUtc = GetLatestInteractionUtc(entry),
-                    SampleWeight = sampleWeight
+                    SampleWeight = sampleWeight,
+                    UserId = userFeedback.UserId
                 });
             }
         }

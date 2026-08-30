@@ -63,7 +63,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         // A structurally-valid file whose first weight is corrupted to NaN must never load into the model - a NaN weight would silently poison every score.
         var weightsPath = Path.Join(_tempDir, "nan_weight.json");
         var seed = new LearnedScoringStrategy(weightsPath);
-        Assert.True(seed.Train(GenerateExamples(12)));
+        Assert.True(seed.Train(GenerateExamples(25)));
 
         var json = File.ReadAllText(weightsPath);
         var corrupted = System.Text.RegularExpressions.Regex.Replace(
@@ -161,7 +161,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath, logger.Object);
 
-        Assert.True(strategy.Train(GenerateExamples(12)));
+        Assert.True(strategy.Train(GenerateExamples(25)));
         VerifyWarning(logger, "Failed to save weights");
     }
 
@@ -171,7 +171,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         // A structurally valid file (right length + version) whose first weight is an out-of-range magnitude deserializes to +Infinity rather than throwing a parse error.
         var weightsPath = Path.Join(_tempDir, "inf_weight.json");
         var seed = new LearnedScoringStrategy(weightsPath);
-        Assert.True(seed.Train(GenerateExamples(12)));
+        Assert.True(seed.Train(GenerateExamples(25)));
 
         var json = File.ReadAllText(weightsPath);
         var corrupted = System.Text.RegularExpressions.Regex.Replace(
@@ -201,7 +201,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath, logger.Object);
 
-        Assert.True(strategy.Train(GenerateExamples(12)));
+        Assert.True(strategy.Train(GenerateExamples(25)));
         VerifyWarning(logger, "invalid path");
     }
 

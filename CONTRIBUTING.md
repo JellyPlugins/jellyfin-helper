@@ -294,6 +294,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
+│       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation and neutral interaction features
 │       │       └── TrainingFeatureComputerTests.cs    # Training features must stay in lock-step with live scoring path
 │       ├── Playlist/              # Playlist sync tests
 │       │   ├── RecommendationPlaylistServiceTests.cs
@@ -314,6 +315,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ScoreExplanationTests.cs
 │       │   ├── TrainingExampleTests.cs
 │       │   ├── RankingMetricsTests.cs
+│       │   ├── PerUserRankingMetricsTests.cs        # Per-user macro averaging: equal weight per user regardless of library size
 │       │   └── ScoringGoldenLockTests.cs            # Behavior-lock test: pins deterministic digest of Heuristic+Learned+Neural scoring output
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
@@ -783,6 +785,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `CollectionProgressionBoostTests.cs`
 - `TrainingDataBuilderTests.cs`
+- `PerUserTrainingDataBuilderTests.cs`
 - `TrainingFeatureComputerTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Recommendation/Playlist/`
@@ -795,6 +798,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `NeuralFeatureImportanceTests.cs`
 - `NeuralScoringStrategyTests.cs`
 - `RankingMetricsTests.cs`
+- `PerUserRankingMetricsTests.cs`
 - `ScoreExplanationTests.cs`
 - `ScoringStrategyTests.cs`
 - `StrategySelectorTests.cs`

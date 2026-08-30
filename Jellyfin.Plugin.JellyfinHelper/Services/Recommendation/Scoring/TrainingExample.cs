@@ -52,6 +52,9 @@ public sealed class TrainingExample
         set => _generatedAtUtc = DateTimeNormalization.ToUtc(value);
     }
 
+    /// <summary>Gets or sets the owning user. Used to compute per-user ranking metrics.</summary>
+    public Guid UserId { get; set; }
+
     /// <summary>
     ///     Computes a temporal decay weight based on the age of this example.
     ///     Newer examples get weight closer to 1.0, older examples decay exponentially.
