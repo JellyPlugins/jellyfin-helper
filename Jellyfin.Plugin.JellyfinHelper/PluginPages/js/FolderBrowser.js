@@ -2,6 +2,10 @@
 // It hooks into the existing Settings.js by attaching to the Browse button after render.
 'use strict';
 
+function closeDialog() {
+    removeDialogById('folderBrowserOverlay');
+}
+
 /**
  * Initializes the folder browser functionality.
  * Called after the settings form is rendered to attach the browse button handler.
@@ -82,11 +86,6 @@ function openFolderBrowserDialog() {
     // Store state
     var state = { currentPath: null };
 
-    // Close handler shared across all dismiss paths
-    function closeDialog() {
-        removeDialogById('folderBrowserOverlay');
-    }
-
     // Event handlers
     document.getElementById('folderBrowserClose').addEventListener('click', closeDialog);
     document.getElementById('folderBrowserCancel').addEventListener('click', closeDialog);
@@ -111,7 +110,12 @@ function openFolderBrowserDialog() {
         var selectedPath = state.currentPath || '';
         if (newName.trim()) {
             // Append the new folder name to the current path
-            var sep = selectedPath.includes('/') ? '/' : (selectedPath.includes('\\') ? '\\' : '/');
+            var sep = '/';
+            if (selectedPath.includes('/')) {
+                sep = '/';
+            } else if (selectedPath.includes('\\')) {
+                sep = '\\';
+            }
             if (selectedPath && !selectedPath.endsWith(sep) && !selectedPath.endsWith('/') && !selectedPath.endsWith('\\')) {
                 selectedPath += sep;
             }
