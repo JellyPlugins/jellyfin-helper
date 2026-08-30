@@ -1,0 +1,370 @@
+﻿// --- Logs Tab ---
+'use strict';
+
+var _logsAutoRefreshTimer = null;
+var _logsAutoRefreshEnabled = true;
+var _logsLoadSeq = 0;
+var _logsTabInitialized = false;
+var _logsInitSeq = 0;
+var _logsSourceDebounceTimer = null;
+
+function renderLogsTab() {
+    var h = '';
+    h += '<div class="logs-container">';
+
+    // Toolbar
+    h += '<div class="logs-toolbar">';
+
+    h += '<div class="logs-toolbar-item">';
+    h += '<label for="logsLevelFilter">' + escHtml(T('logsLevel', 'Level')) + ':</label>';
+    h += '<div>';
+    h += '<select id="logsLevelFilter" style="min-width: 100px">';
+    h += '<option value="DEBUG">DEBUG</option>';
+    h += '<option value="INFO">INFO</option>';
+    h += '<option value="WARN">WARN</option>';
+    h += '<option value="ERROR">ERROR</option>';
+    h += '</select>';
+    h += '</div>';
+    h += '</div>';
+
+    h += '<div class="logs-toolbar-item">';
+    h += '<label for="logsSourceFilter">' + escHtml(T('logsSource', 'Source')) + ':</label>';
+    h += '<input type="text" id="logsSourceFilter" placeholder="' + escHtml(T(
+            'logsSourcePlaceholder', 'e.g. TrickplayCleaner'))
+        + '" style="width:130px;">';
+
+    h += '<span class="logs-count" id="logsCount"></span>';
+    h += '</div>';
+
+    h += '<div class="logs-auto-refresh" id="logsAutoRefreshIndicator">';
+    h += '<span class="dot"></span>';
+    h += '<span>' + escHtml(T('logsAutoRefresh', 'Auto-refresh')) + '</span>';
+    h += '</div>';
+
+    h += '<div class="logs-btn-group">';
+    h += '<button class="logs-btn primary" id="btnLogsDownload" title="' + escHtml(T(
+            'logsDownload', 'Download')) + '">' + mi('download') + ' ' + escHtml(T('logsDownload', 'Download'))
+        + '</button>';
+    h += '<button class="logs-btn danger" id="btnLogsClear" title="' + escHtml(T(
+        'logsClear', 'Clear')) + '">' + escHtml(T('logsClear', 'Clear')) + '</button>';
+    h += '</div>';
+
+    h += '</div>'; // toolbar
+
+    // Table
+    h += '<div class="logs-table-wrapper" id="logsTableWrapper">';
+    h += '<div class="logs-empty"><div class="logs-empty-icon">' + mi('assignment') + '</div>' + escHtml(T(
+        'logsLoading', 'Loading logs...')) + '</div>';
+    h += '</div>';
+
+    h += '</div>'; // container
+    return h;
+}
+
+function initLogsTab() {
+    var initSeq = ++_logsInitSeq;
+
+    if (!_logsTabInitialized) {
+        var downloadBtn = document.getElementById('btnLogsDownload');
+        var clearBtn = document.getElementById('btnLogsClear');
+        var levelFilter = document.getElementById('logsLevelFilter');
+        var sourceFilter = document.getElementById('logsSourceFilter');
+
+        if (downloadBtn) {
+            downloadBtn.addEventListener('click', downloadLogs);
+        }
+        if (clearBtn) {
+            clearBtn.addEventListener('click', clearLogs);
+        }
+        if (levelFilter) {
+            levelFilter.addEventListener('change', function () {
+                saveLogLevelToConfig(levelFilter.value);
+                loadLogs();
+            });
+        }
+        if (sourceFilter) {
+            sourceFilter.addEventListener('input', function () {
+                clearTimeout(_logsSourceDebounceTimer);
+                _logsSourceDebounceTimer = setTimeout(loadLogs, 400);
+            });
+        }
+        _logsTabInitialized = true;
+    }
+
+    // Load persisted log level from config, then load logs
+    loadLogLevelFromConfig(function () {
+        // Guard against stale callbacks after tab was destroyed
+        if (initSeq !== _logsInitSeq) {
+            return;
+        }
+        loadLogs();
+        startLogsAutoRefresh();
+    });
+}
+
+function loadLogLevelFromConfig(callback) {
+    var logLevelFilter;
+    // Reuse _currentLogLevel from Settings only if it was actually loaded from the server
+    if (typeof _logLevelLoaded !== 'undefined' && _logLevelLoaded && typeof _currentLogLevel !== 'undefined' && _currentLogLevel) {
+        logLevelFilter = document.getElementById('logsLevelFilter');
+        if (logLevelFilter) {
+            logLevelFilter.value = _currentLogLevel;
+        }
+        if (callback) {
+            callback();
+        }
+        return;
+    }
+    apiGet('JellyfinHelper/Configuration', function (cfg) {
+        var level = cfg.PluginLogLevel || 'INFO';
+        if (typeof _currentLogLevel !== 'undefined') {
+            _currentLogLevel = level;
+        }
+        if (typeof _logLevelLoaded !== 'undefined') {
+            _logLevelLoaded = true;
+        }
+        var lf = document.getElementById('logsLevelFilter');
+        if (lf) {
+            lf.value = level;
+        }
+        if (callback) {
+            callback();
+        }
+    }, function () {
+        var lf = document.getElementById('logsLevelFilter');
+        if (lf) {
+            lf.value = 'INFO';
+        }
+        if (callback) {
+            callback();
+        }
+    });
+}
+
+function saveLogLevelToConfig(newLevel) {
+    var levelFilter = document.getElementById('logsLevelFilter');
+    apiPut('JellyfinHelper/Configuration/LogLevel', {PluginLogLevel: newLevel},
+        function () {
+            // Update Settings tab safety-net variable if available
+            if (typeof _currentLogLevel !== 'undefined') {
+                _currentLogLevel = newLevel;
+            }
+            showAutoSaveIndicatorOverlay(levelFilter, true);
+        }, function () {
+            console.warn('Failed to save log level');
+            showAutoSaveIndicatorOverlay(levelFilter, false);
+        });
+}
+
+function destroyLogsTab() {
+    _logsInitSeq++;
+    stopLogsAutoRefresh();
+    clearTimeout(_logsSourceDebounceTimer);
+    _logsSourceDebounceTimer = null;
+    // NOTE: Do NOT reset _logsTabInitialized here.
+    // The DOM elements persist across tab switches, so handlers stay valid.
+    // _logsTabInitialized is only reset when the page shell is re-rendered.
+}
+
+function resetLogsTabState() {
+    _logsTabInitialized = false;
+    clearTimeout(_logsSourceDebounceTimer);
+    _logsSourceDebounceTimer = null;
+}
+
+function startLogsAutoRefresh() {
+    stopLogsAutoRefresh();
+    _logsAutoRefreshEnabled = true;
+    _logsAutoRefreshTimer = setInterval(function () {
+        if (_logsAutoRefreshEnabled && !document.hidden) {
+            loadLogs();
+        }
+    }, 10000); // 10 seconds
+}
+
+function stopLogsAutoRefresh() {
+    if (_logsAutoRefreshTimer) {
+        clearInterval(_logsAutoRefreshTimer);
+        _logsAutoRefreshTimer = null;
+    }
+    _logsAutoRefreshEnabled = false;
+}
+
+function loadLogs() {
+    var wrapper = document.getElementById('logsTableWrapper');
+    var countEl = document.getElementById('logsCount');
+    if (!wrapper) {
+        return;
+    }
+
+    var levelFilter = document.getElementById('logsLevelFilter');
+    var sourceFilter = document.getElementById('logsSourceFilter');
+    var minLevel = levelFilter ? levelFilter.value : '';
+    var source = sourceFilter ? sourceFilter.value.trim() : '';
+
+    var path = 'JellyfinHelper/Logs?limit=500';
+    if (minLevel) {
+        path += '&minLevel=' + encodeURIComponent(minLevel);
+    }
+    if (source) {
+        path += '&source=' + encodeURIComponent(source);
+    }
+
+    var requestSeq = ++_logsLoadSeq;
+    apiGet(path, function (data) {
+        if (requestSeq !== _logsLoadSeq) {
+            return;
+        }
+        var entries = data.Entries || [];
+        var totalBuffered = data.TotalBuffered || 0;
+        var returned = data.Returned || 0;
+
+        if (countEl) {
+            countEl.textContent = T('logsCountLabel', '{0} of {1} entries').replace(
+                '{0}', returned).replace('{1}', totalBuffered);
+        }
+
+        if (entries.length === 0) {
+            wrapper.innerHTML = '<div class="logs-empty"><div class="logs-empty-icon">' + mi('assignment') + '</div>'
+                + escHtml(T('logsEmpty', 'No log entries.')) + '</div>';
+            return;
+        }
+
+        var h = '<table class="logs-table">';
+        h += '<thead><tr>';
+        h += '<th class="col-time">' + escHtml(T('logsTime', 'Time')) + '</th>';
+        h += '<th class="col-level">' + escHtml(T('logsLevelCol', 'Level')) + '</th>';
+        h += '<th class="col-source">' + escHtml(T('logsSourceCol', 'Source')) + '</th>';
+        h += '<th class="col-message">' + escHtml(T('logsMessage', 'Message')) + '</th>';
+        h += '</tr></thead><tbody>';
+
+        for (const entry of entries) {
+            var ts = formatLogTimestamp(entry.Timestamp);
+            var safeLevels = ['debug', 'info', 'warn', 'error'];
+            var rawLevel = (entry.Level || 'info').toLowerCase();
+            var safeLevel = safeLevels.includes(rawLevel) ? rawLevel : 'info';
+            var levelClass = 'log-level-' + safeLevel;
+
+            h += '<tr>';
+            h += '<td class="col-time">' + escHtml(ts) + '</td>';
+            h += '<td class="col-level ' + levelClass + '">' + escHtml(
+                entry.Level || '') + '</td>';
+            h += '<td class="col-source">' + escHtml(entry.Source || '') + '</td>';
+            h += '<td class="col-message">' + escHtml(entry.Message || '');
+            if (entry.Exception) {
+                h += '<div class="log-exception">' + escHtml(entry.Exception)
+                    + '</div>';
+            }
+            h += '</td>';
+            h += '</tr>';
+        }
+
+        h += '</tbody></table>';
+        wrapper.innerHTML = h;
+    }, function (err) {
+        if (requestSeq !== _logsLoadSeq) {
+            return;
+        }
+        console.error('JellyfinHelper: Failed to load logs', err);
+        wrapper.innerHTML = '<div class="logs-empty"><div class="logs-empty-icon">' + mi('warning') + '</div>'
+            + escHtml(T('logsLoadError', 'Failed to load logs.')) + '</div>';
+    });
+}
+
+function downloadLogs() {
+    var btn = document.getElementById('btnLogsDownload');
+    if (btn) {
+        btn.disabled = true;
+    }
+
+    var levelFilter = document.getElementById('logsLevelFilter');
+    var sourceFilter = document.getElementById('logsSourceFilter');
+    var minLevel = levelFilter ? levelFilter.value : '';
+    var source = sourceFilter ? sourceFilter.value.trim() : '';
+
+    var path = 'JellyfinHelper/Logs/Download';
+    var sep = '?';
+    if (minLevel) {
+        path += sep + 'minLevel=' + encodeURIComponent(minLevel);
+        sep = '&';
+    }
+    if (source) {
+        path += sep + 'source=' + encodeURIComponent(source);
+    }
+
+    apiFetchBlob(path, function (blob) {
+        var a = document.createElement('a');
+        var objUrl = URL.createObjectURL(blob);
+        a.href = objUrl;
+        a.download = 'jellyfin-helper-logs.txt';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(objUrl); }, 100);
+        if (btn) {
+            btn.disabled = false;
+        }
+    }, function () {
+        if (btn) {
+            btn.disabled = false;
+        }
+        // Inline error message instead of alert() for consistent UI
+        showButtonFeedback(btn, false,
+            T('logsDownloadError', 'Failed to download logs.'),
+            mi('download') + ' ' + T('logsDownload', 'Download'), 4000);
+    });
+}
+
+function clearLogs() {
+    // Custom dialog instead of native confirm() for consistent UI
+    removeDialogById('logsClearDialogOverlay');
+    var d = createDialogOverlay(
+        'logsClearDialogOverlay',
+        T('logsClearTitle', 'Clear Logs'),
+        getCssVar('--color-danger', '#e74c3c'),
+        T('logsClearConfirm', 'Are you sure you want to clear all plugin logs?')
+    );
+    d.btnRow.appendChild(
+        createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
+            removeDialogById('logsClearDialogOverlay');
+        }));
+    d.btnRow.appendChild(
+        createDialogBtn(T('logsClear', 'Clear'), 'danger', function () {
+            removeDialogById('logsClearDialogOverlay');
+            apiDelete('JellyfinHelper/Logs', function () {
+                loadLogs();
+            }, function () {
+                // Button feedback instead of alert() for consistent UI
+                var clearBtn = document.getElementById('btnLogsClear');
+                if (clearBtn) {
+                    showButtonFeedback(clearBtn, false,
+                        T('logsClearError', 'Failed to clear logs.'),
+                        T('logsClear', 'Clear'), 4000);
+                }
+            });
+        }));
+    document.body.appendChild(d.overlay);
+}
+
+function formatLogTimestamp(ts) {
+    if (!ts) {
+        return '';
+    }
+    try {
+        var d = new Date(ts);
+        if (Number.isNaN(d.getTime())) {
+            return '[invalid date]';
+        }
+        var pad = function (n) {
+            return n < 10 ? '0' + n : '' + n;
+        };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(
+                d.getDate()) + ' '
+            + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(
+                d.getSeconds());
+    } catch (e) {
+        return '[invalid date]';
+    }
+}
+
+// escHtml is defined in Shared.js
