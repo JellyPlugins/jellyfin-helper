@@ -28,8 +28,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>Maximum number of training epochs per <see cref="Train(IReadOnlyList{TrainingExample})"/> call.</summary>
     internal const int MaxTrainingEpochs = 30;
 
-    /// <summary>Minimum number of training examples required before training runs.</summary>
-    internal const int MinTrainingExamples = 5;
+    /// <summary>Minimum examples to train. Prevents overfitting on tiny libraries.</summary>
+    internal const int MinTrainingExamples = 12;
 
     /// <summary>Number of consecutive epochs without improvement before early stopping triggers.</summary>
     internal const int EarlyStoppingPatience = 3;
@@ -55,11 +55,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>Maximum epochs when early stopping is disabled (fewer epochs to avoid overfitting on small datasets).</summary>
     internal const int MaxEpochsWithoutEarlyStopping = 15;
 
-    /// <summary>
-    ///     Minimum number of examples before Z-score standardization is applied.
-    ///     Below this threshold, raw features are used to avoid unstable statistics.
-    /// </summary>
-    internal const int MinExamplesForStandardization = 10;
+    /// <summary>Minimum examples before standardization. Avoids unstable stats.</summary>
+    internal const int MinExamplesForStandardization = 20;
 
     /// <summary>
     ///     Current schema version for persisted weights. Increment when the feature set or weight semantics change so that stale weights are discarded on load.

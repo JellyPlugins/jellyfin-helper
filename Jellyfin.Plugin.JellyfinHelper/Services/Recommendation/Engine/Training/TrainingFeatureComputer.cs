@@ -351,7 +351,8 @@ internal static class TrainingFeatureComputer
                 Features = features,
                 Label = label,
                 GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
-                SampleWeight = 0.7 // Slightly lower weight than recommended items to avoid overwhelming
+                SampleWeight = 0.7,
+                UserId = userProfile.UserId
             });
     }
 

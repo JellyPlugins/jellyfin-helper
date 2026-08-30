@@ -43,8 +43,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>Default learning rate for Adam optimizer.</summary>
     internal const double DefaultLearningRate = 0.005;
 
-    /// <summary>L2 regularization strength (weight decay). Slightly higher to counteract increased capacity.</summary>
-    internal const double L2Lambda = 0.002;
+    /// <summary>L2 regularization. Higher value counters larger capacity.</summary>
+    internal const double L2Lambda = 0.004;
 
     /// <summary>Adam β1 (first moment exponential decay rate).</summary>
     internal const double AdamBeta1 = 0.9;
@@ -58,8 +58,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>Maximum training epochs per <see cref="Train(IReadOnlyList{TrainingExample})"/> call.</summary>
     internal const int MaxTrainingEpochs = 50;
 
-    /// <summary>Minimum training examples required before training runs. Higher due to increased model capacity.</summary>
-    internal const int MinTrainingExamples = 12;
+    /// <summary>Minimum examples to train. Higher capacity needs more data.</summary>
+    internal const int MinTrainingExamples = 30;
 
     /// <summary>Consecutive epochs without improvement before early stopping triggers.</summary>
     internal const int EarlyStoppingPatience = 6;
@@ -90,10 +90,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// </summary>
     internal const double DropoutKeepProbability = 0.8;
 
-    /// <summary>
-    ///     Minimum training examples below which dropout is disabled. On tiny datasets dropout starves per-sample gradients and hurts convergence; L2 + early-stopping already regularize enough there.
-    /// </summary>
-    internal const int MinExamplesForDropout = 30;
+    /// <summary>Minimum examples before dropout. Protects tiny datasets.</summary>
+    internal const int MinExamplesForDropout = 50;
 
     /// <summary>
     ///     Schema version for persisted weights. A set whose array lengths no longer match the current layer sizes (feature-count or hidden-size change) is discarded on load: the load path warns and resets to defaults so the next training run rebuilds from scratch.

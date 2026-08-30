@@ -701,7 +701,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var strategy = new LearnedScoringStrategy(weightsPath);
 
         var examples = new List<TrainingExample>();
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i <  15; i++)
         {
             examples.Add(new TrainingExample
             {
@@ -733,7 +733,7 @@ public sealed class ScoringStrategyTests : IDisposable
         // Train and save
         var strategy1 = new LearnedScoringStrategy(weightsPath);
         var examples = new List<TrainingExample>();
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i <  15; i++)
         {
             examples.Add(new TrainingExample
             {
@@ -785,7 +785,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var strategy = new LearnedScoringStrategy(null);
 
         var examples = new List<TrainingExample>();
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i < 15; i++)
         {
             examples.Add(new TrainingExample
             {
@@ -971,15 +971,15 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var strategy = new EnsembleScoringStrategy();
 
-        var examples = GenerateTrainingExamples(10);
+        var examples = GenerateTrainingExamples(15);
         strategy.Train(examples);
 
         // With few examples, alpha should still be close to AlphaMin
-        var expectedAlpha = EnsembleScoringStrategy.ComputeSigmoidAlpha(10, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax);
+        var expectedAlpha = EnsembleScoringStrategy.ComputeSigmoidAlpha(15, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax);
         Assert.Equal(expectedAlpha, strategy.CurrentAlpha, 4);
         Assert.True(strategy.CurrentAlpha < (EnsembleScoringStrategy.DefaultAlphaMin + EnsembleScoringStrategy.DefaultAlphaMax) / 2.0,
             "With few examples, alpha should be below the midpoint");
-        Assert.Equal(10, strategy.TrainingExampleCount);
+        Assert.Equal(15, strategy.TrainingExampleCount);
     }
 
     [Fact]
@@ -1927,7 +1927,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var strategy = new NeuralScoringStrategy();
 
         var examples = new List<TrainingExample>();
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i <  15; i++)
         {
             examples.Add(new TrainingExample
             {
@@ -2257,10 +2257,9 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Learned_StandardizationTransition_ResetsWeights()
     {
-        // Start with fewer than MinExamplesForStandardization to train WITHOUT standardization
         var strategy = new LearnedScoringStrategy();
         var fewExamples = new List<TrainingExample>();
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 15; i++)
         {
             fewExamples.Add(new TrainingExample
             {
@@ -2269,14 +2268,12 @@ public sealed class ScoringStrategyTests : IDisposable
             });
         }
 
-        // Train without standardization (7 < MinExamplesForStandardization=10)
         Assert.True(
             strategy.Train(fewExamples),
             "Pre-condition: non-standardized training must succeed for the transition test to be meaningful.");
         var weightsAfterFirstTrain = strategy.GetCurrentWeights();
 
-        // Now train WITH standardization (>= 10 examples) - should trigger weight reset
-        var manyExamples = GenerateTrainingExamples(20);
+        var manyExamples = GenerateTrainingExamples(30);
         strategy.Train(manyExamples);
         var weightsAfterSecondTrain = strategy.GetCurrentWeights();
 

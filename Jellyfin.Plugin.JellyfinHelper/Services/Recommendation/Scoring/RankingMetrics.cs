@@ -147,7 +147,7 @@ internal static class RankingMetrics
     }
 
     /// <summary>
-    ///     Computes all ranking metrics at once for a set of training examples scored by a strategy.
+    ///     Computes ranking metrics averaged per user so each user contributes equally regardless of library size.
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <param name="strategy">The scoring strategy to evaluate.</param>
@@ -165,19 +165,51 @@ internal static class RankingMetrics
             return (0.0, 0.0, 0.0);
         }
 
-        var predictions = new double[examples.Count];
-        var labels = new double[examples.Count];
-
-        for (var i = 0; i < examples.Count; i++)
+        // Group by user so precision reflects per-user top K rather than a global pool
+        var hasUser = examples.Any(e => e.UserId != Guid.Empty);
+        if (!hasUser)
         {
-            predictions[i] = strategy.Score(examples[i].Features);
-            labels[i] = examples[i].Label;
+            var predictions = new double[examples.Count];
+            var labels = new double[examples.Count];
+
+            for (var i = 0; i < examples.Count; i++)
+            {
+                predictions[i] = strategy.Score(examples[i].Features);
+                labels[i] = examples[i].Label;
+            }
+
+            return (
+                ComputePrecisionAtK(predictions, labels, k, relevanceThreshold),
+                ComputeRecallAtK(predictions, labels, k, relevanceThreshold),
+                ComputeNdcgAtK(predictions, labels, k));
         }
 
-        return (
-            ComputePrecisionAtK(predictions, labels, k, relevanceThreshold),
-            ComputeRecallAtK(predictions, labels, k, relevanceThreshold),
-            ComputeNdcgAtK(predictions, labels, k));
+        var groups = examples.Where(e => e.UserId != Guid.Empty).GroupBy(e => e.UserId);
+        var totalP = 0.0;
+        var totalR = 0.0;
+        var totalN = 0.0;
+        var groupCount = 0;
+
+        foreach (var g in groups)
+        {
+            var list = g.ToList();
+            var preds = new double[list.Count];
+            var labs = new double[list.Count];
+            for (var i = 0; i < list.Count; i++)
+            {
+                preds[i] = strategy.Score(list[i].Features);
+                labs[i] = list[i].Label;
+            }
+
+            totalP += ComputePrecisionAtK(preds, labs, k, relevanceThreshold);
+            totalR += ComputeRecallAtK(preds, labs, k, relevanceThreshold);
+            totalN += ComputeNdcgAtK(preds, labs, k);
+            groupCount++;
+        }
+
+        return groupCount == 0
+            ? (0.0, 0.0, 0.0)
+            : (totalP / groupCount, totalR / groupCount, totalN / groupCount);
     }
 
     /// <summary>

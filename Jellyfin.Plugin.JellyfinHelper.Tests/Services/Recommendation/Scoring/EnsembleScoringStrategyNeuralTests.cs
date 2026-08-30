@@ -38,8 +38,8 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
-        ensemble.Train(CleanExamples(120));
-        ensemble.Train(CleanExamples(120));
+        ensemble.Train(CleanExamples(160));
+        ensemble.Train(CleanExamples(160));
         return ensemble;
     }
 
@@ -66,13 +66,13 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
-        // First round crosses the 75-example activation threshold.
-        ensemble.Train(CleanExamples(120));
+        // First round crosses the activation threshold.
+        ensemble.Train(CleanExamples(160));
         var betaFirst = ensemble.CurrentNeuralBeta;
         Assert.True(betaFirst > 0, $"Beta should activate past the threshold, was {betaFirst:F4}");
 
         // More cumulative examples advance the linear ramp -> beta increases (never exceeds the cap).
-        ensemble.Train(CleanExamples(120));
+        ensemble.Train(CleanExamples(160));
         var betaSecond = ensemble.CurrentNeuralBeta;
 
         Assert.True(betaSecond >= betaFirst,
@@ -88,8 +88,8 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var betaBefore = ensemble.CurrentNeuralBeta;
         Assert.True(betaBefore > 0, $"Neural beta must have activated, was {betaBefore:F4}");
 
-        // 8 examples: >= LearnedScoringStrategy.MinTrainingExamples (5) so learned trains, but < NeuralScoringStrategy.MinTrainingExamples (12) so the neural fails to train.
-        Assert.True(ensemble.Train(CleanExamples(8)));
+        // 29 examples: learned trains but neural fails
+        Assert.True(ensemble.Train(CleanExamples(29)));
 
         var betaAfter = ensemble.CurrentNeuralBeta;
         Assert.True(betaAfter < betaBefore,
@@ -127,13 +127,13 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var betaStart = ensemble.CurrentNeuralBeta;
         Assert.True(betaStart > 0, $"Neural beta must have activated, was {betaStart:F4}");
 
-        // Fewer than LearnedScoringStrategy.MinTrainingExamples (5) so learned training FAILS every round, driving the cold-start else-branch that halves beta and records a placeholder snapshot.
+        // Fewer than learned threshold so training fails every round, driving the cold-start branch that halves beta.
         var previousBeta = betaStart;
         var sawStrictDecrease = false;
         for (var round = 0; round < 15; round++)
         {
-            Assert.False(ensemble.Train(CleanExamples(4)),
-                "Learned training must fail with < 5 examples");
+            Assert.False(ensemble.Train(CleanExamples(10)),
+                "Learned training must fail with < 20 examples");
 
             var current = ensemble.CurrentNeuralBeta;
             if (previousBeta > 0 && current > 0)
@@ -159,11 +159,11 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var betaStart = ensemble.CurrentNeuralBeta;
         Assert.True(betaStart > 0, $"Neural beta must have activated, was {betaStart:F4}");
 
-        // 8 examples: >= 5 so learned keeps succeeding, but < 12 so the neural fails to train. Each learned-success/neural-fail round halves beta; once a halved value drops below NeuralBetaMinFloor the branch must snap it to exactly 0.0 rather than leaving a ghost.
+        // Learned succeeds but neural fails. Each such round halves beta.
         for (var round = 0; round < 12; round++)
         {
-            Assert.True(ensemble.Train(CleanExamples(8)),
-                "Learned training must succeed with >= 5 examples");
+            Assert.True(ensemble.Train(CleanExamples(29)),
+                "Learned training must succeed with >= 12 examples");
 
             var beta = ensemble.CurrentNeuralBeta;
             Assert.True(beta == 0.0 || beta >= EnsembleScoringStrategy.NeuralBetaMinFloor,
