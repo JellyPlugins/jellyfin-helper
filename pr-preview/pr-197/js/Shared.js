@@ -34,6 +34,12 @@ function getCssVar(name, fallback) {
     return (v && v.trim()) || fallback || '';
 }
 
+function getScoreThresholdClass(percent, highClass, midClass, lowClass) {
+    if (percent >= 80) return highClass;
+    if (percent >= 50) return midClass;
+    return lowClass;
+}
+
 // Translation helper - loaded async from /JellyfinHelper/Translations
 var _translations = {};
 
@@ -446,7 +452,7 @@ function addFadingDelay(element, fadeDelay) {
     element.style.opacity = '1';
 
     // Force reflow then fade in
-    element.offsetWidth;
+    element.getBoundingClientRect();
     element.classList.add('fade-element');
 
     element._fadeTimer = setTimeout(() => element.style.opacity = '0', fadeDelay);
