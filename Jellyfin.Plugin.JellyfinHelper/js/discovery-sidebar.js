@@ -541,22 +541,7 @@
             })(prof.ServerId, prof.ProfileId, prof.RootFolder));
             list.appendChild(item);
         }
-        popup.appendChild(list);
-
-        var cancelBtn = document.createElement('button');
-        cancelBtn.className = 'jfh-discovery-popup-cancel';
-        cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', function () { closeDiscoveryPopup(btn); });
-        popup.appendChild(cancelBtn);
-
-        overlay.appendChild(popup);
-        document.body.appendChild(overlay);
-        // Move focus into the dialog for keyboard accessibility
-        cancelBtn.focus();
-        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeDiscoveryPopup(btn); });
-        function onEsc(ev) { if (ev.key === 'Escape') closeDiscoveryPopup(btn); }
-        document.addEventListener('keydown', onEsc);
-        overlay._onEsc = onEsc;
+        finalizeDiscoveryPopup(overlay, popup, list, btn);
     }
 
     function injectPopupStyles() {
@@ -584,6 +569,22 @@
         }
         if (el) el.remove();
         if (triggerBtn?.focus) triggerBtn.focus();
+    }
+
+    function finalizeDiscoveryPopup(overlay, popup, list, btn) {
+        popup.appendChild(list);
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'jfh-discovery-popup-cancel';
+        cancelBtn.textContent = t('discoveryCancel', 'Cancel');
+        cancelBtn.addEventListener('click', function () { closeDiscoveryPopup(btn); });
+        popup.appendChild(cancelBtn);
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+        cancelBtn.focus();
+        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeDiscoveryPopup(btn); });
+        function onEsc(ev) { if (ev.key === 'Escape') closeDiscoveryPopup(btn); }
+        document.addEventListener('keydown', onEsc);
+        overlay._onEsc = onEsc;
     }
 
     function submitRequest(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
@@ -714,22 +715,7 @@
             executeDismiss(tmdbId, mediaType, btn);
         });
         list.appendChild(confirmBtn);
-        popup.appendChild(list);
-
-        var cancelBtn = document.createElement('button');
-        cancelBtn.className = 'jfh-discovery-popup-cancel';
-        cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', function () { closeDiscoveryPopup(btn); });
-        popup.appendChild(cancelBtn);
-
-        overlay.appendChild(popup);
-        document.body.appendChild(overlay);
-        // Move focus into the dialog for keyboard accessibility
-        cancelBtn.focus();
-        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeDiscoveryPopup(btn); });
-        function onEsc(ev) { if (ev.key === 'Escape') closeDiscoveryPopup(btn); }
-        document.addEventListener('keydown', onEsc);
-        overlay._onEsc = onEsc;
+        finalizeDiscoveryPopup(overlay, popup, list, btn);
     }
 
     /**

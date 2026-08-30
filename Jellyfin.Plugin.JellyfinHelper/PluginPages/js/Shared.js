@@ -35,9 +35,11 @@ function getCssVar(name, fallback) {
 }
 
 function getScoreThresholdClass(percent, highClass, midClass, lowClass) {
-    if (percent >= 80) return highClass;
-    if (percent >= 50) return midClass;
-    return lowClass;
+    switch (true) {
+        case percent >= 80: return highClass;
+        case percent >= 50: return midClass;
+        default: return lowClass;
+    }
 }
 
 // Translation helper - loaded async from /JellyfinHelper/Translations

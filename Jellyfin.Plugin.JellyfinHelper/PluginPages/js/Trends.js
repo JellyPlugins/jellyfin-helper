@@ -697,22 +697,22 @@ function buildRecentTree(data) {
     var libKeys = Object.keys(grouped).sort(function (a, b) {
         return insightLibrarySortOrder(a, grouped) - insightLibrarySortOrder(b, grouped);
     });
-    libKeys.forEach(function (lib) {
-        var items = grouped[lib];
-        var libSize = 0;
-        for (var s = 0; s < items.length; s++) {
-            var _sz = Number(items[s].Size);
-            if (Number.isFinite(_sz) && _sz > 0) libSize += _sz;
+    libKeys.forEach(function (libName) {
+        var groupItems = grouped[libName];
+        var totalSize = 0;
+        for (var idx = 0; idx < groupItems.length; idx++) {
+            var cur = Number(groupItems[idx].Size);
+            if (Number.isFinite(cur) && cur > 0) totalSize += cur;
         }
 
         html += '<div class="insight-tree-lib">';
         html += '<div class="insight-tree-lib-header">';
-        html += '<span class="insight-tree-lib-name">' + escHtml(lib) + '</span>';
-        html += '<span class="insight-tree-lib-size">' + formatBytes(libSize) + '</span>';
+        html += '<span class="insight-tree-lib-name">' + escHtml(libName) + '</span>';
+        html += '<span class="insight-tree-lib-size">' + formatBytes(totalSize) + '</span>';
         html += '</div>';
 
-        for (var i = 0; i < items.length; i++) {
-            var e = items[i];
+        for (var i = 0; i < groupItems.length; i++) {
+            var e = groupItems[i];
             var changeBadge = e.ChangeType === 'added'
                 ? '<span class="insight-badge insight-badge-added">' + T('insightAdded', 'added') + '</span>'
                 : '<span class="insight-badge insight-badge-changed">' + T('insightChanged', 'changed') + '</span>';
