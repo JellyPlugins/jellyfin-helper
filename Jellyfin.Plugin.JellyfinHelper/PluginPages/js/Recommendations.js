@@ -148,14 +148,7 @@ function renderUserRecommendations(index) {
 
 function renderRecommendationCard(rec, rank) {
     var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
-    var scoreClass;
-    if (scorePercent >= 80) {
-        scoreClass = 'recs-score-high';
-    } else if (scorePercent >= 50) {
-        scoreClass = 'recs-score-mid';
-    } else {
-        scoreClass = 'recs-score-low';
-    }
+    var scoreClass = getScoreThresholdClass(scorePercent, 'recs-score-high', 'recs-score-mid', 'recs-score-low');
     var html = '<div class="recs-item"><div class="recs-item-rank">#' + rank + '</div><div class="recs-item-body">';
     html += '<div class="recs-item-title">' + escHtml(rec.Name || T('recsUnknownTitle', 'Unknown')) + '</div><div class="recs-item-meta">';
     if (rec.ItemType) { html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.ItemType) + '</span>'; }
@@ -428,15 +421,8 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
 }
 
 function renderDiscoveryCard(rec, index) {
-    var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
-    var scoreClass;
-    if (scorePercent >= 80) {
-        scoreClass = 'recs-score-high';
-    } else if (scorePercent >= 50) {
-        scoreClass = 'recs-score-mid';
-    } else {
-        scoreClass = 'recs-score-low';
-    }
+    var pct = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
+    var cls = getScoreThresholdClass(pct, 'recs-score-high', 'recs-score-mid', 'recs-score-low');
     var rawPoster = rec.PosterPath && /^\/[a-zA-Z0-9/_.-]+\.(?:jpg|png|webp)$/.test(rec.PosterPath)
         ? rec.PosterPath
         : '';
@@ -469,9 +455,9 @@ function renderDiscoveryCard(rec, index) {
     if (!Number.isNaN(ratingNum) && ratingNum > 0) { html += '<span class="recs-tag recs-tag-rating">' + ratingNum.toFixed(1) + '</span>'; }
     html += '</div>';
 
-    html += '<div class="recs-item-score ' + scoreClass + '">';
-    html += '<div class="recs-score-bar" style="width:' + scorePercent + '%"></div>';
-    html += '<span class="recs-score-text">' + scorePercent + '% ' + T('recsMatch', 'match') + '</span>';
+    html += '<div class="recs-item-score ' + cls + '">';
+    html += '<div class="recs-score-bar" style="width:' + pct + '%"></div>';
+    html += '<span class="recs-score-text">' + pct + '% ' + T('recsMatch', 'match') + '</span>';
     html += '</div>';
 
     var reasonText = rec.ReasonKey ? T(rec.ReasonKey, rec.Reason || '') : (rec.Reason || '');

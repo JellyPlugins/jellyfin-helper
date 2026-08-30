@@ -110,11 +110,13 @@ function openFolderBrowserDialog() {
         var selectedPath = state.currentPath || '';
         if (newName.trim()) {
             // Append the new folder name to the current path
-            var sep = '/';
+            var sep;
             if (selectedPath.includes('/')) {
                 sep = '/';
             } else if (selectedPath.includes('\\')) {
                 sep = '\\';
+            } else {
+                sep = '/';
             }
             if (selectedPath && !selectedPath.endsWith(sep) && !selectedPath.endsWith('/') && !selectedPath.endsWith('\\')) {
                 selectedPath += sep;

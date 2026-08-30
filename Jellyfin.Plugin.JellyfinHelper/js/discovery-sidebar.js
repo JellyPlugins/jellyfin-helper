@@ -70,6 +70,12 @@
         return fallback || key;
     }
 
+    function getDiscoveryScoreClass(p) {
+        if (p >= 80) return 'jfh-discovery-score-high';
+        if (p >= 50) return 'jfh-discovery-score-mid';
+        return 'jfh-discovery-score-low';
+    }
+
     /**
      * Fetches the external links configuration (Seerr base URL) from the backend.
      * Best-effort: if the fetch fails, external link icons will still render but
@@ -106,7 +112,7 @@
         document.body.appendChild(toast);
 
         // Trigger reflow before adding the visible class to ensure CSS transition fires
-        toast.offsetWidth;
+        toast.getBoundingClientRect();
         toast.classList.add('jfh-discovery-toast-visible');
 
         var dismissTimeout = setTimeout(function () { dismissToast(toast); }, duration);
@@ -344,14 +350,7 @@
             var rating = (!Number.isNaN(ratingNum) && ratingNum > 0) ? '<span class="jfh-discovery-tag">\u2B50 ' + ratingNum.toFixed(1) + '</span>' : '';
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
             var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
-            var scoreClass;
-            if (scorePercent >= 80) {
-                scoreClass = 'jfh-discovery-score-high';
-            } else if (scorePercent >= 50) {
-                scoreClass = 'jfh-discovery-score-mid';
-            } else {
-                scoreClass = 'jfh-discovery-score-low';
-            }
+            var scoreClass = getDiscoveryScoreClass(scorePercent);
             var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + '</div>';
             var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
             var reason = reasonText ? '<div class="jfh-discovery-reason">' + esc(reasonText) + '</div>' : '';
@@ -580,11 +579,11 @@
 
     function closeDiscoveryPopup(triggerBtn) {
         var el = document.getElementById('jfhDiscoveryPopup');
-        if (el && el._onEsc) {
+        if (el?._onEsc) {
             document.removeEventListener('keydown', el._onEsc);
         }
         if (el) el.remove();
-        if (triggerBtn && triggerBtn.focus) triggerBtn.focus();
+        if (triggerBtn?.focus) triggerBtn.focus();
     }
 
     function submitRequest(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
