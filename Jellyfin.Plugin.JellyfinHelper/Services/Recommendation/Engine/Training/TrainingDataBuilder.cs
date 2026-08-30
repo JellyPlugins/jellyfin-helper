@@ -500,10 +500,11 @@ internal static class TrainingDataBuilder
 
         var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
-        // Use most recent episode for temporal signals when the candidate is a series
+        // Use most recent playback episode for temporal signals when the candidate is a series
         if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForSeries))
         {
             watchedItemForRec = episodesForSeries
+                .Where(e => e.HasPlaybackActivity())
                 .OrderByDescending(e => e.LastPlayedDate)
                 .FirstOrDefault();
         }

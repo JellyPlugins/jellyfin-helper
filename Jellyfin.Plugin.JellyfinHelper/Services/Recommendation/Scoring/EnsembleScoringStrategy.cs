@@ -689,7 +689,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
             if (neuralQualityOk)
             {
-                // Linear ramp from 0 to NeuralMaxBetaFraction over 75..175 examples.
+                // Linear ramp from activation threshold over next 100 examples
                 var progress = Math.Clamp(
                     (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
                     0.0,
@@ -1184,10 +1184,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 ? data.Alpha
                 : ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
 
-            // Restore neural beta so it survives server restarts. Only restore if a neural strategy is actually wired in - otherwise a stale persisted value would leak into CurrentNeuralBeta and logs.
-            if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
+            // Restore neural beta only when enough training data exists
+            if (_neural is not null
+                && data.TrainingExampleCount >= NeuralActivationThreshold
+                && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
             {
                 _neuralBeta = data.NeuralBeta;
+            }
+            else if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
+            {
+                _neuralBeta = 0.0;
             }
             else if (_neural is not null && data.NeuralBeta > NeuralMaxBetaFraction &&
                      _logger is not null && _logger.IsEnabled(LogLevel.Information))

@@ -88,8 +88,8 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var betaBefore = ensemble.CurrentNeuralBeta;
         Assert.True(betaBefore > 0, $"Neural beta must have activated, was {betaBefore:F4}");
 
-        // 30 examples: learned trains (>=20) but neural fails (<40).
-        Assert.True(ensemble.Train(CleanExamples(30)));
+        // 29 examples: learned trains but neural fails
+        Assert.True(ensemble.Train(CleanExamples(29)));
 
         var betaAfter = ensemble.CurrentNeuralBeta;
         Assert.True(betaAfter < betaBefore,
@@ -162,8 +162,8 @@ public sealed class EnsembleScoringStrategyNeuralTests
         // Learned succeeds but neural fails. Each such round halves beta.
         for (var round = 0; round < 12; round++)
         {
-            Assert.True(ensemble.Train(CleanExamples(30)),
-                "Learned training must succeed with >= 20 examples");
+            Assert.True(ensemble.Train(CleanExamples(29)),
+                "Learned training must succeed with >= 12 examples");
 
             var beta = ensemble.CurrentNeuralBeta;
             Assert.True(beta == 0.0 || beta >= EnsembleScoringStrategy.NeuralBetaMinFloor,

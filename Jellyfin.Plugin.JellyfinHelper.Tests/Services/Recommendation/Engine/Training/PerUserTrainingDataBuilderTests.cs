@@ -125,6 +125,9 @@ public sealed class PerUserTrainingDataBuilderTests
 
         Assert.NotEmpty(actionExamples);
         Assert.NotEmpty(horrorExamples);
-        Assert.DoesNotContain(actionExamples, e => horrorExamples.Contains(e));
+        Assert.All(actionExamples, e => Assert.Equal(userAction, e.UserId));
+        Assert.All(horrorExamples, e => Assert.Equal(userHorror, e.UserId));
+        // User specific features must differ; would be equal if profiles leaked
+        Assert.NotEqual(actionExamples.First().Features.GenreSimilarity, horrorExamples.First().Features.GenreSimilarity);
     }
 }

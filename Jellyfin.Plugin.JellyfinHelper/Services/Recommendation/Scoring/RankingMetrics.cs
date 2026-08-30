@@ -184,7 +184,7 @@ internal static class RankingMetrics
                 ComputeNdcgAtK(predictions, labels, k));
         }
 
-        var groups = examples.GroupBy(e => e.UserId);
+        var groups = examples.Where(e => e.UserId != Guid.Empty).GroupBy(e => e.UserId);
         var totalP = 0.0;
         var totalR = 0.0;
         var totalN = 0.0;
