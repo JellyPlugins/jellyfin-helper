@@ -462,19 +462,45 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        var progressing = new List<Guid>();
+        var watchedBySeries = BuildWatchedBySeriesLookup(profile);
+        var progressing = GetProgressingSeriesIds(watchedBySeries, seriesEpisodeCounts);
+        if (progressing.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var candidateGenreSet = new HashSet<string>(
+            candidate.Genres ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        peopleLookup.TryGetValue(candidate.Id, out var candidatePeople);
+        var candidatePeopleSet = candidatePeople is not null
+            ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        return ComputeBestSeriesJaccard(progressing, watchedBySeries, peopleLookup, candidateGenreSet, candidatePeopleSet);
+    }
+
+    private static Dictionary<Guid, List<WatchedItemInfo>> BuildWatchedBySeriesLookup(UserWatchProfile profile)
+    {
         var watchedBySeries = new Dictionary<Guid, List<WatchedItemInfo>>();
         foreach (var w in profile.WatchedItems.Where(w => w.SeriesId.HasValue && w.HasMeaningfulInteraction()))
         {
-            if (!watchedBySeries.TryGetValue(w.SeriesId!.Value, out var list))
+            if (!watchedBySeries.TryGetValue(w.SeriesId.Value, out var list))
             {
                 list = new List<WatchedItemInfo>();
-                watchedBySeries[w.SeriesId!.Value] = list;
+                watchedBySeries[w.SeriesId.Value] = list;
             }
 
             list.Add(w);
         }
 
+        return watchedBySeries;
+    }
+
+    private static List<Guid> GetProgressingSeriesIds(
+        Dictionary<Guid, List<WatchedItemInfo>> watchedBySeries,
+        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts)
+    {
+        var progressing = new List<Guid>();
         foreach (var kv in watchedBySeries)
         {
             if (!seriesEpisodeCounts.TryGetValue(kv.Key, out var total) || total <= 0)
@@ -490,48 +516,20 @@ internal static class ContentScoring
             }
         }
 
-        if (progressing.Count == 0)
-        {
-            return 0.0;
-        }
+        return progressing;
+    }
 
-        var candidateGenres = candidate.Genres ?? Array.Empty<string>();
-        var candidateGenreSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
-        peopleLookup.TryGetValue(candidate.Id, out var candidatePeople);
-        var candidatePeopleSet = candidatePeople is not null ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase) : null;
-
+    private static double ComputeBestSeriesJaccard(
+        List<Guid> progressing,
+        Dictionary<Guid, List<WatchedItemInfo>> watchedBySeries,
+        Dictionary<Guid, HashSet<string>> peopleLookup,
+        HashSet<string> candidateGenreSet,
+        HashSet<string>? candidatePeopleSet)
+    {
         var best = 0.0;
         foreach (var seriesId in progressing)
         {
-            var seriesGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var seriesPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var w in watchedBySeries[seriesId])
-            {
-                if (w.Genres is not null)
-                {
-                    foreach (var g in w.Genres)
-                    {
-                        seriesGenres.Add(g);
-                    }
-                }
-
-                if (peopleLookup.TryGetValue(w.ItemId, out var p))
-                {
-                    foreach (var person in p)
-                    {
-                        seriesPeople.Add(person);
-                    }
-                }
-
-                if (peopleLookup.TryGetValue(seriesId, out var sp))
-                {
-                    foreach (var person in sp)
-                    {
-                        seriesPeople.Add(person);
-                    }
-                }
-            }
-
+            CollectSeriesFeatureSets(seriesId, watchedBySeries[seriesId], peopleLookup, out var seriesGenres, out var seriesPeople);
             var genreJaccard = SimilarityComputer.ComputeJaccardFromSets(candidateGenreSet, seriesGenres);
             var peopleJaccard = candidatePeopleSet is not null && seriesPeople.Count > 0
                 ? SimilarityComputer.ComputeJaccardFromSets(candidatePeopleSet, seriesPeople)
@@ -544,5 +542,40 @@ internal static class ContentScoring
         }
 
         return Math.Clamp(best, 0.0, 1.0);
+    }
+
+    private static void CollectSeriesFeatureSets(
+        Guid seriesId,
+        List<WatchedItemInfo> items,
+        Dictionary<Guid, HashSet<string>> peopleLookup,
+        out HashSet<string> genres,
+        out HashSet<string> people)
+    {
+        genres = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        people = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var w in items)
+        {
+            if (w.Genres is not null)
+            {
+                foreach (var g in w.Genres)
+                {
+                    genres.Add(g);
+                }
+            }
+
+            AddPeopleFromLookup(w.ItemId, peopleLookup, people);
+            AddPeopleFromLookup(seriesId, peopleLookup, people);
+        }
+    }
+
+    private static void AddPeopleFromLookup(Guid id, Dictionary<Guid, HashSet<string>> peopleLookup, HashSet<string> target)
+    {
+        if (peopleLookup.TryGetValue(id, out var found))
+        {
+            foreach (var person in found)
+            {
+                target.Add(person);
+            }
+        }
     }
 }

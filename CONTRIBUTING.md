@@ -180,6 +180,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── RepairLinksTaskTests.cs                           # Dry-run flag, cancellation, progress reporting; no filesystem I/O
 │   ├── RecommendationsTaskTests.cs
 │   ├── UserActivityUpdateTaskTests.cs
+│   ├── CleanupCancellationTests.cs             # CancellationToken propagates: pre-cancelled token throws OperationCanceledException in all three cleanup task types (EmptyFolders, Trickplay, OrphanedSubtitles)
 │   └── ...
 ├── Services/
 │   ├── DateTimeNormalizationTests.cs      # UTC coercion helper: guards against Local→SpecifyKind bugs in cache timestamps
@@ -270,6 +271,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── CollaborativeFilterTests.cs
 │       │   ├── ContentAffinityResolverTests.cs         # ResolveSeriesStatus train/serve parity; non-fatal exception fallbacks
 │       │   ├── ContentScoringTests.cs
+│       │   ├── ContentScoringGenreEngagementTests.cs   # ComputeGenreEngagement: empty genres/history → neutral; familiarity/completion/abandon rate with matching genre history; ComputeUserEngagementAggregates: no-history neutral, active-user thresholds; ComputeSeriesAffinity: non-series → 0
 │       │   ├── DiversityRerankerTests.cs
 │       │   ├── EngineDiscoveryWatchedStatusTests.cs     # TrainStrategy marks favorited movies/series watched with the correct media type
 │       │   ├── EngineIdfRarityTests.cs                  # IDF rarity weighting: rare genres/studios contribute more than common ones

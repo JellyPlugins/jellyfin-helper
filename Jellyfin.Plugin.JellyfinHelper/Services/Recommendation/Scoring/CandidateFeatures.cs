@@ -186,7 +186,7 @@ public sealed class CandidateFeatures
     private double _isAbandoned;
     private bool _isAbandonedSet;
     private double _peopleSimilarity;
-    private double _seriesProgressionBoost;
+    private double _seriesAffinity;
     private double _popularityScore;
     private double _dayOfWeekAffinity;
     private double _hourOfDayAffinity;
@@ -291,8 +291,8 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets series affinity (0-1). Max Jaccard to progressing series.</summary>
     public double SeriesAffinity
     {
-        get => _seriesProgressionBoost;
-        set => _seriesProgressionBoost = Clamp01(value);
+        get => _seriesAffinity;
+        set => _seriesAffinity = Clamp01(value);
     }
 
     /// <summary>Gets or sets the series progression boost (0-1). Legacy name for SeriesAffinity.</summary>
@@ -522,7 +522,8 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * CollaborativeScore;
         buffer[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
         buffer[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
-        buffer[(int)FeatureIndex.IsAbandoned] = _isAbandonedSet ? IsAbandoned : HasUserInteraction && CompletionRatio > 0.0 && CompletionRatio < AbandonedThreshold ? 1.0 : 0.0;
+        var isAbandonedFallback = HasUserInteraction && CompletionRatio > 0.0 && CompletionRatio < AbandonedThreshold ? 1.0 : 0.0;
+        buffer[(int)FeatureIndex.IsAbandoned] = _isAbandonedSet ? IsAbandoned : isAbandonedFallback;
         buffer[(int)FeatureIndex.HasInteraction] = HasUserInteraction ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
         buffer[(int)FeatureIndex.StudioMatch] = StudioMatch ? 1.0 : 0.0;
