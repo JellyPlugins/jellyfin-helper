@@ -823,6 +823,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     averageWriterWeight,
                     preferredBilledPeople,
                     genreStudioIdf,
+                    seriesEpisodeCounts,
                     alphaOffset));
         }
 
@@ -1051,6 +1052,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         double averageWriterWeight,
         IReadOnlyDictionary<string, double> preferredBilledPeople,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
+        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         double alphaOffset = 0.0)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences, userGenreNormSq);
@@ -1062,12 +1064,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var libraryAddedRecency = ContentScoring.ComputeRecencyScore(dateCreated);
         var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, averageYear);
 
-        // Compute user-specific signals. Series with meaningful interaction are excluded upstream (watchedSeriesIds filter), so every Series reaching here is treated like a Movie: look up in watchedItemLookup, fall back to neutral defaults when absent.
+        // Genre level engagement package for the three interaction features.
+        var candidateGenresForEngagement = candidate.Genres ?? Array.Empty<string>();
+        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(candidateGenresForEngagement, userProfile);
+        var hasUserInteraction = familiarity > 0.0;
+        var completionRatio = genreAvgCompletion;
+        var isAbandoned = genreAbandonRate;
         watchedItemLookup.TryGetValue(candidate.Id, out var watchedItem);
-        var hasUserInteraction = watchedItem is not null;
         var userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItem);
-        // No interaction: no completion data, use 0.0 (not 0.5 which implies 50% progress)
-        var completionRatio = hasUserInteraction ? ContentScoring.ComputeCompletionRatio(watchedItem) : 0.0;
 
         // Resolve the candidate's user-invariant content-affinity data from the per-snapshot precompute (built once per candidate, never per user).
         var content = contentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)
@@ -1085,8 +1089,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights, averagePreferredPeopleWeight)
             : 0.0;
 
-        // Series progression boost: hardcoded 0.0 at inference. Series with meaningful episode interaction are excluded upstream, so any series here has no play/favorite signal to aggregate.
-        const double seriesProgressionBoost = 0.0;
+        var seriesAffinity = ContentScoring.ComputeSeriesAffinity(candidate, userProfile, seriesEpisodeCounts, peopleLookup);
 
         // Popularity proxy from collaborative scores (centralized formula)
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
@@ -1123,9 +1126,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             UserRatingScore = userRatingScore,
             HasUserInteraction = hasUserInteraction,
             CompletionRatio = completionRatio,
+            IsAbandoned = isAbandoned,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesProgressionBoost = seriesProgressionBoost,
+            SeriesAffinity = seriesAffinity,
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile),
             HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile),

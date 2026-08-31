@@ -272,6 +272,7 @@ internal static class TrainingFeatureComputer
             out var seriesInheritedTags,
             out var seriesWriters);
 
+        var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile);
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
@@ -284,11 +285,12 @@ internal static class TrainingFeatureComputer
             GenreCount = genreList.Count,
             IsSeries = true,
             UserRatingScore = 0.5,
-            HasUserInteraction = false,
-            CompletionRatio = 0.0,
+            HasUserInteraction = familiarity3 > 0.0,
+            CompletionRatio = genreAvgCompletion3,
+            IsAbandoned = genreAbandonRate3,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesProgressionBoost = seriesProgressionBoost,
+            SeriesAffinity = seriesProgressionBoost,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -60,6 +61,10 @@ internal static class DiscoveryFeedbackExampleBuilder
                 var status = entry.GetStatus();
                 var label = GetLabelForStatus(status);
 
+                var entryGenres = entry.Genres ?? Array.Empty<string>();
+                var (familiarity, genreAvgCompletion, genreAbandonRate) = userProfile is not null
+                    ? ContentScoring.ComputeGenreEngagement(entryGenres, userProfile)
+                    : (0.0, 0.5, 0.0);
                 var features = BuildFeaturesFromEntry(
                     entry,
                     genrePreferences,
@@ -67,6 +72,9 @@ internal static class DiscoveryFeedbackExampleBuilder
                     avgYear,
                     genreExposure,
                     out var hasLegacyPopularity);
+                features.HasUserInteraction = familiarity > 0.0;
+                features.CompletionRatio = genreAvgCompletion;
+                features.IsAbandoned = genreAbandonRate;
 
                 var sampleWeight = hasLegacyPopularity
                     ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5

@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
@@ -370,5 +373,176 @@ internal static class ContentScoring
         return collaborativeScore > 0
             ? Math.Clamp(collaborativeScore * 0.8, 0.0, 1.0)
             : Math.Clamp(combinedCriticScore * 0.3, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Computes user level engagement aggregates used for the three interaction features.
+    /// </summary>
+    /// <param name="profile">The user profile.</param>
+    /// <returns>Average completion, abandon rate and whether user has enough history.</returns>
+    internal static (double AvgCompletion, double AbandonRate, bool IsActive) ComputeUserEngagementAggregates(UserWatchProfile profile)
+    {
+        var meaningful = profile.WatchedItems.Where(w => w.HasMeaningfulInteraction()).ToList();
+        if (meaningful.Count == 0)
+        {
+            return (0.5, 0.0, false);
+        }
+
+        var withCompletion = meaningful.Where(w => w.RuntimeTicks > 0 || w.Played).ToList();
+        var avgCompletion = withCompletion.Count > 0
+            ? withCompletion.Average(ComputeCompletionRatio)
+            : 0.5;
+
+        var abandonCount = withCompletion.Count(w =>
+        {
+            var r = ComputeCompletionRatio(w);
+            return r > 0.0 && r < CandidateFeatures.AbandonedThreshold;
+        });
+        var abandonRate = withCompletion.Count > 0
+            ? (double)abandonCount / withCompletion.Count
+            : 0.0;
+
+        var isActive = meaningful.Count >= 10;
+        return (Math.Clamp(avgCompletion, 0.0, 1.0), Math.Clamp(abandonRate, 0.0, 1.0), isActive);
+    }
+
+    /// <summary>
+    ///     Computes genre level engagement for a candidate. Returns familiarity, avg completion and abandon rate for the candidate genres.
+    /// </summary>
+    /// <param name="candidateGenres">Candidate genres.</param>
+    /// <param name="profile">User profile.</param>
+    /// <returns>Familiarity, avg completion and abandon rate.</returns>
+    internal static (double Familiarity, double AvgCompletion, double AbandonRate) ComputeGenreEngagement(
+        IReadOnlyList<string> candidateGenres,
+        UserWatchProfile profile)
+    {
+        if (candidateGenres.Count == 0 || profile.WatchedItems.Count == 0)
+        {
+            return (0.0, 0.5, 0.0);
+        }
+
+        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var matching = profile.WatchedItems
+            .Where(w => w.HasMeaningfulInteraction() && w.Genres is not null && w.Genres.Any(candidateSet.Contains))
+            .ToList();
+
+        if (matching.Count == 0)
+        {
+            return (0.0, 0.5, 0.0);
+        }
+
+        var familiarity = Math.Clamp((double)matching.Count / Math.Max(profile.WatchedItems.Count(w => w.HasMeaningfulInteraction()), 1), 0.0, 1.0);
+        var withCompletion = matching.Where(w => w.RuntimeTicks > 0 || w.Played).ToList();
+        var avgCompletion = withCompletion.Count > 0 ? withCompletion.Average(ComputeCompletionRatio) : 0.5;
+        var abandonCount = withCompletion.Count(w =>
+        {
+            var r = ComputeCompletionRatio(w);
+            return r > 0.0 && r < CandidateFeatures.AbandonedThreshold;
+        });
+        var abandonRate = withCompletion.Count > 0 ? (double)abandonCount / withCompletion.Count : 0.0;
+        return (Math.Clamp(familiarity, 0.0, 1.0), Math.Clamp(avgCompletion, 0.0, 1.0), Math.Clamp(abandonRate, 0.0, 1.0));
+    }
+
+    /// <summary>
+    ///     Computes series affinity as max Jaccard to progressing series (30 to 80 percent watched).
+    /// </summary>
+    /// <param name="candidate">Candidate item.</param>
+    /// <param name="profile">User profile.</param>
+    /// <param name="seriesEpisodeCounts">Series episode counts.</param>
+    /// <param name="peopleLookup">People lookup.</param>
+    /// <returns>Series affinity 0 to 1.</returns>
+    internal static double ComputeSeriesAffinity(
+        BaseItem candidate,
+        UserWatchProfile profile,
+        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
+        Dictionary<Guid, HashSet<string>> peopleLookup)
+    {
+        if (candidate is not Series)
+        {
+            return 0.0;
+        }
+
+        var progressing = new List<Guid>();
+        var watchedBySeries = new Dictionary<Guid, List<WatchedItemInfo>>();
+        foreach (var w in profile.WatchedItems.Where(w => w.SeriesId.HasValue && w.HasMeaningfulInteraction()))
+        {
+            if (!watchedBySeries.TryGetValue(w.SeriesId!.Value, out var list))
+            {
+                list = new List<WatchedItemInfo>();
+                watchedBySeries[w.SeriesId!.Value] = list;
+            }
+
+            list.Add(w);
+        }
+
+        foreach (var kv in watchedBySeries)
+        {
+            if (!seriesEpisodeCounts.TryGetValue(kv.Key, out var total) || total <= 0)
+            {
+                continue;
+            }
+
+            var watchedCount = kv.Value.Select(v => v.ItemId).Distinct().Count();
+            var ratio = (double)watchedCount / total;
+            if (ratio >= 0.3 && ratio <= 0.8)
+            {
+                progressing.Add(kv.Key);
+            }
+        }
+
+        if (progressing.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var candidateGenres = candidate.Genres ?? Array.Empty<string>();
+        var candidateGenreSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        peopleLookup.TryGetValue(candidate.Id, out var candidatePeople);
+        var candidatePeopleSet = candidatePeople is not null ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase) : null;
+
+        var best = 0.0;
+        foreach (var seriesId in progressing)
+        {
+            var seriesGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seriesPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var w in watchedBySeries[seriesId])
+            {
+                if (w.Genres is not null)
+                {
+                    foreach (var g in w.Genres)
+                    {
+                        seriesGenres.Add(g);
+                    }
+                }
+
+                if (peopleLookup.TryGetValue(w.ItemId, out var p))
+                {
+                    foreach (var person in p)
+                    {
+                        seriesPeople.Add(person);
+                    }
+                }
+
+                if (peopleLookup.TryGetValue(seriesId, out var sp))
+                {
+                    foreach (var person in sp)
+                    {
+                        seriesPeople.Add(person);
+                    }
+                }
+            }
+
+            var genreJaccard = SimilarityComputer.ComputeJaccardFromSets(candidateGenreSet, seriesGenres);
+            var peopleJaccard = candidatePeopleSet is not null && seriesPeople.Count > 0
+                ? SimilarityComputer.ComputeJaccardFromSets(candidatePeopleSet, seriesPeople)
+                : 0.0;
+            var composite = (0.6 * genreJaccard) + (0.4 * peopleJaccard);
+            if (composite > best)
+            {
+                best = composite;
+            }
+        }
+
+        return Math.Clamp(best, 0.0, 1.0);
     }
 }

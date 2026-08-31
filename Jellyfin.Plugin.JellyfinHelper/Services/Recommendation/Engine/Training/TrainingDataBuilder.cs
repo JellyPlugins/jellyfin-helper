@@ -497,10 +497,11 @@ internal static class TrainingDataBuilder
                 .FirstOrDefault();
         }
 
-        // Keep interaction signals neutral so training cannot memorize engagement that is absent at inference.
+        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(rec.Genres, userProfile);
         const double userRatingScore = 0.5;
-        const double completionRatio = 0.0;
-        const bool hasUserInteraction = false;
+        var completionRatio = genreAvgCompletion;
+        var hasUserInteraction = familiarity > 0.0;
+        var isAbandoned = genreAbandonRate;
         var actualCompletionRatio = ContentScoring.ComputeCompletionRatio(watchedItemForRec);
 
         var collabScore = ContentScoring.ComputeCollaborativeScore(rec.ItemId, coOccurrence, collaborativeMax);
@@ -549,9 +550,10 @@ internal static class TrainingDataBuilder
             UserRatingScore = userRatingScore,
             HasUserInteraction = hasUserInteraction,
             CompletionRatio = completionRatio,
+            IsAbandoned = isAbandoned,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesProgressionBoost = seriesProgressionBoost,
+            SeriesAffinity = seriesProgressionBoost,
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(
                 watchedItemForRec,
@@ -912,6 +914,7 @@ internal static class TrainingDataBuilder
         const double seriesProgressionBoost = 0.0;
 
         var wGenres = w.Genres ?? Array.Empty<string>();
+        var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(wGenres, userProfile);
         var wGenreSet = wGenres.Count > 0
             ? new HashSet<string>(wGenres, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -928,11 +931,12 @@ internal static class TrainingDataBuilder
             GenreCount = wGenres.Count,
             IsSeries = isSeries,
             UserRatingScore = 0.5,
-            HasUserInteraction = false,
-            CompletionRatio = 0.0,
+            HasUserInteraction = familiarity2 > 0.0,
+            CompletionRatio = genreAvgCompletion2,
+            IsAbandoned = genreAbandonRate2,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesProgressionBoost = seriesProgressionBoost,
+            SeriesAffinity = seriesProgressionBoost,
             CollectionProgressionBoost = lookups.ItemBoxSetIdsLookup.TryGetValue(w.ItemId, out var orgBoxSetIds2)
                 ? ComputeCollectionProgressionBoostWithCounts(orgBoxSetIds2, watchedBoxSetCountsOrganic)
                 : 0.0,
@@ -1138,6 +1142,7 @@ internal static class TrainingDataBuilder
             negRecencyScore = 0.5;
         }
 
+        var (familiarityNeg, genreAvgCompletionNeg, genreAbandonRateNeg) = ContentScoring.ComputeGenreEngagement(negGenres, userProfile);
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(negGenres, genrePreferences),
@@ -1148,8 +1153,9 @@ internal static class TrainingDataBuilder
             GenreCount = negGenres.Count,
             IsSeries = isSeries,
             UserRatingScore = 0.5,
-            HasUserInteraction = false,
-            CompletionRatio = 0.0,
+            HasUserInteraction = familiarityNeg > 0.0,
+            CompletionRatio = genreAvgCompletionNeg,
+            IsAbandoned = genreAbandonRateNeg,
             PeopleSimilarity = negPeopleSimilarity,
             StudioMatch = negStudioMatch,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),

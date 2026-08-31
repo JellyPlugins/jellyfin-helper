@@ -37,15 +37,13 @@ public enum FeatureIndex
     /// <summary>User personal rating score (0-1).</summary>
     UserRatingScore = 9,
 
-    /// <summary>Watch completion ratio (0-1).</summary>
+    /// <summary>Genre average completion (0-1). Mean completion for this genre.</summary>
     CompletionRatio = 10,
 
-    /// <summary>
-    ///     Abandoned flag (1 if user interacted AND started playback AND CompletionRatio &lt; 25%, else 0).
-    /// </summary>
+    /// <summary>Genre abandon rate (0-1). Fraction abandoned in this genre.</summary>
     IsAbandoned = 11,
 
-    /// <summary>Has user interaction flag (1 if user has watched/started the item, 0 for new candidates). Allows the model to distinguish unrated from disliked.</summary>
+    /// <summary>Genre familiarity (0-1). Whether user has watched this genre before.</summary>
     HasInteraction = 12,
 
     /// <summary>People similarity score (0-1). Measures overlap of cast/directors with user's preferred people.</summary>
@@ -54,8 +52,11 @@ public enum FeatureIndex
     /// <summary>Studio similarity flag (0 or 1). Whether the item is from a studio the user has watched before.</summary>
     StudioMatch = 14,
 
-    /// <summary>Series progression boost (0-1). Higher when the user has watched previous seasons and this is a follow-up.</summary>
-    SeriesProgressionBoost = 15,
+    /// <summary>Series affinity (0-1). Max Jaccard to progressing series the user follows.</summary>
+    SeriesAffinity = 15,
+
+    /// <summary>Legacy name for SeriesAffinity.</summary>
+    SeriesProgressionBoost = SeriesAffinity,
 
     /// <summary>Popularity score (0-1). Based on how many users have watched this item globally. Helps cold-start users.</summary>
     PopularityScore = 16,
@@ -182,6 +183,8 @@ public sealed class CandidateFeatures
     private double _yearProximityScore;
     private double _userRatingScore = 0.5;
     private double _completionRatio = 0.5;
+    private double _isAbandoned;
+    private bool _isAbandonedSet;
     private double _peopleSimilarity;
     private double _seriesProgressionBoost;
     private double _popularityScore;
@@ -254,14 +257,25 @@ public sealed class CandidateFeatures
         set => _userRatingScore = Clamp01(value, 0.5);
     }
 
-    /// <summary>Gets or sets a value indicating whether the user has interacted with this item (watched, started, or rated).</summary>
+    /// <summary>Gets or sets a value indicating whether the user is familiar with this genre.</summary>
     public bool HasUserInteraction { get; set; }
 
-    /// <summary>Gets or sets the watch completion ratio (0-1). 1.0 = fully watched, 0.5 = neutral (no interaction). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets genre average completion (0-1). Mean for this genre.</summary>
     public double CompletionRatio
     {
         get => _completionRatio;
         set => _completionRatio = Clamp01(value, 0.5);
+    }
+
+    /// <summary>Gets or sets genre abandon rate (0-1). Fraction abandoned in this genre.</summary>
+    public double IsAbandoned
+    {
+        get => _isAbandoned;
+        set
+        {
+            _isAbandoned = Clamp01(value);
+            _isAbandonedSet = true;
+        }
     }
 
     /// <summary>Gets or sets the people (cast/director) similarity score (0-1). Values are clamped to [0, 1].</summary>
@@ -274,11 +288,18 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets a value indicating whether the item is from a studio the user has watched before.</summary>
     public bool StudioMatch { get; set; }
 
-    /// <summary>Gets or sets the series progression boost (0-1). Higher when this is a follow-up season the user hasn't watched yet. Values are clamped to [0, 1].</summary>
-    public double SeriesProgressionBoost
+    /// <summary>Gets or sets series affinity (0-1). Max Jaccard to progressing series.</summary>
+    public double SeriesAffinity
     {
         get => _seriesProgressionBoost;
         set => _seriesProgressionBoost = Clamp01(value);
+    }
+
+    /// <summary>Gets or sets the series progression boost (0-1). Legacy name for SeriesAffinity.</summary>
+    public double SeriesProgressionBoost
+    {
+        get => SeriesAffinity;
+        set => SeriesAffinity = value;
     }
 
     /// <summary>Gets or sets the popularity score (0-1). Based on global watch count, helps cold-start users. Values are clamped to [0, 1].</summary>
@@ -501,7 +522,7 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * CollaborativeScore;
         buffer[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
         buffer[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
-        buffer[(int)FeatureIndex.IsAbandoned] = HasUserInteraction && CompletionRatio > 0.0 && CompletionRatio < AbandonedThreshold ? 1.0 : 0.0;
+        buffer[(int)FeatureIndex.IsAbandoned] = _isAbandonedSet ? IsAbandoned : HasUserInteraction && CompletionRatio > 0.0 && CompletionRatio < AbandonedThreshold ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.HasInteraction] = HasUserInteraction ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
         buffer[(int)FeatureIndex.StudioMatch] = StudioMatch ? 1.0 : 0.0;

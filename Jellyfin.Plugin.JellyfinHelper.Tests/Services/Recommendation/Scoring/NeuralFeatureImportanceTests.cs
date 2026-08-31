@@ -139,10 +139,10 @@ public class NeuralFeatureImportanceTests
         var result = NeuralFeatureImportance.ComputePermutationImportance(
             CreateStrategy(),
             BuildExamples(50));
-        var expectedNames = Enum.GetNames<FeatureIndex>();
+        var expectedNames = Enum.GetValues<FeatureIndex>().Distinct().Select(v => v.ToString());
         foreach (var name in expectedNames)
         {
-            Assert.Contains(name, result.Keys);
+            Assert.Contains(name!, result.Keys);
         }
     }
 

@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 public class ScoringGoldenLockTests
 {
     // Deterministic digest of Heuristic+Learned+Neural scores over 500 seeded feature vectors. If a behavior-preserving refactor changes this, the refactor changed behavior.
-    private const string ExpectedDigest = "C92AFA7751C77E7FE07513C01094B4A0CB4650B67B2515C93C6C0B53E2FEF940";
+    private const string ExpectedDigest = "E3C0E4A849E64C10BAA861EFF192021D354F3B796EAFD708AB6F94F456A14B40";
 
     [Fact]
     public void ScoringStrategies_ProduceStableDigest_AcrossSeededFeatureBatch()

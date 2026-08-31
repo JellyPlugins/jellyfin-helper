@@ -78,7 +78,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal const double ValidationLossCeiling = ValidationLossThreshold * 2.0;
 
     /// <summary>Examples needed before neural blending starts. Ensures enough data.</summary>
-    internal const int NeuralActivationThreshold = 120;
+    internal const int NeuralActivationThreshold = 150;
 
     /// <summary>
     ///     Maximum fraction of the learned weight (α) that can be re-allocated to the neural strategy.

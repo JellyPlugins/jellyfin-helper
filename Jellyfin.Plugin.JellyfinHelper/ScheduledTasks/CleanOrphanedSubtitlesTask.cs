@@ -67,11 +67,9 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
         try
         {
-            // Process directories: for each directory, check all subtitle files
             var allDirs = new[] { libraryPath }.Concat(
                 TryGetSubdirectories(libraryPath));
 
-            // Hoist trash path computation out of loop - libraryPath is constant per iteration
             var trashFullPath = ConfigHelper.GetTrashPath(libraryPath);
             var normalizedTrash = Path.GetFullPath(trashFullPath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -93,7 +91,6 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                // Check each subtitle file
                 foreach (var file in files)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -108,6 +105,10 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                     bytesFreed += fileBytes;
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex) when (!ex.IsFatal())
         {

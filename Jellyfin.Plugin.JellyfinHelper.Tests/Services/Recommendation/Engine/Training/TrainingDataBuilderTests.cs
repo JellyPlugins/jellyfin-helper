@@ -303,7 +303,7 @@ public sealed class TrainingDataBuilderTests
         var seriesExample = Assert.Single(examples, e => e.Features.IsSeries);
         Assert.False(seriesExample.Features.HasUserInteraction);
         Assert.Equal(0.5, seriesExample.Features.UserRatingScore, 9);
-        Assert.Equal(0.0, seriesExample.Features.CompletionRatio, 9);
+        Assert.Equal(0.5, seriesExample.Features.CompletionRatio, 9);
         Assert.True(seriesExample.Label > 0.0);
     }
 
@@ -342,7 +342,7 @@ public sealed class TrainingDataBuilderTests
         var seriesExample = Assert.Single(examples);
         Assert.False(seriesExample.Features.HasUserInteraction);
         Assert.Equal(0.5, seriesExample.Features.UserRatingScore, 9);
-        Assert.Equal(0.0, seriesExample.Features.CompletionRatio, 9);
+        Assert.Equal(0.5, seriesExample.Features.CompletionRatio, 9);
         Assert.Equal(0.65, seriesExample.Label, 9);
     }
 

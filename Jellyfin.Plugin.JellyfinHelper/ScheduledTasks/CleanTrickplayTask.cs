@@ -67,17 +67,14 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
         {
             var directories = GetSubdirectoriesIterative(libraryPath);
 
-            // Resolve the trash folder path so we can skip any directories inside it.
             var trashPath = ConfigHelper.GetTrashPath(libraryPath);
             var trashRoot = Path.GetFullPath(trashPath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            // Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS.
             var pathComparison = OperatingSystem.IsLinux()
                 ? StringComparison.Ordinal
                 : StringComparison.OrdinalIgnoreCase;
 
-            // Cache files per parent directory to avoid repeated filesystem calls. Use OS-aware case sensitivity: Linux paths are case-sensitive (Ordinal), Windows/macOS paths are case-insensitive (OrdinalIgnoreCase).
             var fileCacheComparer = OperatingSystem.IsLinux()
                 ? StringComparer.Ordinal
                 : StringComparer.OrdinalIgnoreCase;
@@ -97,6 +94,10 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 deletedCount += itemDeleted;
                 bytesFreed += itemBytes;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
