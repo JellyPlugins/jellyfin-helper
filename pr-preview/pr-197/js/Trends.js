@@ -700,8 +700,8 @@ function buildRecentTree(data) {
     libKeys.forEach(function (libName) {
         var groupItems = grouped[libName];
         var totalSize = 0;
-        for (var idx = 0; idx < groupItems.length; idx++) {
-            var cur = Number(groupItems[idx].Size);
+        for (const groupItem of groupItems) {
+            var cur = Number(groupItem.Size);
             if (Number.isFinite(cur) && cur > 0) totalSize += cur;
         }
 
@@ -711,8 +711,7 @@ function buildRecentTree(data) {
         html += '<span class="insight-tree-lib-size">' + formatBytes(totalSize) + '</span>';
         html += '</div>';
 
-        for (var i = 0; i < groupItems.length; i++) {
-            var e = groupItems[i];
+        for (const e of groupItems) {
             var changeBadge = e.ChangeType === 'added'
                 ? '<span class="insight-badge insight-badge-added">' + T('insightAdded', 'added') + '</span>'
                 : '<span class="insight-badge insight-badge-changed">' + T('insightChanged', 'changed') + '</span>';
