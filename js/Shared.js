@@ -34,6 +34,14 @@ function getCssVar(name, fallback) {
     return (v && v.trim()) || fallback || '';
 }
 
+function getScoreThresholdClass(percent, highClass, midClass, lowClass) {
+    switch (true) {
+        case percent >= 80: return highClass;
+        case percent >= 50: return midClass;
+        default: return lowClass;
+    }
+}
+
 // Translation helper - loaded async from /JellyfinHelper/Translations
 var _translations = {};
 
@@ -446,7 +454,7 @@ function addFadingDelay(element, fadeDelay) {
     element.style.opacity = '1';
 
     // Force reflow then fade in
-    void element.offsetWidth;
+    element.getBoundingClientRect();
     element.classList.add('fade-element');
 
     element._fadeTimer = setTimeout(() => element.style.opacity = '0', fadeDelay);
@@ -516,7 +524,7 @@ function describeApiError(err) {
     else if (status >= 400) {
         // 4xx with HTML body typically means proxy/WAF; JSON body means our own server.
         var trimmed = snippet.trim();
-        var looksLikeHtml = trimmed.length > 0 && trimmed.charAt(0) === '<';
+        var looksLikeHtml = trimmed.length > 0 && trimmed.startsWith('<');
         kind = looksLikeHtml ? 'proxy' : 'server';
     }
 
@@ -746,7 +754,16 @@ function createDialogOverlay(overlayId, titleText, titleColor, bodyContent) {
 function createDialogBtn(text, style, onclick) {
     var btn = document.createElement('button');
     btn.textContent = text;
-    var bg = style === 'cancel' ? 'transparent' : style === 'danger' ? getCssVar('--color-danger', '#e74c3c') : style === 'success' ? getCssVar('--color-success', '#2ecc71') : getCssVar('--color-primary', '#00a4dc');
+    var bg;
+    if (style === 'cancel') {
+        bg = 'transparent';
+    } else if (style === 'danger') {
+        bg = getCssVar('--color-danger', '#e74c3c');
+    } else if (style === 'success') {
+        bg = getCssVar('--color-success', '#2ecc71');
+    } else {
+        bg = getCssVar('--color-primary', '#00a4dc');
+    }
     var border = style === 'cancel' ? '1px solid rgba(255,255,255,0.2)' : 'none';
     btn.style.cssText = 'padding:0.5em 1.2em;border:' + border + ';border-radius:4px;background:' + bg + ';color:#fff;cursor:pointer;font-size:0.9em;';
     btn.onclick = onclick;
