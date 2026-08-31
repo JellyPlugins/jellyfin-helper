@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 
 /// <summary>
-///     A single recommendation for a user with score and explanation.
+///     A single recommendation for a user. Cached fields keep training and inference in sync.
 /// </summary>
 public sealed class RecommendedItem
 {
@@ -76,7 +76,7 @@ public sealed class RecommendedItem
     public float? CommunityRating { get; set; }
 
     /// <summary>
-    ///     Gets or sets the Rotten Tomatoes critic rating (Tomatometer, 0-100%). Stored for training feature parity: allows TrainingService to compute CombinedCriticScore from cached recommendations without re-querying the library.
+    ///     Gets or sets the Rotten Tomatoes critic rating. Cached for training.
     /// </summary>
     public float? CriticRating { get; set; }
 
@@ -86,17 +86,17 @@ public sealed class RecommendedItem
     public string? PrimaryImageTag { get; set; }
 
     /// <summary>
-    ///     Gets or sets the official rating (e.g. "PG-13", "R").
+    ///     Gets or sets the official rating.
     /// </summary>
     public string? OfficialRating { get; set; }
 
     /// <summary>
-    ///     Gets or sets the premiere date (used for recency scoring during training).
+    ///     Gets or sets the premiere date.
     /// </summary>
     public DateTime? PremiereDate { get; set; }
 
     /// <summary>
-    ///     Gets or sets the people (cast/director) names associated with this item. Stored for training feature parity: allows TrainingService to compute PeopleSimilarity from cached recommendations without re-querying the library.
+    ///     Gets or sets the people names. Cached for training.
     /// </summary>
     public IReadOnlyList<string> PeopleNames
     {
@@ -105,7 +105,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the studio names associated with this item. Stored for training feature parity: allows TrainingService to compute StudioMatch from cached recommendations without re-querying the library.
+    ///     Gets or sets the studio names. Cached for training.
     /// </summary>
     public IReadOnlyList<string> Studios
     {
@@ -114,7 +114,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the tags associated with this item. Stored for training feature parity: allows TrainingService to compute TagSimilarity from cached recommendations without re-querying the library.
+    ///     Gets or sets the tags. Cached for training.
     /// </summary>
     public IReadOnlyList<string> Tags
     {
@@ -123,7 +123,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the normalized audio language codes available for this item. Stored for training feature parity: allows TrainingDataBuilder to compute LanguageAffinity from cached recommendations without re-querying media streams.
+    ///     Gets or sets the audio language codes. Cached for training.
     /// </summary>
     public IReadOnlyList<string> AudioLanguages
     {
@@ -132,7 +132,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the normalized subtitle language codes available for this item. Stored for training feature parity: allows TrainingDataBuilder to compute SubtitleLanguageAffinity from cached recommendations without re-querying media streams.
+    ///     Gets or sets the subtitle language codes. Cached for training.
     /// </summary>
     public IReadOnlyList<string> SubtitleLanguages
     {
@@ -141,7 +141,7 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the BoxSet (collection) IDs this item belongs to. Stored for training feature parity: allows TrainingDataBuilder to compute CollectionProgressionBoost from cached recommendations without re-querying the library.
+    ///     Gets or sets the BoxSet ids. Cached for training.
     /// </summary>
     public IReadOnlyList<Guid> BoxSetIds
     {
@@ -150,17 +150,17 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the date the item was added to the Jellyfin library. Stored for training feature parity: allows TrainingDataBuilder to compute LibraryAddedRecency from cached recommendations without re-querying the library.
+    ///     Gets or sets the date the item was added to the library.
     /// </summary>
     public DateTime? DateCreated { get; set; }
 
     /// <summary>
-    ///     Gets or sets the TMDb collection (franchise) name this movie belongs to, if any.
+    ///     Gets or sets the TMDb collection name if any.
     /// </summary>
     public string? TmdbCollectionName { get; set; }
 
     /// <summary>
-    ///     Gets or sets the production country codes/names associated with this item. Stored for training feature parity: allows TrainingDataBuilder to compute ProductionLocationAffinity from cached recommendations without re-querying the library.
+    ///     Gets or sets the production countries. Cached for training.
     /// </summary>
     public IReadOnlyList<string> ProductionCountries
     {
@@ -178,17 +178,17 @@ public sealed class RecommendedItem
     }
 
     /// <summary>
-    ///     Gets or sets the series lifecycle status (e.g. "Continuing", "Ended", "Unreleased"); null for non-series.
+    ///     Gets or sets the series status.
     /// </summary>
     public string? SeriesStatus { get; set; }
 
     /// <summary>
-    ///     Gets or sets the series end date, if any. Stored for training feature parity: contributes to SeriesCompletability alongside SeriesStatus.
+    ///     Gets or sets the series end date if any.
     /// </summary>
     public DateTime? EndDate { get; set; }
 
     /// <summary>
-    ///     Gets or sets the writer (screenplay/creator) names associated with this item. Stored for training feature parity: allows TrainingDataBuilder to compute WriterAffinity from cached recommendations without re-querying the library.
+    ///     Gets or sets the writer names. Cached for training.
     /// </summary>
     public IReadOnlyList<string> WriterNames
     {

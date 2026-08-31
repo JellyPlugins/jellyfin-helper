@@ -69,10 +69,7 @@ internal static class PreferenceBuilder
             return vector;
         }
 
-        // Shared per-series played counter. BuildGenrePreferenceVector and BuildPeoplePreferenceWeights use the exact same aggregation, so extracting the loop guarantees train/serve parity between the Genre- and People-similarity features.
         var watchedEpisodesPerSeries = BuildWatchedEpisodesPerSeries(profile, seriesEpisodeCounts);
-
-        // Build genre preferences with temporal decay - recent watches count more
         var now = DateTime.UtcNow;
         AccumulateWatchedGenreWeights(vector, profile, seriesEpisodeCounts, watchedEpisodesPerSeries, now);
 
@@ -537,14 +534,10 @@ internal static class PreferenceBuilder
     {
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-        // Shared helper - same aggregation as BuildGenrePreferenceVector so both feature
-        // pipelines receive identical progression ratios by construction, not by convention.
         var watchedEpisodesPerSeries = BuildWatchedEpisodesPerSeries(userProfile, seriesEpisodeCounts);
 
         foreach (var w in userProfile.WatchedItems)
         {
-            // Same eligibility as BuildGenrePreferenceVector so both feature pipelines see
-            // exactly the same "which rows contribute" answer for a given profile.
             if (!IsEligibleForPreferenceWeighting(w))
             {
                 continue;

@@ -11,33 +11,19 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 internal static class ExternalCandidateFeatureBuilder
 {
-    /// <summary>
-    ///     Minimum number of preferred people required for full similarity score (1.0). With fewer than this many matching people, a single match yields a proportionally higher score (e.g.
-    /// </summary>
     private const int MinPeopleForFullScore = 5;
 
-    /// <summary>
-    ///     Normalization cap for TMDb popularity values. Top trending TMDb items typically peak around 100-200 popularity; values above this cap saturate at 1.0.
-    /// </summary>
     private const double PopularityNormalizationCap = 200.0;
 
     /// <summary>
     ///     Builds a feature vector from a TMDb discover item and user preferences.
     /// </summary>
-    /// <param name="candidate">The TMDb discover item to score.</param>
-    /// <param name="genrePreferences">The user's genre preference vector (genre name to weight).</param>
-    /// <param name="preferredPeople">The user's preferred people set (actors/directors).</param>
-    /// <param name="avgYear">The user's average watched production year.</param>
-    /// <param name="genreExposure">
-    ///     The user's pre-built genre exposure analysis (from
-    ///     <see cref="PreferenceBuilder.BuildGenreExposureAnalysis"/>). Required so that the
-    ///     GenreUnderexposure / GenreDominanceRatio / GenreAffinityGap features are computed
-    ///     identically to the discovery training pipeline
-    ///     (<c>DiscoveryFeedbackExampleBuilder</c>). Passing a matching analysis eliminates the
-    ///     train/serve skew that would otherwise leave these three features at 0.0 during
-    ///     inference while the model was trained on their real values.
-    /// </param>
-    /// <returns>A populated <see cref="CandidateFeatures"/> instance.</returns>
+    /// <param name="candidate">The TMDb discover item.</param>
+    /// <param name="genrePreferences">Genre preference vector.</param>
+    /// <param name="preferredPeople">Preferred people set.</param>
+    /// <param name="avgYear">Average watched year.</param>
+    /// <param name="genreExposure">Prebuilt genre exposure analysis.</param>
+    /// <returns>A populated feature vector.</returns>
     internal static CandidateFeatures Build(
         TmdbDiscoverItem candidate,
         Dictionary<string, double> genrePreferences,
@@ -50,7 +36,7 @@ internal static class ExternalCandidateFeatureBuilder
         ArgumentNullException.ThrowIfNull(preferredPeople);
         ArgumentNullException.ThrowIfNull(genreExposure);
 
-        // Defensive: ensure the preferredPeople set uses case-insensitive comparison. Callers should already pass OrdinalIgnoreCase, but rebuild if not to prevent silent zero-overlap from TMDb name casing differences.
+        // Ensure case insensitive matching.
         if (preferredPeople.Count > 0 && preferredPeople.Comparer != StringComparer.OrdinalIgnoreCase)
         {
             preferredPeople = new HashSet<string>(preferredPeople, StringComparer.OrdinalIgnoreCase);
@@ -60,12 +46,10 @@ internal static class ExternalCandidateFeatureBuilder
 
         var features = new CandidateFeatures
         {
-            // Strong signals (derivable from TMDb)
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences),
             CombinedCriticScore = Math.Clamp(candidate.VoteAverage / 10.0, 0.0, 1.0),
-            // Recency is quantized to the release YEAR (mid-year anchor) rather than the full EffectiveReleaseDate, to stay bit-identical with the discovery TRAINING path (DiscoveryFeedbackExampleBuilder), which only has the release year cached on the feedback entry.
             RecencyScore = candidate.EffectiveReleaseDate is { } releaseDate
-                                && releaseDate.Year is >= 1 and <= 9999
+                                 && releaseDate.Year is >= 1 and <= 9999
                 ? ContentScoring.ComputeRecencyScore(new DateTime(releaseDate.Year, 7, 1, 0, 0, 0, DateTimeKind.Utc))
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(
@@ -74,8 +58,6 @@ internal static class ExternalCandidateFeatureBuilder
             IsSeries = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase),
             PopularityScore = NormalizePopularity(candidate.Popularity),
             PeopleSimilarity = ComputePeopleSimilarity(candidate, preferredPeople),
-
-            // External candidates are unwatched by definition, so interaction signals use the same neutral values as library inference (HasInteraction false -> CompletionRatio 0.0).
             CollaborativeScore = 0.5,
             UserRatingScore = 0.5,
             HasUserInteraction = false,
@@ -92,7 +74,6 @@ internal static class ExternalCandidateFeatureBuilder
             SubtitleLanguageAffinity = 0.5,
             CollectionProgressionBoost = 0.0,
 
-            // New content-affinity signals are library-only and cannot be derived from the TMDb discover payload (no collection id, countries, writers, billing, or series status), so they are neutralized: overlap-style signals -> 0.0, SeriesCompletability -> 0.5 (N/A).
             FranchiseAffinity = 0.0,
             ProductionLocationAffinity = 0.0,
             InheritedTagSimilarity = 0.0,
@@ -101,8 +82,6 @@ internal static class ExternalCandidateFeatureBuilder
             BillingWeightedPeople = 0.0,
             GenreStudioIdfPrior = 0.0
         };
-
-        // Genre exposure features: MUST be computed here (inference) with the same analysis used by DiscoveryFeedbackExampleBuilder (training) to avoid train/serve skew.
         var (underexposure, dominanceRatio, affinityGap) =
             PreferenceBuilder.ComputeGenreExposureFeatures(genres, genreExposure);
         features.GenreUnderexposure = underexposure;
@@ -150,7 +129,7 @@ internal static class ExternalCandidateFeatureBuilder
     }
 
     /// <summary>
-    ///     Computes people similarity from limited TMDb data. TMDb discover responses include limited cast data; full cast requires a separate /movie/{id}/credits call which is too expensive for bulk queries.
+    ///     Computes people similarity from TMDb discover data.
     /// </summary>
     private static double ComputePeopleSimilarity(
         TmdbDiscoverItem candidate,

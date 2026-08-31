@@ -252,7 +252,7 @@ internal static class EngineConstants
     ]);
 
     /// <summary>
-    ///     Shared collection-progression boost formula used by BOTH the live inference path (Engine.ComputeCollectionProgressionBoostLive) and the training path (TrainingDataBuilder.ComputeCollectionProgressionBoostWithCounts) so a copy-drift between the two call sites.
+    ///     Collection progression boost used by both inference and training.
     /// </summary>
     /// <param name="watchedSiblingCount">
     ///     Number of siblings from the same BoxSet the user has watched. Non-positive values
@@ -273,7 +273,7 @@ internal static class EngineConstants
     }
 
     /// <summary>
-    ///     Shared series-completability formula used by BOTH the live inference path (Engine.ScoreCandidate) and the training path so the two call sites cannot drift.
+    ///     Series completability used by both inference and training.
     /// </summary>
     /// <param name="isSeries">Whether the candidate is a series.</param>
     /// <param name="seriesStatus">The <c>SeriesStatus</c> name (e.g. "Continuing", "Ended", "Unreleased"), or null.</param>
@@ -298,18 +298,17 @@ internal static class EngineConstants
 
         if (string.Equals(seriesStatus, "Continuing", StringComparison.OrdinalIgnoreCase))
         {
-            // A known end date on a still-"Continuing" series signals it has effectively wrapped.
+            // Continuing with an end date is treated as halfway to ended.
             return hasEndDate
                 ? (SeriesCompletabilityContinuing + SeriesCompletabilityEnded) / 2.0
                 : SeriesCompletabilityContinuing;
         }
 
-        // Unknown / absent status -> neutral (do not bias ranking).
         return SeriesCompletabilityNeutral;
     }
 
     /// <summary>
-    ///     Shared billing-weight formula used by BOTH the live inference path (Engine.ResolveBillingWeightMap) and the training path so the two call sites cannot drift.
+    ///     Billing weight used by both inference and training.
     /// </summary>
     /// <param name="sortOrder">The ascending billing position (0 = top-billed).</param>
     /// <returns>A billing weight in <c>(0.0, 1.0]</c>.</returns>

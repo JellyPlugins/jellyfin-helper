@@ -18,11 +18,7 @@ internal static class DiscoveryFeedbackExampleBuilder
     /// </summary>
     /// <param name="feedbackResults">All discovery feedback data (loaded from <see cref="IDiscoveryFeedbackStore"/>).</param>
     /// <param name="profileById">User watch profiles keyed by user ID (for computing user-specific features).</param>
-    /// <param name="seriesEpisodeCounts">
-    ///     Per-series total-episode-count map, forwarded to <see cref="PreferenceBuilder.BuildGenrePreferenceVector"/>
-    ///     so the discovery-feedback training examples apply the same progression weighting as the
-    ///     inference path. May be null/empty (neutral, unweighted) - see <c>TrainingDataBuilder.BuildExamples</c>.
-    /// </param>
+    /// <param name="seriesEpisodeCounts">Per series episode count. Same weighting as inference. Null means neutral.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>A list of training examples and the count of discovery examples added.</returns>
     internal static (List<TrainingExample> Examples, int Count) BuildDiscoveryExamples(
@@ -47,7 +43,6 @@ internal static class DiscoveryFeedbackExampleBuilder
                 continue;
             }
 
-            // Look up the user's watch profile for computing features.
             profileById.TryGetValue(userFeedback.UserId, out var userProfile);
 
             BuildUserContext(
@@ -65,7 +60,6 @@ internal static class DiscoveryFeedbackExampleBuilder
                 var status = entry.GetStatus();
                 var label = GetLabelForStatus(status);
 
-                // Build feature vector from discovery metadata. hasLegacyPopularity signals that the original TMDb popularity was not persisted on this entry.
                 var features = BuildFeaturesFromEntry(
                     entry,
                     genrePreferences,
@@ -109,7 +103,6 @@ internal static class DiscoveryFeedbackExampleBuilder
         out HashSet<string> preferredPeople,
         out PreferenceBuilder.GenreExposureAnalysis genreExposure)
     {
-        // Build user-specific preferences for feature computation. Users without a watch profile get empty preferences - their explicit discovery interactions (request/dismiss) are still valuable training signals even when genre features default to zero/neutral.
         genrePreferences = userProfile != null
             ? PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts)
             : new Dictionary<string, double>();
@@ -118,7 +111,6 @@ internal static class DiscoveryFeedbackExampleBuilder
             ? ContentScoring.ComputeAverageYear(userProfile)
             : 0.0;
 
-        // Build preferred people set from watch profile
         preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (userProfile?.TopPeople is { } topPeople)
         {
@@ -128,7 +120,6 @@ internal static class DiscoveryFeedbackExampleBuilder
             }
         }
 
-        // Genre exposure analysis for advanced features. BuildGenreExposureAnalysis handles empty genrePreferences gracefully by returning an analysis with IsValid=false, which causes all exposure features to default to 0.0 (neutral).
         genreExposure = userProfile != null
             ? PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile)
             : new PreferenceBuilder.GenreExposureAnalysis
@@ -157,7 +148,7 @@ internal static class DiscoveryFeedbackExampleBuilder
     }
 
     /// <summary>
-    ///     Returns the most recent interaction timestamp for a feedback entry. Uses the maximum of all stored timestamps to ensure training examples are placed at the correct temporal position for incremental-cutoff and holdout logic.
+    ///     Returns the most recent interaction timestamp for a feedback entry.
     /// </summary>
     private static DateTime GetLatestInteractionUtc(DiscoveryFeedbackEntry entry)
     {
@@ -181,7 +172,7 @@ internal static class DiscoveryFeedbackExampleBuilder
     }
 
     /// <summary>
-    ///     Builds a CandidateFeatures vector from a discovery feedback entry. Uses the same feature structure as the main scoring pipeline but with neutral values for features that require library-side data.
+    ///     Builds a CandidateFeatures vector from a discovery feedback entry.
     /// </summary>
     private static CandidateFeatures BuildFeaturesFromEntry(
         DiscoveryFeedbackEntry entry,
@@ -191,25 +182,18 @@ internal static class DiscoveryFeedbackExampleBuilder
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
         out bool hasLegacyPopularity)
     {
-        // Null-safe genre access
         var genres = entry.Genres ?? Array.Empty<string>();
 
-        // Compute genre similarity against user profile
         var genreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences);
 
-        // Compute combined critic score from TMDb rating; zero/absent ratings return 0.5 (neutral),
-        // matching inference behavior.
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore((float?)entry.TmdbRating, null);
 
-        // Compute recency from production year
         var recencyScore = entry.Year is { } year and >= 1 and <= 9999
             ? ContentScoring.ComputeRecencyScore(new DateTime(year, 7, 1, 0, 0, 0, DateTimeKind.Utc))
             : 0.5;
 
-        // Year proximity
         var yearProximityScore = ContentScoring.ComputeYearProximity(entry.Year, avgYear);
 
-        // People similarity from cached KnownPeople. Only populated for candidates that were enriched with credits data during discovery generation (top-N by pre-score via EnrichTopCandidatesWithCreditsAsync).
         var peopleSimilarity = 0.0;
         if (entry.KnownPeople is { Count: > 0 } && preferredPeople.Count > 0)
         {
@@ -217,7 +201,6 @@ internal static class DiscoveryFeedbackExampleBuilder
                 entry.KnownPeople, preferredPeople);
         }
 
-        // Popularity feature: route THROUGH the same normalisation helper inference uses so the training path can never diverge from what the model sees at serve time.
         var popularityScore = ExternalCandidateFeatureBuilder.NormalizePopularity(entry.Popularity);
         hasLegacyPopularity = entry.Popularity <= 0;
 
@@ -225,7 +208,6 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         var features = new CandidateFeatures
         {
-            // Strong signals (derivable from TMDb metadata)
             GenreSimilarity = genreSimilarity,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = recencyScore,
@@ -235,7 +217,6 @@ internal static class DiscoveryFeedbackExampleBuilder
             PeopleSimilarity = peopleSimilarity,
             PopularityScore = popularityScore,
 
-            // External items have no watch state, so interaction signals stay neutral and match inference (HasInteraction false -> CompletionRatio 0.0).
             CollaborativeScore = 0.5,
             UserRatingScore = 0.5,
             HasUserInteraction = false,
@@ -251,8 +232,6 @@ internal static class DiscoveryFeedbackExampleBuilder
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
             CollectionProgressionBoost = 0.0,
-
-            // Lock-step with ExternalCandidateFeatureBuilder: the same 7 new library-only signals are neutralized identically (overlap -> 0.0, SeriesCompletability -> 0.5) because the discovery feedback entry carries no collection/country/writer/billing/status data.
             FranchiseAffinity = 0.0,
             ProductionLocationAffinity = 0.0,
             InheritedTagSimilarity = 0.0,

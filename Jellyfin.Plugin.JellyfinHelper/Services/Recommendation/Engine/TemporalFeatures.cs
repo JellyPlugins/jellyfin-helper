@@ -39,7 +39,6 @@ internal static class TemporalFeatures
                 continue;
             }
 
-            // Include all items with real playback interaction (not just Played=true). This aligns with the broader interaction predicate used by TrainingService and Engine (Played || PlayCount > 0 || PlaybackPositionTicks > 0).
             if (!w.Played && w.PlayCount <= 0 && w.PlaybackPositionTicks <= 0)
             {
                 continue;
@@ -96,7 +95,6 @@ internal static class TemporalFeatures
                 continue;
             }
 
-            // Include all items with real playback interaction (not just Played=true). This aligns with the broader interaction predicate used by TrainingService and Engine (Played || PlayCount > 0 || PlaybackPositionTicks > 0).
             if (!w.Played && w.PlayCount <= 0 && w.PlaybackPositionTicks <= 0)
             {
                 continue;
@@ -123,7 +121,7 @@ internal static class TemporalFeatures
     }
 
     /// <summary>
-    ///     Maps an hour (0-23) to a time-of-day bucket for temporal affinity computation. Buckets: 0 = night (0-5), 1 = morning (6-11), 2 = afternoon (12-17), 3 = evening (18-23).
+    ///     Maps an hour to a time of day bucket. 0 is night, 1 morning, 2 afternoon, 3 evening.
     /// </summary>
     /// <param name="hour">The hour of day (0-23).</param>
     /// <returns>A bucket index (0-3).</returns>
@@ -136,22 +134,16 @@ internal static class TemporalFeatures
     };
 
     /// <summary>
-    ///     Resolves the IsWeekend flag consistently across all feature-vector construction paths (live scoring, Phase 1 recommendation-history examples, Phase 2 organic watches, Phase 3 random negatives, and aggregated series examples).
+    ///     Resolves IsWeekend consistently across training and inference.
     /// </summary>
-    /// <param name="userProfile">The user's watch profile. Must not be null.</param>
-    /// <param name="referenceOverride">
-    ///     Optional fallback timestamp used when the profile has no <see cref="UserWatchProfile.LastActivityDate"/>.
-    /// </param>
-    /// <returns>
-    ///     <c>true</c> if the resolved reference falls on a Saturday or Sunday; otherwise <c>false</c>.
-    ///     When neither the profile anchor nor an override is available, returns a deterministic <c>false</c>
-    ///     so the neural net never learns a signal tied to when the training task happened to run.
-    /// </returns>
+    /// <param name="userProfile">The user profile.</param>
+    /// <param name="referenceOverride">Fallback timestamp when the profile has no activity date.</param>
+    /// <returns>True for Saturday or Sunday, false otherwise. False when no date is available.</returns>
     internal static bool ResolveIsWeekend(UserWatchProfile userProfile, DateTime? referenceOverride = null)
     {
         ArgumentNullException.ThrowIfNull(userProfile);
 
-        // No anchor + no override = no signal. Emit false rather than UtcNow so train/serve rows stay identical.
+        // No date available, return false so training and inference stay consistent.
         var reference = userProfile.LastActivityDate ?? referenceOverride;
         if (!reference.HasValue)
         {

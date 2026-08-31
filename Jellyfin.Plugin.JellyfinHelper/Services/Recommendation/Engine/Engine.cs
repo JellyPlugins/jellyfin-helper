@@ -171,24 +171,19 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         ArgumentNullException.ThrowIfNull(previousResults);
 
-        // Before training, refresh discovery feedback "Requested + Watched" status: resolve TMDb provider IDs from library items, cross-reference watch history, and upgrade the training label from 0.75 (Requested) to 0.90 (RequestedAndWatched) when a requested item was added and watched.
         UpdateDiscoveryWatchedStatus(cancellationToken);
 
-        // Build the per-series total-episode-count map from the live library so training applies the EXACT same progression multiplier as inference.
+        // Use live library data so training and inference share the same progression and rarity tables.
         var seriesEpisodeCounts = BuildSeriesEpisodeCounts();
 
-        // Build the genre/studio IDF table now and reuse the SAME instance for this training run and the subsequent scoring pass, guaranteeing GenreStudioIdfPrior is computed identically in train and serve (train/serve parity for the rarity prior).
         _genreStudioIdf = BuildGenreStudioIdfTable();
 
         var trained = _trainingService.Train(_strategy, previousResults, seriesEpisodeCounts, incremental, _genreStudioIdf, cancellationToken);
 
-        // After training, apply cohort-based feedback: compare watch-rates across exploration cohorts
-        // and shift the sigmoid midpoint to calibrate how quickly the system trusts the ML model.
+        // Adjust learning speed based on cohort watch rates.
         if (trained && _strategy is EnsembleScoringStrategy ensemble && previousResults.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            // Per-user watched-item lookup from current profiles: which previously-recommended items users have since watched.
             var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
             var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
             foreach (var profile in allProfiles)
@@ -198,7 +193,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                         .Where(w => w.HasMeaningfulInteraction())
                         .Select(w => w.ItemId));
 
-                // Add series-level IDs so series recommendations match episode watches
                 foreach (var w in profile.WatchedItems)
                 {
                     if (w.SeriesId.HasValue && w.HasMeaningfulInteraction())
@@ -1135,12 +1129,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile),
             HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile),
-            // IsWeekend is resolved through TemporalFeatures.ResolveIsWeekend so that every feature-vector construction site (live scoring + all four training phases) shares the exact same user-anchored precedence.
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile),
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
             LibraryAddedRecency = libraryAddedRecency,
-            // Content-based nearest-neighbor: composite item-to-item similarity (genre 50%, people 30%, studio 20%)
-            // against the user's most similar watched item. Captures item-level affinity as a fine-tuning signal.
             ContentNearestNeighborScore = ContentScoring.ComputeContentNearestNeighborScore(
                 candidateGenreSet,
                 candidatePeople,
@@ -1149,8 +1140,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 watchedPeopleSets,
                 watchedStudioSets),
             LanguageAffinity = languageAffinity,
-            // Collection/BoxSet progression: uses pre-resolved BoxSet IDs from candidateBoxSetLookup.
-            // No per-candidate parent traversal needed - all BoxSet memberships resolved once during batch init.
             CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
                 candidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
                 watchedBoxSetCounts),

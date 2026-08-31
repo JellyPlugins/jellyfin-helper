@@ -91,7 +91,7 @@ public sealed class WatchedItemInfo
     public Guid? SeriesId { get; set; }
 
     /// <summary>
-    ///     Gets or sets the date the item was added to the Jellyfin library. Used for LibraryAddedRecency feature computation in training (Phase 2 organic items).
+    ///     Gets or sets the date the item was added to the library.
     /// </summary>
     public DateTime? DateCreated { get; set; }
 
@@ -101,12 +101,12 @@ public sealed class WatchedItemInfo
     public string? PrimaryImageTag { get; set; }
 
     /// <summary>
-    ///     Gets or sets the TMDb collection (franchise) name this movie belongs to, if any.
+    ///     Gets or sets the TMDb collection name if any.
     /// </summary>
     public string? TmdbCollectionName { get; set; }
 
     /// <summary>
-    ///     Gets or sets the production country codes/names associated with this item. Used for ProductionLocationAffinity profile building and train/serve parity.
+    ///     Gets or sets the production countries.
     /// </summary>
     public IReadOnlyList<string> ProductionCountries
     {
@@ -124,17 +124,17 @@ public sealed class WatchedItemInfo
     }
 
     /// <summary>
-    ///     Gets or sets the series lifecycle status (e.g. "Continuing", "Ended", "Unreleased"); null for non-series.
+    ///     Gets or sets the series status.
     /// </summary>
     public string? SeriesStatus { get; set; }
 
     /// <summary>
-    ///     Gets or sets the series end date, if any. Contributes to SeriesCompletability alongside <see cref="SeriesStatus"/>.
+    ///     Gets or sets the series end date if any.
     /// </summary>
     public DateTime? EndDate { get; set; }
 
     /// <summary>
-    ///     Gets or sets the writer (screenplay/creator) names associated with this item. Used for WriterAffinity profile building and train/serve parity.
+    ///     Gets or sets the writer names.
     /// </summary>
     public IReadOnlyList<string> WriterNames
     {
@@ -143,7 +143,7 @@ public sealed class WatchedItemInfo
     }
 
     /// <summary>
-    ///     Gets or sets the billed cast/director names associated with this item, aligned positionally to PeopleWeights.
+    ///     Gets or sets the billed cast and director names.
     /// </summary>
     public IReadOnlyList<string> PeopleNames
     {
@@ -152,7 +152,7 @@ public sealed class WatchedItemInfo
     }
 
     /// <summary>
-    ///     Gets or sets the billing weights (derived from PersonInfo.SortOrder) aligned positionally to PeopleNames.
+    ///     Gets or sets the billing weights aligned to PeopleNames.
     /// </summary>
     public IReadOnlyList<double> PeopleWeights
     {
@@ -161,16 +161,16 @@ public sealed class WatchedItemInfo
     }
 
     /// <summary>
-    ///     Determines whether this item represents a meaningful user interaction. Centralized predicate used across the recommendation engine to ensure consistent filtering logic (TrainingService, Engine, PreferenceBuilder).
+    ///     Checks if the user meaningfully interacted with this item.
     /// </summary>
-    /// <returns>True if the user has meaningfully interacted with this item.</returns>
+    /// <returns>True if played, favorited or has any playback.</returns>
     public bool HasMeaningfulInteraction()
         => Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0;
 
     /// <summary>
-    ///     Determines whether this item has real playback activity (excluding favorite-only items).
+    ///     Checks if the user actually played this item.
     /// </summary>
-    /// <returns>True if the user has actually started playing this item.</returns>
+    /// <returns>True if there is real playback.</returns>
     public bool HasPlaybackActivity()
         => Played || PlayCount > 0 || PlaybackPositionTicks > 0;
 }
