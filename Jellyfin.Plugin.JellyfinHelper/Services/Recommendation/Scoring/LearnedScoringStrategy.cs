@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Adaptive ML scoring strategy using a linear model with learned weights. Learns personalized feature weights from user watch history via stochastic gradient descent (SGD).
 /// </summary>
 /// <remarks>
-///     Architecture: 31 input features -> 31 weights + 1 bias -> clamp(0,1) -> score (0-1).
+///     Architecture: 38 input features -> 38 weights + 1 bias -> clamp(0,1) -> score.
 /// </remarks>
 public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrategy
 {
