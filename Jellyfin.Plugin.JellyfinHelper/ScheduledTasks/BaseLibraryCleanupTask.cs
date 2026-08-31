@@ -121,6 +121,8 @@ public abstract class BaseLibraryCleanupTask
     /// <returns>A task that completes when the cleanup finishes.</returns>
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(progress);
+
         if (GetTaskMode() == TaskMode.Deactivate)
         {
             progress.Report(100);

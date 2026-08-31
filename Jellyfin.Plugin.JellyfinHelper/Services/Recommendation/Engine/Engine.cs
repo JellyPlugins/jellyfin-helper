@@ -169,6 +169,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         bool incremental = false,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(previousResults);
+
         // Before training, refresh discovery feedback "Requested + Watched" status: resolve TMDb provider IDs from library items, cross-reference watch history, and upgrade the training label from 0.75 (Requested) to 0.90 (RequestedAndWatched) when a requested item was added and watched.
         UpdateDiscoveryWatchedStatus(cancellationToken);
 

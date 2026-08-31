@@ -3,8 +3,8 @@
 function initTabs() {
     var tabBtns = document.querySelectorAll('.tab-btn');
     for (const tabBtn of tabBtns) {
-        tabBtn.addEventListener('click', function () {
-            var clickedBtn = this;
+        tabBtn.addEventListener('click', function (e) {
+            var clickedBtn = e.currentTarget;
             var tabId = clickedBtn.dataset.tab;
 
             // Check if we're leaving the settings tab with unsaved changes

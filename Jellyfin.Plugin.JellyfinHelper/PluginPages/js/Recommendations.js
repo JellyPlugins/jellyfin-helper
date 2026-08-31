@@ -148,7 +148,7 @@ function renderUserRecommendations(index) {
 
 function renderRecommendationCard(rec, rank) {
     var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
-    var scoreClass = scorePercent >= 80 ? 'recs-score-high' : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
+    var scoreClass = getScoreThresholdClass(scorePercent, 'recs-score-high', 'recs-score-mid', 'recs-score-low');
     var html = '<div class="recs-item"><div class="recs-item-rank">#' + rank + '</div><div class="recs-item-body">';
     html += '<div class="recs-item-title">' + escHtml(rec.Name || T('recsUnknownTitle', 'Unknown')) + '</div><div class="recs-item-meta">';
     if (rec.ItemType) { html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.ItemType) + '</span>'; }
@@ -251,7 +251,14 @@ function renderCompactActivityTable(container, items) {
     for (var r = 0; r < maxRows; r++) {
         var it = items[r];
         var pct = Math.max(0, Math.min(100, Math.round(Number(it.AverageCompletionPercent) || 0)));
-        var sc = pct >= 90 ? 'activity-status-done' : pct > 0 ? 'activity-status-progress' : 'activity-status-new';
+        var sc;
+        if (pct >= 90) {
+            sc = 'activity-status-done';
+        } else if (pct > 0) {
+            sc = 'activity-status-progress';
+        } else {
+            sc = 'activity-status-new';
+        }
         var dn = it.ItemName || '\u2014';
         if (it.SeriesName) {
             dn = it.SeriesName;
@@ -414,8 +421,8 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
 }
 
 function renderDiscoveryCard(rec, index) {
-    var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
-    var scoreClass = scorePercent >= 80 ? 'recs-score-high' : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
+    var pct = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
+    var cls = getScoreThresholdClass(pct, 'recs-score-high', 'recs-score-mid', 'recs-score-low');
     var rawPoster = rec.PosterPath && /^\/[a-zA-Z0-9/_.-]+\.(?:jpg|png|webp)$/.test(rec.PosterPath)
         ? rec.PosterPath
         : '';
@@ -448,9 +455,9 @@ function renderDiscoveryCard(rec, index) {
     if (!Number.isNaN(ratingNum) && ratingNum > 0) { html += '<span class="recs-tag recs-tag-rating">' + ratingNum.toFixed(1) + '</span>'; }
     html += '</div>';
 
-    html += '<div class="recs-item-score ' + scoreClass + '">';
-    html += '<div class="recs-score-bar" style="width:' + scorePercent + '%"></div>';
-    html += '<span class="recs-score-text">' + scorePercent + '% ' + T('recsMatch', 'match') + '</span>';
+    html += '<div class="recs-item-score ' + cls + '">';
+    html += '<div class="recs-score-bar" style="width:' + pct + '%"></div>';
+    html += '<span class="recs-score-text">' + pct + '% ' + T('recsMatch', 'match') + '</span>';
     html += '</div>';
 
     var reasonText = rec.ReasonKey ? T(rec.ReasonKey, rec.Reason || '') : (rec.Reason || '');

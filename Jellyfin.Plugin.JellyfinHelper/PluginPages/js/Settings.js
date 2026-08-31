@@ -262,6 +262,11 @@ var _dirtyTrackingController = null;
 var _dirtyTrackingHandler = null;
 var _dirtyTrackingForm = null;
 
+function handleDirtyInput() {
+    if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
+    _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
+}
+
 function attachDirtyTracking() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
@@ -280,23 +285,18 @@ function attachDirtyTracking() {
         _dirtyTrackingForm = null;
     }
 
-    var handler = function () {
-        if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
-        _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
-    };
-
     if (typeof AbortController === 'function') {
         _dirtyTrackingController = new AbortController();
         var opts = { signal: _dirtyTrackingController.signal };
-        form.addEventListener('input', handler, opts);
-        form.addEventListener('change', handler, opts);
+        form.addEventListener('input', handleDirtyInput, opts);
+        form.addEventListener('change', handleDirtyInput, opts);
     } else {
         // Legacy fallback: no AbortController -> track the handler + form so the
         // next attachDirtyTracking() call can removeEventListener() it, keeping
         // the "one active listener pair per form" invariant intact.
-        form.addEventListener('input', handler);
-        form.addEventListener('change', handler);
-        _dirtyTrackingHandler = handler;
+        form.addEventListener('input', handleDirtyInput);
+        form.addEventListener('change', handleDirtyInput);
+        _dirtyTrackingHandler = handleDirtyInput;
         _dirtyTrackingForm = form;
     }
 }
@@ -341,6 +341,14 @@ if (!window._jfhBeforeunloadBound) {
             e.returnValue = '';
         }
     });
+}
+
+function renderArrCollapseButton(expanded, icon, text, countText, type) {
+    var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
+    arrCollapseButton += '<span class="arr-chevron">▶</span>' + icon + '<span>' + text + '</span><span class="arr-instance-count" id="arrCount' + type + '">' + countText + '</span>';
+    arrCollapseButton += '<span class="help-text">' + escHtml(T('clickToExpand', 'click to expand')) + '</span>';
+    arrCollapseButton += '</button>';
+    return arrCollapseButton;
 }
 
 // Rebuild the entire UI after a language change
@@ -509,14 +517,6 @@ function loadSettings() {
 
         // ── Card 3: Integrations (Seerr, Radarr, Sonarr) ──
         h += '<div class="settings-card">';
-
-        function renderArrCollapseButton(expanded, icon, text, countText, type) {
-            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
-            arrCollapseButton += '<span class="arr-chevron">▶</span>' + icon + '<span>' + text + '</span><span class="arr-instance-count" id="arrCount' + type + '">' + countText + '</span>';
-            arrCollapseButton += '<span class="help-text">' + escHtml(T('clickToExpand', 'click to expand')) + '</span>';
-            arrCollapseButton += '</button>';
-            return arrCollapseButton;
-        }
 
         h += '<div class="section-title">' + escHtml(T('settingsSeerrTitle', 'Seerr settings')) + '</div>';
         h += '<div class="help-text">' + escHtml(T('settingsSeerrHelp', 'Connect to Jellyseerr, Overseerr, or Seerr to automatically clean up old media requests.')) + '</div>';
@@ -1245,12 +1245,10 @@ function attachDiscoveryCopyHandler() {
                     onCopyFailure();
                 }
             });
+        } else if (fallbackCopy(text)) {
+            onCopySuccess();
         } else {
-            if (fallbackCopy(text)) {
-                onCopySuccess();
-            } else {
-                onCopyFailure();
-            }
+            onCopyFailure();
         }
     });
 }
@@ -1884,9 +1882,9 @@ function showTrashPathChangeDialog(payload, options) {
                             } else if (failed > 0) {
                                 var partial = escHtml(T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed));
                                 if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
-                            } else {
+                            } else if (msg) {
                                 // 0 moved, 0 failed: likely a permission issue on the source or empty source
-                                if (msg) msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + escHtml(T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.')) + '</div>';
+                                msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + escHtml(T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.')) + '</div>';
                             }
                             if (options && typeof options.onSuccess === 'function') options.onSuccess();
                         }, function () {

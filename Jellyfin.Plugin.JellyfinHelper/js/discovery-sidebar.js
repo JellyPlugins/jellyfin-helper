@@ -70,6 +70,12 @@
         return fallback || key;
     }
 
+    function getDiscoveryScoreClass(p) {
+        if (p >= 80) return 'jfh-discovery-score-high';
+        if (p >= 50) return 'jfh-discovery-score-mid';
+        return 'jfh-discovery-score-low';
+    }
+
     /**
      * Fetches the external links configuration (Seerr base URL) from the backend.
      * Best-effort: if the fetch fails, external link icons will still render but
@@ -106,7 +112,7 @@
         document.body.appendChild(toast);
 
         // Trigger reflow before adding the visible class to ensure CSS transition fires
-        void toast.offsetWidth;
+        toast.getBoundingClientRect();
         toast.classList.add('jfh-discovery-toast-visible');
 
         var dismissTimeout = setTimeout(function () { dismissToast(toast); }, duration);
@@ -128,7 +134,7 @@
         toast.classList.add('jfh-discovery-toast-hidden');
         // Remove from DOM after the CSS transition completes
         setTimeout(function () {
-            if (toast.parentNode) toast.parentNode.removeChild(toast);
+            toast.remove();
         }, 300);
     }
 
@@ -338,12 +344,13 @@
                 poster = '<div class="jfh-discovery-card-poster jfh-discovery-no-poster"><span style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
             }
             var year = r.Year ? '<span class="jfh-discovery-tag">' + esc(String(r.Year)) + '</span>' : '';
-            var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(mediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV')) + '</span>' : '';
+            var mediaLabel = mediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV');
+            var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(mediaLabel) + '</span>' : '';
             var ratingNum = Number(r.TmdbRating);
             var rating = (!Number.isNaN(ratingNum) && ratingNum > 0) ? '<span class="jfh-discovery-tag">\u2B50 ' + ratingNum.toFixed(1) + '</span>' : '';
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
             var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
-            var scoreClass = scorePercent >= 80 ? 'jfh-discovery-score-high' : scorePercent >= 50 ? 'jfh-discovery-score-mid' : 'jfh-discovery-score-low';
+            var scoreClass = getDiscoveryScoreClass(scorePercent);
             var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + '</div>';
             var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
             var reason = reasonText ? '<div class="jfh-discovery-reason">' + esc(reasonText) + '</div>' : '';
@@ -530,34 +537,11 @@
                 item.appendChild(defaultSpan);
             }
             item.addEventListener('click', (function (sid, pid, rf) {
-                return function () { closePopup(); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
+                return function () { closeDiscoveryPopup(btn); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
             })(prof.ServerId, prof.ProfileId, prof.RootFolder));
             list.appendChild(item);
         }
-        popup.appendChild(list);
-
-        var cancelBtn = document.createElement('button');
-        cancelBtn.className = 'jfh-discovery-popup-cancel';
-        cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', closePopup);
-        popup.appendChild(cancelBtn);
-
-        overlay.appendChild(popup);
-        document.body.appendChild(overlay);
-        // Move focus into the dialog for keyboard accessibility
-        cancelBtn.focus();
-        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
-        function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
-        document.addEventListener('keydown', onEsc);
-        overlay._onEsc = onEsc;
-
-        function closePopup() {
-            document.removeEventListener('keydown', onEsc);
-            var el = document.getElementById('jfhDiscoveryPopup');
-            if (el) el.remove();
-            // Restore focus to the triggering button
-            if (btn && btn.focus) btn.focus();
-        }
+        finalizeDiscoveryPopup(overlay, popup, list, btn);
     }
 
     function injectPopupStyles() {
@@ -576,6 +560,31 @@
             '.jfh-discovery-popup-cancel{display:block;width:100%;margin-top:1em;padding:.6em;border:none;border-radius:6px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;font-size:.85em;text-align:center;transition:background .2s}' +
             '.jfh-discovery-popup-cancel:hover{background:rgba(255,255,255,.2)}';
         document.head.appendChild(s);
+    }
+
+    function closeDiscoveryPopup(triggerBtn) {
+        var el = document.getElementById('jfhDiscoveryPopup');
+        if (el?._onEsc) {
+            document.removeEventListener('keydown', el._onEsc);
+        }
+        if (el) el.remove();
+        if (triggerBtn?.focus) triggerBtn.focus();
+    }
+
+    function finalizeDiscoveryPopup(overlay, popup, list, btn) {
+        popup.appendChild(list);
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'jfh-discovery-popup-cancel';
+        cancelBtn.textContent = t('discoveryCancel', 'Cancel');
+        cancelBtn.addEventListener('click', function () { closeDiscoveryPopup(btn); });
+        popup.appendChild(cancelBtn);
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+        cancelBtn.focus();
+        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeDiscoveryPopup(btn); });
+        function onEsc(ev) { if (ev.key === 'Escape') closeDiscoveryPopup(btn); }
+        document.addEventListener('keydown', onEsc);
+        overlay._onEsc = onEsc;
     }
 
     function submitRequest(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
@@ -702,34 +711,11 @@
         confirmBtn.style.color = '#e74c3c';
         confirmBtn.textContent = t('discoveryDismissConfirm', 'Yes, dismiss');
         confirmBtn.addEventListener('click', function () {
-            closePopup();
+            closeDiscoveryPopup(btn);
             executeDismiss(tmdbId, mediaType, btn);
         });
         list.appendChild(confirmBtn);
-        popup.appendChild(list);
-
-        var cancelBtn = document.createElement('button');
-        cancelBtn.className = 'jfh-discovery-popup-cancel';
-        cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', closePopup);
-        popup.appendChild(cancelBtn);
-
-        overlay.appendChild(popup);
-        document.body.appendChild(overlay);
-        // Move focus into the dialog for keyboard accessibility
-        cancelBtn.focus();
-        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
-        function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
-        document.addEventListener('keydown', onEsc);
-        overlay._onEsc = onEsc;
-
-        function closePopup() {
-            document.removeEventListener('keydown', onEsc);
-            var el = document.getElementById('jfhDiscoveryPopup');
-            if (el) el.remove();
-            // Restore focus to the triggering button
-            if (btn && btn.focus) btn.focus();
-        }
+        finalizeDiscoveryPopup(overlay, popup, list, btn);
     }
 
     /**

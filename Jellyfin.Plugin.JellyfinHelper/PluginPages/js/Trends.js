@@ -220,7 +220,14 @@ function renderTrendChart(timeline) {
     svg += '<rect class="trend-hit-area" x="' + padL + '" y="' + padT + '" width="' + chartW + '" height="' + chartH + '" fill="transparent" />';
 
     // Small visible dots at each data point (always shown, small)
-    var dotRadius = dataPoints.length <= 60 ? 2.5 : (dataPoints.length <= 200 ? 1.5 : 0);
+    var dotRadius;
+    if (dataPoints.length <= 60) {
+        dotRadius = 2.5;
+    } else if (dataPoints.length <= 200) {
+        dotRadius = 1.5;
+    } else {
+        dotRadius = 0;
+    }
     if (dotRadius > 0) {
         for (var k = 0; k < points.length; k++) {
             var coords = points[k].split(',');
@@ -449,20 +456,49 @@ function attachTrendInteraction(container, pointData) {
         // meaningful 0-100% range even when the historical value is tiny.
         var pctRaw = currentPt.s > 0 ? (deltaSize / currentPt.s) * 100 : 0;
 
-        var sSign = deltaSize > 0 ? '+' : (deltaSize < 0 ? '' : '\u00B1');
+        var sSign;
+        if (deltaSize > 0) {
+            sSign = '+';
+        } else if (deltaSize < 0) {
+            sSign = '';
+        } else {
+            sSign = '\u00B1';
+        }
         var pctLabel = '';
         if (deltaSize !== 0 && pctRaw !== 0) {
             var pctDisplay = Number.parseFloat(pctRaw.toFixed(2));
-            pctLabel = ' (' + (pctDisplay > 0 ? '+' : '') + pctDisplay + '%)';
+            var pctSign = pctDisplay > 0 ? '+' : '';
+            pctLabel = ' (' + pctSign + pctDisplay + '%)';
         }
         diffSize.textContent = sSign + formatBytes(deltaSize) + pctLabel;
-        diffSize.className = 'trend-diff-stat trend-diff-size '
-            + (deltaSize > 0 ? 'diff-up' : (deltaSize < 0 ? 'diff-down' : 'diff-neutral'));
+        var deltaSizeClass;
+        if (deltaSize > 0) {
+            deltaSizeClass = 'diff-up';
+        } else if (deltaSize < 0) {
+            deltaSizeClass = 'diff-down';
+        } else {
+            deltaSizeClass = 'diff-neutral';
+        }
+        diffSize.className = 'trend-diff-stat trend-diff-size ' + deltaSizeClass;
 
-        var fSign = deltaFiles > 0 ? '+' : (deltaFiles < 0 ? '' : '\u00B1');
+        var fSign;
+        if (deltaFiles > 0) {
+            fSign = '+';
+        } else if (deltaFiles < 0) {
+            fSign = '';
+        } else {
+            fSign = '\u00B1';
+        }
         diffFiles.textContent = fSign + deltaFiles + ' ' + T('trendFiles', 'media files');
-        diffFiles.className = 'trend-diff-stat trend-diff-files '
-            + (deltaFiles > 0 ? 'diff-up' : (deltaFiles < 0 ? 'diff-down' : 'diff-neutral'));
+        var deltaFilesClass;
+        if (deltaFiles > 0) {
+            deltaFilesClass = 'diff-up';
+        } else if (deltaFiles < 0) {
+            deltaFilesClass = 'diff-down';
+        } else {
+            deltaFilesClass = 'diff-neutral';
+        }
+        diffFiles.className = 'trend-diff-stat trend-diff-files ' + deltaFilesClass;
 
         diffPanel.classList.add('visible');
     }
@@ -661,22 +697,21 @@ function buildRecentTree(data) {
     var libKeys = Object.keys(grouped).sort(function (a, b) {
         return insightLibrarySortOrder(a, grouped) - insightLibrarySortOrder(b, grouped);
     });
-    libKeys.forEach(function (lib) {
-        var items = grouped[lib];
-        var libSize = 0;
-        for (var s = 0; s < items.length; s++) {
-            var _sz = Number(items[s].Size);
-            if (Number.isFinite(_sz) && _sz > 0) libSize += _sz;
+    libKeys.forEach(function (libName) {
+        var groupItems = grouped[libName];
+        var totalSize = 0;
+        for (const groupItem of groupItems) {
+            var cur = Number(groupItem.Size);
+            if (Number.isFinite(cur) && cur > 0) totalSize += cur;
         }
 
         html += '<div class="insight-tree-lib">';
         html += '<div class="insight-tree-lib-header">';
-        html += '<span class="insight-tree-lib-name">' + escHtml(lib) + '</span>';
-        html += '<span class="insight-tree-lib-size">' + formatBytes(libSize) + '</span>';
+        html += '<span class="insight-tree-lib-name">' + escHtml(libName) + '</span>';
+        html += '<span class="insight-tree-lib-size">' + formatBytes(totalSize) + '</span>';
         html += '</div>';
 
-        for (var i = 0; i < items.length; i++) {
-            var e = items[i];
+        for (const e of groupItems) {
             var changeBadge = e.ChangeType === 'added'
                 ? '<span class="insight-badge insight-badge-added">' + T('insightAdded', 'added') + '</span>'
                 : '<span class="insight-badge insight-badge-changed">' + T('insightChanged', 'changed') + '</span>';
