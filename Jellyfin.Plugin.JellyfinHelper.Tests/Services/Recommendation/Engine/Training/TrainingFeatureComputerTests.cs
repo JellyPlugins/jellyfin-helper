@@ -822,12 +822,13 @@ public class TrainingFeatureComputerTests
         Assert.True(ex.Features.TagSimilarity > 0.0);
         // People similarity must be non-zero because AliceDirector is preferred.
         Assert.True(ex.Features.PeopleSimilarity > 0.0);
-        // Series-progression boost is hardcoded to 0.0 by contract (train/serve parity).
-        Assert.Equal(0.0, ex.Features.SeriesProgressionBoost);
-        // Train/serve parity: aggregated series never re-enter live scoring, so these signals
-        // must be neutralised on the training side.
+        // Series affinity is neutral for aggregated series.
+        Assert.Equal(0.0, ex.Features.SeriesAffinity);
+        // Genre engagement package for aggregated series uses genre history.
         Assert.Equal(0.5, ex.Features.UserRatingScore);
-        Assert.False(ex.Features.HasUserInteraction);
+        Assert.True(ex.Features.HasUserInteraction);
+        Assert.Equal(1.0, ex.Features.CompletionRatio, 6);
+        Assert.Equal(0.0, ex.Features.IsAbandoned, 6);
         // GeneratedAtUtc must be sourced from the most-recently-watched episode.
         Assert.Equal(episodes.Max(e => e.LastPlayedDate!.Value), ex.GeneratedAtUtc);
         // SampleWeight for aggregated series is 0.7 by contract.

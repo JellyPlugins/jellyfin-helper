@@ -32,7 +32,7 @@ internal static class NeuralFeatureImportance
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleSize);
 
         var featureCount = CandidateFeatures.FeatureCount;
-        var featureNames = Enum.GetNames<FeatureIndex>();
+        var featureNames = Enum.GetValues<FeatureIndex>().Distinct().Select(v => v.ToString()).ToArray();
         var actualSampleSize = Math.Min(sampleSize, examples.Count);
 
         if (actualSampleSize < 2)
