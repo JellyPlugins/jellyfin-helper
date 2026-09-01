@@ -49,7 +49,7 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 
 ### Tests
 - **New end-to-end test suite** - Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running each cleanup mode, importing/exporting a backup, and clicking through every dashboard tab. It also deliberately throws bad and hostile input at the plugin and uses "canary" files to prove that cleanup never deletes or touches anything outside your libraries, and that every admin-only action stays locked to admins. **294 tests across 46 files**, running automatically on every change plus a nightly full run.
-- **Unit tests: 5127 total** (+2802 vs. v2.1.0.6), including full coverage of the typed API responses.
+- **Unit tests: 5128 total** (+2803 vs. v2.1.0.6), including full coverage of the typed API responses.
 
 ---
 
