@@ -61,7 +61,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>
     ///     Current schema version for persisted weights. Increment when the feature set or weight semantics change so that stale weights are discarded on load.
     /// </summary>
-    internal const int CurrentWeightsVersion = 2;
+    // Bumped 2 -> 3 when features 9/10/11/12/15 changed from per-item/hardcoded signals to genre-level
+    // aggregates. Weights persisted at version 2 were learned against the old semantics; keeping the
+    // version would let them load and score against the new feature values, a silent train/serve mismatch.
+    internal const int CurrentWeightsVersion = 3;
 
     /// <summary>
     ///     Cached JSON serializer options for weight persistence. Compact (non-indented) output - the file is machine-read only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.

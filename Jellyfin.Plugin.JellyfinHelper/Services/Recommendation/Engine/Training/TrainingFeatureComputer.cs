@@ -272,12 +272,17 @@ internal static class TrainingFeatureComputer
             out var seriesInheritedTags,
             out var seriesWriters);
 
-        // Exclude the series id and all its episode ids from genre engagement to prevent label leakage.
-        // The series id is included because a watch record can be tagged with the series id rather than an episode id.
-        var episodeIds = new HashSet<Guid>(episodes.Count + 1) { seriesId };
-        foreach (var e in episodes)
+        // Exclude the series id and every watched record of this series from genre engagement to prevent
+        // label leakage. Derived from the full profile, not the episodes parameter, because engagement
+        // scans the whole profile: an episode of this series that is absent from the passed-in list
+        // (a filtered subset) would otherwise leak its own label back into the aggregate.
+        var episodeIds = new HashSet<Guid> { seriesId };
+        foreach (var w in userProfile.WatchedItems)
         {
-            episodeIds.Add(e.ItemId);
+            if (w.SeriesId == seriesId)
+            {
+                episodeIds.Add(w.ItemId);
+            }
         }
 
         var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile, episodeIds);

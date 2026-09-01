@@ -793,6 +793,10 @@ internal static class ContentScoring
     {
         genres = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         people = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // The series' own people are invariant across its episodes, so add them once rather than
+        // re-adding the same set inside the per-episode loop below.
+        AddPeopleFromLookup(seriesId, peopleLookup, people);
         foreach (var w in items)
         {
             if (w.Genres is not null)
@@ -804,7 +808,6 @@ internal static class ContentScoring
             }
 
             AddPeopleFromLookup(w.ItemId, peopleLookup, people);
-            AddPeopleFromLookup(seriesId, peopleLookup, people);
         }
     }
 

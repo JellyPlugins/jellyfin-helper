@@ -405,16 +405,20 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
-    ///     Builds the set of item ids to exclude from a series' own genre engagement: every watched
-    ///     episode of the series plus the series id itself. A series example must not draw familiarity,
-    ///     completion or abandon signal from its own episodes, which would leak the label.
+    ///     Builds the genre-engagement exclude set for a series example straight from the profile: the
+    ///     series id plus every watched record whose SeriesId is that series. Derived from the profile
+    ///     rather than a prebuilt episode lookup so it stays leak-safe even if that lookup is ever
+    ///     narrowed by a filter; the series' own episodes must never feed its familiarity/completion/abandon.
     /// </summary>
-    private static HashSet<Guid> BuildEpisodeExcludeSet(Guid seriesId, List<WatchedItemInfo> episodes)
+    private static HashSet<Guid> BuildSeriesExcludeSetFromProfile(Guid seriesId, UserWatchProfile profile)
     {
-        var set = new HashSet<Guid>(episodes.Count + 1) { seriesId };
-        foreach (var e in episodes)
+        var set = new HashSet<Guid> { seriesId };
+        foreach (var w in profile.WatchedItems)
         {
-            set.Add(e.ItemId);
+            if (w.SeriesId == seriesId)
+            {
+                set.Add(w.ItemId);
+            }
         }
 
         return set;
@@ -520,11 +524,13 @@ internal static class TrainingDataBuilder
         }
 
         // For a series the watched records are its episodes (ItemId == episodeId), not the series id.
-        // Exclude every episode id so the series example cannot draw genre engagement from its own
-        // watch history. At inference a scored series is filtered out upstream and contributes nothing,
-        // so training must match by excluding it here too.
-        var engagementExclude = episodesForSeries is not null
-            ? BuildEpisodeExcludeSet(rec.ItemId, episodesForSeries)
+        // Exclude the series id and every watched record of that series so the example cannot draw genre
+        // engagement from its own history. At inference a scored series is filtered out upstream and
+        // contributes nothing, so training must match by excluding it here too. Built from the profile
+        // (not episodesForSeries) so a movie example, or a series whose episodes are absent from the
+        // lookup, still excludes exactly its own records.
+        var engagementExclude = isSeries
+            ? BuildSeriesExcludeSetFromProfile(rec.ItemId, userProfile)
             : new HashSet<Guid> { rec.ItemId };
         var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(
             rec.Genres, userProfile, engagementExclude);
@@ -952,13 +958,13 @@ internal static class TrainingDataBuilder
         }
 
         var wGenres = w.Genres ?? Array.Empty<string>();
-        // Exclude the target item from genre engagement to prevent label leakage. For a series the watch
-        // records are its episodes (ItemId == episodeId), so excluding only w.ItemId (the series id) would
-        // let the series' own episodes leak in. This path is reached for a series only when it has no
-        // meaningful organic episodes, but non-meaningful or recommended episodes can still sit in the
-        // profile, so exclude every episode id as well when the lookup has any.
-        var organicExclude = isSeries && userCtx.SeriesEpisodeLookupOrganic.TryGetValue(w.ItemId, out var wEpisodes)
-            ? BuildEpisodeExcludeSet(w.ItemId, wEpisodes)
+        // Exclude the target from genre engagement to prevent label leakage. For a series the watch
+        // records are its episodes (ItemId == episodeId), so excluding only w.ItemId (the series id)
+        // would let its own episodes leak in. Built from the profile rather than the organic episode
+        // lookup, which is a filtered subset: engagement scans the full profile, so a leak-safe exclude
+        // must cover every record of this series, not just the ones that survived the lookup's filter.
+        var organicExclude = isSeries
+            ? BuildSeriesExcludeSetFromProfile(w.ItemId, userProfile)
             : new HashSet<Guid> { w.ItemId };
 
         var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(
