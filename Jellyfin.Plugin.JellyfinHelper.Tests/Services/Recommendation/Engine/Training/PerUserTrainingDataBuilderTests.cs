@@ -150,6 +150,90 @@ public sealed class PerUserTrainingDataBuilderTests
     }
 
     [Fact]
+    public void BuildExamples_Phase2_StandaloneSeriesEngagementExcludesOwnEpisodes()
+    {
+        // Phase 2 organic standalone path: a Series watched organically must not draw genre engagement
+        // from its own episodes, mirroring the Phase 1 guard. The exclude set on this path is built from
+        // every episode id (plus the series id), not just the series id; before the fix the standalone
+        // path excluded only w.ItemId (the series id) so the series' own fully-watched episodes leaked in
+        // as familiarity>0 / completion~0.95, corrupting the label-adjacent features.
+        //
+        // Reaching BuildOrganicStandaloneExample for a Series requires threading three guards in
+        // ProcessOrganicWatchedItem / PrescanOrganicWatchedItems:
+        //   - The series record must be meaningful and its id must NOT be in recommendedItemIds (line 827),
+        //     and it must have SeriesId = null so it is not routed to the aggregated-series path (line 838).
+        //   - seriesWithOrgEpisodes must NOT contain the series id (line 887), or the standalone path is
+        //     skipped in favour of the aggregated one. Prescan adds a series there only when an episode is
+        //     meaningful AND neither the episode id nor the series id is recommended.
+        // We satisfy both by recommending each EPISODE id (not the series): the episodes then fail the
+        // seriesWithOrgEpisodes condition (their ids are recommended) yet still sit in the profile as
+        // meaningful Action watches, and they still populate SeriesEpisodeLookupOrganic[seriesId] (which is
+        // keyed off SeriesId regardless of meaningfulness), so the leak is possible and the fix's
+        // episode-id exclude set is exercised.
+        var userId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+
+        var episodes = new List<WatchedItemInfo>
+        {
+            new() { ItemId = Guid.NewGuid(), SeriesId = seriesId, Played = true, PlayCount = 1, PlaybackPositionTicks = 950, RuntimeTicks = 1000, Genres = ["Action"] },
+            new() { ItemId = Guid.NewGuid(), SeriesId = seriesId, Played = true, PlayCount = 1, PlaybackPositionTicks = 950, RuntimeTicks = 1000, Genres = ["Action"] },
+            new() { ItemId = Guid.NewGuid(), SeriesId = seriesId, Played = true, PlayCount = 1, PlaybackPositionTicks = 950, RuntimeTicks = 1000, Genres = ["Action"] }
+        };
+
+        // The Series itself as its own organic watched record (SeriesId = null so it is not routed to the
+        // aggregated-series path, ItemId = seriesId so the fix's SeriesEpisodeLookupOrganic[w.ItemId] hits),
+        // sharing the Action genre with its episodes.
+        var seriesRecord = new WatchedItemInfo
+        {
+            ItemId = seriesId,
+            ItemType = "Series",
+            Genres = ["Action"],
+            Played = true,
+            PlayCount = 1
+        };
+
+        var watchedItems = new List<WatchedItemInfo>(episodes) { seriesRecord };
+
+        var profiles = new Collection<UserWatchProfile>
+        {
+            new() { UserId = userId, UserName = "U", WatchedItems = new Collection<WatchedItemInfo>(watchedItems) }
+        };
+
+        // Recommend the EPISODE ids (not the series): keeps the series id out of seriesWithOrgEpisodes so
+        // the standalone routing is reached, while the series record itself is never recommended.
+        var previousResults = new List<RecommendationResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "U",
+                GeneratedAt = DateTime.UtcNow.AddDays(-2),
+                Recommendations =
+                [
+                    new RecommendedItem { ItemId = episodes[0].ItemId, Name = "Ep1", Genres = ["Action"], CommunityRating = 8 },
+                    new RecommendedItem { ItemId = episodes[1].ItemId, Name = "Ep2", Genres = ["Action"], CommunityRating = 8 },
+                    new RecommendedItem { ItemId = episodes[2].ItemId, Name = "Ep3", Genres = ["Action"], CommunityRating = 8 }
+                ],
+                Cohort = "test"
+            }
+        };
+
+        var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(previousResults, profiles, CancellationToken.None);
+
+        var seriesExamples = examples.Where(e => e.Features.IsSeries).ToList();
+        Assert.NotEmpty(seriesExamples);
+
+        // Episodes excluded on the standalone path => no other Action history => neutral engagement. Before
+        // the fix the standalone example would show familiarity>0 / completion~0.95, IsAbandoned 0.
+        Assert.All(seriesExamples, e =>
+        {
+            Assert.False(e.Features.HasUserInteraction);
+            Assert.Equal(0.5, e.Features.CompletionRatio, 6);
+            Assert.Equal(0.0, e.Features.IsAbandoned, 6);
+        });
+    }
+
+    [Fact]
     public void BuildExamples_TwoUsersWithOppositeTaste_GetIndependentExamples()
     {
         var userAction = Guid.NewGuid();

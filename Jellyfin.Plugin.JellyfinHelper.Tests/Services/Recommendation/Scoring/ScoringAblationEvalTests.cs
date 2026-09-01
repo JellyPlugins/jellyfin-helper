@@ -79,7 +79,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     /// <summary>
     ///     Tier 3 - the full ensemble including the neural (MLP) sub-strategy. We use the multi-arg
     ///     constructor with an explicit <see cref="NeuralScoringStrategy"/> and train with enough
-    ///     examples (well above NeuralActivationThreshold = 150) over several rounds so the neural
+    ///     examples (well above NeuralActivationThreshold = 150) over a couple of rounds so the neural
     ///     blending factor beta ramps up and the neural path is genuinely exercised. As with Tier 2,
     ///     we require "not meaningfully worse".
     /// </summary>
@@ -93,9 +93,12 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
         using var realEnsemble = BuildNeuralEnsemble();
         using var ablatedEnsemble = BuildNeuralEnsemble();
 
-        // Train each arm over several rounds so cumulative example count crosses the neural
-        // activation threshold (150) and beta ramps above zero, exercising the neural blend.
-        for (var round = 0; round < 5; round++)
+        // Train each arm over a couple of rounds so the cumulative example count crosses the neural
+        // activation threshold (150) and beta ramps above zero, exercising the neural blend. Two rounds
+        // already push the cumulative count well past the threshold; more rounds only multiply the MLP
+        // training cost (76-96-48-24 over 1600 examples, Adam, 50 epochs) without changing what the test
+        // proves, and made the run hang long enough to trip test timeouts.
+        for (var round = 0; round < 2; round++)
         {
             realEnsemble.Train(examples);
             ablatedEnsemble.Train(ablated);

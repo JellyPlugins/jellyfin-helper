@@ -230,9 +230,6 @@ internal static class DiscoveryFeedbackExampleBuilder
             PopularityScore = popularityScore,
 
             CollaborativeScore = 0.5,
-            UserRatingScore = 0.5,
-            HasUserInteraction = false,
-            CompletionRatio = 0.0,
             StudioMatch = false,
             SeriesProgressionBoost = 0.0,
             DayOfWeekAffinity = 0.5,

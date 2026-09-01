@@ -952,8 +952,21 @@ internal static class TrainingDataBuilder
         }
 
         var wGenres = w.Genres ?? Array.Empty<string>();
-        // Exclude the target item from genre engagement to prevent label leakage.
-        var organicExclude = new HashSet<Guid> { w.ItemId };
+        // Exclude the target item from genre engagement to prevent label leakage. For a series the watch
+        // records are its episodes (ItemId == episodeId), so excluding only w.ItemId (the series id) would
+        // let the series' own episodes leak in. This path is reached for a series only when it has no
+        // meaningful organic episodes, but non-meaningful or recommended episodes can still sit in the
+        // profile, so exclude every episode id as well when the lookup has any.
+        HashSet<Guid> organicExclude;
+        if (isSeries && userCtx.SeriesEpisodeLookupOrganic.TryGetValue(w.ItemId, out var wEpisodes))
+        {
+            organicExclude = BuildEpisodeExcludeSet(w.ItemId, wEpisodes);
+        }
+        else
+        {
+            organicExclude = new HashSet<Guid> { w.ItemId };
+        }
+
         var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(
             wGenres, userProfile, organicExclude);
         var userRatingScore2 = ContentScoring.ComputeGenreRatingScore(wGenres, userProfile, organicExclude);
