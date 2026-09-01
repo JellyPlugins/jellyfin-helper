@@ -145,4 +145,76 @@ public sealed class ContentScoringGenreEngagementTests
         Assert.Empty(context.ProgressingSeriesIds);
         Assert.Equal(0.0, ContentScoring.ComputeSeriesAffinity(candidate, context, new Dictionary<Guid, HashSet<string>>()));
     }
+
+    [Fact]
+    public void ComputeGenreEngagement_CachedContext_IsBitIdenticalToDirect()
+    {
+        // The cached overload must reproduce the direct (no-exclude, inference) method exactly. A
+        // randomized-but-seeded profile with mixed genres, completion states and non-meaningful items
+        // exercises familiarity, avg completion, abandon rate and the shrinkage arithmetic. Any drift
+        // (iteration order, rounding, filtering) would break parity between the serve-time cache and
+        // the reference math, so equality is asserted to full double precision.
+        var rng = new Random(20260901);
+        string[] pool = ["Action", "Drama", "Horror", "SciFi", "Comedy", "Thriller"];
+
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 200; i++)
+        {
+            var genreCount = rng.Next(0, 3);
+            var genres = new List<string>();
+            for (var g = 0; g < genreCount; g++)
+            {
+                genres.Add(pool[rng.Next(pool.Length)]);
+            }
+
+            var played = rng.NextDouble() < 0.6;
+            var runtime = rng.NextDouble() < 0.8 ? 1000L : 0L;
+            var position = runtime > 0 ? (long)(rng.NextDouble() * runtime) : 0L;
+
+            // Rate ~60% of items (0-10) and leave the rest unrated so both the rated and the
+            // missing-rating branches of the genre-rating aggregate are exercised.
+            double? rating = rng.NextDouble() < 0.6 ? rng.NextDouble() * 10.0 : null;
+
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                Played = played,
+                PlayCount = rng.NextDouble() < 0.5 ? 1 : 0,
+                RuntimeTicks = runtime,
+                PlaybackPositionTicks = position,
+                UserRating = rating,
+                Genres = genres.Count > 0 ? (IReadOnlyList<string>)genres : []
+            });
+        }
+
+        var context = ContentScoring.BuildGenreEngagementContext(profile);
+
+        foreach (var candidate in AllCandidateGenreSets(pool))
+        {
+            var direct = ContentScoring.ComputeGenreEngagement(candidate, profile);
+            var cached = ContentScoring.ComputeGenreEngagement(candidate, context);
+
+            Assert.Equal(direct.Familiarity, cached.Familiarity);
+            Assert.Equal(direct.AvgCompletion, cached.AvgCompletion);
+            Assert.Equal(direct.AbandonRate, cached.AbandonRate);
+
+            var directRating = ContentScoring.ComputeGenreRatingScore(candidate, profile);
+            var cachedRating = ContentScoring.ComputeGenreRatingScore(candidate, context);
+            Assert.Equal(directRating, cachedRating);
+        }
+    }
+
+    private static IEnumerable<string[]> AllCandidateGenreSets(string[] pool)
+    {
+        yield return [];
+        foreach (var g in pool)
+        {
+            yield return [g];
+        }
+
+        // A few multi-genre candidates so the Any(candidateSet.Contains) branch is exercised.
+        yield return [pool[0], pool[1]];
+        yield return [pool[2], pool[3], pool[4]];
+        yield return ["Unwatched-Genre"];
+    }
 }

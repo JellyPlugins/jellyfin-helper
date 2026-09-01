@@ -405,6 +405,22 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
+    ///     Builds the set of item ids to exclude from a series' own genre engagement: every watched
+    ///     episode of the series plus the series id itself. A series example must not draw familiarity,
+    ///     completion or abandon signal from its own episodes, which would leak the label.
+    /// </summary>
+    private static HashSet<Guid> BuildEpisodeExcludeSet(Guid seriesId, List<WatchedItemInfo> episodes)
+    {
+        var set = new HashSet<Guid>(episodes.Count + 1) { seriesId };
+        foreach (var e in episodes)
+        {
+            set.Add(e.ItemId);
+        }
+
+        return set;
+    }
+
+    /// <summary>
     ///     Builds the parallel watched genre/people/studio sets (indexed by meaningfully-interacted watched item) that feed ContentNearestNeighborScore.
     /// </summary>
     private static (List<HashSet<string>> Genre, List<HashSet<string>> People, List<HashSet<string>> Studio)
@@ -493,18 +509,26 @@ internal static class TrainingDataBuilder
         var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
         // Use latest episode for series temporal signals.
-        if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForSeries))
+        List<WatchedItemInfo>? episodesForSeries = null;
+        if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var eps))
         {
+            episodesForSeries = eps;
             watchedItemForRec = episodesForSeries
                 .Where(e => e.HasPlaybackActivity())
                 .OrderByDescending(e => e.LastPlayedDate)
                 .FirstOrDefault();
         }
 
-        // Exclude the target item from genre engagement to prevent label leakage (train/serve parity).
+        // For a series the watched records are its episodes (ItemId == episodeId), not the series id.
+        // Exclude every episode id so the series example cannot draw genre engagement from its own
+        // watch history. At inference a scored series is filtered out upstream and contributes nothing,
+        // so training must match by excluding it here too.
+        var engagementExclude = episodesForSeries is not null
+            ? BuildEpisodeExcludeSet(rec.ItemId, episodesForSeries)
+            : new HashSet<Guid> { rec.ItemId };
         var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(
-            rec.Genres, userProfile, new HashSet<Guid> { rec.ItemId });
-        const double userRatingScore = 0.5;
+            rec.Genres, userProfile, engagementExclude);
+        var userRatingScore = ContentScoring.ComputeGenreRatingScore(rec.Genres, userProfile, engagementExclude);
         var completionRatio = genreAvgCompletion;
         var hasUserInteraction = familiarity > 0.0;
         var isAbandoned = genreAbandonRate;
@@ -929,8 +953,10 @@ internal static class TrainingDataBuilder
 
         var wGenres = w.Genres ?? Array.Empty<string>();
         // Exclude the target item from genre engagement to prevent label leakage.
+        var organicExclude = new HashSet<Guid> { w.ItemId };
         var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(
-            wGenres, userProfile, new HashSet<Guid> { w.ItemId });
+            wGenres, userProfile, organicExclude);
+        var userRatingScore2 = ContentScoring.ComputeGenreRatingScore(wGenres, userProfile, organicExclude);
         var wGenreSet = wGenres.Count > 0
             ? new HashSet<string>(wGenres, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -946,7 +972,7 @@ internal static class TrainingDataBuilder
             YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
             GenreCount = wGenres.Count,
             IsSeries = isSeries,
-            UserRatingScore = 0.5,
+            UserRatingScore = userRatingScore2,
             HasUserInteraction = familiarity2 > 0.0,
             CompletionRatio = genreAvgCompletion2,
             IsAbandoned = genreAbandonRate2,
@@ -1169,6 +1195,7 @@ internal static class TrainingDataBuilder
         }
 
         var (familiarityNeg, genreAvgCompletionNeg, genreAbandonRateNeg) = ContentScoring.ComputeGenreEngagement(negGenres, userProfile);
+        var userRatingScoreNeg = ContentScoring.ComputeGenreRatingScore(negGenres, userProfile);
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(negGenres, genrePreferences),
@@ -1178,7 +1205,7 @@ internal static class TrainingDataBuilder
             YearProximityScore = ContentScoring.ComputeYearProximity(neg.Year, avgYear),
             GenreCount = negGenres.Count,
             IsSeries = isSeries,
-            UserRatingScore = 0.5,
+            UserRatingScore = userRatingScoreNeg,
             HasUserInteraction = familiarityNeg > 0.0,
             CompletionRatio = genreAvgCompletionNeg,
             IsAbandoned = genreAbandonRateNeg,

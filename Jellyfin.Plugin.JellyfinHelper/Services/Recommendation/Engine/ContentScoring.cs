@@ -166,21 +166,20 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Computes a normalized user rating score (0-1) for a candidate item.
-    ///     If the user has not rated this item, returns 0.5 (neutral).
+    ///     Normalizes a raw 0-10 user rating to 0-1, or null when the rating is absent, non-positive or
+    ///     non-finite. Shared by the genre-level rating aggregate so training and inference treat a
+    ///     missing rating identically (it contributes no sample rather than a fabricated value).
     /// </summary>
-    /// <param name="watchedItem">The watched item entry, or null if the user hasn't interacted with it.</param>
-    /// <returns>A normalized user rating between 0 and 1.</returns>
-    internal static double ComputeUserRatingScore(WatchedItemInfo? watchedItem)
+    /// <param name="userRating">The raw user rating (0-10), or null.</param>
+    /// <returns>The normalized rating in 0-1, or null when there is no usable rating.</returns>
+    private static double? NormalizeUserRating(double? userRating)
     {
-        if (watchedItem?.UserRating is null or <= 0 || double.IsNaN(watchedItem.UserRating.Value) ||
-            double.IsInfinity(watchedItem.UserRating.Value))
+        if (userRating is null or <= 0 || double.IsNaN(userRating.Value) || double.IsInfinity(userRating.Value))
         {
-            return 0.5; // neutral default - no user rating available or NaN/Infinity
+            return null;
         }
 
-        // User ratings are typically 0-10, normalize to 0-1
-        return Math.Clamp(watchedItem.UserRating.Value / 10.0, 0.0, 1.0);
+        return Math.Clamp(userRating.Value / 10.0, 0.0, 1.0);
     }
 
     /// <summary>
@@ -436,6 +435,200 @@ internal static class ContentScoring
     }
 
     /// <summary>
+    ///     Builds the user-invariant inputs for genre engagement once per scoring pass. The candidate
+    ///     loop only varies the candidate genres, while the meaningful-interaction set and each item's
+    ///     completion ratio are fixed per user. Precompute them once and reuse across all candidates via
+    ///     the cached <see cref="ComputeGenreEngagement(IReadOnlyList{string}, GenreEngagementContext)"/>
+    ///     overload, avoiding a full WatchedItems rescan (and completion-ratio recompute) per candidate.
+    /// </summary>
+    /// <param name="profile">User profile.</param>
+    /// <returns>The per-user genre-engagement context.</returns>
+    internal static GenreEngagementContext BuildGenreEngagementContext(UserWatchProfile profile)
+    {
+        var meaningful = new List<MeaningfulWatch>();
+        foreach (var w in profile.WatchedItems)
+        {
+            if (!w.HasMeaningfulInteraction())
+            {
+                continue;
+            }
+
+            var genreSet = w.Genres is { Count: > 0 }
+                ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
+                : null;
+            var countsForCompletion = w.RuntimeTicks > 0 || w.Played;
+            var completion = countsForCompletion ? ComputeCompletionRatio(w) : 0.0;
+            var normalizedRating = NormalizeUserRating(w.UserRating);
+            meaningful.Add(new MeaningfulWatch(genreSet, countsForCompletion, completion, normalizedRating));
+        }
+
+        return new GenreEngagementContext(meaningful);
+    }
+
+    /// <summary>
+    ///     Cached genre-engagement scoring using a <see cref="GenreEngagementContext"/> built once per
+    ///     user. Produces the same value as the direct
+    ///     <see cref="ComputeGenreEngagement(IReadOnlyList{string}, UserWatchProfile, HashSet{Guid})"/>
+    ///     overload with no exclusion (the inference case), iterating the precomputed items in the same
+    ///     order so the arithmetic is identical.
+    /// </summary>
+    /// <param name="candidateGenres">Candidate genres.</param>
+    /// <param name="context">Pre-built per-user genre-engagement context.</param>
+    /// <returns>Familiarity, avg completion and abandon rate.</returns>
+    internal static (double Familiarity, double AvgCompletion, double AbandonRate) ComputeGenreEngagement(
+        IReadOnlyList<string> candidateGenres,
+        GenreEngagementContext context)
+    {
+        var totalMeaningful = context.MeaningfulWatches.Count;
+        if (candidateGenres.Count == 0 || totalMeaningful == 0)
+        {
+            return (0.0, 0.5, 0.0);
+        }
+
+        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var matchCount = 0;
+        var withCompletionCount = 0;
+        var completionSum = 0.0;
+        var abandonCount = 0;
+        foreach (var w in context.MeaningfulWatches)
+        {
+            if (w.Genres is null || !w.Genres.Any(candidateSet.Contains))
+            {
+                continue;
+            }
+
+            matchCount++;
+            if (!w.CountsForCompletion)
+            {
+                continue;
+            }
+
+            withCompletionCount++;
+            completionSum += w.Completion;
+            if (w.Completion > 0.0 && w.Completion < CandidateFeatures.AbandonedThreshold)
+            {
+                abandonCount++;
+            }
+        }
+
+        if (matchCount == 0)
+        {
+            return (0.0, 0.5, 0.0);
+        }
+
+        var familiarity = Math.Clamp((double)matchCount / Math.Max(totalMeaningful, 1), 0.0, 1.0);
+        var avgCompletion = withCompletionCount > 0 ? completionSum / withCompletionCount : 0.5;
+        var abandonRate = withCompletionCount > 0 ? (double)abandonCount / withCompletionCount : 0.0;
+
+        var confidence = withCompletionCount / (double)(withCompletionCount + GenreEngagementShrinkageK);
+        avgCompletion = 0.5 + (confidence * (avgCompletion - 0.5));
+        abandonRate *= confidence;
+
+        return (Math.Clamp(familiarity, 0.0, 1.0), Math.Clamp(avgCompletion, 0.0, 1.0), Math.Clamp(abandonRate, 0.0, 1.0));
+    }
+
+    /// <summary>
+    ///     Computes the user's average normalized rating (0-1) across the candidate's genres, drawn from
+    ///     items the user actually rated. Only rated items contribute; the mean is shrunk toward neutral
+    ///     0.5 by the same n/(n+K) confidence as genre engagement so a single rating does not dominate.
+    ///     Returns 0.5 when there is no rated overlap.
+    /// </summary>
+    /// <param name="candidateGenres">Candidate genres.</param>
+    /// <param name="profile">User profile.</param>
+    /// <param name="excludeItemIds">Item IDs to exclude (the target's own records in training paths).</param>
+    /// <returns>The genre-level user-rating score in 0-1 (0.5 neutral).</returns>
+    internal static double ComputeGenreRatingScore(
+        IReadOnlyList<string> candidateGenres,
+        UserWatchProfile profile,
+        HashSet<Guid>? excludeItemIds = null)
+    {
+        if (candidateGenres.Count == 0 || profile.WatchedItems.Count == 0)
+        {
+            return 0.5;
+        }
+
+        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var ratingSum = 0.0;
+        var ratingCount = 0;
+        foreach (var w in profile.WatchedItems)
+        {
+            if (!w.HasMeaningfulInteraction()
+                || w.Genres is null
+                || !w.Genres.Any(candidateSet.Contains)
+                || (excludeItemIds is not null && excludeItemIds.Contains(w.ItemId)))
+            {
+                continue;
+            }
+
+            var normalized = NormalizeUserRating(w.UserRating);
+            if (normalized is null)
+            {
+                continue;
+            }
+
+            ratingSum += normalized.Value;
+            ratingCount++;
+        }
+
+        return ShrinkRatingToNeutral(ratingSum, ratingCount);
+    }
+
+    /// <summary>
+    ///     Cached genre-level user-rating score using a <see cref="GenreEngagementContext"/>. Produces the
+    ///     same value as the direct <see cref="ComputeGenreRatingScore(IReadOnlyList{string}, UserWatchProfile, HashSet{Guid})"/>
+    ///     overload with no exclusion (the inference case), iterating the precomputed items in the same
+    ///     order so the arithmetic is identical.
+    /// </summary>
+    /// <param name="candidateGenres">Candidate genres.</param>
+    /// <param name="context">Pre-built per-user genre-engagement context.</param>
+    /// <returns>The genre-level user-rating score in 0-1 (0.5 neutral).</returns>
+    internal static double ComputeGenreRatingScore(
+        IReadOnlyList<string> candidateGenres,
+        GenreEngagementContext context)
+    {
+        if (candidateGenres.Count == 0 || context.MeaningfulWatches.Count == 0)
+        {
+            return 0.5;
+        }
+
+        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var ratingSum = 0.0;
+        var ratingCount = 0;
+        foreach (var w in context.MeaningfulWatches)
+        {
+            if (w.Genres is null || !w.Genres.Any(candidateSet.Contains) || w.NormalizedRating is null)
+            {
+                continue;
+            }
+
+            ratingSum += w.NormalizedRating.Value;
+            ratingCount++;
+        }
+
+        return ShrinkRatingToNeutral(ratingSum, ratingCount);
+    }
+
+    /// <summary>
+    ///     Shrinks a summed genre rating toward neutral 0.5 by n/(n+K) confidence. Shared by both
+    ///     <see cref="ComputeGenreRatingScore(IReadOnlyList{string}, UserWatchProfile, HashSet{Guid})"/>
+    ///     overloads so the direct and cached paths are arithmetically identical.
+    /// </summary>
+    /// <param name="ratingSum">Sum of normalized ratings over the matched, rated items.</param>
+    /// <param name="ratingCount">Number of matched, rated items.</param>
+    /// <returns>The shrunk score in 0-1.</returns>
+    private static double ShrinkRatingToNeutral(double ratingSum, int ratingCount)
+    {
+        if (ratingCount == 0)
+        {
+            return 0.5;
+        }
+
+        var avgRating = ratingSum / ratingCount;
+        var confidence = ratingCount / (double)(ratingCount + GenreEngagementShrinkageK);
+        return Math.Clamp(0.5 + (confidence * (avgRating - 0.5)), 0.0, 1.0);
+    }
+
+    /// <summary>
     ///     Builds the user-invariant series-affinity inputs once per scoring pass. Pass the returned
     ///     context into <see cref="ComputeSeriesAffinity(BaseItem, SeriesAffinityContext, Dictionary{Guid, HashSet{string}})"/>
     ///     inside the candidate loop to avoid rebuilding watched-series lookups per candidate.
@@ -627,6 +820,20 @@ internal static class ContentScoring
     }
 
     /// <summary>
+    ///     A single meaningfully-interacted watched item reduced to just the fields genre engagement
+    ///     needs, so the candidate loop reads precomputed values instead of re-deriving them per candidate.
+    /// </summary>
+    /// <param name="Genres">The item's genres as a case-insensitive set, or null when it has none.</param>
+    /// <param name="CountsForCompletion">Whether the item contributes to the completion/abandon aggregate (has runtime or is played).</param>
+    /// <param name="Completion">The item's precomputed completion ratio (only meaningful when <paramref name="CountsForCompletion"/> is true).</param>
+    /// <param name="NormalizedRating">The item's user rating normalized to 0-1, or null when the user did not rate it.</param>
+    internal readonly record struct MeaningfulWatch(
+        HashSet<string>? Genres,
+        bool CountsForCompletion,
+        double Completion,
+        double? NormalizedRating);
+
+    /// <summary>
     ///     Pre-computed per-user series-affinity inputs. Build once per scoring pass with
     ///     <see cref="ContentScoring.BuildSeriesAffinityContext"/> and pass into the
     ///     <see cref="ContentScoring.ComputeSeriesAffinity(BaseItem, SeriesAffinityContext, Dictionary{Guid, HashSet{string}})"/>
@@ -637,4 +844,14 @@ internal static class ContentScoring
     internal sealed record SeriesAffinityContext(
         Dictionary<Guid, List<WatchedItemInfo>> WatchedBySeries,
         List<Guid> ProgressingSeriesIds);
+
+    /// <summary>
+    ///     User-invariant genre-engagement inputs built once per scoring pass. Holds the user's
+    ///     meaningfully-interacted watched items in their original order so the cached
+    ///     <see cref="ComputeGenreEngagement(IReadOnlyList{string}, GenreEngagementContext)"/> overload
+    ///     reproduces the direct method's arithmetic exactly.
+    /// </summary>
+    /// <param name="MeaningfulWatches">Meaningful watched items, in profile order.</param>
+    internal sealed record GenreEngagementContext(
+        List<MeaningfulWatch> MeaningfulWatches);
 }

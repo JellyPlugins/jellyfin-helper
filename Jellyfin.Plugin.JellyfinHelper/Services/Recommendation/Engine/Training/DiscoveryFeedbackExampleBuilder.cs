@@ -65,6 +65,9 @@ internal static class DiscoveryFeedbackExampleBuilder
                 var (familiarity, genreAvgCompletion, genreAbandonRate) = userProfile is not null
                     ? ContentScoring.ComputeGenreEngagement(entryGenres, userProfile)
                     : (0.0, 0.5, 0.0);
+                var userRatingScore = userProfile is not null
+                    ? ContentScoring.ComputeGenreRatingScore(entryGenres, userProfile)
+                    : 0.5;
                 var features = BuildFeaturesFromEntry(
                     entry,
                     genrePreferences,
@@ -75,6 +78,7 @@ internal static class DiscoveryFeedbackExampleBuilder
                 features.HasUserInteraction = familiarity > 0.0;
                 features.CompletionRatio = genreAvgCompletion;
                 features.IsAbandoned = genreAbandonRate;
+                features.UserRatingScore = userRatingScore;
 
                 var sampleWeight = hasLegacyPopularity
                     ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5

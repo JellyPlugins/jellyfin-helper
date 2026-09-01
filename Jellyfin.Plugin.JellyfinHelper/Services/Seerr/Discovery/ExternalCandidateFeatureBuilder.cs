@@ -53,6 +53,9 @@ internal static class ExternalCandidateFeatureBuilder
         var (familiarity, genreAvgCompletion, genreAbandonRate) = profile is not null
             ? ContentScoring.ComputeGenreEngagement(genres, profile)
             : (0.0, 0.5, 0.0);
+        var userRatingScore = profile is not null
+            ? ContentScoring.ComputeGenreRatingScore(genres, profile)
+            : 0.5;
 
         var features = new CandidateFeatures
         {
@@ -69,7 +72,7 @@ internal static class ExternalCandidateFeatureBuilder
             PopularityScore = NormalizePopularity(candidate.Popularity),
             PeopleSimilarity = ComputePeopleSimilarity(candidate, preferredPeople),
             CollaborativeScore = 0.5,
-            UserRatingScore = 0.5,
+            UserRatingScore = userRatingScore,
             HasUserInteraction = familiarity > 0.0,
             CompletionRatio = genreAvgCompletion,
             IsAbandoned = genreAbandonRate,

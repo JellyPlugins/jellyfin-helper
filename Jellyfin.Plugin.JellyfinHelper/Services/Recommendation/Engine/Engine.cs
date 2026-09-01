@@ -693,13 +693,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         CollaborativeFilter.CollaborativeContext? collaborativeContext = null,
         CancellationToken ct = default)
     {
-        // Build a lookup of watched items by ID for O(1) access in scoring methods
-        var watchedItemLookup = new Dictionary<Guid, WatchedItemInfo>(userProfile.WatchedItems.Count);
-        foreach (var w in userProfile.WatchedItems)
-        {
-            watchedItemLookup.TryAdd(w.ItemId, w);
-        }
-
         // Exclude played, favorited, AND started items - the user already knows them. Started items (PlayCount > 0 or PlaybackPositionTicks > 0) appear in Jellyfin's "Continue Watching" and should not waste a slot.
         var watchedIds = new HashSet<Guid>(
             userProfile.WatchedItems
@@ -779,6 +772,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // This avoids rebuilding these O(watchHistory) structures inside the per-candidate ScoreCandidate loop.
         var seriesAffinityCtx = ContentScoring.BuildSeriesAffinityContext(userProfile, seriesEpisodeCounts);
 
+        // Pre-compute genre-engagement inputs once per user (meaningful watches + their completion
+        // ratios). The candidate loop only varies the candidate genres, so this avoids a full
+        // WatchedItems rescan and completion-ratio recompute for every candidate.
+        var genreEngagementCtx = ContentScoring.BuildGenreEngagementContext(userProfile);
+
         // Score each unwatched candidate
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var candidateIndex = 0;
@@ -806,7 +804,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     coOccurrence,
                     collaborativeMax,
                     averageYear,
-                    watchedItemLookup,
                     preferredStudios,
                     preferredPeople,
                     preferredPeopleWeights,
@@ -828,6 +825,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     preferredBilledPeople,
                     genreStudioIdf,
                     seriesAffinityCtx,
+                    genreEngagementCtx,
                     alphaOffset));
         }
 
@@ -1035,7 +1033,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         Dictionary<Guid, double> coOccurrence,
         double collaborativeMax,
         double averageYear,
-        Dictionary<Guid, WatchedItemInfo> watchedItemLookup,
         HashSet<string> preferredStudios,
         HashSet<string> preferredPeople,
         IReadOnlyDictionary<string, double> preferredPeopleWeights,
@@ -1057,6 +1054,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         IReadOnlyDictionary<string, double> preferredBilledPeople,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
         ContentScoring.SeriesAffinityContext seriesAffinityCtx,
+        ContentScoring.GenreEngagementContext genreEngagementCtx,
         double alphaOffset = 0.0)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences, userGenreNormSq);
@@ -1070,12 +1068,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         // Genre level engagement package for the three interaction features.
         var candidateGenresForEngagement = candidate.Genres ?? Array.Empty<string>();
-        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(candidateGenresForEngagement, userProfile);
+        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(candidateGenresForEngagement, genreEngagementCtx);
         var hasUserInteraction = familiarity > 0.0;
         var completionRatio = genreAvgCompletion;
         var isAbandoned = genreAbandonRate;
-        watchedItemLookup.TryGetValue(candidate.Id, out var watchedItem);
-        var userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItem);
+
+        // Genre-level user rating: the user's average rating across items in the candidate's genres.
+        // A scored candidate is unwatched, so a per-item rating is always absent here; the genre-level
+        // aggregate is the discriminative signal, computed from the same per-user context as engagement.
+        var userRatingScore = ContentScoring.ComputeGenreRatingScore(candidateGenresForEngagement, genreEngagementCtx);
 
         // Resolve the candidate's user-invariant content-affinity data from the per-snapshot precompute (built once per candidate, never per user).
         var content = contentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)

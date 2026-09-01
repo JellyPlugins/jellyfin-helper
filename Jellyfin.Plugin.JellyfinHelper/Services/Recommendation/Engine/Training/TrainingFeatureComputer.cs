@@ -275,6 +275,7 @@ internal static class TrainingFeatureComputer
         // Exclude all target episode IDs from genre engagement to prevent label leakage.
         var episodeIds = new HashSet<Guid>(episodes.Select(e => e.ItemId));
         var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile, episodeIds);
+        var userRatingScore3 = ContentScoring.ComputeGenreRatingScore(genreList, userProfile, episodeIds);
 
         // SeriesAffinity on the same basis as inference, excluding this series from the progressing-series
         // comparison so an aggregated example is not scored for affinity to itself (self-leakage).
@@ -293,7 +294,7 @@ internal static class TrainingFeatureComputer
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
             IsSeries = true,
-            UserRatingScore = 0.5,
+            UserRatingScore = userRatingScore3,
             HasUserInteraction = familiarity3 > 0.0,
             CompletionRatio = genreAvgCompletion3,
             IsAbandoned = genreAbandonRate3,

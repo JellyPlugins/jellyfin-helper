@@ -424,44 +424,48 @@ public class RecommendationEngineTests
     }
 
     [Fact]
-    public void ComputeUserRatingScore_NullItem_ReturnsNeutral()
+    public void ComputeGenreRatingScore_NoHistory_ReturnsNeutral()
     {
-        Assert.Equal(0.5, ContentScoring.ComputeUserRatingScore(null));
+        var profile = new UserWatchProfile();
+        Assert.Equal(0.5, ContentScoring.ComputeGenreRatingScore(["Action"], profile));
     }
 
     [Fact]
-    public void ComputeUserRatingScore_NoRating_ReturnsNeutral()
+    public void ComputeGenreRatingScore_NoRatedItemsInGenre_ReturnsNeutral()
     {
-        var item = new WatchedItemInfo { UserRating = null };
-        Assert.Equal(0.5, ContentScoring.ComputeUserRatingScore(item));
+        // Watched the genre but never rated any of it: no rated sample, so neutral.
+        var profile = new UserWatchProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"], UserRating = null });
+        Assert.Equal(0.5, ContentScoring.ComputeGenreRatingScore(["Action"], profile));
     }
 
     [Fact]
-    public void ComputeUserRatingScore_ZeroRating_ReturnsNeutral()
+    public void ComputeGenreRatingScore_HighRatingsShrinkTowardMeasured()
     {
-        var item = new WatchedItemInfo { UserRating = 0 };
-        Assert.Equal(0.5, ContentScoring.ComputeUserRatingScore(item));
+        // Many highly-rated Action items: the shrunk mean sits above neutral and below the raw mean.
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 20; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"], UserRating = 10.0 });
+        }
+
+        var score = ContentScoring.ComputeGenreRatingScore(["Action"], profile);
+
+        // raw mean 1.0, confidence 20/23 => 0.5 + 0.869*(0.5) ≈ 0.935.
+        Assert.True(score > 0.5, $"Expected above neutral, got {score}");
+        Assert.True(score < 1.0, $"Shrinkage must keep it below the raw 1.0, got {score}");
+        Assert.Equal(0.5 + ((20.0 / 23.0) * 0.5), score, 6);
     }
 
     [Fact]
-    public void ComputeUserRatingScore_MaxRating_ReturnsOne()
+    public void ComputeGenreRatingScore_ExcludesTargetItem()
     {
-        var item = new WatchedItemInfo { UserRating = 10.0 };
-        Assert.Equal(1.0, ContentScoring.ComputeUserRatingScore(item));
-    }
-
-    [Fact]
-    public void ComputeUserRatingScore_MidRating_ReturnsHalf()
-    {
-        var item = new WatchedItemInfo { UserRating = 5.0 };
-        Assert.Equal(0.5, ContentScoring.ComputeUserRatingScore(item));
-    }
-
-    [Fact]
-    public void ComputeUserRatingScore_AboveTen_ClampedToOne()
-    {
-        var item = new WatchedItemInfo { UserRating = 15.0 };
-        Assert.Equal(1.0, ContentScoring.ComputeUserRatingScore(item));
+        // The single rated Action item is the target; excluding it leaves no rated sample => neutral.
+        var profile = new UserWatchProfile();
+        var target = Guid.NewGuid();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = target, Played = true, Genres = ["Action"], UserRating = 9.0 });
+        var score = ContentScoring.ComputeGenreRatingScore(["Action"], profile, new HashSet<Guid> { target });
+        Assert.Equal(0.5, score);
     }
 
     [Fact]

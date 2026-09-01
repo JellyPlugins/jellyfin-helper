@@ -44,7 +44,7 @@ public static class DefaultWeights
     public const double CompletionRatio = 0.050;
 
     /// <summary>Weight for genre abandon rate.</summary>
-    public const double IsAbandoned = -0.04;
+    public const double IsAbandoned = -0.10;
 
     /// <summary>Weight for genre familiarity.</summary>
     public const double HasInteraction = 0.005;

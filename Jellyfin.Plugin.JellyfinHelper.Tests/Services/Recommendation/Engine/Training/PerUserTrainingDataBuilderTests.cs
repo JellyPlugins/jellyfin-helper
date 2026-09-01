@@ -104,6 +104,52 @@ public sealed class PerUserTrainingDataBuilderTests
     }
 
     [Fact]
+    public void BuildExamples_Phase1_SeriesEngagementExcludesOwnEpisodes()
+    {
+        // A recommended Series whose episodes the user has watched must not draw genre engagement from
+        // those episodes: at inference a scored series is filtered out upstream and contributes nothing,
+        // so training excludes the series' own episodes. The exclude set is keyed by episode ItemId, not
+        // the series id, which is the bug this guards. With the episodes as the only matching Action
+        // history, the three interaction features must be neutral.
+        var userId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+
+        var episodes = new List<WatchedItemInfo>
+        {
+            new() { ItemId = Guid.NewGuid(), SeriesId = seriesId, Played = true, PlayCount = 1, PlaybackPositionTicks = 950, RuntimeTicks = 1000, Genres = ["Action"] },
+            new() { ItemId = Guid.NewGuid(), SeriesId = seriesId, Played = true, PlayCount = 1, PlaybackPositionTicks = 900, RuntimeTicks = 1000, Genres = ["Action"] },
+            new() { ItemId = Guid.NewGuid(), SeriesId = seriesId, Played = true, PlayCount = 1, PlaybackPositionTicks = 980, RuntimeTicks = 1000, Genres = ["Action"] }
+        };
+
+        var profiles = new Collection<UserWatchProfile>
+        {
+            new() { UserId = userId, UserName = "U", WatchedItems = new Collection<WatchedItemInfo>(episodes) }
+        };
+
+        var previousResults = new List<RecommendationResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "U",
+                GeneratedAt = DateTime.UtcNow.AddDays(-2),
+                Recommendations = [new RecommendedItem { ItemId = seriesId, Name = "Series", ItemType = "Series", Genres = ["Action"], CommunityRating = 8 }],
+                Cohort = "test"
+            }
+        };
+
+        var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(previousResults, profiles, CancellationToken.None);
+
+        var seriesExample = examples.First(e => e.UserId == userId && e.Features.IsSeries);
+
+        // Episodes excluded => no other Action history => neutral engagement. Before the fix the three
+        // fully-watched episodes leaked in as familiarity>0, completion≈0.95, abandon 0.
+        Assert.False(seriesExample.Features.HasUserInteraction);
+        Assert.Equal(0.5, seriesExample.Features.CompletionRatio, 6);
+        Assert.Equal(0.0, seriesExample.Features.IsAbandoned, 6);
+    }
+
+    [Fact]
     public void BuildExamples_TwoUsersWithOppositeTaste_GetIndependentExamples()
     {
         var userAction = Guid.NewGuid();
