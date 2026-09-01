@@ -957,15 +957,9 @@ internal static class TrainingDataBuilder
         // let the series' own episodes leak in. This path is reached for a series only when it has no
         // meaningful organic episodes, but non-meaningful or recommended episodes can still sit in the
         // profile, so exclude every episode id as well when the lookup has any.
-        HashSet<Guid> organicExclude;
-        if (isSeries && userCtx.SeriesEpisodeLookupOrganic.TryGetValue(w.ItemId, out var wEpisodes))
-        {
-            organicExclude = BuildEpisodeExcludeSet(w.ItemId, wEpisodes);
-        }
-        else
-        {
-            organicExclude = new HashSet<Guid> { w.ItemId };
-        }
+        var organicExclude = isSeries && userCtx.SeriesEpisodeLookupOrganic.TryGetValue(w.ItemId, out var wEpisodes)
+            ? BuildEpisodeExcludeSet(w.ItemId, wEpisodes)
+            : new HashSet<Guid> { w.ItemId };
 
         var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(
             wGenres, userProfile, organicExclude);

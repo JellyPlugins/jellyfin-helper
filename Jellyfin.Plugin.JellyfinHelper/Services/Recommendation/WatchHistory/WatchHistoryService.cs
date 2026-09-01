@@ -139,12 +139,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private static Dictionary<Guid, IReadOnlyList<string>> BuildSeriesGenresLookup(IReadOnlyList<BaseItem> allSeries)
     {
         var lookup = new Dictionary<Guid, IReadOnlyList<string>>();
-        foreach (var series in allSeries)
+        foreach (var series in allSeries.Where(static s => s.Genres is { Length: > 0 }))
         {
-            if (series.Genres is { Length: > 0 })
-            {
-                lookup[series.Id] = series.Genres;
-            }
+            lookup[series.Id] = series.Genres;
         }
 
         return lookup;
