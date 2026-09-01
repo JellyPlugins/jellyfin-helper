@@ -92,8 +92,12 @@ public sealed class PerUserTrainingDataBuilderTests
         var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(previousResults, profiles, CancellationToken.None);
 
         var phase1 = examples.First(e => e.UserId == userId);
-        Assert.Equal(1.0, phase1.Features.CompletionRatio, 6);
-        Assert.True(phase1.Features.HasUserInteraction);
+
+        // The target item is the user's only genre history and is excluded from the genre-engagement
+        // aggregate to prevent label leakage (its own completion also drives the label below). With no
+        // other Action history, the three interaction features are neutral by design.
+        Assert.Equal(0.5, phase1.Features.CompletionRatio, 6);
+        Assert.False(phase1.Features.HasUserInteraction);
         Assert.Equal(0.5, phase1.Features.UserRatingScore);
         Assert.Equal(0.0, phase1.Features.IsAbandoned, 6);
         Assert.True(phase1.Label > 0.5, "Label must still reflect actual engagement even though feature is neutral");

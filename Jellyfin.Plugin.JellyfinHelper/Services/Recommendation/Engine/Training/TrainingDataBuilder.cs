@@ -146,7 +146,8 @@ internal static class TrainingDataBuilder
             Lookups = lookups,
             OrganicFallbackTimestamp = organicFallbackTimestamp,
             Examples = examples,
-            CancellationToken = cancellationToken
+            CancellationToken = cancellationToken,
+            SeriesEpisodeCounts = seriesEpisodeCounts
         };
 
         EmitRecommendationFeedbackExamples(ctx);
@@ -364,7 +365,10 @@ internal static class TrainingDataBuilder
                 WatchedItemLookup = watchedItemLookup,
                 SeriesEpisodeLookup = seriesEpisodeLookup,
                 Artifacts = artifacts,
-                ContentSets = contentSets
+                ContentSets = contentSets,
+                SeriesAffinity = ctx.SeriesEpisodeCounts is not null
+                    ? ContentScoring.BuildSeriesAffinityContext(userProfile, ctx.SeriesEpisodeCounts)
+                    : null
             };
 
             foreach (var rec in prevResult.Recommendations)
@@ -497,7 +501,9 @@ internal static class TrainingDataBuilder
                 .FirstOrDefault();
         }
 
-        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(rec.Genres, userProfile);
+        // Exclude the target item from genre engagement to prevent label leakage (train/serve parity).
+        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(
+            rec.Genres, userProfile, new HashSet<Guid> { rec.ItemId });
         const double userRatingScore = 0.5;
         var completionRatio = genreAvgCompletion;
         var hasUserInteraction = familiarity > 0.0;
@@ -510,7 +516,11 @@ internal static class TrainingDataBuilder
             ContentScoring.ComputeCombinedCriticScore(rec.CommunityRating, rec.CriticRating);
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
-        const double seriesProgressionBoost = 0.0;
+        // Compute actual SeriesAffinity (train/serve parity) using the per-user context built once in
+        // EmitRecommendationFeedbackExamples, applying the same 30-80% progression logic as inference.
+        var seriesAffinity = userCtx.SeriesAffinity is not null
+            ? ContentScoring.ComputeSeriesAffinity(isSeries, rec.ItemId, rec.Genres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup)
+            : 0.0;
 
         var peopleSimilarity = lookups.CachedPeopleLookup.TryGetValue(rec.ItemId, out var candidatePeople)
             ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights)
@@ -553,7 +563,7 @@ internal static class TrainingDataBuilder
             IsAbandoned = isAbandoned,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesAffinity = seriesProgressionBoost,
+            SeriesAffinity = seriesAffinity,
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(
                 watchedItemForRec,
@@ -711,7 +721,10 @@ internal static class TrainingDataBuilder
                 SeriesWithOrgEpisodes = seriesWithOrgEpisodes,
                 AggregatedSeriesIds = aggregatedSeriesIds,
                 WatchedBoxSetCountsOrganic = watchedBoxSetCountsOrganic,
-                Artifacts = artifacts
+                Artifacts = artifacts,
+                SeriesAffinity = ctx.SeriesEpisodeCounts is not null
+                    ? ContentScoring.BuildSeriesAffinityContext(userProfile, ctx.SeriesEpisodeCounts)
+                    : null
             };
 
             foreach (var w in userProfile.WatchedItems)
@@ -826,7 +839,8 @@ internal static class TrainingDataBuilder
                     preferredInheritedTagsOrganic,
                     preferredWriterWeightsOrganic,
                     lookups.GenreStudioIdf,
-                    ctx.OrganicFallbackTimestamp);
+                    ctx.OrganicFallbackTimestamp,
+                    userCtx.SeriesAffinity);
                 return 1;
             }
 
@@ -911,10 +925,10 @@ internal static class TrainingDataBuilder
             tagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(organicTags, preferredTagsOrganic);
         }
 
-        const double seriesProgressionBoost = 0.0;
-
         var wGenres = w.Genres ?? Array.Empty<string>();
-        var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(wGenres, userProfile);
+        // Exclude the target item from genre engagement to prevent label leakage.
+        var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(
+            wGenres, userProfile, new HashSet<Guid> { w.ItemId });
         var wGenreSet = wGenres.Count > 0
             ? new HashSet<string>(wGenres, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -936,7 +950,9 @@ internal static class TrainingDataBuilder
             IsAbandoned = genreAbandonRate2,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesAffinity = seriesProgressionBoost,
+            SeriesAffinity = userCtx.SeriesAffinity is not null
+                ? ContentScoring.ComputeSeriesAffinity(isSeries, w.ItemId, wGenres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup)
+                : 0.0,
             CollectionProgressionBoost = lookups.ItemBoxSetIdsLookup.TryGetValue(w.ItemId, out var orgBoxSetIds2)
                 ? ComputeCollectionProgressionBoostWithCounts(orgBoxSetIds2, watchedBoxSetCountsOrganic)
                 : 0.0,
@@ -1306,6 +1322,9 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the cancellation token for the build operation.</summary>
         public CancellationToken CancellationToken { get; init; }
+
+        /// <summary>Gets the per-series total episode count map (library-wide). Used in training to compute SeriesAffinity on the same basis as inference.</summary>
+        public IReadOnlyDictionary<Guid, int>? SeriesEpisodeCounts { get; init; }
     }
 
     /// <summary>
@@ -1333,6 +1352,9 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the user's parallel watched-content sets and BoxSet counts.</summary>
         public WatchedContentSets ContentSets { get; init; }
+
+        /// <summary>Gets the pre-built series-affinity context for this user, or null when episode counts are unavailable. Built once per user so SeriesAffinity is computed on the same basis as inference without rebuilding the watched-series lookup per example.</summary>
+        public ContentScoring.SeriesAffinityContext? SeriesAffinity { get; init; }
     }
 
     /// <summary>
@@ -1360,5 +1382,8 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the user's pre-computed preference artifacts.</summary>
         public PerUserArtifacts Artifacts { get; init; }
+
+        /// <summary>Gets the pre-built series-affinity context for this user, or null when episode counts are unavailable. Built once per user so SeriesAffinity is computed on the same basis as inference without rebuilding the watched-series lookup per example.</summary>
+        public ContentScoring.SeriesAffinityContext? SeriesAffinity { get; init; }
     }
 }

@@ -65,6 +65,8 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var directories = GetSubdirectoriesIterative(libraryPath);
 
             var trashPath = ConfigHelper.GetTrashPath(libraryPath);

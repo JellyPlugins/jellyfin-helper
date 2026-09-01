@@ -139,11 +139,22 @@ public class NeuralFeatureImportanceTests
         var result = NeuralFeatureImportance.ComputePermutationImportance(
             CreateStrategy(),
             BuildExamples(50));
-        var expectedNames = Enum.GetValues<FeatureIndex>().Distinct().Select(v => v.ToString());
-        foreach (var name in expectedNames)
+
+        // Every result key must be a declared FeatureIndex name. We compare against the set of all
+        // enum names (a HashSet) rather than iterating them: FeatureIndex.SeriesAffinity and
+        // FeatureIndex.SeriesProgressionBoost share the same underlying value (15), so Enum.ToString()
+        // on that value may return either alias depending on the runtime. Asserting "each enum name is
+        // a key" is therefore unreliable; asserting "each key is a valid enum name" is exact.
+        var validNames = new HashSet<string>(Enum.GetNames<FeatureIndex>(), StringComparer.Ordinal);
+        foreach (var key in result.Keys)
         {
-            Assert.Contains(name!, result.Keys);
+            Assert.Contains(key, validNames);
         }
+
+        // Explicit contract for the aliased enum value 15: the canonical "SeriesAffinity" key must
+        // always appear in the result, and the legacy alias must never create a separate entry.
+        Assert.Contains(nameof(FeatureIndex.SeriesAffinity), result.Keys);
+        Assert.DoesNotContain(nameof(FeatureIndex.SeriesProgressionBoost), result.Keys);
     }
 
     [Fact]

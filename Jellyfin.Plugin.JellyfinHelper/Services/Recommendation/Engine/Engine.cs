@@ -775,6 +775,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             out var watchedPeopleSets,
             out var watchedStudioSets);
 
+        // Pre-compute series-affinity inputs once per user (watched-series lookup + progressing list).
+        // This avoids rebuilding these O(watchHistory) structures inside the per-candidate ScoreCandidate loop.
+        var seriesAffinityCtx = ContentScoring.BuildSeriesAffinityContext(userProfile, seriesEpisodeCounts);
+
         // Score each unwatched candidate
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var candidateIndex = 0;
@@ -823,7 +827,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     averageWriterWeight,
                     preferredBilledPeople,
                     genreStudioIdf,
-                    seriesEpisodeCounts,
+                    seriesAffinityCtx,
                     alphaOffset));
         }
 
@@ -1052,7 +1056,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         double averageWriterWeight,
         IReadOnlyDictionary<string, double> preferredBilledPeople,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
-        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
+        ContentScoring.SeriesAffinityContext seriesAffinityCtx,
         double alphaOffset = 0.0)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences, userGenreNormSq);
@@ -1089,7 +1093,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights, averagePreferredPeopleWeight)
             : 0.0;
 
-        var seriesAffinity = ContentScoring.ComputeSeriesAffinity(candidate, userProfile, seriesEpisodeCounts, peopleLookup);
+        var seriesAffinity = ContentScoring.ComputeSeriesAffinity(candidate, seriesAffinityCtx, peopleLookup);
 
         // Popularity proxy from collaborative scores (centralized formula)
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);

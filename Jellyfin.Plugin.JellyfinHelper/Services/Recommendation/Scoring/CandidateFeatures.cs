@@ -522,8 +522,21 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * CollaborativeScore;
         buffer[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
         buffer[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
-        var isAbandonedFallback = HasUserInteraction && CompletionRatio > 0.0 && CompletionRatio < AbandonedThreshold ? 1.0 : 0.0;
-        buffer[(int)FeatureIndex.IsAbandoned] = _isAbandonedSet ? IsAbandoned : isAbandonedFallback;
+        double abandonedValue;
+        if (_isAbandonedSet)
+        {
+            abandonedValue = IsAbandoned;
+        }
+        else
+        {
+            abandonedValue = HasUserInteraction
+                && CompletionRatio > 0.0
+                && CompletionRatio < AbandonedThreshold
+                    ? 1.0
+                    : 0.0;
+        }
+
+        buffer[(int)FeatureIndex.IsAbandoned] = abandonedValue;
         buffer[(int)FeatureIndex.HasInteraction] = HasUserInteraction ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
         buffer[(int)FeatureIndex.StudioMatch] = StudioMatch ? 1.0 : 0.0;

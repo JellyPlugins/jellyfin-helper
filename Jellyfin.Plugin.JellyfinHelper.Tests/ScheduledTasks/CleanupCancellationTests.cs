@@ -69,6 +69,16 @@ internal static class CleanupTaskTestExtensions
     public static (int, long) ProcessLocationForTest(this BaseLibraryCleanupTask task, string path, bool dryRun, CancellationToken token)
     {
         var method = task.GetType().GetMethod("ProcessLocation", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        return ((int, long))method!.Invoke(task, [path, dryRun, token])!;
+        try
+        {
+            return ((int, long))method!.Invoke(task, [path, dryRun, token])!;
+        }
+        catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            // Reflection wraps the real exception; rethrow the inner one preserving its stack so
+            // callers observe the production exception type (e.g. OperationCanceledException).
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+            throw;
+        }
     }
 }

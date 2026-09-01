@@ -77,6 +77,8 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var topLevelDirs = FileSystem.GetDirectories(libraryPath).ToList();
 
             foreach (var topDir in topLevelDirs)

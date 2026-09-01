@@ -225,7 +225,8 @@ internal static class TrainingFeatureComputer
         HashSet<string> preferredInheritedTags,
         IReadOnlyDictionary<string, double> preferredWriterWeights,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
-        DateTime organicFallbackTimestamp)
+        DateTime organicFallbackTimestamp,
+        ContentScoring.SeriesAffinityContext? seriesAffinityContext = null)
     {
         // Use latest episode for temporal signals.
         var mostRecent = episodes
@@ -243,7 +244,6 @@ internal static class TrainingFeatureComputer
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);
 
-        const double seriesProgressionBoost = 0.0;
         var peopleSimilarity = cachedPeopleLookup.TryGetValue(seriesId, out var seriesPeople)
             ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeopleWeights)
             : 0.0;
@@ -272,7 +272,16 @@ internal static class TrainingFeatureComputer
             out var seriesInheritedTags,
             out var seriesWriters);
 
-        var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile);
+        // Exclude all target episode IDs from genre engagement to prevent label leakage.
+        var episodeIds = new HashSet<Guid>(episodes.Select(e => e.ItemId));
+        var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile, episodeIds);
+
+        // SeriesAffinity on the same basis as inference, excluding this series from the progressing-series
+        // comparison so an aggregated example is not scored for affinity to itself (self-leakage).
+        var seriesAffinity = seriesAffinityContext is not null
+            ? ContentScoring.ComputeSeriesAffinity(true, seriesId, genreList, seriesAffinityContext, cachedPeopleLookup, excludeSeriesId: seriesId)
+            : 0.0;
+
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
@@ -290,7 +299,7 @@ internal static class TrainingFeatureComputer
             IsAbandoned = genreAbandonRate3,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesAffinity = seriesProgressionBoost,
+            SeriesAffinity = seriesAffinity,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),

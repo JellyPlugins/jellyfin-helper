@@ -411,10 +411,12 @@ internal static class ContentScoring
     /// </summary>
     /// <param name="candidateGenres">Candidate genres.</param>
     /// <param name="profile">User profile.</param>
+    /// <param name="excludeItemIds">Optional set of item IDs to exclude from the aggregate (e.g. the target item in training paths to prevent label leakage).</param>
     /// <returns>Familiarity, avg completion and abandon rate.</returns>
     internal static (double Familiarity, double AvgCompletion, double AbandonRate) ComputeGenreEngagement(
         IReadOnlyList<string> candidateGenres,
-        UserWatchProfile profile)
+        UserWatchProfile profile,
+        HashSet<Guid>? excludeItemIds = null)
     {
         if (candidateGenres.Count == 0 || profile.WatchedItems.Count == 0)
         {
@@ -423,7 +425,10 @@ internal static class ContentScoring
 
         var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
         var matching = profile.WatchedItems
-            .Where(w => w.HasMeaningfulInteraction() && w.Genres is not null && w.Genres.Any(candidateSet.Contains))
+            .Where(w => w.HasMeaningfulInteraction()
+                     && w.Genres is not null
+                     && w.Genres.Any(candidateSet.Contains)
+                     && (excludeItemIds is null || !excludeItemIds.Contains(w.ItemId)))
             .ToList();
 
         if (matching.Count == 0)
@@ -431,7 +436,9 @@ internal static class ContentScoring
             return (0.0, 0.5, 0.0);
         }
 
-        var familiarity = Math.Clamp((double)matching.Count / Math.Max(profile.WatchedItems.Count(w => w.HasMeaningfulInteraction()), 1), 0.0, 1.0);
+        var totalMeaningful = profile.WatchedItems.Count(w => w.HasMeaningfulInteraction()
+            && (excludeItemIds is null || !excludeItemIds.Contains(w.ItemId)));
+        var familiarity = Math.Clamp((double)matching.Count / Math.Max(totalMeaningful, 1), 0.0, 1.0);
         var withCompletion = matching.Where(w => w.RuntimeTicks > 0 || w.Played).ToList();
         var avgCompletion = withCompletion.Count > 0 ? withCompletion.Average(ComputeCompletionRatio) : 0.5;
         var abandonCount = withCompletion.Count(w =>
@@ -479,15 +486,98 @@ internal static class ContentScoring
         return ComputeBestSeriesJaccard(progressing, watchedBySeries, peopleLookup, candidateGenreSet, candidatePeopleSet);
     }
 
+    /// <summary>
+    ///     Builds the user-invariant series-affinity inputs once per scoring pass. Pass the returned
+    ///     context into <see cref="ComputeSeriesAffinity(BaseItem, SeriesAffinityContext, Dictionary{Guid, HashSet{string}})"/>
+    ///     inside the candidate loop to avoid rebuilding watched-series lookups per candidate.
+    /// </summary>
+    /// <param name="profile">The user watch profile.</param>
+    /// <param name="seriesEpisodeCounts">Library-wide per-series total episode count map.</param>
+    /// <returns>A <see cref="SeriesAffinityContext"/> holding the pre-built lookups for this user.</returns>
+    internal static SeriesAffinityContext BuildSeriesAffinityContext(
+        UserWatchProfile profile,
+        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts)
+    {
+        var watchedBySeries = BuildWatchedBySeriesLookup(profile);
+        var progressing = GetProgressingSeriesIds(watchedBySeries, seriesEpisodeCounts);
+        return new SeriesAffinityContext(watchedBySeries, progressing);
+    }
+
+    /// <summary>
+    ///     Scores series affinity using a pre-built <see cref="SeriesAffinityContext"/>.
+    ///     Use this overload inside the candidate loop (avoids rebuilding watched-series lookups per candidate).
+    /// </summary>
+    /// <param name="candidate">Candidate item.</param>
+    /// <param name="context">Pre-built series-affinity context for the current user.</param>
+    /// <param name="peopleLookup">People lookup.</param>
+    /// <returns>Series affinity 0 to 1.</returns>
+    internal static double ComputeSeriesAffinity(
+        BaseItem candidate,
+        SeriesAffinityContext context,
+        Dictionary<Guid, HashSet<string>> peopleLookup)
+    {
+        if (candidate is not Series || context.ProgressingSeriesIds.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var candidateGenreSet = new HashSet<string>(
+            candidate.Genres ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        peopleLookup.TryGetValue(candidate.Id, out var candidatePeople);
+        var candidatePeopleSet = candidatePeople is not null
+            ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        return ComputeBestSeriesJaccard(
+            context.ProgressingSeriesIds, context.WatchedBySeries, peopleLookup, candidateGenreSet, candidatePeopleSet);
+    }
+
+    /// <summary>
+    ///     Scores series affinity from raw candidate data without a <see cref="BaseItem"/>. Use in training paths
+    ///     where only genre and people metadata are available, not a live <see cref="BaseItem"/> instance.
+    /// </summary>
+    /// <param name="isSeries">True if the candidate is a series.</param>
+    /// <param name="candidateId">Candidate item ID (used for people lookup).</param>
+    /// <param name="candidateGenres">Candidate genre list.</param>
+    /// <param name="context">Pre-built series-affinity context for the current user.</param>
+    /// <param name="peopleLookup">People lookup (item ID to cast/director names).</param>
+    /// <param name="excludeSeriesId">Optional series ID to exclude from the progressing-series comparison (e.g. the candidate's own series in training paths, preventing self-leakage).</param>
+    /// <returns>Series affinity 0 to 1.</returns>
+    internal static double ComputeSeriesAffinity(
+        bool isSeries,
+        Guid candidateId,
+        IReadOnlyList<string> candidateGenres,
+        SeriesAffinityContext context,
+        Dictionary<Guid, HashSet<string>> peopleLookup,
+        Guid? excludeSeriesId = null)
+    {
+        if (!isSeries || context.ProgressingSeriesIds.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var candidateGenreSet = candidateGenres.Count > 0
+            ? new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        peopleLookup.TryGetValue(candidateId, out var candidatePeople);
+        var candidatePeopleSet = candidatePeople is not null
+            ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        return ComputeBestSeriesJaccard(
+            context.ProgressingSeriesIds, context.WatchedBySeries, peopleLookup, candidateGenreSet, candidatePeopleSet, excludeSeriesId);
+    }
+
     private static Dictionary<Guid, List<WatchedItemInfo>> BuildWatchedBySeriesLookup(UserWatchProfile profile)
     {
         var watchedBySeries = new Dictionary<Guid, List<WatchedItemInfo>>();
         foreach (var w in profile.WatchedItems.Where(w => w.SeriesId.HasValue && w.HasMeaningfulInteraction()))
         {
-            if (!watchedBySeries.TryGetValue(w.SeriesId.Value, out var list))
+            var sid = w.SeriesId.GetValueOrDefault();
+            if (!watchedBySeries.TryGetValue(sid, out var list))
             {
                 list = new List<WatchedItemInfo>();
-                watchedBySeries[w.SeriesId.Value] = list;
+                watchedBySeries[sid] = list;
             }
 
             list.Add(w);
@@ -524,11 +614,19 @@ internal static class ContentScoring
         Dictionary<Guid, List<WatchedItemInfo>> watchedBySeries,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         HashSet<string> candidateGenreSet,
-        HashSet<string>? candidatePeopleSet)
+        HashSet<string>? candidatePeopleSet,
+        Guid? excludeSeriesId = null)
     {
         var best = 0.0;
         foreach (var seriesId in progressing)
         {
+            // Skip the candidate's own series so a watched series cannot be scored for affinity to
+            // itself (self-leakage in training examples built from that same series).
+            if (excludeSeriesId.HasValue && seriesId == excludeSeriesId.Value)
+            {
+                continue;
+            }
+
             CollectSeriesFeatureSets(seriesId, watchedBySeries[seriesId], peopleLookup, out var seriesGenres, out var seriesPeople);
             var genreJaccard = SimilarityComputer.ComputeJaccardFromSets(candidateGenreSet, seriesGenres);
             var peopleJaccard = candidatePeopleSet is not null && seriesPeople.Count > 0
@@ -578,4 +676,16 @@ internal static class ContentScoring
             }
         }
     }
+
+    /// <summary>
+    ///     Pre-computed per-user series-affinity inputs. Build once per scoring pass with
+    ///     <see cref="ContentScoring.BuildSeriesAffinityContext"/> and pass into the
+    ///     <see cref="ContentScoring.ComputeSeriesAffinity(BaseItem, SeriesAffinityContext, Dictionary{Guid, HashSet{string}})"/>
+    ///     overload to avoid rebuilding watched-series lookups for every candidate.
+    /// </summary>
+    /// <param name="WatchedBySeries">Maps each series ID to the user's watched episodes in that series.</param>
+    /// <param name="ProgressingSeriesIds">Series IDs where the user has watched between 30 % and 80 % of episodes.</param>
+    internal sealed record SeriesAffinityContext(
+        Dictionary<Guid, List<WatchedItemInfo>> WatchedBySeries,
+        List<Guid> ProgressingSeriesIds);
 }

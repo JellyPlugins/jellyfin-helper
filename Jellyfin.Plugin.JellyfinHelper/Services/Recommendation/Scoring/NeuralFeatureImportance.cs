@@ -33,6 +33,17 @@ internal static class NeuralFeatureImportance
 
         var featureCount = CandidateFeatures.FeatureCount;
         var featureNames = Enum.GetValues<FeatureIndex>().Distinct().Select(v => v.ToString()).ToArray();
+
+        // Guarantee the canonical name for the aliased enum value 15.
+        // FeatureIndex.SeriesAffinity and FeatureIndex.SeriesProgressionBoost share the same
+        // underlying value, so Enum.ToString() is not guaranteed to return a specific alias.
+        // Override explicitly so the importance dictionary always uses "SeriesAffinity".
+        var seriesAffinitySlot = (int)FeatureIndex.SeriesAffinity;
+        if (seriesAffinitySlot < featureNames.Length)
+        {
+            featureNames[seriesAffinitySlot] = nameof(FeatureIndex.SeriesAffinity);
+        }
+
         var actualSampleSize = Math.Min(sampleSize, examples.Count);
 
         if (actualSampleSize < 2)

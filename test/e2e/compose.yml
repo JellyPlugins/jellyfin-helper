@@ -4,7 +4,7 @@ name: jellyfin-helper-e2e
 
 services:
   jellyfin:
-    image: jellyfin/jellyfin:12.0-rc6
+    image: jellyfin/jellyfin:12.0-rc7
     container_name: jfh-e2e-jellyfin
     # Run as the host-invoking user in CI so mounted config is writable.
     # Overridable via JELLYFIN_UID/GID (defaults keep it simple locally).

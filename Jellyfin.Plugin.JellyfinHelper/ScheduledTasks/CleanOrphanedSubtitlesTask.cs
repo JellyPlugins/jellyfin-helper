@@ -67,6 +67,8 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var allDirs = new[] { libraryPath }.Concat(
                 TryGetSubdirectories(libraryPath));
 
