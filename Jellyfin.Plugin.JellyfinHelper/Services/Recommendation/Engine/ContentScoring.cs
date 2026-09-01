@@ -381,6 +381,29 @@ internal static class ContentScoring
     }
 
     /// <summary>
+    ///     Builds the genre-engagement exclude set for a series example: the series id plus every watched
+    ///     record whose SeriesId is that series. Derived from the profile rather than a prebuilt episode
+    ///     lookup so it stays leak-safe even if such a lookup is later narrowed by a filter; a series'
+    ///     own episodes must never feed its own familiarity, completion or abandon signal.
+    /// </summary>
+    /// <param name="seriesId">The series' id.</param>
+    /// <param name="profile">The user's watch profile.</param>
+    /// <returns>The set of item ids to exclude from the series' genre-engagement aggregate.</returns>
+    internal static HashSet<Guid> BuildSeriesExcludeSet(Guid seriesId, UserWatchProfile profile)
+    {
+        var set = new HashSet<Guid> { seriesId };
+        foreach (var w in profile.WatchedItems)
+        {
+            if (w.SeriesId == seriesId)
+            {
+                set.Add(w.ItemId);
+            }
+        }
+
+        return set;
+    }
+
+    /// <summary>
     ///     Computes genre level engagement for a candidate. Returns familiarity, avg completion and abandon rate for the candidate genres.
     /// </summary>
     /// <param name="candidateGenres">Candidate genres.</param>

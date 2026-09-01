@@ -151,6 +151,56 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void BuildProfile_EpisodeWithoutGenres_InheritsParentSeriesGenres()
+    {
+        // Episodes usually carry no genres of their own; the watched item must inherit the parent
+        // series' genres so episode-based genre signals are not empty. Exercises the inheritance branch.
+        var user = CreateTestUser("erin");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var seriesId = Guid.NewGuid();
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "Genreless Episode", SeriesId = seriesId, Genres = System.Array.Empty<string>(), RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = new[] { "Sci-Fi", "Drama" } };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { episode })
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "ep-key", Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == episode.Id);
+        Assert.Equal(new[] { "Sci-Fi", "Drama" }, watched.Genres);
+    }
+
+    [Fact]
+    public void BuildProfile_EpisodeWithOwnGenres_DoesNotInheritSeriesGenres()
+    {
+        // The inheritance branch is guarded by genres.Count == 0: an episode that has its own genres
+        // must keep them and ignore the parent series' genres.
+        var user = CreateTestUser("frank");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var seriesId = Guid.NewGuid();
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "Own Genre Episode", SeriesId = seriesId, Genres = new[] { "Comedy" }, RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = new[] { "Sci-Fi", "Drama" } };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { episode })
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "ep-key", Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == episode.Id);
+        Assert.Equal(new[] { "Comedy" }, watched.Genres);
+    }
+
+    [Fact]
     public void BuildProfile_GenreDistribution_CountsCorrectly()
     {
         var user = CreateTestUser("charlie");

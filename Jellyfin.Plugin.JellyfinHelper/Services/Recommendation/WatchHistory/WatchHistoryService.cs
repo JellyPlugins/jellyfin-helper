@@ -305,10 +305,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         // Episodes usually carry no genres of their own; the genre lives on the Series entity. Fall back to
         // the parent series' genres so episode-based genre signals (engagement, SeriesAffinity) are not empty.
+        // Copy rather than share the series' list so a later mutation of one item's genres cannot bleed into
+        // every other episode of the same series that inherited the same reference.
         IReadOnlyList<string> genres = item.Genres ?? [];
         if (genres.Count == 0 && seriesId.HasValue && seriesGenresById.TryGetValue(seriesId.Value, out var inheritedGenres))
         {
-            genres = inheritedGenres;
+            genres = new List<string>(inheritedGenres);
         }
 
         var watchedItem = new WatchedItemInfo
