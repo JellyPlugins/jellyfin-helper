@@ -435,37 +435,6 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Builds the user-invariant inputs for genre engagement once per scoring pass. The candidate
-    ///     loop only varies the candidate genres, while the meaningful-interaction set and each item's
-    ///     completion ratio are fixed per user. Precompute them once and reuse across all candidates via
-    ///     the cached <see cref="ComputeGenreEngagement(IReadOnlyList{string}, GenreEngagementContext)"/>
-    ///     overload, avoiding a full WatchedItems rescan (and completion-ratio recompute) per candidate.
-    /// </summary>
-    /// <param name="profile">User profile.</param>
-    /// <returns>The per-user genre-engagement context.</returns>
-    internal static GenreEngagementContext BuildGenreEngagementContext(UserWatchProfile profile)
-    {
-        var meaningful = new List<MeaningfulWatch>();
-        foreach (var w in profile.WatchedItems)
-        {
-            if (!w.HasMeaningfulInteraction())
-            {
-                continue;
-            }
-
-            var genreSet = w.Genres is { Count: > 0 }
-                ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
-                : null;
-            var countsForCompletion = w.RuntimeTicks > 0 || w.Played;
-            var completion = countsForCompletion ? ComputeCompletionRatio(w) : 0.0;
-            var normalizedRating = NormalizeUserRating(w.UserRating);
-            meaningful.Add(new MeaningfulWatch(genreSet, countsForCompletion, completion, normalizedRating));
-        }
-
-        return new GenreEngagementContext(meaningful);
-    }
-
-    /// <summary>
     ///     Cached genre-engagement scoring using a <see cref="GenreEngagementContext"/> built once per
     ///     user. Produces the same value as the direct
     ///     <see cref="ComputeGenreEngagement(IReadOnlyList{string}, UserWatchProfile, HashSet{Guid})"/>
@@ -525,6 +494,37 @@ internal static class ContentScoring
         abandonRate *= confidence;
 
         return (Math.Clamp(familiarity, 0.0, 1.0), Math.Clamp(avgCompletion, 0.0, 1.0), Math.Clamp(abandonRate, 0.0, 1.0));
+    }
+
+    /// <summary>
+    ///     Builds the user-invariant inputs for genre engagement once per scoring pass. The candidate
+    ///     loop only varies the candidate genres, while the meaningful-interaction set and each item's
+    ///     completion ratio are fixed per user. Precompute them once and reuse across all candidates via
+    ///     the cached <see cref="ComputeGenreEngagement(IReadOnlyList{string}, GenreEngagementContext)"/>
+    ///     overload, avoiding a full WatchedItems rescan (and completion-ratio recompute) per candidate.
+    /// </summary>
+    /// <param name="profile">User profile.</param>
+    /// <returns>The per-user genre-engagement context.</returns>
+    internal static GenreEngagementContext BuildGenreEngagementContext(UserWatchProfile profile)
+    {
+        var meaningful = new List<MeaningfulWatch>();
+        foreach (var w in profile.WatchedItems)
+        {
+            if (!w.HasMeaningfulInteraction())
+            {
+                continue;
+            }
+
+            var genreSet = w.Genres is { Count: > 0 }
+                ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
+                : null;
+            var countsForCompletion = w.RuntimeTicks > 0 || w.Played;
+            var completion = countsForCompletion ? ComputeCompletionRatio(w) : 0.0;
+            var normalizedRating = NormalizeUserRating(w.UserRating);
+            meaningful.Add(new MeaningfulWatch(genreSet, countsForCompletion, completion, normalizedRating));
+        }
+
+        return new GenreEngagementContext(meaningful);
     }
 
     /// <summary>
