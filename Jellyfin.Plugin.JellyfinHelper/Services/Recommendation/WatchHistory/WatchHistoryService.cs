@@ -77,12 +77,16 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var allItems = LoadAllVideoItems();
         var allSeries = LoadAllSeriesItems();
 
+        // The seriesId -> genres map is identical for every user in the batch, so build it once here
+        // rather than rebuilding it inside BuildProfile on each iteration.
+        var seriesGenresById = BuildSeriesGenresLookup(allSeries);
+
         var profiles = new Collection<UserWatchProfile>();
         foreach (var user in users)
         {
             try
             {
-                profiles.Add(BuildProfile(user, allItems, allSeries));
+                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById));
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
@@ -187,11 +191,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library (null to query on demand).</param>
     /// <param name="allSeries">Pre-loaded series items for favorite detection (null to query on demand).</param>
+    /// <param name="seriesGenresById">Pre-built seriesId to genres map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <returns>A populated watch profile for the user.</returns>
     internal UserWatchProfile BuildProfile(
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem>? allItems = null,
-        IReadOnlyList<BaseItem>? allSeries = null)
+        IReadOnlyList<BaseItem>? allSeries = null,
+        Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null)
     {
         var profile = new UserWatchProfile
         {
@@ -208,7 +214,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // genres map once so a watched episode can inherit its series' genres, otherwise every episode-based
         // genre signal (engagement, SeriesAffinity) is systematically empty.
         allSeries ??= LoadAllSeriesItems();
-        var seriesGenresById = BuildSeriesGenresLookup(allSeries);
+        seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
 
         var ratingSum = 0.0;
         var ratingCount = 0;

@@ -276,14 +276,7 @@ internal static class TrainingFeatureComputer
         // label leakage. Derived from the full profile, not the episodes parameter, because engagement
         // scans the whole profile: an episode of this series that is absent from the passed-in list
         // (a filtered subset) would otherwise leak its own label back into the aggregate.
-        var episodeIds = new HashSet<Guid> { seriesId };
-        foreach (var w in userProfile.WatchedItems)
-        {
-            if (w.SeriesId == seriesId)
-            {
-                episodeIds.Add(w.ItemId);
-            }
-        }
+        var episodeIds = BuildSeriesExcludeSet(seriesId, userProfile);
 
         var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile, episodeIds);
         var userRatingScore3 = ContentScoring.ComputeGenreRatingScore(genreList, userProfile, episodeIds);
@@ -361,6 +354,29 @@ internal static class TrainingFeatureComputer
                 SampleWeight = 0.7,
                 UserId = userProfile.UserId
             });
+    }
+
+    /// <summary>
+    ///     Builds the genre-engagement exclude set for an aggregated series example: the series id plus
+    ///     every watched record whose SeriesId is that series. Taken from the full profile rather than
+    ///     the episodes parameter so a record absent from that (filtered) list still cannot leak its own
+    ///     label into the aggregate.
+    /// </summary>
+    /// <param name="seriesId">The aggregated series' id.</param>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <returns>The set of item ids to exclude from the genre-engagement aggregate.</returns>
+    private static HashSet<Guid> BuildSeriesExcludeSet(Guid seriesId, UserWatchProfile userProfile)
+    {
+        var episodeIds = new HashSet<Guid> { seriesId };
+        foreach (var w in userProfile.WatchedItems)
+        {
+            if (w.SeriesId == seriesId)
+            {
+                episodeIds.Add(w.ItemId);
+            }
+        }
+
+        return episodeIds;
     }
 
     /// <summary>

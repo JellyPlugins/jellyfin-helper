@@ -1106,6 +1106,10 @@ internal static class TrainingDataBuilder
             ? ContentScoring.BuildSeriesAffinityContext(userProfile, ctx.SeriesEpisodeCounts)
             : null;
 
+        // Same rationale for genre engagement: build the per-user context once instead of rescanning the
+        // full watch history for every sampled negative. No per-target exclusion is needed here.
+        var negGenreEngagementCtx = ContentScoring.BuildGenreEngagementContext(userProfile);
+
         var (watchedGenreSetsNeg, watchedPeopleSetsNeg, watchedStudioSetsNeg) =
             BuildWatchedContentSets(userProfile, lookups);
         var watchedBoxSetCountsNeg = BuildWatchedBoxSetCounts(
@@ -1150,7 +1154,8 @@ internal static class TrainingDataBuilder
                     contentSets,
                     lookups,
                     ctx.OrganicFallbackTimestamp,
-                    negSeriesAffinityCtx));
+                    negSeriesAffinityCtx,
+                    negGenreEngagementCtx));
             randomNegativeCount++;
         }
 
@@ -1167,7 +1172,8 @@ internal static class TrainingDataBuilder
         WatchedContentSets contentSets,
         TrainingLookups lookups,
         DateTime organicFallbackTimestamp,
-        ContentScoring.SeriesAffinityContext? seriesAffinityCtx)
+        ContentScoring.SeriesAffinityContext? seriesAffinityCtx,
+        ContentScoring.GenreEngagementContext genreEngagementCtx)
     {
         var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg,
              preferredPeopleWeightsNeg, preferredStudiosNeg, preferredTagsNeg,
@@ -1207,8 +1213,8 @@ internal static class TrainingDataBuilder
             negRecencyScore = 0.5;
         }
 
-        var (familiarityNeg, genreAvgCompletionNeg, genreAbandonRateNeg) = ContentScoring.ComputeGenreEngagement(negGenres, userProfile);
-        var userRatingScoreNeg = ContentScoring.ComputeGenreRatingScore(negGenres, userProfile);
+        var (familiarityNeg, genreAvgCompletionNeg, genreAbandonRateNeg) = ContentScoring.ComputeGenreEngagement(negGenres, genreEngagementCtx);
+        var userRatingScoreNeg = ContentScoring.ComputeGenreRatingScore(negGenres, genreEngagementCtx);
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(negGenres, genrePreferences),
