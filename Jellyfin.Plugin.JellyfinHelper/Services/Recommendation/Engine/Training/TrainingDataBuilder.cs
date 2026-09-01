@@ -146,7 +146,8 @@ internal static class TrainingDataBuilder
             Lookups = lookups,
             OrganicFallbackTimestamp = organicFallbackTimestamp,
             Examples = examples,
-            CancellationToken = cancellationToken
+            CancellationToken = cancellationToken,
+            SeriesEpisodeCounts = seriesEpisodeCounts
         };
 
         EmitRecommendationFeedbackExamples(ctx);
@@ -364,7 +365,10 @@ internal static class TrainingDataBuilder
                 WatchedItemLookup = watchedItemLookup,
                 SeriesEpisodeLookup = seriesEpisodeLookup,
                 Artifacts = artifacts,
-                ContentSets = contentSets
+                ContentSets = contentSets,
+                SeriesAffinity = ctx.SeriesEpisodeCounts is not null
+                    ? ContentScoring.BuildSeriesAffinityContext(userProfile, ctx.SeriesEpisodeCounts)
+                    : null
             };
 
             foreach (var rec in prevResult.Recommendations)
@@ -398,6 +402,26 @@ internal static class TrainingDataBuilder
         }
 
         return seriesEpisodeLookup;
+    }
+
+    /// <summary>
+    ///     Builds the genre-engagement exclude set for a series example straight from the profile: the
+    ///     series id plus every watched record whose SeriesId is that series. Derived from the profile
+    ///     rather than a prebuilt episode lookup so it stays leak-safe even if that lookup is ever
+    ///     narrowed by a filter; the series' own episodes must never feed its familiarity/completion/abandon.
+    /// </summary>
+    private static HashSet<Guid> BuildSeriesExcludeSetFromProfile(Guid seriesId, UserWatchProfile profile)
+    {
+        var set = new HashSet<Guid> { seriesId };
+        foreach (var w in profile.WatchedItems)
+        {
+            if (w.SeriesId == seriesId)
+            {
+                set.Add(w.ItemId);
+            }
+        }
+
+        return set;
     }
 
     /// <summary>
@@ -489,18 +513,31 @@ internal static class TrainingDataBuilder
         var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
         // Use latest episode for series temporal signals.
-        if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForSeries))
+        List<WatchedItemInfo>? episodesForSeries = null;
+        if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var eps))
         {
+            episodesForSeries = eps;
             watchedItemForRec = episodesForSeries
                 .Where(e => e.HasPlaybackActivity())
                 .OrderByDescending(e => e.LastPlayedDate)
                 .FirstOrDefault();
         }
 
-        // Keep interaction signals neutral so training cannot memorize engagement that is absent at inference.
-        const double userRatingScore = 0.5;
-        const double completionRatio = 0.0;
-        const bool hasUserInteraction = false;
+        // For a series the watched records are its episodes (ItemId == episodeId), not the series id.
+        // Exclude the series id and every watched record of that series so the example cannot draw genre
+        // engagement from its own history. At inference a scored series is filtered out upstream and
+        // contributes nothing, so training must match by excluding it here too. Built from the profile
+        // (not episodesForSeries) so a movie example, or a series whose episodes are absent from the
+        // lookup, still excludes exactly its own records.
+        var engagementExclude = isSeries
+            ? BuildSeriesExcludeSetFromProfile(rec.ItemId, userProfile)
+            : new HashSet<Guid> { rec.ItemId };
+        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(
+            rec.Genres, userProfile, engagementExclude);
+        var userRatingScore = ContentScoring.ComputeGenreRatingScore(rec.Genres, userProfile, engagementExclude);
+        var completionRatio = genreAvgCompletion;
+        var hasUserInteraction = familiarity > 0.0;
+        var isAbandoned = genreAbandonRate;
         var actualCompletionRatio = ContentScoring.ComputeCompletionRatio(watchedItemForRec);
 
         var collabScore = ContentScoring.ComputeCollaborativeScore(rec.ItemId, coOccurrence, collaborativeMax);
@@ -509,7 +546,13 @@ internal static class TrainingDataBuilder
             ContentScoring.ComputeCombinedCriticScore(rec.CommunityRating, rec.CriticRating);
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
-        const double seriesProgressionBoost = 0.0;
+        // Compute actual SeriesAffinity (train/serve parity) using the per-user context built once in
+        // EmitRecommendationFeedbackExamples. Exclude this candidate's own series: at inference a scored
+        // Series is never in the user's progressing set (watched series are filtered out upstream), so
+        // excluding it here prevents a training-only self-Jaccard that inference can never produce.
+        var seriesAffinity = userCtx.SeriesAffinity is not null
+            ? ContentScoring.ComputeSeriesAffinity(isSeries, rec.ItemId, rec.Genres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup, excludeSeriesId: rec.ItemId)
+            : 0.0;
 
         var peopleSimilarity = lookups.CachedPeopleLookup.TryGetValue(rec.ItemId, out var candidatePeople)
             ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights)
@@ -549,9 +592,10 @@ internal static class TrainingDataBuilder
             UserRatingScore = userRatingScore,
             HasUserInteraction = hasUserInteraction,
             CompletionRatio = completionRatio,
+            IsAbandoned = isAbandoned,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesProgressionBoost = seriesProgressionBoost,
+            SeriesAffinity = seriesAffinity,
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(
                 watchedItemForRec,
@@ -709,7 +753,10 @@ internal static class TrainingDataBuilder
                 SeriesWithOrgEpisodes = seriesWithOrgEpisodes,
                 AggregatedSeriesIds = aggregatedSeriesIds,
                 WatchedBoxSetCountsOrganic = watchedBoxSetCountsOrganic,
-                Artifacts = artifacts
+                Artifacts = artifacts,
+                SeriesAffinity = ctx.SeriesEpisodeCounts is not null
+                    ? ContentScoring.BuildSeriesAffinityContext(userProfile, ctx.SeriesEpisodeCounts)
+                    : null
             };
 
             foreach (var w in userProfile.WatchedItems)
@@ -824,7 +871,8 @@ internal static class TrainingDataBuilder
                     preferredInheritedTagsOrganic,
                     preferredWriterWeightsOrganic,
                     lookups.GenreStudioIdf,
-                    ctx.OrganicFallbackTimestamp);
+                    ctx.OrganicFallbackTimestamp,
+                    userCtx.SeriesAffinity);
                 return 1;
             }
 
@@ -909,9 +957,19 @@ internal static class TrainingDataBuilder
             tagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(organicTags, preferredTagsOrganic);
         }
 
-        const double seriesProgressionBoost = 0.0;
-
         var wGenres = w.Genres ?? Array.Empty<string>();
+        // Exclude the target from genre engagement to prevent label leakage. For a series the watch
+        // records are its episodes (ItemId == episodeId), so excluding only w.ItemId (the series id)
+        // would let its own episodes leak in. Built from the profile rather than the organic episode
+        // lookup, which is a filtered subset: engagement scans the full profile, so a leak-safe exclude
+        // must cover every record of this series, not just the ones that survived the lookup's filter.
+        var organicExclude = isSeries
+            ? BuildSeriesExcludeSetFromProfile(w.ItemId, userProfile)
+            : new HashSet<Guid> { w.ItemId };
+
+        var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(
+            wGenres, userProfile, organicExclude);
+        var userRatingScore2 = ContentScoring.ComputeGenreRatingScore(wGenres, userProfile, organicExclude);
         var wGenreSet = wGenres.Count > 0
             ? new HashSet<string>(wGenres, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -927,12 +985,15 @@ internal static class TrainingDataBuilder
             YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
             GenreCount = wGenres.Count,
             IsSeries = isSeries,
-            UserRatingScore = 0.5,
-            HasUserInteraction = false,
-            CompletionRatio = 0.0,
+            UserRatingScore = userRatingScore2,
+            HasUserInteraction = familiarity2 > 0.0,
+            CompletionRatio = genreAvgCompletion2,
+            IsAbandoned = genreAbandonRate2,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesProgressionBoost = seriesProgressionBoost,
+            SeriesAffinity = userCtx.SeriesAffinity is not null
+                ? ContentScoring.ComputeSeriesAffinity(isSeries, w.ItemId, wGenres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup, excludeSeriesId: w.ItemId)
+                : 0.0,
             CollectionProgressionBoost = lookups.ItemBoxSetIdsLookup.TryGetValue(w.ItemId, out var orgBoxSetIds2)
                 ? ComputeCollectionProgressionBoostWithCounts(orgBoxSetIds2, watchedBoxSetCountsOrganic)
                 : 0.0,
@@ -1039,6 +1100,17 @@ internal static class TrainingDataBuilder
 
         var artifacts = ctx.PerUserCache[userProfile.UserId];
 
+        // Per-user series-affinity context (built once). Random negatives are cross-user items this
+        // user never saw, so they are genuine unseen candidates: no self-exclusion, matching inference.
+        var negSeriesAffinityCtx = ctx.SeriesEpisodeCounts is not null
+            ? ContentScoring.BuildSeriesAffinityContext(userProfile, ctx.SeriesEpisodeCounts)
+            : null;
+
+        // Same rationale for genre engagement: build the per-user context once instead of rescanning the
+        // full watch history for every sampled negative. No per-target exclusion is needed here.
+        var negGenreEngagementCtx = ContentScoring.BuildGenreEngagementContext(userProfile);
+        var negScoringContexts = new NegativeScoringContexts(negSeriesAffinityCtx, negGenreEngagementCtx);
+
         var (watchedGenreSetsNeg, watchedPeopleSetsNeg, watchedStudioSetsNeg) =
             BuildWatchedContentSets(userProfile, lookups);
         var watchedBoxSetCountsNeg = BuildWatchedBoxSetCounts(
@@ -1082,7 +1154,8 @@ internal static class TrainingDataBuilder
                     artifacts,
                     contentSets,
                     lookups,
-                    ctx.OrganicFallbackTimestamp));
+                    ctx.OrganicFallbackTimestamp,
+                    negScoringContexts));
             randomNegativeCount++;
         }
 
@@ -1098,7 +1171,8 @@ internal static class TrainingDataBuilder
         PerUserArtifacts artifacts,
         WatchedContentSets contentSets,
         TrainingLookups lookups,
-        DateTime organicFallbackTimestamp)
+        DateTime organicFallbackTimestamp,
+        NegativeScoringContexts scoringContexts)
     {
         var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg,
              preferredPeopleWeightsNeg, preferredStudiosNeg, preferredTagsNeg,
@@ -1138,6 +1212,8 @@ internal static class TrainingDataBuilder
             negRecencyScore = 0.5;
         }
 
+        var (familiarityNeg, genreAvgCompletionNeg, genreAbandonRateNeg) = ContentScoring.ComputeGenreEngagement(negGenres, scoringContexts.GenreEngagement);
+        var userRatingScoreNeg = ContentScoring.ComputeGenreRatingScore(negGenres, scoringContexts.GenreEngagement);
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(negGenres, genrePreferences),
@@ -1147,11 +1223,15 @@ internal static class TrainingDataBuilder
             YearProximityScore = ContentScoring.ComputeYearProximity(neg.Year, avgYear),
             GenreCount = negGenres.Count,
             IsSeries = isSeries,
-            UserRatingScore = 0.5,
-            HasUserInteraction = false,
-            CompletionRatio = 0.0,
+            UserRatingScore = userRatingScoreNeg,
+            HasUserInteraction = familiarityNeg > 0.0,
+            CompletionRatio = genreAvgCompletionNeg,
+            IsAbandoned = genreAbandonRateNeg,
             PeopleSimilarity = negPeopleSimilarity,
             StudioMatch = negStudioMatch,
+            SeriesAffinity = scoringContexts.SeriesAffinity is not null
+                ? ContentScoring.ComputeSeriesAffinity(isSeries, neg.ItemId, negGenres, scoringContexts.SeriesAffinity, lookups.CachedPeopleLookup)
+                : 0.0,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = 0.5,
             HourOfDayAffinity = 0.5,
@@ -1264,6 +1344,15 @@ internal static class TrainingDataBuilder
         Dictionary<Guid, int> WatchedBoxSetCounts);
 
     /// <summary>
+    ///     Per-user scoring contexts built once and reused across a user's random-negative samples: the
+    ///     series-affinity context (null when episode counts are unavailable) and the genre-engagement
+    ///     context. Bundled so the negative-example builder takes them as one argument.
+    /// </summary>
+    private readonly record struct NegativeScoringContexts(
+        ContentScoring.SeriesAffinityContext? SeriesAffinity,
+        ContentScoring.GenreEngagementContext GenreEngagement);
+
+    /// <summary>
     ///     Shared context passed through all phases.
     /// </summary>
     private readonly record struct TrainingContext
@@ -1300,6 +1389,9 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the cancellation token for the build operation.</summary>
         public CancellationToken CancellationToken { get; init; }
+
+        /// <summary>Gets the per-series total episode count map (library-wide). Used in training to compute SeriesAffinity on the same basis as inference.</summary>
+        public IReadOnlyDictionary<Guid, int>? SeriesEpisodeCounts { get; init; }
     }
 
     /// <summary>
@@ -1327,6 +1419,9 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the user's parallel watched-content sets and BoxSet counts.</summary>
         public WatchedContentSets ContentSets { get; init; }
+
+        /// <summary>Gets the pre-built series-affinity context for this user, or null when episode counts are unavailable. Built once per user so SeriesAffinity is computed on the same basis as inference without rebuilding the watched-series lookup per example.</summary>
+        public ContentScoring.SeriesAffinityContext? SeriesAffinity { get; init; }
     }
 
     /// <summary>
@@ -1354,5 +1449,8 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the user's pre-computed preference artifacts.</summary>
         public PerUserArtifacts Artifacts { get; init; }
+
+        /// <summary>Gets the pre-built series-affinity context for this user, or null when episode counts are unavailable. Built once per user so SeriesAffinity is computed on the same basis as inference without rebuilding the watched-series lookup per example.</summary>
+        public ContentScoring.SeriesAffinityContext? SeriesAffinity { get; init; }
     }
 }

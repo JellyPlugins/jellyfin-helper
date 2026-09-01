@@ -77,12 +77,16 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var allItems = LoadAllVideoItems();
         var allSeries = LoadAllSeriesItems();
 
+        // The seriesId -> genres map is identical for every user in the batch, so build it once here
+        // rather than rebuilding it inside BuildProfile on each iteration.
+        var seriesGenresById = BuildSeriesGenresLookup(allSeries);
+
         var profiles = new Collection<UserWatchProfile>();
         foreach (var user in users)
         {
             try
             {
-                profiles.Add(BuildProfile(user, allItems, allSeries));
+                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById));
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
@@ -130,6 +134,23 @@ public sealed class WatchHistoryService : IWatchHistoryService
         });
     }
 
+    /// <summary>
+    ///     Builds a seriesId to genres map from the loaded series items so a watched episode can inherit
+    ///     its parent series' genres. Only series that actually have genres are stored.
+    /// </summary>
+    /// <param name="allSeries">All series items loaded from the library.</param>
+    /// <returns>A map from series id to its genre list.</returns>
+    private static Dictionary<Guid, IReadOnlyList<string>> BuildSeriesGenresLookup(IReadOnlyList<BaseItem> allSeries)
+    {
+        var lookup = new Dictionary<Guid, IReadOnlyList<string>>();
+        foreach (var series in allSeries.Where(static s => s.Genres is { Length: > 0 }))
+        {
+            lookup[series.Id] = series.Genres;
+        }
+
+        return lookup;
+    }
+
     /// <inheritdoc />
     public IReadOnlyDictionary<Guid, int> GetSeriesEpisodeCounts()
     {
@@ -170,11 +191,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library (null to query on demand).</param>
     /// <param name="allSeries">Pre-loaded series items for favorite detection (null to query on demand).</param>
+    /// <param name="seriesGenresById">Pre-built seriesId to genres map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <returns>A populated watch profile for the user.</returns>
     internal UserWatchProfile BuildProfile(
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem>? allItems = null,
-        IReadOnlyList<BaseItem>? allSeries = null)
+        IReadOnlyList<BaseItem>? allSeries = null,
+        Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null)
     {
         var profile = new UserWatchProfile
         {
@@ -185,6 +208,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         // Use pre-loaded items or query on demand (single-user path)
         allItems ??= LoadAllVideoItems();
+
+        // Series are loaded up front (not just for the favorite pass below) because episodes in Jellyfin
+        // usually carry no genres of their own: the genre lives on the Series entity. Build a seriesId to
+        // genres map once so a watched episode can inherit its series' genres, otherwise every episode-based
+        // genre signal (engagement, SeriesAffinity) is systematically empty.
+        allSeries ??= LoadAllSeriesItems();
+        seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
 
         var ratingSum = 0.0;
         var ratingCount = 0;
@@ -207,11 +237,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, ref ratingSum, ref ratingCount);
+            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, seriesGenresById, ref ratingSum, ref ratingCount);
         }
 
         // Check series-level favorites: users can favorite an entire series in Jellyfin (the heart button on the series page).
-        allSeries ??= LoadAllSeriesItems();
 
         // Second batch call for the (usually much smaller) series list.
         var seriesUserDataLookup = TryLoadUserDataBatch(user, allSeries);
@@ -251,6 +280,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="item">The library item the user interacted with.</param>
     /// <param name="userData">The user data for the item.</param>
     /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
+    /// <param name="seriesGenresById">Map of series id to genres, used to give an episode its parent series' genres when the episode has none.</param>
     /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
     /// <param name="ratingCount">Running community-rating count (updated in place).</param>
     private void AccumulateWatchedItem(
@@ -258,6 +288,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         BaseItem item,
         UserItemData userData,
         HashSet<Guid> watchedSeriesIds,
+        Dictionary<Guid, IReadOnlyList<string>> seriesGenresById,
         ref double ratingSum,
         ref int ratingCount)
     {
@@ -270,6 +301,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
         if (item is Episode ep)
         {
             seriesId = ep.SeriesId != Guid.Empty ? ep.SeriesId : null;
+        }
+
+        // Episodes usually carry no genres of their own; the genre lives on the Series entity. Fall back to
+        // the parent series' genres so episode-based genre signals (engagement, SeriesAffinity) are not empty.
+        IReadOnlyList<string> genres = item.Genres ?? [];
+        if (genres.Count == 0 && seriesId.HasValue && seriesGenresById.TryGetValue(seriesId.Value, out var inheritedGenres))
+        {
+            genres = inheritedGenres;
         }
 
         var watchedItem = new WatchedItemInfo
@@ -285,7 +324,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFavorite = userData.IsFavorite,
             UserRating = userData.Rating,
             CommunityRating = item.CommunityRating,
-            Genres = item.Genres ?? [],
+            Genres = genres,
             Year = item.ProductionYear,
             SeriesId = seriesId,
             DateCreated = item.DateCreated,
@@ -304,7 +343,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         profile.WatchedItems.Add(watchedItem);
 
-        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, ref ratingSum, ref ratingCount);
+        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, genres, ref ratingSum, ref ratingCount);
     }
 
     /// <summary>
@@ -340,6 +379,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="item">The library item the user interacted with.</param>
     /// <param name="userData">The user data for the item.</param>
     /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
+    /// <param name="genres">The item's effective genres (episode genres, or inherited series genres when the episode has none).</param>
     /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
     /// <param name="ratingCount">Running community-rating count (updated in place).</param>
     private static void AccumulateWatchedItemStatistics(
@@ -347,6 +387,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         BaseItem item,
         UserItemData userData,
         HashSet<Guid> watchedSeriesIds,
+        IReadOnlyList<string> genres,
         ref double ratingSum,
         ref int ratingCount)
     {
@@ -374,7 +415,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
 
         // Track genre distribution
-        AccumulateGenreDistribution(profile, item.Genres);
+        AccumulateGenreDistribution(profile, genres);
 
         // Track favorites
         if (userData.IsFavorite)

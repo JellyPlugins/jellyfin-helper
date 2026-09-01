@@ -67,11 +67,11 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
         try
         {
-            // Process directories: for each directory, check all subtitle files
-            var allDirs = new[] { libraryPath }.Concat(
-                TryGetSubdirectories(libraryPath));
+            cancellationToken.ThrowIfCancellationRequested();
 
-            // Hoist trash path computation out of loop - libraryPath is constant per iteration
+            var allDirs = new[] { libraryPath }.Concat(
+                TryGetSubdirectories(libraryPath, cancellationToken));
+
             var trashFullPath = ConfigHelper.GetTrashPath(libraryPath);
             var normalizedTrash = Path.GetFullPath(trashFullPath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -93,7 +93,6 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                // Check each subtitle file
                 foreach (var file in files)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -108,6 +107,10 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                     bytesFreed += fileBytes;
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
@@ -385,7 +388,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     /// <summary>
     ///     Returns all subdirectories under using an explicit stack so that a single unreadable directory does not abort the scan and there is no per-call recursion depth risk on deep trees.
     /// </summary>
-    private List<string> TryGetSubdirectories(string libraryPath)
+    private List<string> TryGetSubdirectories(string libraryPath, CancellationToken cancellationToken)
     {
         var result = new List<string>();
         var stack = new Stack<string>();
@@ -397,10 +400,12 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         }
 
         // Seed the stack with the direct children of the library root.
-        PushChildDirectories(libraryPath, stack);
+        PushChildDirectories(libraryPath, stack, cancellationToken);
 
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var current = stack.Pop();
             result.Add(current);
 
@@ -421,7 +426,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 continue;
             }
 
-            PushChildDirectories(current, stack);
+            PushChildDirectories(current, stack, cancellationToken);
         }
 
         return result;
@@ -452,12 +457,13 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     /// <summary>
     ///     Pushes the direct child directories of onto . An enumeration failure is logged and swallowed so a single unreadable directory does not abort the scan.
     /// </summary>
-    private void PushChildDirectories(string directory, Stack<string> stack)
+    private void PushChildDirectories(string directory, Stack<string> stack, CancellationToken cancellationToken)
     {
         try
         {
             foreach (var d in FileSystem.GetDirectories(directory))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 stack.Push(d.FullName);
             }
         }

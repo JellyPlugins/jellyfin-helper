@@ -153,6 +153,41 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
         Assert.Equal(expected, examples[0].Features.PeopleSimilarity, 6);
     }
 
+    [Fact]
+    public void BuildDiscoveryExamples_ShownOnlyEntry_UsesShownLabel()
+    {
+        // An entry that was only shown (never requested/dismissed/watched) maps to the baseline shown
+        // label - the weakest signal.
+        var entry = ShownEntry();
+
+        var examples = BuildFor(entry);
+
+        Assert.Single(examples);
+        Assert.Equal(EngineConstants.DiscoveryShownLabel, examples[0].Label, 6);
+    }
+
+    [Fact]
+    public void BuildDiscoveryExamples_UserWithNoEntries_IsSkipped()
+    {
+        // A feedback result present in the list but carrying zero entries must be skipped without
+        // emitting an example (guards the per-user empty-Entries continue).
+        var userId = Guid.NewGuid();
+        var profileById = new Dictionary<Guid, UserWatchProfile>
+        {
+            [userId] = BuildActionHeavyProfile(userId)
+        };
+        var emptyFeedback = new DiscoveryFeedbackResult { UserId = userId };
+
+        var (examples, count) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
+            [emptyFeedback],
+            profileById,
+            seriesEpisodeCounts: null,
+            CancellationToken.None);
+
+        Assert.Empty(examples);
+        Assert.Equal(0, count);
+    }
+
     private static DiscoveryFeedbackEntry ShownEntry(DateTime? shownAt = null) => new()
     {
         TmdbId = 700,

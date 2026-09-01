@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -39,19 +40,13 @@ public static class DefaultWeights
     /// <summary>Weight for user personal rating signal (stronger than community rating).</summary>
     public const double UserRatingScore = 0.070;
 
-    /// <summary>
-    ///     Weight for watch completion ratio (positive signal - rewards fully watched items).
-    /// </summary>
+    /// <summary>Weight for genre average completion.</summary>
     public const double CompletionRatio = 0.050;
 
-    /// <summary>
-    ///     Negative weight for abandoned items (CompletionRatio &lt; 25%). Penalizes items the user started but stopped watching early, which is a strong signal that the user didn't enjoy the content.
-    /// </summary>
-    public const double IsAbandoned = -0.04;
+    /// <summary>Weight for genre abandon rate.</summary>
+    public const double IsAbandoned = -0.10;
 
-    /// <summary>
-    ///     Weight for has-interaction signal (1 if user interacted, 0 for new candidates). A small positive weight that gives a slight boost to items the user has some history with, allowing the model to distinguish "not yet seen" from "abandoned".
-    /// </summary>
+    /// <summary>Weight for genre familiarity.</summary>
     public const double HasInteraction = 0.005;
 
     /// <summary>
@@ -65,10 +60,11 @@ public static class DefaultWeights
     /// </summary>
     public const double StudioMatch = 0.020;
 
-    /// <summary>
-    ///     Weight for series progression boost signal. Rewards follow-up seasons when the user has watched earlier seasons of the same series, encouraging "continue watching" style recommendations.
-    /// </summary>
-    public const double SeriesProgressionBoost = 0.045;
+    /// <summary>Weight for series affinity to progressing series.</summary>
+    public const double SeriesAffinity = 0.045;
+
+    /// <summary>Legacy name for SeriesAffinity.</summary>
+    public const double SeriesProgressionBoost = SeriesAffinity;
 
     /// <summary>
     ///     Weight for popularity score signal. Provides a baseline signal from global watch counts, particularly useful for cold-start users who have little personal history.
@@ -192,7 +188,7 @@ public static class DefaultWeights
     {
         // Every FeatureIndex enum value must map to a valid slot.
         // If a new FeatureIndex is added without updating FeatureCount, this fires immediately.
-        var featureIndexCount = Enum.GetValues<FeatureIndex>().Length;
+        var featureIndexCount = Enum.GetValues<FeatureIndex>().Select(v => (int)v).Distinct().Count();
         if (featureIndexCount != CandidateFeatures.FeatureCount)
         {
             throw new InvalidOperationException(

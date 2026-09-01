@@ -130,6 +130,16 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     }
 
     [Fact]
+    public void CurrentWeightsVersion_IsV3()
+    {
+        // Version bump 2 -> 3 marks that features 9/10/11/12/15 changed from per-item/hardcoded
+        // signals to genre-level aggregates. A v2 file (from 2.1.0.6) would have the right array
+        // length but incompatible weight semantics, so it must be discarded on load. This guard fails
+        // if the bump is ever reverted, which would silently reintroduce that train/serve mismatch.
+        Assert.Equal(3, LearnedScoringStrategy.CurrentWeightsVersion);
+    }
+
+    [Fact]
     public void TryLoadWeights_IoErrorReadingFile_FallsBackToDefaultsAndLogs()
     {
         // The file exists but is held with an exclusive lock, so File.ReadAllText throws inside

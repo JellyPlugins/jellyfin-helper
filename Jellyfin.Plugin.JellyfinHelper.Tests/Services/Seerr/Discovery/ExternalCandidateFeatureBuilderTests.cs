@@ -299,6 +299,78 @@ public sealed class ExternalCandidateFeatureBuilderTests
         Assert.Equal(EngineConstants.DiscoveryFeedbackSampleWeight, examples[0].SampleWeight, 6);
     }
 
+    [Fact]
+    public void Build_WithProfile_ComputesGenreEngagement_MatchingTrainingPath()
+    {
+        // Train/serve parity: discovery training (DiscoveryFeedbackExampleBuilder) sets the three
+        // interaction features from ComputeGenreEngagement. Inference must produce the same values for
+        // the same genres and profile, otherwise the model scores a signal it was never trained on.
+        var profile = BuildActionHeavyProfile();
+        var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePrefs, profile);
+        var avgYear = ContentScoring.ComputeAverageYear(profile);
+
+        var candidate = new TmdbDiscoverItem
+        {
+            Id = 550,
+            MediaType = "movie",
+            Title = "Action Candidate",
+            GenreIds = [ActionTmdbGenreId],
+            VoteAverage = 7.5,
+            Popularity = 120.0,
+            ReleaseDate = new DateTime(2015, 1, 1)
+        };
+
+        var features = ExternalCandidateFeatureBuilder.Build(
+            candidate,
+            genrePrefs,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            avgYear,
+            genreExposure,
+            profile);
+
+        var (familiarity, avgCompletion, abandonRate) =
+            ContentScoring.ComputeGenreEngagement([ActionGenre], profile);
+
+        Assert.Equal(familiarity > 0.0, features.HasUserInteraction);
+        Assert.Equal(avgCompletion, features.CompletionRatio, 6);
+        Assert.Equal(abandonRate, features.IsAbandoned, 6);
+
+        // The profile is 35 fully-played Action items, so engagement is real, not neutral. Completion
+        // is high but below 1.0 because of confidence shrinkage (35 samples: 35/38 of the raw 1.0).
+        Assert.True(features.HasUserInteraction);
+        Assert.True(features.CompletionRatio > 0.9);
+        Assert.Equal(0.0, features.IsAbandoned, 6);
+    }
+
+    [Fact]
+    public void Build_WithoutProfile_LeavesGenreEngagementNeutral()
+    {
+        // Overload compatibility: callers that do not supply a profile keep the pre-fix neutral values.
+        var profile = BuildActionHeavyProfile();
+        var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePrefs, profile);
+        var avgYear = ContentScoring.ComputeAverageYear(profile);
+
+        var candidate = new TmdbDiscoverItem
+        {
+            Id = 551,
+            MediaType = "movie",
+            Title = "No Profile",
+            GenreIds = [ActionTmdbGenreId],
+            VoteAverage = 7.5,
+            Popularity = 120.0,
+            ReleaseDate = new DateTime(2015, 1, 1)
+        };
+
+        var features = ExternalCandidateFeatureBuilder.Build(
+            candidate, genrePrefs, new HashSet<string>(StringComparer.OrdinalIgnoreCase), avgYear, genreExposure);
+
+        Assert.False(features.HasUserInteraction);
+        Assert.Equal(0.5, features.CompletionRatio, 6);
+        Assert.Equal(0.0, features.IsAbandoned, 6);
+    }
+
     /// <summary>
     ///     Builds a watch profile with enough Action history to yield a valid genre-exposure analysis (>= MinWatchCountForGenreExposure items) where Action is the dominant genre.
     /// </summary>

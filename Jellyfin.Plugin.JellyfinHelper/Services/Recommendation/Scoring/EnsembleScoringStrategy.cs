@@ -78,7 +78,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal const double ValidationLossCeiling = ValidationLossThreshold * 2.0;
 
     /// <summary>Examples needed before neural blending starts. Ensures enough data.</summary>
-    internal const int NeuralActivationThreshold = 120;
+    internal const int NeuralActivationThreshold = 150;
 
     /// <summary>
     ///     Maximum fraction of the learned weight (α) that can be re-allocated to the neural strategy.
@@ -1184,12 +1184,19 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 ? data.Alpha
                 : ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
 
-            // Restore neural beta only when enough training data exists
+            // Restore neural beta only when enough training data exists.
+            // Cap to the current ramp ceiling so that a state persisted under an older
+            // (lower) NeuralActivationThreshold cannot overshoot the beta value the live
+            // ramp would produce at the same example count after a threshold increase.
             if (_neural is not null
                 && data.TrainingExampleCount >= NeuralActivationThreshold
                 && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
             {
-                _neuralBeta = data.NeuralBeta;
+                var rampCeiling = NeuralMaxBetaFraction * Math.Clamp(
+                    (data.TrainingExampleCount - NeuralActivationThreshold) / 100.0,
+                    0.0,
+                    1.0);
+                _neuralBeta = Math.Min(data.NeuralBeta, rampCeiling);
             }
             else if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
             {

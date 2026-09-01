@@ -225,7 +225,8 @@ internal static class TrainingFeatureComputer
         HashSet<string> preferredInheritedTags,
         IReadOnlyDictionary<string, double> preferredWriterWeights,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
-        DateTime organicFallbackTimestamp)
+        DateTime organicFallbackTimestamp,
+        ContentScoring.SeriesAffinityContext? seriesAffinityContext = null)
     {
         // Use latest episode for temporal signals.
         var mostRecent = episodes
@@ -243,7 +244,6 @@ internal static class TrainingFeatureComputer
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);
 
-        const double seriesProgressionBoost = 0.0;
         var peopleSimilarity = cachedPeopleLookup.TryGetValue(seriesId, out var seriesPeople)
             ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeopleWeights)
             : 0.0;
@@ -272,6 +272,21 @@ internal static class TrainingFeatureComputer
             out var seriesInheritedTags,
             out var seriesWriters);
 
+        // Exclude the series id and every watched record of this series from genre engagement to prevent
+        // label leakage. Derived from the full profile, not the episodes parameter, because engagement
+        // scans the whole profile: an episode of this series that is absent from the passed-in list
+        // (a filtered subset) would otherwise leak its own label back into the aggregate.
+        var episodeIds = BuildSeriesExcludeSet(seriesId, userProfile);
+
+        var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile, episodeIds);
+        var userRatingScore3 = ContentScoring.ComputeGenreRatingScore(genreList, userProfile, episodeIds);
+
+        // SeriesAffinity on the same basis as inference, excluding this series from the progressing-series
+        // comparison so an aggregated example is not scored for affinity to itself (self-leakage).
+        var seriesAffinity = seriesAffinityContext is not null
+            ? ContentScoring.ComputeSeriesAffinity(true, seriesId, genreList, seriesAffinityContext, cachedPeopleLookup, excludeSeriesId: seriesId)
+            : 0.0;
+
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
@@ -283,12 +298,13 @@ internal static class TrainingFeatureComputer
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
             IsSeries = true,
-            UserRatingScore = 0.5,
-            HasUserInteraction = false,
-            CompletionRatio = 0.0,
+            UserRatingScore = userRatingScore3,
+            HasUserInteraction = familiarity3 > 0.0,
+            CompletionRatio = genreAvgCompletion3,
+            IsAbandoned = genreAbandonRate3,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesProgressionBoost = seriesProgressionBoost,
+            SeriesAffinity = seriesAffinity,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),
@@ -338,6 +354,29 @@ internal static class TrainingFeatureComputer
                 SampleWeight = 0.7,
                 UserId = userProfile.UserId
             });
+    }
+
+    /// <summary>
+    ///     Builds the genre-engagement exclude set for an aggregated series example: the series id plus
+    ///     every watched record whose SeriesId is that series. Taken from the full profile rather than
+    ///     the episodes parameter so a record absent from that (filtered) list still cannot leak its own
+    ///     label into the aggregate.
+    /// </summary>
+    /// <param name="seriesId">The aggregated series' id.</param>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <returns>The set of item ids to exclude from the genre-engagement aggregate.</returns>
+    private static HashSet<Guid> BuildSeriesExcludeSet(Guid seriesId, UserWatchProfile userProfile)
+    {
+        var episodeIds = new HashSet<Guid> { seriesId };
+        foreach (var w in userProfile.WatchedItems)
+        {
+            if (w.SeriesId == seriesId)
+            {
+                episodeIds.Add(w.ItemId);
+            }
+        }
+
+        return episodeIds;
     }
 
     /// <summary>

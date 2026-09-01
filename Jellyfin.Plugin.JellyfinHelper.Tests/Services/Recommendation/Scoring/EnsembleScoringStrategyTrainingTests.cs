@@ -140,8 +140,8 @@ public sealed class EnsembleScoringStrategyTrainingTests
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Ramp beta above zero with clean data past the activation threshold.
-        ensemble.Train(CleanExamples(120));
-        ensemble.Train(CleanExamples(120));
+        ensemble.Train(CleanExamples(160));
+        ensemble.Train(CleanExamples(160));
         var betaBefore = ensemble.CurrentNeuralBeta;
         Assert.True(betaBefore > 0, $"Neural beta must have activated, was {betaBefore:F4}");
 

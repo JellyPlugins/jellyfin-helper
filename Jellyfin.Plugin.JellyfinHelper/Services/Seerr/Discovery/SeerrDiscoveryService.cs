@@ -1281,7 +1281,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         foreach (var candidate in uniqueCandidates)
         {
             var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, genrePreferences, preferredPeople, avgYear, genreExposure);
+                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile);
             var score = _ensemble.Score(features);
             preScored.Add((candidate, score));
         }
@@ -1312,7 +1312,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         foreach (var candidate in enrichmentCandidates)
         {
             var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, genrePreferences, preferredPeople, avgYear, genreExposure);
+                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile);
             var score = _ensemble.Score(features);
             scored.Add((candidate, features, score));
         }

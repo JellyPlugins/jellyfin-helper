@@ -12,8 +12,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public class ScoringGoldenLockTests
 {
-    // Deterministic digest of Heuristic+Learned+Neural scores over 500 seeded feature vectors. If a behavior-preserving refactor changes this, the refactor changed behavior.
-    private const string ExpectedDigest = "C92AFA7751C77E7FE07513C01094B4A0CB4650B67B2515C93C6C0B53E2FEF940";
+    // Deterministic digest of Heuristic+Learned+Neural scores over 500 seeded feature vectors. If a behavior-preserving refactor changes this, the refactor changed behavior. Rebaselined when the IsAbandoned heuristic weight was tuned -0.04 -> -0.10 (ablation-gated, intentional scoring-math change).
+    private const string ExpectedDigest = "02A4B7D764E9E9AF836B7C379487B8E632EBE558AD66663A6EE1FF0C8BB5D98D";
 
     [Fact]
     public void ScoringStrategies_ProduceStableDigest_AcrossSeededFeatureBatch()

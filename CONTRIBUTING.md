@@ -180,6 +180,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── RepairLinksTaskTests.cs                           # Dry-run flag, cancellation, progress reporting; no filesystem I/O
 │   ├── RecommendationsTaskTests.cs
 │   ├── UserActivityUpdateTaskTests.cs
+│   ├── CleanupCancellationTests.cs             # CancellationToken propagates: pre-cancelled token throws OperationCanceledException in all three cleanup task types (EmptyFolders, Trickplay, OrphanedSubtitles); plus mid-enumeration cancellation aborts the directory walk promptly instead of after full traversal
 │   └── ...
 ├── Services/
 │   ├── DateTimeNormalizationTests.cs      # UTC coercion helper: guards against Local→SpecifyKind bugs in cache timestamps
@@ -270,6 +271,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── CollaborativeFilterTests.cs
 │       │   ├── ContentAffinityResolverTests.cs         # ResolveSeriesStatus train/serve parity; non-fatal exception fallbacks
 │       │   ├── ContentScoringTests.cs
+│       │   ├── ContentScoringGenreEngagementTests.cs   # ComputeGenreEngagement: empty genres/history → neutral; familiarity/completion/abandon rate with matching genre history; per-genre confidence shrinkage (single sample damped, many samples trusted); cached GenreEngagementContext bit-identical to direct (engagement + genre rating); ComputeSeriesAffinity: non-series → 0
 │       │   ├── DiversityRerankerTests.cs
 │       │   ├── EngineDiscoveryWatchedStatusTests.cs     # TrainStrategy marks favorited movies/series watched with the correct media type
 │       │   ├── EngineIdfRarityTests.cs                  # IDF rarity weighting: rare genres/studios contribute more than common ones
@@ -294,7 +296,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
-│       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation and neutral interaction features
+│       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation, neutral interaction features, and series genre-engagement excluding its own watched episodes
 │       │       └── TrainingFeatureComputerTests.cs    # Training features must stay in lock-step with live scoring path
 │       ├── Playlist/              # Playlist sync tests
 │       │   ├── RecommendationPlaylistServiceTests.cs
@@ -316,6 +318,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── TrainingExampleTests.cs
 │       │   ├── RankingMetricsTests.cs
 │       │   ├── PerUserRankingMetricsTests.cs        # Per-user macro averaging: equal weight per user regardless of library size
+│       │   ├── ScoringAblationEvalTests.cs          # Offline ablation eval: synthetic taste-driven population, NDCG@10 with vs without genre-engagement + SeriesAffinity across Heuristic / Heuristic+Learned / full Ensemble tiers
 │       │   └── ScoringGoldenLockTests.cs            # Behavior-lock test: pins deterministic digest of Heuristic+Learned+Neural scoring output
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
@@ -800,6 +803,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RankingMetricsTests.cs`
 - `PerUserRankingMetricsTests.cs`
 - `ScoreExplanationTests.cs`
+- `ScoringAblationEvalTests.cs`
 - `ScoringStrategyTests.cs`
 - `StrategySelectorTests.cs`
 - `TrainingExampleTests.cs`

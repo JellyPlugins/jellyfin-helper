@@ -11,6 +11,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Tr
 /// </summary>
 public class TrainingFeatureComputerTests
 {
+    // Shared single-genre array reused across watched-item fixtures to avoid re-allocating a constant
+    // array on every loop iteration (Sonar S3887: prefer static readonly over repeated constant args).
+    private static readonly string[] DramaGenre = ["Drama"];
+
     // BuildStudioPreferenceSetFromCache
 
     [Fact]
@@ -717,6 +721,91 @@ public class TrainingFeatureComputerTests
 
     // AddAggregatedSeriesExample - the biggest uncovered slab of this file (0%). Business meaning: an episode-heavy series would otherwise flood the training data with one row per episode, biasing the model toward series with many episodes.
 
+    [Fact]
+    public void AddAggregatedSeriesExample_WithContext_ComputesSeriesAffinityFromOtherProgressingSeries()
+    {
+        // Train/serve parity for SeriesAffinity: when a per-user context is supplied, an aggregated
+        // series example is scored against the user's OTHER progressing series (here a sibling Drama
+        // series the user is midway through), matching what inference does for a candidate series.
+        var (targetId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 4, playedEpisodes: 2);
+
+        // Sibling Drama series, also 50% watched, so it is a progressing series similar to the target.
+        var siblingId = Guid.NewGuid();
+        for (var i = 0; i < 4; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = siblingId,
+                Played = i < 2,
+                PlayCount = i < 2 ? 1 : 0,
+                LastPlayedDate = new DateTime(2026, 2, 1, 12, 0, 0, DateTimeKind.Utc).AddDays(i),
+                Genres = DramaGenre
+            });
+        }
+
+        var seriesEpisodeCounts = new Dictionary<Guid, int> { [targetId] = 4, [siblingId] = 4 };
+        var context = ContentScoring.BuildSeriesAffinityContext(profile, seriesEpisodeCounts);
+
+        var ex = RunAggregatedSeriesExample(episodes, targetId, profile, context);
+
+        Assert.True(
+            ex.Features.SeriesAffinity > 0.0,
+            $"SeriesAffinity should be positive from the sibling Drama series, got {ex.Features.SeriesAffinity}");
+    }
+
+    [Fact]
+    public void AddAggregatedSeriesExample_WithContext_SelfExcludesOwnSeries()
+    {
+        // Self-leakage guard: when the ONLY progressing series is the target itself, affinity must be
+        // 0.0 - the series is not allowed to score affinity to itself.
+        var (targetId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 4, playedEpisodes: 2);
+
+        var seriesEpisodeCounts = new Dictionary<Guid, int> { [targetId] = 4 };
+        var context = ContentScoring.BuildSeriesAffinityContext(profile, seriesEpisodeCounts);
+
+        var ex = RunAggregatedSeriesExample(episodes, targetId, profile, context);
+
+        Assert.Equal(0.0, ex.Features.SeriesAffinity);
+    }
+
+    private static TrainingExample RunAggregatedSeriesExample(
+        List<WatchedItemInfo> episodes,
+        Guid seriesId,
+        UserWatchProfile profile,
+        ContentScoring.SeriesAffinityContext context)
+    {
+        var examples = new List<TrainingExample>();
+        var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
+        var exposure = BuildExposure(genrePreferences, profile);
+
+        TrainingFeatureComputer.AddAggregatedSeriesExample(
+            examples,
+            episodes,
+            seriesId,
+            profile,
+            genrePreferences,
+            new Dictionary<Guid, double>(),
+            0.0,
+            2020.0,
+            exposure,
+            new Dictionary<Guid, HashSet<string>>(),
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            new Dictionary<string, double>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            genreStudioIdf: null,
+            organicFallbackTimestamp: DateTime.UtcNow,
+            seriesAffinityContext: context);
+
+        return Assert.Single(examples);
+    }
+
     private static PreferenceBuilder.GenreExposureAnalysis BuildExposure(
         Dictionary<string, double> genrePreferences,
         UserWatchProfile profile)
@@ -741,7 +830,7 @@ public class TrainingFeatureComputerTests
                 Played = i < playedEpisodes,
                 PlayCount = i < playedEpisodes ? 1 : 0,
                 LastPlayedDate = baseDay.AddDays(i),
-                Genres = new[] { "Drama" },
+                Genres = DramaGenre,
                 Year = 2020,
                 CommunityRating = 8.0f,
                 DateCreated = new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -822,12 +911,15 @@ public class TrainingFeatureComputerTests
         Assert.True(ex.Features.TagSimilarity > 0.0);
         // People similarity must be non-zero because AliceDirector is preferred.
         Assert.True(ex.Features.PeopleSimilarity > 0.0);
-        // Series-progression boost is hardcoded to 0.0 by contract (train/serve parity).
-        Assert.Equal(0.0, ex.Features.SeriesProgressionBoost);
-        // Train/serve parity: aggregated series never re-enter live scoring, so these signals
-        // must be neutralised on the training side.
+        // Series affinity is neutral for aggregated series.
+        Assert.Equal(0.0, ex.Features.SeriesAffinity);
+        // The aggregated episodes are the user's only Drama history and are excluded from the
+        // genre-engagement aggregate to prevent label leakage. With no other Drama history, the three
+        // interaction features are neutral by design; the label still reflects the fully-watched series.
         Assert.Equal(0.5, ex.Features.UserRatingScore);
         Assert.False(ex.Features.HasUserInteraction);
+        Assert.Equal(0.5, ex.Features.CompletionRatio, 6);
+        Assert.Equal(0.0, ex.Features.IsAbandoned, 6);
         // GeneratedAtUtc must be sourced from the most-recently-watched episode.
         Assert.Equal(episodes.Max(e => e.LastPlayedDate!.Value), ex.GeneratedAtUtc);
         // SampleWeight for aggregated series is 0.7 by contract.
@@ -927,7 +1019,7 @@ public class TrainingFeatureComputerTests
                 Played = true,
                 PlayCount = 1,
                 LastPlayedDate = i == 0 ? oldest : (i == 1 ? oldest.AddMonths(1) : newest),
-                Genres = new[] { "Drama" }
+                Genres = DramaGenre
             };
             episodes.Add(w);
             profile.WatchedItems.Add(w);

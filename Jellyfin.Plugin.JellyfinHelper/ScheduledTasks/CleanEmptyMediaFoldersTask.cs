@@ -6,6 +6,7 @@ using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -76,11 +77,12 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 
         try
         {
-            // Get only the direct child directories of the library root (top-level media folders).
-            // Each top-level folder represents a single movie, show, etc.
-            var topLevelDirs = FileSystem.GetDirectories(libraryPath).ToList();
+            cancellationToken.ThrowIfCancellationRequested();
 
-            foreach (var topDir in topLevelDirs)
+            // Enumerate lazily rather than materialising the whole child list up front so a
+            // cancellation between top-level folders is observed by the per-folder check below
+            // instead of being delayed until the entire enumeration completes.
+            foreach (var topDir in FileSystem.GetDirectories(libraryPath))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -89,12 +91,14 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                     continue;
                 }
 
-                // The folder has non-metadata files (e.g. subtitles, text files) but no video files
-                // anywhere in the tree, so it's an orphaned media folder whose video was deleted.
                 DeleteOrphanFolder(topDir, trashPath, treeBytes, dryRun, config, ref deletedCount, ref bytesFreed);
             }
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
         {
             PluginLog.LogError(TaskName, $"Error scanning directory: {libraryPath}", ex, Logger);
         }

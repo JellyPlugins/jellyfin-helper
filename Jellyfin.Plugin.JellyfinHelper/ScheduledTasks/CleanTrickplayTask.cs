@@ -65,19 +65,18 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
         try
         {
-            var directories = GetSubdirectoriesIterative(libraryPath);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            // Resolve the trash folder path so we can skip any directories inside it.
+            var directories = GetSubdirectoriesIterative(libraryPath, cancellationToken);
+
             var trashPath = ConfigHelper.GetTrashPath(libraryPath);
             var trashRoot = Path.GetFullPath(trashPath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            // Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS.
             var pathComparison = OperatingSystem.IsLinux()
                 ? StringComparison.Ordinal
                 : StringComparison.OrdinalIgnoreCase;
 
-            // Cache files per parent directory to avoid repeated filesystem calls. Use OS-aware case sensitivity: Linux paths are case-sensitive (Ordinal), Windows/macOS paths are case-insensitive (OrdinalIgnoreCase).
             var fileCacheComparer = OperatingSystem.IsLinux()
                 ? StringComparer.Ordinal
                 : StringComparer.OrdinalIgnoreCase;
@@ -97,6 +96,10 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 deletedCount += itemDeleted;
                 bytesFreed += itemBytes;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
@@ -284,7 +287,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     }
 
     // Enumerate directories lazily with per-directory error isolation instead of materialising the whole tree upfront.
-    private IEnumerable<string> GetSubdirectoriesIterative(string root)
+    private IEnumerable<string> GetSubdirectoriesIterative(string root, CancellationToken cancellationToken)
     {
         var stack = new Stack<string>();
         IEnumerable<FileSystemMetadata> topLevel;
@@ -305,6 +308,8 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var current = stack.Pop();
             yield return current;
 
@@ -342,6 +347,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
             foreach (var child in children)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 stack.Push(child.FullName);
             }
         }
