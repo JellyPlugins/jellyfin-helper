@@ -13,6 +13,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.WatchHist
 
 public sealed class WatchHistoryServiceTests
 {
+    private static readonly string[] ParentSeriesGenres = ["Sci-Fi", "Drama"];
+    private static readonly string[] OwnEpisodeGenres = ["Comedy"];
+
     private readonly Mock<ILibraryManager> _mockLibraryManager;
     private readonly Mock<IUserManager> _mockUserManager;
     private readonly Mock<IUserDataManager> _mockUserDataManager;
@@ -159,7 +162,7 @@ public sealed class WatchHistoryServiceTests
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var seriesId = Guid.NewGuid();
         var episode = new Episode { Id = Guid.NewGuid(), Name = "Genreless Episode", SeriesId = seriesId, Genres = System.Array.Empty<string>(), RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
-        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = new[] { "Sci-Fi", "Drama" } };
+        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = ParentSeriesGenres };
         _mockLibraryManager
             .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns(new List<BaseItem> { episode })
@@ -172,7 +175,7 @@ public sealed class WatchHistoryServiceTests
 
         Assert.NotNull(profile);
         var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == episode.Id);
-        Assert.Equal(new[] { "Sci-Fi", "Drama" }, watched.Genres);
+        Assert.Equal(ParentSeriesGenres, watched.Genres);
     }
 
     [Fact]
@@ -183,8 +186,8 @@ public sealed class WatchHistoryServiceTests
         var user = CreateTestUser("frank");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var seriesId = Guid.NewGuid();
-        var episode = new Episode { Id = Guid.NewGuid(), Name = "Own Genre Episode", SeriesId = seriesId, Genres = new[] { "Comedy" }, RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
-        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = new[] { "Sci-Fi", "Drama" } };
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "Own Genre Episode", SeriesId = seriesId, Genres = OwnEpisodeGenres, RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = ParentSeriesGenres };
         _mockLibraryManager
             .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns(new List<BaseItem> { episode })
@@ -197,7 +200,7 @@ public sealed class WatchHistoryServiceTests
 
         Assert.NotNull(profile);
         var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == episode.Id);
-        Assert.Equal(new[] { "Comedy" }, watched.Genres);
+        Assert.Equal(OwnEpisodeGenres, watched.Genres);
     }
 
     [Fact]
