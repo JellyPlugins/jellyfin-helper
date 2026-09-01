@@ -1109,6 +1109,7 @@ internal static class TrainingDataBuilder
         // Same rationale for genre engagement: build the per-user context once instead of rescanning the
         // full watch history for every sampled negative. No per-target exclusion is needed here.
         var negGenreEngagementCtx = ContentScoring.BuildGenreEngagementContext(userProfile);
+        var negScoringContexts = new NegativeScoringContexts(negSeriesAffinityCtx, negGenreEngagementCtx);
 
         var (watchedGenreSetsNeg, watchedPeopleSetsNeg, watchedStudioSetsNeg) =
             BuildWatchedContentSets(userProfile, lookups);
@@ -1154,8 +1155,7 @@ internal static class TrainingDataBuilder
                     contentSets,
                     lookups,
                     ctx.OrganicFallbackTimestamp,
-                    negSeriesAffinityCtx,
-                    negGenreEngagementCtx));
+                    negScoringContexts));
             randomNegativeCount++;
         }
 
@@ -1172,8 +1172,7 @@ internal static class TrainingDataBuilder
         WatchedContentSets contentSets,
         TrainingLookups lookups,
         DateTime organicFallbackTimestamp,
-        ContentScoring.SeriesAffinityContext? seriesAffinityCtx,
-        ContentScoring.GenreEngagementContext genreEngagementCtx)
+        NegativeScoringContexts scoringContexts)
     {
         var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg,
              preferredPeopleWeightsNeg, preferredStudiosNeg, preferredTagsNeg,
@@ -1213,8 +1212,8 @@ internal static class TrainingDataBuilder
             negRecencyScore = 0.5;
         }
 
-        var (familiarityNeg, genreAvgCompletionNeg, genreAbandonRateNeg) = ContentScoring.ComputeGenreEngagement(negGenres, genreEngagementCtx);
-        var userRatingScoreNeg = ContentScoring.ComputeGenreRatingScore(negGenres, genreEngagementCtx);
+        var (familiarityNeg, genreAvgCompletionNeg, genreAbandonRateNeg) = ContentScoring.ComputeGenreEngagement(negGenres, scoringContexts.GenreEngagement);
+        var userRatingScoreNeg = ContentScoring.ComputeGenreRatingScore(negGenres, scoringContexts.GenreEngagement);
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(negGenres, genrePreferences),
@@ -1230,8 +1229,8 @@ internal static class TrainingDataBuilder
             IsAbandoned = genreAbandonRateNeg,
             PeopleSimilarity = negPeopleSimilarity,
             StudioMatch = negStudioMatch,
-            SeriesAffinity = seriesAffinityCtx is not null
-                ? ContentScoring.ComputeSeriesAffinity(isSeries, neg.ItemId, negGenres, seriesAffinityCtx, lookups.CachedPeopleLookup)
+            SeriesAffinity = scoringContexts.SeriesAffinity is not null
+                ? ContentScoring.ComputeSeriesAffinity(isSeries, neg.ItemId, negGenres, scoringContexts.SeriesAffinity, lookups.CachedPeopleLookup)
                 : 0.0,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = 0.5,
@@ -1343,6 +1342,15 @@ internal static class TrainingDataBuilder
         List<HashSet<string>> WatchedPeopleSets,
         List<HashSet<string>> WatchedStudioSets,
         Dictionary<Guid, int> WatchedBoxSetCounts);
+
+    /// <summary>
+    ///     Per-user scoring contexts built once and reused across a user's random-negative samples: the
+    ///     series-affinity context (null when episode counts are unavailable) and the genre-engagement
+    ///     context. Bundled so the negative-example builder takes them as one argument.
+    /// </summary>
+    private readonly record struct NegativeScoringContexts(
+        ContentScoring.SeriesAffinityContext? SeriesAffinity,
+        ContentScoring.GenreEngagementContext GenreEngagement);
 
     /// <summary>
     ///     Shared context passed through all phases.
