@@ -11,6 +11,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Tr
 /// </summary>
 public class TrainingFeatureComputerTests
 {
+    // Shared single-genre array reused across watched-item fixtures to avoid re-allocating a constant
+    // array on every loop iteration (Sonar S3887: prefer static readonly over repeated constant args).
+    private static readonly string[] DramaGenre = ["Drama"];
+
     // BuildStudioPreferenceSetFromCache
 
     [Fact]
@@ -736,7 +740,7 @@ public class TrainingFeatureComputerTests
                 Played = i < 2,
                 PlayCount = i < 2 ? 1 : 0,
                 LastPlayedDate = new DateTime(2026, 2, 1, 12, 0, 0, DateTimeKind.Utc).AddDays(i),
-                Genres = new[] { "Drama" }
+                Genres = DramaGenre
             });
         }
 
@@ -826,7 +830,7 @@ public class TrainingFeatureComputerTests
                 Played = i < playedEpisodes,
                 PlayCount = i < playedEpisodes ? 1 : 0,
                 LastPlayedDate = baseDay.AddDays(i),
-                Genres = new[] { "Drama" },
+                Genres = DramaGenre,
                 Year = 2020,
                 CommunityRating = 8.0f,
                 DateCreated = new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -1015,7 +1019,7 @@ public class TrainingFeatureComputerTests
                 Played = true,
                 PlayCount = 1,
                 LastPlayedDate = i == 0 ? oldest : (i == 1 ? oldest.AddMonths(1) : newest),
-                Genres = new[] { "Drama" }
+                Genres = DramaGenre
             };
             episodes.Add(w);
             profile.WatchedItems.Add(w);

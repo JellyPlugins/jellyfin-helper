@@ -67,7 +67,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var directories = GetSubdirectoriesIterative(libraryPath);
+            var directories = GetSubdirectoriesIterative(libraryPath, cancellationToken);
 
             var trashPath = ConfigHelper.GetTrashPath(libraryPath);
             var trashRoot = Path.GetFullPath(trashPath)
@@ -287,7 +287,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     }
 
     // Enumerate directories lazily with per-directory error isolation instead of materialising the whole tree upfront.
-    private IEnumerable<string> GetSubdirectoriesIterative(string root)
+    private IEnumerable<string> GetSubdirectoriesIterative(string root, CancellationToken cancellationToken)
     {
         var stack = new Stack<string>();
         IEnumerable<FileSystemMetadata> topLevel;
@@ -308,6 +308,8 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var current = stack.Pop();
             yield return current;
 

@@ -517,9 +517,11 @@ internal static class TrainingDataBuilder
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
         // Compute actual SeriesAffinity (train/serve parity) using the per-user context built once in
-        // EmitRecommendationFeedbackExamples, applying the same 30-80% progression logic as inference.
+        // EmitRecommendationFeedbackExamples. Exclude this candidate's own series: at inference a scored
+        // Series is never in the user's progressing set (watched series are filtered out upstream), so
+        // excluding it here prevents a training-only self-Jaccard that inference can never produce.
         var seriesAffinity = userCtx.SeriesAffinity is not null
-            ? ContentScoring.ComputeSeriesAffinity(isSeries, rec.ItemId, rec.Genres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup)
+            ? ContentScoring.ComputeSeriesAffinity(isSeries, rec.ItemId, rec.Genres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup, excludeSeriesId: rec.ItemId)
             : 0.0;
 
         var peopleSimilarity = lookups.CachedPeopleLookup.TryGetValue(rec.ItemId, out var candidatePeople)
@@ -951,7 +953,7 @@ internal static class TrainingDataBuilder
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
             SeriesAffinity = userCtx.SeriesAffinity is not null
-                ? ContentScoring.ComputeSeriesAffinity(isSeries, w.ItemId, wGenres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup)
+                ? ContentScoring.ComputeSeriesAffinity(isSeries, w.ItemId, wGenres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup, excludeSeriesId: w.ItemId)
                 : 0.0,
             CollectionProgressionBoost = lookups.ItemBoxSetIdsLookup.TryGetValue(w.ItemId, out var orgBoxSetIds2)
                 ? ComputeCollectionProgressionBoostWithCounts(orgBoxSetIds2, watchedBoxSetCountsOrganic)
@@ -1059,6 +1061,12 @@ internal static class TrainingDataBuilder
 
         var artifacts = ctx.PerUserCache[userProfile.UserId];
 
+        // Per-user series-affinity context (built once). Random negatives are cross-user items this
+        // user never saw, so they are genuine unseen candidates: no self-exclusion, matching inference.
+        var negSeriesAffinityCtx = ctx.SeriesEpisodeCounts is not null
+            ? ContentScoring.BuildSeriesAffinityContext(userProfile, ctx.SeriesEpisodeCounts)
+            : null;
+
         var (watchedGenreSetsNeg, watchedPeopleSetsNeg, watchedStudioSetsNeg) =
             BuildWatchedContentSets(userProfile, lookups);
         var watchedBoxSetCountsNeg = BuildWatchedBoxSetCounts(
@@ -1102,7 +1110,8 @@ internal static class TrainingDataBuilder
                     artifacts,
                     contentSets,
                     lookups,
-                    ctx.OrganicFallbackTimestamp));
+                    ctx.OrganicFallbackTimestamp,
+                    negSeriesAffinityCtx));
             randomNegativeCount++;
         }
 
@@ -1118,7 +1127,8 @@ internal static class TrainingDataBuilder
         PerUserArtifacts artifacts,
         WatchedContentSets contentSets,
         TrainingLookups lookups,
-        DateTime organicFallbackTimestamp)
+        DateTime organicFallbackTimestamp,
+        ContentScoring.SeriesAffinityContext? seriesAffinityCtx)
     {
         var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg,
              preferredPeopleWeightsNeg, preferredStudiosNeg, preferredTagsNeg,
@@ -1174,6 +1184,9 @@ internal static class TrainingDataBuilder
             IsAbandoned = genreAbandonRateNeg,
             PeopleSimilarity = negPeopleSimilarity,
             StudioMatch = negStudioMatch,
+            SeriesAffinity = seriesAffinityCtx is not null
+                ? ContentScoring.ComputeSeriesAffinity(isSeries, neg.ItemId, negGenres, seriesAffinityCtx, lookups.CachedPeopleLookup)
+                : 0.0,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = 0.5,
             HourOfDayAffinity = 0.5,

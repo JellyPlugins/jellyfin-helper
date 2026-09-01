@@ -1320,19 +1320,38 @@ public class RecommendationEngineTests
     }
 
     [Fact]
-    public void CandidateFeatures_IsAbandoned_TrueOnlyWhenInteractedAndStartedButNotFinished()
+    public void CandidateFeatures_IsAbandoned_ReflectsExplicitGenreAbandonRate()
     {
-        // Contrast: a user who DID start watching but stopped early IS abandoned.
+        // IsAbandoned is now a first-class stored value (the genre abandon rate) rather than a value
+        // derived from HasUserInteraction + CompletionRatio. It is independent of CompletionRatio:
+        // the low completion below does NOT auto-set abandoned; only the explicit rate does.
         var features = new CandidateFeatures
         {
             HasUserInteraction = true,
-            CompletionRatio = 0.10 // 10% - below AbandonedThreshold (25%)
+            CompletionRatio = 0.10, // below the legacy 25% threshold, but no longer auto-abandons
+            IsAbandoned = 0.75
         };
 
         var vector = features.ToVector();
 
-        Assert.Equal(1.0, vector[(int)FeatureIndex.IsAbandoned]);
+        Assert.Equal(0.75, vector[(int)FeatureIndex.IsAbandoned], 6);
         Assert.Equal(1.0, vector[(int)FeatureIndex.HasInteraction]);
         Assert.Equal(0.10, vector[(int)FeatureIndex.CompletionRatio], 6);
+    }
+
+    [Fact]
+    public void CandidateFeatures_IsAbandoned_DefaultsToNeutralWhenUnset()
+    {
+        // With the legacy derived fallback removed, an unset IsAbandoned is a neutral 0.0 regardless of
+        // completion/interaction — the feature no longer silently derives from other fields.
+        var features = new CandidateFeatures
+        {
+            HasUserInteraction = true,
+            CompletionRatio = 0.10
+        };
+
+        var vector = features.ToVector();
+
+        Assert.Equal(0.0, vector[(int)FeatureIndex.IsAbandoned]);
     }
 }

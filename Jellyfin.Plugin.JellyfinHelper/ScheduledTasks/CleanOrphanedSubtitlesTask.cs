@@ -70,7 +70,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             cancellationToken.ThrowIfCancellationRequested();
 
             var allDirs = new[] { libraryPath }.Concat(
-                TryGetSubdirectories(libraryPath));
+                TryGetSubdirectories(libraryPath, cancellationToken));
 
             var trashFullPath = ConfigHelper.GetTrashPath(libraryPath);
             var normalizedTrash = Path.GetFullPath(trashFullPath)
@@ -388,7 +388,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     /// <summary>
     ///     Returns all subdirectories under using an explicit stack so that a single unreadable directory does not abort the scan and there is no per-call recursion depth risk on deep trees.
     /// </summary>
-    private List<string> TryGetSubdirectories(string libraryPath)
+    private List<string> TryGetSubdirectories(string libraryPath, CancellationToken cancellationToken)
     {
         var result = new List<string>();
         var stack = new Stack<string>();
@@ -404,6 +404,8 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var current = stack.Pop();
             result.Add(current);
 

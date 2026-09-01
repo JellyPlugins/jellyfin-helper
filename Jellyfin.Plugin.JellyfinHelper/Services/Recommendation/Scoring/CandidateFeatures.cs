@@ -172,7 +172,9 @@ public sealed class CandidateFeatures
     internal const double GenreCountNormalizationCeiling = 5.0;
 
     /// <summary>
-    ///     Watch completion ratio below which an item is considered "abandoned". Items with CompletionRatio &lt; this threshold have IsAbandoned = 1 in the feature vector, which applies a negative weight penalty during scoring.
+    ///     Watch completion ratio below which a watched item counts as "abandoned". Used by
+    ///     ContentScoring.ComputeGenreEngagement to compute the genre abandon rate that populates the
+    ///     IsAbandoned feature (a negative-weighted signal during scoring).
     /// </summary>
     internal const double AbandonedThreshold = 0.25;
 
@@ -184,7 +186,6 @@ public sealed class CandidateFeatures
     private double _userRatingScore = 0.5;
     private double _completionRatio = 0.5;
     private double _isAbandoned;
-    private bool _isAbandonedSet;
     private double _peopleSimilarity;
     private double _seriesAffinity;
     private double _popularityScore;
@@ -267,15 +268,11 @@ public sealed class CandidateFeatures
         set => _completionRatio = Clamp01(value, 0.5);
     }
 
-    /// <summary>Gets or sets genre abandon rate (0-1). Fraction abandoned in this genre.</summary>
+    /// <summary>Gets or sets genre abandon rate (0-1). Fraction abandoned in this genre. Values are clamped to [0, 1].</summary>
     public double IsAbandoned
     {
         get => _isAbandoned;
-        set
-        {
-            _isAbandoned = Clamp01(value);
-            _isAbandonedSet = true;
-        }
+        set => _isAbandoned = Clamp01(value);
     }
 
     /// <summary>Gets or sets the people (cast/director) similarity score (0-1). Values are clamped to [0, 1].</summary>
@@ -522,21 +519,7 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * CollaborativeScore;
         buffer[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
         buffer[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
-        double abandonedValue;
-        if (_isAbandonedSet)
-        {
-            abandonedValue = IsAbandoned;
-        }
-        else
-        {
-            abandonedValue = HasUserInteraction
-                && CompletionRatio > 0.0
-                && CompletionRatio < AbandonedThreshold
-                    ? 1.0
-                    : 0.0;
-        }
-
-        buffer[(int)FeatureIndex.IsAbandoned] = abandonedValue;
+        buffer[(int)FeatureIndex.IsAbandoned] = IsAbandoned;
         buffer[(int)FeatureIndex.HasInteraction] = HasUserInteraction ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
         buffer[(int)FeatureIndex.StudioMatch] = StudioMatch ? 1.0 : 0.0;

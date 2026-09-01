@@ -16,6 +16,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 internal static class ContentScoring
 {
     /// <summary>
+    ///     Smoothing constant for per-genre engagement confidence shrinkage. At n samples the measured
+    ///     completion/abandon rate is trusted by n / (n + K); K = 3 means 3 samples give half confidence.
+    /// </summary>
+    internal const int GenreEngagementShrinkageK = 3;
+
+    /// <summary>
     ///     Process-lifetime counter of parallel-array mismatches in ComputeContentNearestNeighborScore.
     /// </summary>
     private static long _parallelArrayMismatchCount;
@@ -376,37 +382,6 @@ internal static class ContentScoring
     }
 
     /// <summary>
-    ///     Computes user level engagement aggregates used for the three interaction features.
-    /// </summary>
-    /// <param name="profile">The user profile.</param>
-    /// <returns>Average completion, abandon rate and whether user has enough history.</returns>
-    internal static (double AvgCompletion, double AbandonRate, bool IsActive) ComputeUserEngagementAggregates(UserWatchProfile profile)
-    {
-        var meaningful = profile.WatchedItems.Where(w => w.HasMeaningfulInteraction()).ToList();
-        if (meaningful.Count == 0)
-        {
-            return (0.5, 0.0, false);
-        }
-
-        var withCompletion = meaningful.Where(w => w.RuntimeTicks > 0 || w.Played).ToList();
-        var avgCompletion = withCompletion.Count > 0
-            ? withCompletion.Average(ComputeCompletionRatio)
-            : 0.5;
-
-        var abandonCount = withCompletion.Count(w =>
-        {
-            var r = ComputeCompletionRatio(w);
-            return r > 0.0 && r < CandidateFeatures.AbandonedThreshold;
-        });
-        var abandonRate = withCompletion.Count > 0
-            ? (double)abandonCount / withCompletion.Count
-            : 0.0;
-
-        var isActive = meaningful.Count >= 10;
-        return (Math.Clamp(avgCompletion, 0.0, 1.0), Math.Clamp(abandonRate, 0.0, 1.0), isActive);
-    }
-
-    /// <summary>
     ///     Computes genre level engagement for a candidate. Returns familiarity, avg completion and abandon rate for the candidate genres.
     /// </summary>
     /// <param name="candidateGenres">Candidate genres.</param>
@@ -447,43 +422,17 @@ internal static class ContentScoring
             return r > 0.0 && r < CandidateFeatures.AbandonedThreshold;
         });
         var abandonRate = withCompletion.Count > 0 ? (double)abandonCount / withCompletion.Count : 0.0;
+
+        // Confidence shrinkage: with few samples in this genre, avgCompletion/abandonRate are noisy
+        // estimates (one abandoned episode makes abandonRate 1.0). Shrink them toward their neutral
+        // values (0.5 / 0.0) by n / (n + k) so a thin genre contributes a damped signal and a rich
+        // genre contributes its full measured value. This is per-genre on purpose: noise is local to
+        // each genre, so a user-global activity flag would over- or under-damp genres unevenly.
+        var confidence = withCompletion.Count / (double)(withCompletion.Count + GenreEngagementShrinkageK);
+        avgCompletion = 0.5 + (confidence * (avgCompletion - 0.5));
+        abandonRate *= confidence;
+
         return (Math.Clamp(familiarity, 0.0, 1.0), Math.Clamp(avgCompletion, 0.0, 1.0), Math.Clamp(abandonRate, 0.0, 1.0));
-    }
-
-    /// <summary>
-    ///     Computes series affinity as max Jaccard to progressing series (30 to 80 percent watched).
-    /// </summary>
-    /// <param name="candidate">Candidate item.</param>
-    /// <param name="profile">User profile.</param>
-    /// <param name="seriesEpisodeCounts">Series episode counts.</param>
-    /// <param name="peopleLookup">People lookup.</param>
-    /// <returns>Series affinity 0 to 1.</returns>
-    internal static double ComputeSeriesAffinity(
-        BaseItem candidate,
-        UserWatchProfile profile,
-        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
-        Dictionary<Guid, HashSet<string>> peopleLookup)
-    {
-        if (candidate is not Series)
-        {
-            return 0.0;
-        }
-
-        var watchedBySeries = BuildWatchedBySeriesLookup(profile);
-        var progressing = GetProgressingSeriesIds(watchedBySeries, seriesEpisodeCounts);
-        if (progressing.Count == 0)
-        {
-            return 0.0;
-        }
-
-        var candidateGenreSet = new HashSet<string>(
-            candidate.Genres ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        peopleLookup.TryGetValue(candidate.Id, out var candidatePeople);
-        var candidatePeopleSet = candidatePeople is not null
-            ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
-            : null;
-
-        return ComputeBestSeriesJaccard(progressing, watchedBySeries, peopleLookup, candidateGenreSet, candidatePeopleSet);
     }
 
     /// <summary>
