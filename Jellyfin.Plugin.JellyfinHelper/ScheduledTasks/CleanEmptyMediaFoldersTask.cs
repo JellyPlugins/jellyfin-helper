@@ -79,9 +79,10 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var topLevelDirs = FileSystem.GetDirectories(libraryPath).ToList();
-
-            foreach (var topDir in topLevelDirs)
+            // Enumerate lazily rather than materialising the whole child list up front so a
+            // cancellation between top-level folders is observed by the per-folder check below
+            // instead of being delayed until the entire enumeration completes.
+            foreach (var topDir in FileSystem.GetDirectories(libraryPath))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 

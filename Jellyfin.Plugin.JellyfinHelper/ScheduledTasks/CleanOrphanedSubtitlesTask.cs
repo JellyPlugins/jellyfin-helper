@@ -400,7 +400,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         }
 
         // Seed the stack with the direct children of the library root.
-        PushChildDirectories(libraryPath, stack);
+        PushChildDirectories(libraryPath, stack, cancellationToken);
 
         while (stack.Count > 0)
         {
@@ -426,7 +426,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 continue;
             }
 
-            PushChildDirectories(current, stack);
+            PushChildDirectories(current, stack, cancellationToken);
         }
 
         return result;
@@ -457,12 +457,13 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     /// <summary>
     ///     Pushes the direct child directories of onto . An enumeration failure is logged and swallowed so a single unreadable directory does not abort the scan.
     /// </summary>
-    private void PushChildDirectories(string directory, Stack<string> stack)
+    private void PushChildDirectories(string directory, Stack<string> stack, CancellationToken cancellationToken)
     {
         try
         {
             foreach (var d in FileSystem.GetDirectories(directory))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 stack.Push(d.FullName);
             }
         }

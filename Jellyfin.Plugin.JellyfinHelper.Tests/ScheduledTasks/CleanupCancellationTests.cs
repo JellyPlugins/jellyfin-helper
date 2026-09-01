@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -42,33 +43,44 @@ public sealed class CleanupCancellationTests
     [Fact]
     public void CleanTrickplayTask_CancellationDuringEnumeration_StopsPromptly()
     {
-        // Cancellation received AFTER directory traversal has started (not before) must still abort the
-        // walk instead of materialising the whole tree first. The token is cancelled when enumeration
-        // descends into a child directory; the in-loop check in GetSubdirectoriesIterative must observe it.
+        // Cancellation received AFTER a directory enumeration has begun (mid-stream, not before) must
+        // abort the walk instead of draining the enumeration first. The root's child enumeration yields
+        // one entry, cancels, then offers a second; the per-entry check inside the child-push loop of
+        // GetSubdirectoriesIterative must observe the cancellation before consuming that second entry.
         using var cts = new CancellationTokenSource();
         var fs = new Mock<IFileSystem>();
-        var callCount = 0;
-        fs.Setup(f => f.GetDirectories(It.IsAny<string>())).Returns(() =>
-        {
-            callCount++;
-            if (callCount == 1)
-            {
-                // Root enumeration seeds the stack with two children.
-                return new[]
-                {
-                    new FileSystemMetadata { FullName = "/tmp/a", IsDirectory = true },
-                    new FileSystemMetadata { FullName = "/tmp/b", IsDirectory = true }
-                };
-            }
-
-            // Traversal has begun: cancel now and prove the loop aborts rather than descending further.
-            cts.Cancel();
-            return [];
-        });
+        fs.Setup(f => f.GetDirectories("/tmp")).Returns(() => CancelMidEnumeration(cts));
+        fs.Setup(f => f.GetDirectories(It.Is<string>(p => p != "/tmp"))).Returns([]);
 
         var task = new NonReparseTrickplayTask(fs.Object);
 
         Assert.Throws<OperationCanceledException>(() => task.ProcessLocationForTest("/tmp", false, cts.Token));
+    }
+
+    [Fact]
+    public void CleanOrphanedSubtitlesTask_CancellationDuringEnumeration_StopsPromptly()
+    {
+        // Subtitle traversal has its own stack walk (PushChildDirectories). Same guarantee: a
+        // cancellation mid-enumeration of the root's children must be observed by the per-entry check
+        // inside PushChildDirectories before the second child is pushed.
+        using var cts = new CancellationTokenSource();
+        var fs = new Mock<IFileSystem>();
+        fs.Setup(f => f.GetDirectories("/tmp")).Returns(() => CancelMidEnumeration(cts));
+        fs.Setup(f => f.GetDirectories(It.Is<string>(p => p != "/tmp"))).Returns([]);
+
+        var task = new NonReparseSubtitleTask(fs.Object);
+
+        Assert.Throws<OperationCanceledException>(() => task.ProcessLocationForTest("/tmp", false, cts.Token));
+    }
+
+    // Lazily yields a first child directory, cancels the token, then offers a second. A traversal that
+    // only checks the token between whole enumerations would still consume the second entry; a
+    // per-entry check aborts before it. Used to prove the mid-enumeration cancellation guard.
+    private static IEnumerable<FileSystemMetadata> CancelMidEnumeration(CancellationTokenSource cts)
+    {
+        yield return new FileSystemMetadata { FullName = "/tmp/a", IsDirectory = true };
+        cts.Cancel();
+        yield return new FileSystemMetadata { FullName = "/tmp/b", IsDirectory = true };
     }
 
     private static CleanEmptyMediaFoldersTask CreateEmptyFolderTask()
@@ -105,6 +117,25 @@ public sealed class CleanupCancellationTests
                 fileSystem,
                 Mock.Of<IPluginLogService>(),
                 NullLogger<CleanTrickplayTask>.Instance,
+                Mock.Of<ICleanupConfigHelper>(c => c.GetConfig() == new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration() && c.GetTrashPath(It.IsAny<string>()) == "/trash"),
+                Mock.Of<ICleanupTrackingService>(),
+                Mock.Of<ITrashService>())
+        {
+        }
+
+        protected override bool IsReparsePoint(string path) => false;
+    }
+
+    // Subtitle task with the reparse-point guard forced off so a mocked directory tree is actually
+    // traversed. Used only to exercise mid-enumeration cancellation without touching a real filesystem.
+    private sealed class NonReparseSubtitleTask : CleanOrphanedSubtitlesTask
+    {
+        public NonReparseSubtitleTask(IFileSystem fileSystem)
+            : base(
+                new Mock<ILibraryManager>().Object,
+                fileSystem,
+                Mock.Of<IPluginLogService>(),
+                NullLogger<CleanOrphanedSubtitlesTask>.Instance,
                 Mock.Of<ICleanupConfigHelper>(c => c.GetConfig() == new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration() && c.GetTrashPath(It.IsAny<string>()) == "/trash"),
                 Mock.Of<ICleanupTrackingService>(),
                 Mock.Of<ITrashService>())

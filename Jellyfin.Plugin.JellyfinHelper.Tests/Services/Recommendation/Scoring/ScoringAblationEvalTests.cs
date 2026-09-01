@@ -238,7 +238,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     /// </summary>
     /// <param name="source">The real-feature population.</param>
     /// <returns>The ablated population.</returns>
-    private static List<TrainingExample> Ablate(IReadOnlyList<TrainingExample> source)
+    private static List<TrainingExample> Ablate(List<TrainingExample> source)
     {
         var ablated = new List<TrainingExample>(source.Count);
         foreach (var ex in source)

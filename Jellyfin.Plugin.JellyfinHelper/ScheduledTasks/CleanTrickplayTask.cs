@@ -347,6 +347,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
             foreach (var child in children)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 stack.Push(child.FullName);
             }
         }
