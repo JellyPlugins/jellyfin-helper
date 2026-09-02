@@ -25,6 +25,14 @@ public interface ISeerrDiscoveryService
     Task GenerateDiscoveryRecommendationsAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    ///     Reconciles a user's existing Seerr requests against their cached discovery recommendations. Items the user requested outside the discovery UI are recorded as a positive feedback signal and marked as requested in the cache so they leave the visible pool and the next backfill item takes their slot. Fail-safe: any Seerr error or an unresolvable user leaves the cache and feedback store untouched.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user ID whose requests are reconciled.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of cached recommendations newly reconciled as requested.</returns>
+    Task<int> ReconcileRequestedItemsAsync(Guid jellyfinUserId, CancellationToken cancellationToken);
+
+    /// <summary>
     ///     Submits a media request to the configured Seerr instance.
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the media item.</param>

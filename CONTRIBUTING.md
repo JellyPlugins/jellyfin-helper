@@ -257,6 +257,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrDiscoveryServiceHttpTests.cs        # HTTP surface via scripted HttpMessageHandler: SubmitRequestAsync, GetServiceInfoAsync, user resolution, permissions
 │   │       ├── SeerrDiscoveryGenerationTests.cs         # Task-mode orchestration: Deactivate short-circuits, DryRun never writes feedback, cancellation propagates
 │   │       ├── SeerrDiscoveryServiceUserResolutionTests.cs # FindSeerrUserByJellyfinId, BuildAllowedProfileList
+│   │       ├── SeerrDiscoveryReconcileTests.cs         # ReconcileRequestedItemsAsync: records+marks cached items also requested out-of-band, per-user, media-type normalization, all fail-safe/pagination branches
+│   │       ├── SeerrDiscoveryReconcileFailureTests.cs  # Reconcile fail-safe catches: throwing feedback store (read and write) and an invalid Seerr URL reached after the roster was cached
 │   │       ├── SeerrDiscoveryServiceReasonTests.cs      # DetermineReason branches, threshold gates, priority ordering
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip
@@ -1303,6 +1305,8 @@ UserWatchProfiles → Genre/People/Language preferences
 - Uses `ExternalCandidateFeatureBuilder` to construct the same 38-feature vector used for internal recommendations
 - Results persisted to `jellyfin-helper-discovery-results.json` with in-memory cache
 - Request submission via `POST /JellyfinHelper/Discovery/Request` with optional Seerr user/server/profile mapping
+
+**Out-of-band request reconciliation:** `SeerrDiscoveryService.ReconcileRequestedItemsAsync(jellyfinUserId, ct)` folds requests a user made outside the discovery UI (e.g. directly in Jellyseerr) back into discovery. It resolves the Jellyfin user to their Seerr user id, paginates `GET /api/v1/request?requestedBy={seerrUserId}`, intersects the returned `(tmdbId, mediaType)` keys with the user's cached recommendations, and for each match records a positive `Requested` feedback signal (`IDiscoveryFeedbackStore.RecordRequested`) and marks it in the cache (`DiscoveryCacheService.MarkAsRequestedAsync`) - so the item leaves the visible pool and the next backfill item takes its slot, exactly like an in-discovery request. It is **fail-safe**: an unresolvable user, any Seerr HTTP/JSON error, or an incomplete pagination returns 0 and touches neither the feedback store nor the cache. It runs from two callers: lazily on the view-load path (`UserDiscoveryController.GetMyDiscoveryResults`, throttled per-user via `BuildReconcileKey` for `ReconcileTtl`) for instant UX, and authoritatively at the top of `GenerateForUserAsync` during the scheduled run so training benefits even for users who never open the sidebar.
 
 ### Discovery Custom Tab & Script Injection
 

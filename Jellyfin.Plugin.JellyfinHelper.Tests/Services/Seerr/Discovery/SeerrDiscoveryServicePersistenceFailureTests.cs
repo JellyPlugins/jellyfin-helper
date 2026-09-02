@@ -76,6 +76,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
     public void Dispose()
     {
         _handler.Dispose();
+        _ensemble.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();
     }
 
@@ -140,8 +141,15 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             var second = NewProfile();
             _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
 
-            // One-shot: fires on the first HTTP send (the first user's first genre query).
-            _handler.ThrowNext = new InvalidOperationException("unexpected");
+            // Out-of-band reconciliation resolves the Seerr user first; return an empty roster so
+            // reconciliation is a clean no-op and does not consume the one-shot exception below.
+            _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK,
+                """{ "pageInfo": { "pages": 1, "pageSize": 50, "results": 0, "page": 1 }, "results": [] }""");
+
+            // Fire on the first user's first genre query (call index 1: the user fetch is index 0),
+            // an exception NOT in ExecuteDiscoverQuery's catch filter (InvalidOperationException).
+            _handler.ThrowAfter = new InvalidOperationException("unexpected");
+            _handler.ThrowAfterCallIndex = 1;
             RegisterMovieGenre(28, (2601, 8.0));
 
             var recorded = new List<Guid>();
