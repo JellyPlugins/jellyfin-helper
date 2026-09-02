@@ -259,7 +259,7 @@
   "recsYes": "Ja",
   "recsNo": "Nein",
   "recsEnsembleToggle": "Ensemble-Status",
-  "recsEnsembleNote": "Diese Werte beschreiben das gemeinsame Empfehlungsmodell, nicht den ausgewählten Benutzer.",
+  "recsEnsembleNote": "Gemeinsames Empfehlungsmodell (nicht pro Benutzer):",
   "recsEnsembleError": "Ensemble-Diagnose konnte nicht geladen werden.",
   "recsEnsembleUnavailable": "Ensemble-Diagnose ist noch nicht verfügbar – führe den Empfehlungs-Task aus.",
   "recsEnsembleAlpha": "Alpha (α)",

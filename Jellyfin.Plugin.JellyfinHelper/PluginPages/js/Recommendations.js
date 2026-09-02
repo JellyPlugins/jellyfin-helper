@@ -67,12 +67,9 @@ function renderRecommendations(container, results) {
     html += '</div></div>';
     html += '<div id="discoverySection"></div>';
 
-    // Collapsible Ensemble state section (read-only diagnostics). Kept last so it sits at the very bottom
-    // of the tab, below the discovery section.
-    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsEnsembleToggle" aria-expanded="false" aria-controls="recsEnsembleBody"><span class="recs-collapsible-arrow">▶</span> ' + mi('insights') + ' ' + escHtml(T('recsEnsembleToggle', 'Ensemble state')) + '</button>';
-    html += '<div class="recs-collapsible-body" id="recsEnsembleBody">';
-    html += '<div id="recsEnsembleDiag"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
-    html += '</div></div>';
+    // Small model-state footnote at the very bottom of the tab (read-only ensemble diagnostics). Deliberately
+    // low-key, not a collapsible card, because it describes the shared model rather than the selected user.
+    html += '<div id="recsEnsembleFootnote" class="recs-diag-footnote"></div>';
     container.innerHTML = html;
     var recsSelect = document.getElementById('recsUserSelect');
     if (recsSelect) {
@@ -92,14 +89,8 @@ function renderRecommendations(container, results) {
     var toggleBtn = document.getElementById('recsActivityToggle');
     if (toggleBtn) { toggleBtn.addEventListener('click', function () { toggleCollapsible('recsActivityBody', 'recsActivityToggle'); }); }
 
-    // Toggle for Ensemble state collapsible - load diagnostics on first expand.
-    var ensembleToggleBtn = document.getElementById('recsEnsembleToggle');
-    if (ensembleToggleBtn) {
-        ensembleToggleBtn.addEventListener('click', function () {
-            toggleCollapsible('recsEnsembleBody', 'recsEnsembleToggle');
-            loadEnsembleDiagnostics();
-        });
-    }
+    // Load the model-state footnote once (shared model state, independent of the selected user).
+    loadEnsembleDiagnostics();
 
     var discoveryContainer = document.getElementById('discoverySection');
     if (discoveryContainer) { renderDiscoverySection(discoveryContainer); }
@@ -147,13 +138,14 @@ var _ensembleDiagLoaded = false;
 function loadEnsembleDiagnostics() {
     if (_ensembleDiagLoaded) return;
     _ensembleDiagLoaded = true;
-    var host = document.getElementById('recsEnsembleDiag');
+    var host = document.getElementById('recsEnsembleFootnote');
     if (!host) return;
     apiGet('JellyfinHelper/Recommendations/Diagnostics/Ensemble', function (data) {
         renderEnsembleDiagnostics(host, data);
     }, function () {
+        // A footnote stays silent on failure rather than showing an error banner.
         _ensembleDiagLoaded = false;
-        host.innerHTML = '<div class="recs-empty"><p>' + escHtml(T('recsEnsembleError', 'Could not load ensemble diagnostics.')) + '</p></div>';
+        host.innerHTML = '';
     });
 }
 
@@ -163,30 +155,20 @@ function ensembleYesNo(b) {
 
 function renderEnsembleDiagnostics(host, data) {
     if (!data || data.Available === false) {
-        host.innerHTML = '<div class="recs-empty"><p>' + escHtml(T('recsEnsembleUnavailable', 'Ensemble diagnostics are not available yet - run the recommendation task.')) + '</p></div>';
+        host.innerHTML = '';
         return;
     }
-    var fmt = function (n) { return (typeof n === 'number') ? n.toFixed(3) : escHtml(String(n)); };
-    var midpoint = fmt(data.EffectiveSigmoidMidpoint) + ' (' + escHtml(T('recsEnsembleOffset', 'offset')) + ' ' + fmt(data.SigmoidMidpointOffset) + ')';
-    var rows = [
-        [T('recsEnsembleAlpha', 'Alpha (\u03B1)'), fmt(data.Alpha) + ' [' + fmt(data.AlphaMin) + ', ' + fmt(data.AlphaMax) + ']'],
-        [T('recsEnsembleNeuralBeta', 'Neural \u03B2'), fmt(data.NeuralBeta)],
-        [T('recsEnsembleQualityGate', 'Quality gate frozen'), escHtml(ensembleYesNo(data.QualityGateFrozen))],
-        [T('recsEnsembleMidpoint', 'Sigmoid midpoint (effective)'), midpoint],
-        [T('recsEnsembleTrend', 'Trend'), escHtml(String(data.Trend || ''))],
-        [T('recsEnsembleExamples', 'Training examples'), escHtml(String(data.TrainingExampleCount))],
-        [T('recsEnsembleHistory', 'Metrics history'), escHtml(String(data.MetricsHistoryCount))],
-        [T('recsEnsembleNeuralEnabled', 'Neural enabled'), escHtml(ensembleYesNo(data.NeuralEnabled))]
+    var fmt = function (n) { return (typeof n === 'number') ? n.toFixed(2) : escHtml(String(n)); };
+    // Compact one-line model-state footnote. Describes the shared model, not the selected user, so it is kept
+    // small and unobtrusive at the very bottom of the tab.
+    var parts = [
+        T('recsEnsembleAlpha', 'Alpha (\u03B1)') + ' ' + fmt(data.Alpha),
+        T('recsEnsembleNeuralBeta', 'Neural \u03B2') + ' ' + fmt(data.NeuralBeta),
+        T('recsEnsembleTrend', 'Trend') + ' ' + escHtml(String(data.Trend || '')),
+        T('recsEnsembleExamples', 'Training examples') + ' ' + escHtml(String(data.TrainingExampleCount)),
+        T('recsEnsembleNeuralEnabled', 'Neural enabled') + ' ' + escHtml(ensembleYesNo(data.NeuralEnabled))
     ];
-    // These values describe the single shared ensemble model, not the selected user, so they stay the same
-    // when you switch users.
-    var html = '<p class="recs-diag-note">' + escHtml(T('recsEnsembleNote', 'These values describe the shared recommendation model, not the selected user.')) + '</p>';
-    html += '<div class="recs-diag-grid">';
-    for (var row of rows) {
-        html += '<div class="recs-diag-label">' + escHtml(row[0]) + '</div><div class="recs-diag-value">' + row[1] + '</div>';
-    }
-    html += '</div>';
-    host.innerHTML = html;
+    host.innerHTML = escHtml(T('recsEnsembleNote', 'Shared recommendation model (not per user):')) + ' ' + parts.join(' \u00B7 ');
 }
 
 function renderUserRecommendations(index) {

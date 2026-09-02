@@ -242,27 +242,25 @@
     overflow: auto;
 }
 
-/* Read-only ensemble diagnostics: label/value row grid. */
-.recs-diag-note {
-    margin: 0 0 0.8em;
-    opacity: 0.7;
-    font-size: 0.9em;
-}
-
-.recs-diag-grid {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 0.4em 1em;
-    align-items: baseline;
-}
-
-.recs-diag-label {
-    font-weight: 600;
-    opacity: 0.75;
-}
-
-.recs-diag-value {
+/* Read-only shared-model state, rendered as a small unobtrusive footnote at the bottom of the tab. */
+.recs-diag-footnote {
+    margin-top: 1.5em;
+    padding-top: 0.6em;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    opacity: 0.55;
+    font-size: 0.8em;
+    line-height: 1.5;
     font-variant-numeric: tabular-nums;
+}
+
+.recs-diag-footnote:empty {
+    display: none;
+}
+
+@media (prefers-color-scheme: light) {
+    .recs-diag-footnote {
+        border-top-color: rgba(0, 0, 0, 0.1);
+    }
 }
 
 /* Compact watch profile (inside collapsible) */

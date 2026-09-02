@@ -259,7 +259,7 @@
   "recsYes": "是",
   "recsNo": "否",
   "recsEnsembleToggle": "集成状态",
-  "recsEnsembleNote": "这些数值描述的是共享的推荐模型，而非所选用户。",
+  "recsEnsembleNote": "共享的推荐模型（非按用户）：",
   "recsEnsembleError": "无法加载集成诊断信息。",
   "recsEnsembleUnavailable": "集成诊断信息尚不可用——请运行推荐任务。",
   "recsEnsembleAlpha": "Alpha (α)",

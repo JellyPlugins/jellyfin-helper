@@ -259,7 +259,7 @@
   "recsYes": "Oui",
   "recsNo": "Non",
   "recsEnsembleToggle": "État de l'ensemble",
-  "recsEnsembleNote": "Ces valeurs décrivent le modèle de recommandation partagé, pas l'utilisateur sélectionné.",
+  "recsEnsembleNote": "Modèle de recommandation partagé (pas par utilisateur) :",
   "recsEnsembleError": "Impossible de charger le diagnostic de l'ensemble.",
   "recsEnsembleUnavailable": "Le diagnostic de l'ensemble n'est pas encore disponible : exécutez la tâche de recommandations.",
   "recsEnsembleAlpha": "Alpha (α)",

@@ -259,7 +259,7 @@
   "recsYes": "Evet",
   "recsNo": "Hayır",
   "recsEnsembleToggle": "Topluluk durumu",
-  "recsEnsembleNote": "Bu değerler seçili kullanıcıyı değil, paylaşılan öneri modelini tanımlar.",
+  "recsEnsembleNote": "Paylaşılan öneri modeli (kullanıcı başına değil):",
   "recsEnsembleError": "Topluluk tanılaması yüklenemedi.",
   "recsEnsembleUnavailable": "Topluluk tanılaması henüz kullanılamıyor - öneri görevini çalıştırın.",
   "recsEnsembleAlpha": "Alfa (α)",
