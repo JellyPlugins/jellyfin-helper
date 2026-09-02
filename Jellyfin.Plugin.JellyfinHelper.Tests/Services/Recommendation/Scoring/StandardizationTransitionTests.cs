@@ -147,4 +147,39 @@ public sealed class StandardizationTransitionTests
 
         Assert.Equal(scoreA, scoreB, 12);
     }
+
+    [Fact]
+    public void FeatureMeans_NullBeforeStandardizedTraining_PopulatedAfter()
+    {
+        var strategy = new LearnedScoringStrategy();
+
+        // No standardized training yet -> no persisted means.
+        Assert.Null(strategy.FeatureMeans);
+
+        // Training at/above the standardization threshold persists the per-feature means.
+        Assert.True(strategy.Train(GenerateExamples(25)));
+
+        Assert.NotNull(strategy.FeatureMeans);
+        Assert.Equal(CandidateFeatures.FeatureCount, strategy.FeatureMeans!.Count);
+        Assert.All(strategy.FeatureMeans, m => Assert.True(double.IsFinite(m)));
+    }
+
+    [Fact]
+    public void StandardizedToRawTransition_ReverseRescale_ProducesFiniteWeights()
+    {
+        // Train above the threshold (standardized space, means persisted), then retrain below it so the
+        // mode flips back to raw. This exercises the reverse rescale direction (w = w'/sigma, b -= sum(w*mu)),
+        // which the raw->standardized tests do not reach.
+        var strategy = new LearnedScoringStrategy();
+        Assert.True(strategy.Train(GenerateExamples(25)));
+        Assert.NotNull(strategy.FeatureMeans);
+
+        Assert.True(strategy.Train(GenerateExamples(15, seed: 11)));
+
+        // Back in raw space: means are cleared and weights/scores stay finite (no divide-by-zero blow-up).
+        Assert.Null(strategy.FeatureMeans);
+        Assert.All(strategy.GetCurrentWeights(), w => Assert.True(double.IsFinite(w), $"weight not finite: {w}"));
+        Assert.True(double.IsFinite(strategy.Score(StrongCandidate())));
+        Assert.True(double.IsFinite(strategy.Score(WeakCandidate())));
+    }
 }

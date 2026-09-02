@@ -219,6 +219,69 @@ public sealed class TrainingDataBuilderMetadataParityTests
         Assert.Equal(0.65, seriesExample.Label, 9);
     }
 
+    /// <summary>
+    ///     The two convenience overloads (no discovery/lookups, and discovery-only) delegate to the full
+    ///     overload with null lookups and must produce the same organic example as passing everything null
+    ///     explicitly - i.e. cache-only behaviour, unaffected by the metadata-source parameters.
+    /// </summary>
+    [Fact]
+    public void BuildExamples_ConvenienceOverloads_MatchFullOverloadWithNulls()
+    {
+        var user = Guid.NewGuid();
+        var recItemId = Guid.NewGuid();
+        var profiles = CloneProfiles(new Collection<UserWatchProfile>(), user, recItemId);
+        var results = CloneResults(user, recItemId);
+
+        var (shortExamples, _, _, _) = TrainingDataBuilder.BuildExamples(results, profiles, CancellationToken.None);
+        var (discoveryOverload, _, _, _) = TrainingDataBuilder.BuildExamples(results, profiles, discoveryFeedback: null, CancellationToken.None);
+        var (fullNulls, _, _, _) = TrainingDataBuilder.BuildExamples(
+            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata: null, featureMeans: null, CancellationToken.None);
+
+        Assert.Equal(fullNulls.Count, shortExamples.Count);
+        Assert.Equal(fullNulls.Count, discoveryOverload.Count);
+    }
+
+    /// <summary>
+    ///     A library metadata map carrying BoxSet ids merges them into the training lookup (the BoxSet branch
+    ///     of MergeLibraryItemMetadata), alongside studios/tags, without error.
+    /// </summary>
+    [Fact]
+    public void BuildExamples_LibraryMapWithBoxSetIds_MergesWithoutError()
+    {
+        var user = Guid.NewGuid();
+        var watchedItemId = Guid.NewGuid();
+        var recItemId = Guid.NewGuid();
+
+        var profiles = new Collection<UserWatchProfile>
+        {
+            new()
+            {
+                UserId = user,
+                UserName = "u",
+                WatchedItems = [new WatchedItemInfo { ItemId = watchedItemId, ItemType = "Movie", Played = true, LastPlayedDate = Anchor }]
+            }
+        };
+        var results = new List<RecommendationResult>
+        {
+            new()
+            {
+                UserId = user,
+                GeneratedAt = Anchor,
+                Recommendations = { new RecommendedItem { ItemId = recItemId, ItemType = "Movie", Genres = ["Action"], Studios = ["A24"] } }
+            }
+        };
+
+        var libraryMetadata = new LibraryItemMetadata(
+            new Dictionary<Guid, IReadOnlyList<string>> { [watchedItemId] = ["A24"] },
+            new Dictionary<Guid, IReadOnlyList<string>> { [watchedItemId] = ["heist"] },
+            new Dictionary<Guid, IReadOnlyList<Guid>> { [watchedItemId] = [Guid.NewGuid()] });
+
+        var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(
+            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryMetadata, featureMeans: null, CancellationToken.None);
+
+        Assert.NotEmpty(examples);
+    }
+
     private static TrainingExample BuildRecExample(
         List<RecommendationResult> results,
         Collection<UserWatchProfile> profiles,
@@ -228,7 +291,7 @@ public sealed class TrainingDataBuilderMetadataParityTests
             results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata, featureMeans: null, CancellationToken.None);
 
         // The Phase 1 recommendation-feedback example is the one whose genre is Action (the probe rec).
-        return examples.Single(e => e.Features.GenreCount == 1 && !e.Features.IsSeries && e.SampleWeight == 1.0);
+        return examples.Single(e => e.Features.GenreCount == 1 && !e.Features.IsSeries && Math.Abs(e.SampleWeight - 1.0) < 1e-9);
     }
 
     private static Collection<UserWatchProfile> CloneProfiles(Collection<UserWatchProfile> _, Guid user, Guid watchedItemId)

@@ -277,6 +277,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── DiversityRerankerTests.cs
 │       │   ├── EngineDiscoveryWatchedStatusTests.cs     # TrainStrategy marks favorited movies/series watched with the correct media type
 │       │   ├── EngineIdfRarityTests.cs                  # IDF rarity weighting: rare genres/studios contribute more than common ones
+│       │   ├── EngineLibraryMetadataTests.cs           # Gap 2 BuildLibraryItemMetadata (Movie/Series studios/tags, empty-skip) via TrainStrategy; Gap 5 GetEnsembleDiagnostics (ensemble non-null, non-ensemble null); featureMeans switch arms
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
 │       │   ├── EngineStaticHelpersTests.cs           # Pure static helpers: episode counting, language parse/dedupe, billing-weight filtering
@@ -788,6 +789,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `EngineHelperTests.cs`
 - `EngineInstanceTests.cs`
 - `EngineLanguageAffinityTests.cs`
+- `EngineLibraryMetadataTests.cs`
 - `GenreExposureRampTests.cs`
 - `PreferenceBuilderTests.cs`
 - `ReasonResolverTests.cs`
