@@ -259,6 +259,7 @@
   "recsYes": "Sim",
   "recsNo": "Não",
   "recsEnsembleToggle": "Estado do conjunto",
+  "recsEnsembleNote": "Estes valores descrevem o modelo de recomendação partilhado, não o utilizador selecionado.",
   "recsEnsembleError": "Não foi possível carregar o diagnóstico do conjunto.",
   "recsEnsembleUnavailable": "O diagnóstico do conjunto ainda não está disponível - execute a tarefa de recomendações.",
   "recsEnsembleAlpha": "Alfa (α)",

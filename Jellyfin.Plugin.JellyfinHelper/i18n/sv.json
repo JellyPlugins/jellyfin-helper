@@ -259,6 +259,7 @@
   "recsYes": "Ja",
   "recsNo": "Nej",
   "recsEnsembleToggle": "Ensemblestatus",
+  "recsEnsembleNote": "Dessa värden beskriver den gemensamma rekommendationsmodellen, inte den valda användaren.",
   "recsEnsembleError": "Det gick inte att läsa in ensemblediagnostiken.",
   "recsEnsembleUnavailable": "Ensemblediagnostiken är inte tillgänglig ännu – kör rekommendationsuppgiften.",
   "recsEnsembleAlpha": "Alfa (α)",

@@ -178,7 +178,10 @@ function renderEnsembleDiagnostics(host, data) {
         [T('recsEnsembleHistory', 'Metrics history'), escHtml(String(data.MetricsHistoryCount))],
         [T('recsEnsembleNeuralEnabled', 'Neural enabled'), escHtml(ensembleYesNo(data.NeuralEnabled))]
     ];
-    var html = '<div class="recs-diag-grid">';
+    // These values describe the single shared ensemble model, not the selected user, so they stay the same
+    // when you switch users.
+    var html = '<p class="recs-diag-note">' + escHtml(T('recsEnsembleNote', 'These values describe the shared recommendation model, not the selected user.')) + '</p>';
+    html += '<div class="recs-diag-grid">';
     for (var row of rows) {
         html += '<div class="recs-diag-label">' + escHtml(row[0]) + '</div><div class="recs-diag-value">' + row[1] + '</div>';
     }
