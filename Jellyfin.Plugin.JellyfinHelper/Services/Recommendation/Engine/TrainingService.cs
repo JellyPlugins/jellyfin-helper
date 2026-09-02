@@ -73,6 +73,11 @@ internal sealed class TrainingService : IDisposable
     ///     Library-wide genre/studio IDF rarity table (the SAME table used at inference), threaded in so
     ///     the GenreStudioIdfPrior feature is identical between train and serve. Null -> neutral 0.0 both sides.
     /// </param>
+    /// <param name="libraryItemMetadata">
+    ///     Item -> (studios/tags/BoxSet ids) map built from the live library, threaded in so watched-item
+    ///     studios/tags resolve from the same source the serve path reads. Null -> cache-only behaviour
+    ///     (byte-identical to before this parameter existed).
+    /// </param>
     /// <param name="cancellationToken">Token to cancel the training operation.</param>
     /// <returns>True if training was performed, false if skipped.</returns>
     internal bool Train(
@@ -81,6 +86,7 @@ internal sealed class TrainingService : IDisposable
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts = null,
         bool incremental = false,
         IReadOnlyDictionary<string, double>? genreStudioIdf = null,
+        LibraryItemMetadata? libraryItemMetadata = null,
         CancellationToken cancellationToken = default)
     {
         if (previousResults.Count == 0)
@@ -102,7 +108,7 @@ internal sealed class TrainingService : IDisposable
 
         try
         {
-            return TrainCore(strategy, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, cancellationToken);
+            return TrainCore(strategy, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, libraryItemMetadata, cancellationToken);
         }
         finally
         {
@@ -120,6 +126,7 @@ internal sealed class TrainingService : IDisposable
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         bool incremental,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
+        LibraryItemMetadata? libraryItemMetadata,
         CancellationToken cancellationToken)
     {
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
@@ -131,7 +138,7 @@ internal sealed class TrainingService : IDisposable
 
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
-            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, cancellationToken);
+            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
         // Separate discovery from organic in the log so operators can see whether positive signal comes from actual watched consumption or external Seerr requests.

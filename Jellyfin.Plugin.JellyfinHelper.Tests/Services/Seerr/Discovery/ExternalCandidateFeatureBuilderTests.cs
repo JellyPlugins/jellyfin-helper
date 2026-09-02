@@ -72,10 +72,11 @@ public sealed class ExternalCandidateFeatureBuilderTests
     }
 
     [Fact]
-    public void Build_InvalidGenreExposure_LeavesExposureFeaturesNeutral()
+    public void Build_ColdStartGenreExposure_DampensExposureFeatures()
     {
-        // A user with too little history yields an invalid analysis; behavior must be
-        // identical to before the fix (all three exposure features stay at 0.0).
+        // A user with too little history now yields a valid-but-low-confidence analysis (Gap E): the
+        // cold-start exploration signal is scaled down by the confidence ramp rather than zeroed. A
+        // candidate matching the user's single dominant genre gets a small positive dominance ratio.
         var shortProfile = new UserWatchProfile { UserId = Guid.NewGuid() };
         shortProfile.WatchedItems.Add(new WatchedItemInfo
         {
@@ -105,10 +106,11 @@ public sealed class ExternalCandidateFeatureBuilderTests
             0.0,
             genreExposure);
 
-        Assert.False(genreExposure.IsValid);
+        Assert.True(genreExposure.IsValid);
+        Assert.True(genreExposure.Confidence > 0.0 && genreExposure.Confidence < 1.0);
+        // Dominance is present but dampened by the low confidence, so it is small yet strictly positive.
+        Assert.True(features.GenreDominanceRatio > 0.0 && features.GenreDominanceRatio < genreExposure.Confidence + 1e-9);
         Assert.Equal(0.0, features.GenreUnderexposure, 6);
-        Assert.Equal(0.0, features.GenreDominanceRatio, 6);
-        Assert.Equal(0.0, features.GenreAffinityGap, 6);
     }
 
     [Fact]

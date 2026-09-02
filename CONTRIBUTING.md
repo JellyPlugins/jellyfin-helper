@@ -287,6 +287,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineLanguageAffinityTests.cs         # ComputeLanguageAffinity/SubtitleLanguageAffinity: empty profile → 0.5 neutral; cross-feature isolation
 │       │   ├── FeatureAffinityComputerTests.cs        # Shared content-affinity helpers (franchise/country/inherited-tag/writer/billing/IDF): empty/null → neutral, no divide-by-zero
 │       │   ├── FeatureParityTests.cs                  # Train/serve parity for the 7 content features; SeriesCompletability + BillingWeight canonical formulas
+│       │   ├── GenreExposureRampTests.cs              # Gap E cold-start confidence ramp: 15-watch features == 0.5× 30-watch, saturates at threshold, empty vector → invalid/zero
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── ReasonResolverTests.cs                 # All DetermineReason branches + StripWatchedItemsForResponse; EngineConstants as contract
 │       │   ├── SimilarityComputerTests.cs             # People-batch + per-item fallback; weighted PeopleSimilarity
@@ -778,6 +779,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `EngineHelperTests.cs`
 - `EngineInstanceTests.cs`
 - `EngineLanguageAffinityTests.cs`
+- `GenreExposureRampTests.cs`
 - `PreferenceBuilderTests.cs`
 - `ReasonResolverTests.cs`
 - `SimilarityComputerTests.cs`

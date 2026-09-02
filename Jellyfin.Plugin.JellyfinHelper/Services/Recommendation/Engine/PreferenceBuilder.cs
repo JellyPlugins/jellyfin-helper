@@ -795,9 +795,11 @@ internal static class PreferenceBuilder
         Dictionary<string, double> genrePreferences,
         UserWatchProfile profile)
     {
-        // Insufficient history -> all features default to 0 (neutral)
-        if (profile.WatchedItems.Count < EngineConstants.MinWatchCountForGenreExposure
-            || genrePreferences.Count == 0)
+        // No genre signal at all -> all features default to 0 (neutral). This is the only truly-invalid
+        // case; a user with some genre history but fewer than MinWatchCountForGenreExposure watches is
+        // handled by the confidence ramp below rather than a hard zero, so the cold-start window still
+        // produces a (dampened) exploration signal instead of nothing.
+        if (genrePreferences.Count == 0)
         {
             return new GenreExposureAnalysis
             {
@@ -805,9 +807,18 @@ internal static class PreferenceBuilder
                 DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 AveragePreferenceWeight = 0,
                 GenrePreferences = genrePreferences,
+                Confidence = 0.0,
                 IsValid = false
             };
         }
+
+        // Confidence ramps linearly from 0 to 1 as watch count approaches MinWatchCountForGenreExposure,
+        // then saturates at 1.0. At or above the threshold this is exactly 1.0, so established users see
+        // byte-identical features to before this ramp existed.
+        var confidence = Math.Clamp(
+            (double)profile.WatchedItems.Count / EngineConstants.MinWatchCountForGenreExposure,
+            0.0,
+            1.0);
 
         // Compute total genre weight for share calculation
         var totalWeight = genrePreferences.Values.Sum();
@@ -844,6 +855,7 @@ internal static class PreferenceBuilder
             DominantGenres = dominant,
             AveragePreferenceWeight = avgWeight,
             GenrePreferences = genrePreferences,
+            Confidence = confidence,
             IsValid = true
         };
     }
@@ -912,10 +924,15 @@ internal static class PreferenceBuilder
             affinityGap = 1.0 - (candidateAvgWeight / analysis.AveragePreferenceWeight);
         }
 
+        // Scale the three raw features by the user's exposure confidence. During cold-start (fewer than
+        // MinWatchCountForGenreExposure watches) confidence < 1.0 dampens the signal proportionally; at or
+        // above the threshold confidence is exactly 1.0, leaving established-user features unchanged.
+        var confidence = analysis.Confidence;
+
         return (
-            Math.Clamp(underexposure, 0.0, 1.0),
-            Math.Clamp(dominanceRatio, 0.0, 1.0),
-            Math.Clamp(affinityGap, 0.0, 1.0));
+            Math.Clamp(underexposure * confidence, 0.0, 1.0),
+            Math.Clamp(dominanceRatio * confidence, 0.0, 1.0),
+            Math.Clamp(affinityGap * confidence, 0.0, 1.0));
     }
 
     /// <summary>
@@ -1055,6 +1072,14 @@ internal static class PreferenceBuilder
 
         /// <summary>Gets the full genre preference vector for per-genre weight lookups.</summary>
         internal required Dictionary<string, double> GenrePreferences { get; init; }
+
+        /// <summary>
+        ///     Gets the cold-start confidence in [0,1]: watch count divided by
+        ///     <see cref="EngineConstants.MinWatchCountForGenreExposure" />, clamped. Multiplied into the
+        ///     three exposure features so signal ramps in gradually rather than switching on at the
+        ///     threshold. Exactly 1.0 once the user reaches the threshold.
+        /// </summary>
+        internal required double Confidence { get; init; }
 
         /// <summary>Gets a value indicating whether the analysis is valid (user has enough history).</summary>
         internal required bool IsValid { get; init; }

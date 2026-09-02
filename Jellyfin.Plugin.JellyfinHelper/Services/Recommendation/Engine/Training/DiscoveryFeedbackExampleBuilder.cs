@@ -140,6 +140,7 @@ internal static class DiscoveryFeedbackExampleBuilder
                 DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 AveragePreferenceWeight = 0,
                 GenrePreferences = genrePreferences,
+                Confidence = 0.0,
                 IsValid = false
             };
     }

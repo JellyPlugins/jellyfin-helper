@@ -39,7 +39,7 @@ internal static class TrainingDataBuilder
         Collection<UserWatchProfile> allProfiles,
         CancellationToken cancellationToken)
     {
-        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, cancellationToken);
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata: null, cancellationToken);
     }
 
     /// <summary>
@@ -62,7 +62,7 @@ internal static class TrainingDataBuilder
         IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
         CancellationToken cancellationToken)
     {
-        return BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts: null, genreStudioIdf: null, cancellationToken);
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata: null, cancellationToken);
     }
 
     /// <summary>
@@ -78,6 +78,11 @@ internal static class TrainingDataBuilder
     /// <param name="genreStudioIdf">
     ///     Library wide genre and studio rarity table. Same table as inference so GenreStudioIdfPrior matches. Null means neutral 0.0 on both sides.
     /// </param>
+    /// <param name="libraryItemMetadata">
+    ///     Item -> (studios/tags/BoxSet ids) map built from the live library. When supplied its entries
+    ///     OVERWRITE the previous-recommendations cache so watched-item studios/tags resolve from the same
+    ///     source the serve path reads. Null means cache-only behaviour (byte-identical to before).
+    /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>
     ///     Training examples and counts per phase. Discovery is counted separately so you can tell if positives come from watch history or from Seerr requests.
@@ -88,6 +93,7 @@ internal static class TrainingDataBuilder
         IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
+        LibraryItemMetadata? libraryItemMetadata,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -108,6 +114,15 @@ internal static class TrainingDataBuilder
             out var itemStudiosLookup,
             out var itemTagsLookup,
             out var itemBoxSetIdsLookup);
+
+        // Overlay the live-library metadata so watched items never previously recommended still resolve
+        // their studios/tags/BoxSets exactly as the serve-time candidateLookup does. Library values win;
+        // the cache remains the fallback for items the library no longer has.
+        MergeLibraryItemMetadata(
+            libraryItemMetadata,
+            itemStudiosLookup,
+            itemTagsLookup,
+            itemBoxSetIdsLookup);
 
         var lookups = new TrainingLookups(
             cachedPeopleLookup,
@@ -271,6 +286,39 @@ internal static class TrainingDataBuilder
                     itemBoxSetIdsLookup.TryAdd(rec.ItemId, rec.BoxSetIds);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    ///     Overlays live-library item metadata onto the cache-derived lookups. Library entries OVERWRITE
+    ///     cache entries (indexer assignment, not TryAdd) so a watched item present in the library resolves
+    ///     its studios/tags/BoxSets identically to the serve-time candidateLookup; items the library no
+    ///     longer has keep their cached value. No-op when <paramref name="libraryItemMetadata"/> is null.
+    /// </summary>
+    private static void MergeLibraryItemMetadata(
+        LibraryItemMetadata? libraryItemMetadata,
+        Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup,
+        Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup,
+        Dictionary<Guid, IReadOnlyList<Guid>> itemBoxSetIdsLookup)
+    {
+        if (libraryItemMetadata is not { } metadata)
+        {
+            return;
+        }
+
+        foreach (var (itemId, studios) in metadata.Studios)
+        {
+            itemStudiosLookup[itemId] = studios;
+        }
+
+        foreach (var (itemId, tags) in metadata.Tags)
+        {
+            itemTagsLookup[itemId] = tags;
+        }
+
+        foreach (var (itemId, boxSetIds) in metadata.BoxSetIds)
+        {
+            itemBoxSetIdsLookup[itemId] = boxSetIds;
         }
     }
 
