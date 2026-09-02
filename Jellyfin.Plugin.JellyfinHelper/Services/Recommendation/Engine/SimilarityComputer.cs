@@ -713,6 +713,12 @@ internal sealed class SimilarityComputer
         }
 
         var index = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        // Dedup is by name, keeping the MAX billing weight for a repeated person. When SortOrder is absent
+        // the encounter order (fallbackOrder) is used, so ComputeBillingWeight can yield a different weight
+        // for the same person than a provider-supplied SortOrder would. For a fixed input sequence and set
+        // of SortOrder values the resulting name/weight pairs are deterministic, and Names/Weights stay
+        // positionally aligned (callers index them in lock-step).
         var fallbackOrder = 0;
         foreach (var person in people)
         {

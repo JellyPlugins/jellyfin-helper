@@ -1014,10 +1014,12 @@ public class RecommendationEngineTests
     // Genre Exposure Analysis Tests
 
     [Fact]
-    public void BuildGenreExposureAnalysis_InsufficientHistory_ReturnsInvalid()
+    public void BuildGenreExposureAnalysis_ColdStart_ValidButDampened()
     {
         var profile = new UserWatchProfile();
-        // Add only 10 items (below MinWatchCountForGenreExposure = 30)
+        // Add only 10 items (below MinWatchCountForGenreExposure = 30). Under Gap E this is now valid
+        // with a partial confidence rather than invalid, so the cold-start exploration signal is
+        // dampened instead of zeroed.
         for (var i = 0; i < 10; i++)
         {
             profile.WatchedItems.Add(new WatchedItemInfo
@@ -1031,7 +1033,8 @@ public class RecommendationEngineTests
         var prefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var analysis = PreferenceBuilder.BuildGenreExposureAnalysis(prefs, profile);
 
-        Assert.False(analysis.IsValid);
+        Assert.True(analysis.IsValid);
+        Assert.True(analysis.Confidence > 0.0 && analysis.Confidence < 1.0, $"Expected a partial cold-start confidence, got {analysis.Confidence:F4}");
     }
 
     [Fact]
@@ -1078,6 +1081,7 @@ public class RecommendationEngineTests
             DominantGenres = new HashSet<string>(),
             AveragePreferenceWeight = 0,
             GenrePreferences = new Dictionary<string, double>(),
+            Confidence = 0.0,
             IsValid = false
         };
 
@@ -1098,6 +1102,7 @@ public class RecommendationEngineTests
             DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" },
             AveragePreferenceWeight = 0.5,
             GenrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { { "Action", 1.0 } },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -1123,6 +1128,7 @@ public class RecommendationEngineTests
                 { "Drama", 0.8 },
                 { "Thriller", 0.6 }
             },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -1153,6 +1159,7 @@ public class RecommendationEngineTests
                 { "Animation", 0.02 },
                 { "Horror", 0.01 }
             },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -1185,6 +1192,7 @@ public class RecommendationEngineTests
                 { "Animation", 0.01 },
                 { "Family", 0.01 }
             },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -1210,6 +1218,7 @@ public class RecommendationEngineTests
                 { "action", 1.0 },
                 { "animation", 0.01 }
             },
+            Confidence = 1.0,
             IsValid = true
         };
 

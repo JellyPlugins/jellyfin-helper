@@ -123,6 +123,33 @@ public class RecommendationController : ControllerBase
     }
 
     /// <summary>
+    ///     Gets a read-only snapshot of the ensemble scoring strategy's live internal state (alpha, neural beta,
+    ///     quality-gate freeze, sigmoid midpoint, trend, and training counts) for operator diagnostics. Pure read:
+    ///     it never generates recommendations or fills the cache.
+    /// </summary>
+    /// <returns>The ensemble diagnostics, or a response with <see cref="EnsembleDiagnosticsResponse.Available"/> set to false when the active strategy is not an ensemble or no state exists yet.</returns>
+    [HttpGet("Diagnostics/Ensemble")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult<EnsembleDiagnosticsResponse> GetEnsembleDiagnostics()
+    {
+        if (_configService.GetConfiguration().RecommendationsTaskMode == TaskMode.Deactivate)
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                RecommendationsDisabledMessage);
+        }
+
+        var diagnostics = _engine.GetEnsembleDiagnostics();
+        if (diagnostics is null)
+        {
+            return Ok(new EnsembleDiagnosticsResponse { Available = false });
+        }
+
+        return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics));
+    }
+
+    /// <summary>
     ///     Gets recommendations for a specific user.
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>

@@ -61,9 +61,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>
     ///     Current schema version for persisted weights. Increment when the feature set or weight semantics change so that stale weights are discarded on load.
     /// </summary>
-    // Bumped 2 -> 3 when features 9/10/11/12/15 changed from per-item/hardcoded signals to genre-level
-    // aggregates. Weights persisted at version 2 were learned against the old semantics; keeping the
-    // version would let them load and score against the new feature values, a silent train/serve mismatch.
+    // Bumped 2 -> 3: features 9/10/11/12/15 moved to genre-level aggregates. Keeping v2 would silently
+    // break scoring due to old weights on new feature semantics.
+    // The recommendation-review metadata changes (Gaps 2, E, A) also alter feature VALUES and ride on this
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>
@@ -189,6 +189,22 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
+    ///     Returns a snapshot of the persisted per-feature training-set means, or null when the model has not
+    ///     yet trained under standardization. Exposed as a method (not a property) because it clones the
+    ///     backing array on each call. Discovery uses these to impute the features it cannot compute for
+    ///     external (TMDb) candidates to their training-set mean, so a placeholder standardizes to ~0
+    ///     ("no information") instead of biasing the score with an arbitrary constant.
+    /// </summary>
+    /// <returns>A cloned copy of the per-feature means, or null if unavailable.</returns>
+    internal IReadOnlyList<double>? GetFeatureMeans()
+    {
+        lock (_syncRoot)
+        {
+            return _featureMeans is not null ? (double[])_featureMeans.Clone() : null;
+        }
+    }
+
+    /// <summary>
     ///     Gets a copy of the current weights (for testing/debugging).
     /// </summary>
     /// <returns>A defensive copy of the current weight vector.</returns>
@@ -294,19 +310,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         lock (_syncRoot)
         {
-            // Handle standardization transition: if we're applying standardization for the first time but weights were previously trained on raw (unstandardized) features, reset to defaults.
-            var standardizationModeChanged = useStandardization != (_featureMeans is not null);
-            if (standardizationModeChanged)
-            {
-                _weights = DefaultWeights.CreateWeightArray();
-                _bias = DefaultWeights.Bias;
-                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
-                {
-                    _logger.LogInformation(
-                        "LearnedScoringStrategy: Reset weights to defaults after standardization mode change (generation {Gen})",
-                        _trainingGeneration);
-                }
-            }
+            WarmStartWeightsForModeChange(useStandardization, rawVectors);
 
             // Use a varying seed based on training generation to avoid always placing
             // the same examples in validation. Still deterministic per generation.
@@ -566,6 +570,89 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         }
 
         return (means, stdDevs);
+    }
+
+    /// <summary>
+    ///     Warm-starts the weights across a standardization mode change. Weights learned in raw feature space
+    ///     compute a different function when applied to standardized features (and vice-versa), so a naive
+    ///     keep would corrupt the model. Instead of discarding the learned weights (the old behaviour, which
+    ///     threw away up to MinExamplesForStandardization-1 examples of learning at the 19->21 boundary),
+    ///     transform them exactly into the new space so the decision function is preserved, then let the final
+    ///     pass fine-tune. No-op when the mode is unchanged. Must be called under <see cref="_syncRoot" />.
+    /// </summary>
+    /// <param name="useStandardization">Whether the current training pass will standardize features.</param>
+    /// <param name="rawVectors">The raw (unstandardized) feature vectors for this pass.</param>
+    private void WarmStartWeightsForModeChange(bool useStandardization, double[][] rawVectors)
+    {
+        var standardizationModeChanged = useStandardization != (_featureMeans is not null);
+        if (!standardizationModeChanged)
+        {
+            return;
+        }
+
+        if (useStandardization)
+        {
+            // raw -> standardized: rescale using the stats the final pass will train under.
+            var (means, stdDevs) = ComputeFeatureStatistics(rawVectors);
+            RescaleWeightsForStandardizationChange(toStandardized: true, means, stdDevs);
+        }
+        else if (_featureMeans is not null && _featureStdDevs is not null)
+        {
+            // standardized -> raw: reverse using the stats the current weights were trained under.
+            RescaleWeightsForStandardizationChange(toStandardized: false, _featureMeans, _featureStdDevs);
+        }
+
+        if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "LearnedScoringStrategy: Rescaled weights into {Space} feature space (warm start) after standardization mode change (generation {Gen})",
+                useStandardization ? "standardized" : "raw",
+                _trainingGeneration);
+        }
+    }
+
+    /// <summary>
+    ///     Transforms the current weights/bias between raw and standardized feature space so the model's
+    ///     decision function is preserved across a standardization mode change, giving the final training
+    ///     pass a warm start instead of resetting to defaults.
+    /// </summary>
+    /// <remarks>
+    ///     The raw score is s = Σ wᵢ·xᵢ + b. With standardized features x'ᵢ = (xᵢ − μᵢ)/σᵢ (so
+    ///     xᵢ = σᵢ·x'ᵢ + μᵢ), substituting gives s = Σ (wᵢ·σᵢ)·x'ᵢ + (b + Σ wᵢ·μᵢ). Hence raw → standardized
+    ///     is w'ᵢ = wᵢ·σᵢ and b' = b + Σ wᵢ·μᵢ; the reverse is wᵢ = w'ᵢ/σᵢ and b = b' − Σ wᵢ·μᵢ. Features whose
+    ///     σᵢ ≤ 1e-8 are passed through unchanged by <see cref="StandardizeSingleVector" /> (identity, no
+    ///     divide-by-zero), so their weights are left untouched here to match exactly.
+    /// </remarks>
+    /// <param name="toStandardized">True for raw → standardized; false for the reverse.</param>
+    /// <param name="means">Per-feature means defining the standardized space.</param>
+    /// <param name="stdDevs">Per-feature standard deviations defining the standardized space.</param>
+    private void RescaleWeightsForStandardizationChange(bool toStandardized, double[] means, double[] stdDevs)
+    {
+        var featureCount = Math.Min(_weights.Length, Math.Min(means.Length, stdDevs.Length));
+        var biasDelta = 0.0;
+
+        for (var f = 0; f < featureCount; f++)
+        {
+            // Mirror StandardizeSingleVector's guard: a near-constant feature is never standardized, so its
+            // weight lives in the same (raw) space in both modes and must not be rescaled.
+            if (stdDevs[f] <= 1e-8)
+            {
+                continue;
+            }
+
+            if (toStandardized)
+            {
+                biasDelta += _weights[f] * means[f];
+                _weights[f] *= stdDevs[f];
+            }
+            else
+            {
+                _weights[f] /= stdDevs[f];
+                biasDelta -= _weights[f] * means[f];
+            }
+        }
+
+        _bias += biasDelta;
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 
@@ -40,4 +41,11 @@ public interface IRecommendationEngine
     /// <param name="cancellationToken">Token to cancel the training operation.</param>
     /// <returns>True if training was performed, false if skipped (insufficient training data).</returns>
     bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults, bool incremental = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     Gets a read-only snapshot of the active ensemble scoring strategy's live internal state (alpha, neural beta,
+    ///     quality-gate freeze, sigmoid midpoint, trend, and training counts) for operator diagnostics.
+    /// </summary>
+    /// <returns>An <see cref="EnsembleDiagnostics"/> snapshot, or null when the active strategy is not an ensemble.</returns>
+    EnsembleDiagnostics? GetEnsembleDiagnostics();
 }

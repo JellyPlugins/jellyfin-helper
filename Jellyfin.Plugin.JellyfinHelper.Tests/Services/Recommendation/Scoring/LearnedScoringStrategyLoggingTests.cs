@@ -7,12 +7,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Covers the logger-guarded diagnostics in Train: the Information-level weight-reset message on the first standardized pass and the Debug-level feature-importance dump (including its skip branch when Debug is off).
+///     Covers the logger-guarded diagnostics in Train: the Information-level warm-start rescale message on
+///     the first standardized pass and the Debug-level feature-importance dump (including its skip branch
+///     when Debug is off).
 /// </summary>
 public sealed class LearnedScoringStrategyLoggingTests
 {
     [Fact]
-    public void Train_FirstStandardizedPass_LogsWeightResetAtInformation()
+    public void Train_FirstStandardizedPass_LogsWarmStartRescaleAtInformation()
     {
         var logger = TestMockFactory.CreateLogger();
         var strategy = new LearnedScoringStrategy(weightsPath: null, logger: logger.Object);
@@ -20,10 +22,11 @@ public sealed class LearnedScoringStrategyLoggingTests
         var count = Math.Max(LearnedScoringStrategy.MinTrainingExamples, LearnedScoringStrategy.MinExamplesForStandardization);
         Assert.True(strategy.Train(GenerateExamples(count)));
 
-        VerifyLog(logger, LogLevel.Information, "Reset weights to defaults after standardization mode change");
+        // Crossing into standardization now rescales the existing weights into the standardized space
+        // (warm start) rather than resetting them to defaults.
+        VerifyLog(logger, LogLevel.Information, "Rescaled weights into standardized feature space (warm start)");
 
-        // The reset branch must have run (not merely logged): weights stay a full FeatureCount
-        // vector, having been re-seeded from DefaultWeights before SGD refined them.
+        // The transition branch must have run: weights stay a full FeatureCount vector.
         Assert.Equal(CandidateFeatures.FeatureCount, strategy.GetCurrentWeights().Length);
     }
 
