@@ -243,6 +243,12 @@
 }
 
 /* Read-only ensemble diagnostics: label/value row grid. */
+.recs-diag-note {
+    margin: 0 0 0.8em;
+    opacity: 0.7;
+    font-size: 0.9em;
+}
+
 .recs-diag-grid {
     display: grid;
     grid-template-columns: max-content 1fr;
