@@ -20,12 +20,19 @@ internal static class DiscoveryFeedbackExampleBuilder
     /// <param name="feedbackResults">All discovery feedback data (loaded from <see cref="IDiscoveryFeedbackStore"/>).</param>
     /// <param name="profileById">User watch profiles keyed by user ID (for computing user-specific features).</param>
     /// <param name="seriesEpisodeCounts">Per series episode count. Same weighting as inference. Null means neutral.</param>
+    /// <param name="featureMeans">
+    ///     Optional per-feature training-set means used to impute the features that cannot be computed for an
+    ///     external candidate. Must be the SAME means discovery inference uses (see
+    ///     <see cref="ExternalCandidateFeatureBuilder.ApplyMeanImputation" />) or discovery train/serve skew
+    ///     returns. Null keeps the legacy neutral constants.
+    /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>A list of training examples and the count of discovery examples added.</returns>
     internal static (List<TrainingExample> Examples, int Count) BuildDiscoveryExamples(
         IReadOnlyList<DiscoveryFeedbackResult> feedbackResults,
         IReadOnlyDictionary<Guid, UserWatchProfile> profileById,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        IReadOnlyList<double>? featureMeans,
         CancellationToken cancellationToken)
     {
         var examples = new List<TrainingExample>();
@@ -74,6 +81,7 @@ internal static class DiscoveryFeedbackExampleBuilder
                     preferredPeople,
                     avgYear,
                     genreExposure,
+                    featureMeans,
                     out var hasLegacyPopularity);
                 features.HasUserInteraction = familiarity > 0.0;
                 features.CompletionRatio = genreAvgCompletion;
@@ -193,6 +201,7 @@ internal static class DiscoveryFeedbackExampleBuilder
         HashSet<string> preferredPeople,
         double avgYear,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
+        IReadOnlyList<double>? featureMeans,
         out bool hasLegacyPopularity)
     {
         var genres = entry.Genres ?? Array.Empty<string>();
@@ -257,6 +266,10 @@ internal static class DiscoveryFeedbackExampleBuilder
         features.GenreUnderexposure = underexposure;
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
+
+        // Impute the uncomputable placeholders to the training-set means, identically to discovery
+        // inference (ExternalCandidateFeatureBuilder.Build), so discovery train/serve stay in parity.
+        ExternalCandidateFeatureBuilder.ApplyMeanImputation(features, featureMeans);
 
         return features;
     }

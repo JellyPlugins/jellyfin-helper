@@ -1276,12 +1276,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
             _logger);
 
+        // Persisted training-set means so the features we cannot compute for a TMDb candidate are imputed
+        // to the distribution the model was trained on (matches DiscoveryFeedbackExampleBuilder). Snapshot
+        // once per user; null on a cold model keeps the legacy neutral constants.
+        var featureMeans = _ensemble.LearnedStrategy.FeatureMeans;
+
         // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(uniqueCandidates.Count);
         foreach (var candidate in uniqueCandidates)
         {
             var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile);
+                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
             var score = _ensemble.Score(features);
             preScored.Add((candidate, score));
         }
@@ -1312,7 +1317,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         foreach (var candidate in enrichmentCandidates)
         {
             var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile);
+                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
             var score = _ensemble.Score(features);
             scored.Add((candidate, features, score));
         }

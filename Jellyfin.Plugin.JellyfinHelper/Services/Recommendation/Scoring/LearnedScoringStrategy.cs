@@ -64,6 +64,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     // Bumped 2 -> 3 when features 9/10/11/12/15 changed from per-item/hardcoded signals to genre-level
     // aggregates. Weights persisted at version 2 were learned against the old semantics; keeping the
     // version would let them load and score against the new feature values, a silent train/serve mismatch.
+    // v3 additionally covers the recommendation-review feature-value changes (Gap 2 training/serve metadata
+    // parity, Gap E genre-exposure cold-start ramp, Gap A discovery mean-imputation): v3 is unreleased, so
+    // these ride on the same bump rather than a new 3 -> 4. If any of that work lands after a v3 release,
+    // bump to 4.
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>
@@ -128,6 +132,23 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             lock (_syncRoot)
             {
                 return _lastValidationLoss;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Gets a snapshot of the persisted per-feature training-set means, or null when the model has not
+    ///     yet trained under standardization. Discovery uses these to impute the features it cannot compute
+    ///     for external (TMDb) candidates to their training-set mean, so a placeholder standardizes to ~0
+    ///     ("no information") instead of biasing the score with an arbitrary constant.
+    /// </summary>
+    internal IReadOnlyList<double>? FeatureMeans
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _featureMeans is not null ? (double[])_featureMeans.Clone() : null;
             }
         }
     }

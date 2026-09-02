@@ -247,6 +247,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── DiscoveryRegressionTests.cs              # v2.1.0.3 regressions (ServerId=0, profile dedup, MissingMethodException)
 │   │       ├── ExternalCandidateFeatureBuilderTests.cs  # inference↔training feature parity (genre-exposure + popularity skew)
 │   │       ├── ExternalCandidateFeatureBuilderExtendedTests.cs # Null guards, case-insensitive people matching, null EffectiveReleaseDate → 0.5 RecencyScore, TV/movie branch coverage
+│   │       ├── ExternalCandidateFeatureImputationTests.cs # Gap A mean-imputation: continuous placeholders → training means, bools stay false, computed features untouched, null/wrong-length means = legacy constants
 │   │       ├── NullableDateTimeConverterTests.cs        # Empty-string / malformed TMDb dates degrade to null instead of JsonException
 │   │       ├── ParentalRatingHelperTests.cs
 │   │       ├── SeerrDiscoveryDtoTests.cs                # DTO wire contract: property names, defaults, round-trip
@@ -831,6 +832,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `DiscoveryRegressionTests.cs`
 - `ExternalCandidateFeatureBuilderExtendedTests.cs`
 - `ExternalCandidateFeatureBuilderTests.cs`
+- `ExternalCandidateFeatureImputationTests.cs`
 - `NullableDateTimeConverterTests.cs`
 - `ParentalRatingHelperTests.cs`
 - `SeerrDiscoveryDtoTests.cs`

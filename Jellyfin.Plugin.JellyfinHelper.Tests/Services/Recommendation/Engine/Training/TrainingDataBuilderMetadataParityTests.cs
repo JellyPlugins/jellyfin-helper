@@ -166,7 +166,7 @@ public sealed class TrainingDataBuilderMetadataParityTests
             new Dictionary<Guid, IReadOnlyList<Guid>>());
 
         var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(
-            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryMetadata, CancellationToken.None);
+            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryMetadata, featureMeans: null, CancellationToken.None);
 
         // The probe rec (2 genres) matches only if the library studio "NewStudio" won over cache "OldStudio".
         var probe = examples.Single(e => e.Features.GenreCount == 2);
@@ -213,7 +213,7 @@ public sealed class TrainingDataBuilderMetadataParityTests
             new Dictionary<Guid, IReadOnlyList<Guid>>());
 
         var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(
-            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryMetadata, CancellationToken.None);
+            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryMetadata, featureMeans: null, CancellationToken.None);
 
         var seriesExample = Assert.Single(examples);
         Assert.Equal(0.65, seriesExample.Label, 9);
@@ -225,7 +225,7 @@ public sealed class TrainingDataBuilderMetadataParityTests
         LibraryItemMetadata? libraryItemMetadata)
     {
         var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(
-            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata, CancellationToken.None);
+            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata, featureMeans: null, CancellationToken.None);
 
         // The Phase 1 recommendation-feedback example is the one whose genre is Action (the probe rec).
         return examples.Single(e => e.Features.GenreCount == 1 && !e.Features.IsSeries && e.SampleWeight == 1.0);

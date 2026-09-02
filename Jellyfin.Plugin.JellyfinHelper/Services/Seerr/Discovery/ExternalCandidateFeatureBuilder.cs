@@ -25,6 +25,12 @@ internal static class ExternalCandidateFeatureBuilder
     /// <param name="avgYear">Average watched year.</param>
     /// <param name="genreExposure">Prebuilt genre exposure analysis.</param>
     /// <param name="profile">The user's watch profile. When supplied, the genre-engagement features (familiarity, average completion, abandon rate) are computed so discovery inference matches DiscoveryFeedbackExampleBuilder training. When null they stay neutral.</param>
+    /// <param name="featureMeans">
+    ///     Optional per-feature training-set means. When supplied, the features that cannot be computed for an
+    ///     external (TMDb) candidate are imputed to their training-set mean instead of an arbitrary 0/0.5
+    ///     constant, so under standardization they land at ~0 ("no information") rather than biasing the
+    ///     score. Null (no trained model yet) keeps the legacy neutral constants.
+    /// </param>
     /// <returns>A populated feature vector.</returns>
     internal static CandidateFeatures Build(
         TmdbDiscoverItem candidate,
@@ -32,7 +38,8 @@ internal static class ExternalCandidateFeatureBuilder
         HashSet<string> preferredPeople,
         double avgYear,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
-        UserWatchProfile? profile = null)
+        UserWatchProfile? profile = null,
+        IReadOnlyList<double>? featureMeans = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(genrePreferences);
@@ -102,7 +109,52 @@ internal static class ExternalCandidateFeatureBuilder
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
+        ApplyMeanImputation(features, featureMeans);
+
         return features;
+    }
+
+    /// <summary>
+    ///     Overwrites the features that cannot be computed for an external (TMDb) candidate with their
+    ///     training-set means, so a discovery candidate is scored against the distribution the model was
+    ///     trained on rather than an arbitrary 0/0.5 constant. Only the continuous placeholder features are
+    ///     imputed; the two boolean placeholders (StudioMatch, IsWeekend) stay false because they cannot
+    ///     carry a fractional mean through their bool property and false is the genuinely-correct value for
+    ///     an unknown candidate (no studio-match signal; IsWeekend is request-time context, not a candidate
+    ///     property). Computed features (genre/people/popularity/critic/recency/exposure/engagement) are
+    ///     never touched. A null <paramref name="featureMeans" /> (no trained model yet) leaves the legacy
+    ///     neutral constants in place.
+    /// </summary>
+    /// <param name="features">The feature vector to impute in place.</param>
+    /// <param name="featureMeans">Per-feature training-set means, or null to skip imputation.</param>
+    internal static void ApplyMeanImputation(
+        CandidateFeatures features,
+        IReadOnlyList<double>? featureMeans)
+    {
+        ArgumentNullException.ThrowIfNull(features);
+
+        if (featureMeans is null || featureMeans.Count != CandidateFeatures.FeatureCount)
+        {
+            return;
+        }
+
+        features.CollaborativeScore = featureMeans[(int)FeatureIndex.CollaborativeScore];
+        features.SeriesProgressionBoost = featureMeans[(int)FeatureIndex.SeriesProgressionBoost];
+        features.DayOfWeekAffinity = featureMeans[(int)FeatureIndex.DayOfWeekAffinity];
+        features.HourOfDayAffinity = featureMeans[(int)FeatureIndex.HourOfDayAffinity];
+        features.TagSimilarity = featureMeans[(int)FeatureIndex.TagSimilarity];
+        features.LibraryAddedRecency = featureMeans[(int)FeatureIndex.LibraryAddedRecency];
+        features.ContentNearestNeighborScore = featureMeans[(int)FeatureIndex.ContentNearestNeighborScore];
+        features.LanguageAffinity = featureMeans[(int)FeatureIndex.LanguageAffinity];
+        features.SubtitleLanguageAffinity = featureMeans[(int)FeatureIndex.SubtitleLanguageAffinity];
+        features.CollectionProgressionBoost = featureMeans[(int)FeatureIndex.CollectionProgressionBoost];
+        features.FranchiseAffinity = featureMeans[(int)FeatureIndex.FranchiseAffinity];
+        features.ProductionLocationAffinity = featureMeans[(int)FeatureIndex.ProductionLocationAffinity];
+        features.InheritedTagSimilarity = featureMeans[(int)FeatureIndex.InheritedTagSimilarity];
+        features.SeriesCompletability = featureMeans[(int)FeatureIndex.SeriesCompletability];
+        features.WriterAffinity = featureMeans[(int)FeatureIndex.WriterAffinity];
+        features.BillingWeightedPeople = featureMeans[(int)FeatureIndex.BillingWeightedPeople];
+        features.GenreStudioIdfPrior = featureMeans[(int)FeatureIndex.GenreStudioIdfPrior];
     }
 
     /// <summary>

@@ -39,7 +39,7 @@ internal static class TrainingDataBuilder
         Collection<UserWatchProfile> allProfiles,
         CancellationToken cancellationToken)
     {
-        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata: null, cancellationToken);
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata: null, featureMeans: null, cancellationToken);
     }
 
     /// <summary>
@@ -62,7 +62,7 @@ internal static class TrainingDataBuilder
         IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
         CancellationToken cancellationToken)
     {
-        return BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata: null, cancellationToken);
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata: null, featureMeans: null, cancellationToken);
     }
 
     /// <summary>
@@ -83,6 +83,10 @@ internal static class TrainingDataBuilder
     ///     OVERWRITE the previous-recommendations cache so watched-item studios/tags resolve from the same
     ///     source the serve path reads. Null means cache-only behaviour (byte-identical to before).
     /// </param>
+    /// <param name="featureMeans">
+    ///     Optional per-feature training-set means used to impute the features that cannot be computed for
+    ///     external (discovery) candidates, identical to discovery inference. Null keeps legacy constants.
+    /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>
     ///     Training examples and counts per phase. Discovery is counted separately so you can tell if positives come from watch history or from Seerr requests.
@@ -94,6 +98,7 @@ internal static class TrainingDataBuilder
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
         LibraryItemMetadata? libraryItemMetadata,
+        IReadOnlyList<double>? featureMeans,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -179,6 +184,7 @@ internal static class TrainingDataBuilder
                 discoveryFeedback,
                 profileById,
                 seriesEpisodeCounts,
+                featureMeans,
                 cancellationToken);
 
             if (discoveryExamples.Count > 0)

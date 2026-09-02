@@ -193,6 +193,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
             [feedback],
             profileById,
             seriesEpisodeCounts: null,
+            featureMeans: null,
             CancellationToken.None);
 
         Assert.Equal(1, count);
@@ -237,6 +238,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
             [feedback],
             profileById,
             seriesEpisodeCounts: null,
+            featureMeans: null,
             CancellationToken.None);
 
         Assert.Equal(1, count);
@@ -291,6 +293,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
             [feedback],
             profileById,
             seriesEpisodeCounts: null,
+            featureMeans: null,
             CancellationToken.None);
 
         Assert.Equal(1, count);
