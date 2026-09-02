@@ -263,7 +263,7 @@
   "recsEnsembleError": "Ensemble-Diagnose konnte nicht geladen werden.",
   "recsEnsembleUnavailable": "Ensemble-Diagnose ist noch nicht verfügbar – führe den Empfehlungs-Task aus.",
   "recsEnsembleAlpha": "Alpha (α)",
-  "recsEnsembleNeuralBeta": "Neuronales β",
+  "recsEnsembleNeuralBeta": "Neuronales (β)",
   "recsEnsembleQualityGate": "Qualitäts-Gate eingefroren",
   "recsEnsembleMidpoint": "Sigmoid-Mittelpunkt (effektiv)",
   "recsEnsembleOffset": "Offset",

@@ -263,7 +263,7 @@
   "recsEnsembleError": "Impossible de charger le diagnostic de l'ensemble.",
   "recsEnsembleUnavailable": "Le diagnostic de l'ensemble n'est pas encore disponible : exécutez la tâche de recommandations.",
   "recsEnsembleAlpha": "Alpha (α)",
-  "recsEnsembleNeuralBeta": "β neuronal",
+  "recsEnsembleNeuralBeta": "Neuronal (β)",
   "recsEnsembleQualityGate": "Contrôle qualité figé",
   "recsEnsembleMidpoint": "Point médian sigmoïde (effectif)",
   "recsEnsembleOffset": "décalage",

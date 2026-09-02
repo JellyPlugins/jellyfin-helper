@@ -263,7 +263,7 @@
   "recsEnsembleError": "No se pudo cargar el diagnóstico del conjunto.",
   "recsEnsembleUnavailable": "El diagnóstico del conjunto aún no está disponible: ejecuta la tarea de recomendaciones.",
   "recsEnsembleAlpha": "Alfa (α)",
-  "recsEnsembleNeuralBeta": "β neuronal",
+  "recsEnsembleNeuralBeta": "Neuronal (β)",
   "recsEnsembleQualityGate": "Control de calidad congelado",
   "recsEnsembleMidpoint": "Punto medio sigmoide (efectivo)",
   "recsEnsembleOffset": "desplazamiento",

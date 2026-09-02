@@ -263,7 +263,7 @@
   "recsEnsembleError": "无法加载集成诊断信息。",
   "recsEnsembleUnavailable": "集成诊断信息尚不可用——请运行推荐任务。",
   "recsEnsembleAlpha": "Alpha (α)",
-  "recsEnsembleNeuralBeta": "神经 β",
+  "recsEnsembleNeuralBeta": "神经 (β)",
   "recsEnsembleQualityGate": "质量闸门已冻结",
   "recsEnsembleMidpoint": "Sigmoid 中点（有效值）",
   "recsEnsembleOffset": "偏移量",

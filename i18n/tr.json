@@ -263,7 +263,7 @@
   "recsEnsembleError": "Topluluk tanılaması yüklenemedi.",
   "recsEnsembleUnavailable": "Topluluk tanılaması henüz kullanılamıyor - öneri görevini çalıştırın.",
   "recsEnsembleAlpha": "Alfa (α)",
-  "recsEnsembleNeuralBeta": "Sinirsel β",
+  "recsEnsembleNeuralBeta": "Sinirsel (β)",
   "recsEnsembleQualityGate": "Kalite kapısı donduruldu",
   "recsEnsembleMidpoint": "Sigmoid orta noktası (etkin)",
   "recsEnsembleOffset": "kayma",
