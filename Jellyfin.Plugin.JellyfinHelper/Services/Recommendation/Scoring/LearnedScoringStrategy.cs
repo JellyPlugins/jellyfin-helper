@@ -61,13 +61,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>
     ///     Current schema version for persisted weights. Increment when the feature set or weight semantics change so that stale weights are discarded on load.
     /// </summary>
-    // Bumped 2 -> 3 when features 9/10/11/12/15 changed from per-item/hardcoded signals to genre-level
-    // aggregates. Weights persisted at version 2 were learned against the old semantics; keeping the
-    // version would let them load and score against the new feature values, a silent train/serve mismatch.
-    // v3 additionally covers the recommendation-review feature-value changes (Gap 2 training/serve metadata
-    // parity, Gap E genre-exposure cold-start ramp, Gap A discovery mean-imputation): v3 is unreleased, so
-    // these ride on the same bump rather than a new 3 -> 4. If any of that work lands after a v3 release,
-    // bump to 4.
+    // Bumped 2 -> 3: features 9/10/11/12/15 moved to genre-level aggregates. Keeping v2 would silently
+    // break scoring due to old weights on new feature semantics.
+    // Also piggybacking unreleased recommendation-review metadata changes into v3 (Gaps 2, E, A).
+    // Note: Bump to 4 if any of that lands after v3 ships.
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>
