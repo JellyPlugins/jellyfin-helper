@@ -73,6 +73,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private const int ChildAccountMaxParentalRating = 60;
 
+    /// <summary>
+    ///     Page size for the requestedBy-scoped request enumeration used by reconciliation.
+    /// </summary>
+    private const int ReconcilePageSize = 50;
+
+    /// <summary>
+    ///     Safety cap on the number of request pages fetched during reconciliation to bound a single user's enumeration.
+    /// </summary>
+    private const int ReconcileMaxPages = 20;
+
     /// <summary>TMDb genre ID for Family content (movies and TV).</summary>
     private const int TmdbGenreFamily = 10751;
 
@@ -240,6 +250,237 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             PersistResultsAndRecordFeedback(allResults);
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<int> ReconcileRequestedItemsAsync(Guid jellyfinUserId, CancellationToken cancellationToken)
+    {
+        if (jellyfinUserId == Guid.Empty)
+        {
+            return 0;
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        if (config == null
+            || string.IsNullOrWhiteSpace(config.SeerrUrl)
+            || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+        {
+            return 0;
+        }
+
+        var seerrUserId = await ResolveSeerrUserIdAsync(jellyfinUserId, cancellationToken).ConfigureAwait(false);
+        if (seerrUserId is not > 0)
+        {
+            return 0;
+        }
+
+        var requestedKeys = await FetchRequestedKeysForSeerrUserAsync(
+            config, seerrUserId.Value, cancellationToken).ConfigureAwait(false);
+        if (requestedKeys is null || requestedKeys.Count == 0)
+        {
+            return 0;
+        }
+
+        return await ApplyReconciliationAsync(jellyfinUserId, requestedKeys).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Records the intersection of a user's Seerr-requested keys with their cached recommendations as a positive feedback signal and marks each match as requested in the cache. Items already recorded as requested are skipped so repeated reconciliation does not rewrite the feedback file.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user whose cache and feedback are updated.</param>
+    /// <param name="requestedKeys">The user's requested (TmdbId, MediaType) keys fetched from Seerr.</param>
+    /// <returns>The number of cached recommendations newly reconciled.</returns>
+    private async Task<int> ApplyReconciliationAsync(
+        Guid jellyfinUserId,
+        HashSet<(int TmdbId, string MediaType)> requestedKeys)
+    {
+        var userResult = _cache.Load().FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
+        if (userResult == null || userResult.Recommendations.Count == 0)
+        {
+            return 0;
+        }
+
+        HashSet<(int TmdbId, string MediaType)> alreadyRecorded;
+        try
+        {
+            alreadyRecorded = new HashSet<(int, string)>(_feedbackStore.GetRequestedItems(jellyfinUserId));
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Reconcile: could not load already-requested items for user {jellyfinUserId}: {ex.Message}",
+                _logger);
+            alreadyRecorded = [];
+        }
+
+        var reconciled = 0;
+        foreach (var rec in userResult.Recommendations)
+        {
+            (int TmdbId, string MediaType) key = (rec.TmdbId, NormalizeReconcileMediaType(rec.MediaType));
+            if (rec.TmdbId <= 0 || alreadyRecorded.Contains(key) || !requestedKeys.Contains(key))
+            {
+                continue;
+            }
+
+            if (await ReconcileSingleItemAsync(jellyfinUserId, key.TmdbId, key.MediaType).ConfigureAwait(false))
+            {
+                reconciled++;
+            }
+        }
+
+        if (reconciled > 0)
+        {
+            _pluginLog.LogInfo(
+                LogCategory,
+                $"Reconciled {reconciled} out-of-band Seerr request(s) into discovery for user {jellyfinUserId}.",
+                _logger);
+        }
+
+        return reconciled;
+    }
+
+    /// <summary>
+    ///     Records a single reconciled item as requested and marks it in the cache. Side effects use CancellationToken.None so a disconnected caller cannot leave the feedback and cache stores inconsistent.
+    /// </summary>
+    /// <param name="jellyfinUserId">The owning Jellyfin user.</param>
+    /// <param name="tmdbId">The TMDb ID of the item.</param>
+    /// <param name="mediaType">The normalized media type.</param>
+    /// <returns><see langword="true"/> when the item was recorded without a fatal failure.</returns>
+    private async Task<bool> ReconcileSingleItemAsync(Guid jellyfinUserId, int tmdbId, string mediaType)
+    {
+        try
+        {
+            _feedbackStore.RecordRequested(jellyfinUserId, tmdbId, mediaType);
+            await _cache.MarkAsRequestedAsync(tmdbId, mediaType, jellyfinUserId, CancellationToken.None).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Reconcile: failed to record requested item {mediaType}#{tmdbId} for user {jellyfinUserId}: {ex.Message}",
+                _logger);
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Fetches the set of (TmdbId, MediaType) keys the given Seerr user has requested, paginating the requestedBy-scoped request endpoint. Returns null on any failure or incomplete fetch so callers treat a partial snapshot as "do nothing" rather than acting on truncated data.
+    /// </summary>
+    /// <param name="config">The plugin configuration providing the Seerr endpoint and key.</param>
+    /// <param name="seerrUserId">The resolved Seerr user ID to scope the query to.</param>
+    /// <param name="cancellationToken">Cooperative cancellation token.</param>
+    /// <returns>The requested keys, or null when the fetch could not complete.</returns>
+    private async Task<HashSet<(int TmdbId, string MediaType)>?> FetchRequestedKeysForSeerrUserAsync(
+        PluginConfiguration config,
+        int seerrUserId,
+        CancellationToken cancellationToken)
+    {
+        Uri baseUri;
+        string apiKey;
+        try
+        {
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Reconcile: invalid Seerr configuration: {ex.Message}",
+                ex,
+                _logger);
+            return null;
+        }
+
+        var client = GetSeerrClient();
+        var keys = new HashSet<(int TmdbId, string MediaType)>();
+        var skip = 0;
+
+        try
+        {
+            for (var page = 0; page < ReconcileMaxPages; page++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var relPath = $"api/v1/request?take={ReconcilePageSize}&skip={skip}&sort=added&filter=all&requestedBy={seerrUserId}";
+                using var request = BuildRequest(HttpMethod.Get, baseUri, relPath, apiKey);
+                using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _pluginLog.LogDebug(
+                        LogCategory,
+                        $"Reconcile: request page returned HTTP {(int)response.StatusCode} for Seerr user #{seerrUserId}.",
+                        _logger);
+                    return null;
+                }
+
+                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var pageResult = JsonSerializer.Deserialize<SeerrRequestPage>(json, JsonOptions);
+                var results = pageResult?.Results;
+                if (results == null || results.Count == 0)
+                {
+                    break;
+                }
+
+                foreach (var item in results)
+                {
+                    var media = item.Media;
+                    if (media != null && media.TmdbId > 0)
+                    {
+                        keys.Add((media.TmdbId, NormalizeReconcileMediaType(media.MediaType)));
+                    }
+                }
+
+                skip += ReconcilePageSize;
+                var totalResults = pageResult?.PageInfo?.Results ?? results.Count;
+                if (results.Count < ReconcilePageSize || skip >= totalResults)
+                {
+                    return keys;
+                }
+
+                if (page == ReconcileMaxPages - 1)
+                {
+                    // Hit the page cap without exhausting the result set; the snapshot is incomplete.
+                    _pluginLog.LogWarning(
+                        LogCategory,
+                        $"Reconcile: request pagination hit the {ReconcileMaxPages}-page cap for Seerr user #{seerrUserId}; skipping to avoid acting on a partial snapshot.",
+                        null,
+                        _logger);
+                    return null;
+                }
+            }
+
+            return keys;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Reconcile: failed to fetch requests for Seerr user #{seerrUserId}: {ex.Message}",
+                ex,
+                _logger);
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     Normalizes a media type to the lowercase "movie"/"tv" form used as the composite key across the feedback store and cache. Unknown or empty values collapse to "movie" to match DiscoveryFeedbackStore.
+    /// </summary>
+    private static string NormalizeReconcileMediaType(string? mediaType)
+    {
+        if (string.IsNullOrWhiteSpace(mediaType))
+        {
+            return MediaTypeMovie;
+        }
+
+        var normalized = mediaType.Trim().ToLowerInvariant();
+        return normalized == "tv" ? "tv" : MediaTypeMovie;
     }
 
     /// <summary>
@@ -1195,6 +1436,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         CancellationToken cancellationToken)
     {
+        // Fold in any requests the user made outside discovery before building the exclusion set, so the fresh signal both excludes those items from this run and reaches training.
+        await ReconcileRequestedItemsAsync(profile.UserId, cancellationToken).ConfigureAwait(false);
+
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
         if (genrePreferences.Count == 0)
         {

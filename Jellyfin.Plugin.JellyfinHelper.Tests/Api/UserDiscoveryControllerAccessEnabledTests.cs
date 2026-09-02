@@ -79,16 +79,16 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     }
 
     [Fact]
-    public void GetMyDiscoveryResults_NoUserClaim_ReturnsUnauthorized()
+    public async Task GetMyDiscoveryResults_NoUserClaim_ReturnsUnauthorized()
     {
-        var result = CreateController(null).GetMyDiscoveryResults();
+        var result = await CreateController(null).GetMyDiscoveryResults(CancellationToken.None);
         Assert.IsType<UnauthorizedResult>(result.Result);
     }
 
     [Fact]
-    public void GetMyDiscoveryResults_UnknownUser_ReturnsOkWithNullBody()
+    public async Task GetMyDiscoveryResults_UnknownUser_ReturnsOkWithNullBody()
     {
-        var result = CreateController(Guid.NewGuid()).GetMyDiscoveryResults();
+        var result = await CreateController(Guid.NewGuid()).GetMyDiscoveryResults(CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         Assert.Null(ok.Value);
     }
@@ -239,7 +239,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     }
 
     [Fact]
-    public void GetMyDiscoveryResults_KnownUser_ReturnsVisibleRecommendations_ExcludingDismissedAndRequestedAndAlreadyRequested()
+    public async Task GetMyDiscoveryResults_KnownUser_ReturnsVisibleRecommendations_ExcludingDismissedAndRequestedAndAlreadyRequested()
     {
         var userId = Guid.NewGuid();
         var generatedAt = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
@@ -269,7 +269,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         _feedbackStoreMock.Setup(f => f.GetRequestedItems(userId))
             .Returns(new HashSet<(int, string)> { (3, "tv") });
 
-        var result = CreateController(userId).GetMyDiscoveryResults();
+        var result = await CreateController(userId).GetMyDiscoveryResults(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var body = Assert.IsType<DiscoveryResult>(ok.Value);
@@ -280,7 +280,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     }
 
     [Fact]
-    public void GetMyDiscoveryResults_ExclusionMatchesRegardlessOfMediaTypeCasing()
+    public async Task GetMyDiscoveryResults_ExclusionMatchesRegardlessOfMediaTypeCasing()
     {
         var userId = Guid.NewGuid();
         _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
@@ -303,7 +303,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         _feedbackStoreMock.Setup(f => f.GetDismissedItems(userId))
             .Returns(new HashSet<(int, string)> { (7, "movie") });
 
-        var result = CreateController(userId).GetMyDiscoveryResults();
+        var result = await CreateController(userId).GetMyDiscoveryResults(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var body = Assert.IsType<DiscoveryResult>(ok.Value);
@@ -311,7 +311,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     }
 
     [Fact]
-    public void GetMyDiscoveryResults_CapsVisibleAtMaxVisiblePerUser()
+    public async Task GetMyDiscoveryResults_CapsVisibleAtMaxVisiblePerUser()
     {
         var userId = Guid.NewGuid();
         _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
@@ -324,7 +324,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
 
         _cache.Save(new List<DiscoveryResult> { result });
 
-        var response = CreateController(userId).GetMyDiscoveryResults();
+        var response = await CreateController(userId).GetMyDiscoveryResults(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var body = Assert.IsType<DiscoveryResult>(ok.Value);
@@ -332,7 +332,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     }
 
     [Fact]
-    public void GetMyDiscoveryResults_WhenFeedbackStoreThrows_LogsAndServesUnfilteredVisiblePool()
+    public async Task GetMyDiscoveryResults_WhenFeedbackStoreThrows_LogsAndServesUnfilteredVisiblePool()
     {
         var userId = Guid.NewGuid();
         _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
@@ -356,10 +356,142 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         _feedbackStoreMock.Setup(f => f.GetDismissedItems(userId))
             .Throws(new InvalidOperationException("store unavailable"));
 
-        var response = CreateController(userId).GetMyDiscoveryResults();
+        var response = await CreateController(userId).GetMyDiscoveryResults(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var body = Assert.IsType<DiscoveryResult>(ok.Value);
         Assert.Equal(new[] { 11, 12 }, body.Recommendations.Select(r => r.TmdbId).OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
+    public async Task GetMyDiscoveryResults_InvokesReconcileBeforeReadingPool()
+    {
+        var userId = Guid.NewGuid();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+
+        await CreateController(userId).GetMyDiscoveryResults(CancellationToken.None);
+
+        _discoveryMock.Verify(
+            d => d.ReconcileRequestedItemsAsync(userId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetMyDiscoveryResults_ReconcilesAtMostOncePerTtlWindow()
+    {
+        var userId = Guid.NewGuid();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+
+        // Two consecutive loads for the same user share one MemoryCache, so the second must be throttled.
+        var controller = CreateController(userId);
+        await controller.GetMyDiscoveryResults(CancellationToken.None);
+        await controller.GetMyDiscoveryResults(CancellationToken.None);
+
+        _discoveryMock.Verify(
+            d => d.ReconcileRequestedItemsAsync(userId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetMyDiscoveryResults_WhenReconcileThrows_StillReturnsCachedView()
+    {
+        var userId = Guid.NewGuid();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+        _discoveryMock
+            .Setup(d => d.ReconcileRequestedItemsAsync(userId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("seerr exploded"));
+
+        _cache.Save(new List<DiscoveryResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "erin",
+                GeneratedAt = DateTime.UtcNow,
+                Recommendations =
+                {
+                    new DiscoveryRecommendation { TmdbId = 21, MediaType = "movie", AlreadyRequested = false }
+                }
+            }
+        });
+
+        var response = await CreateController(userId).GetMyDiscoveryResults(CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<DiscoveryResult>(ok.Value);
+        Assert.Equal(new[] { 21 }, body.Recommendations.Select(r => r.TmdbId).ToArray());
+    }
+
+    [Fact]
+    public async Task GetMyDiscoveryResults_AfterReconcileMarksItem_BackfillsNextItem()
+    {
+        var userId = Guid.NewGuid();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(2);
+
+        _cache.Save(new List<DiscoveryResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "frank",
+                GeneratedAt = DateTime.UtcNow,
+                Recommendations =
+                {
+                    new DiscoveryRecommendation { TmdbId = 31, MediaType = "movie", AlreadyRequested = false },
+                    new DiscoveryRecommendation { TmdbId = 32, MediaType = "movie", AlreadyRequested = false },
+                    new DiscoveryRecommendation { TmdbId = 33, MediaType = "movie", AlreadyRequested = false }
+                }
+            }
+        });
+
+        // Simulate reconciliation discovering that item 31 was requested out-of-band: it marks the
+        // cache entry and records the signal, exactly as the real service does.
+        _discoveryMock
+            .Setup(d => d.ReconcileRequestedItemsAsync(userId, It.IsAny<CancellationToken>()))
+            .Returns(async (Guid uid, CancellationToken ct) =>
+            {
+                await _cache.MarkAsRequestedAsync(31, "movie", uid, ct);
+                return 1;
+            });
+        _feedbackStoreMock.Setup(f => f.GetRequestedItems(userId))
+            .Returns(new HashSet<(int, string)>());
+
+        var response = await CreateController(userId).GetMyDiscoveryResults(CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<DiscoveryResult>(ok.Value);
+        // 31 marked requested and drops out; 32 and 33 become the visible top-2.
+        Assert.Equal(new[] { 32, 33 }, body.Recommendations.Select(r => r.TmdbId).OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
+    public void BuildReconcileKey_HasExpectedFormat_AndSharesGenerationWithRateLimitKey()
+    {
+        var userId = Guid.NewGuid();
+        var reconcileKey = UserDiscoveryController.BuildReconcileKey(userId);
+        var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
+
+        Assert.Contains("discovery:reconcile:", reconcileKey, StringComparison.Ordinal);
+        Assert.EndsWith(userId.ToString("N"), reconcileKey, StringComparison.Ordinal);
+
+        // Both keys embed the same generation segment so a plugin reload invalidates both together.
+        var reconcileGen = reconcileKey.Split(':')[3];
+        var rateLimitGen = rateLimitKey.Split(':')[3];
+        Assert.Equal(rateLimitGen, reconcileGen);
+    }
+
+    [Fact]
+    public async Task GetMyDiscoveryResults_WhenAccessDisabled_DoesNotReconcile()
+    {
+        Plugin.Instance!.Configuration.DiscoveryUserAccessEnabled = false;
+        _configServiceMock.Setup(s => s.GetConfiguration())
+            .Returns(new PluginConfiguration { DiscoveryUserAccessEnabled = false });
+
+        var response = await CreateController(Guid.NewGuid()).GetMyDiscoveryResults(CancellationToken.None);
+
+        Assert.IsType<ObjectResult>(response.Result);
+        _discoveryMock.Verify(
+            d => d.ReconcileRequestedItemsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

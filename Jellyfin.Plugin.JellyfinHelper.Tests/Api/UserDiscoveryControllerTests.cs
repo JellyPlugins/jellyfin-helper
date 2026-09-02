@@ -65,11 +65,11 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public void GetMyDiscoveryResults_WhenAccessDisabled_Returns403()
+    public async Task GetMyDiscoveryResults_WhenAccessDisabled_Returns403()
     {
         // DiscoveryUserAccessEnabled defaults to false when Plugin.Instance is null (test context)
         var controller = CreateController(Guid.NewGuid());
-        var result = controller.GetMyDiscoveryResults();
+        var result = await controller.GetMyDiscoveryResults(CancellationToken.None);
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(403, statusResult.StatusCode);
     }
@@ -172,11 +172,11 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public void GetMyDiscoveryResults_NoUserClaim_Returns403WhenDisabled()
+    public async Task GetMyDiscoveryResults_NoUserClaim_Returns403WhenDisabled()
     {
         // No userId claim
         var controller = CreateController(null);
-        var result = controller.GetMyDiscoveryResults();
+        var result = await controller.GetMyDiscoveryResults(CancellationToken.None);
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         // 403 because feature is disabled (checked before auth)
         Assert.Equal(403, statusResult.StatusCode);

@@ -32,6 +32,11 @@ public sealed class UserDiscoveryController : ControllerBase
     private const string RadarrServiceType = "radarr";
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    ///     Minimum interval between out-of-band request reconciliations for a single user on the view-load path. Matches the Seerr user-roster cache TTL, below which a re-fetch cannot surface fresher data.
+    /// </summary>
+    private static readonly TimeSpan ReconcileTtl = TimeSpan.FromMinutes(5);
+
     // Guards the rate-limit check-and-update so it is atomic. The controller is instantiated per request, so an instance lock would not serialize concurrent requests; a shared static lock does.
     private static readonly object RateLimitGate = new();
 
@@ -73,11 +78,12 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Returns the cached discovery recommendations for the currently authenticated user.
     /// </summary>
+    /// <param name="cancellationToken">Cancellation token for the reconciliation fetch.</param>
     /// <returns>The discovery result for the current user, or null if not available.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public ActionResult<DiscoveryResult?> GetMyDiscoveryResults()
+    public async Task<ActionResult<DiscoveryResult?>> GetMyDiscoveryResults(CancellationToken cancellationToken)
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
@@ -91,6 +97,11 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var currentUserId = userId.Value;
+
+        // Fold in any out-of-band Seerr requests before reading the pool so an item the user
+        // already requested elsewhere leaves the view and the next backfill item takes its slot.
+        await MaybeReconcileAsync(currentUserId, cancellationToken).ConfigureAwait(false);
+
         var results = _cache.Load();
         var userResult = results.FirstOrDefault(r => r.UserId.Equals(currentUserId));
         if (userResult == null)
@@ -119,6 +130,42 @@ public sealed class UserDiscoveryController : ControllerBase
             Recommendations = visible,
             GeneratedAt = userResult.GeneratedAt
         });
+    }
+
+    /// <summary>
+    ///     Runs discovery reconciliation for the user at most once per <see cref="ReconcileTtl"/> window. The reconciliation itself is fail-safe; this wrapper additionally guarantees a reconciliation failure never breaks the view render.
+    /// </summary>
+    /// <param name="userId">The current Jellyfin user id.</param>
+    /// <param name="cancellationToken">Cancellation token forwarded to the Seerr fetch.</param>
+    /// <returns>A task that completes once the (possibly skipped) reconciliation has finished.</returns>
+    private async Task MaybeReconcileAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        // Claim the per-user window under the shared lock BEFORE the async fetch so concurrent
+        // view loads for the same user do not each trigger a Seerr round-trip.
+        lock (RateLimitGate)
+        {
+            var key = BuildReconcileKey(userId);
+            if (_memoryCache.TryGetValue(key, out _))
+            {
+                return;
+            }
+
+            _memoryCache.Set(key, true, ReconcileTtl);
+        }
+
+        try
+        {
+            await _discovery.ReconcileRequestedItemsAsync(userId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Client disconnected mid-reconcile; nothing to render, propagation is harmless here
+            // but we swallow to keep the endpoint's contract (never fail on reconcile) uniform.
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _logger.LogWarning(ex, "[Discovery] Reconciliation failed for user {UserId}; serving the cached view unchanged.", userId);
+        }
     }
 
     /// <summary>
@@ -555,6 +602,14 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <returns>The fully-qualified, namespaced rate-limit cache key.</returns>
     internal static string BuildRateLimitKey(Guid jellyfinUserId) =>
         $"JellyfinHelper:discovery:ratelimit:{_rateLimitGeneration}:{jellyfinUserId:N}";
+
+    /// <summary>
+    ///     Builds the per-user reconciliation-throttle cache key. Shares the rate-limit generation counter so a plugin reload (via ClearRateLimitState) invalidates both throttles at once. The single source of truth for the key format, shared by the controller and its tests so the two can never drift.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user the reconciliation belongs to.</param>
+    /// <returns>The fully-qualified, namespaced reconciliation-throttle cache key.</returns>
+    internal static string BuildReconcileKey(Guid jellyfinUserId) =>
+        $"JellyfinHelper:discovery:reconcile:{_rateLimitGeneration}:{jellyfinUserId:N}";
 
     /// <summary>
     ///     Reconstructs SeerrServiceInfo objects directly from the pre-evaluated AllowedQualityProfile list without requiring a second Seerr API call.

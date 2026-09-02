@@ -951,6 +951,18 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
 
     public Exception? ThrowNext { get; set; }
 
+    /// <summary>
+    ///     Gets or sets an exception thrown once the handler has served <see cref="ThrowAfterCallIndex"/> calls. Lets a test allow the first N calls (e.g. user resolution) through and fail a later one (e.g. the request-page fetch).
+    /// </summary>
+    public Exception? ThrowAfter { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the zero-based call index at which <see cref="ThrowAfter"/> fires.
+    /// </summary>
+    public int ThrowAfterCallIndex { get; set; }
+
+    private int _callCount;
+
     public void RegisterResponse(HttpMethod method, string pathSuffix, HttpStatusCode status, string body)
     {
         _routes[(method, pathSuffix)] = (status, body);
@@ -968,6 +980,15 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
             ThrowNext = null;
             throw toThrow;
         }
+
+        if (ThrowAfter is not null && _callCount >= ThrowAfterCallIndex)
+        {
+            var toThrow = ThrowAfter;
+            ThrowAfter = null;
+            throw toThrow;
+        }
+
+        _callCount++;
 
         if (request.Content is not null)
         {

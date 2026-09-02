@@ -169,6 +169,19 @@ const server = http.createServer(async (req, res) => {
     if (body.permissions !== undefined) users[1].permissions = Number(body.permissions);
     send(res, 200, { ok: true }); return done(200);
   }
+  // Append an out-of-band request attributed to a Seerr user so the plugin's discovery
+  // reconciliation can detect it via GET /api/v1/request?requestedBy={id}.
+  if (path === '/seed-user-request' && method === 'POST') {
+    const body = JSON.parse((await readBody(req)) || '{}');
+    requests.push({
+      id: Number(body.id ?? Date.now()),
+      createdAt: new Date().toISOString(),
+      status: 2,
+      media: { mediaType: String(body.mediaType ?? 'movie'), tmdbId: Number(body.tmdbId), status: 3 },
+      requestedBy: { id: Number(body.requestedBy) },
+    });
+    send(res, 200, { ok: true }); return done(200);
+  }
 
   if (!apiKey) { send(res, 401, { error: 'missing X-Api-Key' }); return done(401); }
   // A literal mask value is never a real key.
@@ -216,9 +229,15 @@ const server = http.createServer(async (req, res) => {
       send(res, 500, { error: 'forced page failure' });
       return done(500);
     }
-    const slice = requests.slice(skip, skip + take);
+    // Scope by requestedBy when the plugin's reconciliation asks for a single user's requests.
+    const requestedByRaw = url.searchParams.get('requestedBy');
+    const requestedBy = requestedByRaw === null ? null : Number(requestedByRaw);
+    const scoped = requestedBy === null
+      ? requests
+      : requests.filter((r) => r.requestedBy?.id === requestedBy);
+    const slice = scoped.slice(skip, skip + take);
     // Inflate the total so the plugin's hasMore (skip < results) requests page 2.
-    const totalResults = inflateResults ? Math.max(requests.length, take + 1) : requests.length;
+    const totalResults = inflateResults ? Math.max(scoped.length, take + 1) : scoped.length;
     listCalls.push({ skip, status: 200 });
     send(res, 200, {
       pageInfo: { page: (skip / take) + 1, pages: inflateResults ? 2 : 1, results: totalResults, pageSize: take },
