@@ -211,7 +211,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Detected trend direction from metrics history analysis.
     /// </summary>
-    internal enum MetricsTrend
+    public enum MetricsTrend
     {
         /// <summary>Not enough snapshots for reliable trend detection.</summary>
         InsufficientData,
@@ -351,6 +351,34 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     ///     Gets the effective sigmoid midpoint (default + adaptive offset) for testing/debugging.
     /// </summary>
     internal double EffectiveSigmoidMidpoint => DefaultSigmoidMidpoint + SigmoidMidpointOffset;
+
+    /// <summary>
+    ///     Captures a coherent immutable snapshot of the ensemble's live internal state under a single lock.
+    ///     Reading the per-field getters individually would each take <c>_syncRoot</c> separately and risk a torn
+    ///     read across fields; this method reads every field in one lock acquisition. Purely diagnostic - it never
+    ///     mutates state or triggers persistence.
+    /// </summary>
+    /// <returns>An <see cref="EnsembleDiagnostics"/> record with the current blending factors, quality-gate state, sigmoid midpoint, trend, and counts.</returns>
+    internal EnsembleDiagnostics GetDiagnosticsSnapshot()
+    {
+        lock (_syncRoot)
+        {
+            return new EnsembleDiagnostics
+            {
+                Alpha = _alpha,
+                NeuralBeta = _neuralBeta,
+                QualityGateFrozen = _qualityGateFrozen,
+                SigmoidMidpointOffset = _sigmoidMidpointOffset,
+                EffectiveSigmoidMidpoint = DefaultSigmoidMidpoint + _sigmoidMidpointOffset,
+                Trend = AnalyzeTrend(_metricsHistory),
+                TrainingExampleCount = _trainingExampleCount,
+                MetricsHistoryCount = _metricsHistory.Count,
+                AlphaMin = _alphaMin,
+                AlphaMax = _alphaMax,
+                NeuralEnabled = _neural is not null
+            };
+        }
+    }
 
     /// <summary>
     ///     Updates the alpha bounds and genre-penalty floor from the current plugin configuration without requiring a server restart.

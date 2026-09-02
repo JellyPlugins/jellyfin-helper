@@ -26,6 +26,7 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
             Array.Empty<DiscoveryFeedbackResult>(),
             new Dictionary<Guid, UserWatchProfile>(),
             seriesEpisodeCounts: null,
+            featureMeans: null,
             CancellationToken.None);
 
         Assert.Empty(examples);
@@ -138,6 +139,7 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
             [WithEntry(userId, entry)],
             profileById,
             seriesEpisodeCounts: null,
+            featureMeans: null,
             CancellationToken.None);
 
         var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -182,6 +184,7 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
             [emptyFeedback],
             profileById,
             seriesEpisodeCounts: null,
+            featureMeans: null,
             CancellationToken.None);
 
         Assert.Empty(examples);
@@ -219,6 +222,7 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
             [WithEntry(userId, entry)],
             profileById,
             seriesEpisodeCounts: null,
+            featureMeans: null,
             CancellationToken.None);
 
         return examples;

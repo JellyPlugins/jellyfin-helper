@@ -96,6 +96,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>
     ///     Schema version for persisted weights. A set whose array lengths no longer match the current layer sizes (feature-count or hidden-size change) is discarded on load: the load path warns and resets to defaults so the next training run rebuilds from scratch.
     /// </summary>
+    // v3 also covers the recommendation-review feature-value changes (Gap 2 / E / A). Those do not alter
+    // feature count or layer sizes, so they ride on the still-unreleased v3 rather than a new bump. If that
+    // work lands after a v3 release, bump to 4 so pre-change weights are discarded.
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>

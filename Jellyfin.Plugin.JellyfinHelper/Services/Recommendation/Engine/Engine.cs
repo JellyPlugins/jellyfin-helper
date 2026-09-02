@@ -178,7 +178,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         _genreStudioIdf = BuildGenreStudioIdfTable();
 
-        var trained = _trainingService.Train(_strategy, previousResults, seriesEpisodeCounts, incremental, _genreStudioIdf, cancellationToken);
+        // Training must resolve each watched item's studios/tags from the live library, identical to the
+        // serve-time candidateLookup, or StudioMatch/TagSimilarity (and the ContentNearestNeighbor /
+        // CollectionProgression signals that read the same metadata) differ between train and serve for any
+        // watched item that was never previously recommended.
+        var libraryItemMetadata = BuildLibraryItemMetadata();
+
+        var trained = _trainingService.Train(_strategy, previousResults, seriesEpisodeCounts, incremental, _genreStudioIdf, libraryItemMetadata, cancellationToken);
 
         // Adjust learning speed based on cohort watch rates.
         if (trained && _strategy is EnsembleScoringStrategy ensemble && previousResults.Count > 0)
@@ -214,6 +220,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         return trained;
     }
+
+    /// <inheritdoc />
+    public EnsembleDiagnostics? GetEnsembleDiagnostics() =>
+        _strategy is EnsembleScoringStrategy ensemble ? ensemble.GetDiagnosticsSnapshot() : null;
 
     /// <inheritdoc />
     public IReadOnlyList<RecommendationResult> GetAllRecommendations(
@@ -617,6 +627,78 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             });
 
         return CountPlayableEpisodesPerSeries(allEpisodes);
+    }
+
+    /// <summary>
+    ///     Loads Movies and Series from the live library and produces the item -> (studios / tags /
+    ///     BoxSet ids) maps used at training time. Mirrors the candidate queries in
+    ///     <see cref="LoadCandidateItems"/> and reuses <see cref="ResolveBoxSetIds"/> so the BoxSet
+    ///     resolution is byte-identical to the serve-time <c>candidateBoxSetLookup</c>. Threaded into
+    ///     training so watched-item studios/tags resolve from the same source the serve path reads.
+    /// </summary>
+    /// <returns>The per-item studios, tags and BoxSet id maps, keyed by item id.</returns>
+    private Training.LibraryItemMetadata BuildLibraryItemMetadata()
+    {
+        var movies = _libraryManager.GetItemList(
+            new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Movie],
+                IsFolder = false
+            });
+
+        var series = _libraryManager.GetItemList(
+            new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Series],
+                IsFolder = true
+            });
+
+        var studios = new Dictionary<Guid, IReadOnlyList<string>>(movies.Count + series.Count);
+        var tags = new Dictionary<Guid, IReadOnlyList<string>>(movies.Count + series.Count);
+        var boxSetIds = new Dictionary<Guid, IReadOnlyList<Guid>>();
+
+        foreach (var item in movies.Concat(series))
+        {
+            AddLibraryItemMetadata(item, studios, tags, boxSetIds);
+        }
+
+        return new Training.LibraryItemMetadata(studios, tags, boxSetIds);
+    }
+
+    /// <summary>
+    ///     Extracts a single library item's non-empty studios, tags and BoxSet ids into the shared maps.
+    /// </summary>
+    private static void AddLibraryItemMetadata(
+        BaseItem item,
+        Dictionary<Guid, IReadOnlyList<string>> studios,
+        Dictionary<Guid, IReadOnlyList<string>> tags,
+        Dictionary<Guid, IReadOnlyList<Guid>> boxSetIds)
+    {
+        if (item.Studios is { Length: > 0 })
+        {
+            var itemStudios = item.Studios.Where(static s => !string.IsNullOrWhiteSpace(s)).ToList();
+            if (itemStudios.Count > 0)
+            {
+                studios[item.Id] = itemStudios;
+            }
+        }
+
+        if (item.Tags is { Length: > 0 })
+        {
+            var itemTags = item.Tags.Where(static t => !string.IsNullOrWhiteSpace(t)).ToList();
+            if (itemTags.Count > 0)
+            {
+                tags[item.Id] = itemTags;
+            }
+        }
+
+        // Same parent-hierarchy resolution the serve path uses to build candidateBoxSetLookup, so BoxSet
+        // membership matches between train and serve.
+        var itemBoxSets = ResolveBoxSetIds(item);
+        if (itemBoxSets.Count > 0)
+        {
+            boxSetIds[item.Id] = itemBoxSets;
+        }
     }
 
     /// <summary>

@@ -65,6 +65,12 @@ function renderRecommendations(container, results) {
     html += '<div id="recsUserProfile"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '<div id="recsUserActivity"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '</div></div>';
+
+    // Collapsible Ensemble state section (read-only diagnostics)
+    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsEnsembleToggle" aria-expanded="false" aria-controls="recsEnsembleBody"><span class="recs-collapsible-arrow">▶</span> ' + mi('insights') + ' ' + escHtml(T('recsEnsembleToggle', 'Ensemble state')) + '</button>';
+    html += '<div class="recs-collapsible-body" id="recsEnsembleBody">';
+    html += '<div id="recsEnsembleDiag"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
+    html += '</div></div>';
     html += '<div id="discoverySection"></div>';
     container.innerHTML = html;
     var recsSelect = document.getElementById('recsUserSelect');
@@ -84,6 +90,15 @@ function renderRecommendations(container, results) {
     // Toggle for Watch Activity collapsible
     var toggleBtn = document.getElementById('recsActivityToggle');
     if (toggleBtn) { toggleBtn.addEventListener('click', function () { toggleCollapsible('recsActivityBody', 'recsActivityToggle'); }); }
+
+    // Toggle for Ensemble state collapsible - load diagnostics on first expand.
+    var ensembleToggleBtn = document.getElementById('recsEnsembleToggle');
+    if (ensembleToggleBtn) {
+        ensembleToggleBtn.addEventListener('click', function () {
+            toggleCollapsible('recsEnsembleBody', 'recsEnsembleToggle');
+            loadEnsembleDiagnostics();
+        });
+    }
 
     var discoveryContainer = document.getElementById('discoverySection');
     if (discoveryContainer) { renderDiscoverySection(discoveryContainer); }
@@ -124,6 +139,47 @@ function toggleCollapsible(bodyId, toggleId) {
         if (arrow) arrow.textContent = '\u25BC';
         if (toggle) toggle.setAttribute('aria-expanded', 'true');
     }
+}
+
+// Loads the read-only ensemble diagnostics once, then renders labeled rows. Repeated toggles reuse the cached fetch.
+var _ensembleDiagLoaded = false;
+function loadEnsembleDiagnostics() {
+    if (_ensembleDiagLoaded) return;
+    _ensembleDiagLoaded = true;
+    var host = document.getElementById('recsEnsembleDiag');
+    if (!host) return;
+    apiGet('JellyfinHelper/Recommendations/Diagnostics/Ensemble', function (data) {
+        renderEnsembleDiagnostics(host, data);
+    }, function () {
+        _ensembleDiagLoaded = false;
+        host.innerHTML = '<div class="recs-empty"><p>' + escHtml(T('recsEnsembleError', 'Could not load ensemble diagnostics.')) + '</p></div>';
+    });
+}
+
+function renderEnsembleDiagnostics(host, data) {
+    if (!data || data.Available === false) {
+        host.innerHTML = '<div class="recs-empty"><p>' + escHtml(T('recsEnsembleUnavailable', 'Ensemble diagnostics are not available yet - run the recommendation task.')) + '</p></div>';
+        return;
+    }
+    var fmt = function (n) { return (typeof n === 'number') ? n.toFixed(3) : escHtml(String(n)); };
+    var yesNo = function (b) { return b ? T('recsYes', 'Yes') : T('recsNo', 'No'); };
+    var midpoint = fmt(data.EffectiveSigmoidMidpoint) + ' (' + escHtml(T('recsEnsembleOffset', 'offset')) + ' ' + fmt(data.SigmoidMidpointOffset) + ')';
+    var rows = [
+        [T('recsEnsembleAlpha', 'Alpha (\u03B1)'), fmt(data.Alpha) + ' [' + fmt(data.AlphaMin) + ', ' + fmt(data.AlphaMax) + ']'],
+        [T('recsEnsembleNeuralBeta', 'Neural \u03B2'), fmt(data.NeuralBeta)],
+        [T('recsEnsembleQualityGate', 'Quality gate frozen'), escHtml(yesNo(data.QualityGateFrozen))],
+        [T('recsEnsembleMidpoint', 'Sigmoid midpoint (effective)'), midpoint],
+        [T('recsEnsembleTrend', 'Trend'), escHtml(String(data.Trend || ''))],
+        [T('recsEnsembleExamples', 'Training examples'), escHtml(String(data.TrainingExampleCount))],
+        [T('recsEnsembleHistory', 'Metrics history'), escHtml(String(data.MetricsHistoryCount))],
+        [T('recsEnsembleNeuralEnabled', 'Neural enabled'), escHtml(yesNo(data.NeuralEnabled))]
+    ];
+    var html = '<div class="recs-diag-grid">';
+    for (var i = 0; i < rows.length; i++) {
+        html += '<div class="recs-diag-label">' + escHtml(rows[i][0]) + '</div><div class="recs-diag-value">' + rows[i][1] + '</div>';
+    }
+    html += '</div>';
+    host.innerHTML = html;
 }
 
 function renderUserRecommendations(index) {

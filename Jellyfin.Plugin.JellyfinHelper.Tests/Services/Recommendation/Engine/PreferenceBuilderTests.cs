@@ -249,12 +249,26 @@ public class PreferenceBuilderTests
     }
 
     [Fact]
-    public void BuildGenreExposureAnalysis_InsufficientHistory_ReturnsInvalid()
+    public void BuildGenreExposureAnalysis_NoGenreSignal_ReturnsInvalid()
     {
+        // The only truly-invalid case is an empty genre-preference vector; a user with some genre
+        // history but fewer than MinWatchCountForGenreExposure watches is now valid-but-dampened (Gap E).
+        var profile = new UserWatchProfile { WatchedItems = [] };
+        var analysis = PreferenceBuilder.BuildGenreExposureAnalysis(new Dictionary<string, double>(), profile);
+        Assert.False(analysis.IsValid);
+        Assert.Equal(0.0, analysis.Confidence);
+    }
+
+    [Fact]
+    public void BuildGenreExposureAnalysis_ColdStart_ValidButDampened()
+    {
+        // A single watched item gives a non-empty genre vector. Under Gap E this is valid but the
+        // confidence ramp is well below 1.0, so exposure features are scaled down rather than zeroed.
         var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"] }] };
         var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var analysis = PreferenceBuilder.BuildGenreExposureAnalysis(genrePrefs, profile);
-        Assert.False(analysis.IsValid);
+        Assert.True(analysis.IsValid);
+        Assert.True(analysis.Confidence > 0.0 && analysis.Confidence < 1.0, $"Expected a partial cold-start confidence, got {analysis.Confidence:F4}");
     }
 
     [Fact]
@@ -280,6 +294,7 @@ public class PreferenceBuilderTests
             DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             AveragePreferenceWeight = 0,
             GenrePreferences = new Dictionary<string, double>(),
+            Confidence = 0.0,
             IsValid = false
         };
 
@@ -300,6 +315,7 @@ public class PreferenceBuilderTests
             DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" },
             AveragePreferenceWeight = 0.5,
             GenrePreferences = new Dictionary<string, double> { { "Action", 1.0 } },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -323,6 +339,7 @@ public class PreferenceBuilderTests
             {
                 { "Action", 1.0 }, { "SciFi", 0.8 }, { "Drama", 0.6 }
             },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -345,6 +362,7 @@ public class PreferenceBuilderTests
             {
                 { "Action", 1.0 }, { "Horror", 0.01 }
             },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -366,6 +384,7 @@ public class PreferenceBuilderTests
             {
                 { "Action", 1.0 }, { "Horror", 0.1 }
             },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -388,6 +407,7 @@ public class PreferenceBuilderTests
             {
                 { "Action", 1.0 }
             },
+            Confidence = 1.0,
             IsValid = true
         };
 
@@ -1364,6 +1384,7 @@ public class PreferenceBuilderTests
             DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" },
             AveragePreferenceWeight = 0.5,
             GenrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { { "Action", 1.0 } },
+            Confidence = 1.0,
             IsValid = true
         };
 

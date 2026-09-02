@@ -242,6 +242,23 @@
     overflow: auto;
 }
 
+/* Read-only ensemble diagnostics: label/value row grid. */
+.recs-diag-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.4em 1em;
+    align-items: baseline;
+}
+
+.recs-diag-label {
+    font-weight: 600;
+    opacity: 0.75;
+}
+
+.recs-diag-value {
+    font-variant-numeric: tabular-nums;
+}
+
 /* Compact watch profile (inside collapsible) */
 .recs-profile-compact {
     margin-bottom: 1em;

@@ -146,6 +146,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── ModelBindingLogFilterTests.cs                 # IAsyncActionFilter contract; Order = int.MinValue lock; drives filter directly
 │   ├── PingControllerTests.cs                        # 200 with { ok, plugin, version }
 │   ├── RecommendationControllerTests.cs
+│   ├── RecommendationControllerDiagnosticsTests.cs      # GET /Recommendations/Diagnostics/Ensemble: 200 populated DTO, Available=false on null, 503 when deactivated
 │   ├── TrashControllerTests.cs
 │   ├── UserActivityControllerTests.cs
 │   ├── UserDiscoveryControllerTests.cs
@@ -247,6 +248,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── DiscoveryRegressionTests.cs              # v2.1.0.3 regressions (ServerId=0, profile dedup, MissingMethodException)
 │   │       ├── ExternalCandidateFeatureBuilderTests.cs  # inference↔training feature parity (genre-exposure + popularity skew)
 │   │       ├── ExternalCandidateFeatureBuilderExtendedTests.cs # Null guards, case-insensitive people matching, null EffectiveReleaseDate → 0.5 RecencyScore, TV/movie branch coverage
+│   │       ├── ExternalCandidateFeatureImputationTests.cs # Gap A mean-imputation: continuous placeholders → training means, bools stay false, computed features untouched, null/wrong-length means = legacy constants
 │   │       ├── NullableDateTimeConverterTests.cs        # Empty-string / malformed TMDb dates degrade to null instead of JsonException
 │   │       ├── ParentalRatingHelperTests.cs
 │   │       ├── SeerrDiscoveryDtoTests.cs                # DTO wire contract: property names, defaults, round-trip
@@ -287,6 +289,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineLanguageAffinityTests.cs         # ComputeLanguageAffinity/SubtitleLanguageAffinity: empty profile → 0.5 neutral; cross-feature isolation
 │       │   ├── FeatureAffinityComputerTests.cs        # Shared content-affinity helpers (franchise/country/inherited-tag/writer/billing/IDF): empty/null → neutral, no divide-by-zero
 │       │   ├── FeatureParityTests.cs                  # Train/serve parity for the 7 content features; SeriesCompletability + BillingWeight canonical formulas
+│       │   ├── GenreExposureRampTests.cs              # Gap E cold-start confidence ramp: 15-watch features == 0.5× 30-watch, saturates at threshold, empty vector → invalid/zero
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── ReasonResolverTests.cs                 # All DetermineReason branches + StripWatchedItemsForResponse; EngineConstants as contract
 │       │   ├── SimilarityComputerTests.cs             # People-batch + per-item fallback; weighted PeopleSimilarity
@@ -297,6 +300,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
 │       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation, neutral interaction features, and series genre-engagement excluding its own watched episodes
+│       │       ├── TrainingDataBuilderMetadataParityTests.cs # Gap 2: watched-item studios/tags resolve from the live library (merged over cache) so training matches the serve path; null-map back-compat; series self-exclusion
 │       │       └── TrainingFeatureComputerTests.cs    # Training features must stay in lock-step with live scoring path
 │       ├── Playlist/              # Playlist sync tests
 │       │   ├── RecommendationPlaylistServiceTests.cs
@@ -309,9 +313,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EnsembleScoringStrategyNeuralTests.cs   # Neural sub-strategy blending and post-dispose degradation
 │       │   ├── EnsembleScoringStrategyStateTests.cs    # State-file persistence: save-failure swallowed and logged (cross-platform IO error)
 │       │   ├── EnsembleScoringStrategyTrainingTests.cs # Validation-loss dampening of alpha; quality-factor mapping
+│       │   ├── EnsembleDiagnosticsTests.cs             # GetDiagnosticsSnapshot coherence: alpha within bounds, counts match, neural-enabled flag, frozen-gate case
 │       │   ├── LearnedScoringStrategyStandardizationTests.cs # Feature standardization: mean/variance normalization and guards
 │       │   ├── LearnedScoringStrategyLoggingTests.cs   # Training log lines and level selection
 │       │   ├── LearnedScoringStrategyRobustnessTests.cs # NaN/degenerate inputs discarded, not applied
+│       │   ├── StandardizationTransitionTests.cs      # Gap C warm-start: crossing the standardization threshold rescales weights (not reset), finite weights/scores, learned ranking preserved, zero-variance guard
 │       │   ├── StrategySelectorTests.cs                # Cohort router: exploration gate, deterministic hash bucketing, routing
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
 │       │   ├── ScoreExplanationTests.cs
@@ -403,6 +409,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── TrashController.cs               # Trash bin API
 │   ├── ConfigurationSaveResponse.cs     # PUT /Configuration response: message + warnings list
 │   ├── ConnectionTestResponse.cs        # Arr/Seerr connection-test response: success flag + message
+│   ├── EnsembleDiagnosticsResponse.cs   # GET /Recommendations/Diagnostics/Ensemble response: live ensemble state (alpha, neural beta, quality gate, sigmoid midpoint, trend, counts) + Available flag. Static factory FromDiagnostics(EnsembleDiagnostics).
 │   ├── FolderBrowserResponse.cs         # GET /Configuration/LibraryPaths response: list of LibraryPathEntry
 │   ├── LibraryEntry.cs                  # Library name + collectionType entry (used in LibraryListResponse)
 │   ├── LibraryListResponse.cs           # GET /Configuration/Libraries response: list of LibraryEntry
@@ -462,7 +469,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── Training/            # Training sub-components (refactored from TrainingService)
 │   │   │   │   ├── TrainingDataBuilder.cs      # Builds labeled training examples from watch history
 │   │   │   │   ├── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
-│   │   │   │   └── DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
+│   │   │   │   ├── DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
+│   │   │   │   └── LibraryItemMetadata.cs       # Live-library item→(studios/tags/BoxSet ids) map threaded into training for serve parity
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
@@ -479,6 +487,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
 │   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
+│   │   │   ├── EnsembleDiagnostics.cs        # Immutable read-only snapshot of the ensemble's live state (alpha, neural beta, quality gate, sigmoid midpoint, trend, counts, bounds, neural-enabled)
 │   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing
 │   │   │   ├── NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP
 │   │   │   ├── CandidateFeatures.cs         # 38-feature vector with FeatureIndex enum
@@ -632,6 +641,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ModelBindingLogFilterTests.cs`
 - `PingControllerTests.cs`
 - `RecommendationControllerTests.cs`
+- `RecommendationControllerDiagnosticsTests.cs`
 - `ResponseDtoTests.cs`
 - `SeerrControllerTests.cs` - Tests SeerrController TestConnection input validation and success/failure/timeout responses
 - `TranslationsControllerTests.cs` - Tests TranslationsController language lookup, config-default fallback, and lang-code validation
@@ -778,6 +788,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `EngineHelperTests.cs`
 - `EngineInstanceTests.cs`
 - `EngineLanguageAffinityTests.cs`
+- `GenreExposureRampTests.cs`
 - `PreferenceBuilderTests.cs`
 - `ReasonResolverTests.cs`
 - `SimilarityComputerTests.cs`
@@ -789,6 +800,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `CollectionProgressionBoostTests.cs`
 - `TrainingDataBuilderTests.cs`
 - `PerUserTrainingDataBuilderTests.cs`
+- `TrainingDataBuilderMetadataParityTests.cs`
 - `TrainingFeatureComputerTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Recommendation/Playlist/`
@@ -798,6 +810,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Recommendation/Scoring/`
 
 - `EnsembleScoringStrategyAdvancedTests.cs`
+- `EnsembleDiagnosticsTests.cs`
 - `NeuralFeatureImportanceTests.cs`
 - `NeuralScoringStrategyTests.cs`
 - `RankingMetricsTests.cs`
@@ -829,6 +842,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `DiscoveryRegressionTests.cs`
 - `ExternalCandidateFeatureBuilderExtendedTests.cs`
 - `ExternalCandidateFeatureBuilderTests.cs`
+- `ExternalCandidateFeatureImputationTests.cs`
 - `NullableDateTimeConverterTests.cs`
 - `ParentalRatingHelperTests.cs`
 - `SeerrDiscoveryDtoTests.cs`
@@ -883,6 +897,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ConfigurationSaveResponse.cs`
 - `ConfigurationUpdateRequest.cs` - Request DTO for updating the full plugin configuration via the API
 - `ConnectionTestResponse.cs`
+- `EnsembleDiagnosticsResponse.cs`
 - `DiscoveryController.cs`
 - `DiscoveryDismissDto.cs`
 - `DiscoveryRequestDto.cs`
@@ -1091,6 +1106,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/Engine/Training/`
 
 - `DiscoveryFeedbackExampleBuilder.cs`
+- `LibraryItemMetadata.cs`
 - `TrainingDataBuilder.cs`
 - `TrainingFeatureComputer.cs`
 
@@ -1105,6 +1121,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `CandidateFeatures.cs`
 - `DefaultWeights.cs`
 - `EnsembleScoringStrategy.cs`
+- `EnsembleDiagnostics.cs`
 - `HeuristicScoringStrategy.cs`
 - `IScoringStrategy.cs`
 - `LearnedScoringStrategy.cs`
