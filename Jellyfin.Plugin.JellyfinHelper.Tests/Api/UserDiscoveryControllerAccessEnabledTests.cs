@@ -426,6 +426,41 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     }
 
     [Fact]
+    public async Task GetMyDiscoveryResults_WhenReconcileCancelled_SwallowsAndReturnsCachedView()
+    {
+        // The reconcile wrapper swallows an OperationCanceledException only when the caller's token
+        // is the one that cancelled, keeping the endpoint's "never fail on reconcile" contract.
+        var userId = Guid.NewGuid();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+        _discoveryMock
+            .Setup(d => d.ReconcileRequestedItemsAsync(userId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+
+        _cache.Save(new List<DiscoveryResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "grace",
+                GeneratedAt = DateTime.UtcNow,
+                Recommendations =
+                {
+                    new DiscoveryRecommendation { TmdbId = 21, MediaType = "movie", AlreadyRequested = false }
+                }
+            }
+        });
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var response = await CreateController(userId).GetMyDiscoveryResults(cts.Token);
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<DiscoveryResult>(ok.Value);
+        Assert.Equal(ExpectedSingleItem, body.Recommendations.Select(r => r.TmdbId).ToArray());
+    }
+
+    [Fact]
     public async Task GetMyDiscoveryResults_AfterReconcileMarksItem_BackfillsNextItem()
     {
         var userId = Guid.NewGuid();

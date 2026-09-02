@@ -408,50 +408,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var client = GetSeerrClient();
-        var keys = new HashSet<(int TmdbId, string MediaType)>();
-        var skip = 0;
 
         try
         {
-            for (var page = 0; page < ReconcileMaxPages; page++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var pageResult = await FetchRequestedPageAsync(
-                    client, baseUri, apiKey, seerrUserId, skip, cancellationToken).ConfigureAwait(false);
-                if (pageResult is null)
-                {
-                    return null;
-                }
-
-                var results = pageResult.Results;
-                if (results.Count == 0)
-                {
-                    return keys;
-                }
-
-                foreach (var key in results
-                    .Select(item => item.Media)
-                    .Where(media => media != null && media.TmdbId > 0)
-                    .Select(media => (media!.TmdbId, NormalizeReconcileMediaType(media.MediaType))))
-                {
-                    keys.Add(key);
-                }
-
-                skip += ReconcilePageSize;
-                var pageDecision = DecideReconcilePagination(results.Count, skip, pageResult.PageInfo.Results, page, seerrUserId);
-                if (pageDecision == ReconcilePageDecision.Complete)
-                {
-                    return keys;
-                }
-
-                if (pageDecision == ReconcilePageDecision.Incomplete)
-                {
-                    return null;
-                }
-            }
-
-            return keys;
+            return await AccumulateRequestedKeysAsync(client, baseUri, apiKey, seerrUserId, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -465,6 +425,68 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 ex,
                 _logger);
             return null;
+        }
+    }
+
+    /// <summary>
+    ///     Pages through the requestedBy-scoped request endpoint, accumulating (TmdbId, MediaType) keys until the scan completes. Returns null when a page fetch fails or pagination metadata is inconsistent so the caller treats a partial snapshot as "do nothing".
+    /// </summary>
+    private async Task<HashSet<(int TmdbId, string MediaType)>?> AccumulateRequestedKeysAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        int seerrUserId,
+        CancellationToken cancellationToken)
+    {
+        var keys = new HashSet<(int TmdbId, string MediaType)>();
+        var skip = 0;
+
+        for (var page = 0; page < ReconcileMaxPages; page++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var pageResult = await FetchRequestedPageAsync(
+                client, baseUri, apiKey, seerrUserId, skip, cancellationToken).ConfigureAwait(false);
+            if (pageResult is null)
+            {
+                return null;
+            }
+
+            var results = pageResult.Results;
+            if (results.Count == 0)
+            {
+                return keys;
+            }
+
+            AddRequestedKeys(keys, results);
+
+            skip += ReconcilePageSize;
+            var pageDecision = DecideReconcilePagination(results.Count, skip, pageResult.PageInfo.Results, page, seerrUserId);
+            if (pageDecision == ReconcilePageDecision.Complete)
+            {
+                return keys;
+            }
+
+            if (pageDecision == ReconcilePageDecision.Incomplete)
+            {
+                return null;
+            }
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    ///     Adds the normalized (TmdbId, MediaType) key of each row with usable media to the accumulator.
+    /// </summary>
+    private static void AddRequestedKeys(HashSet<(int TmdbId, string MediaType)> keys, List<SeerrRequest> results)
+    {
+        foreach (var key in results
+            .Select(item => item.Media)
+            .Where(media => media != null && media.TmdbId > 0)
+            .Select(media => (media!.TmdbId, NormalizeReconcileMediaType(media.MediaType))))
+        {
+            keys.Add(key);
         }
     }
 

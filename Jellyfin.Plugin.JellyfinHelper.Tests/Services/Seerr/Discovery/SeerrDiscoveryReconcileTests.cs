@@ -32,6 +32,7 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
     private readonly SeerrDiscoveryService _sut;
     private readonly DiscoveryCacheService _cache;
     private readonly DiscoveryFeedbackStore _feedbackStore;
+    private readonly NeuralScoringStrategy _neural;
     private readonly EnsembleScoringStrategy _ensemble;
     private readonly string _feedbackDir;
 
@@ -58,9 +59,9 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
 
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
+        _neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
         _ensemble = new EnsembleScoringStrategy(
-            learned, heuristic, neural, null,
+            learned, heuristic, _neural, null,
             EnsembleScoringStrategy.DefaultAlphaMin,
             EnsembleScoringStrategy.DefaultAlphaMax,
             EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
@@ -82,6 +83,10 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
         _handler.Dispose();
         _cache.Dispose();
         _ensemble.Dispose();
+        // The ensemble disposes the neural strategy transitively, but the analyzer tracks the
+        // locally constructed instance, so dispose it directly too. ReaderWriterLockSlim.Dispose
+        // is idempotent, so the double free is safe.
+        _neural.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();
         try
         {
@@ -462,6 +467,65 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
         var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
 
         Assert.Equal(0, count);
+        Assert.Empty(_feedbackStore.GetRequestedItems(JellyfinUserId));
+    }
+
+    [Fact]
+    public async Task Reconcile_FullPageWithTotalExactlyEqualToSkip_CompletesAfterOnePage()
+    {
+        // A full page whose reported total equals the next skip is a clean single-page result.
+        RegisterUserResolution();
+        SeedCache(Rec(1, "movie"));
+        var rows = string.Join(",\n", Enumerable.Range(1000, 50).Select(i =>
+            $$"""{ "id": {{i}}, "status": 2, "media": { "tmdbId": {{(i == 1000 ? 1 : i)}}, "mediaType": "movie", "status": 3 } }"""));
+        var page = $$"""
+        { "pageInfo": { "pages": 1, "pageSize": 50, "results": 50, "page": 1 }, "results": [ {{rows}} ] }
+        """;
+        RegisterRequestPage(page);
+
+        var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
+
+        Assert.Equal(1, count);
+        Assert.Contains((1, "movie"), _feedbackStore.GetRequestedItems(JellyfinUserId));
+    }
+
+    [Fact]
+    public async Task Reconcile_RequestRowWithWhitespaceMediaType_NormalizesToMovie()
+    {
+        // A blank media type on the request row must collapse to movie so it still matches a
+        // cached movie recommendation.
+        RegisterUserResolution();
+        SeedCache(Rec(100, "movie"));
+        var body = """
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
+          "results": [ { "id": 100, "status": 2, "media": { "tmdbId": 100, "mediaType": "   ", "status": 3 } } ]
+        }
+        """;
+        RegisterRequestPage(body);
+
+        var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
+
+        Assert.Equal(1, count);
+        Assert.Contains((100, "movie"), _feedbackStore.GetRequestedItems(JellyfinUserId));
+    }
+
+    [Fact]
+    public async Task Reconcile_TokenCancelledBetweenRosterAndFetch_Throws()
+    {
+        // The roster resolves from the first call, then the token is cancelled so the pagination
+        // loop's cooperative cancellation check throws before the request page is fetched.
+        RegisterUserResolution();
+        SeedCache(Rec(100, "movie"));
+        RegisterRequestPage(RequestPageJson((100, "movie")));
+
+        using var cts = new CancellationTokenSource();
+        _handler.CancelAfter = cts;
+        _handler.CancelAfterCallIndex = 0;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _sut.ReconcileRequestedItemsAsync(JellyfinUserId, cts.Token));
+
         Assert.Empty(_feedbackStore.GetRequestedItems(JellyfinUserId));
     }
 }

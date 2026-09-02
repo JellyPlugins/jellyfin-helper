@@ -258,6 +258,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrDiscoveryGenerationTests.cs         # Task-mode orchestration: Deactivate short-circuits, DryRun never writes feedback, cancellation propagates
 │   │       ├── SeerrDiscoveryServiceUserResolutionTests.cs # FindSeerrUserByJellyfinId, BuildAllowedProfileList
 │   │       ├── SeerrDiscoveryReconcileTests.cs         # ReconcileRequestedItemsAsync: records+marks cached items also requested out-of-band, per-user, media-type normalization, all fail-safe/pagination branches
+│   │       ├── SeerrDiscoveryReconcileFailureTests.cs  # Reconcile fail-safe catches: throwing feedback store (read and write) and an invalid Seerr URL reached after the roster was cached
 │   │       ├── SeerrDiscoveryServiceReasonTests.cs      # DetermineReason branches, threshold gates, priority ordering
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip

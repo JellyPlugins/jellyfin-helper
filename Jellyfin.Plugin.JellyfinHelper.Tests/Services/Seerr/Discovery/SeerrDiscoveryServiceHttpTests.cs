@@ -961,6 +961,16 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
     /// </summary>
     public int ThrowAfterCallIndex { get; set; }
 
+    /// <summary>
+    ///     Gets or sets a token source cancelled after <see cref="CancelAfterCallIndex"/> calls have been served, letting a test cancel the caller's token mid-pagination rather than before the first call.
+    /// </summary>
+    public CancellationTokenSource? CancelAfter { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the zero-based call index after which <see cref="CancelAfter"/> is cancelled.
+    /// </summary>
+    public int CancelAfterCallIndex { get; set; }
+
     private int _callCount;
 
     public void RegisterResponse(HttpMethod method, string pathSuffix, HttpStatusCode status, string body)
@@ -989,6 +999,13 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
         }
 
         _callCount++;
+
+        // Cancel the caller's token once the requested number of calls have been served, so a test
+        // can drive a cancellation that lands between pagination iterations rather than up front.
+        if (CancelAfter is not null && _callCount > CancelAfterCallIndex)
+        {
+            CancelAfter.Cancel();
+        }
 
         if (request.Content is not null)
         {
