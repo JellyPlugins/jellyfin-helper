@@ -50,7 +50,12 @@ public sealed class StandardizationTransitionTests
                     GenreCount = rng.Next(0, 6),
                     IsSeries = rng.NextDouble() > 0.5
                 },
-                Label = genreSim > 0.5 ? 1.0 : 0.0
+                Label = genreSim > 0.5 ? 1.0 : 0.0,
+                // Train() captures DateTime.UtcNow as the temporal-decay reference. A future GeneratedAt makes
+                // ageDays <= 0, so every example's temporal weight is exactly 1.0 regardless of the millisecond
+                // the run fires. Without this the decay term differs by the wall-clock gap between two runs and
+                // the determinism assertion flakes at the 12th decimal.
+                GeneratedAtUtc = new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc)
             });
         }
 
