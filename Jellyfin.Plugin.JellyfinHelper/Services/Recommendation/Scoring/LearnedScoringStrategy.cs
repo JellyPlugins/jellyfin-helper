@@ -63,8 +63,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// </summary>
     // Bumped 2 -> 3: features 9/10/11/12/15 moved to genre-level aggregates. Keeping v2 would silently
     // break scoring due to old weights on new feature semantics.
-    // Also piggybacking unreleased recommendation-review metadata changes into v3 (Gaps 2, E, A).
-    // Note: Bump to 4 if any of that lands after v3 ships.
+    // The recommendation-review metadata changes (Gaps 2, E, A) also alter feature VALUES and ride on this
+    // same v3 bump. This is safe because v3 is UNRELEASED: the published 3.0.0.0 tag still ships
+    // CurrentWeightsVersion = 2 (the 2 -> 3 bump landed on main after that tag), so no v3 weights exist in
+    // the wild and there is nothing to migrate. Bump to 4 only if a feature-value change lands AFTER a
+    // release that shipped v3.
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>
