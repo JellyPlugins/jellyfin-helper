@@ -218,16 +218,18 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
     public async Task Reconcile_NormalizesMediaTypeCasingAndUnknownValues()
     {
         RegisterUserResolution();
-        SeedCache(Rec(100, "  Movie "), Rec(200, "TV"));
-        // Seerr returns mixed-case and an unknown type that must collapse to movie.
-        RegisterRequestPage(RequestPageJson((100, "MOVIE"), (200, "Tv")));
+        SeedCache(Rec(100, "  Movie "), Rec(200, "TV"), Rec(300, "movie"));
+        // Mixed case resolves to its known type; an unknown value like "podcast" collapses to movie
+        // so it still matches the cached movie recommendation.
+        RegisterRequestPage(RequestPageJson((100, "MOVIE"), (200, "Tv"), (300, "podcast")));
 
         var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
 
-        Assert.Equal(2, count);
+        Assert.Equal(3, count);
         var requested = _feedbackStore.GetRequestedItems(JellyfinUserId);
         Assert.Contains((100, "movie"), requested);
         Assert.Contains((200, "tv"), requested);
+        Assert.Contains((300, "movie"), requested);
     }
 
     [Fact]

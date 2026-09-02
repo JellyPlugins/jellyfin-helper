@@ -143,21 +143,20 @@ public sealed class SeerrDiscoveryReconcileFailureTests : IDisposable
     }
 
     [Fact]
-    public async Task Reconcile_WhenRecordRequestedThrows_SkipsItemWithoutFailing()
+    public async Task Reconcile_WhenRecordRequestedThrows_SkipsItemAndLeavesCacheUnstamped()
     {
         RegisterUserResolution();
         SeedCache(100, "movie");
         RegisterRequestPage((100, "movie"));
-        // The cache is stamped first, then the feedback write throws; the per-item catch swallows it
-        // so the item is not counted but the whole reconciliation still completes.
+        // The durable feedback signal is written first and throws, so the cache mark never runs.
+        // The item is not counted and the cache stays unstamped, so the next reconciliation retries.
         _feedbackStore.Setup(f => f.RecordRequested(JellyfinUserId, 100, "movie"))
             .Throws(new InvalidOperationException("feedback write failed"));
 
         var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
 
         Assert.Equal(0, count);
-        // The cache stamp happens before the failing feedback write, so it still took effect.
-        Assert.True(_cache.Load().First(r => r.UserId == JellyfinUserId).Recommendations.Single().AlreadyRequested);
+        Assert.False(_cache.Load().First(r => r.UserId == JellyfinUserId).Recommendations.Single().AlreadyRequested);
     }
 
     [Fact]

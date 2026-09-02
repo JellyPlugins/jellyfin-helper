@@ -361,12 +361,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         try
         {
-            // Stamp the cache first. A later feedback failure only means the item is not yet
-            // recorded as requested, so the next reconciliation retries it. The reverse order
-            // would put the key into GetRequestedItems while AlreadyRequested stayed false,
-            // and the retry would skip it, leaving the two stores permanently out of sync.
-            await _cache.MarkAsRequestedAsync(tmdbId, mediaType, jellyfinUserId, CancellationToken.None).ConfigureAwait(false);
+            // Record the durable feedback signal before touching the cache. The training signal is
+            // the point of reconciliation, and GetRequestedItems reads only the feedback store, so a
+            // later cache failure still leaves the item excluded from the view and from regeneration.
+            // The reverse order would risk stamping the cache while the durable signal is lost.
             _feedbackStore.RecordRequested(jellyfinUserId, tmdbId, mediaType);
+            await _cache.MarkAsRequestedAsync(tmdbId, mediaType, jellyfinUserId, CancellationToken.None).ConfigureAwait(false);
             return true;
         }
         catch (Exception ex) when (!ex.IsFatal())
