@@ -32,6 +32,7 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
     private readonly SeerrDiscoveryService _sut;
     private readonly DiscoveryCacheService _cache;
     private readonly DiscoveryFeedbackStore _feedbackStore;
+    private readonly EnsembleScoringStrategy _ensemble;
     private readonly string _feedbackDir;
 
     public SeerrDiscoveryReconcileTests()
@@ -58,7 +59,7 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
-        var ensemble = new EnsembleScoringStrategy(
+        _ensemble = new EnsembleScoringStrategy(
             learned, heuristic, neural, null,
             EnsembleScoringStrategy.DefaultAlphaMin,
             EnsembleScoringStrategy.DefaultAlphaMax,
@@ -69,7 +70,7 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
             httpFactory.Object,
             new Mock<IWatchHistoryService>().Object,
             new Mock<IArrIntegrationService>().Object,
-            ensemble,
+            _ensemble,
             _cache,
             _feedbackStore,
             pluginLog.Object,
@@ -80,6 +81,7 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
     {
         _handler.Dispose();
         _cache.Dispose();
+        _ensemble.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();
         try
         {
@@ -388,5 +390,78 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             _sut.ReconcileRequestedItemsAsync(JellyfinUserId, cts.Token));
+    }
+
+    [Fact]
+    public async Task Reconcile_FullPageWithTotalBelowSkip_TreatsSnapshotAsIncompleteAndTouchesNothing()
+    {
+        // A full page (50 rows) whose reported total is smaller than the next skip is inconsistent
+        // pagination metadata. The fetch must fail closed rather than act on the partial snapshot.
+        RegisterUserResolution();
+        SeedCache(Rec(1000, "movie"));
+        var rows = string.Join(",\n", Enumerable.Range(1000, 50).Select(i =>
+            $$"""{ "id": {{i}}, "status": 2, "media": { "tmdbId": {{i}}, "mediaType": "movie", "status": 3 } }"""));
+        var page = $$"""
+        { "pageInfo": { "pages": 1, "pageSize": 50, "results": 10, "page": 1 }, "results": [ {{rows}} ] }
+        """;
+        RegisterRequestPage(page);
+
+        var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
+
+        Assert.Equal(0, count);
+        Assert.Empty(_feedbackStore.GetRequestedItems(JellyfinUserId));
+        Assert.False(_cache.Load().First(r => r.UserId == JellyfinUserId).Recommendations.Single().AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task Reconcile_FullPageWithMissingTotal_KeepsPagingUntilShortPage()
+    {
+        // A full page reporting a zero/absent total must not be trusted as complete. Reconciliation
+        // keeps paging until a short page and reconciles items found across both pages.
+        RegisterUserResolution();
+        SeedCache(Rec(1, "movie"), Rec(2, "movie"));
+
+        var page1Rows = string.Join(",\n", Enumerable.Range(1000, 50).Select(i =>
+            $$"""{ "id": {{i}}, "status": 2, "media": { "tmdbId": {{(i == 1000 ? 1 : i)}}, "mediaType": "movie", "status": 3 } }"""));
+        var page1 = $$"""
+        { "pageInfo": { "pages": 1, "pageSize": 50, "results": 0, "page": 1 }, "results": [ {{page1Rows}} ] }
+        """;
+        var page2 = $$"""
+        { "pageInfo": { "pages": 1, "pageSize": 50, "results": 0, "page": 2 }, "results": [ { "id": 2, "status": 2, "media": { "tmdbId": 2, "mediaType": "movie", "status": 3 } } ] }
+        """;
+        _handler.RegisterResponse(HttpMethod.Get, $"skip=0&sort=added&filter=all&requestedBy={SeerrUserId}", HttpStatusCode.OK, page1);
+        _handler.RegisterResponse(HttpMethod.Get, $"skip=50&sort=added&filter=all&requestedBy={SeerrUserId}", HttpStatusCode.OK, page2);
+
+        var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
+
+        Assert.Equal(2, count);
+        var requested = _feedbackStore.GetRequestedItems(JellyfinUserId);
+        Assert.Contains((1, "movie"), requested);
+        Assert.Contains((2, "movie"), requested);
+    }
+
+    [Fact]
+    public async Task Reconcile_HitsPageCapWithoutExhaustingResults_ReturnsZeroAndTouchesNothing()
+    {
+        // Every page is full and the reported total always exceeds the next skip, so the scan never
+        // completes and hits the 20-page cap. That is a partial snapshot and must reconcile nothing.
+        RegisterUserResolution();
+        SeedCache(Rec(1, "movie"));
+        for (var pageIndex = 0; pageIndex < 20; pageIndex++)
+        {
+            var skip = pageIndex * 50;
+            var baseId = 1000 + skip;
+            var rows = string.Join(",\n", Enumerable.Range(baseId, 50).Select(i =>
+                $$"""{ "id": {{i}}, "status": 2, "media": { "tmdbId": {{(i == 1000 ? 1 : i)}}, "mediaType": "movie", "status": 3 } }"""));
+            var body = $$"""
+            { "pageInfo": { "pages": 999, "pageSize": 50, "results": 100000, "page": {{pageIndex + 1}} }, "results": [ {{rows}} ] }
+            """;
+            _handler.RegisterResponse(HttpMethod.Get, $"skip={skip}&sort=added&filter=all&requestedBy={SeerrUserId}", HttpStatusCode.OK, body);
+        }
+
+        var count = await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, CancellationToken.None);
+
+        Assert.Equal(0, count);
+        Assert.Empty(_feedbackStore.GetRequestedItems(JellyfinUserId));
     }
 }

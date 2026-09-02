@@ -31,6 +31,9 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     private readonly Mock<IPluginConfigurationService> _configServiceMock;
     private readonly MemoryCache _memoryCache;
 
+    private static readonly int[] ExpectedSingleItem = [21];
+    private static readonly int[] ExpectedBackfillItems = [32, 33];
+
     public UserDiscoveryControllerAccessEnabledTests()
     {
         ControllerTestFactory.InitializePluginInstance();
@@ -419,7 +422,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var body = Assert.IsType<DiscoveryResult>(ok.Value);
-        Assert.Equal(new[] { 21 }, body.Recommendations.Select(r => r.TmdbId).ToArray());
+        Assert.Equal(ExpectedSingleItem, body.Recommendations.Select(r => r.TmdbId).ToArray());
     }
 
     [Fact]
@@ -461,7 +464,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var body = Assert.IsType<DiscoveryResult>(ok.Value);
         // 31 marked requested and drops out; 32 and 33 become the visible top-2.
-        Assert.Equal(new[] { 32, 33 }, body.Recommendations.Select(r => r.TmdbId).OrderBy(x => x).ToArray());
+        Assert.Equal(ExpectedBackfillItems, body.Recommendations.Select(r => r.TmdbId).OrderBy(x => x).ToArray());
     }
 
     [Fact]

@@ -76,6 +76,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
     public void Dispose()
     {
         _handler.Dispose();
+        _ensemble.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();
     }
 

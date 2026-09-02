@@ -166,6 +166,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _logger = logger;
     }
 
+    /// <summary>
+    ///     Outcome of inspecting one reconcile request page: the scan is done, must keep paging, or hit an inconsistency that invalidates the whole snapshot.
+    /// </summary>
+    private enum ReconcilePageDecision
+    {
+        Continue,
+        Complete,
+        Incomplete,
+    }
+
     /// <inheritdoc />
     int ISeerrDiscoveryService.MaxVisiblePerUser => MaxVisiblePerUser;
 
@@ -351,8 +361,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         try
         {
-            _feedbackStore.RecordRequested(jellyfinUserId, tmdbId, mediaType);
+            // Stamp the cache first. A later feedback failure only means the item is not yet
+            // recorded as requested, so the next reconciliation retries it. The reverse order
+            // would put the key into GetRequestedItems while AlreadyRequested stayed false,
+            // and the retry would skip it, leaving the two stores permanently out of sync.
             await _cache.MarkAsRequestedAsync(tmdbId, mediaType, jellyfinUserId, CancellationToken.None).ConfigureAwait(false);
+            _feedbackStore.RecordRequested(jellyfinUserId, tmdbId, mediaType);
             return true;
         }
         catch (Exception ex) when (!ex.IsFatal())
@@ -403,51 +417,36 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var relPath = $"api/v1/request?take={ReconcilePageSize}&skip={skip}&sort=added&filter=all&requestedBy={seerrUserId}";
-                using var request = BuildRequest(HttpMethod.Get, baseUri, relPath, apiKey);
-                using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-
-                if (!response.IsSuccessStatusCode)
+                var pageResult = await FetchRequestedPageAsync(
+                    client, baseUri, apiKey, seerrUserId, skip, cancellationToken).ConfigureAwait(false);
+                if (pageResult is null)
                 {
-                    _pluginLog.LogDebug(
-                        LogCategory,
-                        $"Reconcile: request page returned HTTP {(int)response.StatusCode} for Seerr user #{seerrUserId}.",
-                        _logger);
                     return null;
                 }
 
-                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var pageResult = JsonSerializer.Deserialize<SeerrRequestPage>(json, JsonOptions);
-                var results = pageResult?.Results;
-                if (results == null || results.Count == 0)
-                {
-                    break;
-                }
-
-                foreach (var item in results)
-                {
-                    var media = item.Media;
-                    if (media != null && media.TmdbId > 0)
-                    {
-                        keys.Add((media.TmdbId, NormalizeReconcileMediaType(media.MediaType)));
-                    }
-                }
-
-                skip += ReconcilePageSize;
-                var totalResults = pageResult?.PageInfo?.Results ?? results.Count;
-                if (results.Count < ReconcilePageSize || skip >= totalResults)
+                var results = pageResult.Results;
+                if (results.Count == 0)
                 {
                     return keys;
                 }
 
-                if (page == ReconcileMaxPages - 1)
+                foreach (var key in results
+                    .Select(item => item.Media)
+                    .Where(media => media != null && media.TmdbId > 0)
+                    .Select(media => (media!.TmdbId, NormalizeReconcileMediaType(media.MediaType))))
                 {
-                    // Hit the page cap without exhausting the result set; the snapshot is incomplete.
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"Reconcile: request pagination hit the {ReconcileMaxPages}-page cap for Seerr user #{seerrUserId}; skipping to avoid acting on a partial snapshot.",
-                        null,
-                        _logger);
+                    keys.Add(key);
+                }
+
+                skip += ReconcilePageSize;
+                var pageDecision = DecideReconcilePagination(results.Count, skip, pageResult.PageInfo.Results, page, seerrUserId);
+                if (pageDecision == ReconcilePageDecision.Complete)
+                {
+                    return keys;
+                }
+
+                if (pageDecision == ReconcilePageDecision.Incomplete)
+                {
                     return null;
                 }
             }
@@ -467,6 +466,71 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
             return null;
         }
+    }
+
+    /// <summary>
+    ///     Fetches and deserializes a single requestedBy-scoped request page. Returns null on any non-success status or unparseable body so the caller treats the whole snapshot as incomplete.
+    /// </summary>
+    private async Task<SeerrRequestPage?> FetchRequestedPageAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        int seerrUserId,
+        int skip,
+        CancellationToken cancellationToken)
+    {
+        var relPath = $"api/v1/request?take={ReconcilePageSize}&skip={skip}&sort=added&filter=all&requestedBy={seerrUserId}";
+        using var request = BuildRequest(HttpMethod.Get, baseUri, relPath, apiKey);
+        using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Reconcile: request page returned HTTP {(int)response.StatusCode} for Seerr user #{seerrUserId}.",
+                _logger);
+            return null;
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        return JsonSerializer.Deserialize<SeerrRequestPage>(json, JsonOptions);
+    }
+
+    /// <summary>
+    ///     Decides whether pagination is done, must continue, or is inconsistent. A short page ends the scan. When the reported total is usable, exceeding it is an inconsistency the caller rejects; when the total is missing or zero we keep paging on a full page rather than trusting a bogus total and returning a truncated snapshot.
+    /// </summary>
+    private ReconcilePageDecision DecideReconcilePagination(int pageCount, int skip, int reportedTotal, int page, int seerrUserId)
+    {
+        if (pageCount < ReconcilePageSize)
+        {
+            return ReconcilePageDecision.Complete;
+        }
+
+        if (reportedTotal > 0)
+        {
+            if (skip == reportedTotal)
+            {
+                return ReconcilePageDecision.Complete;
+            }
+
+            if (skip > reportedTotal)
+            {
+                return ReconcilePageDecision.Incomplete;
+            }
+        }
+
+        if (page == ReconcileMaxPages - 1)
+        {
+            // Hit the page cap without exhausting the result set; the snapshot is incomplete.
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Reconcile: request pagination hit the {ReconcileMaxPages}-page cap for Seerr user #{seerrUserId}; skipping to avoid acting on a partial snapshot.",
+                null,
+                _logger);
+            return ReconcilePageDecision.Incomplete;
+        }
+
+        return ReconcilePageDecision.Continue;
     }
 
     /// <summary>
