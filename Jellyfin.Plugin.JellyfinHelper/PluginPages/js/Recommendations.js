@@ -173,7 +173,7 @@ function renderEnsembleDiagnostics(host, data) {
     // small and unobtrusive at the very bottom of the tab.
     var parts = [
         T('recsEnsembleAlpha', 'Alpha (\u03B1)') + ' ' + fmt(data.Alpha),
-        T('recsEnsembleNeuralBeta', 'Neural \u03B2') + ' ' + fmt(data.NeuralBeta),
+        T('recsEnsembleNeuralBeta', 'Neural (\u03B2)') + ' ' + fmt(data.NeuralBeta),
         T('recsEnsembleTrend', 'Trend') + ' ' + escHtml(String(data.Trend || '')),
         T('recsEnsembleExamples', 'Training examples') + ' ' + escHtml(String(data.TrainingExampleCount)),
         T('recsEnsembleNeuralEnabled', 'Neural enabled') + ' ' + escHtml(ensembleYesNo(data.NeuralEnabled))

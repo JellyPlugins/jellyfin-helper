@@ -263,7 +263,7 @@
   "recsEnsembleError": "Det gick inte att läsa in ensemblediagnostiken.",
   "recsEnsembleUnavailable": "Ensemblediagnostiken är inte tillgänglig ännu – kör rekommendationsuppgiften.",
   "recsEnsembleAlpha": "Alfa (α)",
-  "recsEnsembleNeuralBeta": "Neural β",
+  "recsEnsembleNeuralBeta": "Neural (β)",
   "recsEnsembleQualityGate": "Kvalitetsgrind fryst",
   "recsEnsembleMidpoint": "Sigmoid-mittpunkt (effektiv)",
   "recsEnsembleOffset": "offset",
