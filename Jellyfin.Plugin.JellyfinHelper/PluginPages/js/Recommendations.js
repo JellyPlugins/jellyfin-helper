@@ -157,27 +157,30 @@ function loadEnsembleDiagnostics() {
     });
 }
 
+function ensembleYesNo(b) {
+    return b ? T('recsYes', 'Yes') : T('recsNo', 'No');
+}
+
 function renderEnsembleDiagnostics(host, data) {
     if (!data || data.Available === false) {
         host.innerHTML = '<div class="recs-empty"><p>' + escHtml(T('recsEnsembleUnavailable', 'Ensemble diagnostics are not available yet - run the recommendation task.')) + '</p></div>';
         return;
     }
     var fmt = function (n) { return (typeof n === 'number') ? n.toFixed(3) : escHtml(String(n)); };
-    var yesNo = function (b) { return b ? T('recsYes', 'Yes') : T('recsNo', 'No'); };
     var midpoint = fmt(data.EffectiveSigmoidMidpoint) + ' (' + escHtml(T('recsEnsembleOffset', 'offset')) + ' ' + fmt(data.SigmoidMidpointOffset) + ')';
     var rows = [
         [T('recsEnsembleAlpha', 'Alpha (\u03B1)'), fmt(data.Alpha) + ' [' + fmt(data.AlphaMin) + ', ' + fmt(data.AlphaMax) + ']'],
         [T('recsEnsembleNeuralBeta', 'Neural \u03B2'), fmt(data.NeuralBeta)],
-        [T('recsEnsembleQualityGate', 'Quality gate frozen'), escHtml(yesNo(data.QualityGateFrozen))],
+        [T('recsEnsembleQualityGate', 'Quality gate frozen'), escHtml(ensembleYesNo(data.QualityGateFrozen))],
         [T('recsEnsembleMidpoint', 'Sigmoid midpoint (effective)'), midpoint],
         [T('recsEnsembleTrend', 'Trend'), escHtml(String(data.Trend || ''))],
         [T('recsEnsembleExamples', 'Training examples'), escHtml(String(data.TrainingExampleCount))],
         [T('recsEnsembleHistory', 'Metrics history'), escHtml(String(data.MetricsHistoryCount))],
-        [T('recsEnsembleNeuralEnabled', 'Neural enabled'), escHtml(yesNo(data.NeuralEnabled))]
+        [T('recsEnsembleNeuralEnabled', 'Neural enabled'), escHtml(ensembleYesNo(data.NeuralEnabled))]
     ];
     var html = '<div class="recs-diag-grid">';
-    for (var i = 0; i < rows.length; i++) {
-        html += '<div class="recs-diag-label">' + escHtml(rows[i][0]) + '</div><div class="recs-diag-value">' + rows[i][1] + '</div>';
+    for (var row of rows) {
+        html += '<div class="recs-diag-label">' + escHtml(row[0]) + '</div><div class="recs-diag-value">' + row[1] + '</div>';
     }
     html += '</div>';
     host.innerHTML = html;

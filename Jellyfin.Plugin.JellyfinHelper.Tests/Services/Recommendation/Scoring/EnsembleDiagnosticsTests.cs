@@ -15,6 +15,12 @@ public sealed class EnsembleDiagnosticsTests : IDisposable
     private const double AlphaMin = EnsembleScoringStrategy.DefaultAlphaMin;
     private const double AlphaMax = EnsembleScoringStrategy.DefaultAlphaMax;
 
+    // Cached NaN-tolerant options matching EnsembleScoringStrategy's own reader (avoid per-call allocation).
+    private static readonly JsonSerializerOptions StateSerializerOptions = new()
+    {
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
+
     private readonly string _tempDir;
 
     public EnsembleDiagnosticsTests()
@@ -85,17 +91,13 @@ public sealed class EnsembleDiagnosticsTests : IDisposable
     // Serializes a persisted-state object with NaN-tolerant options matching EnsembleScoringStrategy's own reader.
     private static string SerializeState(object state)
     {
-        var options = new JsonSerializerOptions
-        {
-            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
-        };
-        return JsonSerializer.Serialize(state, options);
+        return JsonSerializer.Serialize(state, StateSerializerOptions);
     }
 
     [Fact]
     public void GetDiagnosticsSnapshot_AfterTraining_ReturnsCoherentValues()
     {
-        var ensemble = BuildSut();
+        using var ensemble = BuildSut();
         Assert.True(ensemble.Train(CleanExamples(80)));
 
         var diag = ensemble.GetDiagnosticsSnapshot();
@@ -125,8 +127,8 @@ public sealed class EnsembleDiagnosticsTests : IDisposable
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var neural = new NeuralScoringStrategy();
-        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        using var neural = new NeuralScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         Assert.True(ensemble.GetDiagnosticsSnapshot().NeuralEnabled);
     }
@@ -136,7 +138,7 @@ public sealed class EnsembleDiagnosticsTests : IDisposable
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural: null);
+        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural: null);
 
         Assert.False(ensemble.GetDiagnosticsSnapshot().NeuralEnabled);
     }
@@ -159,7 +161,8 @@ public sealed class EnsembleDiagnosticsTests : IDisposable
             MetricsHistory = Array.Empty<object>()
         }));
 
-        var diag = BuildSut().GetDiagnosticsSnapshot();
+        using var sut = BuildSut();
+        var diag = sut.GetDiagnosticsSnapshot();
 
         Assert.True(diag.QualityGateFrozen);
         Assert.Equal(200, diag.TrainingExampleCount);
@@ -170,7 +173,7 @@ public sealed class EnsembleDiagnosticsTests : IDisposable
     [Fact]
     public void GetDiagnosticsSnapshot_IsPureRead_DoesNotMutateState()
     {
-        var ensemble = BuildSut();
+        using var ensemble = BuildSut();
         Assert.True(ensemble.Train(CleanExamples(80)));
 
         var first = ensemble.GetDiagnosticsSnapshot();

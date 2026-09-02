@@ -141,8 +141,8 @@ internal sealed class TrainingService : IDisposable
         // sub-strategy). Null on the very first run (no standardized model yet) keeps the legacy constants.
         var featureMeans = strategy switch
         {
-            EnsembleScoringStrategy ensemble => ensemble.LearnedStrategy.FeatureMeans,
-            LearnedScoringStrategy learned => learned.FeatureMeans,
+            EnsembleScoringStrategy ensemble => ensemble.LearnedStrategy.GetFeatureMeans(),
+            LearnedScoringStrategy learned => learned.GetFeatureMeans(),
             _ => null
         };
 

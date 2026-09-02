@@ -143,7 +143,7 @@ public sealed class EngineLibraryMetadataTests : IDisposable
     [Fact]
     public void GetEnsembleDiagnostics_EnsembleStrategy_ReturnsCoherentSnapshot()
     {
-        var ensemble = new EnsembleScoringStrategy(Path.Join(_tempDir, "ml_weights.json"));
+        using var ensemble = new EnsembleScoringStrategy(Path.Join(_tempDir, "ml_weights.json"));
         var harness = EngineTestFactory.Create(ensemble);
 
         var diag = harness.Engine.GetEnsembleDiagnostics();
@@ -158,7 +158,7 @@ public sealed class EngineLibraryMetadataTests : IDisposable
     {
         // Covers the EnsembleScoringStrategy arm of the featureMeans switch in TrainingService: training an
         // ensemble-backed engine reads the learned sub-strategy's means to impute discovery examples.
-        var ensemble = new EnsembleScoringStrategy(Path.Join(_tempDir, "ens_weights.json"));
+        using var ensemble = new EnsembleScoringStrategy(Path.Join(_tempDir, "ens_weights.json"));
         var harness = EngineTestFactory.Create(ensemble);
         SetupLibrary(harness, [MakeMovie("M", studios: ["A24"])], []);
 

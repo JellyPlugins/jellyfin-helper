@@ -133,23 +133,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Gets a snapshot of the persisted per-feature training-set means, or null when the model has not
-    ///     yet trained under standardization. Discovery uses these to impute the features it cannot compute
-    ///     for external (TMDb) candidates to their training-set mean, so a placeholder standardizes to ~0
-    ///     ("no information") instead of biasing the score with an arbitrary constant.
-    /// </summary>
-    internal IReadOnlyList<double>? FeatureMeans
-    {
-        get
-        {
-            lock (_syncRoot)
-            {
-                return _featureMeans is not null ? (double[])_featureMeans.Clone() : null;
-            }
-        }
-    }
-
-    /// <summary>
     ///     Gets the Precision@K from the last training run. Measures what fraction of top-K predicted items are actually relevant.
     /// </summary>
     internal double LastPrecisionAtK
@@ -202,6 +185,22 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             {
                 return _bias;
             }
+        }
+    }
+
+    /// <summary>
+    ///     Returns a snapshot of the persisted per-feature training-set means, or null when the model has not
+    ///     yet trained under standardization. Exposed as a method (not a property) because it clones the
+    ///     backing array on each call. Discovery uses these to impute the features it cannot compute for
+    ///     external (TMDb) candidates to their training-set mean, so a placeholder standardizes to ~0
+    ///     ("no information") instead of biasing the score with an arbitrary constant.
+    /// </summary>
+    /// <returns>A cloned copy of the per-feature means, or null if unavailable.</returns>
+    internal IReadOnlyList<double>? GetFeatureMeans()
+    {
+        lock (_syncRoot)
+        {
+            return _featureMeans is not null ? (double[])_featureMeans.Clone() : null;
         }
     }
 
@@ -311,35 +310,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         lock (_syncRoot)
         {
-            // Handle standardization transition. Weights learned in raw feature space compute a different
-            // function when applied to standardized features (and vice-versa), so a naive keep would corrupt
-            // the model. Instead of discarding the learned weights (the old behaviour, which threw away up
-            // to MinExamplesForStandardization-1 examples of learning at the 19->21 boundary), transform them
-            // exactly into the new space so the decision function is preserved as the warm-start, then let
-            // the final pass fine-tune. See RescaleWeightsForStandardizationChange for the algebra.
-            var standardizationModeChanged = useStandardization != (_featureMeans is not null);
-            if (standardizationModeChanged)
-            {
-                if (useStandardization)
-                {
-                    // raw -> standardized: rescale using the stats the final pass will train under.
-                    var (means, stdDevs) = ComputeFeatureStatistics(rawVectors);
-                    RescaleWeightsForStandardizationChange(toStandardized: true, means, stdDevs);
-                }
-                else if (_featureMeans is not null && _featureStdDevs is not null)
-                {
-                    // standardized -> raw: reverse using the stats the current weights were trained under.
-                    RescaleWeightsForStandardizationChange(toStandardized: false, _featureMeans, _featureStdDevs);
-                }
-
-                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
-                {
-                    _logger.LogInformation(
-                        "LearnedScoringStrategy: Rescaled weights into {Space} feature space (warm start) after standardization mode change (generation {Gen})",
-                        useStandardization ? "standardized" : "raw",
-                        _trainingGeneration);
-                }
-            }
+            WarmStartWeightsForModeChange(useStandardization, rawVectors);
 
             // Use a varying seed based on training generation to avoid always placing
             // the same examples in validation. Still deterministic per generation.
@@ -599,6 +570,45 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         }
 
         return (means, stdDevs);
+    }
+
+    /// <summary>
+    ///     Warm-starts the weights across a standardization mode change. Weights learned in raw feature space
+    ///     compute a different function when applied to standardized features (and vice-versa), so a naive
+    ///     keep would corrupt the model. Instead of discarding the learned weights (the old behaviour, which
+    ///     threw away up to MinExamplesForStandardization-1 examples of learning at the 19->21 boundary),
+    ///     transform them exactly into the new space so the decision function is preserved, then let the final
+    ///     pass fine-tune. No-op when the mode is unchanged. Must be called under <see cref="_syncRoot" />.
+    /// </summary>
+    /// <param name="useStandardization">Whether the current training pass will standardize features.</param>
+    /// <param name="rawVectors">The raw (unstandardized) feature vectors for this pass.</param>
+    private void WarmStartWeightsForModeChange(bool useStandardization, double[][] rawVectors)
+    {
+        var standardizationModeChanged = useStandardization != (_featureMeans is not null);
+        if (!standardizationModeChanged)
+        {
+            return;
+        }
+
+        if (useStandardization)
+        {
+            // raw -> standardized: rescale using the stats the final pass will train under.
+            var (means, stdDevs) = ComputeFeatureStatistics(rawVectors);
+            RescaleWeightsForStandardizationChange(toStandardized: true, means, stdDevs);
+        }
+        else if (_featureMeans is not null && _featureStdDevs is not null)
+        {
+            // standardized -> raw: reverse using the stats the current weights were trained under.
+            RescaleWeightsForStandardizationChange(toStandardized: false, _featureMeans, _featureStdDevs);
+        }
+
+        if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "LearnedScoringStrategy: Rescaled weights into {Space} feature space (warm start) after standardization mode change (generation {Gen})",
+                useStandardization ? "standardized" : "raw",
+                _trainingGeneration);
+        }
     }
 
     /// <summary>
