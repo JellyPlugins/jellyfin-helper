@@ -18,6 +18,11 @@ public class GenreExposureRampTests
     // A candidate carrying an underexposed genre so all three features are exercised (not just dominance).
     private static readonly string[] Candidate = [Horror];
 
+    // Fixed playback time for every fixture row. BuildGenrePreferenceVector applies temporal decay, so per-row
+    // DateTime.UtcNow would give the 30-item and 60-item profiles slightly different genre weights and break the
+    // 12-decimal equality assertions even when the confidence ramp is correct.
+    private static readonly DateTime PlayedAt = new(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+
     /// <summary>
     ///     Builds a profile of <paramref name="count" /> played items following a fixed genre ratio
     ///     (60% Action, 30% Comedy, 10% Horror) so the normalized genre-preference shares are identical
@@ -33,7 +38,7 @@ public class GenreExposureRampTests
             {
                 ItemId = Guid.NewGuid(),
                 Played = true,
-                LastPlayedDate = DateTime.UtcNow,
+                LastPlayedDate = PlayedAt,
                 Genres = [genre]
             });
         }

@@ -174,12 +174,12 @@ public sealed class TrainingDataBuilderMetadataParityTests
     }
 
     /// <summary>
-    ///     Series self-exclusion is unchanged by the metadata-source fix: a recommended series whose only
-    ///     watched records are its own episodes still draws a 0.65 favorite-style label (it does not fabricate
-    ///     engagement from its own history). Guards that the leak-exclusion axis is untouched.
+    ///     A favorited series with no episode playback records still draws the 0.65 favorite-style label under
+    ///     the metadata-source fix. This pins the favorite-label branch; the genuine engagement self-exclusion
+    ///     axis is covered by <see cref="BuildExamples_SeriesWithOwnEpisodes_DoesNotDrawEngagementFromItsOwnHistory"/>.
     /// </summary>
     [Fact]
-    public void BuildExamples_SeriesSelfExclusion_HoldsWithLibraryMap()
+    public void BuildExamples_FavoriteSeriesWithoutEpisodes_DrawsFavoriteLabelWithLibraryMap()
     {
         var user = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
@@ -217,6 +217,66 @@ public sealed class TrainingDataBuilderMetadataParityTests
 
         var seriesExample = Assert.Single(examples);
         Assert.Equal(0.65, seriesExample.Label, 9);
+    }
+
+    /// <summary>
+    ///     The genuine self-exclusion invariant: a recommended series whose ONLY history in its genre is its
+    ///     own watched episodes must not fabricate genre engagement from that history. The engagement exclude
+    ///     set strips the series' own records, so HasUserInteraction stays false even though the episodes are
+    ///     played. Without self-exclusion those own-genre plays would flip HasUserInteraction to true - this
+    ///     test fails in that case, guarding the leak-exclusion axis the metadata-source fix must not disturb.
+    /// </summary>
+    [Fact]
+    public void BuildExamples_SeriesWithOwnEpisodes_DoesNotDrawEngagementFromItsOwnHistory()
+    {
+        var user = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+
+        // Two played episodes of the recommended series, tagged with its genre. They are the user's only Drama
+        // history, so any Drama engagement can only come from the series itself.
+        var profiles = new Collection<UserWatchProfile>
+        {
+            new()
+            {
+                UserId = user,
+                UserName = "u",
+                WatchedItems =
+                {
+                    new WatchedItemInfo
+                    {
+                        ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = seriesId, Played = true,
+                        PlayCount = 1, LastPlayedDate = Anchor, Genres = ["Drama"]
+                    },
+                    new WatchedItemInfo
+                    {
+                        ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = seriesId, Played = true,
+                        PlayCount = 1, LastPlayedDate = Anchor, Genres = ["Drama"]
+                    }
+                }
+            }
+        };
+
+        var results = new List<RecommendationResult>
+        {
+            new()
+            {
+                UserId = user,
+                GeneratedAt = Anchor,
+                Recommendations =
+                {
+                    new RecommendedItem { ItemId = seriesId, ItemType = "Series", Genres = ["Drama"] }
+                }
+            }
+        };
+
+        var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(
+            results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryItemMetadata: null, featureMeans: null, CancellationToken.None);
+
+        var seriesExample = Assert.Single(examples);
+
+        // Self-exclusion removed the series' own episodes from the genre-engagement computation, so the only
+        // Drama history is gone and HasUserInteraction must be false. If exclusion were dropped it would be true.
+        Assert.False(seriesExample.Features.HasUserInteraction);
     }
 
     /// <summary>

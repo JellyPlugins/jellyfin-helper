@@ -133,19 +133,29 @@ function toggleCollapsible(bodyId, toggleId) {
     }
 }
 
-// Loads the read-only ensemble diagnostics once, then renders labeled rows. Repeated toggles reuse the cached fetch.
+// Fetches the read-only ensemble diagnostics once and caches the payload. Re-rendering the tab replaces the
+// footnote element, so every call must render the cached data into the current element rather than relying on
+// the element that existed at fetch time.
 var _ensembleDiagLoaded = false;
+var _ensembleDiagData = null;
 function loadEnsembleDiagnostics() {
-    if (_ensembleDiagLoaded) return;
+    if (_ensembleDiagLoaded) {
+        var cachedHost = document.getElementById('recsEnsembleFootnote');
+        if (cachedHost && _ensembleDiagData) renderEnsembleDiagnostics(cachedHost, _ensembleDiagData);
+        return;
+    }
     _ensembleDiagLoaded = true;
-    var host = document.getElementById('recsEnsembleFootnote');
-    if (!host) return;
     apiGet('JellyfinHelper/Recommendations/Diagnostics/Ensemble', function (data) {
-        renderEnsembleDiagnostics(host, data);
+        _ensembleDiagData = data;
+        // Resolve the host again here: a tab re-render may have replaced the element while the request was in flight.
+        var host = document.getElementById('recsEnsembleFootnote');
+        if (host) renderEnsembleDiagnostics(host, data);
     }, function () {
         // A footnote stays silent on failure rather than showing an error banner.
         _ensembleDiagLoaded = false;
-        host.innerHTML = '';
+        _ensembleDiagData = null;
+        var host = document.getElementById('recsEnsembleFootnote');
+        if (host) host.innerHTML = '';
     });
 }
 
