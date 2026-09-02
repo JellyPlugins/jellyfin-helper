@@ -259,7 +259,7 @@
   "recsYes": "Yes",
   "recsNo": "No",
   "recsEnsembleToggle": "Ensemble state",
-  "recsEnsembleNote": "These values describe the shared recommendation model, not the selected user.",
+  "recsEnsembleNote": "Shared recommendation model (not per user):",
   "recsEnsembleError": "Could not load ensemble diagnostics.",
   "recsEnsembleUnavailable": "Ensemble diagnostics are not available yet - run the recommendation task.",
   "recsEnsembleAlpha": "Alpha (α)",

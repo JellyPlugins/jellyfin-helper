@@ -259,7 +259,7 @@
   "recsYes": "Sí",
   "recsNo": "No",
   "recsEnsembleToggle": "Estado del conjunto",
-  "recsEnsembleNote": "Estos valores describen el modelo de recomendación compartido, no el usuario seleccionado.",
+  "recsEnsembleNote": "Modelo de recomendación compartido (no por usuario):",
   "recsEnsembleError": "No se pudo cargar el diagnóstico del conjunto.",
   "recsEnsembleUnavailable": "El diagnóstico del conjunto aún no está disponible: ejecuta la tarea de recomendaciones.",
   "recsEnsembleAlpha": "Alfa (α)",
