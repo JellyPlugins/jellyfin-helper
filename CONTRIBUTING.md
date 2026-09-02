@@ -314,6 +314,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── LearnedScoringStrategyStandardizationTests.cs # Feature standardization: mean/variance normalization and guards
 │       │   ├── LearnedScoringStrategyLoggingTests.cs   # Training log lines and level selection
 │       │   ├── LearnedScoringStrategyRobustnessTests.cs # NaN/degenerate inputs discarded, not applied
+│       │   ├── StandardizationTransitionTests.cs      # Gap C warm-start: crossing the standardization threshold rescales weights (not reset), finite weights/scores, learned ranking preserved, zero-variance guard
 │       │   ├── StrategySelectorTests.cs                # Cohort router: exploration gate, deterministic hash bucketing, routing
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
 │       │   ├── ScoreExplanationTests.cs

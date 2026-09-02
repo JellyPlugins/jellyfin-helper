@@ -629,6 +629,14 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         _bias += biasDelta;
     }
+
+    /// <summary>
+    ///     Standardizes feature vectors in-place using Z-score normalization.
+    ///     Features with zero or near-zero standard deviation are left unchanged.
+    /// </summary>
+    /// <param name="vectors">The feature vectors to standardize (modified in-place).</param>
+    /// <param name="means">The per-feature means.</param>
+    /// <param name="stdDevs">The per-feature standard deviations.</param>
     internal static void StandardizeVectors(double[][] vectors, double[] means, double[] stdDevs)
     {
         foreach (var t in vectors)
