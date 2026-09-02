@@ -66,6 +66,10 @@ function renderRecommendations(container, results) {
     html += '<div id="recsUserActivity"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '</div></div>';
     html += '<div id="discoverySection"></div>';
+
+    // Small model-state footnote at the very bottom of the tab (read-only ensemble diagnostics). Deliberately
+    // low-key, not a collapsible card, because it describes the shared model rather than the selected user.
+    html += '<div id="recsEnsembleFootnote" class="recs-diag-footnote"></div>';
     container.innerHTML = html;
     var recsSelect = document.getElementById('recsUserSelect');
     if (recsSelect) {
@@ -84,6 +88,9 @@ function renderRecommendations(container, results) {
     // Toggle for Watch Activity collapsible
     var toggleBtn = document.getElementById('recsActivityToggle');
     if (toggleBtn) { toggleBtn.addEventListener('click', function () { toggleCollapsible('recsActivityBody', 'recsActivityToggle'); }); }
+
+    // Load the model-state footnote once (shared model state, independent of the selected user).
+    loadEnsembleDiagnostics();
 
     var discoveryContainer = document.getElementById('discoverySection');
     if (discoveryContainer) { renderDiscoverySection(discoveryContainer); }
@@ -124,6 +131,54 @@ function toggleCollapsible(bodyId, toggleId) {
         if (arrow) arrow.textContent = '\u25BC';
         if (toggle) toggle.setAttribute('aria-expanded', 'true');
     }
+}
+
+// Fetches the read-only ensemble diagnostics once and caches the payload. Re-rendering the tab replaces the
+// footnote element, so every call must render the cached data into the current element rather than relying on
+// the element that existed at fetch time.
+var _ensembleDiagLoaded = false;
+var _ensembleDiagData = null;
+function loadEnsembleDiagnostics() {
+    if (_ensembleDiagLoaded) {
+        var cachedHost = document.getElementById('recsEnsembleFootnote');
+        if (cachedHost && _ensembleDiagData) renderEnsembleDiagnostics(cachedHost, _ensembleDiagData);
+        return;
+    }
+    _ensembleDiagLoaded = true;
+    apiGet('JellyfinHelper/Recommendations/Diagnostics/Ensemble', function (data) {
+        _ensembleDiagData = data;
+        // Resolve the host again here: a tab re-render may have replaced the element while the request was in flight.
+        var host = document.getElementById('recsEnsembleFootnote');
+        if (host) renderEnsembleDiagnostics(host, data);
+    }, function () {
+        // A footnote stays silent on failure rather than showing an error banner.
+        _ensembleDiagLoaded = false;
+        _ensembleDiagData = null;
+        var host = document.getElementById('recsEnsembleFootnote');
+        if (host) host.innerHTML = '';
+    });
+}
+
+function ensembleYesNo(b) {
+    return b ? T('recsYes', 'Yes') : T('recsNo', 'No');
+}
+
+function renderEnsembleDiagnostics(host, data) {
+    if (!data || data.Available === false) {
+        host.innerHTML = '';
+        return;
+    }
+    var fmt = function (n) { return (typeof n === 'number') ? n.toFixed(2) : escHtml(String(n)); };
+    // Compact one-line model-state footnote. Describes the shared model, not the selected user, so it is kept
+    // small and unobtrusive at the very bottom of the tab.
+    var parts = [
+        T('recsEnsembleAlpha', 'Alpha (\u03B1)') + ' ' + fmt(data.Alpha),
+        T('recsEnsembleNeuralBeta', 'Neural \u03B2') + ' ' + fmt(data.NeuralBeta),
+        T('recsEnsembleTrend', 'Trend') + ' ' + escHtml(String(data.Trend || '')),
+        T('recsEnsembleExamples', 'Training examples') + ' ' + escHtml(String(data.TrainingExampleCount)),
+        T('recsEnsembleNeuralEnabled', 'Neural enabled') + ' ' + escHtml(ensembleYesNo(data.NeuralEnabled))
+    ];
+    host.innerHTML = escHtml(T('recsEnsembleNote', 'Shared recommendation model (not per user):')) + ' ' + parts.join(' \u00B7 ');
 }
 
 function renderUserRecommendations(index) {
