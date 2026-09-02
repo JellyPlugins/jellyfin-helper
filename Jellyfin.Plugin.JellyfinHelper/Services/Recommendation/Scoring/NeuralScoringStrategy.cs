@@ -98,9 +98,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// </summary>
     // The recommendation-review feature-value changes (Gaps 2 / E / A) do not alter feature count or layer
     // sizes, so array-length validation alone would accept pre-change weights. They ride on the v3 bump
-    // instead, which is safe because v3 is UNRELEASED: the published 3.0.0.0 tag still ships
-    // CurrentWeightsVersion = 2, so no v3 neural weights exist in the wild. Bump to 4 only if a feature-value
-    // change lands AFTER a release that shipped v3.
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>
