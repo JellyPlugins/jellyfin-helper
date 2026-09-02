@@ -587,12 +587,48 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Standardizes feature vectors in-place using Z-score normalization.
-    ///     Features with zero or near-zero standard deviation are left unchanged.
+    ///     Transforms the current weights/bias between raw and standardized feature space so the model's
+    ///     decision function is preserved across a standardization mode change, giving the final training
+    ///     pass a warm start instead of resetting to defaults.
     /// </summary>
-    /// <param name="vectors">The feature vectors to standardize (modified in-place).</param>
-    /// <param name="means">The per-feature means.</param>
-    /// <param name="stdDevs">The per-feature standard deviations.</param>
+    /// <remarks>
+    ///     The raw score is s = Σ wᵢ·xᵢ + b. With standardized features x'ᵢ = (xᵢ − μᵢ)/σᵢ (so
+    ///     xᵢ = σᵢ·x'ᵢ + μᵢ), substituting gives s = Σ (wᵢ·σᵢ)·x'ᵢ + (b + Σ wᵢ·μᵢ). Hence raw → standardized
+    ///     is w'ᵢ = wᵢ·σᵢ and b' = b + Σ wᵢ·μᵢ; the reverse is wᵢ = w'ᵢ/σᵢ and b = b' − Σ wᵢ·μᵢ. Features whose
+    ///     σᵢ ≤ 1e-8 are passed through unchanged by <see cref="StandardizeSingleVector" /> (identity, no
+    ///     divide-by-zero), so their weights are left untouched here to match exactly.
+    /// </remarks>
+    /// <param name="toStandardized">True for raw → standardized; false for the reverse.</param>
+    /// <param name="means">Per-feature means defining the standardized space.</param>
+    /// <param name="stdDevs">Per-feature standard deviations defining the standardized space.</param>
+    private void RescaleWeightsForStandardizationChange(bool toStandardized, double[] means, double[] stdDevs)
+    {
+        var featureCount = Math.Min(_weights.Length, Math.Min(means.Length, stdDevs.Length));
+        var biasDelta = 0.0;
+
+        for (var f = 0; f < featureCount; f++)
+        {
+            // Mirror StandardizeSingleVector's guard: a near-constant feature is never standardized, so its
+            // weight lives in the same (raw) space in both modes and must not be rescaled.
+            if (stdDevs[f] <= 1e-8)
+            {
+                continue;
+            }
+
+            if (toStandardized)
+            {
+                biasDelta += _weights[f] * means[f];
+                _weights[f] *= stdDevs[f];
+            }
+            else
+            {
+                _weights[f] /= stdDevs[f];
+                biasDelta -= _weights[f] * means[f];
+            }
+        }
+
+        _bias += biasDelta;
+    }
     internal static void StandardizeVectors(double[][] vectors, double[] means, double[] stdDevs)
     {
         foreach (var t in vectors)
