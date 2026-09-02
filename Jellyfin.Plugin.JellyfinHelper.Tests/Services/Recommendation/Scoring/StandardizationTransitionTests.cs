@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
@@ -82,6 +83,36 @@ public sealed class StandardizationTransitionTests
         // The learned preference (high genre similarity scores higher) must survive the mode change. A hard
         // reset to defaults could erase this; the warm-start rescale preserves the decision function.
         Assert.True(strategy.Score(StrongCandidate()) > strategy.Score(WeakCandidate()));
+    }
+
+    [Fact]
+    public void CrossingThreshold_LogsWarmStartRescale_NotReset()
+    {
+        // Discriminates the warm-start wiring from the old hard-reset: the transition MUST log the rescale
+        // message and MUST NOT log the reset message. Guards against the rescale method silently becoming
+        // dead code again (the transition block failing to call it).
+        var logger = TestFixtures.TestMockFactory.CreateLogger();
+        var strategy = new LearnedScoringStrategy(weightsPath: null, logger: logger.Object);
+
+        Assert.True(strategy.Train(GenerateExamples(25)));
+
+        logger.Verify(
+            l => l.Log(
+                Microsoft.Extensions.Logging.LogLevel.Information,
+                It.IsAny<Microsoft.Extensions.Logging.EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("warm start")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce());
+
+        logger.Verify(
+            l => l.Log(
+                Microsoft.Extensions.Logging.LogLevel.Information,
+                It.IsAny<Microsoft.Extensions.Logging.EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Reset weights to defaults")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never());
     }
 
     [Fact]

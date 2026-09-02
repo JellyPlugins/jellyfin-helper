@@ -312,16 +312,32 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         lock (_syncRoot)
         {
-            // Handle standardization transition: if we're applying standardization for the first time but weights were previously trained on raw (unstandardized) features, reset to defaults.
+            // Handle standardization transition. Weights learned in raw feature space compute a different
+            // function when applied to standardized features (and vice-versa), so a naive keep would corrupt
+            // the model. Instead of discarding the learned weights (the old behaviour, which threw away up
+            // to MinExamplesForStandardization-1 examples of learning at the 19->21 boundary), transform them
+            // exactly into the new space so the decision function is preserved as the warm-start, then let
+            // the final pass fine-tune. See RescaleWeightsForStandardizationChange for the algebra.
             var standardizationModeChanged = useStandardization != (_featureMeans is not null);
             if (standardizationModeChanged)
             {
-                _weights = DefaultWeights.CreateWeightArray();
-                _bias = DefaultWeights.Bias;
+                if (useStandardization)
+                {
+                    // raw -> standardized: rescale using the stats the final pass will train under.
+                    var (means, stdDevs) = ComputeFeatureStatistics(rawVectors);
+                    RescaleWeightsForStandardizationChange(toStandardized: true, means, stdDevs);
+                }
+                else if (_featureMeans is not null && _featureStdDevs is not null)
+                {
+                    // standardized -> raw: reverse using the stats the current weights were trained under.
+                    RescaleWeightsForStandardizationChange(toStandardized: false, _featureMeans, _featureStdDevs);
+                }
+
                 if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
                 {
                     _logger.LogInformation(
-                        "LearnedScoringStrategy: Reset weights to defaults after standardization mode change (generation {Gen})",
+                        "LearnedScoringStrategy: Rescaled weights into {Space} feature space (warm start) after standardization mode change (generation {Gen})",
+                        useStandardization ? "standardized" : "raw",
                         _trainingGeneration);
                 }
             }

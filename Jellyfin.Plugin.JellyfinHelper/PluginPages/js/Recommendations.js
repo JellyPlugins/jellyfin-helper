@@ -65,13 +65,14 @@ function renderRecommendations(container, results) {
     html += '<div id="recsUserProfile"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '<div id="recsUserActivity"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '</div></div>';
+    html += '<div id="discoverySection"></div>';
 
-    // Collapsible Ensemble state section (read-only diagnostics)
+    // Collapsible Ensemble state section (read-only diagnostics). Kept last so it sits at the very bottom
+    // of the tab, below the discovery section.
     html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsEnsembleToggle" aria-expanded="false" aria-controls="recsEnsembleBody"><span class="recs-collapsible-arrow">▶</span> ' + mi('insights') + ' ' + escHtml(T('recsEnsembleToggle', 'Ensemble state')) + '</button>';
     html += '<div class="recs-collapsible-body" id="recsEnsembleBody">';
     html += '<div id="recsEnsembleDiag"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '</div></div>';
-    html += '<div id="discoverySection"></div>';
     container.innerHTML = html;
     var recsSelect = document.getElementById('recsUserSelect');
     if (recsSelect) {
