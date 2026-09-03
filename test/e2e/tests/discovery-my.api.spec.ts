@@ -5,6 +5,9 @@ import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPl
 // MaxVisiblePerUser cap enforced by GetMyDiscoveryResults (SeerrDiscoveryService).
 const MAX_VISIBLE_PER_USER = 10;
 
+// The mock is published to the host on loopback; the plugin container reaches it as mock-seerr.
+const MOCK_SEERR_PUBLIC = process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
+
 const auth = loadAuth();
 
 let admin: APIRequestContext;
@@ -213,5 +216,49 @@ test.describe.serial('Discovery/My cached-result filtering', () => {
       }
     }
     await assertPluginActive(admin);
+  });
+});
+
+// --- Seerr availability exclusion (Fix: honour mediaInfo.status) ------------- A discover candidate Seerr reports as already available (mediaInfo.status 4/5) must never surface as a discovery recommendation, even though nothing in Radarr/Sonarr or the Jellyfin library tracks it. Pulp Fiction (tmdbId 680) is the only discover candidate not already excluded by the Arr/library sources, so arming it isolates the mediaInfo.status filter.
+test.describe.serial('Discovery availability exclusion', () => {
+  const AVAILABLE_TMDB = 680;
+
+  test('a Seerr-available discover candidate is excluded from generated recommendations', async () => {
+    const mock = await pwRequest.newContext();
+    try {
+      // Reset mock state, then arm 680 as fully available (status 5) on the discover payload.
+      const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);
+      expect(reset.ok(), `mock reset failed: ${reset.status()}`).toBeTruthy();
+      const arm = await mock.post(`${MOCK_SEERR_PUBLIC}/seed-available-candidate`, {
+        headers: { 'Content-Type': 'application/json' },
+        data: { tmdbId: AVAILABLE_TMDB, status: 5 },
+      });
+      expect(arm.ok(), `arm available candidate failed: ${arm.status()}`).toBeTruthy();
+
+      // Enable discovery (Recommendations:Activate + Seerr) and regenerate against the armed mock.
+      await setDiscoveryAccess(true);
+      const run = await runCleanupTask(admin);
+      expect(run.LastExecutionResult?.Status).toBe('Completed');
+
+      // The admin view returns every user's pool; the armed available title must appear in none.
+      const res = await admin.get(p('Discovery'));
+      expect(res.ok(), `Discovery admin list failed: ${res.status()}`).toBeTruthy();
+      const pools = (await res.json()) as Array<{
+        Recommendations?: Array<{ TmdbId: number; MediaType?: string }>;
+      }>;
+      for (const pool of pools) {
+        for (const rec of pool.Recommendations ?? []) {
+          expect(
+            rec.TmdbId,
+            `TmdbId ${AVAILABLE_TMDB} leaked despite Seerr reporting it available`,
+          ).not.toBe(AVAILABLE_TMDB);
+        }
+      }
+      await assertPluginActive(admin);
+    } finally {
+      // Disarm so later specs see the pristine discover pool.
+      await mock.get(`${MOCK_SEERR_PUBLIC}/reset`).catch(() => undefined);
+      await mock.dispose();
+    }
   });
 });

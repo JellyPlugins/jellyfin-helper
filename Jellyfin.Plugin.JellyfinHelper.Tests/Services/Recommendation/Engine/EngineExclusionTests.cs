@@ -9,6 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Moq;
@@ -183,5 +184,129 @@ public sealed class EngineExclusionTests
 
         Assert.NotNull(result);
         Assert.Contains(result!.Recommendations, r => r.ItemId == candidate.Id);
+    }
+
+    [Fact]
+    public void GetRecommendations_WatchedEpisodeOfSeries_ExcludesDuplicateSeriesCandidate()
+    {
+        // A user watched episodes of a show; a duplicate Series entry (same series TMDb id, different
+        // Jellyfin id) must be excluded via the watched episode's resolved parent-series TMDb key.
+        var harness = EngineTestFactory.Create();
+
+        var duplicateSeries = MakeSeries("Duplicate Show", "/media/series/dup", tmdbId: 1399);
+        WireSeries(harness, [duplicateSeries]);
+
+        var userId = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            UserId = userId,
+            UserName = "u",
+            WatchedItems = new Collection<WatchedItemInfo>
+            {
+                new()
+                {
+                    ItemId = Guid.NewGuid(),
+                    Name = "S01E01 (other copy)",
+                    ItemType = "Episode",
+                    Played = true,
+                    PlayCount = 1,
+                    SeriesTmdbId = 1399,
+                    Genres = new List<string> { "Action" }
+                }
+            }
+        };
+        harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId)).Returns(profile);
+
+        var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.DoesNotContain(result!.Recommendations, r => r.ItemId == duplicateSeries.Id);
+    }
+
+    [Fact]
+    public void GetRecommendations_WatchedEpisodeWithoutResolvedSeriesTmdb_DoesNotExcludeUnrelatedSeries()
+    {
+        // Regression guard: an episode whose parent-series TMDb id could not be resolved (0) must not
+        // contribute a (0, "tv") key that would accidentally suppress unrelated series candidates.
+        var harness = EngineTestFactory.Create();
+
+        var series = MakeSeries("Unrelated Show", "/media/series/unrelated", tmdbId: 2000);
+        WireSeries(harness, [series]);
+
+        var userId = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            UserId = userId,
+            UserName = "u",
+            WatchedItems = new Collection<WatchedItemInfo>
+            {
+                new()
+                {
+                    ItemId = Guid.NewGuid(),
+                    Name = "Orphan Episode",
+                    ItemType = "Episode",
+                    Played = true,
+                    PlayCount = 1,
+                    SeriesTmdbId = 0,
+                    Genres = new List<string> { "Action" }
+                }
+            }
+        };
+        harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId)).Returns(profile);
+
+        var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains(result!.Recommendations, r => r.ItemId == series.Id);
+    }
+
+    private static Series MakeSeries(string name, string path, int tmdbId = 0)
+    {
+        var series = new Series
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Path = path,
+            ProductionYear = 2020,
+            Genres = ["Action"],
+            CommunityRating = 8.0f,
+            PremiereDate = new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc),
+            DateCreated = DateTime.UtcNow.AddDays(-30)
+        };
+        if (tmdbId > 0)
+        {
+            series.ProviderIds["Tmdb"] = tmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return series;
+    }
+
+    private static void WireSeries(EngineTestFactory.EngineHarness harness, List<BaseItem> series)
+    {
+        // A series only enters the candidate pool if it has at least one playable episode indexed,
+        // so give every wired series one episode (with a Path) under its own id.
+        var episodes = series
+            .OfType<Series>()
+            .Select(s => (BaseItem)new Episode
+            {
+                Id = Guid.NewGuid(),
+                Name = s.Name + " S01E01",
+                SeriesId = s.Id,
+                Path = s.Path + "/s01e01.mkv"
+            })
+            .ToList();
+
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Movie)))
+            .Returns([]);
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Series)))
+            .Returns(series);
+        harness.LibraryManager
+            .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Episode)))
+            .Returns(episodes);
     }
 }

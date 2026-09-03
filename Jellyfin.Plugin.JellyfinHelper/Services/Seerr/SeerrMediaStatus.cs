@@ -7,7 +7,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 /// Overseerr's values <c>MediaStatus</c> enum as surfaced on a media object's
 /// <c>status</c> field: 1 = unknown, 2 = pending, 3 = processing, 4 = partially available,
 /// 5 = available. This is distinct from a request's own status (pending/approved/declined);
-/// a title is considered already in the library from <c>PartiallyAvailable</c> upward.
+/// a title counts as already in the library only when its status is
+/// <c>PartiallyAvailable</c> or <c>Available</c>.
 /// </remarks>
 internal static class SeerrMediaStatus
 {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.Entities;
@@ -39,16 +40,11 @@ public static class TmdbLibraryMapper
     {
         ArgumentNullException.ThrowIfNull(libraryItems);
 
-        var result = new HashSet<(int, string)>();
-        foreach (var item in libraryItems)
-        {
-            if (TryGetTmdbId(item, out var tmdbId))
-            {
-                result.Add((tmdbId, item is Series ? TvMediaType : MovieMediaType));
-            }
-        }
-
-        return result;
+        return libraryItems
+            .Select(item => (Ok: TryGetTmdbId(item, out var tmdbId), TmdbId: tmdbId, IsSeries: item is Series))
+            .Where(static x => x.Ok)
+            .Select(static x => (x.TmdbId, x.IsSeries ? TvMediaType : MovieMediaType))
+            .ToHashSet();
     }
 
     /// <summary>

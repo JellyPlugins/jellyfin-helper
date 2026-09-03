@@ -117,7 +117,9 @@ internal sealed class TmdbDiscoverItem
     /// </summary>
     [JsonIgnore]
     public bool IsAlreadyAvailable =>
-        MediaInfo is not null && MediaInfo.Status >= SeerrMediaStatus.PartiallyAvailable;
+        MediaInfo is not null
+        && (MediaInfo.Status == SeerrMediaStatus.PartiallyAvailable
+            || MediaInfo.Status == SeerrMediaStatus.Available);
 
     /// <summary>
     ///     Gets or sets known people names (populated from search results where cast data is embedded).

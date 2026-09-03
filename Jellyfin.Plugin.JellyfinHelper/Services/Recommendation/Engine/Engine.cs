@@ -1092,15 +1092,33 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     // Collects the (TmdbId, MediaType) keys of the user's watched items so recommendations can skip a
-    // duplicate library entry of something already watched. Series keys come from the watched item's
-    // own TMDb id when it is itself a series; episode rows contribute nothing here because series-level
-    // exclusion is already handled by watchedSeriesIds.
+    // duplicate library entry of something already watched. A watched series contributes its own TMDb
+    // id under the "tv" key; a watched episode contributes its parent series' TMDb id under "tv", so a
+    // duplicate Series entry of a show the user has watched episodes of is also excluded; everything
+    // else is keyed as a movie.
     private static HashSet<(int TmdbId, string MediaType)> BuildWatchedTmdbKeys(UserWatchProfile userProfile)
     {
         var keys = new HashSet<(int TmdbId, string MediaType)>();
         foreach (var watched in userProfile.WatchedItems)
         {
-            if (!watched.HasMeaningfulInteraction() || watched.TmdbId <= 0)
+            if (!watched.HasMeaningfulInteraction())
+            {
+                continue;
+            }
+
+            if (string.Equals(watched.ItemType, nameof(Episode), StringComparison.Ordinal))
+            {
+                // Episodes rarely carry a useful TMDb id of their own; the series-level id is what a
+                // duplicate Series candidate would match on.
+                if (watched.SeriesTmdbId > 0)
+                {
+                    keys.Add((watched.SeriesTmdbId, TmdbLibraryMapper.TvMediaType));
+                }
+
+                continue;
+            }
+
+            if (watched.TmdbId <= 0)
             {
                 continue;
             }

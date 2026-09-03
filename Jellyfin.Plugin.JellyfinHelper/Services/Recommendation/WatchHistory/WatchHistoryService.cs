@@ -86,13 +86,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // The seriesId -> genres map is identical for every user in the batch, so build it once here
         // rather than rebuilding it inside BuildProfile on each iteration.
         var seriesGenresById = BuildSeriesGenresLookup(allSeries);
+        var seriesTmdbById = BuildSeriesTmdbLookup(allSeries);
 
         var profiles = new Collection<UserWatchProfile>();
         foreach (var user in users)
         {
             try
             {
-                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById));
+                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById));
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
@@ -161,6 +162,26 @@ public sealed class WatchHistoryService : IWatchHistoryService
         return lookup;
     }
 
+    /// <summary>
+    ///     Builds a seriesId to TMDb-id map from the loaded series items so a watched episode can be
+    ///     attributed to its parent series' TMDb id. Only series carrying a positive TMDb id are stored.
+    /// </summary>
+    /// <param name="allSeries">All series items loaded from the library.</param>
+    /// <returns>A map from series id to its TMDb id.</returns>
+    private static Dictionary<Guid, int> BuildSeriesTmdbLookup(IReadOnlyList<BaseItem> allSeries)
+    {
+        var lookup = new Dictionary<Guid, int>();
+        foreach (var series in allSeries)
+        {
+            if (TmdbLibraryMapper.TryGetTmdbId(series, out var tmdbId))
+            {
+                lookup[series.Id] = tmdbId;
+            }
+        }
+
+        return lookup;
+    }
+
     /// <inheritdoc />
     public IReadOnlyDictionary<Guid, int> GetSeriesEpisodeCounts()
     {
@@ -218,12 +239,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="allItems">Pre-loaded video items from the library (null to query on demand).</param>
     /// <param name="allSeries">Pre-loaded series items for favorite detection (null to query on demand).</param>
     /// <param name="seriesGenresById">Pre-built seriesId to genres map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
+    /// <param name="seriesTmdbById">Pre-built seriesId to TMDb-id map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <returns>A populated watch profile for the user.</returns>
     internal UserWatchProfile BuildProfile(
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem>? allItems = null,
         IReadOnlyList<BaseItem>? allSeries = null,
-        Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null)
+        Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null,
+        Dictionary<Guid, int>? seriesTmdbById = null)
     {
         var profile = new UserWatchProfile
         {
@@ -241,6 +264,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // genre signal (engagement, SeriesAffinity) is systematically empty.
         allSeries ??= LoadAllSeriesItems();
         seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
+        seriesTmdbById ??= BuildSeriesTmdbLookup(allSeries);
 
         var ratingSum = 0.0;
         var ratingCount = 0;
@@ -263,7 +287,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, seriesGenresById, ref ratingSum, ref ratingCount);
+            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, seriesGenresById, seriesTmdbById, ref ratingSum, ref ratingCount);
         }
 
         // Check series-level favorites: users can favorite an entire series in Jellyfin (the heart button on the series page).
@@ -307,6 +331,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="userData">The user data for the item.</param>
     /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
     /// <param name="seriesGenresById">Map of series id to genres, used to give an episode its parent series' genres when the episode has none.</param>
+    /// <param name="seriesTmdbById">Map of series id to TMDb id, used to attribute a watched episode to its parent series' TMDb id.</param>
     /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
     /// <param name="ratingCount">Running community-rating count (updated in place).</param>
     private void AccumulateWatchedItem(
@@ -315,6 +340,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         UserItemData userData,
         HashSet<Guid> watchedSeriesIds,
         Dictionary<Guid, IReadOnlyList<string>> seriesGenresById,
+        Dictionary<Guid, int> seriesTmdbById,
         ref double ratingSum,
         ref int ratingCount)
     {
@@ -339,6 +365,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
             genres = new List<string>(inheritedGenres);
         }
 
+        // For episodes, attribute the watch to the parent series' TMDb id (episodes rarely carry a
+        // useful id of their own), so a duplicate series entry of a partially watched show is excluded.
+        var seriesTmdbId = seriesId.HasValue && seriesTmdbById.TryGetValue(seriesId.Value, out var resolvedSeriesTmdb)
+            ? resolvedSeriesTmdb
+            : 0;
+
         var watchedItem = new WatchedItemInfo
         {
             ItemId = item.Id,
@@ -356,6 +388,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             Year = item.ProductionYear,
             SeriesId = seriesId,
             TmdbId = TmdbLibraryMapper.TryGetTmdbId(item, out var itemTmdbId) ? itemTmdbId : 0,
+            SeriesTmdbId = seriesTmdbId,
             DateCreated = item.DateCreated,
             PrimaryImageTag = null,
             PeopleNames = billedNames,

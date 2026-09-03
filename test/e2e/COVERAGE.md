@@ -219,6 +219,11 @@ plugin stays Active after every call).
   The visible pool is **capped at `MaxVisiblePerUser` (10)** and **no `AlreadyRequested`
   item leaks through**; when the mock discover pool yields nothing for the linked user
   those assertions are skipped (the empty-cache branch is also a valid outcome).
+- **Seerr availability exclusion:** the mock is armed (via `/seed-available-candidate`)
+  to report a discover candidate as already available (`mediaInfo.status` 5) that no
+  Radarr/Sonarr instance or Jellyfin library entry tracks. After a real generation run,
+  `GET Discovery` (admin, all user pools) asserts that title appears in **no** pool,
+  isolating the `mediaInfo.status` filter from the Arr/library exclusion sources.
 - `Discovery/My/script` is served **anonymously**, fetched with **no auth header**
   (a bare context, not the admin token) and must return JS, not 401/403.
 - `Discovery/My/Dismiss` records dismissal.

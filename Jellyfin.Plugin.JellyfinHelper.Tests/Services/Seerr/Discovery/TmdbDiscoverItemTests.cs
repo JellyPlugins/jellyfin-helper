@@ -233,6 +233,19 @@ public sealed class TmdbDiscoverItemTests
         Assert.False(result!.IsAlreadyAvailable);
     }
 
+    [Theory]
+    [InlineData(6)]
+    [InlineData(7)]
+    public void JsonDeserialize_MediaInfoStatusAboveAvailable_IsAlreadyAvailableFalse(int status)
+    {
+        // Seerr may surface Blocklisted/Deleted with a status above Available. Those titles are not
+        // in the library, so availability must be matched explicitly (== 4 or == 5), never ">= 4".
+        var json = $"{{\"id\":550,\"mediaType\":\"movie\",\"title\":\"Fight Club\",\"mediaInfo\":{{\"status\":{status}}}}}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.False(result!.IsAlreadyAvailable);
+    }
+
     [Fact]
     public void JsonDeserialize_NoMediaInfo_IsAlreadyAvailableFalse()
     {

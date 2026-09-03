@@ -88,4 +88,18 @@ public sealed class LibraryPathResolverAllowedRootTests
             Assert.True(result);
         }
     }
+
+    [Fact]
+    public void IsUnderAllowedRoot_FilesystemRootAllowed_ChildMatches()
+    {
+        // A virtual folder rooted at "/" must treat every path as a descendant; the child prefix
+        // collapses to "/" itself rather than "//", which would reject everything.
+        Assert.True(LibraryPathResolver.IsUnderAllowedRoot("/media/movies/film.mkv", ["/"]));
+    }
+
+    [Fact]
+    public void IsUnderAllowedRoot_FilesystemRootAllowed_RootItselfMatches()
+    {
+        Assert.True(LibraryPathResolver.IsUnderAllowedRoot("/", ["/"]));
+    }
 }

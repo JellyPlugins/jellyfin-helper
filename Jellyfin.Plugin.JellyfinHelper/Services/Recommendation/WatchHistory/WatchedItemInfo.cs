@@ -97,6 +97,14 @@ public sealed class WatchedItemInfo
     public int TmdbId { get; set; }
 
     /// <summary>
+    ///     Gets or sets the parent series' TMDb id for a watched episode, or 0 when unknown or not an
+    ///     episode. Episodes rarely carry a useful TMDb id of their own, so this holds the series-level
+    ///     id, letting recommendations exclude a duplicate series entry of a show the user has watched
+    ///     episodes of.
+    /// </summary>
+    public int SeriesTmdbId { get; set; }
+
+    /// <summary>
     ///     Gets or sets the date the item was added to the library.
     /// </summary>
     public DateTime? DateCreated { get; set; }

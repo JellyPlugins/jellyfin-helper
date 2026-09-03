@@ -1924,8 +1924,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var excluded = new HashSet<(int TmdbId, string MediaType)>();
 
         // Exclude titles already in the Jellyfin library. This covers items that no configured Arr
-        // instance tracks (manually added, imported, or when Arr is not configured at all).
+        // instance tracks (manually added, imported, or when Arr is not configured at all). The
+        // library scan is a bound synchronous call that cannot observe cancellation itself, so we
+        // check the token on both sides of it.
+        cancellationToken.ThrowIfCancellationRequested();
         AddLibraryExclusions(excluded);
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Exclude movies already in Radarr
         await AddRadarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);
@@ -2079,38 +2083,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             var mediaTypeKey = (candidate.MediaType ?? MediaTypeMovie).ToLowerInvariant();
-            if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
+
+            if (!PassesPreDedupFilters(candidate, mediaTypeKey, excludedTmdbIds, minVoteAverage))
             {
                 continue;
             }
 
-            // Seerr already knows this title is (partially) available in the library, so recommending
-            // it would just surface something the user can already watch.
-            if (candidate.IsAlreadyAvailable)
-            {
-                continue;
-            }
-
-            if (candidate.VoteAverage < minVoteAverage)
-            {
-                continue;
-            }
-
+            // Dedup sits between the pre- and post-dedup filters, matching the original ordering:
+            // a candidate rejected by the parental/year gates below has still claimed its key here,
+            // so a later duplicate that would pass is suppressed.
             if (!seen.Add((candidate.Id, mediaTypeKey)))
             {
                 continue;
             }
 
-            // Parental rating filter: exclude adult content and restricted genres
-            if (ParentalRatingHelper.ShouldExclude(candidate, maxParentalRating))
-            {
-                continue;
-            }
-
-            // Year-based post-filtering (soft: only if year is available and min is set)
-            if (minYear > 0
-                && candidate.EffectiveReleaseDate.HasValue
-                && candidate.EffectiveReleaseDate.Value.Year < minYear)
+            if (!PassesPostDedupFilters(candidate, maxParentalRating, minYear))
             {
                 continue;
             }
@@ -2119,6 +2106,50 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Filters applied before deduplication: exclusion set, Seerr availability, and minimum rating.
+    /// </summary>
+    private static bool PassesPreDedupFilters(
+        TmdbDiscoverItem candidate,
+        string mediaTypeKey,
+        HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
+        double minVoteAverage)
+    {
+        if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
+        {
+            return false;
+        }
+
+        // Seerr already knows this title is (partially) available in the library, so recommending
+        // it would just surface something the user can already watch.
+        if (candidate.IsAlreadyAvailable)
+        {
+            return false;
+        }
+
+        return candidate.VoteAverage >= minVoteAverage;
+    }
+
+    /// <summary>
+    ///     Filters applied after deduplication: parental rating and year relevance.
+    /// </summary>
+    private static bool PassesPostDedupFilters(
+        TmdbDiscoverItem candidate,
+        int? maxParentalRating,
+        int minYear)
+    {
+        // Parental rating filter: exclude adult content and restricted genres
+        if (ParentalRatingHelper.ShouldExclude(candidate, maxParentalRating))
+        {
+            return false;
+        }
+
+        // Year-based post-filtering (soft: only if year is available and min is set)
+        return !(minYear > 0
+            && candidate.EffectiveReleaseDate.HasValue
+            && candidate.EffectiveReleaseDate.Value.Year < minYear);
     }
 
     /// <summary>

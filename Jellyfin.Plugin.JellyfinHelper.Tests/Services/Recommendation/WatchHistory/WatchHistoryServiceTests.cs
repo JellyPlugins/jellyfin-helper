@@ -210,6 +210,80 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void BuildProfile_WatchedEpisode_ResolvesParentSeriesTmdbId()
+    {
+        // A watched episode must carry its parent series' TMDb id (episodes rarely have a useful id of
+        // their own), so recommendations can exclude a duplicate series entry of a partially watched show.
+        var user = CreateTestUser("grace");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var seriesId = Guid.NewGuid();
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "S01E01", SeriesId = seriesId, Genres = OwnEpisodeGenres, RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = ParentSeriesGenres };
+        series.ProviderIds["Tmdb"] = "1399";
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { episode })
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "ep-key", Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == episode.Id);
+        Assert.Equal(1399, watched.SeriesTmdbId);
+    }
+
+    [Fact]
+    public void BuildProfile_WatchedEpisode_ParentSeriesWithoutTmdb_LeavesSeriesTmdbIdZero()
+    {
+        // When the parent series carries no TMDb id, SeriesTmdbId stays 0 so no (0, "tv") key is built.
+        var user = CreateTestUser("heidi");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var seriesId = Guid.NewGuid();
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "S01E01", SeriesId = seriesId, Genres = OwnEpisodeGenres, RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var series = new Series { Id = seriesId, Name = "Untagged Show", Genres = ParentSeriesGenres };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { episode })
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "ep-key", Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == episode.Id);
+        Assert.Equal(0, watched.SeriesTmdbId);
+    }
+
+    [Fact]
+    public void BuildProfile_WatchedMovie_LeavesSeriesTmdbIdZero()
+    {
+        // A movie is not an episode, so it never resolves a parent-series TMDb id.
+        var user = CreateTestUser("ida");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var movie = new Movie { Id = Guid.NewGuid(), Name = "Solo Film", Genres = OwnEpisodeGenres, RunTimeTicks = TimeSpan.FromMinutes(100).Ticks };
+        movie.ProviderIds["Tmdb"] = "550";
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { movie })
+            .Returns(new List<BaseItem>());
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "mv-key", Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == movie.Id);
+        Assert.Equal(0, watched.SeriesTmdbId);
+        Assert.Equal(550, watched.TmdbId);
+    }
+
+    [Fact]
     public void BuildProfile_GenreDistribution_CountsCorrectly()
     {
         var user = CreateTestUser("charlie");

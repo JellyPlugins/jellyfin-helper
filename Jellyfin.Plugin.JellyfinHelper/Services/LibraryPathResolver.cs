@@ -111,9 +111,13 @@ public static class LibraryPathResolver
 
             var normalizedRoot = NormalizeForPrefix(root);
 
+            // The filesystem root normalizes to "/"; its child prefix is "/" itself, not "//",
+            // otherwise every descendant would fail the boundary check.
+            var childPrefix = normalizedRoot == "/" ? "/" : normalizedRoot + '/';
+
             // Exact match (the item is the root itself) or a child under a directory boundary.
             if (normalizedItem.Equals(normalizedRoot, comparison)
-                || normalizedItem.StartsWith(normalizedRoot + '/', comparison))
+                || normalizedItem.StartsWith(childPrefix, comparison))
             {
                 return true;
             }
