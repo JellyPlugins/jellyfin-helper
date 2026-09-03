@@ -276,7 +276,7 @@ MOCK_USER_ACTIVITY[_uid1]=[
 {ItemName:"Inception",ItemType:"Movie",TotalPlayCount:4,MostRecentWatch:new Date(Date.now()-25*86400000).toISOString(),AverageCompletionPercent:100}
 ];
 MOCK_USER_ACTIVITY[_uid2]=[
-{ItemName:"The Grand Budapest Hotel",ItemType:"Movie",TotalPlayCount:2,MostRecentWatch:new Date(Date.now()-1*86400000).toISOString(),AverageCompletionPercent:100},
+{ItemName:"The Grand Budapest Hotel",ItemType:"Movie",TotalPlayCount:2,MostRecentWatch:new Date(Date.now()-86400000).toISOString(),AverageCompletionPercent:100},
 {ItemName:"Fleabag",ItemType:"Series",TotalPlayCount:12,MostRecentWatch:new Date(Date.now()-3*86400000).toISOString(),AverageCompletionPercent:100},
 {ItemName:"Everything Everywhere All at Once",ItemType:"Movie",TotalPlayCount:1,MostRecentWatch:new Date(Date.now()-6*86400000).toISOString(),AverageCompletionPercent:100},
 {ItemName:"Knives Out",ItemType:"Movie",TotalPlayCount:1,MostRecentWatch:new Date(Date.now()-14*86400000).toISOString(),AverageCompletionPercent:100}
