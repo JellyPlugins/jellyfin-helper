@@ -281,6 +281,196 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             }
         }
     }
+
+    // Seeds a prior discovery pool for a user directly into the on-disk cache so a subsequent run's
+    // carry-forward behaviour can be observed.
+    private static void SeedPriorPool(DiscoveryCacheService cache, Guid userId, int tmdbId)
+    {
+        var prior = new DiscoveryResult
+        {
+            UserId = userId,
+            UserName = "seeded",
+            Recommendations =
+            [
+                new DiscoveryRecommendation { TmdbId = tmdbId, MediaType = "movie", Title = "Prior", Score = 0.9 }
+            ]
+        };
+        Assert.True(cache.Save([prior]));
+    }
+
+    private static HashSet<int> CachedTmdbIdsForUser(DiscoveryCacheService cache, Guid userId)
+    {
+        var pool = cache.Load().FirstOrDefault(r => r.UserId == userId);
+        return pool == null ? [] : pool.Recommendations.Select(r => r.TmdbId).ToHashSet();
+    }
+
+    [Fact]
+    public async Task GenerateDiscovery_TransientPerUserFailure_PreservesPreviousPool()
+    {
+        // A transient (non-fatal) exception during a user's generation must NOT wipe their last-known-good
+        // pool: the full-overwrite Save would otherwise empty the user's sidebar until the next good run.
+        var cache = NewFileCache(out var filePath);
+        try
+        {
+            using var cacheGuard = cache;
+            var profile = NewProfile();
+            SeedPriorPool(cache, profile.UserId, tmdbId: 680);
+
+            _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+            _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK,
+                """{ "pageInfo": { "pages": 1, "pageSize": 50, "results": 0, "page": 1 }, "results": [] }""");
+
+            // Fail this user's first genre query (index 0 is the reconcile user fetch above).
+            _handler.ThrowAfter = new InvalidOperationException("transient");
+            _handler.ThrowAfterCallIndex = 1;
+            RegisterMovieGenre(28, (2601, 8.0));
+
+            await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
+
+            Assert.Contains(680, CachedTmdbIdsForUser(cache, profile.UserId));
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GenerateDiscovery_EmptyByDesign_ClearsPreviousPool()
+    {
+        // A legitimately empty generation (no candidates survive) is the correct case to clear the pool
+        // carry-forward must NOT keep a stale pool alive when the fresh run genuinely produced nothing.
+        var cache = NewFileCache(out var filePath);
+        try
+        {
+            using var cacheGuard = cache;
+            var profile = NewProfile();
+            SeedPriorPool(cache, profile.UserId, tmdbId: 680);
+
+            _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+            _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK,
+                """{ "pageInfo": { "pages": 1, "pageSize": 50, "results": 0, "page": 1 }, "results": [] }""");
+
+            // Every discover query returns an empty result set, so no viable candidate survives filtering
+            // and GenerateForUserAsync returns null (EmptyByDesign). Unregistered paths default to empty.
+            _handler.RegisterResponse(HttpMethod.Get, "/genre/28?page=1", HttpStatusCode.OK,
+                """{ "results": [] }""");
+
+            await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
+
+            Assert.Empty(CachedTmdbIdsForUser(cache, profile.UserId));
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GenerateDiscovery_FreshGeneration_OverwritesPreviousPool()
+    {
+        // A successful fresh generation replaces the prior pool: the old tmdbId must be gone and the new
+        // candidate present.
+        var cache = NewFileCache(out var filePath);
+        try
+        {
+            using var cacheGuard = cache;
+            var profile = NewProfile();
+            SeedPriorPool(cache, profile.UserId, tmdbId: 680);
+
+            _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+            RegisterMovieGenre(28, (2601, 8.0));
+
+            await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
+
+            var ids = CachedTmdbIdsForUser(cache, profile.UserId);
+            Assert.Contains(2601, ids);
+            Assert.DoesNotContain(680, ids);
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GenerateDiscovery_CarriedForwardPool_IsNotRecordedAsShownAgain()
+    {
+        // A carried-forward pool was already recorded as shown when first generated; re-recording it would
+        // double-count training signal. The failing user must be excluded from feedback, a fresh user must not.
+        var cache = NewFileCache(out var filePath);
+        try
+        {
+            using var cacheGuard = cache;
+            var failing = NewProfile();
+            SeedPriorPool(cache, failing.UserId, tmdbId: 680);
+            _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(failing));
+
+            _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK,
+                """{ "pageInfo": { "pages": 1, "pageSize": 50, "results": 0, "page": 1 }, "results": [] }""");
+            _handler.ThrowAfter = new InvalidOperationException("transient");
+            _handler.ThrowAfterCallIndex = 1;
+            RegisterMovieGenre(28, (2601, 8.0));
+
+            var recorded = new List<Guid>();
+            _feedbackStore
+                .Setup(f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+                .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((id, _, _) => recorded.Add(id));
+
+            await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
+
+            // Pool preserved on disk, but NOT re-recorded as shown.
+            Assert.Contains(680, CachedTmdbIdsForUser(cache, failing.UserId));
+            Assert.DoesNotContain(failing.UserId, recorded);
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GenerateDiscovery_InvalidSeerrConfigForUser_PreservesPreviousPool()
+    {
+        // An invalid Seerr URL is non-blank (so it clears the global blank-config gate) but makes
+        // ValidateSeerrConfig throw inside per-user generation. That is a "could not try", not a
+        // legitimate empty result, so it must be treated as a transient failure and preserve the pool.
+        var cache = NewFileCache(out var filePath);
+        try
+        {
+            using var cacheGuard = cache;
+            var profile = NewProfile();
+            SeedPriorPool(cache, profile.UserId, tmdbId: 680);
+            _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+
+            // Non-blank but unparseable as an absolute http(s) URL: passes IsNullOrWhiteSpace, fails
+            // Uri.TryCreate in ValidateSeerrConfig -> UriFormatException -> transient failure.
+            Plugin.Instance!.Configuration.SeerrUrl = "not-a-valid-url";
+
+            await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
+
+            Assert.Contains(680, CachedTmdbIdsForUser(cache, profile.UserId));
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
 }
 
 /// <summary>

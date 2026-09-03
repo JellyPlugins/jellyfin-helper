@@ -20,7 +20,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests GenerateDiscoveryRecommendationsAsync - the largest previously-uncovered method in the discovery module.
+///     Tests GenerateDiscoveryRecommendationsAsync
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryGenerationTests : IDisposable

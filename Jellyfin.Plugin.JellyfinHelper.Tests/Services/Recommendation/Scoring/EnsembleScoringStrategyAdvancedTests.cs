@@ -7,7 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Advanced tests for EnsembleScoringStrategy targeting the previously uncovered branches: ScoreWithOffset, ScoreWithExplanationAndOffset, ApplyCohortFeedback, and constructor guards.
+///     Advanced tests for EnsembleScoringStrategy: ScoreWithOffset, ScoreWithExplanationAndOffset, ApplyCohortFeedback, and constructor guards.
 /// </summary>
 public sealed class EnsembleScoringStrategyAdvancedTests
 {
@@ -215,7 +215,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     {
         var ensemble = new EnsembleScoringStrategy();
 
-        // Step 1: seed a positive offset via low-cohort win.
+        // Seed a positive offset via low-cohort win.
         var seedControl = BuildCohortResult("control", 10, 3, out var scw);
         var seedLow = BuildCohortResult("explore-low", 10, 9, out var slw);
         ensemble.ApplyCohortFeedback(new[] { seedControl, seedLow },
@@ -228,7 +228,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         var seededOffset = ensemble.SigmoidMidpointOffset;
         Assert.True(seededOffset > 0);
 
-        // Step 2: control beats both explore cohorts.
+        // Control beats both explore cohorts.
         var control = BuildCohortResult("control", 10, 9, out var cw);
         var high = BuildCohortResult("explore-high", 10, 3, out var hw);
         var low = BuildCohortResult("explore-low", 10, 3, out var lw);

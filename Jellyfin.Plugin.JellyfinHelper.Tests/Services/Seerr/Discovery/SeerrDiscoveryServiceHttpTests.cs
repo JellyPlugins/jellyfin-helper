@@ -529,7 +529,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.False(result.IsTransient);
     }
 
-    // Happy-path branches for GetUserRequestPermissionsAsync Coverage report flagged Step 2..5 of the method as untested (14 of the 22 cyclomatic branches were unhit).
+    // Happy-path branches for GetUserRequestPermissionsAsync.
 
     private static readonly Guid LinkedJellyfinUserId = new("11111111-2222-3333-4444-555555555555");
     private const string LinkedJellyfinUserIdJson = "11111111222233334444555555555555";
@@ -604,7 +604,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Empty(result.Profiles);
     }
 
-    // Step 4 - quality-profile exposure depends on user's permission level. Admin / ManageRequests / RequestAdvanced -> filterToDefault=false -> ALL profiles.
+    // Quality-profile exposure depends on user's permission level. Admin / ManageRequests / RequestAdvanced -> filterToDefault=false -> ALL profiles.
 
     [Fact]
     public async Task GetUserRequestPermissionsAsync_AdminUser_ExposesAllProfiles()

@@ -185,6 +185,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         Incomplete,
     }
 
+    /// <summary>
+    ///     Distinguishes why a per-user discovery generation produced no fresh result. A legitimately empty
+    ///     result (no genre preferences, nothing survives filtering) must clear that user's cached pool, but a
+    ///     transient failure (a swallowed non-fatal exception) must NOT: overwriting the cache with nothing on a
+    ///     transient hiccup silently empties the user's Discovery sidebar until the next successful run.
+    /// </summary>
+    private enum UserGenerationStatus
+    {
+        Generated,
+        EmptyByDesign,
+        TransientFailure,
+    }
+
     /// <inheritdoc />
     int ISeerrDiscoveryService.MaxVisiblePerUser => MaxVisiblePerUser;
 
@@ -219,7 +232,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 : $"Starting discovery generation (pool={MaxPoolPerUser}, visible={MaxVisiblePerUser} per user).",
             _logger);
 
-        // Step 1: Load user profiles. Include users who have either played content OR have enough favorites to build genre preferences from.
+        // Load user profiles. Include users who have either played content OR have enough favorites to build genre preferences from.
         var profiles = _watchHistoryService.GetAllUserWatchProfiles();
         var activeProfiles = profiles
             .Where(p => p.WatchedMovieCount + p.WatchedEpisodeCount > 0 || p.FavoriteCount >= 3)
@@ -231,7 +244,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return;
         }
 
-        // Step 1b: Build exclusion set from the Jellyfin library plus the configured Arr instances
+        // Build exclusion set from the Jellyfin library plus the configured Arr instances
         var excludedTmdbIds = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
             LogCategory,
@@ -241,23 +254,51 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Per-series total-episode-count map, built ONCE per discovery run and shared across all users.
         var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
 
-        // Step 2: Process each user
+        // Process each user
         var allResults = new List<DiscoveryResult>(activeProfiles.Count);
+
+        // Snapshot the previously-persisted pools once so a transient per-user failure can carry the user's
+        // last-known-good pool forward instead of being wiped by the full-overwrite Save below. Keyed by user.
+        var previousByUser = _cache.Load().ToDictionary(r => r.UserId);
+
+        // Users whose pool in allResults is a carried-forward snapshot, not freshly generated this run. Their
+        // items were already shown in a prior run, so they must be excluded from feedback recording to avoid
+        // double-counting training signal.
+        var carriedForwardUsers = new HashSet<Guid>();
 
         foreach (var profile in activeProfiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var userResult = await TryGenerateForUserAsync(
+            var outcome = await TryGenerateForUserAsync(
                 profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
 
-            if (userResult != null)
+            switch (outcome.Status)
             {
-                allResults.Add(userResult);
+                case UserGenerationStatus.Generated:
+                    allResults.Add(outcome.Result!);
+                    break;
+
+                case UserGenerationStatus.TransientFailure
+                    when previousByUser.TryGetValue(profile.UserId, out var priorPool):
+                    // Preserve the user's last-known-good pool; a transient hiccup must not empty their sidebar.
+                    allResults.Add(priorPool);
+                    carriedForwardUsers.Add(profile.UserId);
+                    _pluginLog.LogDebug(
+                        LogCategory,
+                        $"Retained previous pool for user {profile.UserName} after a transient generation failure ({priorPool.Recommendations.Count} recommendations).",
+                        _logger);
+                    break;
+
+                case UserGenerationStatus.TransientFailure:
+                case UserGenerationStatus.EmptyByDesign:
+                default:
+                    // TransientFailure with no prior pool: nothing to lose. EmptyByDesign: correct to clear.
+                    break;
             }
         }
 
-        // Step 3: Persist or log
+        // Persist or log
         if (dryRun)
         {
             _pluginLog.LogInfo(
@@ -267,7 +308,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         else
         {
-            PersistResultsAndRecordFeedback(allResults);
+            PersistResultsAndRecordFeedback(allResults, carriedForwardUsers);
         }
     }
 
@@ -579,9 +620,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Generates discovery recommendations for a single user, converting any non-fatal, non-cancellation failure into a logged warning and a null result so one user's failure does not abort the whole run.
+    ///     Generates discovery recommendations for a single user, converting any non-fatal, non-cancellation failure into a logged warning and a <see cref="UserGenerationStatus.TransientFailure"/> outcome so one user's failure does not abort the whole run nor discard their last-known-good cached pool. A legitimately empty generation maps to <see cref="UserGenerationStatus.EmptyByDesign"/>.
     /// </summary>
-    private async Task<DiscoveryResult?> TryGenerateForUserAsync(
+    private async Task<UserGenerationOutcome> TryGenerateForUserAsync(
         UserWatchProfile profile,
         PluginConfiguration config,
         HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
@@ -590,8 +631,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         try
         {
-            return await GenerateForUserAsync(
+            var result = await GenerateForUserAsync(
                 profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
+
+            return result != null
+                ? new UserGenerationOutcome(UserGenerationStatus.Generated, result)
+                : new UserGenerationOutcome(UserGenerationStatus.EmptyByDesign, null);
         }
         catch (OperationCanceledException)
         {
@@ -604,15 +649,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Failed to generate discovery for user {profile.UserName}: {ex.Message}",
                 ex,
                 _logger);
-            return null;
+            return new UserGenerationOutcome(UserGenerationStatus.TransientFailure, null);
         }
     }
 
     /// <summary>
-    ///     Persists the discovery results and, on success, records the shown items in the
-    ///     feedback store for training-data collection (best-effort per user).
+    ///     Persists the discovery results and, on success, records the freshly-generated shown items in the
+    ///     feedback store for training-data collection (best-effort per user). Carried-forward pools (retained
+    ///     from a prior run after a transient failure) are persisted but excluded from feedback recording so
+    ///     their items are not counted as shown twice.
     /// </summary>
-    private void PersistResultsAndRecordFeedback(List<DiscoveryResult> allResults)
+    /// <param name="allResults">All pools to persist: freshly generated plus any carried-forward.</param>
+    /// <param name="carriedForwardUsers">Users whose pool is a carried-forward snapshot, not fresh this run.</param>
+    private void PersistResultsAndRecordFeedback(
+        List<DiscoveryResult> allResults,
+        HashSet<Guid> carriedForwardUsers)
     {
         var persisted = _cache.Save(allResults);
         if (!persisted)
@@ -630,9 +681,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
             _logger);
 
-        // Step 4: Record shown items in the feedback store for training data collection. Only record after successful persistence to prevent feedback/training state from referencing recommendations that never actually reached disk.
+        // Record shown items in the feedback store for training data collection. Only record after successful persistence to prevent feedback/training state from referencing recommendations that never actually reached disk. Skip carried-forward pools: they were already recorded when first generated.
         foreach (var result in allResults)
         {
+            if (carriedForwardUsers.Contains(result.UserId))
+            {
+                continue;
+            }
+
             try
             {
                 _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
@@ -1254,7 +1310,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 1: Resolve the Jellyfin user to their Seerr account
+        // Resolve the Jellyfin user to their Seerr account
         var seerrUsers = await GetCachedSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
         var seerrUser = FindSeerrUserByJellyfinId(seerrUsers, jellyfinUserId);
 
@@ -1279,7 +1335,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 2: Check if the user has request permission for this media type
+        // Check if the user has request permission for this media type
         if (!seerrUser.CanRequest(mediaType))
         {
             _pluginLog.LogDebug(
@@ -1294,7 +1350,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 3: Determine which quality profiles to expose. Distinguish between "no services configured" (empty result from a successful lookup) and "service lookup failed" (transient error).
+        // Determine which quality profiles to expose. Distinguish between "no services configured" (empty result from a successful lookup) and "service lookup failed" (transient error).
         var (services, servicesFetchSucceeded) = await GetServiceInfoWithStatusAsync(serviceType, cancellationToken).ConfigureAwait(false);
 
         if (services.Count == 0)
@@ -1317,7 +1373,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 4: Expose quality profiles - all profiles for advanced users, default only for normal users.
+        // Expose quality profiles: all profiles for advanced users, default only for normal users.
         var filterToDefault = !seerrUser.CanSelectQualityProfile();
         var profiles = BuildAllowedProfileList(services, filterToDefault);
         return new UserRequestPermissionResult
@@ -1557,21 +1613,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Determine user's primary language for language-based discovery
         var primaryLanguage = GetPrimaryLanguageForDiscovery(profile);
 
-        Uri baseUri;
-        string apiKey;
-        try
-        {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
-        }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
-        {
-            _pluginLog.LogWarning(
-                LogCategory,
-                $"Invalid Seerr configuration for user {profile.UserName}: {ex.Message}",
-                ex,
-                _logger);
-            return null;
-        }
+        // An invalid Seerr configuration is not "no recommendations". We could not even try. Let it
+        // propagate so TryGenerateForUserAsync classifies it as a transient failure and preserves the
+        // user's last-known-good pool rather than clearing it. (In practice the global config check at the
+        // top of GenerateDiscoveryRecommendationsAsync already guards the common blank-config case.)
+        var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
 
         var client = GetSeerrClient();
         var allCandidates = new List<TmdbDiscoverItem>();
@@ -2509,4 +2555,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         int? ServerId,
         int? ProfileId,
         string? RootFolder);
+
+    /// <summary>
+    ///     Result of generating discovery for a single user: the status plus the fresh result (only set when
+    ///     <see cref="UserGenerationStatus.Generated"/>).
+    /// </summary>
+    private readonly record struct UserGenerationOutcome(UserGenerationStatus Status, DiscoveryResult? Result);
 }

@@ -16,7 +16,8 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Branch-coverage extensions for ArrIntegrationController covering paths that ArrIntegrationControllerTests left uncovered: the index parameter (valid + invalid range), the failedInstances 502 path, the empty Url/ApiKey skip, and the trash-folder skip in GetJellyfinFolderNames.
+///     Branch-coverage extensions for ArrIntegrationController covering paths that ArrIntegrationControllerTests left
+///     like the index parameter (valid + invalid range), the failedInstances 502 path, the empty Url/ApiKey skip, and the trash-folder skip in GetJellyfinFolderNames.
 /// </summary>
 public sealed class ArrIntegrationControllerExtendedTests : IDisposable
 {

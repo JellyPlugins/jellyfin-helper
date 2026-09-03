@@ -51,6 +51,16 @@ test.beforeAll(async () => {
     data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'seerr-key' },
   });
   expect(seed.ok(), `initial mock-Seerr config failed: ${seed.status()}`).toBeTruthy();
+
+  // Raise the plugin log level so the availability-exclusion spec can attach the SeerrDiscovery
+  // generator's DEBUG trace to a failure. PUT /Configuration ignores PluginLogLevel by design, so
+  // this must go through the dedicated LogLevel endpoint. Best-effort - never fail setup on it.
+  await admin
+    .put(p('Configuration/LogLevel'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { PluginLogLevel: 'DEBUG' },
+    })
+    .catch(() => undefined);
 });
 
 test.afterAll(async () => {
@@ -346,9 +356,7 @@ test.describe.serial('Discovery availability exclusion', () => {
     expect(post.ok(), `set genre on ${itemId}: ${post.status()}`).toBeTruthy();
   }
 
-  async function generatedTmdbIds(): Promise<number[]> {
-    const run = await runCleanupTask(admin);
-    expect(run.LastExecutionResult?.Status).toBe('Completed');
+  async function readDiscoveryPoolIds(): Promise<number[]> {
     // The admin view returns every user's pool; flatten to the set of surfaced TMDb ids.
     const res = await admin.get(p('Discovery'));
     expect(res.ok(), `Discovery admin list failed: ${res.status()}`).toBeTruthy();
@@ -356,6 +364,44 @@ test.describe.serial('Discovery availability exclusion', () => {
       Recommendations?: Array<{ TmdbId: number; MediaType?: string }>;
     }>;
     return pools.flatMap((pool) => (pool.Recommendations ?? []).map((rec) => rec.TmdbId));
+  }
+
+  async function generatedTmdbIds(): Promise<number[]> {
+    const run = await runCleanupTask(admin);
+    expect(run.LastExecutionResult?.Status).toBe('Completed');
+    return readDiscoveryPoolIds();
+  }
+
+  // Pull the plugin's own DEBUG log lines for the discovery generator so a failure can point at the
+  // real branch (empty candidate gather vs. filter drop vs. an empty-result cache overwrite) instead
+  // of a bare "pool was []". Best-effort: never throws, just returns whatever the endpoint yields.
+  async function discoveryDebugTail(): Promise<string> {
+    const res = await admin.get(p('Logs?source=SeerrDiscovery&minLevel=DEBUG&limit=2000')).catch(() => null);
+    if (!res || !res.ok()) return '(SeerrDiscovery logs unavailable)';
+    const body = (await res.json().catch(() => null)) as { Entries?: Array<{ Message?: string }> } | null;
+    const entries = body?.Entries;
+    if (!Array.isArray(entries)) return '(SeerrDiscovery logs not available)';
+    return entries.slice(-12).map((l) => l.Message ?? '').join('\n');
+  }
+
+  // Generate and require a non-empty pool. runCleanupTask runs the whole weekly umbrella task, whose
+  // "Completed" says nothing about whether discovery generated for THIS user: a single transient
+  // per-user null makes GenerateForUserAsync drop the user and the generator's final Save([]) wipes a
+  // previously-good pool (SeerrDiscoveryService: empty allResults overwrites the cache file). So the
+  // positive control must tolerate one bad regeneration and retry, and only fail - with the plugin's
+  // own debug tail attached - if the pool stays empty across attempts.
+  async function generateExpectingPool(): Promise<number[]> {
+    let ids: number[] = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      ids = await generatedTmdbIds();
+      if (ids.length > 0) return ids;
+    }
+    expect(
+      ids.length,
+      `discovery pool stayed empty across 3 regenerations - the generator produced no ` +
+        `candidates for the seeded admin profile. SeerrDiscovery debug tail:\n${await discoveryDebugTail()}`,
+    ).toBeGreaterThan(0);
+    return ids;
   }
 
   test('a Seerr-available discover candidate is excluded from generated recommendations', async () => {
@@ -370,13 +416,15 @@ test.describe.serial('Discovery availability exclusion', () => {
 
       // Positive control: with the mock pristine, 680 is a normal discover candidate and must
       // surface. This proves the absence assertion below is meaningful and not a vacuous pass on
-      // an empty pool.
+      // an empty pool. Retry a transient empty regeneration (see generateExpectingPool).
       const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);
       expect(reset.ok(), `mock reset failed: ${reset.status()}`).toBeTruthy();
-      const before = await generatedTmdbIds();
+      const before = await generateExpectingPool();
       expect(
         before,
-        `positive control: ${AVAILABLE_TMDB} must surface before it is armed as available`,
+        `positive control: ${AVAILABLE_TMDB} must surface before it is armed as available. ` +
+          `Pool was non-empty (${before.length} ids: ${before.join(',')}) but lacked ${AVAILABLE_TMDB}. ` +
+          `SeerrDiscovery debug tail:\n${await discoveryDebugTail()}`,
       ).toContain(AVAILABLE_TMDB);
 
       // Arm 680 as fully available (status 5) on the discover payload, then regenerate.

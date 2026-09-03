@@ -6,7 +6,8 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Branch-coverage extensions for ExternalCandidateFeatureBuilder covering paths that ExternalCandidateFeatureBuilderTests deliberately left uncovered: ArgumentNullException.ThrowIfNull guards for all four required inputs.
+///     Branch-coverage for ExternalCandidateFeatureBuilder covering paths like
+///     ArgumentNullException.ThrowIfNull guards for all four required inputs.
 /// </summary>
 public sealed class ExternalCandidateFeatureBuilderExtendedTests
 {
