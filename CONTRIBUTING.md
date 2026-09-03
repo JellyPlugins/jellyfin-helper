@@ -1,5 +1,5 @@
 <!--
-  CONTRIBUTING.md - Contributor guidelines for the Jellyfin Helper plugin.
+  CONTRIBUTING.md. Contributor guidelines for the Jellyfin Helper plugin.
   This file uses UTF-8 encoding and may contain emoji characters.
   If your editor shows garbled characters, ensure UTF-8 is set.
 -->
@@ -100,12 +100,12 @@ dotnet test --filter "FullyQualifiedName~CreateBackup_IncludesAllSettings"
 The `dotnet test` suite above covers logic in isolation. A separate
 **end-to-end suite** (`test/e2e/`) runs the built plugin inside a real
 Jellyfin 12 container with mock Radarr/Sonarr/Seerr servers, and drives it the
-way a user would - settings, scheduled-task modes, backup import/export, trends,
+way a user would: settings, scheduled-task modes, backup import/export, trends,
 trash, and every dashboard tab (including the unsaved-changes dialog and log
 download). It also covers hardening / edge cases (broken backups, invalid URLs,
 traversal guards, out-of-range values).
 
-Requires Docker + Docker Compose and Node 20+ (no host ffmpeg needed - media is
+Requires Docker + Docker Compose and Node 20+ (no host ffmpeg needed, media is
 generated inside the container).
 
 ```bash
@@ -367,10 +367,10 @@ ControllerTestFactory.ResetPluginConfiguration(); // start from known defaults
 ControllerTestFactory.TeardownPluginInstance();   // null the static field so the next class starts clean
 ```
 
-- Always call `TeardownPluginInstance()` in `IDisposable.Dispose()` - not just `ResetPluginConfiguration()`.  
+- Always call `TeardownPluginInstance()` in `IDisposable.Dispose()`, not just `ResetPluginConfiguration()`.  
   `Reset` only overwrites the config object; the next test class that calls `Initialize` will silently skip re-init (the guard `if (Plugin.Instance != null) return`) and inherit whatever state the previous class left behind.
 - Tests that mutate `Plugin.Instance.Configuration` must be placed in the `[Collection("ConfigOverride")]` collection so xUnit serialises them and prevents cross-class races.
-- Never depend on `Plugin.Instance` being non-null in a test that does not call `InitializePluginInstance()` - the singleton is not set up by the xUnit runner.
+- Never depend on `Plugin.Instance` being non-null in a test that does not call `InitializePluginInstance()`. The singleton is not set up by the xUnit runner.
 
 ## Architecture Overview
 
@@ -605,7 +605,7 @@ Jellyfin.Plugin.JellyfinHelper/
 
 The trees above are a curated, commented overview. **This index is the authoritative,
 complete listing** of every tracked source and test file (`.cs` / `.html` / `.css` /
-`.js`) in the two projects - enforced by the `ContributingDocCoverageTests` drift
+`.js`) in the two projects, enforced by the `ContributingDocCoverageTests` drift
 guard, which fails the build if any tracked file is missing here. Generated build
 artifacts (`bin/`, `obj/`) and the composed `PluginPages/configPage.html` (git-ignored)
 are intentionally excluded. When you add a file, add a line for it here.
@@ -1306,7 +1306,7 @@ UserWatchProfiles → Genre/People/Language preferences
 - Results persisted to `jellyfin-helper-discovery-results.json` with in-memory cache
 - Request submission via `POST /JellyfinHelper/Discovery/Request` with optional Seerr user/server/profile mapping
 
-**Out-of-band request reconciliation:** `SeerrDiscoveryService.ReconcileRequestedItemsAsync(jellyfinUserId, ct)` folds requests a user made outside the discovery UI (e.g. directly in Jellyseerr) back into discovery. It resolves the Jellyfin user to their Seerr user id, paginates `GET /api/v1/request?requestedBy={seerrUserId}`, intersects the returned `(tmdbId, mediaType)` keys with the user's cached recommendations, and for each match records a positive `Requested` feedback signal (`IDiscoveryFeedbackStore.RecordRequested`) and marks it in the cache (`DiscoveryCacheService.MarkAsRequestedAsync`) - so the item leaves the visible pool and the next backfill item takes its slot, exactly like an in-discovery request. It is **fail-safe**: an unresolvable user, any Seerr HTTP/JSON error, or an incomplete pagination returns 0 and touches neither the feedback store nor the cache. It runs from two callers: lazily on the view-load path (`UserDiscoveryController.GetMyDiscoveryResults`, throttled per-user via `BuildReconcileKey` for `ReconcileTtl`) for instant UX, and authoritatively at the top of `GenerateForUserAsync` during the scheduled run so training benefits even for users who never open the sidebar.
+**Out-of-band request reconciliation:** `SeerrDiscoveryService.ReconcileRequestedItemsAsync(jellyfinUserId, ct)` folds requests a user made outside the discovery UI (e.g. directly in Jellyseerr) back into discovery. It resolves the Jellyfin user to their Seerr user id, paginates `GET /api/v1/request?requestedBy={seerrUserId}`, intersects the returned `(tmdbId, mediaType)` keys with the user's cached recommendations, and for each match records a positive `Requested` feedback signal (`IDiscoveryFeedbackStore.RecordRequested`) and marks it in the cache (`DiscoveryCacheService.MarkAsRequestedAsync`), so the item leaves the visible pool and the next backfill item takes its slot, exactly like an in-discovery request. It is **fail-safe**: an unresolvable user, any Seerr HTTP/JSON error, or an incomplete pagination returns 0 and touches neither the feedback store nor the cache. It runs from two callers: lazily on the view-load path (`UserDiscoveryController.GetMyDiscoveryResults`, throttled per-user via `BuildReconcileKey` for `ReconcileTtl`) for instant UX, and authoritatively at the top of `GenerateForUserAsync` during the scheduled run so training benefits even for users who never open the sidebar.
 
 ### Discovery Custom Tab & Script Injection
 
@@ -1331,7 +1331,7 @@ Plugin starts → Plugin.InjectScript()  (from the ctor AND again from
       5. Injects sidebar navigation link (only when the discovery API returns results)
 ```
 
-**Injection runs unconditionally, twice per server start:** once from the `Plugin` constructor (very early during plugin discovery) and once from `DiscoverySidebarInjectionService` (an `IHostedService`) after DI is built and the web root is mounted. The second run is the robust one - it also self-heals the disk-write fallback after a Jellyfin web update overwrites `index.html`. Injection is idempotent (`DiscoveryScriptTag.RemovalRegex` strips any prior tag; `UpdateIndexHtml` skips the write when the file already matches), so running it twice never stacks tags or churns the file. Whether the user actually *sees* the sidebar item is a separate, client-side decision in `discovery-sidebar.js` (see below) - the `<script>` tag is always injected regardless of `RecommendationsTaskMode`.
+**Injection runs unconditionally, twice per server start:** once from the `Plugin` constructor (very early during plugin discovery) and once from `DiscoverySidebarInjectionService` (an `IHostedService`) after DI is built and the web root is mounted. The second run is the robust one: it also self-heals the disk-write fallback after a Jellyfin web update overwrites `index.html`. Injection is idempotent (`DiscoveryScriptTag.RemovalRegex` strips any prior tag; `UpdateIndexHtml` skips the write when the file already matches), so running it twice never stacks tags or churns the file. Whether the user actually *sees* the sidebar item is a separate, client-side decision in `discovery-sidebar.js` (see below). The `<script>` tag is always injected regardless of `RecommendationsTaskMode`.
 
 **Companion plugins (optional):**
 - [Custom Tabs Plugin](https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs) - Provides the `.jellyfinhelper.discovery` container on the home page
@@ -1347,9 +1347,9 @@ Plugin starts → Plugin.InjectScript()  (from the ctor AND again from
 | Neither plugin installed | Script injection writes to `index.html` (requires writable filesystem); sidebar link navigates to fallback page URL |
 | Read-only filesystem + no File Transformation | Script injection cannot write to disk; the plugin logs **one** actionable warning per server start recommending the File Transformation plugin. Discovery is still reachable via the direct URL `/JellyfinHelper/discoveryPage`, but no automatic injection occurs until File Transformation is installed |
 
-**Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting - there is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
+**Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting. There is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
 
-The File Transformation registration uses reflection to avoid a hard dependency - the plugin loads the assembly at runtime and constructs a Newtonsoft.Json `JObject` payload with `id`, `fileNamePattern`, `callbackAssembly`, `callbackClass`, and `callbackMethod`.
+The File Transformation registration uses reflection to avoid a hard dependency: the plugin loads the assembly at runtime and constructs a Newtonsoft.Json `JObject` payload with `id`, `fileNamePattern`, `callbackAssembly`, `callbackClass`, and `callbackMethod`.
 
 ### Discovery API Endpoints
 
@@ -1415,14 +1415,14 @@ CSS and JS files are injected in a specific order defined in `ComposeConfigPage.
 
 ### Important Rules
 
-- **Never edit `configPage.html` directly** - it's overwritten on every build
+- **Never edit `configPage.html` directly.** It's overwritten on every build
 - **Always edit the source files** in `css/`, `js/`, or `configPage.template.html`
 - The `docs/` folder contains a **copy** of the plugin pages for the documentation site
 - After changing plugin pages, copy updated files to `docs/` as well
 
 ### JavaScript Guidelines
 
-- All JS runs inside an IIFE (Immediately Invoked Function Expression) - no global pollution
+- All JS runs inside an IIFE (Immediately Invoked Function Expression), no global pollution
 - Prefer `var` for broader compatibility; `const`/`let` and arrow functions are acceptable
   in utility/helper code (e.g., `Shared.js`) where Jellyfin web client supports ES6+
 - Use `T('key', 'fallback')` for all user-visible strings (i18n support)
@@ -1434,7 +1434,7 @@ CSS and JS files are injected in a specific order defined in `ComposeConfigPage.
 - Prefix all classes with the tab name (e.g., `recs-*` for Recommendations)
 - Support both dark and light modes via `@media (prefers-color-scheme: light)`
 - Use relative units (`em`, `%`) for responsive layouts
-- Keep specificity low - avoid `!important`
+- Keep specificity low, avoid `!important`
 
 ## Adding a New Feature
 

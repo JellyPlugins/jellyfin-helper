@@ -1,6 +1,6 @@
 # E2E Coverage Matrix
 
-What the end-to-end suite exercises, mapped to the test that covers it -
+What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
 every UI interaction. **294 tests** (API + UI) across 45 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
@@ -16,12 +16,12 @@ Beyond "does it route / does the UI render", the suite now proves features
   vacuously.
 - **Adversarial (canary-guarded):** fat-finger and hostile inputs must fail
   cleanly (400/502/504, never 500/hang), and **canary files planted outside
-  `/media` must survive every destructive test** - the proof that no misuse can
+  `/media` must survive every destructive test**: The proof that no misuse can
   delete or move data outside the media library.
 
 ## How to see coverage live
 
-- **HTML report:** after any run - `cd test/e2e && npx playwright show-report`.
+- **HTML report:** after any run: `cd test/e2e && npx playwright show-report`.
   Lists every test, pass/fail, timings; on failure embeds trace + screenshot + video.
 - **In CI:** the `E2E (Docker)` workflow uploads `e2e-playwright-report` on every
   run (plus a separate `e2e-traces` artifact with traces/screenshots on failure).
@@ -39,7 +39,7 @@ Beyond "does it route / does the UI render", the suite now proves features
   MediaStatistics/Latest, GrowthTimeline, Recommendations + WatchProfiles, UserActivity/Latest).
 - Per-user recommendation + activity routes.
 
-## 2. Scheduled task - all modes → `tasks.api.spec.ts`
+## 2. Scheduled task: all modes → `tasks.api.spec.ts`
 - All stages **Deactivate** → completes, no side effects.
 - Cleanup stages **DryRun** → completes, deletes nothing (counters unchanged).
 - Cleanup stages **Activate** (permanent delete) → completes, counters rise.
@@ -51,7 +51,7 @@ Beyond "does it route / does the UI render", the suite now proves features
 - Task modes round-trip; numeric clamp; trash settings + blank-path reset.
 - API-key mask **functionally proven** to preserve the stored key: after a
   mask (and whitespace-padded mask) re-save, an admin `Discovery/Request`
-  still authenticates to the mock with the real key - the mock now 401s any
+  still authenticates to the mock with the real key. The mock now 401s any
   all-asterisk value, so a wipe-to-mask would fail the test. `SeerrCleanupAgeDays→0` when URL blank.
 - PluginLogLevel ignored by PUT /Configuration, changed only via /LogLevel (+ invalid rejected).
 - Arr instances persist (max 3, masked); Language de↔en.
@@ -74,7 +74,7 @@ Beyond "does it route / does the UI render", the suite now proves features
   `POST ArrIntegration/TestConnection` and `POST Seerr/Test` with `ApiKey = ********` (exactly what
   the UI sends after a reload) **succeed** because the server resolves the mask back to the real
   stored key before probing upstream. A mask sent for an **unrelated URL** (no stored instance)
-  fails cleanly (`Success:false`, never 500) and never borrows another instance's credential — the
+  fails cleanly (`Success:false`, never 500) and never borrows another instance's credential. The
   mask is never forwarded upstream.
 
 ## 7. Hardening / edge cases → `hardening.api.spec.ts`
@@ -84,23 +84,23 @@ Beyond "does it route / does the UI render", the suite now proves features
 - Concurrent task triggers; rate-limit 429 + Retry-After.
 - (Setup putConfig calls fail loudly if a precondition save didn't succeed.)
 
-## 7a. Upstream DOWN - resilience under an unreachable Arr/Seerr → `upstream-down.api.spec.ts`
+## 7a. Upstream DOWN: resilience under an unreachable Arr/Seerr → `upstream-down.api.spec.ts`
 Distinct from the *reachable-but-errors* coverage (`force-fail` = HTTP 500,
 `force-slow` = timeout): here the plugin is pointed at a **dead port**
 (`127.0.0.1:1`, nothing listening) so the HTTP client raises **connection-refused**
-(`HttpRequestException`) - a separate catch branch from the upstream-500 path.
+(`HttpRequestException`), a separate catch branch from the upstream-500 path.
 Contract: behaviour **degrades but nothing breaks** (bounded time, never 500/hang,
 plugin stays Active after every call).
 - **Arr `TestConnection`** against a dead host → clean failed test (`Success:false`,
   generic non-oracle message), not 500.
 - **Arr `Compare/Radarr`** against a dead host → **502 naming the instance**
-  (`DeadBox`) - the connection-refused branch, which `integrations.api.spec.ts`'s
+  (`DeadBox`), the connection-refused branch, which `integrations.api.spec.ts`'s
   reachable-500 `FailBox` test does not exercise.
 - **Seerr-dependent `Discovery/Services`** read path against a dead host → graceful
   200/204 or transient 502/503/504, **never 500**, plugin survives.
 
 ## 7b. Authorization gating → `authz.api.spec.ts`
-- **Non-admin denied (401/403) on every `[RequiresElevation]` controller** - GET, PUT/DELETE
+- **Non-admin denied (401/403) on every `[RequiresElevation]` controller**: GET, PUT/DELETE
   and POST matrices across Configuration, Backup, Trash (incl. the destructive
   `Trash/Relocate` and `Trash/FoldersForPath`), Arr/Seerr, Discovery-admin,
   Recommendations, UserActivity, stats/trends, Logs.
@@ -132,16 +132,16 @@ plugin stays Active after every call).
 - `CheckAccess` rejects traversal + overlong; missing body/field → 400 `{Error}`.
 - `Relocate` error-body contract: traversal → bare string, missing field → `{Error}` object.
 - **Null-body branch:** a literal `null` body to `Relocate`, `CheckAccess`, and `FoldersForPath`
-  → a clean **400 with a body** (never 500/NRE) - tolerating whichever shape `[ApiController]`
+  → a clean **400 with a body** (never 500/NRE), tolerating whichever shape `[ApiController]`
   produces (problem-details envelope or the `{Error}` guard). Distinct from the `{}` field-blank
   branch every other test exercises.
 - **Absolute-path CheckAccess containment** (`trash-abuse.api.spec.ts`): a fully-qualified `/config`
   path → **400** `Path is outside of the permitted library trash directories.` **before** any probe
-  write - the config canary survives and no probe file is planted (the CheckAccess twin of the
+  write. The config canary survives and no probe file is planted (the CheckAccess twin of the
   Relocate/DELETE `/config` guards).
 - **`Trash/Summary` aggregation** (`trash-fs.api.spec.ts`): seed a KNOWN payload across the Movies and
   Shows trash folders and assert the **exact** `TotalItems`/`TotalSize` (summed across libraries,
-  dirs counted recursively) - not the vacuous `>=0` the routing tests assert.
+  dirs counted recursively), not the vacuous `>=0` the routing tests assert.
 
 ## 7f. Logs & Translations API → `logs.api.spec.ts`
 - Logs envelope `{TotalBuffered, Returned, Entries}` with `Returned === Entries.length`; entry `Level` in the valid set.
@@ -161,39 +161,39 @@ plugin stays Active after every call).
 - Unknown/removed fields are silently ignored on both backup import and `PUT /Configuration` (no reject).
 - `GET /Configuration` exposes an inert numeric `ConfigVersion` (pinned so a future migration can build on it).
 
-## 7h. Idempotency - repeated mutations converge → `idempotency.api.spec.ts`
+## 7h. Idempotency: repeated mutations converge → `idempotency.api.spec.ts`
 - Re-importing the SAME secrets backup: `CredentialsChanged` flips **true → false** (run 2's key already
   matches), and every restored config scalar is identical after both imports (pure overwrite, no drift).
 - `PUT /Configuration` twice with the same body → identical `GET` state (keys sent masked so no
   network-dependent connection-test warnings make the assertion flaky).
 - Admin `Discovery/Request` submitted twice → the mock's forwarded-request count increments to **2**:
   the plugin deliberately does **not** dedupe the upstream Seerr submission (local cache/feedback
-  bookkeeping dedupes; the submission does not) - asserting the correct behavior, not a wrong "dedupe".
+  bookkeeping dedupes; the submission does not), asserting the correct behavior, not a wrong "dedupe".
 - `Trash/Relocate` of an already-drained source → clean no-op `{Moved:0, Failed:0}` 200, destination
   untouched (filesystem-backed; skips loudly without docker).
 
 ## 7i. Concurrency invariants → `concurrency.api.spec.ts`
 - Concurrent `GET GrowthTimeline?forceRefresh=true` (Promise.all): the process-static semaphore + 30s
-  throttle let **at most one** recompute (200); every rejected one is a **429 with a numeric Retry-After**
-  - never a 500 or a 2nd concurrent compute. The cached read-back is coherent (non-negative, non-decreasing
+  throttle let **at most one** recompute (200); every rejected one is a **429 with a numeric Retry-After**,
+  never a 500 or a 2nd concurrent compute. The cached read-back is coherent (non-negative, non-decreasing
   cumulative series → no torn write). Asserted as an interleaving-safe invariant (not a strict [200,429]
   pair, which would be flaky since `_lastRefreshTime` is process-static).
 - Racing `PUT /Configuration/LogLevel` (10 concurrent, alternating DEBUG/ERROR): `ReadAndMutate` serializes
-  the writes, so the stored `PluginLogLevel` is exactly one submitted value - never torn/invalid, never 500.
+  the writes, so the stored `PluginLogLevel` is exactly one submitted value, never torn/invalid, never 500.
   (Complements the existing racing-`RadarrInstances`-PUTs test in `config-adversarial.api.spec.ts`.)
 
-## 7j. Partial downstream failure - Seerr cleanup → `seerr-cleanup.api.spec.ts` (extended)
+## 7j. Partial downstream failure: Seerr cleanup → `seerr-cleanup.api.spec.ts` (extended)
 - **Page-2 fetch fails mid-pagination** (mock `force-fail-page2`: page 1 succeeds and reports a 2nd page,
-  page 2 at skip=50 → 500): the plugin's incomplete-snapshot guard aborts ALL deletions - the full seeded
+  page 2 at skip=50 → 500): the plugin's incomplete-snapshot guard aborts ALL deletions. The full seeded
   id set survives, including ids 101/102/108 that page 1 alone would have marked deletable. A `/list-calls`
   hook proves page 1 (200) AND page 2 (500) were both observed, so this genuinely exercises the page-2
   branch (unlike the existing `force-fail` test, which 500s the very first call).
-- **Stage skip-guard - "Seerr not configured":** an **enabled** (Activate) cleanup run with Seerr
-  **not configured** (both URL and key cleared - a URL-set-but-key-blank save is rejected 400 by the
+- **Stage skip-guard, "Seerr not configured":** an **enabled** (Activate) cleanup run with Seerr
+  **not configured** (both URL and key cleared, a URL-set-but-key-blank save is rejected 400 by the
   config validator, so it is not a persistable state) logs `Seerr not configured. Skipping.`
   (source=`SeerrCleanup`), deletes nothing, and makes **zero** upstream request-list calls (guard
   returns before any fetch). (The sibling `SeerrCleanupAgeDays<=0` skip-guard is unreachable via
-  `PUT /Configuration` - the config-save clamps age to `[1,3650]` whenever a URL is set - so it is
+  `PUT /Configuration`, the config-save clamps age to `[1,3650]` whenever a URL is set, so it is
   only reachable through a backup import and is left to unit coverage.)
 
 ## 8. Integrations (mock green-path + validation) → `integrations.api.spec.ts` (extended)
@@ -205,7 +205,7 @@ plugin stays Active after every call).
   range: 0-0.`); force-fail instance → 502 naming `FailBoxS` + `Sonarr instance(s)`.
 - **`Seerr/Test` reachable-but-failing upstream** (force-fail = HTTP 500) → **502 with
   the exact generic message** `Connection failed. Please verify URL and API Key and
-  try again.` and **no upstream detail leaked** (no `forced`/`500` in the body) -
+  try again.` and **no upstream detail leaked** (no `forced`/`500` in the body),
   pinning the internal-reachability-oracle suppression, distinct from the dead-port
   case in `hardening`/`upstream-down`.
 
@@ -215,16 +215,16 @@ plugin stays Active after every call).
 - **Enabled flow:** My, ExternalLinks, RequestPermissions, Services respond (not 403).
 - **Populated-cache filtering:** after a real discovery-generation run (Seerr Discovery
   stage of `HelperCleanup` against the mock), `GET Discovery/My` for the non-admin user
-  asserts the filter/cap invariants **when the generation surfaces items for that user** -
-  the visible pool is **capped at `MaxVisiblePerUser` (10)** and **no `AlreadyRequested`
+  asserts the filter/cap invariants **when the generation surfaces items for that user**.
+  The visible pool is **capped at `MaxVisiblePerUser` (10)** and **no `AlreadyRequested`
   item leaks through**; when the mock discover pool yields nothing for the linked user
   those assertions are skipped (the empty-cache branch is also a valid outcome).
-- `Discovery/My/script` is served **anonymously** - fetched with **no auth header**
+- `Discovery/My/script` is served **anonymously**, fetched with **no auth header**
   (a bare context, not the admin token) and must return JS, not 401/403.
 - `Discovery/My/Dismiss` records dismissal.
 - **Request authorization** (`discovery-request-auth`): the non-admin user is linked
   in global-setup to the mock's second Seerr user with the Request permission, so
-  `POST /Discovery/My/Request` drives the real auth branches - ServerId-without-
+  `POST /Discovery/My/Request` drives the real auth branches: ServerId-without-
   ProfileId → 400; unmatched (ServerId,ProfileId) → 403; wrong RootFolder → 403; a
   valid override AND a no-override submission → success, **forwarded to Seerr with
   the caller's resolved SeerrUserId** (verified via the mock's `/last-request`); the
@@ -234,7 +234,7 @@ plugin stays Active after every call).
 - The two admin-side tests here **snapshot and restore** the shared Seerr/Trash
   configuration (afterAll), so they don't leak state into later specs.
 
-## 9. UI - all 8 tabs → `tabs.ui.spec.ts`
+## 9. UI: all 8 tabs → `tabs.ui.spec.ts`
 - Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
   JS errors** (failed-resource-load status noise is filtered; real pageerror/console.error
   JS still fails). Overview renders stat cards after scan. The Arr and Recommendations UI
@@ -242,13 +242,13 @@ plugin stays Active after every call).
   non-Deactivate recs mode via API in `beforeAll`) instead of relying on leftover state,
   so they run rather than skip.
 
-## 10. UI - interactions
+## 10. UI: interactions
 | Covered | File |
 |---|---|
 | Codec breakdown row → file tree; folder expand/collapse; Expand/Collapse All; re-click closes | `trees.ui.spec.ts` |
 | Health item → detail tree | `trees.ui.spec.ts` |
 | Logs arrive + **download file**; level filter → PUT /LogLevel **succeeds + persists DEBUG**; clear → DELETE **succeeds + empty state** | `logs.ui.spec.ts` |
-| **Unsaved dialog** - dirty band; appears on leaving dirty tab; absent after save; Discard drops edit | `unsaved-dialog.ui.spec.ts` |
+| **Unsaved dialog**: dirty band; appears on leaving dirty tab; absent after save; Discard drops edit | `unsaved-dialog.ui.spec.ts` |
 | Arr dropdown → reachability (is-ok); Compare → **successful** comparison card | `arr.ui.spec.ts` |
 | Recommendations user selector → WatchProfile response (documented status); sections toggle | `recommendations.ui.spec.ts` |
 | Overview **Scan Libraries** button → ScanLibraries + button re-enable lifecycle | `interactions.ui.spec.ts` |
@@ -260,12 +260,12 @@ plugin stays Active after every call).
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
 Endpoints that smoke only *routed* or hardening only *tolerated a status class*
-([200,400,404,503]) - pinned here so a regression flipping a branch can't slip
+([200,400,404,503]), pinned here so a regression flipping a branch can't slip
 through:
 - **503 Deactivate guards** on all Recommendation + UserActivity endpoints (message asserted).
 - **empty-GUID → 400** on `Recommendations/{id}`, `Recommendations/WatchProfile/{id}`, `UserActivity/User/{id}`.
 - `UserActivity/User/{id}`: valid-but-unknown user → **404**; `maxResults` clamp holds.
-- `Discovery/Request` validation → **400** - documents the actual `ValidationProblemDetails`
+- `Discovery/Request` validation → **400**: documents the actual `ValidationProblemDetails`
   envelope from `[ApiController]` (TmdbId/MediaType messages), plus the null-body 400.
 - `Ping` → `{Ok:true, Plugin:"JellyfinHelper", Version}` liveness contract.
 - `Translations` no-`lang` → configured-language fallback (non-empty map); malformed `lang` → **400** pinned.
@@ -275,15 +275,15 @@ through:
   a vacuous `not-contains('boxset')` over a fixture that has nothing excludable).
 - `GrowthTimeline?forceRefresh=true` recompute path (200 or 429 + `Retry-After`).
 - **Arr Compare out-of-range index → 400** with the exact `Invalid instance index 99. Valid range: 0-0.`
-  message (`hardening.api.spec.ts`) - a hard reject, not the old `status<500` that would have tolerated a
+  message (`hardening.api.spec.ts`), a hard reject, not the old `status<500` that would have tolerated a
   silent clamp to the wrong instance.
 
 ---
 
-## 12. Behavioral - features actually work on disk (`*-fs.api.spec.ts`)
+## 12. Behavioral: features actually work on disk (`*-fs.api.spec.ts`)
 Filesystem-verified via `docker exec` (skips loudly without Docker):
 - **Cleanup discrimination** (`cleanup-fs.api.spec.ts`): each stage in isolation deletes the
-  orphan AND keeps the valid - video-backed `.trickplay` survives, matching &
+  orphan AND keeps the valid: video-backed `.trickplay` survives, matching &
   multi-language subtitles survive, `.DTS` non-language orphan removed,
   metadata-only / audio-only / nested-video folders survive; **DryRun leaves all
   orphans on disk**; permanent-delete creates no trash; **age gating** keeps a
@@ -295,7 +295,7 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
   entry is unlinked but its target survives byte-for-byte** (reparse-point =
   link-only delete, guarding the recursive-delete data-loss path).
 - **Trash relocate** (`trash-relocate-fs.api.spec.ts`): all four abs/rel quadrants move REAL
-  seeded content - `Moved>0`/`Failed==0`, source folder emptied+removed, and the
+  seeded content: `Moved>0`/`Failed==0`, source folder emptied+removed, and the
   destination holds exactly the moved entry with a matching **sha256**; plus the
   `Trash/CheckAccess` **success** path (`AllAccessible=true` with per-library
   read/write probes).
@@ -309,18 +309,18 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
 - **Recommendations playlists** (`recommendations-playlist.api.spec.ts`): Activate+sync
   creates then Deactivate purges; cache written on Activate, absent on DryRun.
 - **Recommendations ranking** (`recommendations-ranking.api.spec.ts`): the engine
-  consumes a REAL watch profile - `WatchProfile/{userId}` reflects played items,
+  consumes a REAL watch profile: `WatchProfile/{userId}` reflects played items,
   `Recommendations/{userId}` EXCLUDES anything watched, and results are ranked
   (Score in [0,1], sorted descending).
 - **Media statistics** (`media-stats-fs.api.spec.ts`): codec / resolution / health
-  breakdowns match the KNOWN fixtures - H.264 / HEVC / MPEG-4 keys with positive
+  breakdowns match the KNOWN fixtures: H.264 / HEVC / MPEG-4 keys with positive
   counts, sub-less clips reflected in the no-subtitle health count.
 - **Book library protection** (`books-protection.api.spec.ts`): a Book (eBook)
   library is TRACKED but NEVER deleted. Stats expose `Books` / `TotalBookFileCount`
   / `TotalBookFormats` with the KNOWN fixtures' `EPUB`+`PDF` keys (per-format counts
   sum to the total); and with the most aggressive cleanup config (empty-folder +
   all stages Activate, `UseTrash:false`, `OrphanMinAgeDays:0`) every `.epub`/`.pdf`
-  file and its folder survive on disk and no `.jellyfin-trash` is created - the
+  file and its folder survive on disk and no `.jellyfin-trash` is created: the
   regression guard for the eBook-collection data-loss bug (books excluded by
   collection type, never scanned by cleanup).
 - **Growth timeline** (`growth-timeline-fs.api.spec.ts`): the cumulative series is
@@ -328,35 +328,35 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
   (bytes > 0, files > 0), directories-scanned positive, no future-dated point.
   **Growth is measured, not assumed:** adding a media file of a KNOWN byte size and
   forcing a recompute grows the latest cumulative size by **at least** that many
-  bytes and the file count by at least one - the system-level regression guard for
+  bytes and the file count by at least one: the system-level regression guard for
   the "added" date being read from a live stat (not the empty enumeration metadata,
   which once skipped every entry and returned an empty timeline).
 - **Library insights** (`insights-fs.api.spec.ts`): "largest dirs" sorted by size
   descending over real `/media` dirs with `LargestTotalSize == sum(sizes)`, a known
-  generated movie present - ranking/aggregate invariants that hold despite the 15m cache.
+  generated movie present: ranking/aggregate invariants that hold despite the 15m cache.
 - **User activity** (`user-activity-fs.api.spec.ts`): mark an item PLAYED via
   Jellyfin's API, rebuild the activity cache, and assert it surfaces as watched in
   both `UserActivity/Latest` and `UserActivity/User/{userId}` with a matching play count.
 - **Backup round-trip** (`backup.api.spec.ts` extended): full config field-set,
   growth timeline via `GET GrowthTimeline`, Arr credential preserve-then-change.
 
-## 12b. Feature coverage - folder browser & per-stage task modes
+## 12b. Feature coverage: folder browser & per-stage task modes
 - **Folder browser** (`folder-browser.api.spec.ts`): behavioral (browsing roots and
   a known media dir lists real children; going up works; LibraryPaths lists the
-  configured libraries) **plus** adversarial/hardening - read-only endpoint refuses
+  configured libraries) **plus** adversarial/hardening: read-only endpoint refuses
   any mutation, rejects `..` traversal, non-absolute paths, NUL bytes, and sensitive
   system dirs; validation failures surface as HTTP 200 with a non-null `Error` body.
 - **Per-stage task modes** (`task-modes.api.spec.ts`): proves each mode value does
-  what it promises at STAGE granularity in one mixed pass - Deactivate skips
+  what it promises at STAGE granularity in one mixed pass: Deactivate skips
   entirely (orphan survives, no dry-run log), DryRun runs+logs but changes nothing
-  on disk, Activate performs the real delete/trash move - distinguishing Deactivate
+  on disk, Activate performs the real delete/trash move, distinguishing Deactivate
   from DryRun (which `cleanup-fs` cannot) and proving modes are honoured independently.
 
-## 13. Adversarial - misuse breaks nothing (canary-guarded)
+## 13. Adversarial: misuse breaks nothing (canary-guarded)
 Every destructive case asserts library-external **canary files survive**. The
 canaries are (re-)planted inside each destructive spec's `beforeAll`/`beforeEach`
 via `ensureCanariesPlanted()`, which also asserts at least one canary is actually
-present - so `verifyCanaries()` can never pass vacuously against an empty set, and
+present, so `verifyCanaries()` can never pass vacuously against an empty set, and
 the check works inside Playwright's worker processes (not just the global-setup
 process that first plants them). Without Docker the destructive specs skip loudly.
 - **Trash escape** (`trash-abuse.api.spec.ts`): absolute `/config` trash path via
@@ -378,10 +378,10 @@ process that first plants them). Without Docker the destructive specs skip loudl
 - **Cleanup** (`cleanup-abuse.api.spec.ts`): symlink-out-of-library target survives cleanup;
   excluded library + its trash fully hands-off; emoji/long names ok.
 - **Cleanup reparse-point guards** (`cleanup-symlink-guards.api.spec.ts`): the cleanup
-  STAGES (not the trash purge) refuse to act on reparse points - a symlinked orphan
+  STAGES (not the trash purge) refuse to act on reparse points: a symlinked orphan
   `.trickplay`, a symlinked orphan subtitle, and a folder whose orphan status is
   unprovable because it holds a symlinked subtree all **survive** an `Activate` run
-  (the symlink NODE stays a link, its target data intact) - AND, in the same run, a
+  (the symlink NODE stays a link, its target data intact), AND, in the same run, a
   genuine (non-symlink) orphan sitting right beside each is **still deleted**. Proves
   the safety guard didn't neuter the stage; complements `cleanup-abuse` (which proves
   the external *target* survives) by proving the link node itself is kept.
@@ -392,13 +392,13 @@ process that first plants them). Without Docker the destructive specs skip loudl
 ## 14. Documentation drift guard → `coverage-doc.api.spec.ts`
 A pure-filesystem meta-test (no Jellyfin stack needed) that reads the `tests/`
 directory and asserts **every `*.spec.ts` is referenced by filename in this file**.
-Add a spec without documenting it here and this guard fails - so this coverage map
+Add a spec without documenting it here and this guard fails, so this coverage map
 cannot silently fall out of date. The guard excludes only itself.
 
 ---
 
 ## Still NOT covered (and why)
-- ⚠️ **Discovery sidebar `<script>` injection into `/web/index.html`** - the disk-write fallback and
+- ⚠️ **Discovery sidebar `<script>` injection into `/web/index.html`**: the disk-write fallback and
   the File Transformation callback are fully covered at the **unit** level (idempotency incl. the
   combined "disk tag already present → callback de-dups to exactly one" case, the read-only
   `WriteFailed` path, the startup hosted-service re-injection, and version-independent tag removal).
@@ -409,29 +409,29 @@ cannot silently fall out of date. The guard excludes only itself.
   paths strip any existing tag before inserting so a second copy can never stack, and a startup
   Information-level log records the branch taken (`fileTransformationRegistered`, `diskFallback`,
   `webPath`) for field diagnosis.
-- ⚠️ **Real Radarr/Sonarr/Seerr servers** - replaced by mocks by design; mocks return the exact
+- ⚠️ **Real Radarr/Sonarr/Seerr servers**: replaced by mocks by design; mocks return the exact
   response shapes the plugin deserializes.
-- ⚠️ **Backup restore partial-failure / "manual-recovery" branch** (`BackupService.RestoreBackup`) -
-  only triggers when a timeline/baseline file write succeeds and a later step throws. File writes
+- ⚠️ **Backup restore partial-failure / "manual-recovery" branch** (`BackupService.RestoreBackup`).
+  Only triggers when a timeline/baseline file write succeeds and a later step throws. File writes
   swallow I/O errors (return false, no throw) and every restored config value is clamped/sanitized
   before write, so validated HTTP input cannot make the config-restore step throw. Reaching it needs
-  filesystem/permission tampering - deliberately out of scope for the HTTP-only `migration.api.spec.ts`
+  filesystem/permission tampering, deliberately out of scope for the HTTP-only `migration.api.spec.ts`
   rather than faked with a vacuous assertion. Covered instead at the unit level.
 - ⚠️ **XML config schema migration on load** (obsolete-element discarding, clamp-report startup
-  warnings) - happens during `XmlSerializer` load of the on-disk config; no HTTP endpoint feeds
+  warnings): happens during `XmlSerializer` load of the on-disk config; no HTTP endpoint feeds
   arbitrary XML. The clamp *effect* is testable via a config round-trip; the load-time warning is not.
-- ⚠️ **`MaxRecommendationsPerUser` persistence** - no API update field by design (read-only / XML-only).
-- ⚠️ **Trends chart hover tooltip** (mouse-driven SVG) - data validated at the API layer instead.
-- ⚠️ **`Trash/FoldersForPath` SUCCESS-body contract** (`{Paths[], IsAbsolute}`) - its auth gating and
+- ⚠️ **`MaxRecommendationsPerUser` persistence**: no API update field by design (read-only / XML-only).
+- ⚠️ **Trends chart hover tooltip** (mouse-driven SVG): data validated at the API layer instead.
+- ⚠️ **`Trash/FoldersForPath` SUCCESS-body contract** (`{Paths[], IsAbsolute}`): its auth gating and
   error branches are covered; the exact success shape is not yet pinned. (`Trash/Relocate`'s
   `{Moved, Failed}` and `Trash/CheckAccess`'s `{AllAccessible, Results[]}` success shapes ARE now
   pinned in `trash-relocate-fs.api.spec.ts`.)
-- ⚠️ **Settings dialogs** - trash-disable "Keep/Delete" + trash-path-change relocation dialogs, the
+- ⚠️ **Settings dialogs**: trash-disable "Keep/Delete" + trash-path-change relocation dialogs, the
   Excluded-Libraries multi-select, and the Backup **Import** confirm dialog are not yet UI-driven
   (Export is; the backup API round-trip is fully covered).
 
 ## First-run caveat
 Type-checked and infra-validated. The stack now boots (Jellyfin healthy, media generated, deps
 installed); the startup-wizard flow was corrected per the JF12 source (POST /Startup/User configures
-the pre-existing admin and 403s if it already has a password - no longer swallowed). Expect possible
+the pre-existing admin and 403s if it already has a password, no longer swallowed). Expect possible
 UI selector/timing tweaks on first full green run; failures come with trace + screenshot + video.
