@@ -291,19 +291,15 @@
 .tab-bar {
     display: flex;
     gap: 0;
-    /* min-width:0 lets the flex container measure its content width cleanly.
-       Without it, device-pixel rounding of the non-shrinking buttons on
-       high-DPI displays accumulates into a sub-pixel overflow that trips
-       overflow-x:auto and paints a scrollbar even when everything fits. */
+    /* Prevents phantom scrollbars caused by high-DPI rounding bugs */
     min-width: 0;
     margin-bottom: var(--spacing-xl);
     border-bottom: 2px solid var(--color-border);
-    /* Stays scrollable on genuinely narrow viewports (touch/wheel), but the
-       scrollbar chrome is hidden on every engine so no visible bar is ever
-       drawn. */
+    /* Allows scrolling on small screens while hiding the scrollbar */
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
