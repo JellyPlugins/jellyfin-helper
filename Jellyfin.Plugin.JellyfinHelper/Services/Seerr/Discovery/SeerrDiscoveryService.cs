@@ -1924,12 +1924,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var excluded = new HashSet<(int TmdbId, string MediaType)>();
 
         // Exclude titles already in the Jellyfin library. This covers items that no configured Arr
-        // instance tracks (manually added, imported, or when Arr is not configured at all). The
-        // library scan is a bound synchronous call that cannot observe cancellation itself, so we
-        // check the token on both sides of it.
+        // instance tracks (manually added, imported, or when Arr is not configured at all). A failed
+        // library scan is contained inside the helper so discovery still runs the Arr sources; only a
+        // requested cancellation propagates.
         cancellationToken.ThrowIfCancellationRequested();
-        AddLibraryExclusions(excluded);
-        cancellationToken.ThrowIfCancellationRequested();
+        AddLibraryExclusions(excluded, cancellationToken);
 
         // Exclude movies already in Radarr
         await AddRadarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);
@@ -1944,16 +1943,35 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Adds the TMDb IDs of movies and series already present in the Jellyfin library to the exclusion set.
     /// </summary>
     /// <param name="excluded">The exclusion set to add library entries into.</param>
-    private void AddLibraryExclusions(HashSet<(int TmdbId, string MediaType)> excluded)
+    /// <param name="cancellationToken">Cooperative cancellation token.</param>
+    private void AddLibraryExclusions(HashSet<(int TmdbId, string MediaType)> excluded, CancellationToken cancellationToken)
     {
-        var libraryItems = _libraryManager.GetItemList(new InternalItemsQuery
+        // A library-query failure is non-fatal to discovery: the Radarr and Sonarr sources still
+        // provide exclusions, so a broken library scan must not abort the whole generation before
+        // they run. Contain it here the way the Arr fetches contain their own failures.
+        try
         {
-            IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series]
-        });
+            var libraryItems = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series]
+            });
 
-        foreach (var key in TmdbLibraryMapper.BuildTmdbKeySet(libraryItems))
+            foreach (var key in TmdbLibraryMapper.BuildTmdbKeySet(libraryItems))
+            {
+                excluded.Add(key);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            excluded.Add(key);
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Failed to read Jellyfin library for discovery exclusions: {ex.Message}. Continuing with Arr sources.",
+                ex,
+                _logger);
         }
     }
 

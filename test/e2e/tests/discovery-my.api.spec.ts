@@ -223,37 +223,47 @@ test.describe.serial('Discovery/My cached-result filtering', () => {
 test.describe.serial('Discovery availability exclusion', () => {
   const AVAILABLE_TMDB = 680;
 
+  async function generatedTmdbIds(): Promise<number[]> {
+    const run = await runCleanupTask(admin);
+    expect(run.LastExecutionResult?.Status).toBe('Completed');
+    // The admin view returns every user's pool; flatten to the set of surfaced TMDb ids.
+    const res = await admin.get(p('Discovery'));
+    expect(res.ok(), `Discovery admin list failed: ${res.status()}`).toBeTruthy();
+    const pools = (await res.json()) as Array<{
+      Recommendations?: Array<{ TmdbId: number; MediaType?: string }>;
+    }>;
+    return pools.flatMap((pool) => (pool.Recommendations ?? []).map((rec) => rec.TmdbId));
+  }
+
   test('a Seerr-available discover candidate is excluded from generated recommendations', async () => {
     const mock = await pwRequest.newContext();
     try {
-      // Reset mock state, then arm 680 as fully available (status 5) on the discover payload.
+      await setDiscoveryAccess(true);
+
+      // Positive control: with the mock pristine, 680 is a normal discover candidate and must
+      // surface. This proves the absence assertion below is meaningful and not a vacuous pass on
+      // an empty pool.
       const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);
       expect(reset.ok(), `mock reset failed: ${reset.status()}`).toBeTruthy();
+      const before = await generatedTmdbIds();
+      expect(
+        before,
+        `positive control: ${AVAILABLE_TMDB} must surface before it is armed as available`,
+      ).toContain(AVAILABLE_TMDB);
+
+      // Arm 680 as fully available (status 5) on the discover payload, then regenerate.
       const arm = await mock.post(`${MOCK_SEERR_PUBLIC}/seed-available-candidate`, {
         headers: { 'Content-Type': 'application/json' },
         data: { tmdbId: AVAILABLE_TMDB, status: 5 },
       });
       expect(arm.ok(), `arm available candidate failed: ${arm.status()}`).toBeTruthy();
 
-      // Enable discovery (Recommendations:Activate + Seerr) and regenerate against the armed mock.
-      await setDiscoveryAccess(true);
-      const run = await runCleanupTask(admin);
-      expect(run.LastExecutionResult?.Status).toBe('Completed');
+      const after = await generatedTmdbIds();
+      expect(
+        after,
+        `TmdbId ${AVAILABLE_TMDB} leaked despite Seerr reporting it available`,
+      ).not.toContain(AVAILABLE_TMDB);
 
-      // The admin view returns every user's pool; the armed available title must appear in none.
-      const res = await admin.get(p('Discovery'));
-      expect(res.ok(), `Discovery admin list failed: ${res.status()}`).toBeTruthy();
-      const pools = (await res.json()) as Array<{
-        Recommendations?: Array<{ TmdbId: number; MediaType?: string }>;
-      }>;
-      for (const pool of pools) {
-        for (const rec of pool.Recommendations ?? []) {
-          expect(
-            rec.TmdbId,
-            `TmdbId ${AVAILABLE_TMDB} leaked despite Seerr reporting it available`,
-          ).not.toBe(AVAILABLE_TMDB);
-        }
-      }
       await assertPluginActive(admin);
     } finally {
       // Disarm so later specs see the pristine discover pool.
