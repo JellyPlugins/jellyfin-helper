@@ -23,7 +23,7 @@ public sealed class CleanupTaskReparseGuardTests
     private static FileSystemMetadata FileMeta(string fullName) =>
         new() { FullName = fullName, Name = Path.GetFileName(fullName), IsDirectory = false, Length = 10 };
 
-    // ── CleanEmptyMediaFoldersTask ────────────────────────────────────────────
+    // CleanEmptyMediaFoldersTask
 
     public sealed class EmptyMediaFolders : CleanupTaskTestBase
     {
@@ -317,7 +317,7 @@ public sealed class CleanupTaskReparseGuardTests
         }
     }
 
-    // ── CleanTrickplayTask ────────────────────────────────────────────────────
+    // CleanTrickplayTask
 
     public sealed class Trickplay : CleanupTaskTestBase
     {
@@ -491,7 +491,7 @@ public sealed class CleanupTaskReparseGuardTests
         }
     }
 
-    // ── CleanOrphanedSubtitlesTask ────────────────────────────────────────────
+    // CleanOrphanedSubtitlesTask
 
     public sealed class OrphanedSubtitles : CleanupTaskTestBase
     {

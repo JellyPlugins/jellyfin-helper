@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// </summary>
 public class ConfigPageHtmlTests : ConfigPageTestBase
 {
-    // ── General page structure ─────────────────────────────────────────
+    // General page structure
 
     [Fact]
     public void Html_ContainsPluginConfigPageClass()
@@ -22,7 +22,7 @@ public class ConfigPageHtmlTests : ConfigPageTestBase
         Assert.Contains("JellyfinHelperConfigPage", HtmlContent);
     }
 
-    // ── README.md quality checks ─────────────────────────────────────────
+    // README.md quality checks
 
     [Fact]
     public void Readme_IsNotEmpty()

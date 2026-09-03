@@ -1017,7 +1017,7 @@ public class RecommendationEngineTests
     public void BuildGenreExposureAnalysis_ColdStart_ValidButDampened()
     {
         var profile = new UserWatchProfile();
-        // Add only 10 items (below MinWatchCountForGenreExposure = 30). Under Gap E this is now valid
+        // Add only 10 items (below MinWatchCountForGenreExposure = 30). This is now valid
         // with a partial confidence rather than invalid, so the cold-start exploration signal is
         // dampened instead of zeroed.
         for (var i = 0; i < 10; i++)

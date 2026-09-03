@@ -5,7 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for the Gap E genre-exposure cold-start confidence ramp in <see cref="PreferenceBuilder" />.
+///     Tests for the genre-exposure cold-start confidence ramp in <see cref="PreferenceBuilder" />.
 ///     Below <see cref="Services.Recommendation.EngineConstants.MinWatchCountForGenreExposure" /> watches the
 ///     three exposure features scale linearly with watch count; at or above the threshold they are unchanged.
 /// </summary>

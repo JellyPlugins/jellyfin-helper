@@ -74,7 +74,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
     [Fact]
     public void Build_ColdStartGenreExposure_DampensExposureFeatures()
     {
-        // A user with too little history now yields a valid-but-low-confidence analysis (Gap E): the
+        // A user with too little history now yields a valid-but-low-confidence analysis: the
         // cold-start exploration signal is scaled down by the confidence ramp rather than zeroed. A
         // candidate matching the user's single dominant genre gets a small positive dominance ratio.
         var shortProfile = new UserWatchProfile { UserId = Guid.NewGuid() };

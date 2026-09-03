@@ -11,7 +11,7 @@ public class GrowthTimelineModelTests
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    // ── GrowthTimelinePoint ──────────────────────────────────────────────
+    // GrowthTimelinePoint
 
     [Fact]
     public void GrowthTimelinePoint_DefaultValues()
@@ -66,7 +66,7 @@ public class GrowthTimelineModelTests
         Assert.Equal(7, point.CumulativeFileCount);
     }
 
-    // ── GrowthTimelineResult ─────────────────────────────────────────────
+    // GrowthTimelineResult
 
     [Fact]
     public void GrowthTimelineResult_DefaultGranularity_IsMonthly()
@@ -226,7 +226,7 @@ public class GrowthTimelineModelTests
         Assert.Contains("\"dataPoints\":[]", json);
     }
 
-    // ── JSON property naming (ensures [JsonPropertyName] attributes work) ──
+    // JSON property naming (ensures [JsonPropertyName] attributes work)
 
     [Fact]
     public void GrowthTimelinePoint_SerializesToCamelCase_WithoutNamingPolicy()
@@ -352,7 +352,7 @@ public class GrowthTimelineModelTests
         Assert.Null(deserialized!.FirstScanTimestamp);
     }
 
-    // ── GrowthTimelineBaseline ────────────────────────────────────────────
+    // GrowthTimelineBaseline
 
     [Fact]
     public void GrowthTimelineBaseline_DefaultValues()
@@ -408,7 +408,7 @@ public class GrowthTimelineModelTests
         Assert.Equal(new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc), deserialized.Directories["/movies/MovieA"].CreatedUtc);
     }
 
-    // ── BaselineDirectoryEntry ────────────────────────────────────────────
+    // BaselineDirectoryEntry
 
     [Fact]
     public void BaselineDirectoryEntry_DefaultValues()

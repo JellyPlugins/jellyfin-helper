@@ -153,8 +153,6 @@ test.describe.serial('Discovery/My access gating', () => {
   });
 });
 
-// --- admin-side gaps -------------------------------------------------------
-
 test('admin Discovery/Request submission reaches the mock', async () => {
   const cfg = await admin.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },

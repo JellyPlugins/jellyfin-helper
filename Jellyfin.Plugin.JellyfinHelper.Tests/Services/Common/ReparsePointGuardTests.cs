@@ -39,7 +39,7 @@ public sealed class ReparsePointGuardTests : IDisposable
         }
     }
 
-    // ── IsReparsePoint ────────────────────────────────────────────────────────
+    // IsReparsePoint
 
     [Fact]
     public void IsReparsePoint_NonExistentPath_ReturnsFalse()
@@ -74,7 +74,8 @@ public sealed class ReparsePointGuardTests : IDisposable
         Assert.False(ReparsePointGuard.IsReparsePoint(path));
     }
 
-    // ── IsReparsePointAnyType ───────────────────────────────────────────────── A real symlink cannot be created without elevated privileges in CI, so the link-node true-branch is covered by the E2E suite.
+    // IsReparsePointAnyType
+    // A real symlink cannot be created without elevated privileges in CI, so the link-node true-branch is covered by the E2E suite.
 
     [Fact]
     public void IsReparsePointAnyType_NonExistentPath_ReturnsFalse()
@@ -107,7 +108,7 @@ public sealed class ReparsePointGuardTests : IDisposable
         Assert.False(ReparsePointGuard.IsReparsePointAnyType(dir));
     }
 
-    // ── DeleteLinkNode ────────────────────────────────────────────────────────
+    // DeleteLinkNode
 
     [Fact]
     public void DeleteLinkNode_NonExistentPath_ThrowsAndLeavesNothingChanged()

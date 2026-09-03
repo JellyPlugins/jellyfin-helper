@@ -178,7 +178,7 @@ public sealed class TrashServicePathAccessTests : IDisposable
             Times.Once);
     }
 
-    // ── Permission helpers (platform-branched) ────────────────────────────────
+    // Permission helpers (platform-branched)
 
     private static void DenyWrite(string dir)
     {

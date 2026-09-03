@@ -7,7 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for the Gap A discovery mean-imputation: features that cannot be computed for an external
+///     Tests for the discovery mean-imputation: features that cannot be computed for an external
 ///     (TMDb) candidate are imputed to the model's persisted training-set means instead of arbitrary
 ///     0/0.5 constants, so a discovery candidate scores against the trained distribution.
 /// </summary>

@@ -63,7 +63,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// </summary>
     // Bumped 2 -> 3: features 9/10/11/12/15 moved to genre-level aggregates. Keeping v2 would silently
     // break scoring due to old weights on new feature semantics.
-    // The recommendation-review metadata changes (Gaps 2, E, A) also alter feature VALUES and ride on this
+    // The recommendation-review metadata changes also alter feature VALUES and ride on this
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>

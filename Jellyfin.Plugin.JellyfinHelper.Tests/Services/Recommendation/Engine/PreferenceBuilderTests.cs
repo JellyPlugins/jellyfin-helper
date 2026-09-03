@@ -252,7 +252,7 @@ public class PreferenceBuilderTests
     public void BuildGenreExposureAnalysis_NoGenreSignal_ReturnsInvalid()
     {
         // The only truly-invalid case is an empty genre-preference vector; a user with some genre
-        // history but fewer than MinWatchCountForGenreExposure watches is now valid-but-dampened (Gap E).
+        // history but fewer than MinWatchCountForGenreExposure watches is now valid-but-dampened.
         var profile = new UserWatchProfile { WatchedItems = [] };
         var analysis = PreferenceBuilder.BuildGenreExposureAnalysis(new Dictionary<string, double>(), profile);
         Assert.False(analysis.IsValid);
@@ -262,7 +262,7 @@ public class PreferenceBuilderTests
     [Fact]
     public void BuildGenreExposureAnalysis_ColdStart_ValidButDampened()
     {
-        // A single watched item gives a non-empty genre vector. Under Gap E this is valid but the
+        // A single watched item gives a non-empty genre vector. This is valid but the
         // confidence ramp is well below 1.0, so exposure features are scaled down rather than zeroed.
         var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"] }] };
         var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);

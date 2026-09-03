@@ -32,7 +32,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
         }
     }
 
-    // ── Reparse-point guards ──────────────────────────────────────────────────
+    // Reparse-point guards
 
     [Fact]
     public void PurgeExpiredTrash_TrashRootIsReparsePoint_SkipsPurgeAndLogsError()
@@ -109,7 +109,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
             Times.Once);
     }
 
-    // ── TOCTOU move-retry race ────────────────────────────────────────────────
+    // TOCTOU move-retry race
     [Fact]
     public void MoveToTrash_MoveRacesOnceThenSucceeds_RetriesWithFreshNameAndSucceeds()
     {
@@ -158,7 +158,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
             Times.Once);
     }
 
-    // ── Default seam implementations (production wrappers) ─────────────────────
+    // Default seam implementations (production wrappers)
 
     [Fact]
     public void DefaultSeams_OperateOnTheRealFilesystem()
@@ -189,7 +189,7 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
         Directory.Delete(moveDest);              // manual cleanup
     }
 
-    // ── Test seams ────────────────────────────────────────────────────────────
+    // Test seams
 
     /// <summary>
     ///     A TrashService whose reparse-point detection is driven by an explicit set of paths, so the symlink/junction guards can be exercised without real reparse points.

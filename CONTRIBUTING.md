@@ -251,7 +251,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── DiscoveryRegressionTests.cs              # v2.1.0.3 regressions (ServerId=0, profile dedup, MissingMethodException)
 │   │       ├── ExternalCandidateFeatureBuilderTests.cs  # inference↔training feature parity (genre-exposure + popularity skew)
 │   │       ├── ExternalCandidateFeatureBuilderExtendedTests.cs # Null guards, case-insensitive people matching, null EffectiveReleaseDate → 0.5 RecencyScore, TV/movie branch coverage
-│   │       ├── ExternalCandidateFeatureImputationTests.cs # Gap A mean-imputation: continuous placeholders → training means, bools stay false, computed features untouched, null/wrong-length means = legacy constants
+│   │       ├── ExternalCandidateFeatureImputationTests.cs # Continuous placeholders → training means, bools stay false, computed features untouched, null/wrong-length means = legacy constants
 │   │       ├── NullableDateTimeConverterTests.cs        # Empty-string / malformed TMDb dates degrade to null instead of JsonException
 │   │       ├── ParentalRatingHelperTests.cs
 │   │       ├── SeerrDiscoveryDtoTests.cs                # DTO wire contract: property names, defaults, round-trip
@@ -282,7 +282,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── DiversityRerankerTests.cs
 │       │   ├── EngineDiscoveryWatchedStatusTests.cs     # TrainStrategy marks favorited movies/series watched with the correct media type
 │       │   ├── EngineIdfRarityTests.cs                  # IDF rarity weighting: rare genres/studios contribute more than common ones
-│       │   ├── EngineLibraryMetadataTests.cs           # Gap 2 BuildLibraryItemMetadata (Movie/Series studios/tags, empty-skip) via TrainStrategy; Gap 5 GetEnsembleDiagnostics (ensemble non-null, non-ensemble null); featureMeans switch arms
+│       │   ├── EngineLibraryMetadataTests.cs           # BuildLibraryItemMetadata (Movie/Series studios/tags, empty-skip) via TrainStrategy; GetEnsembleDiagnostics (ensemble non-null, non-ensemble null); featureMeans switch arms
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
 │       │   ├── EngineStaticHelpersTests.cs           # Pure static helpers: episode counting, language parse/dedupe, billing-weight filtering
@@ -295,7 +295,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineLanguageAffinityTests.cs         # ComputeLanguageAffinity/SubtitleLanguageAffinity: empty profile → 0.5 neutral; cross-feature isolation
 │       │   ├── FeatureAffinityComputerTests.cs        # Shared content-affinity helpers (franchise/country/inherited-tag/writer/billing/IDF): empty/null → neutral, no divide-by-zero
 │       │   ├── FeatureParityTests.cs                  # Train/serve parity for the 7 content features; SeriesCompletability + BillingWeight canonical formulas
-│       │   ├── GenreExposureRampTests.cs              # Gap E cold-start confidence ramp: 15-watch features == 0.5× 30-watch, saturates at threshold, empty vector → invalid/zero
+│       │   ├── GenreExposureRampTests.cs              # Cold-start confidence ramp: 15-watch features == 0.5× 30-watch, saturates at threshold, empty vector → invalid/zero
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── ReasonResolverTests.cs                 # All DetermineReason branches + StripWatchedItemsForResponse; EngineConstants as contract
 │       │   ├── SimilarityComputerTests.cs             # People-batch + per-item fallback; weighted PeopleSimilarity
@@ -306,7 +306,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
 │       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation, neutral interaction features, and series genre-engagement excluding its own watched episodes
-│       │       ├── TrainingDataBuilderMetadataParityTests.cs # Gap 2: watched-item studios/tags resolve from the live library (merged over cache) so training matches the serve path; null-map back-compat; series self-exclusion
+│       │       ├── TrainingDataBuilderMetadataParityTests.cs # Watched-item studios/tags resolve from the live library (merged over cache) so training matches the serve path; null-map back-compat; series self-exclusion
 │       │       └── TrainingFeatureComputerTests.cs    # Training features must stay in lock-step with live scoring path
 │       ├── Playlist/              # Playlist sync tests
 │       │   ├── RecommendationPlaylistServiceTests.cs
@@ -323,7 +323,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── LearnedScoringStrategyStandardizationTests.cs # Feature standardization: mean/variance normalization and guards
 │       │   ├── LearnedScoringStrategyLoggingTests.cs   # Training log lines and level selection
 │       │   ├── LearnedScoringStrategyRobustnessTests.cs # NaN/degenerate inputs discarded, not applied
-│       │   ├── StandardizationTransitionTests.cs      # Gap C warm-start: crossing the standardization threshold rescales weights (not reset), finite weights/scores, learned ranking preserved, zero-variance guard
+│       │   ├── StandardizationTransitionTests.cs      # Warm-start: crossing the standardization threshold rescales weights (not reset), finite weights/scores, learned ranking preserved, zero-variance guard
 │       │   ├── StrategySelectorTests.cs                # Cohort router: exploration gate, deterministic hash bucketing, routing
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
 │       │   ├── ScoreExplanationTests.cs

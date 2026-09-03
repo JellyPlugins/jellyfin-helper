@@ -42,7 +42,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         }
     }
 
-    // ── Symlink is not followed ───────────────────────────────────────────────
+    // Symlink is not followed
 
     [Fact]
     [Trait("Category", "Symlink")]
@@ -73,7 +73,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(1024, size);
     }
 
-    // ── Circular symlink (A -> B -> A) does not cause StackOverflow ────────────
+    // Circular symlink (A -> B -> A) does not cause StackOverflow
 
     [Fact]
     [Trait("Category", "Symlink")]
@@ -107,7 +107,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(512, size);
     }
 
-    // ── Root path itself is a symlink - IS followed (library roots can be symlinks) ───
+    // Root path itself is a symlink - IS followed (library roots can be symlinks)
 
     [Fact]
     [Trait("Category", "Symlink")]
@@ -135,7 +135,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(4096, size);
     }
 
-    // ── Regular subdirectories are still traversed ───────────────────────────
+    // Regular subdirectories are still traversed
 
     [Fact]
     public void GetDirectorySize_NestedRealDirectories_CountsAllFiles()
@@ -153,7 +153,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(600, size);
     }
 
-    // ── Cancellation is respected ─────────────────────────────────────────────
+    // Cancellation is respected
 
     [Fact]
     public void GetDirectorySize_CancellationRequested_ThrowsOperationCanceled()
@@ -169,7 +169,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
             _service.GetDirectorySize(dir, string.Empty, string.Empty, cts.Token));
     }
 
-    // ── Library-root reparse point is skipped by ComputeTimelineAsync ─────────
+    // Library-root reparse point is skipped by ComputeTimelineAsync
 
     [Fact]
     [Trait("Category", "Symlink")]
@@ -201,7 +201,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(0, result.TotalDirectoriesScanned);
     }
 
-    // ── Top-level subdirectory reparse point is skipped ───────────────────────
+    // Top-level subdirectory reparse point is skipped
 
     [Fact]
     [Trait("Category", "Symlink")]
@@ -251,7 +251,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
             TestMockFactory.CreateCleanupConfigHelper().Object);
     }
 
-    // ── Minimal IFileSystem adapter that reads from the real filesystem ───────
+    // Minimal IFileSystem adapter that reads from the real filesystem
 
     /// <summary>
     ///     Thin adapter that delegates GetFiles and GetDirectories to the real filesystem so the symlink tests can create actual reparse points on disk.

@@ -35,7 +35,7 @@ public class TrashServicePathLengthTests : IDisposable
         }
     }
 
-    // ── ResolveCollision: no collision ───────────────────────────────────────
+    // ResolveCollision: no collision
 
     [Fact]
     public void ResolveCollision_NoCollision_ReturnsDesiredPath()
@@ -45,7 +45,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.Equal(path, result);
     }
 
-    // ── ResolveCollision: numeric suffix ─────────────────────────────────────
+    // ResolveCollision: numeric suffix
 
     [Fact]
     public void ResolveCollision_SingleCollision_ReturnsSuffix2()
@@ -74,7 +74,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.EndsWith("_4", result, StringComparison.Ordinal);
     }
 
-    // ── Path-length safety: normal path ──────────────────────────────────────
+    // Path-length safety: normal path
 
     [Fact]
     public void ResolveCollision_ShortPath_FitsWithinLimit()
@@ -87,7 +87,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.True(resultSize <= maxLen, $"Path size {resultSize} exceeds OS limit {maxLen}");
     }
 
-    // ── Path-length safety: path already at the limit ────────────────────────
+    // Path-length safety: path already at the limit
 
     [Fact]
     public void ResolveCollision_PathAtExactLimit_DoesNotExceedLimit()
@@ -114,7 +114,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.True(resultSize <= maxLen, $"Path size {resultSize} exceeds OS limit {maxLen}");
     }
 
-    // ── Path-length safety: path over the limit ───────────────────────────────
+    // Path-length safety: path over the limit
 
     [Fact]
     public void ResolveCollision_PathOverLimit_TruncatesName()
@@ -140,7 +140,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.True(resultSize > 0);
     }
 
-    // ── Path-length safety: suffix collision with long path ───────────────────
+    // Path-length safety: suffix collision with long path
 
     [Fact]
     public void ResolveCollision_LongPathWithCollision_SuffixedResultFitsLimit()
@@ -174,7 +174,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.NotEqual(path, result);
     }
 
-    // ── Path-length safety: component over NAME_MAX but path under OS max ────
+    // Path-length safety: component over NAME_MAX but path under OS max
 
     [Fact]
     public void ResolveCollision_ComponentOverLimitButPathUnderMax_TruncatesComponent()
@@ -195,7 +195,7 @@ public class TrashServicePathLengthTests : IDisposable
             $"Component size {componentSize} exceeds NAME_MAX 255");
     }
 
-    // ── Path-length safety: multibyte UTF-8 characters (Unix byte limits) ────
+    // Path-length safety: multibyte UTF-8 characters (Unix byte limits)
 
     [Fact]
     public void ResolveCollision_MultibyteName_ComponentFitsWithinByteLimit()
@@ -278,7 +278,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.Equal(resultComponent, reEncoded);
     }
 
-    // ── GUID fallback stays within limit ─────────────────────────────────────
+    // GUID fallback stays within limit
 
     [Fact]
     public void ResolveCollision_GuidFallback_StaysWithinPathLimit()
@@ -307,7 +307,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.DoesNotMatch(@"^x_\d+$", finalComponent);
     }
 
-    // ── Fail-fast: directory alone exhausts the path budget ──────────────────
+    // Fail-fast: directory alone exhausts the path budget
 
     [Fact]
     public void ResolveCollision_DirectoryBudgetExhausted_ThrowsIOException()
@@ -322,7 +322,7 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.Contains("too long to create an entry", ex.Message, StringComparison.Ordinal);
     }
 
-    // ── Timestamp-prefix preservation under a shrinking component budget ──────
+    // Timestamp-prefix preservation under a shrinking component budget
 
     [Fact]
     public void ResolveCollision_LongTimestampedName_PreservesParseablePrefix()

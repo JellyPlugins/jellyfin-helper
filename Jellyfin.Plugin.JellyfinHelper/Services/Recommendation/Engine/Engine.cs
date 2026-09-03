@@ -2400,7 +2400,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Monotonic counter incremented before every publish (batch or live-refresh). Used by
     ///     <see cref="TryPublishSnapshot"/> to reject out-of-order writes. Unlike
     ///     <see cref="BatchGeneration"/> (0 for live-refresh, letting a slow batch overwrite a newer
-    ///     live-refresh), this reflects actual publish order and closes the stale-overwrite gap.
+    ///     live-refresh).
     /// </param>
     /// <param name="ObservedSequence">
     ///     Value of <see cref="_publicationSequence"/> read when this builder STARTED assembling

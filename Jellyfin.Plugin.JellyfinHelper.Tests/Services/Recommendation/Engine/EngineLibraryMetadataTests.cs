@@ -18,8 +18,8 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Coverage for the Gap 2 live-library metadata pipeline (BuildLibraryItemMetadata /
-///     AddLibraryItemMetadata, driven by TrainStrategy) and the Gap 5 GetEnsembleDiagnostics accessor on the
+///     Coverage for the live-library metadata pipeline (BuildLibraryItemMetadata /
+///     AddLibraryItemMetadata, driven by TrainStrategy) and the GetEnsembleDiagnostics accessor on the
 ///     recommendation Engine.
 /// </summary>
 public sealed class EngineLibraryMetadataTests : IDisposable
