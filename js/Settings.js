@@ -408,7 +408,7 @@ function loadSettings() {
         // the end of the form (see #settingsSaveBand below).
         h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
 
-        // ── Card 1: General ──
+        // Card 1: General
         h += '<div class="settings-card">';
         h += '<div class="section-title">' + escHtml(T('settingsGeneralTitle', 'General settings')) + '</div>';
 
@@ -428,7 +428,7 @@ function loadSettings() {
         h += '</select>';
         h += '</div>'; // /Card 1 (General)
 
-        // ── Card 2: Task settings (cleanup tasks + trash + recommendations chain) ──
+        // Card 2: Task settings (cleanup tasks + trash + recommendations chain)
         h += '<div class="settings-card">';
         h += '<div class="section-title">' + escHtml(T('settingsTaskTitle', 'Task settings')) + '</div>';
         h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">' + escHtml(T('taskModeTitle', 'Task Mode (per Task)')) + '</div>';
@@ -515,7 +515,7 @@ function loadSettings() {
         h += '</fieldset>';
         h += '</div>'; // /Card 2 (Task settings + Trash)
 
-        // ── Card 3: Integrations (Seerr, Radarr, Sonarr) ──
+        // Card 3: Integrations (Seerr, Radarr, Sonarr)
         h += '<div class="settings-card">';
 
         h += '<div class="section-title">' + escHtml(T('settingsSeerrTitle', 'Seerr settings')) + '</div>';
@@ -556,7 +556,7 @@ function loadSettings() {
         h += '</div></div>';
         h += '</div>'; // /Card 3 (Integrations)
 
-        // ── Card 4: Backup & Restore ──
+        // Card 4: Backup & Restore
         h += '<div class="settings-card">';
         h += '<div class="section-title">' + escHtml(T('settingsBackupTitle', 'Backup & Restore')) + '</div>';
         h += '<div class="help-text">' + escHtml(T('settingsBackupHelp', 'Export your settings, Arr integrations, and trend data for backup. Import to restore on a fresh installation.')) + '</div>';
@@ -568,7 +568,8 @@ function loadSettings() {
         h += '<div id="backupMsg" style="margin-top:0.5em;"></div>';
         h += '</div>'; // /Card 4 (Backup)
 
-        // ── Floating save band (fixed, bottom-centre) ── Always in the viewport regardless of scroll position.
+        // Floating save band (fixed, bottom-centre)
+        // Always in the viewport regardless of scroll position.
         h += '<div class="settings-save-band" id="settingsSaveBand" role="status" aria-live="polite" aria-hidden="true">';
         h += '<span class="settings-save-band-status"><span class="settings-save-band-icon" aria-hidden="true"></span><span class="settings-save-band-text"></span></span>';
         h += '<button type="button" class="action-btn settings-save-band-btn" id="btnSaveSettings">' + mi('save') + escHtml(T('saveSettings', 'Save Settings')) + '</button>';
