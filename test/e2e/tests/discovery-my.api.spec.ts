@@ -22,6 +22,7 @@ interface ConfigSnapshot {
   TrashFolderPath?: string;
   TrashRetentionDays?: number;
   ExcludedLibraries?: string;
+  PluginLogLevel?: string;
 }
 let configSnapshot: ConfigSnapshot = {};
 
@@ -42,6 +43,7 @@ test.beforeAll(async () => {
       TrashFolderPath: c.TrashFolderPath,
       TrashRetentionDays: c.TrashRetentionDays,
       ExcludedLibraries: c.ExcludedLibraries,
+      PluginLogLevel: c.PluginLogLevel,
     };
   }
 
@@ -66,12 +68,24 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   // Restore the shared Configuration these tests mutated, so later specs run against the original backend state.
   if (Object.keys(configSnapshot).length > 0) {
+    const { PluginLogLevel: originalLogLevel, ...restorable } = configSnapshot;
     await admin
       .put(p('Configuration'), {
         headers: { 'Content-Type': 'application/json' },
-        data: { ...configSnapshot, SeerrApiKey: API_KEY_MASK },
+        data: { ...restorable, SeerrApiKey: API_KEY_MASK },
       })
       .catch(() => undefined);
+
+    // PluginLogLevel is ignored by PUT /Configuration, so the DEBUG level raised in beforeAll must be
+    // put back through the dedicated endpoint or later specs inherit DEBUG logging. Best-effort.
+    if (originalLogLevel) {
+      await admin
+        .put(p('Configuration/LogLevel'), {
+          headers: { 'Content-Type': 'application/json' },
+          data: { PluginLogLevel: originalLogLevel },
+        })
+        .catch(() => undefined);
+    }
   }
   await admin.dispose();
   await user?.dispose();
@@ -86,7 +100,7 @@ async function setDiscoveryAccess(enabled: boolean) {
     data: {
       RecommendationsTaskMode: 'Activate',
       SeerrUrl: 'http://mock-seerr:5055',
-      SeerrApiKey: API_KEY_MASK,
+      SeerrApiKey: 'seerr-key',
       DiscoveryUserAccessEnabled: enabled,
       ExcludedLibraries: '',
     },
@@ -243,6 +257,10 @@ test.describe.serial('Discovery availability exclusion', () => {
   const seededPlayed: string[] = [];
   let seededFavorite: string | null = null;
   const originalGenres = new Map<string, string[] | undefined>();
+  // Played items that existed before this spec wiped the admin's watch history to build a clean
+  // profile. Restored in afterAll so later specs (shared backend, workers: 1) see the original state.
+  const originalPlayed = new Set<string>();
+  let originalPlayedCaptured = false;
 
   test.afterAll(async () => {
     for (const id of seededPlayed) {
@@ -250,6 +268,13 @@ test.describe.serial('Discovery availability exclusion', () => {
     }
     if (seededFavorite) {
       await admin.delete(`/UserFavoriteItems/${seededFavorite}?userId=${auth.userId}`).catch(() => undefined);
+    }
+    // Restore the played state that existed before the profile wipe. Done after the seeded deletions
+    // above so an id that was both pre-existing and re-seeded ends up played, not deleted.
+    if (originalPlayedCaptured) {
+      for (const id of originalPlayed) {
+        await admin.post(`/UserPlayedItems/${id}?userId=${auth.userId}`).catch(() => undefined);
+      }
     }
     for (const [itemId, genres] of originalGenres) {
       try {
@@ -282,8 +307,11 @@ test.describe.serial('Discovery availability exclusion', () => {
       if (existing.ok()) {
         const eb = (await existing.json()) as { Items?: Array<{ Id: string }> };
         for (const it of eb.Items ?? []) {
+          // Capture what we are about to wipe so afterAll can restore the pre-existing played state.
+          originalPlayed.add(it.Id);
           await admin.delete(`/UserPlayedItems/${it.Id}?userId=${auth.userId}`).catch(() => undefined);
         }
+        originalPlayedCaptured = true;
       }
     } catch {
       // best-effort

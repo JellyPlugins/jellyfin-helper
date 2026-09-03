@@ -61,9 +61,17 @@ public static class LibraryPathResolver
         var allowed = new List<string>();
         var excluded = new List<string>();
 
+        // The XML contract promises a case-insensitive name match, but the supplied set carries its own
+        // comparer (IReadOnlySet exposes none to inspect). A caller passing a default case-sensitive set
+        // would classify "Anime" as allowed when the excluded name is "anime". Rebuild an ordinal-ignore
+        // -case lookup so the contract holds regardless of the caller's comparer.
+        var excludedNames = excludedLibraryNames.Count > 0
+            ? excludedLibraryNames.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : excludedLibraryNames;
+
         foreach (var folder in libraryManager.GetVirtualFolders())
         {
-            var target = excludedLibraryNames.Count > 0 && excludedLibraryNames.Contains(folder.Name ?? string.Empty)
+            var target = excludedNames.Count > 0 && excludedNames.Contains(folder.Name ?? string.Empty)
                 ? excluded
                 : allowed;
 

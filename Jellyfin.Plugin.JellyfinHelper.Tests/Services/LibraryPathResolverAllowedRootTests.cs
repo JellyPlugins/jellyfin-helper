@@ -167,6 +167,29 @@ public sealed class LibraryPathResolverAllowedRootTests
     }
 
     [Fact]
+    public void GetLibraryRootScope_CaseSensitiveExclusionSet_StillMatchesCaseInsensitively()
+    {
+        // The XML contract promises a case-insensitive name match. A caller passing a default
+        // (ordinal, case-sensitive) set with "anime" must still exclude a folder named "Anime";
+        // GetLibraryRootScope rebuilds an ordinal-ignore-case lookup internally to guarantee this.
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(m => m.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Media", Locations = ["/media"] },
+                new VirtualFolderInfo { Name = "Anime", Locations = ["/media/anime"] }
+            ]);
+
+        var scope = LibraryPathResolver.GetLibraryRootScope(
+            libraryManager.Object,
+            new HashSet<string>(StringComparer.Ordinal) { "anime" });
+
+        Assert.Equal(["/media"], scope.AllowedRoots);
+        Assert.Equal(["/media/anime"], scope.ExcludedRoots);
+    }
+
+    [Fact]
     public void GetLibraryRootScope_NullLibraryManager_Throws()
     {
         Assert.Throws<ArgumentNullException>(
