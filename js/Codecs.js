@@ -15,9 +15,6 @@ var _touchOutsideListenerAttached = false;
 // Timestamp of last touchend - used to suppress touch-originated click events cross-browser
 var _lastTouchEndTime = 0;
 
-// Flag: force scroll-into-view on next panel open (set by donut click, consumed by attachTogglePanelHandlers)
-var _forceScrollOnPanelOpen = false;
-
 // SVG donut tooltip - reads rich data from _donutTooltipData
 function showDonutTooltip(container, evt, segment) {
     var tooltip = container.querySelector('.donut-tooltip');
