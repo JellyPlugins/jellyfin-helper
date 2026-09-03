@@ -137,4 +137,46 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
 
         Assert.Equal(2, result.Count);
     }
+
+    [Fact]
+    public void GetAllUserWatchProfiles_ResolvesAllowedRootsOncePerRun()
+    {
+        // Regression guard for the resolve-once optimization: a batch run must read virtual folders
+        // a single time, not once per library load. Before the refactor each of the three loaders
+        // re-resolved, hitting GetVirtualFolders repeatedly.
+        _mockLibraryManager
+            .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>());
+        var service = CreateService("Anime");
+        var user = new Jellyfin.Database.Implementations.Entities.User("u", "prov", "res") { Id = Guid.NewGuid() };
+        _mockUserManager.Setup(m => m.GetUsers()).Returns([user]);
+
+        service.GetAllUserWatchProfiles();
+
+        _mockLibraryManager.Verify(m => m.GetVirtualFolders(), Times.Once);
+    }
+
+    [Fact]
+    public void LoadAllVideoItems_ItemWithEmptyPath_LogsDroppedCount()
+    {
+        // An item with no path cannot sit under any allowed root, so the filter drops it. That is
+        // correct, but the drop must be observable so a sparse profile is not mistaken for missing data.
+        var allowed = new Movie { Id = Guid.NewGuid(), Path = AllowedRoot + "/film.mkv" };
+        var noPath = new Movie { Id = Guid.NewGuid(), Path = string.Empty };
+        _mockLibraryManager
+            .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { allowed, noPath });
+        var service = CreateService("Anime");
+
+        var result = service.LoadAllVideoItems();
+
+        Assert.Single(result);
+        Assert.Equal(allowed.Id, result[0].Id);
+        _mockPluginLog.Verify(
+            l => l.LogDebug(
+                It.IsAny<string>(),
+                It.Is<string>(m => m.Contains("no path", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<ILogger>()),
+            Times.Once);
+    }
 }

@@ -1942,6 +1942,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>
     ///     Adds the TMDb IDs of movies and series already present in the Jellyfin library to the exclusion set.
     /// </summary>
+    /// <remarks>
+    ///     This scans the whole library and deliberately ignores the recommendation ExcludedLibraries
+    ///     setting. Discovery surfaces titles the user does not yet own, so anything already in any
+    ///     library, even one excluded from recommendation scoring, must not be suggested for a new
+    ///     request. Excluding a library hides its titles from recommendations; it does not make
+    ///     Discovery offer to acquire copies the user already has.
+    /// </remarks>
     /// <param name="excluded">The exclusion set to add library entries into.</param>
     /// <param name="cancellationToken">Cooperative cancellation token.</param>
     private void AddLibraryExclusions(HashSet<(int TmdbId, string MediaType)> excluded, CancellationToken cancellationToken)

@@ -492,9 +492,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
 │   │   ├── Scoring/                 # Pluggable scoring strategies
-│   │   │   ├── IScoringStrategy.cs
+│   │   │   ├── IScoringStrategy.cs   # Also declares ITrainableStrategy (no separate file)
 │   │   │   ├── IStrategySelector.cs
-│   │   │   ├── ITrainableStrategy.cs
 │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
@@ -512,7 +511,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── IWatchHistoryService.cs
 │   │   │   ├── WatchHistoryService.cs
 │   │   │   ├── UserWatchProfile.cs
-│   │   │   ├── LanguageAffinity.cs
+│   │   │   ├── LanguageProfileEntry.cs
 │   │   │   └── WatchedItemInfo.cs
 │   │   ├── Playlist/                # Recommendation → Jellyfin playlist sync
 │   │   │   ├── IRecommendationPlaylistService.cs
