@@ -227,6 +227,7 @@ test.describe.serial('Discovery availability exclusion', () => {
   // shares one backend) do not inherit a profile this spec created.
   const seededPlayed: string[] = [];
   let seededFavorite: string | null = null;
+  const originalGenres = new Map<string, string[] | undefined>();
 
   test.afterAll(async () => {
     for (const id of seededPlayed) {
@@ -234,6 +235,22 @@ test.describe.serial('Discovery availability exclusion', () => {
     }
     if (seededFavorite) {
       await admin.delete(`/UserFavoriteItems/${seededFavorite}?userId=${auth.userId}`).catch(() => undefined);
+    }
+    for (const [itemId, genres] of originalGenres) {
+      try {
+        const cur = await admin.get(`/Items/${itemId}?userId=${auth.userId}`);
+        if (!cur.ok()) continue;
+        const dto = (await cur.json()) as { Genres?: string[] };
+        dto.Genres = genres ?? [];
+        await admin
+          .post(`/Items/${itemId}`, {
+            headers: { 'Content-Type': 'application/json' },
+            data: dto,
+          })
+          .catch(() => undefined);
+      } catch {
+        // best-effort restore
+      }
     }
   });
 
@@ -270,6 +287,9 @@ test.describe.serial('Discovery availability exclusion', () => {
     const get = await admin.get(`/Items/${itemId}?userId=${auth.userId}`);
     expect(get.ok(), `fetch item ${itemId}: ${get.status()}`).toBeTruthy();
     const dto = (await get.json()) as { Genres?: string[] };
+    if (!originalGenres.has(itemId)) {
+      originalGenres.set(itemId, dto.Genres ? [...dto.Genres] : undefined);
+    }
     dto.Genres = [genre];
     const post = await admin.post(`/Items/${itemId}`, {
       headers: { 'Content-Type': 'application/json' },

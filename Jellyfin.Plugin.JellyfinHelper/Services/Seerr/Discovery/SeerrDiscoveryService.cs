@@ -1929,6 +1929,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // requested cancellation propagates.
         cancellationToken.ThrowIfCancellationRequested();
         AddLibraryExclusions(excluded, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Exclude movies already in Radarr
         await AddRadarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);

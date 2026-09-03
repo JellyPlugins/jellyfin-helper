@@ -81,20 +81,8 @@ public static class LibraryPathResolver
     // Deduplicates roots by their normalized form so that "/media/movies" and "/media/movies/" (which
     // NormalizeForPrefix collapses to the same path) do not each occupy a slot. The original spelling
     // of the first occurrence is kept; matching is done via the normalized key.
-    private static List<string> DistinctByNormalizedRoot(List<string> roots)
-    {
-        var seen = new HashSet<string>(PathComparison.Comparer);
-        var result = new List<string>(roots.Count);
-        foreach (var root in roots)
-        {
-            if (seen.Add(NormalizeForPrefix(root)))
-            {
-                result.Add(root);
-            }
-        }
-
-        return result;
-    }
+    private static List<string> DistinctByNormalizedRoot(List<string> roots) =>
+        roots.DistinctBy(NormalizeForPrefix, PathComparison.Comparer).ToList();
 
     /// <summary>
     /// Determines whether an item path is permitted by the supplied scope, resolving the case where
