@@ -136,22 +136,13 @@ public static class LibraryPathResolver
     // Length is the specificity measure: a deeper (longer) root path is the more specific match.
     private static int DeepestMatchingRootLength(string normalizedItem, IReadOnlyCollection<string> roots)
     {
-        var deepest = -1;
-        foreach (var root in roots)
-        {
-            if (string.IsNullOrEmpty(root))
-            {
-                continue;
-            }
-
-            var normalizedRoot = NormalizeForPrefix(root);
-            if (IsUnderRoot(normalizedItem, normalizedRoot) && normalizedRoot.Length > deepest)
-            {
-                deepest = normalizedRoot.Length;
-            }
-        }
-
-        return deepest;
+        return roots
+            .Where(static root => !string.IsNullOrEmpty(root))
+            .Select(NormalizeForPrefix)
+            .Where(normalizedRoot => IsUnderRoot(normalizedItem, normalizedRoot))
+            .Select(static normalizedRoot => normalizedRoot.Length)
+            .DefaultIfEmpty(-1)
+            .Max();
     }
 
     // Directory-boundary containment test for two already-normalized paths, used by the scoped

@@ -98,7 +98,12 @@ function discoverPage() {
     page: 1, totalPages: 1, totalResults: 2,
     results: [
       stamp({ id: 27205, mediaType: 'movie', title: 'Inception', genreIds: [28, 878], voteAverage: 8.3, popularity: 120.5, releaseDate: '2010-07-16', posterPath: '/p1.jpg', overview: 'A thief...', adult: false }),
-      stamp({ id: 680, mediaType: 'movie', title: 'Pulp Fiction', genreIds: [80, 18], voteAverage: 8.5, popularity: 90.1, releaseDate: '1994-10-14', posterPath: '/p2.jpg', overview: 'The lives...', adult: false }),
+      // releaseDate is deliberately recent (not the real 1994) so the candidate clears the
+      // production year-relevance post-filter (ComputeMinYear = currentYear-12 for modern
+      // watchers). The availability-exclusion test seeds a modern-leaning admin watch profile,
+      // so a 1994 date would be dropped by that filter and vacate the pool before mediaInfo.status
+      // is ever exercised - defeating the test's positive control.
+      stamp({ id: 680, mediaType: 'movie', title: 'Pulp Fiction', genreIds: [80, 18], voteAverage: 8.5, popularity: 90.1, releaseDate: '2022-10-14', posterPath: '/p2.jpg', overview: 'The lives...', adult: false }),
     ],
   };
 }
