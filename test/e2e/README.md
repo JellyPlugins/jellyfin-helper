@@ -5,7 +5,7 @@ server** in Docker, drive it exactly the way a human would (settings, tasks,
 backup/restore, every dashboard tab), and assert it all works, including
 hardening / edge-case behaviour.
 
-This complements the ~4200 xUnit unit tests: the unit tests verify logic in
+This complements the xUnit unit tests: the unit tests verify logic in
 isolation; this harness verifies the plugin **loads and behaves in a live
 server**.
 
