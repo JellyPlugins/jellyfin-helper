@@ -21,6 +21,7 @@ interface ConfigSnapshot {
   UseTrash?: boolean;
   TrashFolderPath?: string;
   TrashRetentionDays?: number;
+  ExcludedLibraries?: string;
 }
 let configSnapshot: ConfigSnapshot = {};
 
@@ -40,6 +41,7 @@ test.beforeAll(async () => {
       UseTrash: c.UseTrash,
       TrashFolderPath: c.TrashFolderPath,
       TrashRetentionDays: c.TrashRetentionDays,
+      ExcludedLibraries: c.ExcludedLibraries,
     };
   }
 
@@ -67,6 +69,8 @@ test.afterAll(async () => {
 
 async function setDiscoveryAccess(enabled: boolean) {
   // Requires Recommendations active + Seerr configured for the toggle to stick.
+  // ExcludedLibraries must be pristine for the watch profile to be visible to
+  // the discovery engine; other specs (hardening) mutate it.
   const res = await admin.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: {
@@ -74,6 +78,7 @@ async function setDiscoveryAccess(enabled: boolean) {
       SeerrUrl: 'http://mock-seerr:5055',
       SeerrApiKey: API_KEY_MASK,
       DiscoveryUserAccessEnabled: enabled,
+      ExcludedLibraries: '',
     },
   });
   expect(res.ok(), `toggle set failed: ${res.status()}`).toBeTruthy();
@@ -254,20 +259,35 @@ test.describe.serial('Discovery availability exclusion', () => {
     }
   });
 
-  // Discovery only surfaces candidates for a user whose watch history yields a non-empty genre
-  // preference vector; with no active profile the generation returns an empty pool. The suite
-  // seeds no playback, so this spec must establish its own profile rather than depend on another
-  // spec (recommendations-ranking) having marked items played first in the same worker. It must
-  // also give the watched movies a real genre: the ffmpeg-generated fixtures carry no metadata, so
-  // without this the genre preference vector is empty and discovery generation is gated off entirely
-  // (SeerrDiscoveryService returns null on an empty vector), which would silently vacate the pool.
-  // "Action" maps to a TMDb movie genre id, so the mock's genre discover query returns its pool.
+  // Discovery requires a user profile with watch history containing genres; without an active profile,
+  // no candidates are generated. Since this test suite seeds no playback,
+  // it must build its own profile instead of relying on prior test runs.
+  // The ffmpeg test fixtures lack genre metadata, which leaves the preference vector empty and causes `SeerrDiscoveryService` to return null and clear the pool.
+  // Assigning "Action"—a valid TMDb genre ID—ensures the mock discovery query returns candidates.
   async function seedAdminWatchProfile(): Promise<void> {
+    // Ensure a pristine watch profile so leftover playback from other specs (recommendations-ranking)
+    // does not dilute the genre vector or change the average-year filter.
+    try {
+      const existing = await admin.get(`/Items?IncludeItemTypes=Movie&Recursive=true&userId=${auth.userId}&Filters=IsPlayed`);
+      if (existing.ok()) {
+        const eb = (await existing.json()) as { Items?: Array<{ Id: string }> };
+        for (const it of eb.Items ?? []) {
+          await admin.delete(`/UserPlayedItems/${it.Id}?userId=${auth.userId}`).catch(() => undefined);
+        }
+      }
+    } catch {
+      // best-effort
+    }
+
     const res = await admin.get(`/Items?IncludeItemTypes=Movie&Recursive=true&userId=${auth.userId}`);
     expect(res.ok(), `/Items status ${res.status()}`).toBeTruthy();
-    const body = (await res.json()) as { Items?: Array<{ Id: string }> };
-    const movies = (body.Items ?? []).map((i) => i.Id);
+    const body = (await res.json()) as { Items?: Array<{ Id: string; Name?: string; ProductionYear?: number }> };
+    const sorted = (body.Items ?? [])
+      .slice()
+      .sort((a, b) => (a.Name ?? a.Id).localeCompare(b.Name ?? b.Id));
+    const movies = sorted.map((i) => i.Id);
     expect(movies.length, 'need a movie to build a watch profile from').toBeGreaterThan(0);
+    // Avoid picking the discover candidates themselves if they ever appear as library items.
     const watched = movies.slice(0, 3);
     for (const id of watched) {
       await assignGenre(id, 'Action');
@@ -278,6 +298,17 @@ test.describe.serial('Discovery availability exclusion', () => {
     const fav = await admin.post(`/UserFavoriteItems/${movies[0]}?userId=${auth.userId}`);
     expect([200, 204]).toContain(fav.status());
     seededFavorite = movies[0];
+
+    // Verify the profile is actually visible to the recommendation engine before triggering generation.
+    // This catches races where Jellyfin has not yet flushed the UserData batch.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const wp = await admin.get(p(`Recommendations/WatchProfile/${auth.userId}`));
+      if (wp.ok()) {
+        const prof = (await wp.json()) as { GenreDistribution?: Record<string, number>; WatchedMovieCount?: number };
+        if ((prof.WatchedMovieCount ?? 0) >= 3 && (prof.GenreDistribution?.Action ?? 0) >= 3) break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
 
   // Set a genre on an item via fetch-modify-save. ItemUpdateController replaces the whole DTO, so
