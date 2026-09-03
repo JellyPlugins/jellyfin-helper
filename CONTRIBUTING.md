@@ -24,7 +24,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - [Jellyfin Server 12.0.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
 - Recommended: [JetBrains Rider](https://www.jetbrains.com/rider/) or [Visual Studio 2022+](https://visualstudio.microsoft.com/)
-- Recommended: [Node.js 18+](https://nodejs.org/) (for JavaScript linting)
+- Recommended: [Node.js 20+](https://nodejs.org/) (for JavaScript linting; E2E Playwright requires 20+)
 
 ### Clone and Build
 
@@ -117,6 +117,9 @@ bash test/e2e/scripts/run.sh --no-build
 
 # Leave the stack running afterwards to poke around (http://localhost:8096)
 bash test/e2e/scripts/run.sh --keep
+
+# Interactive Playwright UI runner
+bash test/e2e/scripts/run.sh --ui
 ```
 
 It runs automatically on every PR via `.github/workflows/e2e.yml`. See
@@ -1364,6 +1367,9 @@ The File Transformation registration uses reflection to avoid a hard dependency:
 | `POST` | `/JellyfinHelper/Discovery/Request` | Admin | Submit request with server/profile/rootFolder overrides |
 | `GET` | `/JellyfinHelper/Discovery/My` | User | Current user's own discovery results |
 | `GET` | `/JellyfinHelper/Discovery/My/script` | Anonymous | Serves `discovery-sidebar.js` embedded resource |
+| `GET` | `/JellyfinHelper/Discovery/My/RequestPermissions/{serviceType}` | User | Whether the user may request from this Radarr/Sonarr, plus available profiles |
+| `GET` | `/JellyfinHelper/Discovery/My/Services/{serviceType}` | User | User-visible service info for the given type |
+| `GET` | `/JellyfinHelper/Discovery/My/ExternalLinks` | User | Configured external links surfaced in the sidebar |
 | `POST` | `/JellyfinHelper/Discovery/My/Request` | User | Submit request as linked Seerr user (no overrides) |
 | `POST` | `/JellyfinHelper/Discovery/My/Dismiss` | User | Dismiss a discovery item (training feedback signal) |
 
@@ -1386,32 +1392,34 @@ configPage.template.html (shell with placeholders)
 The `ComposeConfigPage` MSBuild task (`BuildTasks/ComposeConfigPage.cs`) runs during build:
 
 1. Reads `configPage.template.html`
-2. Finds `/* __CSS_MODULES__ */` placeholder → injects all CSS files (ordered)
-3. Finds `/* __JS_MODULES__ */` placeholder → injects all JS files (ordered)
+2. Finds the `/* CSS_CONTENT */` placeholder → injects all CSS files (ordered)
+3. Finds the `/* JS_CONTENT */` placeholder → injects all JS files (ordered)
 4. Writes the composed `configPage.html`
 
 ### File Ordering
 
-CSS and JS files are injected in a specific order defined in `ComposeConfigPage.cs`:
+`ComposeConfigPage` has no ordering arrays of its own — it concatenates whatever
+list of files MSBuild passes in. The canonical order is defined by the `CssModule`
+and `JsModule` `ItemGroup`s in `Jellyfin.Plugin.JellyfinHelper.csproj`:
 
-```csharp
-// CSS order
-"Shared.css", "Overview.css", "Codecs.css", "Health.css",
-"Trends.css", "Settings.css", "ArrIntegration.css", "Logs.css",
-"Recommendations.css"
+```
+# CSS order (csproj CssModule items)
+Shared.css, Overview.css, Codecs.css, Health.css,
+Trends.css, Settings.css, ArrIntegration.css,
+Recommendations.css, Logs.css
 
-// JS order  
-"Shared.js", "Overview.js", "Codecs.js", "Health.js",
-"Trends.js", "Settings.js", "ArrIntegration.js", "Logs.js",
-"Recommendations.js", "FolderBrowser.js", "Main.js"
+# JS order (csproj JsModule items)
+Shared.js, Overview.js, Codecs.js, Health.js,
+Trends.js, Settings.js, ArrIntegration.js,
+Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```
 
-`Shared.css`/`Shared.js` must be first (shared utilities), `Main.js` must be last (tab routing + IIFE close).
+`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` — the module files themselves are unwrapped.
 
 ### Adding a New Tab
 
 1. Create `css/YourTab.css` and `js/YourTab.js`
-2. Add the filenames to the ordering arrays in `ComposeConfigPage.cs`
+2. Add the filenames to the `CssModule`/`JsModule` `ItemGroup`s in `Jellyfin.Plugin.JellyfinHelper.csproj`, in the correct order
 3. Add the tab button and content div to `configPage.template.html`
 4. Register the init function in `Main.js`'s tab routing
 5. Build to regenerate `configPage.html`
@@ -1420,8 +1428,13 @@ CSS and JS files are injected in a specific order defined in `ComposeConfigPage.
 
 - **Never edit `configPage.html` directly.** It's overwritten on every build
 - **Always edit the source files** in `css/`, `js/`, or `configPage.template.html`
-- The `docs/` folder contains a **copy** of the plugin pages for the documentation site
-- After changing plugin pages, copy updated files to `docs/` as well
+- The `docs/` folder hosts the GitHub Pages demo. Its `css/`, `js/`, and `i18n/`
+  subfolders are **generated, not committed** (they are `.gitignore`d). Only
+  `docs/index.html`, `docs/.nojekyll`, and `docs/mock/` are tracked. The assets are produced two ways:
+  - locally with `dotnet build -p:SyncDocs=true` (the `SyncDocsAssets` MSBuild
+    target mirrors `css/`, `js/`, and `i18n/` into `docs/`), and
+  - in CI by `.github/scripts/prepare-demo-site.ps1` (run from
+    `.github/workflows/pages.yml`) before the Pages deploy.
 
 ### JavaScript Guidelines
 
