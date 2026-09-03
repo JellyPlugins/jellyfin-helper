@@ -358,4 +358,45 @@ public class PathValidatorTests
             candidate,
             [blank, Path.Combine(sep, "media", "movies")]));
     }
+
+    // A null or empty path has no segments to screen, so the guard reports no traversal.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void HasTraversalSegment_NullOrEmpty_ReturnsFalse(string? path)
+        => Assert.False(PathValidator.HasTraversalSegment(path));
+
+    // An explicit "." or ".." segment, on either separator, is traversal and must be flagged.
+    [Theory]
+    [InlineData("..")]
+    [InlineData(".")]
+    [InlineData("a/../b")]
+    [InlineData("a\\..\\b")]
+    [InlineData("a/./b")]
+    [InlineData("/media/../etc")]
+    [InlineData("../../secret")]
+    public void HasTraversalSegment_DotSegments_ReturnTrue(string path)
+        => Assert.True(PathValidator.HasTraversalSegment(path));
+
+    // A normal path with no dot-only segment is not traversal.
+    [Theory]
+    [InlineData("media/movies/file.mkv")]
+    [InlineData("a\\b\\c")]
+    [InlineData(".jellyfin-trash")]
+    public void HasTraversalSegment_CleanPath_ReturnsFalse(string path)
+        => Assert.False(PathValidator.HasTraversalSegment(path));
+
+    // A name that merely contains ".." as a substring, but never as a whole segment, is not
+    // traversal. A substring check would false-positive here; the segment split must not.
+    [Theory]
+    [InlineData("my..folder/file")]
+    [InlineData("a/b..c/d")]
+    [InlineData("...")]
+    public void HasTraversalSegment_DotDotInName_ReturnsFalse(string path)
+        => Assert.False(PathValidator.HasTraversalSegment(path));
+
+    // A whitespace-only path has a single non-dot segment, so it is not traversal.
+    [Fact]
+    public void HasTraversalSegment_Whitespace_ReturnsFalse()
+        => Assert.False(PathValidator.HasTraversalSegment("   "));
 }

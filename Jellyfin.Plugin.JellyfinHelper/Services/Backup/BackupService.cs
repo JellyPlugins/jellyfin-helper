@@ -459,12 +459,9 @@ public sealed class BackupService : IBackupService
     private static void RestoreTrashSettings(PluginConfiguration config, BackupData backup)
     {
         config.UseTrash = backup.UseTrash;
-        // Defang unsafe trash path to default instead of failing restore. Split on literal slash and
-        // backslash so Windows traversal is not missed on Linux.
+        // Defang unsafe trash path to default instead of failing restore.
         var rawTrashPath = backup.TrashFolderPath;
-        var hasTraversal = !string.IsNullOrWhiteSpace(rawTrashPath) &&
-            rawTrashPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
-                        .Any(s => s is "." or "..");
+        var hasTraversal = PathValidator.HasTraversalSegment(rawTrashPath);
         var isSensitive = !string.IsNullOrWhiteSpace(rawTrashPath) &&
             PathValidator.IsSensitiveSystemPath(rawTrashPath);
         config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal || isSensitive

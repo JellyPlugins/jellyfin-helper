@@ -103,7 +103,7 @@ var _saveBandSaving = false;        // true while a manual save is in flight
 function takeSettingsSnapshot() {
     try {
         _settingsSnapshot = JSON.stringify(buildSettingsPayload());
-    } catch (e) {
+    } catch {
         _settingsSnapshot = '';
     }
     // Reflect the (now clean) state in the floating save band.
@@ -114,7 +114,7 @@ function hasUnsavedSettings() {
     if (!_settingsSnapshot) return false;
     try {
         return JSON.stringify(buildSettingsPayload()) !== _settingsSnapshot;
-    } catch (e) {
+    } catch {
         return false;
     }
 }
@@ -214,7 +214,7 @@ function refreshSaveBand() {
     if (_saveBandSaving) return; // don't override an in-progress manual save
 
     var dirty;
-    try { dirty = hasUnsavedSettings(); } catch (_e) { dirty = false; }
+    try { dirty = hasUnsavedSettings(); } catch { dirty = false; }
 
     if (!_settingsSnapshot) {
         cancelSaveBandReveal();
@@ -230,7 +230,7 @@ function refreshSaveBand() {
             _saveBandRevealTimer = null;
             if (_saveBandSaving) return;
             var stillDirty;
-            try { stillDirty = hasUnsavedSettings(); } catch (_e) { stillDirty = false; }
+            try { stillDirty = hasUnsavedSettings(); } catch { stillDirty = false; }
             if (stillDirty) renderSaveBand('unsaved');
         }, 600);
         return;
@@ -273,14 +273,14 @@ function attachDirtyTracking() {
 
     // Detach previous listeners before wiring new ones.
     if (_dirtyTrackingController && typeof _dirtyTrackingController.abort === 'function') {
-        try { _dirtyTrackingController.abort(); } catch (_e) { /* ignore */ }
+        try { _dirtyTrackingController.abort(); } catch { /* ignore */ }
         _dirtyTrackingController = null;
     }
     if (_dirtyTrackingHandler && _dirtyTrackingForm) {
         try {
             _dirtyTrackingForm.removeEventListener('input', _dirtyTrackingHandler);
             _dirtyTrackingForm.removeEventListener('change', _dirtyTrackingHandler);
-        } catch (_e) { /* ignore */ }
+        } catch { /* ignore */ }
         _dirtyTrackingHandler = null;
         _dirtyTrackingForm = null;
     }
@@ -776,7 +776,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
                     ? JSON.parse(err.responseText)
                     : null));
             if (errData?.message) errorMsg = String(errData.message);
-        } catch (_e) { /* body was not JSON (e.g. HTML from a proxy) - fall through */ }
+        } catch { /* body was not JSON (e.g. HTML from a proxy) - fall through */ }
 
         // Emit a rich console log so users copy/pasting into a GitHub issue give us
         // everything we need in one shot (status, kind, body snippet).
@@ -844,7 +844,7 @@ function probeBackendReachability(originalDiag) {
                 + 'Save: HTTP ' + originalDiag.status + ' (' + originalDiag.kind + '); '
                 + 'Ping: HTTP ' + pingDiag.status + ' (' + pingDiag.kind + ').');
         });
-    } catch (_e) {
+    } catch {
         // Diagnostic-only path - never let a Ping failure surface to the user.
     }
 }
@@ -1070,7 +1070,7 @@ function doBackupImport(file) {
         // Validate it's parsable JSON before sending
         try {
             JSON.parse(json);
-        } catch (parseErr) {
+        } catch {
             msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('backupInvalidJson', 'Invalid backup file. The file does not contain valid JSON.')) + '</div>';
             return;
         }
@@ -1079,7 +1079,7 @@ function doBackupImport(file) {
             var data;
             try {
                 data = typeof result === 'string' ? JSON.parse(result) : result;
-            } catch (jsonErr) {
+            } catch {
                 msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('backupInvalidJson', 'Invalid backup file. The file does not contain valid JSON.')) + '</div>';
                 return;
             }
@@ -1138,7 +1138,7 @@ function doBackupImport(file) {
                 if (response?.message) {
                     errorText = escHtml(response.message);
                 }
-            } catch (error_) { /* use default error text */
+            } catch { /* use default error text */
             }
             msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + errorText + '</div>';
         });
@@ -1265,7 +1265,7 @@ function fallbackCopy(text) {
     textarea.select();
     try {
         return document.execCommand('copy');
-    } catch (e) {
+    } catch {
         return false;
     } finally {
         textarea.remove();

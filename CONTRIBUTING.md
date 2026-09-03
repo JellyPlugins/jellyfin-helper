@@ -396,6 +396,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── ApiKeyMaskResolver.cs            # Shared logic for the ApiKeyMask sentinel: IsMask(candidate) + ResolveArrKey(incoming, url, name, stored). Used by the save path (ConfigurationController) AND the stateless Test-Connection endpoints (ArrIntegrationController/SeerrController) so a masked key echoed back is resolved to the real stored key server-side and the mask is never forwarded upstream. Unresolvable mask → empty string (caller must not test).
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
+│   ├── DiscoverySupport.cs              # Shared helpers for both discovery controllers: GetCurrentUserId(ClaimsPrincipal) claim resolution and BuildExcludedItemKeys(store, userId, onError) union of dismissed+requested items. onError is a callback so each controller keeps its own static log template (CA2254).
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
 │   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
 │   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
@@ -593,7 +594,7 @@ Jellyfin.Plugin.JellyfinHelper/
     │   ├── Shared.css, Overview.css, Codecs.css, Health.css
     │   ├── Trends.css, Settings.css, ArrIntegration.css, Logs.css
     │   └── Recommendations.css  # Discover tab styles
-    └── js/                      # Per-tab JS modules + .eslintrc.json
+    └── js/                      # Per-tab JS modules + eslint.config.js
         ├── Shared.js, Overview.js, Codecs.js, Health.js
         ├── Trends.js, Settings.js, ArrIntegration.js, Logs.js
         ├── Recommendations.js    # Discover tab logic
@@ -636,6 +637,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ConfigurationResponseTests.cs`
 - `DiscoveryControllerExtendedTests.cs`
 - `DiscoveryControllerTests.cs`
+- `DiscoverySupportTests.cs` - Tests DiscoverySupport GetCurrentUserId claim resolution and BuildExcludedItemKeys feedback/dismiss union
 - `FolderBrowserControllerTests.cs`
 - `GrowthTimelineControllerTests.cs` - Tests GrowthTimelineController computed/cached timeline and 429 refresh rate-limiting
 - `LibraryInsightsControllerTests.cs` - Tests LibraryInsightsController compute-and-cache behavior and recompute on cache expiry
@@ -905,6 +907,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `DiscoveryController.cs`
 - `DiscoveryDismissDto.cs`
 - `DiscoveryRequestDto.cs`
+- `DiscoverySupport.cs` - Shared GetCurrentUserId + BuildExcludedItemKeys helpers for the two discovery controllers
 - `FolderBrowserController.cs`
 - `FolderBrowserResponse.cs`
 - `GrowthTimelineController.cs`

@@ -44,21 +44,16 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         static HttpMessageHandler NoRedirectHandler() =>
             new SocketsHttpHandler { AllowAutoRedirect = false };
 
-        serviceCollection.AddHttpClient("ArrIntegration", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(15);
-            client.MaxResponseContentBufferSize = maxResponseBytes;
-        }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
-        serviceCollection.AddHttpClient("SeerrIntegration", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.MaxResponseContentBufferSize = maxResponseBytes;
-        }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
-        serviceCollection.AddHttpClient("SeerrDiscovery", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.MaxResponseContentBufferSize = maxResponseBytes;
-        }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
+        void AddHardenedClient(string name, TimeSpan timeout) =>
+            serviceCollection.AddHttpClient(name, client =>
+            {
+                client.Timeout = timeout;
+                client.MaxResponseContentBufferSize = maxResponseBytes;
+            }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
+
+        AddHardenedClient("ArrIntegration", TimeSpan.FromSeconds(15));
+        AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
+        AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();

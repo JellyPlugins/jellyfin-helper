@@ -362,7 +362,7 @@ function formatLogTimestamp(ts) {
                 d.getDate()) + ' '
             + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(
                 d.getSeconds());
-    } catch (e) {
+    } catch {
         return '[invalid date]';
     }
 }
