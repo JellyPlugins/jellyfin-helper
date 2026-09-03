@@ -295,17 +295,29 @@
     min-width: 0;
     margin-bottom: var(--spacing-xl);
     border-bottom: 2px solid var(--color-border);
-    /* Allows scrolling on small screens while hiding the scrollbar */
+    /* Scrollable on genuinely narrow viewports; the styled thin scrollbar
+       below only appears when the tabs actually overflow. */
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
 }
 
 .tab-bar::-webkit-scrollbar {
-    display: none;
+    height: 4px;
+}
+
+.tab-bar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tab-bar::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 2px;
+}
+
+.tab-bar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
 }
 
 .tab-btn {
