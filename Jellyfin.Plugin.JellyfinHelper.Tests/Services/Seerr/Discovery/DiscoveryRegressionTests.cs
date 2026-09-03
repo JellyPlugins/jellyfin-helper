@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -213,6 +215,8 @@ public sealed class DiscoveryRegressionTests
     public void GetAllUserWatchProfiles_NoUsers_ReturnsEmptyCollection()
     {
         var mockLibraryManager = new Mock<ILibraryManager>();
+        var mockConfigService = new Mock<IPluginConfigurationService>();
+        mockConfigService.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
         var mockUserManager = new Mock<IUserManager>();
         var mockUserDataManager = new Mock<IUserDataManager>();
         var mockPluginLog = new Mock<IPluginLogService>();
@@ -228,6 +232,7 @@ public sealed class DiscoveryRegressionTests
 
         var service = new WatchHistoryService(
             mockLibraryManager.Object,
+            mockConfigService.Object,
             mockUserManager.Object,
             mockUserDataManager.Object,
             mockPluginLog.Object,
@@ -243,6 +248,8 @@ public sealed class DiscoveryRegressionTests
     public void GetAllUserWatchProfiles_UsesGetUsersMethod()
     {
         var mockLibraryManager = new Mock<ILibraryManager>();
+        var mockConfigService = new Mock<IPluginConfigurationService>();
+        mockConfigService.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
         var mockUserManager = new Mock<IUserManager>();
         var mockUserDataManager = new Mock<IUserDataManager>();
         var mockPluginLog = new Mock<IPluginLogService>();
@@ -258,6 +265,7 @@ public sealed class DiscoveryRegressionTests
 
         var service = new WatchHistoryService(
             mockLibraryManager.Object,
+            mockConfigService.Object,
             mockUserManager.Object,
             mockUserDataManager.Object,
             mockPluginLog.Object,

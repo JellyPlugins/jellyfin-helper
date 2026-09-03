@@ -21,7 +21,9 @@ internal sealed class SeerrRequest
     public DateTimeOffset? CreatedAt { get; set; }
 
     /// <summary>
-    ///     Gets or sets the request status. 1 = pending, 2 = approved, 3 = declined, 4 = available, 5 = partially available.
+    ///     Gets or sets the request status: 1 = pending, 2 = approved, 3 = declined. This is the
+    ///     request's own lifecycle status and is separate from the media availability status on
+    ///     <see cref="SeerrMedia.Status"/> (see <see cref="SeerrMediaStatus"/>).
     /// </summary>
     [JsonPropertyName("status")]
     public int Status { get; set; }

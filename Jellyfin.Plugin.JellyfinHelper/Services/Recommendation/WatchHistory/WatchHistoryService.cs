@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using MediaBrowser.Controller.Entities;
@@ -24,6 +26,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private const string LogCategory = "WatchHistory";
 
     private readonly ILibraryManager _libraryManager;
+    private readonly IPluginConfigurationService _configService;
     private readonly ILogger<WatchHistoryService> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly IUserDataManager _userDataManager;
@@ -33,18 +36,21 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Initializes a new instance of the <see cref="WatchHistoryService" /> class.
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
+    /// <param name="configService">The plugin configuration service.</param>
     /// <param name="userManager">The user manager.</param>
     /// <param name="userDataManager">The user data manager.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     public WatchHistoryService(
         ILibraryManager libraryManager,
+        IPluginConfigurationService configService,
         IUserManager userManager,
         IUserDataManager userDataManager,
         IPluginLogService pluginLog,
         ILogger<WatchHistoryService> logger)
     {
         _libraryManager = libraryManager;
+        _configService = configService;
         _userManager = userManager;
         _userDataManager = userDataManager;
         _pluginLog = pluginLog;
@@ -113,11 +119,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <returns>A list of all non-folder video items.</returns>
     internal IReadOnlyList<BaseItem> LoadAllVideoItems()
     {
-        return _libraryManager.GetItemList(new InternalItemsQuery
+        var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
             MediaTypes = [MediaType.Video],
             IsFolder = false
         });
+
+        return FilterToAllowedLibraries(items);
     }
 
     /// <summary>
@@ -127,11 +135,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <returns>A list of all series items.</returns>
     internal IReadOnlyList<BaseItem> LoadAllSeriesItems()
     {
-        return _libraryManager.GetItemList(new InternalItemsQuery
+        var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Series],
             IsFolder = true
         });
+
+        return FilterToAllowedLibraries(items);
     }
 
     /// <summary>
@@ -160,7 +170,23 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFolder = false
         });
 
-        return CountPlayableEpisodesPerSeries(allEpisodes);
+        return CountPlayableEpisodesPerSeries(FilterToAllowedLibraries(allEpisodes));
+    }
+
+    // Drops items that live in a library the user chose to exclude from recommendations. When no
+    // library is excluded the input is returned untouched so the common case pays no path cost.
+    // Applied identically here and in the candidate engine to keep training and scoring on the
+    // same item set (train/serve parity).
+    private IReadOnlyList<BaseItem> FilterToAllowedLibraries(IReadOnlyList<BaseItem> items)
+    {
+        var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
+        if (excluded.Count == 0)
+        {
+            return items;
+        }
+
+        var allowedRoots = LibraryPathResolver.GetAllowedLibraryRoots(_libraryManager, excluded);
+        return items.Where(item => LibraryPathResolver.IsUnderAllowedRoot(item.Path, allowedRoots)).ToList();
     }
 
     /// <summary>
@@ -329,6 +355,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             Genres = genres,
             Year = item.ProductionYear,
             SeriesId = seriesId,
+            TmdbId = TmdbLibraryMapper.TryGetTmdbId(item, out var itemTmdbId) ? itemTmdbId : 0,
             DateCreated = item.DateCreated,
             PrimaryImageTag = null,
             PeopleNames = billedNames,

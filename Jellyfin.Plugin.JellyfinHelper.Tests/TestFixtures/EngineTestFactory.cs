@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -36,6 +38,7 @@ internal static class EngineTestFactory
         Engine Engine,
         Mock<IWatchHistoryService> WatchHistory,
         Mock<ILibraryManager> LibraryManager,
+        Mock<IPluginConfigurationService> ConfigService,
         Mock<IPluginLogService> PluginLog,
         Mock<ILogger<Engine>> Logger,
         Mock<IStrategySelector> StrategySelector,
@@ -62,6 +65,11 @@ internal static class EngineTestFactory
         libraryManager
             .Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns([]);
+
+        // Empty ExcludedLibraries by default so the library filter is a no-op and existing tests are unaffected.
+        var configService = new Mock<IPluginConfigurationService>();
+        configService.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration());
+
         var pluginLog = new Mock<IPluginLogService>();
         var logger = TestMockFactory.CreateLogger<Engine>();
 
@@ -85,6 +93,7 @@ internal static class EngineTestFactory
         var engine = new Engine(
             watchHistory.Object,
             libraryManager.Object,
+            configService.Object,
             pluginLog.Object,
             logger.Object,
             strategy,
@@ -96,6 +105,7 @@ internal static class EngineTestFactory
             engine,
             watchHistory,
             libraryManager,
+            configService,
             pluginLog,
             logger,
             strategySelector,

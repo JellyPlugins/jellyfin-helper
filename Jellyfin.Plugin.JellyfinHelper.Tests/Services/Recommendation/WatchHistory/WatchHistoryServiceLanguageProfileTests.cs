@@ -1,3 +1,5 @@
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities;
@@ -15,6 +17,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.WatchHist
 public sealed class WatchHistoryServiceLanguageProfileTests
 {
     private readonly Mock<ILibraryManager> _mockLibraryManager;
+    private readonly Mock<IPluginConfigurationService> _mockConfigService;
     private readonly Mock<IUserManager> _mockUserManager;
     private readonly Mock<IUserDataManager> _mockUserDataManager;
     private readonly Mock<IPluginLogService> _mockPluginLog;
@@ -24,12 +27,15 @@ public sealed class WatchHistoryServiceLanguageProfileTests
     public WatchHistoryServiceLanguageProfileTests()
     {
         _mockLibraryManager = new Mock<ILibraryManager>();
+        _mockConfigService = new Mock<IPluginConfigurationService>();
+        _mockConfigService.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
         _mockUserManager = new Mock<IUserManager>();
         _mockUserDataManager = new Mock<IUserDataManager>();
         _mockPluginLog = new Mock<IPluginLogService>();
         _mockLogger = new Mock<ILogger<WatchHistoryService>>();
         _service = new WatchHistoryService(
             _mockLibraryManager.Object,
+            _mockConfigService.Object,
             _mockUserManager.Object,
             _mockUserDataManager.Object,
             _mockPluginLog.Object,

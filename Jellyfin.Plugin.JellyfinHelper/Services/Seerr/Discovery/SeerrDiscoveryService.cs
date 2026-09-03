@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -15,6 +16,9 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -113,6 +117,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
+    private readonly ILibraryManager _libraryManager;
     private readonly EnsembleScoringStrategy _ensemble;
     private readonly DiscoveryCacheService _cache;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
@@ -132,6 +137,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="httpClientFactory">The HTTP client factory.</param>
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="arrIntegration">The Arr integration service.</param>
+    /// <param name="libraryManager">The Jellyfin library manager, used to exclude titles already in the library.</param>
     /// <param name="ensemble">The ensemble scoring strategy (combines heuristic + learned + neural).</param>
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
@@ -141,6 +147,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IHttpClientFactory httpClientFactory,
         IWatchHistoryService watchHistoryService,
         IArrIntegrationService arrIntegration,
+        ILibraryManager libraryManager,
         EnsembleScoringStrategy ensemble,
         DiscoveryCacheService cache,
         IDiscoveryFeedbackStore feedbackStore,
@@ -150,6 +157,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(watchHistoryService);
         ArgumentNullException.ThrowIfNull(arrIntegration);
+        ArgumentNullException.ThrowIfNull(libraryManager);
         ArgumentNullException.ThrowIfNull(ensemble);
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(feedbackStore);
@@ -159,6 +167,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _httpClientFactory = httpClientFactory;
         _watchHistoryService = watchHistoryService;
         _arrIntegration = arrIntegration;
+        _libraryManager = libraryManager;
         _ensemble = ensemble;
         _cache = cache;
         _feedbackStore = feedbackStore;
@@ -222,11 +231,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return;
         }
 
-        // Step 1b: Build exclusion set from Arr libraries
+        // Step 1b: Build exclusion set from the Jellyfin library plus the configured Arr instances
         var excludedTmdbIds = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
             LogCategory,
-            $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library only - per-user dismissed/requested merged later).",
+            $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library + Arr - per-user dismissed/requested merged later).",
             _logger);
 
         // Per-series total-episode-count map, built ONCE per discovery run and shared across all users.
@@ -1914,6 +1923,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         var excluded = new HashSet<(int TmdbId, string MediaType)>();
 
+        // Exclude titles already in the Jellyfin library. This covers items that no configured Arr
+        // instance tracks (manually added, imported, or when Arr is not configured at all).
+        AddLibraryExclusions(excluded);
+
         // Exclude movies already in Radarr
         await AddRadarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);
 
@@ -1921,6 +1934,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         await AddSonarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);
 
         return excluded;
+    }
+
+    /// <summary>
+    ///     Adds the TMDb IDs of movies and series already present in the Jellyfin library to the exclusion set.
+    /// </summary>
+    /// <param name="excluded">The exclusion set to add library entries into.</param>
+    private void AddLibraryExclusions(HashSet<(int TmdbId, string MediaType)> excluded)
+    {
+        var libraryItems = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series]
+        });
+
+        foreach (var key in TmdbLibraryMapper.BuildTmdbKeySet(libraryItems))
+        {
+            excluded.Add(key);
+        }
     }
 
     /// <summary>
@@ -2050,6 +2080,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             var mediaTypeKey = (candidate.MediaType ?? MediaTypeMovie).ToLowerInvariant();
             if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
+            {
+                continue;
+            }
+
+            // Seerr already knows this title is (partially) available in the library, so recommending
+            // it would just surface something the user can already watch.
+            if (candidate.IsAlreadyAvailable)
             {
                 continue;
             }

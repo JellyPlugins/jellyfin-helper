@@ -12,6 +12,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
@@ -46,6 +48,8 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
 
         var history = new Mock<IWatchHistoryService>();
         var arr = new Mock<IArrIntegrationService>();
+        var libraryManager = TestMockFactory.CreateLibraryManager();
+        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
@@ -63,6 +67,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             _httpFactoryMock.Object,
             history.Object,
             arr.Object,
+            libraryManager.Object,
             ensemble,
             _cache,
             feedbackStore.Object,

@@ -14,6 +14,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -83,10 +85,14 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         _cache = new DiscoveryCacheService(
             pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, _cacheFilePath);
 
+        var libraryManager = TestMockFactory.CreateLibraryManager();
+        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             _history.Object,
             _arr.Object,
+            libraryManager.Object,
             ensemble,
             _cache,
             _feedbackStore.Object,

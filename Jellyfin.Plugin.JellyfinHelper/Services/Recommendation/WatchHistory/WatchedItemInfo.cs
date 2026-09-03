@@ -91,6 +91,12 @@ public sealed class WatchedItemInfo
     public Guid? SeriesId { get; set; }
 
     /// <summary>
+    ///     Gets or sets the item's TMDb id, or 0 when the item carries no TMDb provider id. Used to
+    ///     exclude duplicate library entries (same title, different Jellyfin id) from recommendations.
+    /// </summary>
+    public int TmdbId { get; set; }
+
+    /// <summary>
     ///     Gets or sets the date the item was added to the library.
     /// </summary>
     public DateTime? DateCreated { get; set; }

@@ -14,6 +14,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -80,15 +82,21 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
         ControllerTestFactory.ResetPluginConfiguration();
     }
 
-    private SeerrDiscoveryService CreateSut(DiscoveryCacheService cache) => new(
-        _httpFactory.Object,
-        _history.Object,
-        _arr.Object,
-        _ensemble,
-        cache,
-        _feedbackStore.Object,
-        _pluginLog.Object,
-        new Mock<ILogger<SeerrDiscoveryService>>().Object);
+    private SeerrDiscoveryService CreateSut(DiscoveryCacheService cache)
+    {
+        var libraryManager = TestMockFactory.CreateLibraryManager();
+        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+        return new(
+            _httpFactory.Object,
+            _history.Object,
+            _arr.Object,
+            libraryManager.Object,
+            _ensemble,
+            cache,
+            _feedbackStore.Object,
+            _pluginLog.Object,
+            new Mock<ILogger<SeerrDiscoveryService>>().Object);
+    }
 
     private DiscoveryCacheService NewFileCache(out string filePath)
     {
@@ -249,8 +257,11 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             factory.Setup(f => f.CreateClient(It.IsAny<string>()))
                 .Returns(() => new HttpClient(throwingHandler, disposeHandler: false));
 
+            var libraryManager = TestMockFactory.CreateLibraryManager();
+            libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+
             var svc = new SeerrDiscoveryService(
-                factory.Object, _history.Object, _arr.Object, _ensemble, cache,
+                factory.Object, _history.Object, _arr.Object, libraryManager.Object, _ensemble, cache,
                 _feedbackStore.Object, _pluginLog.Object,
                 new Mock<ILogger<SeerrDiscoveryService>>().Object);
 

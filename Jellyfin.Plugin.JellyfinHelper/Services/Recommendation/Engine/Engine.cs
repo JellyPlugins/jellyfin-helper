@@ -8,7 +8,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -35,6 +37,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private const string LogCategory = "Recommendations";
 
     private readonly ILibraryManager _libraryManager;
+    private readonly IPluginConfigurationService _configService;
     private readonly ILogger<Engine> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly SimilarityComputer _similarityComputer;
@@ -65,6 +68,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <summary>Initializes a new instance of the <see cref="Engine" /> class.</summary>
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="libraryManager">The Jellyfin library manager.</param>
+    /// <param name="configService">The plugin configuration service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="strategy">The scoring strategy resolved via DI.</param>
@@ -74,6 +78,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     public Engine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
+        IPluginConfigurationService configService,
         IPluginLogService pluginLog,
         ILogger<Engine> logger,
         IScoringStrategy strategy,
@@ -83,6 +88,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
+        _configService = configService;
         _pluginLog = pluginLog;
         _logger = logger;
         _strategy = strategy;
@@ -542,19 +548,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </returns>
     private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems()
     {
-        var movies = _libraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Movie],
-                IsFolder = false
-            });
+        var allowedRoots = GetAllowedLibraryRoots();
 
-        var series = _libraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Series],
-                IsFolder = true
-            });
+        var movies = QueryAllowedItems(BaseItemKind.Movie, isFolder: false, allowedRoots);
+        var series = QueryAllowedItems(BaseItemKind.Series, isFolder: true, allowedRoots);
 
         var candidates = new List<BaseItem>(movies.Count + series.Count);
 
@@ -572,12 +569,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         // Filter out empty series with no episodes indexed yet (Arr stacks may create series folders before episodes exist).
-        var allEpisodes = _libraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Episode],
-                IsFolder = false
-            });
+        var allEpisodes = QueryAllowedItems(BaseItemKind.Episode, isFolder: false, allowedRoots);
 
         // Single pass building both the "series has episodes" filter set and the per-series total episode count for PreferenceBuilder's progression multiplier.
         var seriesEpisodeCounts = CountPlayableEpisodesPerSeries(allEpisodes);
@@ -619,14 +611,37 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <returns>A map of series id to its count of playable (non-empty <c>Path</c>) episodes.</returns>
     private Dictionary<Guid, int> BuildSeriesEpisodeCounts()
     {
-        var allEpisodes = _libraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Episode],
-                IsFolder = false
-            });
-
+        var allEpisodes = QueryAllowedItems(BaseItemKind.Episode, isFolder: false, GetAllowedLibraryRoots());
         return CountPlayableEpisodesPerSeries(allEpisodes);
+    }
+
+    // Allowed library roots for this generation run, or null when nothing is excluded. Resolved
+    // once per candidate load and passed to each query filter to avoid re-reading virtual folders.
+    private IReadOnlyList<string>? GetAllowedLibraryRoots()
+    {
+        var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
+        return excluded.Count == 0
+            ? null
+            : LibraryPathResolver.GetAllowedLibraryRoots(_libraryManager, excluded);
+    }
+
+    // Queries the library for one item kind and drops anything outside the allowed roots. A null
+    // allowed-roots set means no library is excluded, so the query result passes through untouched.
+    // The same filter is applied to training-history loading (WatchHistoryService) to keep train/serve parity.
+    private IReadOnlyList<BaseItem> QueryAllowedItems(
+        BaseItemKind kind,
+        bool isFolder,
+        IReadOnlyList<string>? allowedRoots)
+    {
+        var items = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [kind],
+            IsFolder = isFolder
+        });
+
+        return allowedRoots is null
+            ? items
+            : items.Where(item => LibraryPathResolver.IsUnderAllowedRoot(item.Path, allowedRoots)).ToList();
     }
 
     /// <summary>
@@ -791,6 +806,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             watchedSeriesIds.Add(favSeriesId);
         }
 
+        // Provider-id (TMDb) keys of watched titles. The Guid checks above miss the case where the
+        // same title exists as two library items (re-added, or duplicated across libraries) with
+        // different Jellyfin ids; matching on the shared TMDb id closes that duplicate-title gap.
+        var watchedTmdbKeys = BuildWatchedTmdbKeys(userProfile);
+
         // seriesEpisodeCounts is forwarded so PreferenceBuilder can weight each episode row by the fraction of the series the user has actually watched.
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts);
 
@@ -871,7 +891,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 ct.ThrowIfCancellationRequested();
             }
 
-            if (ShouldSkipCandidate(candidate, userMaxRating, watchedIds, watchedSeriesIds))
+            if (ShouldSkipCandidate(candidate, userMaxRating, watchedIds, watchedSeriesIds, watchedTmdbKeys))
             {
                 continue;
             }
@@ -1031,12 +1051,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="userMaxRating">The user's max allowed parental rating, or <c>null</c>.</param>
     /// <param name="watchedIds">Item ids the user has meaningfully interacted with.</param>
     /// <param name="watchedSeriesIds">Series ids the user has interacted with or favorited.</param>
+    /// <param name="watchedTmdbKeys">TMDb keys of watched titles, used to catch duplicate library entries.</param>
     /// <returns><c>true</c> when the candidate must be excluded from recommendations.</returns>
     private static bool ShouldSkipCandidate(
         BaseItem candidate,
         int? userMaxRating,
         HashSet<Guid> watchedIds,
-        HashSet<Guid> watchedSeriesIds)
+        HashSet<Guid> watchedSeriesIds,
+        HashSet<(int TmdbId, string MediaType)> watchedTmdbKeys)
     {
         // Parental rating filter - skip items the user is not allowed to see. Uses Jellyfin's InheritedParentalRatingValue which cascades from parents (a series rating applies to its episodes), so restricted profiles only get age-appropriate recommendations.
         if (ExceedsMaxRating(candidate, userMaxRating))
@@ -1050,7 +1072,46 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         // Skip series with any interaction (Played, IsFavorite, PlayCount > 0, or PlaybackPositionTicks > 0 on an episode, or the series favorited).
-        return candidate is Series && watchedSeriesIds.Contains(candidate.Id);
+        if (candidate is Series && watchedSeriesIds.Contains(candidate.Id))
+        {
+            return true;
+        }
+
+        // Provider-id fallback: a different library item that shares this title's TMDb id was watched.
+        if (watchedTmdbKeys.Count > 0
+            && TmdbLibraryMapper.TryGetTmdbId(candidate, out var candidateTmdbId))
+        {
+            var mediaType = candidate is Series ? TmdbLibraryMapper.TvMediaType : TmdbLibraryMapper.MovieMediaType;
+            if (watchedTmdbKeys.Contains((candidateTmdbId, mediaType)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Collects the (TmdbId, MediaType) keys of the user's watched items so recommendations can skip a
+    // duplicate library entry of something already watched. Series keys come from the watched item's
+    // own TMDb id when it is itself a series; episode rows contribute nothing here because series-level
+    // exclusion is already handled by watchedSeriesIds.
+    private static HashSet<(int TmdbId, string MediaType)> BuildWatchedTmdbKeys(UserWatchProfile userProfile)
+    {
+        var keys = new HashSet<(int TmdbId, string MediaType)>();
+        foreach (var watched in userProfile.WatchedItems)
+        {
+            if (!watched.HasMeaningfulInteraction() || watched.TmdbId <= 0)
+            {
+                continue;
+            }
+
+            var mediaType = string.Equals(watched.ItemType, nameof(Series), StringComparison.Ordinal)
+                ? TmdbLibraryMapper.TvMediaType
+                : TmdbLibraryMapper.MovieMediaType;
+            keys.Add((watched.TmdbId, mediaType));
+        }
+
+        return keys;
     }
 
     /// <summary>
@@ -2074,8 +2135,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (item.TryGetProviderId("Tmdb", out var tmdbStr) &&
-                int.TryParse(tmdbStr, out var tmdbId) && tmdbId > 0)
+            if (TmdbLibraryMapper.TryGetTmdbId(item, out var tmdbId))
             {
                 tmdbIdByItemId.TryAdd(item.Id, tmdbId);
                 mediaTypeByItemId.TryAdd(item.Id, item is Series ? "tv" : "movie");
