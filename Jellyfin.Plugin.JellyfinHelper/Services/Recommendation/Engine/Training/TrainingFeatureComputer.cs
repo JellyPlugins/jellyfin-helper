@@ -4,9 +4,6 @@ using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
-#pragma warning disable SA1611 // Element parameters should be documented
-#pragma warning disable SA1615 // Element return value should be documented
-
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 
 /// <summary>
@@ -19,6 +16,7 @@ internal static class TrainingFeatureComputer
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="itemStudiosLookup">Precomputed itemId ? studios mapping built once from all previous results.</param>
+    /// <returns>Set of preferred studio names.</returns>
     internal static HashSet<string> BuildStudioPreferenceSetFromCache(
         UserWatchProfile userProfile,
         Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup)
@@ -62,6 +60,7 @@ internal static class TrainingFeatureComputer
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="itemTagsLookup">Precomputed itemId ? tags mapping built once from all previous results.</param>
+    /// <returns>Set of preferred tag names.</returns>
     internal static HashSet<string> BuildTagPreferenceSetFromCache(
         UserWatchProfile userProfile,
         Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup)
@@ -125,6 +124,11 @@ internal static class TrainingFeatureComputer
     /// <summary>
     ///     Core implementation that takes a prebuilt genre set.
     /// </summary>
+    /// <param name="watchedItem">Watched item that provides the reference timestamp.</param>
+    /// <param name="candidateGenreSet">Genre set of the candidate.</param>
+    /// <param name="userProfile">User profile to scan for bucket history.</param>
+    /// <param name="isDay">True for day of week affinity, false for hour bucket.</param>
+    /// <returns>Temporal affinity between 0 and 1, or 0.5 when insufficient data exists.</returns>
     internal static double ComputeTrainingTemporalAffinity(
         WatchedItemInfo? watchedItem,
         HashSet<string> candidateGenreSet,
@@ -204,6 +208,28 @@ internal static class TrainingFeatureComputer
     /// <summary>
     ///     Builds a single aggregated TrainingExample from all episodes of a series.
     /// </summary>
+    /// <param name="examples">Collection that receives the generated example.</param>
+    /// <param name="episodes">Episodes belonging to the series.</param>
+    /// <param name="seriesId">Series identifier.</param>
+    /// <param name="userProfile">Watch profile for the user being trained.</param>
+    /// <param name="genrePreferences">Precomputed genre preference weights.</param>
+    /// <param name="coOccurrence">Item co occurrence counts.</param>
+    /// <param name="collaborativeMax">Maximum co occurrence value for normalization.</param>
+    /// <param name="avgYear">Average production year for the user's library.</param>
+    /// <param name="genreExposure">Genre exposure analysis for the user.</param>
+    /// <param name="cachedPeopleLookup">Cached item to people lookup.</param>
+    /// <param name="preferredPeopleWeights">Weights for preferred people.</param>
+    /// <param name="itemStudiosLookup">Item to studios lookup.</param>
+    /// <param name="preferredStudios">Preferred studios for the user.</param>
+    /// <param name="itemTagsLookup">Item to tags lookup.</param>
+    /// <param name="preferredTags">Preferred tags for the user.</param>
+    /// <param name="preferredFranchises">Preferred franchises.</param>
+    /// <param name="preferredCountries">Preferred production countries.</param>
+    /// <param name="preferredInheritedTags">Preferred inherited tags.</param>
+    /// <param name="preferredWriterWeights">Weights for preferred writers.</param>
+    /// <param name="genreStudioIdf">Optional genre studio IDF weights.</param>
+    /// <param name="organicFallbackTimestamp">Fallback timestamp when no watch date exists.</param>
+    /// <param name="seriesAffinityContext">Optional series affinity context.</param>
     internal static void AddAggregatedSeriesExample(
         List<TrainingExample> examples,
         List<WatchedItemInfo> episodes,
@@ -430,6 +456,9 @@ internal static class TrainingFeatureComputer
     /// <summary>
     ///     Computes tag similarity from cached lists.
     /// </summary>
+    /// <param name="candidateTags">Tags of the candidate item.</param>
+    /// <param name="preferredTags">Preferred tags derived from the user profile.</param>
+    /// <returns>Jaccard similarity between the two tag sets.</returns>
     internal static double ComputeTagSimilarityFromCache(
         IReadOnlyList<string> candidateTags,
         HashSet<string> preferredTags)
@@ -480,6 +509,13 @@ internal static class TrainingFeatureComputer
     /// <summary>
     ///     Computes ContentNearestNeighborScore from cached data.
     /// </summary>
+    /// <param name="candidateGenres">Genres of the candidate.</param>
+    /// <param name="candidatePeople">People of the candidate.</param>
+    /// <param name="candidateStudios">Studios of the candidate.</param>
+    /// <param name="watchedGenreSets">Genre sets from watch history.</param>
+    /// <param name="watchedPeopleSets">People sets from watch history.</param>
+    /// <param name="watchedStudioSets">Studio sets from watch history.</param>
+    /// <returns>Content nearest neighbor score.</returns>
     internal static double ComputeContentNearestNeighborFromCache(
         IReadOnlyList<string> candidateGenres,
         IReadOnlyList<string> candidatePeople,
@@ -513,6 +549,9 @@ internal static class TrainingFeatureComputer
     /// <summary>
     ///     Computes subtitle language affinity from cached data.
     /// </summary>
+    /// <param name="candidateSubtitleLanguages">Subtitle languages of the candidate.</param>
+    /// <param name="userProfile">User profile with language preferences.</param>
+    /// <returns>Subtitle language affinity score.</returns>
     internal static double ComputeSubtitleLanguageAffinityFromCache(
         IReadOnlyList<string> candidateSubtitleLanguages,
         UserWatchProfile userProfile)
@@ -533,6 +572,9 @@ internal static class TrainingFeatureComputer
     /// <summary>
     ///     Computes audio language affinity from cached data.
     /// </summary>
+    /// <param name="candidateAudioLanguages">Audio languages of the candidate.</param>
+    /// <param name="userProfile">User profile with language preferences.</param>
+    /// <returns>Language affinity score.</returns>
     internal static double ComputeLanguageAffinityFromCache(
         IReadOnlyList<string> candidateAudioLanguages,
         UserWatchProfile userProfile)

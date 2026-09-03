@@ -493,6 +493,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
 │   │   ├── Scoring/                 # Pluggable scoring strategies
 │   │   │   ├── IScoringStrategy.cs
+│   │   │   ├── IStrategySelector.cs
 │   │   │   ├── ITrainableStrategy.cs
 │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
@@ -1139,6 +1140,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `EnsembleDiagnostics.cs`
 - `HeuristicScoringStrategy.cs`
 - `IScoringStrategy.cs`
+- `IStrategySelector.cs`
 - `LearnedScoringStrategy.cs`
 - `NeuralFeatureImportance.cs`
 - `NeuralScoringStrategy.cs`
