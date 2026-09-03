@@ -299,16 +299,33 @@ test.describe.serial('Discovery availability exclusion', () => {
     expect([200, 204]).toContain(fav.status());
     seededFavorite = movies[0];
 
-    // Verify the profile is actually visible to the recommendation engine before triggering generation.
-    // This catches races where Jellyfin has not yet flushed the UserData batch.
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // Verify the profile is actually visible to the recommendation engine before triggering
+    // generation. The discovery task reads the profile through the same WatchHistoryService (no
+    // cache) that this endpoint uses, so a green poll here guarantees the task sees the same data.
+    // Jellyfin flushes UserData in a batch, so under CI load the played/favorite/genre edits can
+    // take several seconds to surface - poll up to ~15s. Critically this must HARD FAIL if the
+    // profile never becomes visible: the previous silent break let generation run against an empty
+    // profile, which returned an empty pool and surfaced as an unrelated "positive control [] "
+    // failure instead of pointing at the real setup race.
+    let lastProfile: { GenreDistribution?: Record<string, number>; WatchedMovieCount?: number } = {};
+    let profileVisible = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
       const wp = await admin.get(p(`Recommendations/WatchProfile/${auth.userId}`));
       if (wp.ok()) {
-        const prof = (await wp.json()) as { GenreDistribution?: Record<string, number>; WatchedMovieCount?: number };
-        if ((prof.WatchedMovieCount ?? 0) >= 3 && (prof.GenreDistribution?.Action ?? 0) >= 3) break;
+        lastProfile = (await wp.json()) as typeof lastProfile;
+        if ((lastProfile.WatchedMovieCount ?? 0) >= 3 && (lastProfile.GenreDistribution?.Action ?? 0) >= 3) {
+          profileVisible = true;
+          break;
+        }
       }
       await new Promise((r) => setTimeout(r, 500));
     }
+    expect(
+      profileVisible,
+      `watch profile never became visible to the engine (setup race, not a product bug): ` +
+        `WatchedMovieCount=${lastProfile.WatchedMovieCount ?? 0}, Action=${lastProfile.GenreDistribution?.Action ?? 0}. ` +
+        `Full GenreDistribution=${JSON.stringify(lastProfile.GenreDistribution ?? {})}`,
+    ).toBe(true);
   }
 
   // Set a genre on an item via fetch-modify-save. ItemUpdateController replaces the whole DTO, so
@@ -342,6 +359,10 @@ test.describe.serial('Discovery availability exclusion', () => {
   }
 
   test('a Seerr-available discover candidate is excluded from generated recommendations', async () => {
+    // This test runs the cleanup task twice (before + after arming) plus a profile-visibility
+    // poll, each of which can take many seconds under CI load. The suite-wide 90s budget is too
+    // tight for that chain, so raise it here rather than globally.
+    test.setTimeout(180_000);
     const mock = await pwRequest.newContext();
     try {
       await setDiscoveryAccess(true);
