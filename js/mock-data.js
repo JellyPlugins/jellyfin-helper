@@ -297,7 +297,7 @@ else if(url.includes("Configuration/LogLevel")&&method==="PUT"){try{var b=JSON.p
 else if(url.includes("Configuration/Libraries")&&!url.includes("LibraryPaths"))resolve({libraries:structuredClone(MOCK_LIBRARIES)});
 else if(url.includes("Configuration/LibraryPaths"))resolve(structuredClone(MOCK_LIBRARY_PATHS));
 else if(url.includes("Configuration/BrowseFolders")||url.includes("BrowseFolders")){var bp=null;var bm=url.match(/[?&]path=([^&]*)/);if(bm){bp=decodeURIComponent(bm[1]);}resolve(structuredClone(MOCK_BROWSE_FOLDERS(bp)));}
-else if(url.includes("Configuration")&&method==="POST"){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
+else if(url.includes("Configuration")&&(method==="POST"||method==="PUT")){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
 else if(url.includes("Configuration"))resolve(structuredClone(MOCK_CONFIG));
 else if(url.includes("Trash/Contents"))resolve(MOCK_TRASH_CONTENTS);
     else if(url.includes("Trash/CheckAccess")&&method==="POST"){resolve({AllAccessible:true,Results:[{Path:"/data/movies/.jellyfin-trash",Exists:false,CanRead:true,CanWrite:true,HasFullAccess:true,ErrorMessage:null}]});}
