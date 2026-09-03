@@ -291,29 +291,25 @@
 .tab-bar {
     display: flex;
     gap: 0;
+    /* min-width:0 lets the flex container measure its content width cleanly.
+       Without it, device-pixel rounding of the non-shrinking buttons on
+       high-DPI displays accumulates into a sub-pixel overflow that trips
+       overflow-x:auto and paints a scrollbar even when everything fits. */
+    min-width: 0;
     margin-bottom: var(--spacing-xl);
     border-bottom: 2px solid var(--color-border);
+    /* Stays scrollable on genuinely narrow viewports (touch/wheel), but the
+       scrollbar chrome is hidden on every engine so no visible bar is ever
+       drawn. */
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 
 .tab-bar::-webkit-scrollbar {
-    height: 4px;
-}
-
-.tab-bar::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.tab-bar::-webkit-scrollbar-thumb {
-    background: var(--color-primary-scrollbar);
-    border-radius: 2px;
-}
-
-.tab-bar::-webkit-scrollbar-thumb:hover {
-    background: var(--color-primary-scrollbar-hover);
+    display: none;
 }
 
 .tab-btn {
