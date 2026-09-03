@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.Entities;
 
@@ -34,13 +35,16 @@ public static class TmdbLibraryMapper
     /// Builds a set of <c>(TmdbId, MediaType)</c> tuples for every library item that carries a
     /// positive TMDb provider id.
     /// </summary>
-    /// <param name="libraryItems">The library items to scan (typically movies and series).</param>
+    /// <param name="libraryItems">The library items to scan (only Movie and Series are keyed).</param>
     /// <returns>A set of TMDb id + media-type tuples present in the library.</returns>
     public static HashSet<(int TmdbId, string MediaType)> BuildTmdbKeySet(IEnumerable<BaseItem> libraryItems)
     {
         ArgumentNullException.ThrowIfNull(libraryItems);
 
+        // Only Movie and Series carry a discovery media type. Anything else (an Episode, a BoxSet)
+        // must be skipped rather than defaulted to "movie", which would silently misclassify it.
         return libraryItems
+            .Where(static item => item is Movie or Series)
             .Select(item => (Ok: TryGetTmdbId(item, out var tmdbId), TmdbId: tmdbId, IsSeries: item is Series))
             .Where(static x => x.Ok)
             .Select(static x => (x.TmdbId, x.IsSeries ? TvMediaType : MovieMediaType))

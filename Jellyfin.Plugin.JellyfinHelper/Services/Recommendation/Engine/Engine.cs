@@ -640,9 +640,26 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             IsFolder = isFolder
         });
 
-        return scope is null
-            ? items
-            : items.Where(item => LibraryPathResolver.IsAllowed(item.Path, scope)).ToList();
+        if (scope is null)
+        {
+            return items;
+        }
+
+        var kept = items.Where(item => LibraryPathResolver.IsAllowed(item.Path, scope)).ToList();
+
+        // Items with an empty path cannot be placed under any root, so the scope drops them. Surface
+        // the count so an operator can tell an excluded-library drop apart from missing metadata,
+        // matching the same log in WatchHistoryService's training-side filter.
+        var droppedEmptyPath = items.Count(item => string.IsNullOrEmpty(item.Path));
+        if (droppedEmptyPath > 0)
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Excluded-library filter dropped {droppedEmptyPath} item(s) with no path.",
+                _logger);
+        }
+
+        return kept;
     }
 
     /// <summary>

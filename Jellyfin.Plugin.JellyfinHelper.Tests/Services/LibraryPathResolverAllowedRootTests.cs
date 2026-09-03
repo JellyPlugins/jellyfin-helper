@@ -9,104 +9,66 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 /// <summary>
-///     Covers <see cref="LibraryPathResolver.IsUnderAllowedRoot"/> boundary and platform behavior,
-///     and the scoped <see cref="LibraryPathResolver.IsAllowed(string?, LibraryRootScope)"/> /
-///     <see cref="LibraryPathResolver.GetLibraryRootScope"/> nested-exclusion handling.
+///     Covers the scoped <see cref="LibraryPathResolver.IsAllowed(string?, LibraryRootScope)"/>
+///     boundary/platform behavior and <see cref="LibraryPathResolver.GetLibraryRootScope"/>
+///     partitioning, including nested-exclusion handling.
 /// </summary>
 public sealed class LibraryPathResolverAllowedRootTests
 {
+    // Allowed-only scope helper: the boundary cases below do not involve exclusions, so they use a
+    // scope whose excluded set is empty and assert the allowed-root matching directly.
+    private static LibraryRootScope Allow(params string[] allowedRoots) => new(allowedRoots, []);
+
     [Fact]
-    public void IsUnderAllowedRoot_ChildOfRoot_ReturnsTrue()
+    public void IsAllowed_ChildOfRoot_ReturnsTrue()
     {
-        Assert.True(LibraryPathResolver.IsUnderAllowedRoot("/media/movies/Film (2020)/film.mkv", ["/media/movies"]));
+        Assert.True(LibraryPathResolver.IsAllowed("/media/movies/Film (2020)/film.mkv", Allow("/media/movies")));
     }
 
     [Fact]
-    public void IsUnderAllowedRoot_ExactRoot_ReturnsTrue()
+    public void IsAllowed_ExactRoot_ReturnsTrue()
     {
-        Assert.True(LibraryPathResolver.IsUnderAllowedRoot("/media/movies", ["/media/movies"]));
+        Assert.True(LibraryPathResolver.IsAllowed("/media/movies", Allow("/media/movies")));
     }
 
     [Fact]
-    public void IsUnderAllowedRoot_SiblingPrefix_ReturnsFalse()
+    public void IsAllowed_SiblingPrefix_ReturnsFalse()
     {
         // /media/movies must not match /media/movies2 — the directory boundary guards this.
-        Assert.False(LibraryPathResolver.IsUnderAllowedRoot("/media/movies2/film.mkv", ["/media/movies"]));
+        Assert.False(LibraryPathResolver.IsAllowed("/media/movies2/film.mkv", Allow("/media/movies")));
     }
 
     [Fact]
-    public void IsUnderAllowedRoot_NotUnderAnyRoot_ReturnsFalse()
+    public void IsAllowed_TrailingSeparatorOnRoot_StillMatches()
     {
-        Assert.False(LibraryPathResolver.IsUnderAllowedRoot("/media/home-videos/clip.mp4", ["/media/movies", "/media/shows"]));
+        Assert.True(LibraryPathResolver.IsAllowed("/media/movies/film.mkv", Allow("/media/movies/")));
     }
 
     [Fact]
-    public void IsUnderAllowedRoot_TrailingSeparatorOnRoot_StillMatches()
+    public void IsAllowed_MixedSeparators_Normalized()
     {
-        Assert.True(LibraryPathResolver.IsUnderAllowedRoot("/media/movies/film.mkv", ["/media/movies/"]));
+        Assert.True(LibraryPathResolver.IsAllowed(@"\media\movies\film.mkv", Allow("/media/movies")));
     }
 
     [Fact]
-    public void IsUnderAllowedRoot_MixedSeparators_Normalized()
-    {
-        Assert.True(LibraryPathResolver.IsUnderAllowedRoot(@"\media\movies\film.mkv", ["/media/movies"]));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    public void IsUnderAllowedRoot_NullOrEmptyItemPath_ReturnsFalse(string? itemPath)
-    {
-        Assert.False(LibraryPathResolver.IsUnderAllowedRoot(itemPath, ["/media/movies"]));
-    }
-
-    [Fact]
-    public void IsUnderAllowedRoot_EmptyRootSet_ReturnsFalse()
-    {
-        Assert.False(LibraryPathResolver.IsUnderAllowedRoot("/media/movies/film.mkv", []));
-    }
-
-    [Fact]
-    public void IsUnderAllowedRoot_NullRootSet_Throws()
-    {
-        Assert.Throws<ArgumentNullException>(() => LibraryPathResolver.IsUnderAllowedRoot("/media/movies/film.mkv", null!));
-    }
-
-    [Fact]
-    public void IsUnderAllowedRoot_EmptyRootEntry_Skipped()
+    public void IsAllowed_EmptyRootEntry_Skipped()
     {
         // A blank root entry must not act as a wildcard that matches everything.
-        Assert.False(LibraryPathResolver.IsUnderAllowedRoot("/media/movies/film.mkv", [string.Empty]));
+        Assert.False(LibraryPathResolver.IsAllowed("/media/movies/film.mkv", Allow(string.Empty)));
     }
 
     [Fact]
-    public void IsUnderAllowedRoot_CasingFollowsPlatformConvention()
-    {
-        // Linux is case-sensitive (ordinal); other platforms fold case, matching GetDistinctLibraryLocations.
-        var result = LibraryPathResolver.IsUnderAllowedRoot("/media/MOVIES/film.mkv", ["/media/movies"]);
-
-        if (OperatingSystem.IsLinux())
-        {
-            Assert.False(result);
-        }
-        else
-        {
-            Assert.True(result);
-        }
-    }
-
-    [Fact]
-    public void IsUnderAllowedRoot_FilesystemRootAllowed_ChildMatches()
+    public void IsAllowed_FilesystemRootAllowed_ChildMatches()
     {
         // A virtual folder rooted at "/" must treat every path as a descendant; the child prefix
         // collapses to "/" itself rather than "//", which would reject everything.
-        Assert.True(LibraryPathResolver.IsUnderAllowedRoot("/media/movies/film.mkv", ["/"]));
+        Assert.True(LibraryPathResolver.IsAllowed("/media/movies/film.mkv", Allow("/")));
     }
 
     [Fact]
-    public void IsUnderAllowedRoot_FilesystemRootAllowed_RootItselfMatches()
+    public void IsAllowed_FilesystemRootAllowed_RootItselfMatches()
     {
-        Assert.True(LibraryPathResolver.IsUnderAllowedRoot("/", ["/"]));
+        Assert.True(LibraryPathResolver.IsAllowed("/", Allow("/")));
     }
 
     [Fact]
@@ -209,5 +171,25 @@ public sealed class LibraryPathResolverAllowedRootTests
     {
         Assert.Throws<ArgumentNullException>(
             () => LibraryPathResolver.GetLibraryRootScope(null!, new HashSet<string>()));
+    }
+
+    [Fact]
+    public void GetLibraryRootScope_TrailingSeparatorDuplicate_CollapsedToOneRoot()
+    {
+        // "/media/movies" and "/media/movies/" normalize to the same path, so they must not each
+        // occupy a slot. The first spelling is kept.
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(m => m.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Movies", Locations = ["/media/movies", "/media/movies/"] }
+            ]);
+
+        var scope = LibraryPathResolver.GetLibraryRootScope(
+            libraryManager.Object,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        Assert.Equal(["/media/movies"], scope.AllowedRoots);
     }
 }

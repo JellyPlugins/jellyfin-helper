@@ -22,7 +22,7 @@ public static class LibraryPathResolver
 
         return libraryManager.GetVirtualFolders()
             .SelectMany(f => f.Locations)
-            .Distinct(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase)
+            .Distinct(PathComparison.Comparer)
             .Select(p =>
             {
                 try
@@ -35,86 +35,6 @@ public static class LibraryPathResolver
                 }
             })
             .ToList();
-    }
-
-    /// <summary>
-    /// Gets the distinct library location paths, excluding any virtual folder whose name is in the
-    /// supplied exclusion set.
-    /// </summary>
-    /// <remarks>
-    /// This is the allow-list of roots the recommendation pipeline is permitted to read from. Unlike
-    /// the cleanup path filter it does not impose a collection-type allow-list, because the
-    /// recommendation queries already restrict themselves to movies, series, and episodes; the only
-    /// thing being honored here is the user's explicit library exclusion.
-    /// </remarks>
-    /// <param name="libraryManager">The library manager.</param>
-    /// <param name="excludedLibraryNames">Library names to exclude (case-insensitive). May be empty.</param>
-    /// <returns>The allowed root paths after applying the exclusion set.</returns>
-    public static IReadOnlyList<string> GetAllowedLibraryRoots(
-        ILibraryManager libraryManager,
-        IReadOnlySet<string> excludedLibraryNames)
-    {
-        ArgumentNullException.ThrowIfNull(libraryManager);
-        ArgumentNullException.ThrowIfNull(excludedLibraryNames);
-
-        var folders = libraryManager.GetVirtualFolders();
-        var roots = new List<string>();
-
-        foreach (var folder in folders)
-        {
-            if (excludedLibraryNames.Count > 0 && excludedLibraryNames.Contains(folder.Name ?? string.Empty))
-            {
-                continue;
-            }
-
-            foreach (var location in folder.Locations ?? [])
-            {
-                roots.Add(location);
-            }
-        }
-
-        return roots
-            .Distinct(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Determines whether an item path sits under one of the supplied allowed root locations.
-    /// </summary>
-    /// <remarks>
-    /// The comparison normalizes separators and matches on a directory boundary so that a root
-    /// such as <c>/media/movies</c> does not spuriously match a sibling like <c>/media/movies2</c>.
-    /// Path casing follows the platform convention Jellyfin uses elsewhere: ordinal on Linux,
-    /// case-insensitive otherwise.
-    /// </remarks>
-    /// <param name="itemPath">The item's path on disk. A null or empty path is treated as not allowed.</param>
-    /// <param name="allowedRoots">The allowed root locations. A null or empty set allows nothing.</param>
-    /// <returns><see langword="true"/> if the item path is under an allowed root; otherwise <see langword="false"/>.</returns>
-    public static bool IsUnderAllowedRoot(string? itemPath, IReadOnlyCollection<string> allowedRoots)
-    {
-        ArgumentNullException.ThrowIfNull(allowedRoots);
-
-        if (string.IsNullOrEmpty(itemPath) || allowedRoots.Count == 0)
-        {
-            return false;
-        }
-
-        var normalizedItem = NormalizeForPrefix(itemPath);
-
-        foreach (var root in allowedRoots)
-        {
-            if (string.IsNullOrEmpty(root))
-            {
-                continue;
-            }
-
-            if (IsUnderRoot(normalizedItem, NormalizeForPrefix(root)))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -153,10 +73,27 @@ public static class LibraryPathResolver
             }
         }
 
-        var comparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
         return new LibraryRootScope(
-            allowed.Distinct(comparer).ToList(),
-            excluded.Distinct(comparer).ToList());
+            DistinctByNormalizedRoot(allowed),
+            DistinctByNormalizedRoot(excluded));
+    }
+
+    // Deduplicates roots by their normalized form so that "/media/movies" and "/media/movies/" (which
+    // NormalizeForPrefix collapses to the same path) do not each occupy a slot. The original spelling
+    // of the first occurrence is kept; matching is done via the normalized key.
+    private static List<string> DistinctByNormalizedRoot(List<string> roots)
+    {
+        var seen = new HashSet<string>(PathComparison.Comparer);
+        var result = new List<string>(roots.Count);
+        foreach (var root in roots)
+        {
+            if (seen.Add(NormalizeForPrefix(root)))
+            {
+                result.Add(root);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -217,11 +154,11 @@ public static class LibraryPathResolver
         return deepest;
     }
 
-    // Directory-boundary containment test for two already-normalized paths, shared by the flat
-    // allow-list check and the scoped most-specific-root resolution so both use one implementation.
+    // Directory-boundary containment test for two already-normalized paths, used by the scoped
+    // most-specific-root resolution.
     private static bool IsUnderRoot(string normalizedItem, string normalizedRoot)
     {
-        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var comparison = PathComparison.Comparison;
 
         // The filesystem root normalizes to "/"; its child prefix is "/" itself, not "//",
         // otherwise every descendant would fail the boundary check.

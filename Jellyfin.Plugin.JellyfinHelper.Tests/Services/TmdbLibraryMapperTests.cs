@@ -80,6 +80,19 @@ public sealed class TmdbLibraryMapperTests
     }
 
     [Fact]
+    public void BuildTmdbKeySet_NonMovieOrSeries_Ignored()
+    {
+        // An Episode (or any non Movie/Series) carries no discovery media type. It must be skipped,
+        // not silently keyed as a movie, even when it has a TMDb provider id.
+        var episode = new Episode { Id = Guid.NewGuid() };
+        episode.ProviderIds["Tmdb"] = "550";
+
+        var set = TmdbLibraryMapper.BuildTmdbKeySet([episode]);
+
+        Assert.Empty(set);
+    }
+
+    [Fact]
     public void BuildTmdbKeySet_NullInput_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => TmdbLibraryMapper.BuildTmdbKeySet(null!));
