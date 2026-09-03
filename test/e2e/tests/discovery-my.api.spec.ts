@@ -223,6 +223,24 @@ test.describe.serial('Discovery/My cached-result filtering', () => {
 test.describe.serial('Discovery availability exclusion', () => {
   const AVAILABLE_TMDB = 680;
 
+  // Discovery only surfaces candidates for a user whose watch history yields a non-empty genre
+  // preference vector; with no active profile the generation returns an empty pool. The suite
+  // seeds no playback, so this spec must establish its own profile rather than depend on another
+  // spec (recommendations-ranking) having marked items played first in the same worker.
+  async function seedAdminWatchProfile(): Promise<void> {
+    const res = await admin.get(`/Items?IncludeItemTypes=Movie&Recursive=true&userId=${auth.userId}`);
+    expect(res.ok(), `/Items status ${res.status()}`).toBeTruthy();
+    const body = (await res.json()) as { Items?: Array<{ Id: string }> };
+    const movies = (body.Items ?? []).map((i) => i.Id);
+    expect(movies.length, 'need a movie to build a watch profile from').toBeGreaterThan(0);
+    for (const id of movies.slice(0, 3)) {
+      const mark = await admin.post(`/UserPlayedItems/${id}?userId=${auth.userId}`);
+      expect(mark.ok(), `mark-played ${id}: ${mark.status()}`).toBeTruthy();
+    }
+    const fav = await admin.post(`/UserFavoriteItems/${movies[0]}?userId=${auth.userId}`);
+    expect([200, 204]).toContain(fav.status());
+  }
+
   async function generatedTmdbIds(): Promise<number[]> {
     const run = await runCleanupTask(admin);
     expect(run.LastExecutionResult?.Status).toBe('Completed');
@@ -239,6 +257,7 @@ test.describe.serial('Discovery availability exclusion', () => {
     const mock = await pwRequest.newContext();
     try {
       await setDiscoveryAccess(true);
+      await seedAdminWatchProfile();
 
       // Positive control: with the mock pristine, 680 is a normal discover candidate and must
       // surface. This proves the absence assertion below is meaningful and not a vacuous pass on

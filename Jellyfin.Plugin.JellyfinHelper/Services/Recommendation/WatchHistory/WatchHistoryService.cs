@@ -531,6 +531,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         var (favBilledNames, favBilledWeights) = SimilarityComputer.ExtractBilledPeople(seriesPeople);
 
+        // Seed the series' own TMDb id so a duplicate library entry of this show (a second copy
+        // with a different Jellyfin Guid) is excluded by the provider-id fallback, matching how a
+        // watched series contributes its key in BuildWatchedTmdbKeys. Both fields carry the same id
+        // because the favorite IS the series, not an episode of one.
+        var favoriteSeriesTmdbId = TmdbLibraryMapper.TryGetTmdbId(series, out var resolvedTmdbId) ? resolvedTmdbId : 0;
+
         profile.WatchedItems.Add(new WatchedItemInfo
         {
             ItemId = series.Id,
@@ -547,6 +553,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
             Genres = series.Genres ?? [],
             Year = series.ProductionYear,
             SeriesId = null, // This IS the series itself, not an episode
+            TmdbId = favoriteSeriesTmdbId,
+            SeriesTmdbId = favoriteSeriesTmdbId,
             DateCreated = series.DateCreated,
             PrimaryImageTag = null,
             PeopleNames = favBilledNames,

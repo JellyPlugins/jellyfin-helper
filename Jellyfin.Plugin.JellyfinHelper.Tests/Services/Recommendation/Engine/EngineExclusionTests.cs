@@ -224,6 +224,46 @@ public sealed class EngineExclusionTests
     }
 
     [Fact]
+    public void GetRecommendations_FavoritedSeries_ExcludesDuplicateSeriesCandidate()
+    {
+        // A user favorited a series without watching it; a duplicate Series entry (same series TMDb
+        // id, different Jellyfin id) must be excluded via the favorite's own TMDb key. Before the
+        // favorite carried its TMDb id, the Guid check missed the duplicate and it leaked through.
+        var harness = EngineTestFactory.Create();
+
+        var duplicateSeries = MakeSeries("Duplicate Show", "/media/series/dup", tmdbId: 1399);
+        WireSeries(harness, [duplicateSeries]);
+
+        var userId = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            UserId = userId,
+            UserName = "u",
+            FavoriteCount = 1,
+            WatchedItems = new Collection<WatchedItemInfo>
+            {
+                new()
+                {
+                    ItemId = Guid.NewGuid(),
+                    Name = "Duplicate Show (other copy)",
+                    ItemType = "Series",
+                    Played = false,
+                    IsFavorite = true,
+                    TmdbId = 1399,
+                    SeriesTmdbId = 1399,
+                    Genres = new List<string> { "Action" }
+                }
+            }
+        };
+        harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId)).Returns(profile);
+
+        var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.DoesNotContain(result!.Recommendations, r => r.ItemId == duplicateSeries.Id);
+    }
+
+    [Fact]
     public void GetRecommendations_WatchedEpisodeWithoutResolvedSeriesTmdb_DoesNotExcludeUnrelatedSeries()
     {
         // Regression guard: an episode whose parent-series TMDb id could not be resolved (0) must not

@@ -367,6 +367,52 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void BuildProfile_FavoriteSeries_SeedsSeriesTmdbIdOnSyntheticItem()
+    {
+        // A favorited-but-unwatched series must carry its own TMDb id so a duplicate library entry
+        // of the same show (a second copy with a different Jellyfin Guid) is excluded by the
+        // provider-id fallback, the same way a watched series contributes its key.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        const int seriesTmdbId = 1396;
+        var series = new Series
+        {
+            Id = Guid.NewGuid(),
+            Name = "Fav Show",
+            Genres = new[] { "Sci-Fi", "Drama" },
+            ProductionYear = 2020,
+            CommunityRating = 8.5f,
+            ProviderIds = new Dictionary<string, string>
+            {
+                ["Tmdb"] = seriesTmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            }
+        };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>())
+            .Returns(new List<BaseItem> { series });
+        var seriesUserData = new UserItemData { Key = "series-fav-key", Played = false, PlayCount = 0, IsFavorite = true };
+        _mockUserDataManager
+            .Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user))
+            .Returns((IReadOnlyList<BaseItem> items, Jellyfin.Database.Implementations.Entities.User _) =>
+            {
+                var dict = new Dictionary<Guid, UserItemData>();
+                if (items.Any(i => i.Id == series.Id))
+                {
+                    dict[series.Id] = seriesUserData;
+                }
+                return dict;
+            });
+        _mockUserDataManager.Setup(m => m.GetUserData(user, series)).Returns(seriesUserData);
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+        Assert.NotNull(profile);
+        var synthetic = Assert.Single(profile!.WatchedItems, w => w.ItemId == series.Id);
+        Assert.Equal(seriesTmdbId, synthetic.TmdbId);
+        Assert.Equal(seriesTmdbId, synthetic.SeriesTmdbId);
+    }
+
+    [Fact]
     public void BuildProfile_NonFavoriteSeries_IsIgnored()
     {
         var user = CreateTestUser("bob");
