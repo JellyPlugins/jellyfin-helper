@@ -229,6 +229,14 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 {
                     return Path.GetFullPath(Path.Join(libraryRootPath, DefaultTrashFolderName));
                 }
+
+                // Re-check against protected system directories at resolution time. Config-save/backup-restore
+                // already reject sensitive absolute paths, but a value persisted by an older build or edited
+                // directly in config.xml would otherwise reach TrashService unchecked.
+                if (PathValidator.IsSensitiveSystemPath(absTrashNormalized))
+                {
+                    return Path.GetFullPath(Path.Join(libraryRootPath, DefaultTrashFolderName));
+                }
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {

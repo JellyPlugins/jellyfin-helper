@@ -277,6 +277,72 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     }
 
     [Fact]
+    public void RestoreBackup_UnknownTaskMode_LogsWarning()
+    {
+        // A non-empty but unparseable task mode is a corrupted/crafted value the operator should see - it must emit an audit warning naming the offending value, not silently fall back.
+        var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+        var liveConfig = new PluginConfiguration();
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            pluginLogMock.Object,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = MakeMinimalValidBackup();
+        backup.TrickplayTaskMode = "MaliciousMode";
+
+        service.RestoreBackup(backup);
+
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "Backup",
+                It.Is<string>(msg => msg.Contains("MaliciousMode", StringComparison.Ordinal)
+                                     && msg.Contains("not a valid task mode", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
+            Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptyTaskMode_DoesNotLogWarning()
+    {
+        // An empty task mode is a legitimate "use the safe default" case (e.g. a field an older
+        // export omitted) - it must NOT trigger the invalid-value audit warning.
+        var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+        var liveConfig = new PluginConfiguration();
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            pluginLogMock.Object,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = MakeMinimalValidBackup();
+        backup.OrphanedSubtitleTaskMode = string.Empty;
+
+        service.RestoreBackup(backup);
+
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "Backup",
+                It.Is<string>(msg => msg.Contains("not a valid task mode", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
+            Times.Never);
+    }
+
+    [Fact]
     public void RestoreBackup_LowercaseTaskMode_ParsedCaseInsensitively()
     {
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();

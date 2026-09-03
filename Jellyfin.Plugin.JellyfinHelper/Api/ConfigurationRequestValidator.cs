@@ -110,8 +110,24 @@ public static class ConfigurationRequestValidator
             return "Seerr API key is required when a Seerr URL is configured.";
         }
 
+        // A key containing CR/LF/tab/NUL is a client input error, not a connection failure: it would
+        // otherwise reach TestConnectionAsync and throw an uncaught ArgumentException (HTTP 500).
+        if (!string.IsNullOrEmpty(request.SeerrApiKey) && ContainsControlCharacters(request.SeerrApiKey))
+        {
+            return "Seerr API key must not contain CR, LF, tab, or NUL characters.";
+        }
+
         return null;
     }
+
+    /// <summary>Returns <c>true</c> when the value contains a CR, LF, tab, or NUL character.</summary>
+    /// <param name="value">The value to inspect.</param>
+    /// <returns><c>true</c> if a control character is present; otherwise <c>false</c>.</returns>
+    private static bool ContainsControlCharacters(string value)
+        => value.Contains('\r', StringComparison.Ordinal)
+           || value.Contains('\n', StringComparison.Ordinal)
+           || value.Contains('\t', StringComparison.Ordinal)
+           || value.Contains('\0', StringComparison.Ordinal);
 
     /// <summary>
     ///     Performs strict validation of the trash folder path and returns an error message for obviously invalid paths (invalid characters, traversal patterns, only-slashes, etc.).

@@ -178,6 +178,40 @@ public sealed class BackupServiceErrorHandlingTests : IDisposable
     }
 
     [Fact]
+    public void RestoreBackup_TimelinePresentButWriteFails_LogsFailsafeWarning()
+    {
+        // Same file-posing-as-data-path trick as RestoreBackup_SaveFails: the timeline was present in the backup but the write could not happen. The restore must NOT throw (failsafe) - it must leave TimelineRestored false and log a distinct warning telling the operator the data will be regenerated on the next scheduled run.
+        var filePosingAsDataPath = Path.Join(_tempDir, "iam-a-file");
+        File.WriteAllText(filePosingAsDataPath, "not a directory");
+
+        var pluginLogMock = new Mock<IPluginLogService>();
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.IsInitialized).Returns(false);
+
+        var service = new BackupService(
+            filePosingAsDataPath,
+            configMock.Object,
+            pluginLogMock.Object,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = MakeMinimalValidBackup();
+        backup.GrowthTimeline = MakeTimeline();
+
+        var summary = service.RestoreBackup(backup);
+
+        Assert.False(summary.TimelineRestored);
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "Backup",
+                It.Is<string>(msg =>
+                    msg.Contains("could not be written", StringComparison.Ordinal)
+                    && msg.Contains("regenerated on the next scheduled run", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
+
+    [Fact]
     [Trait("Category", "Security")]
     public void CreateBackup_SourceFileExceedsSizeLimit_SkipsFileAndWarns()
     {

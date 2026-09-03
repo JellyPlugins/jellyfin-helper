@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -276,6 +277,18 @@ public class CleanupConfigHelperTests
     {
         var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         var cfg = new PluginConfiguration { TrashFolderPath = root };
+        var helper = CreateHelper(cfg);
+        var result = helper.GetTrashPath(root);
+        var expected = Path.GetFullPath(Path.Join(root, ".jellyfin-trash"));
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void GetTrashPath_AbsolutePath_SensitiveSystemPath_FallsBackToDefault()
+    {
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var sensitivePath = OperatingSystem.IsWindows() ? @"C:\Windows" : "/etc";
+        var cfg = new PluginConfiguration { TrashFolderPath = sensitivePath };
         var helper = CreateHelper(cfg);
         var result = helper.GetTrashPath(root);
         var expected = Path.GetFullPath(Path.Join(root, ".jellyfin-trash"));

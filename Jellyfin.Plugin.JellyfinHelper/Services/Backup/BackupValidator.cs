@@ -288,6 +288,9 @@ public static class BackupValidator
             return;
         }
 
+        // Redundant for fields the sanitizer already truncates (ExcludedLibraries, TrashFolderPath, Arr
+        // Name/Url/ApiKey), but load-bearing for the ones it never touches (PluginVersion, SeerrUrl,
+        // SeerrApiKey) and when the validator is called standalone without a prior Sanitize.
         if (value.Length > maxLength)
         {
             result.Errors.Add($"{fieldName} exceeds maximum length ({value.Length} > {maxLength}).");

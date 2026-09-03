@@ -598,4 +598,52 @@ public class ConfigurationRequestValidatorTests
 
         Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(@"C:\Trash", true));
     }
+
+    [Theory]
+    [InlineData("key\rmore")]
+    [InlineData("key\nmore")]
+    [InlineData("key\tmore")]
+    [InlineData("key\0more")]
+    public void Validate_ReturnsError_WhenSeerrApiKeyContainsControlChar(string apiKey)
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local",
+            SeerrApiKey = apiKey
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("CR, LF, tab, or NUL", error);
+    }
+
+    [Fact]
+    public void Validate_ReturnsNull_WhenSeerrApiKeyClean()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local",
+            SeerrApiKey = "validkey123"
+        };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenSeerrApiKeyContainsControlChar_WithoutSeerrUrl()
+    {
+        // The control-char guard runs for any non-empty API key regardless of whether SeerrUrl is set.
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "",
+            SeerrApiKey = "key\rmore"
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("CR, LF, tab, or NUL", error);
+    }
 }

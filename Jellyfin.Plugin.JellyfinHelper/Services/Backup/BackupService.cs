@@ -234,27 +234,48 @@ public sealed class BackupService : IBackupService
         try
         {
             // Restore growth timeline
-            if (backup.GrowthTimeline != null &&
-                SaveJsonFile(timelinePath, backup.GrowthTimeline))
+            if (backup.GrowthTimeline != null)
             {
-                timelineWriteOk = true;
-                summary.TimelineRestored = true;
-                _pluginLog.LogInfo(
-                    LogSource,
-                    $"Restored growth timeline ({backup.GrowthTimeline.DataPoints.Count} data points)",
-                    _logger);
+                if (SaveJsonFile(timelinePath, backup.GrowthTimeline))
+                {
+                    timelineWriteOk = true;
+                    summary.TimelineRestored = true;
+                    _pluginLog.LogInfo(
+                        LogSource,
+                        $"Restored growth timeline ({backup.GrowthTimeline.DataPoints.Count} data points)",
+                        _logger);
+                }
+                else
+                {
+                    // Stay failsafe: the backup carried timeline data but the write failed. Do not abort the
+                    // restore. The next scheduled task run regenerates it. Log distinctly so the skipped
+                    // write is not mistaken for "no timeline in the backup" (TimelineRestored stays false).
+                    _pluginLog.LogWarning(
+                        LogSource,
+                        $"Backup restore: growth timeline was present but could not be written to [{timelinePath}]. It will be regenerated on the next scheduled run.",
+                        logger: _logger);
+                }
             }
 
             // Restore growth baseline
-            if (backup.GrowthBaseline != null &&
-                SaveJsonFile(baselinePath, backup.GrowthBaseline))
+            if (backup.GrowthBaseline != null)
             {
-                baselineWriteOk = true;
-                summary.BaselineRestored = true;
-                _pluginLog.LogInfo(
-                    LogSource,
-                    $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)",
-                    _logger);
+                if (SaveJsonFile(baselinePath, backup.GrowthBaseline))
+                {
+                    baselineWriteOk = true;
+                    summary.BaselineRestored = true;
+                    _pluginLog.LogInfo(
+                        LogSource,
+                        $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)",
+                        _logger);
+                }
+                else
+                {
+                    _pluginLog.LogWarning(
+                        LogSource,
+                        $"Backup restore: growth baseline was present but could not be written to [{baselinePath}]. It will be regenerated on the next scheduled run.",
+                        logger: _logger);
+                }
             }
 
             // Restore configuration last - uses ReadAndMutate so the entire
@@ -342,11 +363,11 @@ public sealed class BackupService : IBackupService
                 : "INFO";
 
             // Task modes
-            config.TrickplayTaskMode = ParseTaskMode(backup.TrickplayTaskMode);
-            config.EmptyMediaFolderTaskMode = ParseTaskMode(backup.EmptyMediaFolderTaskMode);
-            config.OrphanedSubtitleTaskMode = ParseTaskMode(backup.OrphanedSubtitleTaskMode);
-            config.LinkRepairTaskMode = ParseTaskMode(backup.LinkRepairTaskMode);
-            config.SeerrCleanupTaskMode = ParseTaskMode(backup.SeerrCleanupTaskMode, TaskMode.Deactivate);
+            config.TrickplayTaskMode = ParseTaskMode(backup.TrickplayTaskMode, nameof(config.TrickplayTaskMode));
+            config.EmptyMediaFolderTaskMode = ParseTaskMode(backup.EmptyMediaFolderTaskMode, nameof(config.EmptyMediaFolderTaskMode));
+            config.OrphanedSubtitleTaskMode = ParseTaskMode(backup.OrphanedSubtitleTaskMode, nameof(config.OrphanedSubtitleTaskMode));
+            config.LinkRepairTaskMode = ParseTaskMode(backup.LinkRepairTaskMode, nameof(config.LinkRepairTaskMode));
+            config.SeerrCleanupTaskMode = ParseTaskMode(backup.SeerrCleanupTaskMode, nameof(config.SeerrCleanupTaskMode), TaskMode.Deactivate);
 
             // Seerr settings
             RestoreSeerrSettings(config, backup, summary);
@@ -356,7 +377,7 @@ public sealed class BackupService : IBackupService
 
             // Smart Recommendations (only task mode - count and strategy use sensible defaults).
             // Default to DryRun so importing an older backup enables the Discover UI in read-only mode.
-            config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode);
+            config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode, nameof(config.RecommendationsTaskMode));
 
             // Playlist sync toggle - defaults to false for older backups without this field
             config.SyncRecommendationsToPlaylist = backup.SyncRecommendationsToPlaylist;
@@ -524,7 +545,7 @@ public sealed class BackupService : IBackupService
         }
     }
 
-    private static TaskMode ParseTaskMode(string? value, TaskMode fallback = TaskMode.DryRun)
+    private TaskMode ParseTaskMode(string? value, string fieldName, TaskMode fallback = TaskMode.DryRun)
     {
         if (string.IsNullOrEmpty(value))
         {
@@ -536,6 +557,12 @@ public sealed class BackupService : IBackupService
             return mode;
         }
 
+        // A non-empty value that fails to parse is malformed backup data, not a legitimate default;
+        // surface it so the admin knows the restored mode differs from what the file claimed.
+        _pluginLog.LogWarning(
+            LogSource,
+            $"Backup restore: {fieldName} value '{value}' is not a valid task mode. Falling back to {fallback}.",
+            logger: _logger);
         return fallback;
     }
 

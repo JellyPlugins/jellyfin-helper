@@ -4,6 +4,8 @@
 
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, ML-powered smart recommendations, user activity insights, health checks, and Arr stack integration, all from a single, multi-tab dashboard.
 
+> **AI disclosure:** This project is AI-assisted but not vibe-coded. AI is used as a partner for post-change reviews, discussing specific problems, quick analysis, suggestions, and spell checking, never as a substitute for the logic, regression testing, code coverage, and static checks that gate every change. The i18n and parts of the UI are the main AI-generated portions. It was built with a great deal of effort and care, and we deliberately do not trust AI blindly.
+
 <table>
 <tr>
 <td style="vertical-align: top; text-align: center;">
@@ -21,7 +23,7 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 
 [![Quality gate](https://img.shields.io/sonar/quality_gate/JellyPlugins_jellyfin-helper?server=https%3A%2F%2Fsonarcloud.io&style=flat-square&logo=sonarcloud&logoColor=white&labelColor=2d333b)](https://sonarcloud.io/summary/new_code?id=JellyPlugins_jellyfin-helper)<br>
 [![codecov](https://img.shields.io/codecov/c/github/JellyPlugins/jellyfin-helper?style=flat-square&logo=codecov&logoColor=white&labelColor=2d333b)](https://codecov.io/gh/JellyPlugins/jellyfin-helper)<br>
-[![Tests](https://img.shields.io/badge/unit%20tests-5203-2ea043?style=flat-square&logo=checkmarx&logoColor=white&labelColor=2d333b)](Jellyfin.Plugin.JellyfinHelper.Tests/)<br>
+[![Tests](https://img.shields.io/badge/unit%20tests-5213-2ea043?style=flat-square&logo=checkmarx&logoColor=white&labelColor=2d333b)](Jellyfin.Plugin.JellyfinHelper.Tests/)<br>
 [![E2E](https://img.shields.io/badge/e2e%20tests-294-2ea043?style=flat-square&logo=docker&logoColor=white&labelColor=2d333b)](test/e2e/)
 
 </td>
