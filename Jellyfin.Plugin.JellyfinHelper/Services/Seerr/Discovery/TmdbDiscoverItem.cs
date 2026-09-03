@@ -105,6 +105,23 @@ internal sealed class TmdbDiscoverItem
     public bool Adult { get; set; }
 
     /// <summary>
+    ///     Gets or sets the Seerr media availability info, present when Seerr already tracks this title.
+    ///     Null for titles Seerr has never seen.
+    /// </summary>
+    [JsonPropertyName("mediaInfo")]
+    public TmdbDiscoverMediaInfo? MediaInfo { get; set; }
+
+    /// <summary>
+    ///     Gets a value indicating whether Seerr reports this title as already partially or fully
+    ///     available in the library.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsAlreadyAvailable =>
+        MediaInfo is not null
+        && (MediaInfo.Status == SeerrMediaStatus.PartiallyAvailable
+            || MediaInfo.Status == SeerrMediaStatus.Available);
+
+    /// <summary>
     ///     Gets or sets known people names (populated from search results where cast data is embedded).
     /// </summary>
     [JsonIgnore]

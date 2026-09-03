@@ -3,6 +3,9 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -17,6 +20,8 @@ public class SeerrDiscoveryServiceTests
         var factory = new Mock<System.Net.Http.IHttpClientFactory>();
         var history = new Mock<IWatchHistoryService>();
         var arr = new Mock<IArrIntegrationService>();
+        var libraryManager = TestMockFactory.CreateLibraryManager();
+        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
@@ -32,7 +37,7 @@ public class SeerrDiscoveryServiceTests
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         var logger = new Mock<ILogger<SeerrDiscoveryService>>();
         return new SeerrDiscoveryService(
-            factory.Object, history.Object, arr.Object,
+            factory.Object, history.Object, arr.Object, libraryManager.Object,
             ensemble, cache, feedbackStore.Object, pluginLog.Object, logger.Object);
     }
 

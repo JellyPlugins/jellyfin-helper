@@ -1,4 +1,6 @@
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities;
@@ -17,6 +19,7 @@ public sealed class WatchHistoryServiceTests
     private static readonly string[] OwnEpisodeGenres = ["Comedy"];
 
     private readonly Mock<ILibraryManager> _mockLibraryManager;
+    private readonly Mock<IPluginConfigurationService> _mockConfigService;
     private readonly Mock<IUserManager> _mockUserManager;
     private readonly Mock<IUserDataManager> _mockUserDataManager;
     private readonly Mock<IPluginLogService> _mockPluginLog;
@@ -26,12 +29,15 @@ public sealed class WatchHistoryServiceTests
     public WatchHistoryServiceTests()
     {
         _mockLibraryManager = new Mock<ILibraryManager>();
+        _mockConfigService = new Mock<IPluginConfigurationService>();
+        _mockConfigService.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
         _mockUserManager = new Mock<IUserManager>();
         _mockUserDataManager = new Mock<IUserDataManager>();
         _mockPluginLog = new Mock<IPluginLogService>();
         _mockLogger = new Mock<ILogger<WatchHistoryService>>();
         _service = new WatchHistoryService(
             _mockLibraryManager.Object,
+            _mockConfigService.Object,
             _mockUserManager.Object,
             _mockUserDataManager.Object,
             _mockPluginLog.Object,
@@ -204,6 +210,80 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void BuildProfile_WatchedEpisode_ResolvesParentSeriesTmdbId()
+    {
+        // A watched episode must carry its parent series' TMDb id (episodes rarely have a useful id of
+        // their own), so recommendations can exclude a duplicate series entry of a partially watched show.
+        var user = CreateTestUser("grace");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var seriesId = Guid.NewGuid();
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "S01E01", SeriesId = seriesId, Genres = OwnEpisodeGenres, RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = ParentSeriesGenres };
+        series.ProviderIds["Tmdb"] = "1399";
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { episode })
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "ep-key", Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == episode.Id);
+        Assert.Equal(1399, watched.SeriesTmdbId);
+    }
+
+    [Fact]
+    public void BuildProfile_WatchedEpisode_ParentSeriesWithoutTmdb_LeavesSeriesTmdbIdZero()
+    {
+        // When the parent series carries no TMDb id, SeriesTmdbId stays 0 so no (0, "tv") key is built.
+        var user = CreateTestUser("heidi");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var seriesId = Guid.NewGuid();
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "S01E01", SeriesId = seriesId, Genres = OwnEpisodeGenres, RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var series = new Series { Id = seriesId, Name = "Untagged Show", Genres = ParentSeriesGenres };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { episode })
+            .Returns(new List<BaseItem> { series });
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "ep-key", Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == episode.Id);
+        Assert.Equal(0, watched.SeriesTmdbId);
+    }
+
+    [Fact]
+    public void BuildProfile_WatchedMovie_LeavesSeriesTmdbIdZero()
+    {
+        // A movie is not an episode, so it never resolves a parent-series TMDb id.
+        var user = CreateTestUser("ida");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var movie = new Movie { Id = Guid.NewGuid(), Name = "Solo Film", Genres = OwnEpisodeGenres, RunTimeTicks = TimeSpan.FromMinutes(100).Ticks };
+        movie.ProviderIds["Tmdb"] = "550";
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { movie })
+            .Returns(new List<BaseItem>());
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "mv-key", Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        var watched = Assert.Single(profile!.WatchedItems, w => w.ItemId == movie.Id);
+        Assert.Equal(0, watched.SeriesTmdbId);
+        Assert.Equal(550, watched.TmdbId);
+    }
+
+    [Fact]
     public void BuildProfile_GenreDistribution_CountsCorrectly()
     {
         var user = CreateTestUser("charlie");
@@ -284,6 +364,52 @@ public sealed class WatchHistoryServiceTests
         _mockUserDataManager.Verify(
             m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user),
             Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void BuildProfile_FavoriteSeries_SeedsSeriesTmdbIdOnSyntheticItem()
+    {
+        // A favorited-but-unwatched series must carry its own TMDb id so a duplicate library entry
+        // of the same show (a second copy with a different Jellyfin Guid) is excluded by the
+        // provider-id fallback, the same way a watched series contributes its key.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        const int seriesTmdbId = 1396;
+        var series = new Series
+        {
+            Id = Guid.NewGuid(),
+            Name = "Fav Show",
+            Genres = new[] { "Sci-Fi", "Drama" },
+            ProductionYear = 2020,
+            CommunityRating = 8.5f,
+            ProviderIds = new Dictionary<string, string>
+            {
+                ["Tmdb"] = seriesTmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            }
+        };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>())
+            .Returns(new List<BaseItem> { series });
+        var seriesUserData = new UserItemData { Key = "series-fav-key", Played = false, PlayCount = 0, IsFavorite = true };
+        _mockUserDataManager
+            .Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user))
+            .Returns((IReadOnlyList<BaseItem> items, Jellyfin.Database.Implementations.Entities.User _) =>
+            {
+                var dict = new Dictionary<Guid, UserItemData>();
+                if (items.Any(i => i.Id == series.Id))
+                {
+                    dict[series.Id] = seriesUserData;
+                }
+                return dict;
+            });
+        _mockUserDataManager.Setup(m => m.GetUserData(user, series)).Returns(seriesUserData);
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+        Assert.NotNull(profile);
+        var synthetic = Assert.Single(profile!.WatchedItems, w => w.ItemId == series.Id);
+        Assert.Equal(seriesTmdbId, synthetic.TmdbId);
+        Assert.Equal(seriesTmdbId, synthetic.SeriesTmdbId);
     }
 
     [Fact]

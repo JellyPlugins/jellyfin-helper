@@ -475,13 +475,11 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     /// <summary>
-    ///     Returns the OS-appropriate StringComparison for file-system path comparisons. Note: macOS is treated as case-insensitive because the overwhelming majority of installations use case-insensitive APFS/HFS+.
+    ///     Returns the OS-appropriate StringComparison for file-system path comparisons. Delegates to <see cref="PathComparison"/> so the platform branch lives in one place.
     /// </summary>
     private static StringComparison GetOsPathComparison()
     {
-        return OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
+        return PathComparison.Comparison;
     }
 
     /// <summary>

@@ -719,7 +719,7 @@ public class TrainingFeatureComputerTests
         Assert.Equal(1.0, result);
     }
 
-    // AddAggregatedSeriesExample - the biggest uncovered slab of this file (0%). Business meaning: an episode-heavy series would otherwise flood the training data with one row per episode, biasing the model toward series with many episodes.
+    // Business meaning: an episode-heavy series would otherwise flood the training data with one row per episode, biasing the model toward series with many episodes.
 
     [Fact]
     public void AddAggregatedSeriesExample_WithContext_ComputesSeriesAffinityFromOtherProgressingSeries()

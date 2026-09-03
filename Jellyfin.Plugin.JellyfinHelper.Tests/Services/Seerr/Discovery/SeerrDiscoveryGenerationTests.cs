@@ -11,6 +11,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -18,7 +20,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests GenerateDiscoveryRecommendationsAsync - the largest previously-uncovered method in the discovery module.
+///     Tests GenerateDiscoveryRecommendationsAsync
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryGenerationTests : IDisposable
@@ -46,6 +48,8 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
             .Returns(new Dictionary<Guid, int>());
 
         var arr = new Mock<IArrIntegrationService>();
+        var libraryManager = TestMockFactory.CreateLibraryManager();
+        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
@@ -63,6 +67,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
             httpFactory.Object,
             _history.Object,
             arr.Object,
+            libraryManager.Object,
             ensemble,
             _cache,
             _feedback.Object,

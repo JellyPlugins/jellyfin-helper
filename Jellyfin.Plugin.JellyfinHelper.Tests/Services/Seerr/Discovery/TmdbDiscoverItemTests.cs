@@ -201,4 +201,58 @@ public sealed class TmdbDiscoverItemTests
         Assert.Null(result!.PosterPath);
         Assert.Null(result.Overview);
     }
+
+    // mediaInfo.status drives IsAlreadyAvailable: Seerr reports 4 = partially available, 5 = available.
+    [Fact]
+    public void JsonDeserialize_MediaInfoStatusAvailable_IsAlreadyAvailableTrue()
+    {
+        var json = "{\"id\":550,\"mediaType\":\"movie\",\"title\":\"Fight Club\",\"mediaInfo\":{\"status\":5}}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.True(result!.IsAlreadyAvailable);
+    }
+
+    [Fact]
+    public void JsonDeserialize_MediaInfoStatusPartiallyAvailable_IsAlreadyAvailableTrue()
+    {
+        var json = "{\"id\":550,\"mediaType\":\"movie\",\"title\":\"Fight Club\",\"mediaInfo\":{\"status\":4}}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.True(result!.IsAlreadyAvailable);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void JsonDeserialize_MediaInfoStatusBelowAvailable_IsAlreadyAvailableFalse(int status)
+    {
+        var json = $"{{\"id\":550,\"mediaType\":\"movie\",\"title\":\"Fight Club\",\"mediaInfo\":{{\"status\":{status}}}}}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.False(result!.IsAlreadyAvailable);
+    }
+
+    [Theory]
+    [InlineData(6)]
+    [InlineData(7)]
+    public void JsonDeserialize_MediaInfoStatusAboveAvailable_IsAlreadyAvailableFalse(int status)
+    {
+        // Seerr may surface Blocklisted/Deleted with a status above Available. Those titles are not
+        // in the library, so availability must be matched explicitly (== 4 or == 5), never ">= 4".
+        var json = $"{{\"id\":550,\"mediaType\":\"movie\",\"title\":\"Fight Club\",\"mediaInfo\":{{\"status\":{status}}}}}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.False(result!.IsAlreadyAvailable);
+    }
+
+    [Fact]
+    public void JsonDeserialize_NoMediaInfo_IsAlreadyAvailableFalse()
+    {
+        var json = "{\"id\":550,\"mediaType\":\"movie\",\"title\":\"Fight Club\"}";
+        var result = JsonSerializer.Deserialize<TmdbDiscoverItem>(json);
+        Assert.NotNull(result);
+        Assert.Null(result!.MediaInfo);
+        Assert.False(result.IsAlreadyAvailable);
+    }
 }

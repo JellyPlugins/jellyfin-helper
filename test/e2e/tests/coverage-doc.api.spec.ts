@@ -31,3 +31,27 @@ test('every *.spec.ts is documented in COVERAGE.md', () => {
       undocumented.map((f) => `  - ${f}`).join('\n'),
   ).toEqual([]);
 });
+
+test('every spec referenced in COVERAGE.md has a backing file', () => {
+  // Reverse of the guard above: a spec name written into COVERAGE.md that no longer exists on disk
+  // is stale documentation. Only backtick-wrapped names are inspected, and glob patterns (e.g.
+  // `*-fs.api.spec.ts` used as a section heading) are skipped since they name a group, not a file.
+  const realSpecs = new Set(readdirSync(TESTS_DIR).filter((f) => f.endsWith('.spec.ts')));
+
+  const coverage = readFileSync(COVERAGE_PATH, 'utf-8');
+  const referenced = new Set<string>();
+  for (const match of coverage.matchAll(/`([^`]*\.spec\.ts)`/g)) {
+    const name = match[1];
+    if (!name.includes('*') && !name.includes('/')) {
+      referenced.add(name);
+    }
+  }
+
+  const phantom = [...referenced].filter((f) => !realSpecs.has(f)).sort();
+
+  expect(
+    phantom,
+    `these spec files are referenced in COVERAGE.md but do not exist - fix the name or remove the reference:\n` +
+      phantom.map((f) => `  - ${f}`).join('\n'),
+  ).toEqual([]);
+});

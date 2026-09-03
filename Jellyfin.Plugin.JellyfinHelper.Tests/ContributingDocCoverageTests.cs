@@ -27,6 +27,13 @@ public sealed class ContributingDocCoverageTests
         Path.Combine("Jellyfin.Plugin.JellyfinHelper", "PluginPages", "configPage.html"),
     ];
 
+    // Filenames that legitimately appear in the tree but have no tracked source file: they are
+    // composed/generated at build time. The reverse guard must not flag these as phantom entries.
+    private static readonly HashSet<string> GeneratedTreeEntries = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "configPage.html",
+    };
+
     [Fact]
     public void EverySourceAndTestFile_IsListedInContributingMd()
     {
@@ -73,6 +80,78 @@ public sealed class ContributingDocCoverageTests
             + "Project Structure / Test Structure tree (a bare `│   ├── <file>` line is enough):"
             + Environment.NewLine
             + string.Join(Environment.NewLine, undocumented.OrderBy(p => p, StringComparer.Ordinal)));
+    }
+
+    [Fact]
+    public void EveryTreeEntry_HasABackingFile()
+    {
+        // Reverse of the coverage guard: a filename that appears in the project-structure tree but
+        // has no file on disk is stale documentation. This is what let a renamed/removed file linger
+        // in the tree unnoticed, because the forward guard only flags the opposite direction.
+        var repoRoot = FindRepoRoot();
+        Assert.NotNull(repoRoot);
+
+        var realFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var projectDir in ProjectDirs)
+        {
+            var root = Path.Combine(repoRoot!, projectDir);
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                var relative = Path.GetRelativePath(repoRoot!, file);
+                if (IsInBuildOutput(relative))
+                {
+                    continue;
+                }
+
+                realFileNames.Add(Path.GetFileName(file));
+            }
+        }
+
+        var contributingLines = File.ReadAllLines(Path.Combine(repoRoot!, "CONTRIBUTING.md"));
+        var phantom = new List<string>();
+
+        foreach (var line in contributingLines)
+        {
+            // Only inspect actual tree rows (they carry a box-drawing connector); prose that mentions
+            // a filename in backticks or a "create css/YourTab.css" example is intentionally ignored.
+            var connectorIndex = line.IndexOf("├──", StringComparison.Ordinal);
+            if (connectorIndex < 0)
+            {
+                connectorIndex = line.IndexOf("└──", StringComparison.Ordinal);
+            }
+
+            if (connectorIndex < 0)
+            {
+                continue;
+            }
+
+            var afterConnector = line[(connectorIndex + 3)..].Trim();
+            var fileName = afterConnector.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            if (string.IsNullOrEmpty(fileName)
+                || !DocExtensions.Contains(Path.GetExtension(fileName), StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Glob patterns (css/*.css) and path-prefixed entries name a group, not a single file, so
+            // they cannot have one backing file. Only bare filenames are verifiable against disk.
+            if (fileName.Contains('*', StringComparison.Ordinal) || fileName.Contains('/', StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!realFileNames.Contains(fileName) && !GeneratedTreeEntries.Contains(fileName))
+            {
+                phantom.Add($"{fileName}  (line: {line.Trim()})");
+            }
+        }
+
+        Assert.True(
+            phantom.Count == 0,
+            "These entries appear in the CONTRIBUTING.md tree but have no matching file on disk - "
+            + "fix the name or remove the line:"
+            + Environment.NewLine
+            + string.Join(Environment.NewLine, phantom.OrderBy(p => p, StringComparer.Ordinal)));
     }
 
     private static bool IsInBuildOutput(string relativePath)

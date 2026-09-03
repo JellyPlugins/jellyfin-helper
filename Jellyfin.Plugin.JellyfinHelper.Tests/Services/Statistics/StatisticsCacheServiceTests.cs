@@ -101,7 +101,7 @@ public class StatisticsCacheServiceTests : IDisposable
         Assert.True(Directory.Exists(nestedDir));
     }
 
-    // Guard branches previously uncovered: * LoadLatestResult when the file contains the literal "null" - must round-trip to null without surfacing a JsonException to callers.
+    // Guard branches: * LoadLatestResult when the file contains the literal "null" - must round-trip to null without surfacing a JsonException to callers.
 
     [Fact]
     public void LoadLatestResult_FileContainsLiteralNull_ReturnsNull()

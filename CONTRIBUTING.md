@@ -190,6 +190,10 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── DateTimeNormalizationTests.cs      # UTC coercion helper: guards against Local→SpecifyKind bugs in cache timestamps
 │   ├── FileSystemHelperErrorHandlingTests.cs # Directory-size walk skips entries whose Length throws (Windows-gated) and swallows access-denied
 │   ├── LibraryPathResolverErrorHandlingTests.cs # GetFullPath fallback returns the original path when normalization throws
+│   ├── LibraryPathResolverAllowedRootTests.cs # IsUnderAllowedRoot: directory-boundary prefix match, mixed separators, platform casing; IsAllowed/GetLibraryRootScope nested-exclusion denial
+│   ├── LibraryRootScopeTests.cs    # LibraryRootScope carrier: stores allowed/excluded roots, rejects null arguments
+│   ├── PathComparisonTests.cs      # PathComparison: comparison/comparer match the platform case convention
+│   ├── TmdbLibraryMapperTests.cs   # BuildTmdbKeySet/TryGetTmdbId: media-type keying, non-positive/invalid id rejection, dedup
 │   ├── Activity/                  # User activity service tests
 │   ├── Arr/                       # Arr integration tests
 │   │   └── ArrIntegrationServiceTests.cs               # Timeout → LogWarning (not LogError); parity with TestConnectionAsync
@@ -290,6 +294,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
 │       │   ├── EngineExceedsMaxRatingTests.cs         # Parental-rating gate - null max = unrestricted, missing rating = REJECT, inclusive boundary
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helpers untestable end-to-end
+│       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment
 │       │   ├── EngineLanguageAffinityTests.cs         # ComputeLanguageAffinity/SubtitleLanguageAffinity: empty profile → 0.5 neutral; cross-feature isolation
@@ -337,6 +342,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── WatchHistoryServiceLanguageProfileTests.cs # Language-profile aggregation from watch history; NormalizeLanguage rows
 │       │   ├── UserWatchProfileTests.cs        # Cache invalidation for lazy props, case-insensitive dictionary re-assignment (guards case-sensitive cache-deserialisation from silently regressing genre/language matching), null-safe setters, TopPeople boundaries (min-count filter, tie-break, cap at 20)
 │       │   ├── WatchHistoryCompatTests.cs      # IUserManager API compatibility (MissingMethodException handling)
+│       │   ├── WatchHistoryServiceExcludedLibraryTests.cs # Excluded libraries drop items from profile-building queries; pass-through when none excluded
 │       │   └── WatchHistoryServiceTests.cs
 │       ├── RecommendationCacheServiceTests.cs
 │       ├── RecommendationCacheServiceErrorHandlingTests.cs # Save/load IO failures degrade gracefully under an exclusive lock (cross-platform)
@@ -488,8 +494,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
 │   │   ├── Scoring/                 # Pluggable scoring strategies
-│   │   │   ├── IScoringStrategy.cs
-│   │   │   ├── ITrainableStrategy.cs
+│   │   │   ├── IScoringStrategy.cs   # Also declares ITrainableStrategy (no separate file)
+│   │   │   ├── IStrategySelector.cs
 │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
@@ -507,7 +513,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── IWatchHistoryService.cs
 │   │   │   ├── WatchHistoryService.cs
 │   │   │   ├── UserWatchProfile.cs
-│   │   │   ├── LanguageAffinity.cs
+│   │   │   ├── LanguageProfileEntry.cs
 │   │   │   └── WatchedItemInfo.cs
 │   │   ├── Playlist/                # Recommendation → Jellyfin playlist sync
 │   │   │   ├── IRecommendationPlaylistService.cs
@@ -1004,8 +1010,11 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `FileSystemHelper.cs` - Best-effort filesystem helpers: directory sizing and dictionary accumulation
 - `I18nService.cs` - i18n translation loader from embedded JSON resources with caching
 - `JsonDefaults.cs` - Shared JSON serializer options (camelCase, indented, case-insensitive)
-- `LibraryPathResolver.cs` - Resolves and deduplicates library folder paths from the library manager
+- `LibraryPathResolver.cs` - Resolves and deduplicates library folder paths from the library manager; `IsUnderAllowedRoot` tests whether an item path sits under an allowed library root (directory-boundary aware, platform-cased), and `GetLibraryRootScope`/`IsAllowed` extend this so an excluded library nested under an allowed one is denied by the most specific matching root
+- `LibraryRootScope.cs` - Carries the allowed and excluded library roots resolved for a recommendation run so `LibraryPathResolver.IsAllowed` can deny nested exclusions
 - `PathValidator.cs` - Path validation guarding traversal, sensitive system roots, and safe deletion
+- `PathComparison.cs` - Single source of truth for OS-appropriate file-system path comparison (StringComparison/StringComparer); macOS folds case, Linux is ordinal
+- `TmdbLibraryMapper.cs` - Maps library items to `(TmdbId, MediaType)` tuples; shared by the recommendation engine and Seerr discovery so "already in library" uses one implementation
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Activity/`
 
@@ -1134,6 +1143,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `EnsembleDiagnostics.cs`
 - `HeuristicScoringStrategy.cs`
 - `IScoringStrategy.cs`
+- `IStrategySelector.cs`
 - `LearnedScoringStrategy.cs`
 - `NeuralFeatureImportance.cs`
 - `NeuralScoringStrategy.cs`
@@ -1158,6 +1168,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `SeerrIntegrationService.cs`
 - `SeerrMainSettings.cs` - Model of Seerr main settings response used for connection testing
 - `SeerrMedia.cs` - Model of media info (type, TMDB ID, status) attached to a Seerr request
+- `SeerrMediaStatus.cs` - Overseerr media availability status constants (PartiallyAvailable=4, Available=5); distinct from request lifecycle status
 - `SeerrMediaDetails.cs` - Model of Seerr movie/TV detail response resolving a display title from title or name
 - `SeerrPageInfo.cs` - Pagination metadata model (page, pages, results, pageSize) from the Seerr API
 - `SeerrRequest.cs` - Model of a single Seerr media request (id, createdAt, status, media)
@@ -1192,6 +1203,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `SeerrUserPage.cs`
 - `SeerrUserPageInfo.cs` - Pagination metadata model for paginated Seerr user API responses
 - `TmdbDiscoverItem.cs`
+- `TmdbDiscoverMediaInfo.cs` - Seerr mediaInfo (status) on a discover item; drives IsAlreadyAvailable to drop titles already in the library
 - `TmdbDiscoverResponse.cs`
 - `TmdbGenreMap.cs`
 - `UserRequestPermissionResult.cs`

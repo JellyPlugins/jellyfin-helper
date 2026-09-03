@@ -46,6 +46,11 @@ let failListSkip = null; // when a number, GET /request with this skip -> 500
 let inflateResults = false; // when true, page 1's pageInfo.results forces a 2nd page
 let listCalls = [];
 
+// Discovery availability hook (E2E-only): TMDb ids armed here are stamped with a
+// mediaInfo.status on the discover payload so the plugin's "already available in
+// Seerr" filter can be exercised end-to-end. Keyed by tmdbId -> status.
+let availableCandidates = {};
+
 
 const mainSettings = { applicationTitle: 'Jellyseerr' };
 
@@ -85,11 +90,20 @@ function serviceDetail(type) {
   };
 }
 function discoverPage() {
+  const stamp = (item) => {
+    const status = availableCandidates[item.id];
+    return status === undefined ? item : { ...item, mediaInfo: { status } };
+  };
   return {
     page: 1, totalPages: 1, totalResults: 2,
     results: [
-      { id: 27205, mediaType: 'movie', title: 'Inception', genreIds: [28, 878], voteAverage: 8.3, popularity: 120.5, releaseDate: '2010-07-16', posterPath: '/p1.jpg', overview: 'A thief...', adult: false },
-      { id: 680, mediaType: 'movie', title: 'Pulp Fiction', genreIds: [80, 18], voteAverage: 8.5, popularity: 90.1, releaseDate: '1994-10-14', posterPath: '/p2.jpg', overview: 'The lives...', adult: false },
+      stamp({ id: 27205, mediaType: 'movie', title: 'Inception', genreIds: [28, 878], voteAverage: 8.3, popularity: 120.5, releaseDate: '2010-07-16', posterPath: '/p1.jpg', overview: 'A thief...', adult: false }),
+      // releaseDate is deliberately recent (not the real 1994) so the candidate clears the
+      // production year-relevance post-filter (ComputeMinYear = currentYear-12 for modern
+      // watchers). The availability-exclusion test seeds a modern-leaning admin watch profile,
+      // so a 1994 date would be dropped by that filter and vacate the pool before mediaInfo.status
+      // is ever exercised - defeating the test's positive control.
+      stamp({ id: 680, mediaType: 'movie', title: 'Pulp Fiction', genreIds: [80, 18], voteAverage: 8.5, popularity: 90.1, releaseDate: '2022-10-14', posterPath: '/p2.jpg', overview: 'The lives...', adult: false }),
     ],
   };
 }
@@ -138,6 +152,7 @@ const server = http.createServer(async (req, res) => {
     failListSkip = null;
     inflateResults = false;
     listCalls = [];
+    availableCandidates = {};
     send(res, 200, { ok: true });
     return done(200);
   }
@@ -180,6 +195,16 @@ const server = http.createServer(async (req, res) => {
       media: { mediaType: String(body.mediaType ?? 'movie'), tmdbId: Number(body.tmdbId), status: 3 },
       requestedBy: { id: Number(body.requestedBy) },
     });
+    send(res, 200, { ok: true }); return done(200);
+  }
+
+  // Arm a discover candidate with a Seerr availability status so the plugin's
+  // "already available" filter can be exercised: body { tmdbId, status }.
+  if (path === '/seed-available-candidate' && method === 'POST') {
+    const body = JSON.parse((await readBody(req)) || '{}');
+    if (body.tmdbId !== undefined) {
+      availableCandidates[Number(body.tmdbId)] = Number(body.status ?? 5);
+    }
     send(res, 200, { ok: true }); return done(200);
   }
 

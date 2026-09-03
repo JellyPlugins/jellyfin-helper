@@ -5,7 +5,7 @@ server** in Docker, drive it exactly the way a human would (settings, tasks,
 backup/restore, every dashboard tab), and assert it all works, including
 hardening / edge-case behaviour.
 
-This complements the ~4200 xUnit unit tests: the unit tests verify logic in
+This complements the xUnit unit tests: the unit tests verify logic in
 isolation; this harness verifies the plugin **loads and behaves in a live
 server**.
 
@@ -20,6 +20,7 @@ server**.
 | Backup round-trip | Export → tamper with JSON → import → assert validation & restore |
 | Trends integrity | Assert timeline/insights contain no garbage (negative sizes, false zeroes) |
 | Arr / Seerr | Against **mock servers**: connection test, Compare, reachability indicator, masked-key Test Connection resolves the stored key after reload |
+| Discovery exclusion | A title Seerr reports as already available (`mediaInfo.status`) is dropped from generated recommendations even when no Arr instance or library entry tracks it |
 | UI: all 8 tabs | Overview, Codecs, Health, Trends, Settings, Arr, Recommendations, Logs |
 | UI interactions | Codec collapsible trees expand/collapse, Logs arrive + download, unsaved-changes dialog appears when leaving dirty settings |
 | Hardening | Empty library, broken backup XML/JSON, invalid Arr URLs, out-of-range numbers, Unicode paths, concurrent task runs: must degrade cleanly, never crash |

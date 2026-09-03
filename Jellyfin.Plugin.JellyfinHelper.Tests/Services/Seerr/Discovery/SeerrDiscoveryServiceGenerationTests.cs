@@ -14,6 +14,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -35,6 +37,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly Mock<IWatchHistoryService> _history;
     private readonly Mock<IArrIntegrationService> _arr;
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStore;
+    private readonly Mock<ILibraryManager> _libraryManager;
     private readonly DiscoveryCacheService _cache;
     private readonly string _cacheFilePath;
     private readonly SeerrDiscoveryService _sut;
@@ -83,10 +86,15 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         _cache = new DiscoveryCacheService(
             pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, _cacheFilePath);
 
+        var libraryManager = TestMockFactory.CreateLibraryManager();
+        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+        _libraryManager = libraryManager;
+
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             _history.Object,
             _arr.Object,
+            libraryManager.Object,
             ensemble,
             _cache,
             _feedbackStore.Object,
@@ -479,6 +487,38 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         _feedbackStore.Verify(
             f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task GenerateDiscoveryRecommendationsAsync_LibraryQueryThrows_StillAppliesArrExclusions()
+    {
+        // The Jellyfin-library exclusion source runs first in BuildExclusionSetAsync. A non-fatal
+        // failure there must not abort the run before Radarr/Sonarr exclusions apply.
+        _libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Throws(new InvalidOperationException("library unavailable"));
+
+        Plugin.Instance!.Configuration.RadarrInstances =
+        [
+            new ArrInstanceConfig { Name = "R", Url = "http://radarr", ApiKey = "k" }
+        ];
+        _arr.Setup(a => a.GetRadarrMoviesAsync("http://radarr", "k", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new ArrMovie { TmdbId = 1401 }]);
+
+        var profile = NewProfile();
+        _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        RegisterGenreMovieResults(28, [Candidate(1401, 8.0), Candidate(1402, 8.0)]);
+
+        List<DiscoveryRecommendation>? recorded = null;
+        _feedbackStore
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
+
+        // Generation still persisted, and the Radarr exclusion still fired despite the library scan failing.
+        Assert.NotNull(recorded);
+        Assert.DoesNotContain(recorded!, r => r.TmdbId == 1401 && r.MediaType == "movie");
+        Assert.Contains(recorded!, r => r.TmdbId == 1402);
     }
 
     // Per-user error / best-effort branches inside the full pipeline

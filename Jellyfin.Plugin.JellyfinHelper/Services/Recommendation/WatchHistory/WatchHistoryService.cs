@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using MediaBrowser.Controller.Entities;
@@ -24,6 +26,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private const string LogCategory = "WatchHistory";
 
     private readonly ILibraryManager _libraryManager;
+    private readonly IPluginConfigurationService _configService;
     private readonly ILogger<WatchHistoryService> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly IUserDataManager _userDataManager;
@@ -33,18 +36,21 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Initializes a new instance of the <see cref="WatchHistoryService" /> class.
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
+    /// <param name="configService">The plugin configuration service.</param>
     /// <param name="userManager">The user manager.</param>
     /// <param name="userDataManager">The user data manager.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     public WatchHistoryService(
         ILibraryManager libraryManager,
+        IPluginConfigurationService configService,
         IUserManager userManager,
         IUserDataManager userDataManager,
         IPluginLogService pluginLog,
         ILogger<WatchHistoryService> logger)
     {
         _libraryManager = libraryManager;
+        _configService = configService;
         _userManager = userManager;
         _userDataManager = userDataManager;
         _pluginLog = pluginLog;
@@ -73,20 +79,24 @@ public sealed class WatchHistoryService : IWatchHistoryService
             $"Starting watch profile collection for {users.Count} users...",
             _logger);
 
-        // Load library items once for all users (performance: avoids redundant DB queries)
-        var allItems = LoadAllVideoItems();
-        var allSeries = LoadAllSeriesItems();
+        // Load library items once for all users (performance: avoids redundant DB queries).
+        // The library scope is resolved a single time here and threaded into each loader so the
+        // excluded-library filter never re-reads virtual folders per query.
+        var scope = ResolveLibraryScope();
+        var allItems = LoadAllVideoItems(scope);
+        var allSeries = LoadAllSeriesItems(scope);
 
         // The seriesId -> genres map is identical for every user in the batch, so build it once here
         // rather than rebuilding it inside BuildProfile on each iteration.
         var seriesGenresById = BuildSeriesGenresLookup(allSeries);
+        var seriesTmdbById = BuildSeriesTmdbLookup(allSeries);
 
         var profiles = new Collection<UserWatchProfile>();
         foreach (var user in users)
         {
             try
             {
-                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById));
+                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById));
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
@@ -110,28 +120,45 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Loads all video items from the library (movies, episodes, etc.).
     ///     Called once and shared across all user profile builds.
     /// </summary>
-    /// <returns>A list of all non-folder video items.</returns>
+    /// <returns>A list of all non-folder video items under the allowed roots.</returns>
     internal IReadOnlyList<BaseItem> LoadAllVideoItems()
     {
-        return _libraryManager.GetItemList(new InternalItemsQuery
-        {
-            MediaTypes = [MediaType.Video],
-            IsFolder = false
-        });
+        return LoadAllVideoItems(ResolveLibraryScope());
     }
 
     /// <summary>
     ///     Loads all series items from the library.
     ///     Called once and shared across all user profile builds for series-level favorite detection.
     /// </summary>
-    /// <returns>A list of all series items.</returns>
+    /// <returns>A list of all series items under the allowed roots.</returns>
     internal IReadOnlyList<BaseItem> LoadAllSeriesItems()
     {
-        return _libraryManager.GetItemList(new InternalItemsQuery
+        return LoadAllSeriesItems(ResolveLibraryScope());
+    }
+
+    // Loads non-folder video items and applies the pre-resolved excluded-library filter. The batch
+    // profile path resolves the scope once and passes it here to avoid re-reading virtual folders.
+    private IReadOnlyList<BaseItem> LoadAllVideoItems(LibraryRootScope? scope)
+    {
+        var items = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            MediaTypes = [MediaType.Video],
+            IsFolder = false
+        });
+
+        return FilterToAllowedLibraries(items, scope);
+    }
+
+    // Loads series items and applies the pre-resolved excluded-library filter. See LoadAllVideoItems.
+    private IReadOnlyList<BaseItem> LoadAllSeriesItems(LibraryRootScope? scope)
+    {
+        var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Series],
             IsFolder = true
         });
+
+        return FilterToAllowedLibraries(items, scope);
     }
 
     /// <summary>
@@ -151,6 +178,26 @@ public sealed class WatchHistoryService : IWatchHistoryService
         return lookup;
     }
 
+    /// <summary>
+    ///     Builds a seriesId to TMDb-id map from the loaded series items so a watched episode can be
+    ///     attributed to its parent series' TMDb id. Only series carrying a positive TMDb id are stored.
+    /// </summary>
+    /// <param name="allSeries">All series items loaded from the library.</param>
+    /// <returns>A map from series id to its TMDb id.</returns>
+    private static Dictionary<Guid, int> BuildSeriesTmdbLookup(IReadOnlyList<BaseItem> allSeries)
+    {
+        var lookup = new Dictionary<Guid, int>();
+        foreach (var series in allSeries)
+        {
+            if (TmdbLibraryMapper.TryGetTmdbId(series, out var tmdbId))
+            {
+                lookup[series.Id] = tmdbId;
+            }
+        }
+
+        return lookup;
+    }
+
     /// <inheritdoc />
     public IReadOnlyDictionary<Guid, int> GetSeriesEpisodeCounts()
     {
@@ -160,7 +207,49 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFolder = false
         });
 
-        return CountPlayableEpisodesPerSeries(allEpisodes);
+        return CountPlayableEpisodesPerSeries(FilterToAllowedLibraries(allEpisodes, ResolveLibraryScope()));
+    }
+
+    // Resolves the allowed/excluded library scope for a profile-collection run, or null when no
+    // library is excluded. Resolved once and threaded into the loaders so the excluded-library
+    // filter never re-reads virtual folders per query. Mirrors the engine's per-run resolution to
+    // keep training and scoring on the same item set (train/serve parity).
+    private LibraryRootScope? ResolveLibraryScope()
+    {
+        var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
+        return excluded.Count == 0
+            ? null
+            : LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded);
+    }
+
+    // Drops items that live in a library the user chose to exclude from recommendations. A null
+    // scope means no library is excluded, so the input is returned untouched and the common case
+    // pays no path cost. Applied identically here and in the candidate engine to keep training and
+    // scoring on the same item set (train/serve parity).
+    private IReadOnlyList<BaseItem> FilterToAllowedLibraries(
+        IReadOnlyList<BaseItem> items,
+        LibraryRootScope? scope)
+    {
+        if (scope is null)
+        {
+            return items;
+        }
+
+        var kept = items.Where(item => LibraryPathResolver.IsAllowed(item.Path, scope)).ToList();
+
+        // Items with an empty path are dropped by the boundary check because they cannot be placed
+        // under any root. That is correct, but surface the count so an operator can tell "excluded by
+        // library filter" apart from "silently missing metadata" when a profile looks sparse.
+        var droppedEmptyPath = items.Count(item => string.IsNullOrEmpty(item.Path));
+        if (droppedEmptyPath > 0)
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Excluded-library filter dropped {droppedEmptyPath} item(s) with no path.",
+                _logger);
+        }
+
+        return kept;
     }
 
     /// <summary>
@@ -192,12 +281,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="allItems">Pre-loaded video items from the library (null to query on demand).</param>
     /// <param name="allSeries">Pre-loaded series items for favorite detection (null to query on demand).</param>
     /// <param name="seriesGenresById">Pre-built seriesId to genres map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
+    /// <param name="seriesTmdbById">Pre-built seriesId to TMDb-id map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <returns>A populated watch profile for the user.</returns>
     internal UserWatchProfile BuildProfile(
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem>? allItems = null,
         IReadOnlyList<BaseItem>? allSeries = null,
-        Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null)
+        Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null,
+        Dictionary<Guid, int>? seriesTmdbById = null)
     {
         var profile = new UserWatchProfile
         {
@@ -206,15 +297,24 @@ public sealed class WatchHistoryService : IWatchHistoryService
             MaxParentalRating = user.MaxParentalRatingScore
         };
 
-        // Use pre-loaded items or query on demand (single-user path)
-        allItems ??= LoadAllVideoItems();
+        // Use pre-loaded items or query on demand (single-user path). On demand, resolve the library
+        // scope once so the excluded-library filter still applies without re-reading virtual folders
+        // for each of the two loads below.
+        LibraryRootScope? onDemandScope = null;
+        if (allItems is null || allSeries is null)
+        {
+            onDemandScope = ResolveLibraryScope();
+        }
+
+        allItems ??= LoadAllVideoItems(onDemandScope);
 
         // Series are loaded up front (not just for the favorite pass below) because episodes in Jellyfin
         // usually carry no genres of their own: the genre lives on the Series entity. Build a seriesId to
         // genres map once so a watched episode can inherit its series' genres, otherwise every episode-based
         // genre signal (engagement, SeriesAffinity) is systematically empty.
-        allSeries ??= LoadAllSeriesItems();
+        allSeries ??= LoadAllSeriesItems(onDemandScope);
         seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
+        seriesTmdbById ??= BuildSeriesTmdbLookup(allSeries);
 
         var ratingSum = 0.0;
         var ratingCount = 0;
@@ -237,7 +337,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, seriesGenresById, ref ratingSum, ref ratingCount);
+            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, seriesGenresById, seriesTmdbById, ref ratingSum, ref ratingCount);
         }
 
         // Check series-level favorites: users can favorite an entire series in Jellyfin (the heart button on the series page).
@@ -281,6 +381,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="userData">The user data for the item.</param>
     /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
     /// <param name="seriesGenresById">Map of series id to genres, used to give an episode its parent series' genres when the episode has none.</param>
+    /// <param name="seriesTmdbById">Map of series id to TMDb id, used to attribute a watched episode to its parent series' TMDb id.</param>
     /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
     /// <param name="ratingCount">Running community-rating count (updated in place).</param>
     private void AccumulateWatchedItem(
@@ -289,6 +390,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         UserItemData userData,
         HashSet<Guid> watchedSeriesIds,
         Dictionary<Guid, IReadOnlyList<string>> seriesGenresById,
+        Dictionary<Guid, int> seriesTmdbById,
         ref double ratingSum,
         ref int ratingCount)
     {
@@ -313,6 +415,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
             genres = new List<string>(inheritedGenres);
         }
 
+        // For episodes, attribute the watch to the parent series' TMDb id (episodes rarely carry a
+        // useful id of their own), so a duplicate series entry of a partially watched show is excluded.
+        var seriesTmdbId = seriesId.HasValue && seriesTmdbById.TryGetValue(seriesId.Value, out var resolvedSeriesTmdb)
+            ? resolvedSeriesTmdb
+            : 0;
+
         var watchedItem = new WatchedItemInfo
         {
             ItemId = item.Id,
@@ -329,6 +437,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
             Genres = genres,
             Year = item.ProductionYear,
             SeriesId = seriesId,
+            TmdbId = TmdbLibraryMapper.TryGetTmdbId(item, out var itemTmdbId) ? itemTmdbId : 0,
+            SeriesTmdbId = seriesTmdbId,
             DateCreated = item.DateCreated,
             PrimaryImageTag = null,
             PeopleNames = billedNames,
@@ -471,6 +581,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         var (favBilledNames, favBilledWeights) = SimilarityComputer.ExtractBilledPeople(seriesPeople);
 
+        // Seed the series' own TMDb id so a duplicate library entry of this show (a second copy
+        // with a different Jellyfin Guid) is excluded by the provider-id fallback, matching how a
+        // watched series contributes its key in BuildWatchedTmdbKeys. Both fields carry the same id
+        // because the favorite IS the series, not an episode of one.
+        var favoriteSeriesTmdbId = TmdbLibraryMapper.TryGetTmdbId(series, out var resolvedTmdbId) ? resolvedTmdbId : 0;
+
         profile.WatchedItems.Add(new WatchedItemInfo
         {
             ItemId = series.Id,
@@ -487,6 +603,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
             Genres = series.Genres ?? [],
             Year = series.ProductionYear,
             SeriesId = null, // This IS the series itself, not an episode
+            TmdbId = favoriteSeriesTmdbId,
+            SeriesTmdbId = favoriteSeriesTmdbId,
             DateCreated = series.DateCreated,
             PrimaryImageTag = null,
             PeopleNames = favBilledNames,

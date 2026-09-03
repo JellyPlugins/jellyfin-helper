@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -15,6 +16,9 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -113,6 +117,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
+    private readonly ILibraryManager _libraryManager;
     private readonly EnsembleScoringStrategy _ensemble;
     private readonly DiscoveryCacheService _cache;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
@@ -132,6 +137,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="httpClientFactory">The HTTP client factory.</param>
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="arrIntegration">The Arr integration service.</param>
+    /// <param name="libraryManager">The Jellyfin library manager, used to exclude titles already in the library.</param>
     /// <param name="ensemble">The ensemble scoring strategy (combines heuristic + learned + neural).</param>
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
@@ -141,6 +147,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IHttpClientFactory httpClientFactory,
         IWatchHistoryService watchHistoryService,
         IArrIntegrationService arrIntegration,
+        ILibraryManager libraryManager,
         EnsembleScoringStrategy ensemble,
         DiscoveryCacheService cache,
         IDiscoveryFeedbackStore feedbackStore,
@@ -150,6 +157,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(watchHistoryService);
         ArgumentNullException.ThrowIfNull(arrIntegration);
+        ArgumentNullException.ThrowIfNull(libraryManager);
         ArgumentNullException.ThrowIfNull(ensemble);
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(feedbackStore);
@@ -159,6 +167,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _httpClientFactory = httpClientFactory;
         _watchHistoryService = watchHistoryService;
         _arrIntegration = arrIntegration;
+        _libraryManager = libraryManager;
         _ensemble = ensemble;
         _cache = cache;
         _feedbackStore = feedbackStore;
@@ -174,6 +183,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         Continue,
         Complete,
         Incomplete,
+    }
+
+    /// <summary>
+    ///     Distinguishes why a per-user discovery generation produced no fresh result. A legitimately empty
+    ///     result (no genre preferences, nothing survives filtering) must clear that user's cached pool, but a
+    ///     transient failure (a swallowed non-fatal exception) must NOT: overwriting the cache with nothing on a
+    ///     transient hiccup silently empties the user's Discovery sidebar until the next successful run.
+    /// </summary>
+    private enum UserGenerationStatus
+    {
+        Generated,
+        EmptyByDesign,
+        TransientFailure,
     }
 
     /// <inheritdoc />
@@ -210,7 +232,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 : $"Starting discovery generation (pool={MaxPoolPerUser}, visible={MaxVisiblePerUser} per user).",
             _logger);
 
-        // Step 1: Load user profiles. Include users who have either played content OR have enough favorites to build genre preferences from.
+        // Load user profiles. Include users who have either played content OR have enough favorites to build genre preferences from.
         var profiles = _watchHistoryService.GetAllUserWatchProfiles();
         var activeProfiles = profiles
             .Where(p => p.WatchedMovieCount + p.WatchedEpisodeCount > 0 || p.FavoriteCount >= 3)
@@ -222,33 +244,61 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return;
         }
 
-        // Step 1b: Build exclusion set from Arr libraries
+        // Build exclusion set from the Jellyfin library plus the configured Arr instances
         var excludedTmdbIds = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
             LogCategory,
-            $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library only - per-user dismissed/requested merged later).",
+            $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library + Arr - per-user dismissed/requested merged later).",
             _logger);
 
         // Per-series total-episode-count map, built ONCE per discovery run and shared across all users.
         var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
 
-        // Step 2: Process each user
+        // Process each user
         var allResults = new List<DiscoveryResult>(activeProfiles.Count);
+
+        // Snapshot the previously-persisted pools once so a transient per-user failure can carry the user's
+        // last-known-good pool forward instead of being wiped by the full-overwrite Save below. Keyed by user.
+        var previousByUser = _cache.Load().ToDictionary(r => r.UserId);
+
+        // Users whose pool in allResults is a carried-forward snapshot, not freshly generated this run. Their
+        // items were already shown in a prior run, so they must be excluded from feedback recording to avoid
+        // double-counting training signal.
+        var carriedForwardUsers = new HashSet<Guid>();
 
         foreach (var profile in activeProfiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var userResult = await TryGenerateForUserAsync(
+            var outcome = await TryGenerateForUserAsync(
                 profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
 
-            if (userResult != null)
+            switch (outcome.Status)
             {
-                allResults.Add(userResult);
+                case UserGenerationStatus.Generated:
+                    allResults.Add(outcome.Result!);
+                    break;
+
+                case UserGenerationStatus.TransientFailure
+                    when previousByUser.TryGetValue(profile.UserId, out var priorPool):
+                    // Preserve the user's last-known-good pool; a transient hiccup must not empty their sidebar.
+                    allResults.Add(priorPool);
+                    carriedForwardUsers.Add(profile.UserId);
+                    _pluginLog.LogDebug(
+                        LogCategory,
+                        $"Retained previous pool for user {profile.UserName} after a transient generation failure ({priorPool.Recommendations.Count} recommendations).",
+                        _logger);
+                    break;
+
+                case UserGenerationStatus.TransientFailure:
+                case UserGenerationStatus.EmptyByDesign:
+                default:
+                    // TransientFailure with no prior pool: nothing to lose. EmptyByDesign: correct to clear.
+                    break;
             }
         }
 
-        // Step 3: Persist or log
+        // Persist or log
         if (dryRun)
         {
             _pluginLog.LogInfo(
@@ -258,7 +308,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         else
         {
-            PersistResultsAndRecordFeedback(allResults);
+            PersistResultsAndRecordFeedback(allResults, carriedForwardUsers);
         }
     }
 
@@ -570,9 +620,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Generates discovery recommendations for a single user, converting any non-fatal, non-cancellation failure into a logged warning and a null result so one user's failure does not abort the whole run.
+    ///     Generates discovery recommendations for a single user, converting any non-fatal, non-cancellation failure into a logged warning and a <see cref="UserGenerationStatus.TransientFailure"/> outcome so one user's failure does not abort the whole run nor discard their last-known-good cached pool. A legitimately empty generation maps to <see cref="UserGenerationStatus.EmptyByDesign"/>.
     /// </summary>
-    private async Task<DiscoveryResult?> TryGenerateForUserAsync(
+    private async Task<UserGenerationOutcome> TryGenerateForUserAsync(
         UserWatchProfile profile,
         PluginConfiguration config,
         HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
@@ -581,8 +631,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         try
         {
-            return await GenerateForUserAsync(
+            var result = await GenerateForUserAsync(
                 profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
+
+            return result != null
+                ? new UserGenerationOutcome(UserGenerationStatus.Generated, result)
+                : new UserGenerationOutcome(UserGenerationStatus.EmptyByDesign, null);
         }
         catch (OperationCanceledException)
         {
@@ -595,15 +649,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Failed to generate discovery for user {profile.UserName}: {ex.Message}",
                 ex,
                 _logger);
-            return null;
+            return new UserGenerationOutcome(UserGenerationStatus.TransientFailure, null);
         }
     }
 
     /// <summary>
-    ///     Persists the discovery results and, on success, records the shown items in the
-    ///     feedback store for training-data collection (best-effort per user).
+    ///     Persists the discovery results and, on success, records the freshly-generated shown items in the
+    ///     feedback store for training-data collection (best-effort per user). Carried-forward pools (retained
+    ///     from a prior run after a transient failure) are persisted but excluded from feedback recording so
+    ///     their items are not counted as shown twice.
     /// </summary>
-    private void PersistResultsAndRecordFeedback(List<DiscoveryResult> allResults)
+    /// <param name="allResults">All pools to persist: freshly generated plus any carried-forward.</param>
+    /// <param name="carriedForwardUsers">Users whose pool is a carried-forward snapshot, not fresh this run.</param>
+    private void PersistResultsAndRecordFeedback(
+        List<DiscoveryResult> allResults,
+        HashSet<Guid> carriedForwardUsers)
     {
         var persisted = _cache.Save(allResults);
         if (!persisted)
@@ -621,9 +681,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
             _logger);
 
-        // Step 4: Record shown items in the feedback store for training data collection. Only record after successful persistence to prevent feedback/training state from referencing recommendations that never actually reached disk.
+        // Record shown items in the feedback store for training data collection. Only record after successful persistence to prevent feedback/training state from referencing recommendations that never actually reached disk. Skip carried-forward pools: they were already recorded when first generated.
         foreach (var result in allResults)
         {
+            if (carriedForwardUsers.Contains(result.UserId))
+            {
+                continue;
+            }
+
             try
             {
                 _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
@@ -1245,7 +1310,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 1: Resolve the Jellyfin user to their Seerr account
+        // Resolve the Jellyfin user to their Seerr account
         var seerrUsers = await GetCachedSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
         var seerrUser = FindSeerrUserByJellyfinId(seerrUsers, jellyfinUserId);
 
@@ -1270,7 +1335,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 2: Check if the user has request permission for this media type
+        // Check if the user has request permission for this media type
         if (!seerrUser.CanRequest(mediaType))
         {
             _pluginLog.LogDebug(
@@ -1285,7 +1350,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 3: Determine which quality profiles to expose. Distinguish between "no services configured" (empty result from a successful lookup) and "service lookup failed" (transient error).
+        // Determine which quality profiles to expose. Distinguish between "no services configured" (empty result from a successful lookup) and "service lookup failed" (transient error).
         var (services, servicesFetchSucceeded) = await GetServiceInfoWithStatusAsync(serviceType, cancellationToken).ConfigureAwait(false);
 
         if (services.Count == 0)
@@ -1308,7 +1373,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 4: Expose quality profiles - all profiles for advanced users, default only for normal users.
+        // Expose quality profiles: all profiles for advanced users, default only for normal users.
         var filterToDefault = !seerrUser.CanSelectQualityProfile();
         var profiles = BuildAllowedProfileList(services, filterToDefault);
         return new UserRequestPermissionResult
@@ -1548,21 +1613,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Determine user's primary language for language-based discovery
         var primaryLanguage = GetPrimaryLanguageForDiscovery(profile);
 
-        Uri baseUri;
-        string apiKey;
-        try
-        {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
-        }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
-        {
-            _pluginLog.LogWarning(
-                LogCategory,
-                $"Invalid Seerr configuration for user {profile.UserName}: {ex.Message}",
-                ex,
-                _logger);
-            return null;
-        }
+        // An invalid Seerr configuration is not "no recommendations". We could not even try. Let it
+        // propagate so TryGenerateForUserAsync classifies it as a transient failure and preserves the
+        // user's last-known-good pool rather than clearing it. (In practice the global config check at the
+        // top of GenerateDiscoveryRecommendationsAsync already guards the common blank-config case.)
+        var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
 
         var client = GetSeerrClient();
         var allCandidates = new List<TmdbDiscoverItem>();
@@ -1914,6 +1969,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         var excluded = new HashSet<(int TmdbId, string MediaType)>();
 
+        // Exclude titles already in the Jellyfin library. This covers items that no configured Arr
+        // instance tracks (manually added, imported, or when Arr is not configured at all). A failed
+        // library scan is contained inside the helper so discovery still runs the Arr sources; only a
+        // requested cancellation propagates.
+        cancellationToken.ThrowIfCancellationRequested();
+        AddLibraryExclusions(excluded, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
         // Exclude movies already in Radarr
         await AddRadarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);
 
@@ -1921,6 +1984,49 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         await AddSonarrExclusionsAsync(config, excluded, cancellationToken).ConfigureAwait(false);
 
         return excluded;
+    }
+
+    /// <summary>
+    ///     Adds the TMDb IDs of movies and series already present in the Jellyfin library to the exclusion set.
+    /// </summary>
+    /// <remarks>
+    ///     This scans the whole library and deliberately ignores the recommendation ExcludedLibraries
+    ///     setting. Discovery surfaces titles the user does not yet own, so anything already in any
+    ///     library, even one excluded from recommendation scoring, must not be suggested for a new
+    ///     request. Excluding a library hides its titles from recommendations; it does not make
+    ///     Discovery offer to acquire copies the user already has.
+    /// </remarks>
+    /// <param name="excluded">The exclusion set to add library entries into.</param>
+    /// <param name="cancellationToken">Cooperative cancellation token.</param>
+    private void AddLibraryExclusions(HashSet<(int TmdbId, string MediaType)> excluded, CancellationToken cancellationToken)
+    {
+        // A library-query failure is non-fatal to discovery: the Radarr and Sonarr sources still
+        // provide exclusions, so a broken library scan must not abort the whole generation before
+        // they run. Contain it here the way the Arr fetches contain their own failures.
+        try
+        {
+            var libraryItems = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series]
+            });
+
+            foreach (var key in TmdbLibraryMapper.BuildTmdbKeySet(libraryItems))
+            {
+                excluded.Add(key);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Failed to read Jellyfin library for discovery exclusions: {ex.Message}. Continuing with Arr sources.",
+                ex,
+                _logger);
+        }
     }
 
     /// <summary>
@@ -2049,31 +2155,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             var mediaTypeKey = (candidate.MediaType ?? MediaTypeMovie).ToLowerInvariant();
-            if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
+
+            if (!PassesPreDedupFilters(candidate, mediaTypeKey, excludedTmdbIds, minVoteAverage))
             {
                 continue;
             }
 
-            if (candidate.VoteAverage < minVoteAverage)
-            {
-                continue;
-            }
-
+            // Dedup sits between the pre- and post-dedup filters, matching the original ordering:
+            // a candidate rejected by the parental/year gates below has still claimed its key here,
+            // so a later duplicate that would pass is suppressed.
             if (!seen.Add((candidate.Id, mediaTypeKey)))
             {
                 continue;
             }
 
-            // Parental rating filter: exclude adult content and restricted genres
-            if (ParentalRatingHelper.ShouldExclude(candidate, maxParentalRating))
-            {
-                continue;
-            }
-
-            // Year-based post-filtering (soft: only if year is available and min is set)
-            if (minYear > 0
-                && candidate.EffectiveReleaseDate.HasValue
-                && candidate.EffectiveReleaseDate.Value.Year < minYear)
+            if (!PassesPostDedupFilters(candidate, maxParentalRating, minYear))
             {
                 continue;
             }
@@ -2082,6 +2178,50 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Filters applied before deduplication: exclusion set, Seerr availability, and minimum rating.
+    /// </summary>
+    private static bool PassesPreDedupFilters(
+        TmdbDiscoverItem candidate,
+        string mediaTypeKey,
+        HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
+        double minVoteAverage)
+    {
+        if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
+        {
+            return false;
+        }
+
+        // Seerr already knows this title is (partially) available in the library, so recommending
+        // it would just surface something the user can already watch.
+        if (candidate.IsAlreadyAvailable)
+        {
+            return false;
+        }
+
+        return candidate.VoteAverage >= minVoteAverage;
+    }
+
+    /// <summary>
+    ///     Filters applied after deduplication: parental rating and year relevance.
+    /// </summary>
+    private static bool PassesPostDedupFilters(
+        TmdbDiscoverItem candidate,
+        int? maxParentalRating,
+        int minYear)
+    {
+        // Parental rating filter: exclude adult content and restricted genres
+        if (ParentalRatingHelper.ShouldExclude(candidate, maxParentalRating))
+        {
+            return false;
+        }
+
+        // Year-based post-filtering (soft: only if year is available and min is set)
+        return !(minYear > 0
+            && candidate.EffectiveReleaseDate.HasValue
+            && candidate.EffectiveReleaseDate.Value.Year < minYear);
     }
 
     /// <summary>
@@ -2415,4 +2555,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         int? ServerId,
         int? ProfileId,
         string? RootFolder);
+
+    /// <summary>
+    ///     Result of generating discovery for a single user: the status plus the fresh result (only set when
+    ///     <see cref="UserGenerationStatus.Generated"/>).
+    /// </summary>
+    private readonly record struct UserGenerationOutcome(UserGenerationStatus Status, DiscoveryResult? Result);
 }

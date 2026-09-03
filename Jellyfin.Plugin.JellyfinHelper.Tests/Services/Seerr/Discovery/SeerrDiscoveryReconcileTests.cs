@@ -12,6 +12,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -67,10 +69,14 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
             EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
             new Mock<ILogger<EnsembleScoringStrategy>>().Object);
 
+        var libraryManager = TestMockFactory.CreateLibraryManager();
+        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             new Mock<IWatchHistoryService>().Object,
             new Mock<IArrIntegrationService>().Object,
+            libraryManager.Object,
             _ensemble,
             _cache,
             _feedbackStore,
