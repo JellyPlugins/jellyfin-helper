@@ -283,7 +283,7 @@ public class TrashController : ControllerBase
         var queryPath = request.TrashFolderPath.Trim();
 
         // Basic input sanity: cap length and reject obvious path-traversal sequences. Full path-safety validation (library-root containment, filesystem-root rejection) is enforced by GetExistingTrashFoldersForPath itself - this check is a defence-in-depth guard only.
-        if (HasTraversalSegment(queryPath) || queryPath.Length > 512)
+        if (PathValidator.HasTraversalSegment(queryPath) || queryPath.Length > 512)
         {
             return BadRequest(new { Error = "TrashFolderPath must not contain path-traversal sequences." });
         }
@@ -322,7 +322,7 @@ public class TrashController : ControllerBase
         var oldPath = request.OldTrashPath.Trim();
         var newPath = request.NewTrashPath.Trim();
 
-        if (HasTraversalSegment(oldPath) || HasTraversalSegment(newPath))
+        if (PathValidator.HasTraversalSegment(oldPath) || PathValidator.HasTraversalSegment(newPath))
         {
             return BadRequest("Path traversal not allowed");
         }
@@ -507,14 +507,6 @@ public class TrashController : ControllerBase
 
         return null;
     }
-
-    /// <summary>
-    ///     Segment-aware path-traversal check shared by every body-taking trash endpoint (CheckAccess, FoldersForPath, Relocate) so they enforce identical input rules.
-    /// </summary>
-    /// <param name="path">The caller-supplied path to screen.</param>
-    /// <returns><c>true</c> if any segment is "." or ".."; otherwise <c>false</c>.</returns>
-    private static bool HasTraversalSegment(string path)
-        => path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or "..");
 
     /// <summary>
     /// Returns null if the resolved path escapes the library root or is invalid.
@@ -725,7 +717,7 @@ public class TrashController : ControllerBase
         var queryPath = request.TrashFolderPath.Trim();
 
         // Segment-aware traversal check (shared with the other body-taking trash endpoints).
-        if (HasTraversalSegment(queryPath) || queryPath.Length > 512)
+        if (PathValidator.HasTraversalSegment(queryPath) || queryPath.Length > 512)
         {
             return BadRequest("Invalid path");
         }

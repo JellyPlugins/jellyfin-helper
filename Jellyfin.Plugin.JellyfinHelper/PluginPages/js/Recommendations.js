@@ -76,7 +76,7 @@ function renderRecommendations(container, results) {
         recsSelect.addEventListener('change', function () {
             var idx = Number.parseInt(recsSelect.value, 10);
             // Persist selected user in browser storage so it survives page refresh
-            try { var uid = results[idx]?.UserId; if (uid) localStorage.setItem('jh_recsSelectedUser', uid); } catch (e) { /* localStorage unavailable */ }
+            try { var uid = results[idx]?.UserId; if (uid) localStorage.setItem('jh_recsSelectedUser', uid); } catch { /* localStorage unavailable */ }
             onUserChanged(idx);
         });
     }
@@ -104,7 +104,7 @@ function renderRecommendations(container, results) {
                 if ((results[s].UserId || '').toLowerCase() === savedUserId) { initialIdx = s; break; }
             }
         }
-    } catch (e) { /* localStorage unavailable - use default */ }
+    } catch { /* localStorage unavailable - use default */ }
     if (recsSelect && initialIdx > 0) { recsSelect.value = '' + initialIdx; }
     onUserChanged(initialIdx);
 }

@@ -664,27 +664,10 @@ public sealed class UserDiscoveryController : ControllerBase
     ///     Builds the set of item keys excluded from the visible pool for a user.
     /// </summary>
     private HashSet<(int TmdbId, string MediaType)> BuildExcludedItemKeys(Guid userId)
-    {
-        var excluded = new HashSet<(int TmdbId, string MediaType)>();
-        try
-        {
-            foreach (var item in _feedbackStore.GetDismissedItems(userId))
-            {
-                excluded.Add(item);
-            }
-
-            foreach (var item in _feedbackStore.GetRequestedItems(userId))
-            {
-                excluded.Add(item);
-            }
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            _logger.LogWarning(ex, "[Discovery] Failed to load excluded item keys for user {UserId}", userId);
-        }
-
-        return excluded;
-    }
+        => DiscoverySupport.BuildExcludedItemKeys(
+            _feedbackStore,
+            userId,
+            ex => _logger.LogWarning(ex, "[Discovery] Failed to load excluded item keys for user {UserId}", userId));
 
     /// <summary>
     ///     Checks whether the admin has enabled user-level discovery access in plugin settings.
@@ -697,17 +680,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Extracts the current user's Jellyfin ID from the authentication claims.
     /// </summary>
-    private Guid? GetCurrentUserId()
-    {
-        var claim = User?.FindFirst("Jellyfin-UserId")
-            ?? User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-        if (claim != null && Guid.TryParse(claim.Value, out var parsedUserId))
-        {
-            return parsedUserId;
-        }
-
-        return null;
-    }
+    private Guid? GetCurrentUserId() => DiscoverySupport.GetCurrentUserId(User);
 
     private static string SanitizeForLog(string value)
         => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');

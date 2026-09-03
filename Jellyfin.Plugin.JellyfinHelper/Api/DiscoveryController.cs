@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -197,37 +196,10 @@ public sealed class DiscoveryController : ControllerBase
     }
 
     private HashSet<(int TmdbId, string MediaType)> BuildExcludedItemKeys(Guid userId)
-    {
-        var excluded = new HashSet<(int TmdbId, string MediaType)>();
-        try
-        {
-            foreach (var item in _feedbackStore.GetDismissedItems(userId))
-            {
-                excluded.Add(item);
-            }
+        => DiscoverySupport.BuildExcludedItemKeys(
+            _feedbackStore,
+            userId,
+            ex => _logger.LogWarning(ex, "Failed to build excluded item keys for user {UserId}; discovery may show already-requested items", userId));
 
-            foreach (var item in _feedbackStore.GetRequestedItems(userId))
-            {
-                excluded.Add(item);
-            }
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            _logger.LogWarning(ex, "Failed to build excluded item keys for user {UserId}; discovery may show already-requested items", userId);
-        }
-
-        return excluded;
-    }
-
-    private Guid? GetCurrentUserId()
-    {
-        var claim = User?.FindFirst("Jellyfin-UserId")
-            ?? User?.FindFirst(ClaimTypes.NameIdentifier);
-        if (claim != null && Guid.TryParse(claim.Value, out var parsedUserId))
-        {
-            return parsedUserId;
-        }
-
-        return null;
-    }
+    private Guid? GetCurrentUserId() => DiscoverySupport.GetCurrentUserId(User);
 }

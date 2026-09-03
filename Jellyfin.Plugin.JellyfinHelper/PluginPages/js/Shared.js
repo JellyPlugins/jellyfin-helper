@@ -5,6 +5,7 @@ var DONUT_COLORS = [
     '#f1c40f', '#1abc9c', '#3498db', '#e91e63', '#ff9800',
     '#795548', '#607d8b', '#8bc34a', '#00bcd4', '#ff5722'
 ];
+// Flag: force scroll-into-view on next panel open (set by Codecs donut click, consumed by attachTogglePanelHandlers)
 var _forceScrollOnPanelOpen = false;
 
 // Returns an inline SVG icon. No external font/CDN required.
@@ -60,7 +61,7 @@ function loadTranslations(callback) {
             _translations = {};
             if (callback) callback();
         });
-    } catch (e) {
+    } catch {
         _translations = {};
         if (callback) callback();
     }

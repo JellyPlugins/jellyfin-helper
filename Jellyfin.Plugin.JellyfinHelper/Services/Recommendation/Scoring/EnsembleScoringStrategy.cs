@@ -419,6 +419,22 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         // Score calls are outside the lock to avoid nested locking (each sub-strategy
         // has its own internal lock) and to allow parallel scoring across threads.
+        return ComputeBlendedScore(features, alpha, beta, floor);
+    }
+
+    /// <summary>
+    ///     Blends the learned, neural, and heuristic sub-strategy scores using the supplied,
+    ///     already-snapshotted factors and applies the genre penalty. Callers snapshot alpha/beta/floor
+    ///     under the sync root first, then invoke this outside the lock so sub-strategy scoring can run
+    ///     in parallel; centralizing the blend keeps the offset and non-offset paths byte-identical.
+    /// </summary>
+    /// <param name="features">The pre-computed feature signals for the candidate.</param>
+    /// <param name="alpha">The snapshotted heuristic/ML blend factor.</param>
+    /// <param name="beta">The snapshotted learned/neural blend factor.</param>
+    /// <param name="floor">The snapshotted genre-penalty floor.</param>
+    /// <returns>A score between 0.0 and 1.0, where higher means more recommended.</returns>
+    private double ComputeBlendedScore(CandidateFeatures features, double alpha, double beta, double floor)
+    {
         var learnedScore = _learned.Score(features);
         var heuristicScore = _heuristic.Score(features);
 
@@ -463,23 +479,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             floor = _genrePenaltyFloor;
         }
 
-        var learnedScore = _learned.Score(features);
-        var heuristicScore = _heuristic.Score(features);
-
-        double mlScore;
-        if (_neural is not null && beta > 0)
-        {
-            var neuralScore = _neural.Score(features);
-            mlScore = ((1.0 - beta) * learnedScore) + (beta * neuralScore);
-        }
-        else
-        {
-            mlScore = learnedScore;
-        }
-
-        var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
-        return blendedScore * penalty;
+        return ComputeBlendedScore(features, alpha, beta, floor);
     }
 
     /// <summary>
@@ -506,37 +506,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             floor = _genrePenaltyFloor;
         }
 
-        var learnedExplanation = _learned.ScoreWithExplanation(features);
-        var heuristicExplanation = _heuristic.ScoreWithExplanation(features);
-
-        ScoreExplanation mlExplanation;
-        if (_neural is not null && beta > 0)
-        {
-            var neuralExplanation = _neural.ScoreWithExplanation(features);
-            mlExplanation = learnedExplanation.Blend(neuralExplanation, beta);
-        }
-        else
-        {
-            mlExplanation = learnedExplanation;
-        }
-
-        var blended = heuristicExplanation.Blend(mlExplanation, alpha);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
-        var result = blended.WithPenalty(penalty);
-
-        result.StrategyName = Name;
-        result.DominantSignal = ScoreExplanation.DetermineDominantSignal(
-            result.GenreContribution,
-            result.CollaborativeContribution,
-            result.RatingContribution,
-            result.UserRatingContribution,
-            result.RecencyContribution,
-            result.YearProximityContribution,
-            result.InteractionContribution,
-            result.PeopleContribution,
-            result.StudioContribution);
-
-        return result;
+        return ComputeBlendedExplanation(features, alpha, beta, floor);
     }
 
     /// <inheritdoc />
@@ -556,6 +526,22 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         // Score calls are outside the lock to allow parallel scoring across threads.
+        return ComputeBlendedExplanation(features, alpha, beta, floor);
+    }
+
+    /// <summary>
+    ///     Blends the learned, neural, and heuristic sub-strategy explanations using the supplied,
+    ///     already-snapshotted factors, applies the genre penalty, and resolves the dominant signal.
+    ///     Callers snapshot alpha/beta/floor under the sync root first, then invoke this outside the lock;
+    ///     centralizing the blend keeps the offset and non-offset explanation paths byte-identical.
+    /// </summary>
+    /// <param name="features">The pre-computed feature signals for the candidate.</param>
+    /// <param name="alpha">The snapshotted heuristic/ML blend factor.</param>
+    /// <param name="beta">The snapshotted learned/neural blend factor.</param>
+    /// <param name="floor">The snapshotted genre-penalty floor.</param>
+    /// <returns>A detailed score explanation including per-feature contributions.</returns>
+    private ScoreExplanation ComputeBlendedExplanation(CandidateFeatures features, double alpha, double beta, double floor)
+    {
         var learnedExplanation = _learned.ScoreWithExplanation(features);
         var heuristicExplanation = _heuristic.ScoreWithExplanation(features);
 

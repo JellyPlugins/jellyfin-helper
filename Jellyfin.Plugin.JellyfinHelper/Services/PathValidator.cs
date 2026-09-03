@@ -114,7 +114,19 @@ internal static class PathValidator
     }
 
     /// <summary>
-    ///     Validates that is safe for recursive deletion. Rejects filesystem roots, paths that equal or are an ancestor of any library root, and paths that are a child of any library root (would delete content inside a library).
+    ///     Segment-aware path-traversal check: splits on both directory separators (dropping empty
+    ///     segments) and reports whether any segment is "." or "..". Distinct from <see cref="IsSafePath" />,
+    ///     which additionally validates containment within a base directory and treats empty segments as
+    ///     significant; callers here only need the segment screen with <see cref="StringSplitOptions.RemoveEmptyEntries" />.
+    /// </summary>
+    /// <param name="path">The caller-supplied path to screen.</param>
+    /// <returns><c>true</c> if any segment is "." or ".."; otherwise <c>false</c>.</returns>
+    internal static bool HasTraversalSegment(string? path)
+        => !string.IsNullOrEmpty(path)
+           && path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or "..");
+
+    /// <summary>
+    /// Validates that is safe for recursive deletion. Rejects filesystem roots, paths that equal or are an ancestor of any library root, and paths that are a child of any library root (would delete content inside a library).
     /// </summary>
     /// <param name="fullPath">Fully-resolved absolute path to validate.</param>
     /// <param name="libraryFolders">Library root folders that must not be deleted.</param>
