@@ -548,10 +548,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </returns>
     private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems()
     {
-        var allowedRoots = GetAllowedLibraryRoots();
+        var scope = GetLibraryRootScope();
 
-        var movies = QueryAllowedItems(BaseItemKind.Movie, isFolder: false, allowedRoots);
-        var series = QueryAllowedItems(BaseItemKind.Series, isFolder: true, allowedRoots);
+        var movies = QueryAllowedItems(BaseItemKind.Movie, isFolder: false, scope);
+        var series = QueryAllowedItems(BaseItemKind.Series, isFolder: true, scope);
 
         var candidates = new List<BaseItem>(movies.Count + series.Count);
 
@@ -569,7 +569,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         // Filter out empty series with no episodes indexed yet (Arr stacks may create series folders before episodes exist).
-        var allEpisodes = QueryAllowedItems(BaseItemKind.Episode, isFolder: false, allowedRoots);
+        var allEpisodes = QueryAllowedItems(BaseItemKind.Episode, isFolder: false, scope);
 
         // Single pass building both the "series has episodes" filter set and the per-series total episode count for PreferenceBuilder's progression multiplier.
         var seriesEpisodeCounts = CountPlayableEpisodesPerSeries(allEpisodes);
@@ -611,27 +611,28 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <returns>A map of series id to its count of playable (non-empty <c>Path</c>) episodes.</returns>
     private Dictionary<Guid, int> BuildSeriesEpisodeCounts()
     {
-        var allEpisodes = QueryAllowedItems(BaseItemKind.Episode, isFolder: false, GetAllowedLibraryRoots());
+        var allEpisodes = QueryAllowedItems(BaseItemKind.Episode, isFolder: false, GetLibraryRootScope());
         return CountPlayableEpisodesPerSeries(allEpisodes);
     }
 
-    // Allowed library roots for this generation run, or null when nothing is excluded. Resolved
-    // once per candidate load and passed to each query filter to avoid re-reading virtual folders.
-    private IReadOnlyList<string>? GetAllowedLibraryRoots()
+    // Allowed/excluded library roots for this generation run, or null when nothing is excluded.
+    // Resolved once per candidate load and passed to each query filter to avoid re-reading virtual
+    // folders. Carries excluded roots so an excluded library nested under an allowed one is denied.
+    private LibraryRootScope? GetLibraryRootScope()
     {
         var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
         return excluded.Count == 0
             ? null
-            : LibraryPathResolver.GetAllowedLibraryRoots(_libraryManager, excluded);
+            : LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded);
     }
 
     // Queries the library for one item kind and drops anything outside the allowed roots. A null
-    // allowed-roots set means no library is excluded, so the query result passes through untouched.
+    // scope means no library is excluded, so the query result passes through untouched.
     // The same filter is applied to training-history loading (WatchHistoryService) to keep train/serve parity.
     private IReadOnlyList<BaseItem> QueryAllowedItems(
         BaseItemKind kind,
         bool isFolder,
-        IReadOnlyList<string>? allowedRoots)
+        LibraryRootScope? scope)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -639,9 +640,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             IsFolder = isFolder
         });
 
-        return allowedRoots is null
+        return scope is null
             ? items
-            : items.Where(item => LibraryPathResolver.IsUnderAllowedRoot(item.Path, allowedRoots)).ToList();
+            : items.Where(item => LibraryPathResolver.IsAllowed(item.Path, scope)).ToList();
     }
 
     /// <summary>

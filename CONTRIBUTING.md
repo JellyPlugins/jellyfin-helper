@@ -190,7 +190,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── DateTimeNormalizationTests.cs      # UTC coercion helper: guards against Local→SpecifyKind bugs in cache timestamps
 │   ├── FileSystemHelperErrorHandlingTests.cs # Directory-size walk skips entries whose Length throws (Windows-gated) and swallows access-denied
 │   ├── LibraryPathResolverErrorHandlingTests.cs # GetFullPath fallback returns the original path when normalization throws
-│   ├── LibraryPathResolverAllowedRootTests.cs # IsUnderAllowedRoot: directory-boundary prefix match, mixed separators, platform casing
+│   ├── LibraryPathResolverAllowedRootTests.cs # IsUnderAllowedRoot: directory-boundary prefix match, mixed separators, platform casing; IsAllowed/GetLibraryRootScope nested-exclusion denial
+│   ├── LibraryRootScopeTests.cs    # LibraryRootScope carrier: stores allowed/excluded roots, rejects null arguments
 │   ├── TmdbLibraryMapperTests.cs   # BuildTmdbKeySet/TryGetTmdbId: media-type keying, non-positive/invalid id rejection, dedup
 │   ├── Activity/                  # User activity service tests
 │   ├── Arr/                       # Arr integration tests
@@ -1008,7 +1009,8 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `FileSystemHelper.cs` - Best-effort filesystem helpers: directory sizing and dictionary accumulation
 - `I18nService.cs` - i18n translation loader from embedded JSON resources with caching
 - `JsonDefaults.cs` - Shared JSON serializer options (camelCase, indented, case-insensitive)
-- `LibraryPathResolver.cs` - Resolves and deduplicates library folder paths from the library manager; `IsUnderAllowedRoot` tests whether an item path sits under an allowed library root (directory-boundary aware, platform-cased) for excluded-library filtering
+- `LibraryPathResolver.cs` - Resolves and deduplicates library folder paths from the library manager; `IsUnderAllowedRoot` tests whether an item path sits under an allowed library root (directory-boundary aware, platform-cased), and `GetLibraryRootScope`/`IsAllowed` extend this so an excluded library nested under an allowed one is denied by the most specific matching root
+- `LibraryRootScope.cs` - Carries the allowed and excluded library roots resolved for a recommendation run so `LibraryPathResolver.IsAllowed` can deny nested exclusions
 - `PathValidator.cs` - Path validation guarding traversal, sensitive system roots, and safe deletion
 - `TmdbLibraryMapper.cs` - Maps library items to `(TmdbId, MediaType)` tuples; shared by the recommendation engine and Seerr discovery so "already in library" uses one implementation
 

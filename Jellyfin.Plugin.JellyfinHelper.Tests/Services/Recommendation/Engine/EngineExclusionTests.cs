@@ -92,6 +92,40 @@ public sealed class EngineExclusionTests
     }
 
     [Fact]
+    public void GetRecommendations_ExcludedLibraryNestedUnderAllowed_DropsNestedItems()
+    {
+        // Regression: the excluded library "/media/anime" is nested under the allowed "/media" root.
+        // Dropping the excluded folder by name alone leaves its items under the retained allowed root;
+        // the scope now denies them because the deeper excluded root is the more specific match.
+        var harness = EngineTestFactory.Create();
+
+        harness.ConfigService
+            .Setup(c => c.GetConfiguration())
+            .Returns(new PluginConfiguration { ExcludedLibraries = "Anime" });
+        harness.LibraryManager
+            .Setup(lm => lm.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Media", CollectionType = CollectionTypeOptions.movies, Locations = ["/media"] },
+                new VirtualFolderInfo { Name = "Anime", CollectionType = CollectionTypeOptions.tvshows, Locations = ["/media/anime"] }
+            ]);
+
+        var keep = MakeMovie("Real Film", "/media/movies/real.mkv");
+        var drop = MakeMovie("Anime Film", "/media/anime/clip.mkv");
+        WireMovies(harness, [keep, drop]);
+
+        var userId = Guid.NewGuid();
+        harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))
+            .Returns(new UserWatchProfile { UserId = userId, UserName = "u", WatchedItems = [] });
+
+        var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains(result!.Recommendations, r => r.ItemId == keep.Id);
+        Assert.DoesNotContain(result.Recommendations, r => r.ItemId == drop.Id);
+    }
+
+    [Fact]
     public void GetRecommendations_NoExcludedLibraries_KeepsAllItems()
     {
         var harness = EngineTestFactory.Create();

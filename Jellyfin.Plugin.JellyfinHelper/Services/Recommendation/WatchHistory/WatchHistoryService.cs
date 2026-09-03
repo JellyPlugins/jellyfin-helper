@@ -80,11 +80,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
             _logger);
 
         // Load library items once for all users (performance: avoids redundant DB queries).
-        // Allowed roots are resolved a single time here and threaded into each loader so the
+        // The library scope is resolved a single time here and threaded into each loader so the
         // excluded-library filter never re-reads virtual folders per query.
-        var allowedRoots = ResolveAllowedRoots();
-        var allItems = LoadAllVideoItems(allowedRoots);
-        var allSeries = LoadAllSeriesItems(allowedRoots);
+        var scope = ResolveLibraryScope();
+        var allItems = LoadAllVideoItems(scope);
+        var allSeries = LoadAllSeriesItems(scope);
 
         // The seriesId -> genres map is identical for every user in the batch, so build it once here
         // rather than rebuilding it inside BuildProfile on each iteration.
@@ -123,7 +123,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <returns>A list of all non-folder video items under the allowed roots.</returns>
     internal IReadOnlyList<BaseItem> LoadAllVideoItems()
     {
-        return LoadAllVideoItems(ResolveAllowedRoots());
+        return LoadAllVideoItems(ResolveLibraryScope());
     }
 
     /// <summary>
@@ -133,12 +133,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <returns>A list of all series items under the allowed roots.</returns>
     internal IReadOnlyList<BaseItem> LoadAllSeriesItems()
     {
-        return LoadAllSeriesItems(ResolveAllowedRoots());
+        return LoadAllSeriesItems(ResolveLibraryScope());
     }
 
     // Loads non-folder video items and applies the pre-resolved excluded-library filter. The batch
-    // profile path resolves allowedRoots once and passes it here to avoid re-reading virtual folders.
-    private IReadOnlyList<BaseItem> LoadAllVideoItems(IReadOnlyList<string>? allowedRoots)
+    // profile path resolves the scope once and passes it here to avoid re-reading virtual folders.
+    private IReadOnlyList<BaseItem> LoadAllVideoItems(LibraryRootScope? scope)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -146,11 +146,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFolder = false
         });
 
-        return FilterToAllowedLibraries(items, allowedRoots);
+        return FilterToAllowedLibraries(items, scope);
     }
 
     // Loads series items and applies the pre-resolved excluded-library filter. See LoadAllVideoItems.
-    private IReadOnlyList<BaseItem> LoadAllSeriesItems(IReadOnlyList<string>? allowedRoots)
+    private IReadOnlyList<BaseItem> LoadAllSeriesItems(LibraryRootScope? scope)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -158,7 +158,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFolder = true
         });
 
-        return FilterToAllowedLibraries(items, allowedRoots);
+        return FilterToAllowedLibraries(items, scope);
     }
 
     /// <summary>
@@ -207,35 +207,35 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFolder = false
         });
 
-        return CountPlayableEpisodesPerSeries(FilterToAllowedLibraries(allEpisodes, ResolveAllowedRoots()));
+        return CountPlayableEpisodesPerSeries(FilterToAllowedLibraries(allEpisodes, ResolveLibraryScope()));
     }
 
-    // Resolves the allowed library roots for a profile-collection run, or null when no library is
-    // excluded. Resolved once and threaded into the loaders so the excluded-library filter never
-    // re-reads virtual folders per query. Mirrors the engine's per-run resolution to keep training
-    // and scoring on the same item set (train/serve parity).
-    private IReadOnlyList<string>? ResolveAllowedRoots()
+    // Resolves the allowed/excluded library scope for a profile-collection run, or null when no
+    // library is excluded. Resolved once and threaded into the loaders so the excluded-library
+    // filter never re-reads virtual folders per query. Mirrors the engine's per-run resolution to
+    // keep training and scoring on the same item set (train/serve parity).
+    private LibraryRootScope? ResolveLibraryScope()
     {
         var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
         return excluded.Count == 0
             ? null
-            : LibraryPathResolver.GetAllowedLibraryRoots(_libraryManager, excluded);
+            : LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded);
     }
 
     // Drops items that live in a library the user chose to exclude from recommendations. A null
-    // allowedRoots means no library is excluded, so the input is returned untouched and the common
-    // case pays no path cost. Applied identically here and in the candidate engine to keep training
-    // and scoring on the same item set (train/serve parity).
+    // scope means no library is excluded, so the input is returned untouched and the common case
+    // pays no path cost. Applied identically here and in the candidate engine to keep training and
+    // scoring on the same item set (train/serve parity).
     private IReadOnlyList<BaseItem> FilterToAllowedLibraries(
         IReadOnlyList<BaseItem> items,
-        IReadOnlyList<string>? allowedRoots)
+        LibraryRootScope? scope)
     {
-        if (allowedRoots is null)
+        if (scope is null)
         {
             return items;
         }
 
-        var kept = items.Where(item => LibraryPathResolver.IsUnderAllowedRoot(item.Path, allowedRoots)).ToList();
+        var kept = items.Where(item => LibraryPathResolver.IsAllowed(item.Path, scope)).ToList();
 
         // Items with an empty path are dropped by the boundary check because they cannot be placed
         // under any root. That is correct, but surface the count so an operator can tell "excluded by
@@ -297,22 +297,22 @@ public sealed class WatchHistoryService : IWatchHistoryService
             MaxParentalRating = user.MaxParentalRatingScore
         };
 
-        // Use pre-loaded items or query on demand (single-user path). On demand, resolve the allowed
-        // roots once so the excluded-library filter still applies without re-reading virtual folders
+        // Use pre-loaded items or query on demand (single-user path). On demand, resolve the library
+        // scope once so the excluded-library filter still applies without re-reading virtual folders
         // for each of the two loads below.
-        IReadOnlyList<string>? onDemandRoots = null;
+        LibraryRootScope? onDemandScope = null;
         if (allItems is null || allSeries is null)
         {
-            onDemandRoots = ResolveAllowedRoots();
+            onDemandScope = ResolveLibraryScope();
         }
 
-        allItems ??= LoadAllVideoItems(onDemandRoots);
+        allItems ??= LoadAllVideoItems(onDemandScope);
 
         // Series are loaded up front (not just for the favorite pass below) because episodes in Jellyfin
         // usually carry no genres of their own: the genre lives on the Series entity. Build a seriesId to
         // genres map once so a watched episode can inherit its series' genres, otherwise every episode-based
         // genre signal (engagement, SeriesAffinity) is systematically empty.
-        allSeries ??= LoadAllSeriesItems(onDemandRoots);
+        allSeries ??= LoadAllSeriesItems(onDemandScope);
         seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
         seriesTmdbById ??= BuildSeriesTmdbLookup(allSeries);
 

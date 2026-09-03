@@ -1,11 +1,17 @@
 using System;
+using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 /// <summary>
-///     Covers <see cref="LibraryPathResolver.IsUnderAllowedRoot"/> boundary and platform behavior.
+///     Covers <see cref="LibraryPathResolver.IsUnderAllowedRoot"/> boundary and platform behavior,
+///     and the scoped <see cref="LibraryPathResolver.IsAllowed(string?, LibraryRootScope)"/> /
+///     <see cref="LibraryPathResolver.GetLibraryRootScope"/> nested-exclusion handling.
 /// </summary>
 public sealed class LibraryPathResolverAllowedRootTests
 {
@@ -101,5 +107,107 @@ public sealed class LibraryPathResolverAllowedRootTests
     public void IsUnderAllowedRoot_FilesystemRootAllowed_RootItselfMatches()
     {
         Assert.True(LibraryPathResolver.IsUnderAllowedRoot("/", ["/"]));
+    }
+
+    [Fact]
+    public void IsAllowed_ItemUnderAllowedOnly_ReturnsTrue()
+    {
+        var scope = new LibraryRootScope(["/media/movies"], []);
+        Assert.True(LibraryPathResolver.IsAllowed("/media/movies/film.mkv", scope));
+    }
+
+    [Fact]
+    public void IsAllowed_ItemUnderNeither_ReturnsFalse()
+    {
+        var scope = new LibraryRootScope(["/media/movies"], ["/media/anime"]);
+        Assert.False(LibraryPathResolver.IsAllowed("/media/home-videos/clip.mp4", scope));
+    }
+
+    [Fact]
+    public void IsAllowed_ExcludedNestedUnderAllowed_DeniesNestedButKeepsSibling()
+    {
+        // Allowed "/media" with excluded "/media/anime": an item under the deeper excluded root is
+        // denied even though it also sits under the allowed root, while a sibling under the allowed
+        // root is kept. This is the leak the name-based skip alone could not close.
+        var scope = new LibraryRootScope(["/media"], ["/media/anime"]);
+
+        Assert.False(LibraryPathResolver.IsAllowed("/media/anime/show/ep.mkv", scope));
+        Assert.True(LibraryPathResolver.IsAllowed("/media/movies/film.mkv", scope));
+    }
+
+    [Fact]
+    public void IsAllowed_AllowedNestedUnderExcluded_KeepsNested()
+    {
+        // The inverse nesting: allowed "/media/anime" under an excluded "/media". The more specific
+        // allowed root wins, so its own items are kept while the rest of the excluded tree is denied.
+        var scope = new LibraryRootScope(["/media/anime"], ["/media"]);
+
+        Assert.True(LibraryPathResolver.IsAllowed("/media/anime/show/ep.mkv", scope));
+        Assert.False(LibraryPathResolver.IsAllowed("/media/movies/film.mkv", scope));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void IsAllowed_NullOrEmptyItemPath_ReturnsFalse(string? itemPath)
+    {
+        var scope = new LibraryRootScope(["/media/movies"], []);
+        Assert.False(LibraryPathResolver.IsAllowed(itemPath, scope));
+    }
+
+    [Fact]
+    public void IsAllowed_EmptyScope_ReturnsFalse()
+    {
+        var scope = new LibraryRootScope([], []);
+        Assert.False(LibraryPathResolver.IsAllowed("/media/movies/film.mkv", scope));
+    }
+
+    [Fact]
+    public void IsAllowed_NullScope_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => LibraryPathResolver.IsAllowed("/media/movies/film.mkv", null!));
+    }
+
+    [Fact]
+    public void IsAllowed_CasingFollowsPlatformConvention()
+    {
+        var scope = new LibraryRootScope(["/media/movies"], []);
+        var result = LibraryPathResolver.IsAllowed("/media/MOVIES/film.mkv", scope);
+
+        if (OperatingSystem.IsLinux())
+        {
+            Assert.False(result);
+        }
+        else
+        {
+            Assert.True(result);
+        }
+    }
+
+    [Fact]
+    public void GetLibraryRootScope_PartitionsLocationsByNameExclusion()
+    {
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(m => m.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Media", Locations = ["/media"] },
+                new VirtualFolderInfo { Name = "Anime", Locations = ["/media/anime"] }
+            ]);
+
+        var scope = LibraryPathResolver.GetLibraryRootScope(
+            libraryManager.Object,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Anime" });
+
+        Assert.Equal(["/media"], scope.AllowedRoots);
+        Assert.Equal(["/media/anime"], scope.ExcludedRoots);
+    }
+
+    [Fact]
+    public void GetLibraryRootScope_NullLibraryManager_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => LibraryPathResolver.GetLibraryRootScope(null!, new HashSet<string>()));
     }
 }

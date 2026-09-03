@@ -223,22 +223,59 @@ test.describe.serial('Discovery/My cached-result filtering', () => {
 test.describe.serial('Discovery availability exclusion', () => {
   const AVAILABLE_TMDB = 680;
 
+  // Ids seeded into the shared admin watch profile, unwound in afterAll so later specs (workers: 1
+  // shares one backend) do not inherit a profile this spec created.
+  const seededPlayed: string[] = [];
+  let seededFavorite: string | null = null;
+
+  test.afterAll(async () => {
+    for (const id of seededPlayed) {
+      await admin.delete(`/UserPlayedItems/${id}?userId=${auth.userId}`).catch(() => undefined);
+    }
+    if (seededFavorite) {
+      await admin.delete(`/UserFavoriteItems/${seededFavorite}?userId=${auth.userId}`).catch(() => undefined);
+    }
+  });
+
   // Discovery only surfaces candidates for a user whose watch history yields a non-empty genre
   // preference vector; with no active profile the generation returns an empty pool. The suite
   // seeds no playback, so this spec must establish its own profile rather than depend on another
-  // spec (recommendations-ranking) having marked items played first in the same worker.
+  // spec (recommendations-ranking) having marked items played first in the same worker. It must
+  // also give the watched movies a real genre: the ffmpeg-generated fixtures carry no metadata, so
+  // without this the genre preference vector is empty and discovery generation is gated off entirely
+  // (SeerrDiscoveryService returns null on an empty vector), which would silently vacate the pool.
+  // "Action" maps to a TMDb movie genre id, so the mock's genre discover query returns its pool.
   async function seedAdminWatchProfile(): Promise<void> {
     const res = await admin.get(`/Items?IncludeItemTypes=Movie&Recursive=true&userId=${auth.userId}`);
     expect(res.ok(), `/Items status ${res.status()}`).toBeTruthy();
     const body = (await res.json()) as { Items?: Array<{ Id: string }> };
     const movies = (body.Items ?? []).map((i) => i.Id);
     expect(movies.length, 'need a movie to build a watch profile from').toBeGreaterThan(0);
-    for (const id of movies.slice(0, 3)) {
+    const watched = movies.slice(0, 3);
+    for (const id of watched) {
+      await assignGenre(id, 'Action');
       const mark = await admin.post(`/UserPlayedItems/${id}?userId=${auth.userId}`);
       expect(mark.ok(), `mark-played ${id}: ${mark.status()}`).toBeTruthy();
+      seededPlayed.push(id);
     }
     const fav = await admin.post(`/UserFavoriteItems/${movies[0]}?userId=${auth.userId}`);
     expect([200, 204]).toContain(fav.status());
+    seededFavorite = movies[0];
+  }
+
+  // Set a genre on an item via fetch-modify-save. ItemUpdateController replaces the whole DTO, so
+  // we edit the item's own DTO rather than posting a partial body, then persist synchronously (no
+  // rescan needed - WatchHistoryService reads item.Genres live at task time).
+  async function assignGenre(itemId: string, genre: string): Promise<void> {
+    const get = await admin.get(`/Items/${itemId}?userId=${auth.userId}`);
+    expect(get.ok(), `fetch item ${itemId}: ${get.status()}`).toBeTruthy();
+    const dto = (await get.json()) as { Genres?: string[] };
+    dto.Genres = [genre];
+    const post = await admin.post(`/Items/${itemId}`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: dto,
+    });
+    expect(post.ok(), `set genre on ${itemId}: ${post.status()}`).toBeTruthy();
   }
 
   async function generatedTmdbIds(): Promise<number[]> {

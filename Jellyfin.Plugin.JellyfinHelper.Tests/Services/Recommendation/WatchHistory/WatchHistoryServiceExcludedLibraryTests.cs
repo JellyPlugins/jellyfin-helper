@@ -179,4 +179,44 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
                 It.IsAny<ILogger>()),
             Times.Once);
     }
+
+    [Fact]
+    public void LoadAllVideoItems_ExcludedLibraryNestedUnderAllowed_DropsItemsUnderExcludedRoot()
+    {
+        // Regression: an excluded library nested under an allowed one (allowed "/media", excluded
+        // "/media/anime") must still drop the nested items. The name-based skip alone left them under
+        // the retained allowed root; the scope now denies them via the most-specific matching root.
+        const string parentRoot = "/media";
+        const string nestedExcludedRoot = "/media/anime";
+        _mockConfigService
+            .Setup(s => s.GetConfiguration())
+            .Returns(new PluginConfiguration { ExcludedLibraries = "Anime" });
+        _mockLibraryManager
+            .Setup(m => m.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Media", Locations = [parentRoot] },
+                new VirtualFolderInfo { Name = "Anime", Locations = [nestedExcludedRoot] }
+            ]);
+
+        var kept = new Movie { Id = Guid.NewGuid(), Path = parentRoot + "/movies/film.mkv" };
+        var dropped = new Movie { Id = Guid.NewGuid(), Path = nestedExcludedRoot + "/show/ep.mkv" };
+        _mockLibraryManager
+            .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { kept, dropped });
+
+        var service = new WatchHistoryService(
+            _mockLibraryManager.Object,
+            _mockConfigService.Object,
+            _mockUserManager.Object,
+            _mockUserDataManager.Object,
+            _mockPluginLog.Object,
+            _mockLogger.Object);
+
+        var result = service.LoadAllVideoItems();
+
+        Assert.Single(result);
+        Assert.Equal(kept.Id, result[0].Id);
+        Assert.DoesNotContain(result, i => i.Id == dropped.Id);
+    }
 }
