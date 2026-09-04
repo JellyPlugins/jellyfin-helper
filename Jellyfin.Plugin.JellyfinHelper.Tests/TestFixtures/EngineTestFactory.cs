@@ -54,6 +54,8 @@ internal static class EngineTestFactory
         var watchHistory = new Mock<IWatchHistoryService>();
         watchHistory.Setup(w => w.GetAllUserWatchProfiles())
                     .Returns(new Collection<UserWatchProfile>());
+        watchHistory.Setup(w => w.GetAllUserIds())
+                    .Returns(Array.Empty<Guid>());
         watchHistory.Setup(w => w.GetUserWatchProfile(It.IsAny<Guid>()))
                     .Returns((UserWatchProfile?)null);
 

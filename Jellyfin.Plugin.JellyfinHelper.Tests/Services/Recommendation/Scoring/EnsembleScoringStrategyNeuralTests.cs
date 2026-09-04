@@ -181,6 +181,34 @@ public sealed class EnsembleScoringStrategyNeuralTests
     }
 
     [Fact]
+    public void Train_OwnsNeuralFalse_TrainNeuralTrue_LeavesSharedNeuralUntouched()
+    {
+        // The two-argument Train overload delegates with trainNeural:true. A per-user ensemble borrows the
+        // shared MLP (ownsNeural:false), so even through that overload it must not re-fit the shared MLP on
+        // one user's slice. The guard is what enforces this; without it the shared neural would be overwritten.
+        var shared = new NeuralScoringStrategy();
+        Assert.True(((ITrainableStrategy)shared).Train(CleanExamples(200)));
+
+        var probe = new CandidateFeatures { GenreSimilarity = 0.9, CombinedCriticScore = 0.85, RecencyScore = 0.7, GenreCount = 4 };
+        var scoreBefore = shared.Score(probe);
+        var lossBefore = shared.LastValidationLoss;
+
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
+
+        // Inverted labels: had this retrained the shared MLP, its probe score would move noticeably.
+        var inverted = CleanExamples(200).Select(e => new TrainingExample { Features = e.Features, Label = 1.0 - e.Label }).ToList();
+        Assert.True(perUser.Train(inverted));
+
+        Assert.Equal(scoreBefore, shared.Score(probe), 10);
+        Assert.Equal(lossBefore, shared.LastValidationLoss, 10);
+
+        perUser.Dispose();
+        shared.Dispose();
+    }
+
+    [Fact]
     public void Dispose_WithNeuralStrategy_DisposesNeural()
     {
         var neural = new NeuralScoringStrategy();

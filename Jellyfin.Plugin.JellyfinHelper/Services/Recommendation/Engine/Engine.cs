@@ -198,8 +198,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var allProfilesForTraining = _watchHistoryService.GetAllUserWatchProfiles();
 
         // Remove per-user model/state files for users that no longer exist (reconciliation against the live
-        // user list, the same approach used to clean up stale recommendation playlists).
-        _perUserRegistry.PruneOrphans([.. allProfilesForTraining.Select(p => p.UserId)]);
+        // user list, the same approach used to clean up stale recommendation playlists). The live set comes
+        // straight from the user manager, not from the profiles above: profile building skips any user it
+        // cannot build, so a transient failure there must not make a live user look removed and delete their
+        // model files.
+        _perUserRegistry.PruneOrphans([.. _watchHistoryService.GetAllUserIds()]);
 
         // Train the global model (learned + neural + global blend) once, then a per-user learned model for
         // every user above the example threshold, warm-started from the global fit.

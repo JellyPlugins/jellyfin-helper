@@ -631,7 +631,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         // Train the neural strategy only when this ensemble owns that responsibility (the global ensemble).
         // Per-user ensembles share one globally-trained MLP and must not re-fit it on a single user's slice.
+        // The _ownsNeural check is what enforces this: the two-argument Train overload delegates with
+        // trainNeural: true, so without it a per-user ensemble passed through that overload would overwrite
+        // the shared MLP with one user's examples.
         var neuralTrained = trainNeural
+            && _ownsNeural
             && _neural is not null
             && ((ITrainableStrategy)_neural).Train(examples, heldOutForMetrics);
 

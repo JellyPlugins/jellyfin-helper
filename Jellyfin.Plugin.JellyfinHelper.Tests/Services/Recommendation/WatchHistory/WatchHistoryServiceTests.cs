@@ -85,6 +85,32 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void GetAllUserIds_ReturnsEveryLiveUser_EvenWhenProfileBuildWouldFail()
+    {
+        // GetAllUserIds must reflect the live user roster directly, not the profiles, so a user whose profile
+        // build would throw (and is skipped by GetAllUserWatchProfiles) is still reported. Reconciliation
+        // relies on this: a skipped user must never look removed and have their model files pruned.
+        var alice = CreateTestUser("alice");
+        var bobThrows = CreateTestUser("bob-throws");
+        var charlie = CreateTestUser("charlie");
+        _mockUserManager.Setup(m => m.GetUsers()).Returns(new[] { alice, bobThrows, charlie }.AsQueryable());
+
+        var ids = _service.GetAllUserIds();
+
+        Assert.Equal(3, ids.Count);
+        Assert.Contains(alice.Id, ids);
+        Assert.Contains(bobThrows.Id, ids);
+        Assert.Contains(charlie.Id, ids);
+    }
+
+    [Fact]
+    public void GetAllUserIds_NoUsers_ReturnsEmpty()
+    {
+        _mockUserManager.Setup(m => m.GetUsers()).Returns(Enumerable.Empty<Jellyfin.Database.Implementations.Entities.User>());
+        Assert.Empty(_service.GetAllUserIds());
+    }
+
+    [Fact]
     public void GetAllUserWatchProfiles_ReturnsProfilesForAllValidUsers()
     {
         var user1 = CreateTestUser("alice");

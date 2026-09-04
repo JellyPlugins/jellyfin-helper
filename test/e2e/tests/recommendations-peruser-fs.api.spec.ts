@@ -27,6 +27,9 @@ const GLOBAL_WEIGHTS = `${DATA_DIR}/ml_weights.json`;
 const GLOBAL_NEURAL = `${DATA_DIR}/neural_weights.json`;
 const GLOBAL_STATE = `${DATA_DIR}/ensemble_state.json`;
 
+/** Synthetic user id planted by the prune test. Cleaned up unconditionally so a failed run cannot leak it. */
+const ORPHAN_ID = '00000000000000000000000000000abc';
+
 let ctx: APIRequestContext;
 
 test.beforeAll(async () => {
@@ -75,8 +78,29 @@ function perUserStateFiles(): string[] {
 test.describe.serial('per-user recommendation model files', () => {
   test.skip(!hasDocker(), 'docker exec unavailable - cannot inspect the plugin data folder');
 
+  test.afterEach(() => {
+    if (!hasDocker()) {
+      return;
+    }
+
+    // The planted orphan is normally removed by a successful prune, but a failed assertion (or a retry of
+    // this serial group) would otherwise leave it in place, and the earlier tests read this directory with
+    // regexes that match the planted names. Remove it unconditionally so one failure cannot bleed into them.
+    try {
+      execInContainer(`rm -f ${DATA_DIR}/ml_weights_${ORPHAN_ID}.json ${DATA_DIR}/ensemble_state_${ORPHAN_ID}.json`);
+    } catch {
+      // Nothing to clean up.
+    }
+  });
+
   test('training persists the global model files', async () => {
     await activateRecommendationsOnly();
+
+    // Training runs off the previous run's cached results, so the very first Activate run only generates
+    // recommendations (empty cache means nothing to train on) and writes no model files. The first run here
+    // seeds the results cache; the second is the one that actually trains and persists the global model.
+    expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
+    await sleep(1000);
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
@@ -163,9 +187,8 @@ test.describe.serial('per-user recommendation model files', () => {
 
     // Plant a per-user file for a synthetic user id that is NOT in the live user list. Copying an existing
     // per-user file keeps the JSON valid; the id in the filename is what PruneOrphans reconciles against.
-    const orphanId = '00000000000000000000000000000abc';
-    const orphanWeights = `${DATA_DIR}/ml_weights_${orphanId}.json`;
-    const orphanState = `${DATA_DIR}/ensemble_state_${orphanId}.json`;
+    const orphanWeights = `${DATA_DIR}/ml_weights_${ORPHAN_ID}.json`;
+    const orphanState = `${DATA_DIR}/ensemble_state_${ORPHAN_ID}.json`;
     const sample = existing[0];
     execInContainer(`cp ${DATA_DIR}/${sample} ${orphanWeights}`);
     const sampleState = perUserStateFiles()[0];
