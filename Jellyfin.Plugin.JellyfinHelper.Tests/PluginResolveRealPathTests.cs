@@ -177,4 +177,58 @@ public sealed class PluginResolveRealPathTests
             }
         }
     }
+
+    [Fact]
+    public void RealLeafResolver_MultiLinkChain_ResolvesOnlyOneHop()
+    {
+        // The production resolver must follow a single link hop per call, so the caller's hop counter
+        // and cycle set bound a chain the same way on every platform. If it returned the final target
+        // instead, a chain longer than MaxLinkHops would slip past the documented bound entirely.
+        var tempRoot = Path.Combine(Path.GetTempPath(), "JhLeafResolver_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var targetDir = Path.Combine(tempRoot, "real");
+            Directory.CreateDirectory(targetDir);
+            var firstLink = Path.Combine(tempRoot, "link1");
+            var secondLink = Path.Combine(tempRoot, "link2");
+
+            try
+            {
+                Directory.CreateSymbolicLink(firstLink, targetDir);
+                Directory.CreateSymbolicLink(secondLink, firstLink);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Symlink creation needs elevation on some Windows configurations, and xUnit 2.x has no
+                // Assert.Skip. Returning early keeps the test green where symlinks are unavailable.
+                return;
+            }
+
+            // One hop from the outer link lands on the inner link, not on the real directory.
+            var oneHop = Plugin.RealLeafResolver(secondLink);
+
+            Assert.Equal(Path.GetFullPath(firstLink), Path.GetFullPath(oneHop!), PathComparer);
+            Assert.NotEqual(Path.GetFullPath(targetDir), Path.GetFullPath(oneHop!), PathComparer);
+
+            // The bounded traversal then follows the remaining hops to the final target.
+            var full = Plugin.ResolveRealPathCore(secondLink, Plugin.RealLeafResolver);
+            Assert.Equal(Path.GetFullPath(targetDir), full, PathComparer);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort cleanup.
+            }
+        }
+    }
 }

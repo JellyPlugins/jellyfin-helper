@@ -1617,13 +1617,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     // token so it is not cancelled by any one caller's token.
     private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> StartSeerrUserFetchAsync()
     {
-        var fetch = FetchSeerrUsersInternalAsync(CancellationToken.None);
+        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch = FetchSeerrUsersInternalAsync(CancellationToken.None);
         _ = fetch.ContinueWith(
             _ =>
             {
                 lock (_userCacheLock)
                 {
-                    _inflightUserFetch = null;
+                    // Clear only our own slot. A caller arriving after this fetch settles but before this
+                    // continuation runs may have already installed a replacement fetch; wiping it would
+                    // strand that fresh request and force the next caller to start a third one.
+                    if (ReferenceEquals(_inflightUserFetch, fetch))
+                    {
+                        _inflightUserFetch = null;
+                    }
                 }
             },
             CancellationToken.None,

@@ -1641,7 +1641,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 }
 
-// TEST-2: A structurally valid weights JSON containing NaN or Infinity in a single weight value must be rejected - the strategy must fall back to defaults and still return a finite score rather than silently propagating NaN through forward-pass arithmetic.
+// A structurally valid weights JSON containing NaN or Infinity in a single weight value must be rejected - the strategy must fall back to defaults and still return a finite score rather than silently propagating NaN through forward-pass arithmetic.
 public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
 {
     private readonly string _tempDir;

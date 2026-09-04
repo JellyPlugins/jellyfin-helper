@@ -18,7 +18,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
@@ -47,7 +46,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private readonly TrainingService _trainingService;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IDiscoveryFeedbackStore _discoveryFeedbackStore;
-    private readonly IItemRepository _itemRepository;
 
     // Short-lived candidate-metadata cache (NOT a result cache): the expensive-to-rebuild library working set (candidate BaseItems, people/BoxSet lookups, episode counts).
     private readonly Lock _snapshotRefreshLock = new();
@@ -76,7 +74,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="strategySelector">The strategy selector for A/B testing.</param>
     /// <param name="perUserRegistry">The per-user ensemble registry (per-user models + global fallback).</param>
     /// <param name="discoveryFeedbackStore">The discovery feedback store for training data enrichment.</param>
-    /// <param name="itemRepository">The item repository used to derive library-wide genre/studio rarity (IDF).</param>
     public Engine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
@@ -86,8 +83,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         IScoringStrategy strategy,
         IStrategySelector strategySelector,
         IPerUserEnsembleRegistry perUserRegistry,
-        IDiscoveryFeedbackStore discoveryFeedbackStore,
-        IItemRepository itemRepository)
+        IDiscoveryFeedbackStore discoveryFeedbackStore)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
@@ -98,7 +94,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         _strategySelector = strategySelector;
         _perUserRegistry = perUserRegistry;
         _discoveryFeedbackStore = discoveryFeedbackStore;
-        _itemRepository = itemRepository;
         _similarityComputer = new SimilarityComputer(libraryManager, pluginLog, logger);
         _trainingService = new TrainingService(watchHistoryService, discoveryFeedbackStore, pluginLog, logger);
 
@@ -187,9 +182,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         UpdateDiscoveryWatchedStatus(cancellationToken);
 
         // Use live library data so training and inference share the same progression and rarity tables.
-        var seriesEpisodeCounts = BuildSeriesEpisodeCounts();
+        // Load candidates once and derive both the episode counts and the IDF table from them, so the
+        // rarity prior is built over the exact population the serve path scores (train/serve parity).
+        var (candidatesForTraining, seriesEpisodeCounts) = LoadCandidateItems();
 
-        _genreStudioIdf = BuildGenreStudioIdfTable();
+        _genreStudioIdf = BuildGenreStudioIdfTable(candidatesForTraining);
 
         // Training must resolve each watched item's studios/tags from the live library, identical to the
         // serve-time candidateLookup, or StudioMatch/TagSimilarity (and the ContentNearestNeighbor /
@@ -276,7 +273,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates);
 
         // Refresh the library-wide genre/studio IDF rarity table once per batch (shared across users).
-        _genreStudioIdf = BuildGenreStudioIdfTable();
+        _genreStudioIdf = BuildGenreStudioIdfTable(candidates);
 
         // Pre-compute BoxSet membership for all candidates once (shared across users), avoiding
         // redundant parent-hierarchy traversals in ScoreCandidate / BuildWatchedBoxSetCounts.
@@ -629,16 +626,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         return (candidates, seriesEpisodeCounts);
     }
 
-    /// <summary>
-    ///     Builds the per-series total-episode-count map (SeriesId -> number of playable episodes in the library) used by PreferenceBuilder's progression multiplier.
-    /// </summary>
-    /// <returns>A map of series id to its count of playable (non-empty <c>Path</c>) episodes.</returns>
-    private Dictionary<Guid, int> BuildSeriesEpisodeCounts()
-    {
-        var allEpisodes = QueryAllowedItems(BaseItemKind.Episode, isFolder: false, GetLibraryRootScope());
-        return CountPlayableEpisodesPerSeries(allEpisodes);
-    }
-
     // Allowed/excluded library roots for this generation run, or null when nothing is excluded.
     // Resolved once per candidate load and passed to each query filter to avoid re-reading virtual
     // folders. Carries excluded roots so an excluded library nested under an allowed one is denied.
@@ -887,7 +874,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var averageWriterWeight = SimilarityComputer.ComputeAveragePreferredWeight(preferredWriterWeights);
         var preferredBilledPeople = preferredPeopleWeights;
 
-        // Library-wide genre/studio IDF rarity table (computed once per snapshot, Phase 2H via IItemRepository).
+        // Library-wide genre/studio IDF rarity table (computed once per snapshot from the allowed items).
         var genreStudioIdf = _genreStudioIdf;
 
         var userGenreNormSq = ComputeUserGenreNormSq(genrePreferences);
@@ -1741,53 +1728,55 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <summary>
     ///     Builds a library-wide genre/studio IDF (inverse document frequency) rarity table, normalized to [0, 1], where ubiquitous genres/studios score near 0 and rare ones near 1.
     /// </summary>
+    /// <param name="items">The candidate Movie/Series items to count over, already scoped to the allowed libraries.</param>
     /// <returns>A case-insensitive genre/studio -> normalized-IDF map (empty when unavailable).</returns>
-    private Dictionary<string, double> BuildGenreStudioIdfTable()
+    private Dictionary<string, double> BuildGenreStudioIdfTable(IReadOnlyList<BaseItem> items)
     {
         var table = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            var query = new InternalItemsQuery { Recursive = true };
-
-            // Facet counts are aggregated by the repository and carry no per-item path, so the
-            // excluded-library scope cannot be applied by post-filtering. Restrict the query to the
-            // allowed library roots instead, keeping this prior in parity with the scoped candidate
-            // and training-metadata queries.
-            var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
-            if (excluded.Count > 0)
-            {
-                var allowedRootIds = LibraryPathResolver.GetAllowedLibraryRootIds(_libraryManager, excluded);
-                if (allowedRootIds.Count == 0)
-                {
-                    // Every library is excluded, so there is nothing to build a prior from.
-                    return table;
-                }
-
-                query.AncestorIds = [.. allowedRootIds];
-            }
-
+            // Count genres and studios from the candidate items already loaded for scoring, which are
+            // scoped to the allowed libraries by path. The repository facet aggregation counts by
+            // ancestor chain instead, so an excluded library nested under an allowed root would slip
+            // into the counts, and it would also re-scan the library a second time. Candidates are only
+            // ever movies and series, so counting the population the prior actually scores also keeps
+            // episodes (which inherit their series' genres) from deflating the rarity.
             var rawIdf = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
             var maxIdf = 0.0;
 
-            void Accumulate(QueryResult<(BaseItem Item, ItemCounts ItemCounts)>? result)
+            // Accumulate document frequencies for one facet, then fold its per-term IDF into the shared
+            // table. N is the count of distinct terms in the facet and df the number of items carrying a
+            // term, matching the repository facet's original IDF definition.
+            void Accumulate(Func<BaseItem, IReadOnlyList<string>?> termsOf)
             {
-                if (result?.Items is not { Count: > 0 } items)
+                var documentFrequency = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var item in items)
                 {
-                    return;
-                }
-
-                // N = number of distinct terms (documents) in this facet; guaranteed > 0 here.
-                var n = items.Count;
-                foreach (var (item, counts) in items)
-                {
-                    var name = item?.Name;
-                    if (string.IsNullOrWhiteSpace(name))
+                    if (termsOf(item) is not { Count: > 0 } terms)
                     {
                         continue;
                     }
 
+                    // A term counts once per item even if it repeats, so df stays a document frequency.
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var term in terms)
+                    {
+                        if (!string.IsNullOrWhiteSpace(term) && seen.Add(term))
+                        {
+                            documentFrequency[term] = documentFrequency.GetValueOrDefault(term) + 1;
+                        }
+                    }
+                }
+
+                var n = documentFrequency.Count;
+                if (n == 0)
+                {
+                    return;
+                }
+
+                foreach (var (name, df) in documentFrequency)
+                {
                     // add-one smoothing on the document frequency -> never log(N/0); df>=0 always.
-                    var df = Math.Max(0, counts.ItemCount);
                     var idf = Math.Log((double)(n + 1) / (df + 1));
                     if (!double.IsFinite(idf) || idf < 0.0)
                     {
@@ -1807,8 +1796,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 }
             }
 
-            Accumulate(_itemRepository.GetGenres(query));
-            Accumulate(_itemRepository.GetStudios(query));
+            Accumulate(static item => item.Genres);
+            Accumulate(static item => item.Studios);
 
             if (rawIdf.Count == 0 || maxIdf <= 0.0)
             {
@@ -1990,7 +1979,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates);
 
             // Refresh the library-wide genre/studio IDF rarity table alongside the live snapshot.
-            _genreStudioIdf = BuildGenreStudioIdfTable();
+            _genreStudioIdf = BuildGenreStudioIdfTable(candidates);
 
             // Increment inside the lock so the sequence is assigned atomically with the cache write,
             // preventing a race with the batch path's TryPublishSnapshot.

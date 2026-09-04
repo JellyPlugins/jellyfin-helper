@@ -76,7 +76,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal static readonly Func<string, string?> RealLeafResolver = candidate =>
     {
         FileSystemInfo leaf = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
-        return leaf.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+
+        // Resolve a single link hop, not the whole chain. ResolveRealPathCore counts hops and detects
+        // cycles between calls, so following the entire chain here would bypass MaxLinkHops and leave
+        // the documented bound resting only on the OS ELOOP limit, which differs across platforms.
+        return leaf.ResolveLinkTarget(returnFinalTarget: false)?.FullName;
     };
 
     /// <summary>

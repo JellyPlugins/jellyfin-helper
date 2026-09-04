@@ -126,7 +126,7 @@ public sealed class EngineInstanceTests
         Assert.False(trained);
     }
 
-    // TEST-1: TryPublishSnapshot - out-of-order write rejection
+    // TryPublishSnapshot - out-of-order write rejection
 
     [Fact]
     public void TryPublishSnapshot_FirstPublish_WithNullCurrent_ReturnsTrue()
@@ -184,7 +184,7 @@ public sealed class EngineInstanceTests
         Assert.True(result);
     }
 
-    // TEST-8: GetAllRecommendations - one throwing user does not abort the batch
+    // GetAllRecommendations - one throwing user does not abort the batch
 
     [Fact]
     public void GetAllRecommendations_OneUserThrows_BatchContinuesAndLogsWarning()
@@ -227,7 +227,7 @@ public sealed class EngineInstanceTests
             Times.Once);
     }
 
-    // TEST-4: GetOrBuildCommunityPopularity - concurrent callers compute only once
+    // GetOrBuildCommunityPopularity - concurrent callers compute only once
 
     [Fact]
     public async Task GetOrBuildCommunityPopularity_ConcurrentCallers_BuildCalledAtMostOnce()

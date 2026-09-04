@@ -1476,7 +1476,7 @@ public class ConfigurationControllerTests
         Assert.Equal(string.Empty, _config.RadarrInstances[0].ApiKey);
     }
 
-    // TEST-6: Two Radarr instances share the same URL but have different names.
+    // Two Radarr instances share the same URL but have different names.
     // The sentinel must restore each instance's own key - not always the first match.
     [Fact]
     public async Task ApplyRequestToConfig_TwoRadarrInstancesSameUrl_SentinelRestoresCorrectKey()

@@ -20,7 +20,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     TEST-10 - Concurrent correctness tests for GetCachedSeerrUsersAsync (exercised through the public GetSeerrUsersAsync entry point).
+///     Concurrent correctness tests for GetCachedSeerrUsersAsync (exercised through the public GetSeerrUsersAsync entry point).
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable

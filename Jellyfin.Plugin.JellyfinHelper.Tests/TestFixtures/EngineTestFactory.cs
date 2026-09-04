@@ -10,9 +10,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Persistence;
-using MediaBrowser.Model.Dto;
-using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -34,7 +31,6 @@ internal static class EngineTestFactory
     /// <param name="StrategySelector">The mock strategy selector (returns 0.0 alpha offset by default).</param>
     /// <param name="PerUserRegistry">The mock per-user ensemble registry (returns the shared strategy for every user by default).</param>
     /// <param name="FeedbackStore">The mock discovery feedback store.</param>
-    /// <param name="ItemRepository">The mock item repository (returns empty genre/studio counts by default).</param>
     internal sealed record EngineHarness(
         Engine Engine,
         Mock<IWatchHistoryService> WatchHistory,
@@ -44,8 +40,7 @@ internal static class EngineTestFactory
         Mock<ILogger<Engine>> Logger,
         Mock<IStrategySelector> StrategySelector,
         Mock<IPerUserEnsembleRegistry> PerUserRegistry,
-        Mock<IDiscoveryFeedbackStore> FeedbackStore,
-        Mock<IItemRepository> ItemRepository);
+        Mock<IDiscoveryFeedbackStore> FeedbackStore);
 
     /// <summary>
     ///     Constructs an Engine with sensible empty-collection defaults on every mock: no watch profiles, no library items, no strategy offset, no discovery feedback.
@@ -100,13 +95,6 @@ internal static class EngineTestFactory
         feedbackStore.Setup(f => f.LoadAll())
                      .Returns(new List<DiscoveryFeedbackResult>());
 
-        // Empty genre/studio counts by default -> BuildGenreStudioIdfTable yields an empty table and the GenreStudioIdfPrior feature stays neutral (0.0), keeping the batch path in its normal control flow for the no-library scenario.
-        var itemRepository = new Mock<IItemRepository>();
-        itemRepository.Setup(r => r.GetGenres(It.IsAny<InternalItemsQuery>()))
-                      .Returns(new QueryResult<(BaseItem, ItemCounts)>());
-        itemRepository.Setup(r => r.GetStudios(It.IsAny<InternalItemsQuery>()))
-                      .Returns(new QueryResult<(BaseItem, ItemCounts)>());
-
         var engine = new Engine(
             watchHistory.Object,
             libraryManager.Object,
@@ -116,8 +104,7 @@ internal static class EngineTestFactory
             strategy,
             strategySelector.Object,
             perUserRegistry.Object,
-            feedbackStore.Object,
-            itemRepository.Object);
+            feedbackStore.Object);
 
         return new EngineHarness(
             engine,
@@ -128,7 +115,6 @@ internal static class EngineTestFactory
             logger,
             strategySelector,
             perUserRegistry,
-            feedbackStore,
-            itemRepository);
+            feedbackStore);
     }
 }

@@ -95,7 +95,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 
-    // TEST-10a: Warm cache - second sequential call must NOT hit the network.
+    // Warm cache: second sequential call must NOT hit the network.
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_WarmCache_NoAdditionalHttpCallsMade()
@@ -119,7 +119,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         Assert.True(callsAfterFirst >= 1, "At least one HTTP call must have occurred to warm the cache.");
     }
 
-    // TEST-10b: Stampede - concurrent cold-cache callers all fan out to HTTP (documents current "allow stampede" behaviour and verifies that once any caller has written the cache the result is consistent).
+    // Stampede: concurrent cold-cache callers all fan out to HTTP (documents current "allow stampede" behaviour and verifies that once any caller has written the cache the result is consistent).
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_ConcurrentColdCacheMisses_AllReceiveConsistentResult()
@@ -147,7 +147,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         Assert.InRange(handler.CallCount, 1, concurrency);
     }
 
-    // TEST-10c: After the stampede settles the cache is warm - the NEXT call
+    // After the stampede settles the cache is warm. The NEXT call
     //           (after all concurrent ones complete) must not re-fetch.
 
     [Fact]
@@ -175,9 +175,9 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         Assert.Equal(callsAfterStampede, handler.CallCount);
     }
 
-    // TEST-10d: Incomplete fetch (upstream error) must NOT be written to cache -
-    //           callers must keep retrying rather than getting a stale empty list
-    //           for the full TTL.
+    // Incomplete fetch (upstream error) must NOT be written to cache.
+    // Callers must keep retrying rather than getting a stale empty list
+    // for the full TTL.
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_FailedFetch_NotCached_NextCallRetries()
@@ -211,6 +211,42 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         Assert.Equal(callsBeforeFourth, handler.CallCount); // Fourth call did not re-fetch
         // Exactly 3 HTTP calls must have been made (2 failures + 1 success).
         Assert.Equal(3, callsBeforeFourth);
+    }
+
+    // A fetch that settles must not strand a replacement fetch. The completion cleanup
+    // clears the in-flight slot only when it still holds its own task, so a caller that
+    // installed a new fetch after the old one settled keeps a live, coalescable request.
+    // Regression guard for the identity-guarded slot cleanup.
+
+    [Fact]
+    public async Task ResolveSeerrUserIdAsync_FirstFetchFailsThenSucceeds_SecondFetchNotStrandedByStaleCleanup()
+    {
+        // Arrange: the first fetch fails (not cached), so the cache stays cold and the second call
+        // must start a fresh fetch. If the first fetch's cleanup wiped that second fetch, a third
+        // caller would have to launch yet another request.
+        using var handler = new FailableCountingHttpHandler(
+            failFirstN: 1,
+            successStatus: HttpStatusCode.OK,
+            successBody: SingleUserJson,
+            fetchDelayMs: 0);
+        var sut = BuildSut(handler);
+
+        // Act: first call fails and settles, clearing its own slot.
+        var first = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
+
+        // Second call must succeed and warm the cache; its slot must survive its own cleanup.
+        var second = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
+
+        // Third call must be a pure cache hit, proving the second fetch's result was retained.
+        var callsBeforeThird = handler.CallCount;
+        var third = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
+
+        // Assert
+        Assert.Null(first);      // Upstream error -> not linked, not cached
+        Assert.Equal(1, second); // Fresh fetch succeeded and cached
+        Assert.Equal(1, third);  // Served from cache
+        Assert.Equal(callsBeforeThird, handler.CallCount); // Third call issued no new request
+        Assert.Equal(2, callsBeforeThird); // Exactly one failure + one success
     }
 }
 

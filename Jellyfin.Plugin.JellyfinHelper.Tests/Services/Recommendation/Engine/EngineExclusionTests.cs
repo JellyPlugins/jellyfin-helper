@@ -11,10 +11,8 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Querying;
 using Moq;
 using Xunit;
 
@@ -44,6 +42,21 @@ public sealed class EngineExclusionTests
         }
 
         return movie;
+    }
+
+    private static Movie MakeMovieWithGenre(string name, string path, string genre)
+    {
+        return new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Path = path,
+            ProductionYear = 2020,
+            Genres = [genre],
+            CommunityRating = 7.5f,
+            PremiereDate = new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc),
+            DateCreated = DateTime.UtcNow.AddDays(-30)
+        };
     }
 
     private static void WireMovies(EngineTestFactory.EngineHarness harness, List<BaseItem> movies)
@@ -149,43 +162,36 @@ public sealed class EngineExclusionTests
     }
 
     [Fact]
-    public void GetAllRecommendations_ExcludedLibrary_RestrictsIdfFacetQueryToAllowedRoots()
+    public void GetAllRecommendations_ExcludedLibraryNestedUnderAllowed_KeepsNestedGenreOutOfBatch()
     {
-        // The genre/studio IDF prior is aggregated by the repository from facet counts, which carry
-        // no per-item path, so the excluded library must be kept out of the query itself. With one
-        // library excluded, the facet query must be restricted to the allowed root's item id.
+        // Regression: the IDF rarity table is now counted in-memory from the same path-filtered items
+        // the candidates come from, so a genre living only in an excluded library nested under an
+        // allowed root ("/media/anime" under allowed "/media") must feed neither the candidate pool
+        // nor the rarity table. Exercise the batch path and prove the nested excluded item is dropped.
         var harness = EngineTestFactory.Create();
-
-        var allowedRootId = Guid.NewGuid();
-        var excludedRootId = Guid.NewGuid();
 
         harness.ConfigService
             .Setup(c => c.GetConfiguration())
-            .Returns(new PluginConfiguration { ExcludedLibraries = "Home Videos" });
+            .Returns(new PluginConfiguration { ExcludedLibraries = "Anime" });
         harness.LibraryManager
             .Setup(lm => lm.GetVirtualFolders())
             .Returns(
             [
-                new VirtualFolderInfo { Name = "Movies", ItemId = allowedRootId.ToString("N"), CollectionType = CollectionTypeOptions.movies, Locations = ["/media/movies"] },
-                new VirtualFolderInfo { Name = "Home Videos", ItemId = excludedRootId.ToString("N"), CollectionType = CollectionTypeOptions.homevideos, Locations = ["/media/home"] }
+                new VirtualFolderInfo { Name = "Media", CollectionType = CollectionTypeOptions.movies, Locations = ["/media"] },
+                new VirtualFolderInfo { Name = "Anime", CollectionType = CollectionTypeOptions.tvshows, Locations = ["/media/anime"] }
             ]);
 
-        Guid[]? observedGenreAncestors = null;
-        harness.ItemRepository
-            .Setup(r => r.GetGenres(It.IsAny<InternalItemsQuery>()))
-            .Callback<InternalItemsQuery>(q => observedGenreAncestors = q.AncestorIds)
-            .Returns(new QueryResult<(BaseItem, ItemCounts)>([]));
-        harness.ItemRepository
-            .Setup(r => r.GetStudios(It.IsAny<InternalItemsQuery>()))
-            .Returns(new QueryResult<(BaseItem, ItemCounts)>([]));
+        var keep = MakeMovie("Real Film", "/media/movies/real.mkv");
+        var drop = MakeMovieWithGenre("Isekai Clip", "/media/anime/clip.mkv", "Isekai");
+        WireMovies(harness, [keep, drop]);
 
-        WireMovies(harness, [MakeMovie("Real Film", "/media/movies/real.mkv")]);
+        var userId = Guid.NewGuid();
         harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>
             {
                 new()
                 {
-                    UserId = Guid.NewGuid(),
+                    UserId = userId,
                     UserName = "warm",
                     WatchedItems = new Collection<WatchedItemInfo>
                     {
@@ -194,47 +200,13 @@ public sealed class EngineExclusionTests
                 }
             });
 
-        harness.Engine.GetAllRecommendations(10, CancellationToken.None);
+        var results = harness.Engine.GetAllRecommendations(10, CancellationToken.None);
 
-        Assert.NotNull(observedGenreAncestors);
-        Assert.Contains(allowedRootId, observedGenreAncestors!);
-        Assert.DoesNotContain(excludedRootId, observedGenreAncestors!);
-    }
-
-    [Fact]
-    public void GetAllRecommendations_NoExcludedLibraries_LeavesIdfFacetQueryUnrestricted()
-    {
-        // Without an exclusion the facet query must stay unrestricted so the prior is built over the
-        // whole library, matching the behavior before scoping was introduced.
-        var harness = EngineTestFactory.Create();
-
-        bool queryHadAncestors = true;
-        harness.ItemRepository
-            .Setup(r => r.GetGenres(It.IsAny<InternalItemsQuery>()))
-            .Callback<InternalItemsQuery>(q => queryHadAncestors = q.AncestorIds is { Length: > 0 })
-            .Returns(new QueryResult<(BaseItem, ItemCounts)>([]));
-        harness.ItemRepository
-            .Setup(r => r.GetStudios(It.IsAny<InternalItemsQuery>()))
-            .Returns(new QueryResult<(BaseItem, ItemCounts)>([]));
-
-        WireMovies(harness, [MakeMovie("Real Film", "/media/movies/real.mkv")]);
-        harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles())
-            .Returns(new Collection<UserWatchProfile>
-            {
-                new()
-                {
-                    UserId = Guid.NewGuid(),
-                    UserName = "warm",
-                    WatchedItems = new Collection<WatchedItemInfo>
-                    {
-                        new() { ItemId = Guid.NewGuid(), Name = "W", ItemType = "Movie", Played = true, PlayCount = 1, Genres = new List<string> { "Action" } }
-                    }
-                }
-            });
-
-        harness.Engine.GetAllRecommendations(10, CancellationToken.None);
-
-        Assert.False(queryHadAncestors);
+        Assert.NotNull(results);
+        var userResult = results.FirstOrDefault(r => r.UserId == userId);
+        Assert.NotNull(userResult);
+        Assert.Contains(userResult!.Recommendations, r => r.ItemId == keep.Id);
+        Assert.DoesNotContain(userResult.Recommendations, r => r.ItemId == drop.Id);
     }
 
     [Fact]
