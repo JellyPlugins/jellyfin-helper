@@ -112,6 +112,13 @@ export function containerFindCount(dir: string, namePattern?: string): number {
   return Number(res.stdout.trim()) || 0;
 }
 
+/** Absolute paths of files (recursively) under a directory matching an optional glob, sorted. */
+export function containerFind(dir: string, namePattern?: string): string[] {
+  const nameArg = namePattern ? `-name ${q(namePattern)}` : '';
+  const res = execInContainer(`find ${q(dir)} -type f ${nameArg} 2>/dev/null | sort || true`);
+  return res.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
 /** Make a directory (and parents) inside the container. */
 export function containerMkdir(path: string): void {
   execInContainer(`mkdir -p ${q(path)}`);

@@ -21,15 +21,14 @@ namespace Jellyfin.Plugin.JellyfinHelper;
 /// <summary>
 ///     The main plugin.
 /// </summary>
-public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    private readonly IApplicationPaths _applicationPaths;
-    private readonly ILogger<Plugin> _logger;
-
     /// <summary>
-    ///     Serializes the read-modify-write in UpdateIndexHtml.
+    ///     Upper bound on the number of link hops any single path resolution will follow before
+    ///     giving up. Mirrors the typical operating-system SYMLOOP_MAX so a maliciously deep or
+    ///     cyclic chain cannot make resolution run unbounded.
     /// </summary>
-    private readonly object _indexHtmlLock = new();
+    internal const int MaxLinkHops = 40;
 
     /// <summary>
     ///     Data files this plugin persists to DataPath that do <b>not</b> follow the jellyfin-helper-*.json naming convention and therefore would not be matched by the prefix glob in CleanupDataFiles.
@@ -41,30 +40,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         "ensemble_state.json",
         "jellyfin-helper-batch-generation.txt",
     ];
-
-    /// <summary>
-    ///     Matches only the per-user recommendation model/state files this plugin writes
-    ///     (<c>ml_weights_{id:N}.json</c> and <c>ensemble_state_{id:N}.json</c>, where the id is the 32-hex
-    ///     user id). Anchored on the full name so uninstall cleanup deletes exactly these and never an
-    ///     unrelated file that merely shares the stem (for example a user-made <c>ml_weights_backup.json</c>)
-    ///     nor the unsuffixed global files.
-    /// </summary>
-    private static readonly Regex PerUserDataFilePattern =
-        new(
-            @"^(?:ml_weights|ensemble_state)_[0-9a-fA-F]{32}\.json$",
-            RegexOptions.CultureInvariant);
-
-    /// <summary>
-    ///     Guards the "install File Transformation" warning so it is emitted at most once per server start, even though InjectScript runs both from the constructor and again from the startup hosted service (and could be retried).
-    /// </summary>
-    private int _readOnlyWarningEmitted;
-
-    /// <summary>
-    ///     Upper bound on the number of link hops any single path resolution will follow before
-    ///     giving up. Mirrors the typical operating-system SYMLOOP_MAX so a maliciously deep or
-    ///     cyclic chain cannot make resolution run unbounded.
-    /// </summary>
-    internal const int MaxLinkHops = 40;
 
     /// <summary>
     ///     Resolves the link target of a single path component against the real filesystem, returning
@@ -83,6 +58,19 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // the documented bound resting only on the OS ELOOP limit, which differs across platforms.
         return leaf.ResolveLinkTarget(returnFinalTarget: false)?.FullName;
     };
+
+    private readonly IApplicationPaths _applicationPaths;
+    private readonly ILogger<Plugin> _logger;
+
+    /// <summary>
+    ///     Serializes the read-modify-write in UpdateIndexHtml.
+    /// </summary>
+    private readonly object _indexHtmlLock = new();
+
+    /// <summary>
+    ///     Guards the "install File Transformation" warning so it is emitted at most once per server start, even though InjectScript runs both from the constructor and again from the startup hosted service (and could be retried).
+    /// </summary>
+    private int _readOnlyWarningEmitted;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="Plugin" /> class.
@@ -766,16 +754,27 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // Deletes only the per-user recommendation files whose full name matches the id-suffixed shape this plugin
     // writes. A glob like ml_weights_*.json would also sweep up a file that merely shares the stem, so the name
     // is checked against the anchored pattern rather than a wildcard.
+    // Deletes only the per-user recommendation files whose full name matches the id-suffixed shape this plugin
+    // writes. A glob like ml_weights_*.json would also sweep up a file that merely shares the stem, so the name
+    // is checked against the anchored pattern rather than a wildcard.
     private void DeletePerUserDataFiles(string dataPath)
     {
-        foreach (var file in Directory.GetFiles(dataPath))
+        foreach (var file in Directory.GetFiles(dataPath).Where(f => PerUserDataFilePattern().IsMatch(Path.GetFileName(f))))
         {
-            if (PerUserDataFilePattern.IsMatch(Path.GetFileName(file)))
-            {
-                DeleteDataFile(file);
-            }
+            DeleteDataFile(file);
         }
     }
+
+    /// <summary>
+    ///     Matches only the per-user recommendation model/state files this plugin writes
+    ///     (<c>ml_weights_{id:N}.json</c> and <c>ensemble_state_{id:N}.json</c>, where the id is the 32-hex
+    ///     user id). Anchored on the full name so uninstall cleanup deletes exactly these and never an
+    ///     unrelated file that merely shares the stem (for example a user-made <c>ml_weights_backup.json</c>)
+    ///     nor the unsuffixed global files.
+    /// </summary>
+    /// <returns>The compiled regex.</returns>
+    [GeneratedRegex(@"^(?:ml_weights|ensemble_state)_[0-9a-fA-F]{32}\.json$", RegexOptions.CultureInvariant)]
+    private static partial Regex PerUserDataFilePattern();
 
     /// <summary>
     ///     Removes stale atomic-write temp files left in the Jellyfin WebPath by UpdateIndexHtml.

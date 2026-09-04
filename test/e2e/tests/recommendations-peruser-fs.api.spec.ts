@@ -18,15 +18,33 @@ import {
   hasDocker,
   execInContainer,
   containerLs,
+  containerFind,
   readContainerFile,
   containerFileExists,
 } from '../setup/fs-assert.ts';
 
-/** Plugin data folder inside the container (same dir the recommendation cache lives in). */
-const DATA_DIR = '/config/data';
-const GLOBAL_WEIGHTS = `${DATA_DIR}/ml_weights.json`;
-const GLOBAL_NEURAL = `${DATA_DIR}/neural_weights.json`;
-const GLOBAL_STATE = `${DATA_DIR}/ensemble_state.json`;
+/**
+ * The plugin writes its model and blend-state files to Plugin.Instance.DataFolderPath, which is the plugin's
+ * own subfolder under the Jellyfin data directory, not the plain data root the recommendation cache uses. The
+ * exact folder name is a Jellyfin implementation detail, so resolve it by locating a file the plugin actually
+ * writes rather than hardcoding a path that would silently look in the wrong place.
+ */
+let dataDir: string | undefined;
+function resolveDataDir(): string {
+  if (dataDir) {
+    return dataDir;
+  }
+  // The unsuffixed global state file is the most reliable anchor: the ensemble writes it on every training
+  // attempt. Fall back to the learned weights in case a future change reorders which file appears first.
+  for (const name of ['ensemble_state.json', 'ml_weights.json', 'neural_weights.json']) {
+    const hit = containerFind('/config', name).find((f) => !/_[0-9a-f]{32}\.json$/i.test(f));
+    if (hit) {
+      dataDir = hit.slice(0, hit.length - `/${name}`.length);
+      return dataDir;
+    }
+  }
+  throw new Error('could not locate the plugin data folder (no global model file found under /config)');
+}
 
 /** Synthetic user id planted by the prune test. Cleaned up unconditionally so a failed run cannot leak it. */
 const ORPHAN_ID = '00000000000000000000000000000abc';
@@ -92,12 +110,12 @@ async function activateRecommendationsOnly() {
 
 /** Per-user weight files currently on disk (ml_weights_{id}.json). */
 function perUserWeightFiles(): string[] {
-  return containerLs(DATA_DIR).filter((n) => /^ml_weights_[0-9a-f]{32}\.json$/.test(n));
+  return containerLs(resolveDataDir()).filter((n) => /^ml_weights_[0-9a-f]{32}\.json$/.test(n));
 }
 
 /** Per-user state files currently on disk (ensemble_state_{id}.json). */
 function perUserStateFiles(): string[] {
-  return containerLs(DATA_DIR).filter((n) => /^ensemble_state_[0-9a-f]{32}\.json$/.test(n));
+  return containerLs(resolveDataDir()).filter((n) => /^ensemble_state_[0-9a-f]{32}\.json$/.test(n));
 }
 
 test.describe.serial('per-user recommendation model files', () => {
@@ -122,7 +140,7 @@ test.describe.serial('per-user recommendation model files', () => {
   });
 
   test.afterEach(() => {
-    if (!hasDocker()) {
+    if (!hasDocker() || !dataDir) {
       return;
     }
 
@@ -130,7 +148,7 @@ test.describe.serial('per-user recommendation model files', () => {
     // this serial group) would otherwise leave it in place, and the earlier tests read this directory with
     // regexes that match the planted names. Remove it unconditionally so one failure cannot bleed into them.
     try {
-      execInContainer(`rm -f ${DATA_DIR}/ml_weights_${ORPHAN_ID}.json ${DATA_DIR}/ensemble_state_${ORPHAN_ID}.json`);
+      execInContainer(`rm -f ${dataDir}/ml_weights_${ORPHAN_ID}.json ${dataDir}/ensemble_state_${ORPHAN_ID}.json`);
     } catch {
       // Nothing to clean up.
     }
@@ -149,21 +167,25 @@ test.describe.serial('per-user recommendation model files', () => {
     await sleep(1000);
 
     // The ensemble writes its blend state whenever training is attempted, on both the success and the
-    // insufficient-data branch, so with a seeded watch profile driving training this file must exist.
-    expect(containerFileExists(GLOBAL_STATE), 'global ensemble_state.json should exist').toBeTruthy();
+    // insufficient-data branch, so with a seeded watch profile driving training this file must exist. Locate
+    // it by name under /config rather than assuming its directory, since the plugin writes to its own data
+    // subfolder. This also fixes the directory every later test in the group resolves against.
+    const stateHits = containerFind('/config', 'ensemble_state.json').filter((f) => !/_[0-9a-f]{32}\.json$/i.test(f));
+    expect(stateHits.length, 'global ensemble_state.json should exist after training').toBeGreaterThan(0);
 
+    const dir = resolveDataDir();
     // The learned and neural weight files are written only once their own example thresholds are met (learned
     // needs at least twelve pooled examples, the neural MLP at least thirty). The smoke fixture is a couple of
     // users over a handful of playable items, which does not reliably reach those counts, so persistence is
     // legitimately gated rather than guaranteed. When the files do appear their JSON must still be well formed,
     // and neither may be present without the ensemble state that accompanies every trained model.
-    if (containerFileExists(GLOBAL_WEIGHTS)) {
-      const weights = JSON.parse(readContainerFile(GLOBAL_WEIGHTS)) as { Weights?: number[]; Bias?: number };
+    if (containerFileExists(`${dir}/ml_weights.json`)) {
+      const weights = JSON.parse(readContainerFile(`${dir}/ml_weights.json`)) as { Weights?: number[]; Bias?: number };
       expect(Array.isArray(weights.Weights), 'global learned weights must be an array').toBeTruthy();
       expect(typeof weights.Bias, 'global learned bias must be numeric').toBe('number');
     }
-    if (containerFileExists(GLOBAL_NEURAL)) {
-      expect(containerFileExists(GLOBAL_STATE), 'neural weights without ensemble state is inconsistent').toBeTruthy();
+    if (containerFileExists(`${dir}/neural_weights.json`)) {
+      expect(containerFileExists(`${dir}/ensemble_state.json`), 'neural weights without ensemble state is inconsistent').toBeTruthy();
     }
   });
 
@@ -182,12 +204,13 @@ test.describe.serial('per-user recommendation model files', () => {
     );
 
     // Every per-user weight file must pair with an ensemble-state file for the same id.
+    const dir = resolveDataDir();
     const stateFiles = perUserStateFiles();
     for (const wf of weightFiles) {
       const id = wf.slice('ml_weights_'.length, -'.json'.length);
       expect(stateFiles, `state file missing for ${id}`).toContain(`ensemble_state_${id}.json`);
 
-      const weights = JSON.parse(readContainerFile(`${DATA_DIR}/${wf}`)) as {
+      const weights = JSON.parse(readContainerFile(`${dir}/${wf}`)) as {
         Weights?: number[];
         Bias?: number;
         Version?: number;
@@ -196,7 +219,7 @@ test.describe.serial('per-user recommendation model files', () => {
       expect(weights.Weights?.length ?? 0, 'per-user weight vector must be non-empty').toBeGreaterThan(0);
       expect(typeof weights.Bias, 'per-user bias must be numeric').toBe('number');
 
-      const state = JSON.parse(readContainerFile(`${DATA_DIR}/ensemble_state_${id}.json`)) as {
+      const state = JSON.parse(readContainerFile(`${dir}/ensemble_state_${id}.json`)) as {
         Alpha?: number;
         NeuralBeta?: number;
         TrainingExampleCount?: number;
@@ -216,8 +239,9 @@ test.describe.serial('per-user recommendation model files', () => {
     const before = perUserStateFiles();
     test.skip(before.length === 0, 'no per-user model on this library - two-run evolution assertion would be vacuous');
 
+    const dir = resolveDataDir();
     const firstId = before[0].slice('ensemble_state_'.length, -'.json'.length);
-    const firstCount = (JSON.parse(readContainerFile(`${DATA_DIR}/ensemble_state_${firstId}.json`)) as {
+    const firstCount = (JSON.parse(readContainerFile(`${dir}/ensemble_state_${firstId}.json`)) as {
       TrainingExampleCount?: number;
     }).TrainingExampleCount ?? 0;
 
@@ -225,7 +249,7 @@ test.describe.serial('per-user recommendation model files', () => {
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
 
-    const secondCount = (JSON.parse(readContainerFile(`${DATA_DIR}/ensemble_state_${firstId}.json`)) as {
+    const secondCount = (JSON.parse(readContainerFile(`${dir}/ensemble_state_${firstId}.json`)) as {
       TrainingExampleCount?: number;
     }).TrainingExampleCount ?? 0;
 
@@ -241,17 +265,18 @@ test.describe.serial('per-user recommendation model files', () => {
     const existing = perUserWeightFiles();
     test.skip(existing.length === 0, 'no per-user model on this library - prune assertion would be vacuous');
 
+    const dir = resolveDataDir();
     // Plant a per-user file for a synthetic user id that is NOT in the live user list. Copying an existing
     // per-user file keeps the JSON valid; the id in the filename is what PruneOrphans reconciles against.
-    const orphanWeights = `${DATA_DIR}/ml_weights_${ORPHAN_ID}.json`;
-    const orphanState = `${DATA_DIR}/ensemble_state_${ORPHAN_ID}.json`;
+    const orphanWeights = `${dir}/ml_weights_${ORPHAN_ID}.json`;
+    const orphanState = `${dir}/ensemble_state_${ORPHAN_ID}.json`;
     const sample = existing[0];
-    execInContainer(`cp ${DATA_DIR}/${sample} ${orphanWeights}`);
+    execInContainer(`cp ${dir}/${sample} ${orphanWeights}`);
     // A per-user weight file always pairs with a state file, so require it here rather than skipping the copy.
     // Otherwise the state-pruned assertion below could pass simply because the file was never planted.
     const sampleState = perUserStateFiles()[0];
     expect(sampleState, 'a per-user state file must exist to plant an orphan state').toBeTruthy();
-    execInContainer(`cp ${DATA_DIR}/${sampleState} ${orphanState}`);
+    execInContainer(`cp ${dir}/${sampleState} ${orphanState}`);
     expect(containerFileExists(orphanWeights), 'planted orphan weights file should exist').toBeTruthy();
     expect(containerFileExists(orphanState), 'planted orphan state file should exist').toBeTruthy();
 
@@ -261,8 +286,8 @@ test.describe.serial('per-user recommendation model files', () => {
 
     expect(containerFileExists(orphanWeights), 'orphan per-user weights must be pruned').toBeFalsy();
     expect(containerFileExists(orphanState), 'orphan per-user state must be pruned').toBeFalsy();
-    // The global model files are never pruned.
-    expect(containerFileExists(GLOBAL_WEIGHTS), 'global ml_weights.json must survive pruning').toBeTruthy();
-    expect(containerFileExists(GLOBAL_STATE), 'global ensemble_state.json must survive pruning').toBeTruthy();
+    // The global blend state is never pruned. It is written on every training attempt, so unlike the
+    // threshold-gated learned weights it is always present to assert against.
+    expect(containerFileExists(`${dir}/ensemble_state.json`), 'global ensemble_state.json must survive pruning').toBeTruthy();
   });
 });
