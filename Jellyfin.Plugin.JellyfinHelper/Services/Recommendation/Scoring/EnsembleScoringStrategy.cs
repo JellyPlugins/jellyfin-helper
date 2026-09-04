@@ -86,6 +86,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal const double NeuralMaxBetaFraction = 0.4;
 
     /// <summary>
+    ///     Starting neural fraction for a per-user model the moment its own example count clears
+    ///     <see cref="NeuralActivationThreshold"/>. Unlike the global ramp (which starts at 0 and climbs),
+    ///     a data-rich per-user model gets an immediate small contribution so the shared MLP has a real say
+    ///     without ever overwhelming the user's own learned weights, then grows toward the shared cap.
+    /// </summary>
+    internal const double NeuralPerUserBetaFloor = 0.12;
+
+    /// <summary>
     ///     Minimum neural beta below which the neural strategy is deactivated. Prevents infinitesimal floating-point ghost values from keeping the neural path active with no meaningful contribution.
     /// </summary>
     internal const double NeuralBetaMinFloor = 0.01;
@@ -646,7 +654,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
                 UpdateAlphaFromQualityGate(qualityGatePassed, validationLoss, sigmoidAlpha);
 
-                UpdateNeuralBeta(neuralTrained);
+                UpdateNeuralBeta(neuralTrained, examples.Count);
 
                 RecordMetricsSnapshot(validationLoss, examples.Count);
 
@@ -723,8 +731,20 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Updates the neural blending factor β via the activation ramp / decay logic. Caller must hold _syncRoot.
     /// </summary>
-    private void UpdateNeuralBeta(bool neuralTrained)
+    private void UpdateNeuralBeta(bool neuralTrained, int examplesThisRound)
     {
+        // A per-user ensemble (ownsNeural:false) never fits the shared MLP, so it cannot judge the MLP from
+        // its own training. It instead doses the globally-trained-and-validated MLP by its OWN example count:
+        // the MLP carries only universal non-linearities (no per-user taste), so the global validation is a
+        // valid statement about its quality, while how much to blend scales with this user's data maturity.
+        // Basing the ramp on the per-run count (not the accumulated total) is what keeps a data-poor user,
+        // whose count never reaches the threshold, from ever activating neural.
+        if (!_ownsNeural)
+        {
+            UpdatePerUserNeuralBeta(examplesThisRound);
+            return;
+        }
+
         // Update neural beta: blend neural in after NeuralActivationThreshold using a sigmoid ramp from 0 to NeuralMaxBetaFraction.
         if (_neural is not null && neuralTrained && _trainingExampleCount >= NeuralActivationThreshold)
         {
@@ -766,8 +786,47 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
+    ///     Doses the shared MLP for a per-user model from that user's own example count. Below the activation
+    ///     threshold the MLP stays off; at or above it, beta starts at a small floor (so a data-rich user gets
+    ///     an immediate but modest neural say) and ramps toward the shared cap over the next 100 examples.
+    ///     Gated on the GLOBAL MLP's validation quality, since the per-user model never trains the MLP itself.
+    ///     Caller must hold _syncRoot.
+    /// </summary>
+    /// <param name="userExampleCount">This user's own example count for the current run (n_u), not the accumulated total.</param>
+    private void UpdatePerUserNeuralBeta(int userExampleCount)
+    {
+        if (_neural is null || userExampleCount < NeuralActivationThreshold)
+        {
+            // Data-poor user: the MLP would add noise, not signal. Keep it fully out.
+            _neuralBeta = 0.0;
+            return;
+        }
+
+        var neuralValidationLoss = _neural.LastValidationLoss;
+        var globalNeuralQualityOk = !double.IsNaN(neuralValidationLoss)
+                                    && neuralValidationLoss <= ValidationLossThreshold;
+
+        if (!globalNeuralQualityOk)
+        {
+            // The globally trained MLP is not generalizing, so it earns no per-user contribution this round.
+            _neuralBeta = 0.0;
+            return;
+        }
+
+        // Start at the floor the moment the user clears the threshold, then climb to the cap over 100 more
+        // examples. The cap keeps the user's own learned weights and the heuristic dominant.
+        var progress = Math.Clamp(
+            (userExampleCount - NeuralActivationThreshold) / 100.0,
+            0.0,
+            1.0);
+        _neuralBeta = NeuralPerUserBetaFloor + ((NeuralMaxBetaFraction - NeuralPerUserBetaFloor) * progress);
+    }
+
+    /// <summary>
     ///     Appends a real (successful-training) metrics snapshot and trims history. Caller must hold _syncRoot.
     /// </summary>
+    /// <param name="validationLoss">The held-out validation loss for this training round.</param>
+    /// <param name="exampleCount">The number of examples this training round saw.</param>
     private void RecordMetricsSnapshot(double validationLoss, int exampleCount)
     {
         // Record metrics snapshot and analyze trend BEFORE saving state,
@@ -1233,7 +1292,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // Cap to the current ramp ceiling so that a state persisted under an older
             // (lower) NeuralActivationThreshold cannot overshoot the beta value the live
             // ramp would produce at the same example count after a threshold increase.
-            if (_neural is not null
+            if (!_ownsNeural)
+            {
+                // A per-user model's persisted TrainingExampleCount is the accumulated total, not this user's
+                // per-run count, so it cannot gate the restore. Accept any in-range persisted beta as-is; the
+                // next training run recomputes it from the real per-user example count via UpdatePerUserNeuralBeta.
+                _neuralBeta = data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction ? data.NeuralBeta : 0.0;
+            }
+            else if (_neural is not null
                 && data.TrainingExampleCount >= NeuralActivationThreshold
                 && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
             {

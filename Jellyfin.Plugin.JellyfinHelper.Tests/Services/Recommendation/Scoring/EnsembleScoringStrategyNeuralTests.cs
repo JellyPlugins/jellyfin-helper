@@ -102,6 +102,60 @@ public sealed class EnsembleScoringStrategyNeuralTests
     }
 
     [Fact]
+    public void Train_OwnsNeuralFalse_DataPoorUser_NeverActivatesNeural()
+    {
+        // A per-user ensemble borrows the shared MLP (ownsNeural:false) and never fits it (trainNeural:false).
+        // With per-run counts below the activation threshold, the MLP would add noise not signal, so beta must
+        // stay at zero however many rounds run. The per-run count is what gates this, not the accumulated total.
+        var shared = new NeuralScoringStrategy();
+        Assert.True(((ITrainableStrategy)shared).Train(CleanExamples(160)));
+
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
+
+        // 40 examples per round: accumulated count climbs past 150 over rounds, but no single run reaches it.
+        for (var round = 0; round < 15; round++)
+        {
+            Assert.True(perUser.Train(CleanExamples(40), heldOutForMetrics: null, trainNeural: false));
+            Assert.Equal(0.0, perUser.CurrentNeuralBeta);
+        }
+
+        Assert.True(perUser.TrainingExampleCount >= EnsembleScoringStrategy.NeuralActivationThreshold,
+            "The accumulated count must have crossed the threshold, proving the per-run count is what gates beta.");
+        Assert.Equal(0.0, perUser.CurrentNeuralBeta);
+
+        shared.Dispose();
+    }
+
+    [Fact]
+    public void Train_OwnsNeuralFalse_DataRichUser_ActivatesNeuralFromFloorAndRamps()
+    {
+        // A data-rich per-user user (per-run count over the threshold) gets the globally-validated MLP dosed
+        // in, starting at the per-user floor rather than zero, then climbing toward the shared cap with more
+        // of the user's own data. It never overwhelms the learned weights (stays at or below the cap).
+        var shared = new NeuralScoringStrategy();
+        Assert.True(((ITrainableStrategy)shared).Train(CleanExamples(200)));
+
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
+
+        // Exactly at the threshold: beta starts at the floor (not zero), the immediate small contribution.
+        Assert.True(perUser.Train(CleanExamples(150), heldOutForMetrics: null, trainNeural: false));
+        var betaAtThreshold = perUser.CurrentNeuralBeta;
+        Assert.Equal(EnsembleScoringStrategy.NeuralPerUserBetaFloor, betaAtThreshold, 6);
+
+        // Well past the threshold: beta has ramped up, still capped by the shared maximum.
+        Assert.True(perUser.Train(CleanExamples(260), heldOutForMetrics: null, trainNeural: false));
+        var betaHigh = perUser.CurrentNeuralBeta;
+        Assert.True(betaHigh > betaAtThreshold, $"Beta must ramp with more data: {betaAtThreshold:F4} -> {betaHigh:F4}");
+        Assert.InRange(betaHigh, EnsembleScoringStrategy.NeuralPerUserBetaFloor, EnsembleScoringStrategy.NeuralMaxBetaFraction);
+
+        shared.Dispose();
+    }
+
+    [Fact]
     public void Dispose_WithNeuralStrategy_DisposesNeural()
     {
         var neural = new NeuralScoringStrategy();

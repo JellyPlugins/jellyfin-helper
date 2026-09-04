@@ -161,33 +161,54 @@ function loadEnsembleDiagnostics(userId) {
     });
 }
 
-function ensembleYesNo(b) {
-    return b ? T('recsYes', 'Yes') : T('recsNo', 'No');
-}
-
 function renderEnsembleDiagnostics(host, data) {
     if (!data || data.Available === false) {
         host.innerHTML = '';
         return;
     }
-    var fmt = function (n) { return (typeof n === 'number') ? n.toFixed(2) : escHtml(String(n)); };
-    // Compact one-line model-state footnote for the selected user.
-    var parts = [
-        T('recsEnsembleAlpha', 'Alpha (\u03B1)') + ' ' + fmt(data.Alpha),
-        T('recsEnsembleNeuralBeta', 'Neural (\u03B2)') + ' ' + fmt(data.NeuralBeta),
-        T('recsEnsembleTrend', 'Trend') + ' ' + escHtml(String(data.Trend || '')),
-        T('recsEnsembleExamples', 'Training examples') + ' ' + escHtml(String(data.TrainingExampleCount)),
-        T('recsEnsembleNeuralEnabled', 'Neural enabled') + ' ' + escHtml(ensembleYesNo(data.NeuralEnabled))
-    ];
+
+    // Turn the raw blend factors into the three shares an admin can actually read. The score blends
+    // ML against the heuristic by alpha, and within the ML part the neural engine takes the fraction beta:
+    //   heuristic = 1 - alpha, machine learning = alpha * (1 - beta), neural = alpha * beta.
+    var alpha = (typeof data.Alpha === 'number') ? data.Alpha : 0;
+    var beta = (typeof data.NeuralBeta === 'number') ? data.NeuralBeta : 0;
+    var pct = function (x) { return Math.round(Math.max(0, Math.min(1, x)) * 100) + '%'; };
+
+    var heuristicShare = 1 - alpha;
+    var mlShare = alpha * (1 - beta);
+    var neuralShare = alpha * beta;
+
+    // The neural engine is only part of the mix when it was built for this model and actually dosed in.
+    var neuralActive = data.NeuralEnabled && neuralShare > 0.0005;
+    var neuralText = neuralActive
+        ? T('recsEnsembleNeural', 'Neural Engine') + ' ' + pct(neuralShare)
+        : T('recsEnsembleNeural', 'Neural Engine') + ' ' + T('recsEnsembleOff', 'off');
+
+    var composition = [
+        T('recsEnsembleHeuristic', 'Heuristic') + ' ' + pct(heuristicShare),
+        T('recsEnsembleMl', 'Machine Learning') + ' ' + pct(mlShare),
+        neuralText
+    ].join(' \u00B7 ');
+
     var label;
     if (data.IsPerUser && data.UserName) {
-        // "Recommendation model for {name}:" - the model is individually trained for this user.
-        label = T('recsEnsembleNotePerUser', 'Recommendation model for {0}:').replace('{0}', escHtml(String(data.UserName)));
+        // "Recommendation strategy for {name}:" - individually trained for this user.
+        label = T('recsEnsembleStrategyPerUser', 'Recommendation strategy for {0}:').replace('{0}', escHtml(String(data.UserName)));
     } else {
         // Cold-start / below threshold: this user still scores on the shared global model.
-        label = escHtml(T('recsEnsembleNoteGlobalFallback', 'Global recommendation model (this user has no individual model yet):'));
+        label = escHtml(T('recsEnsembleStrategyGlobal', 'Global recommendation strategy (this user has no individual model yet):'));
     }
-    host.innerHTML = label + ' ' + parts.join(' \u00B7 ');
+
+    // Second line: the plain-language maturity status, not the raw sigmoid internals.
+    var status = data.QualityGateFrozen
+        ? T('recsEnsembleStatusFrozen', 'frozen')
+        : escHtml(String(data.Trend || ''));
+    var summary = T('recsEnsembleTrainedOn', 'Trained on {0} examples').replace('{0}', escHtml(String(data.TrainingExampleCount)))
+        + ' \u00B7 ' + T('recsEnsembleStatus', 'Status') + ' ' + status;
+
+    host.innerHTML =
+        '<div class="recs-ensemble-line">' + label + ' ' + composition + '</div>' +
+        '<div class="recs-ensemble-line recs-ensemble-status">' + summary + '</div>';
 }
 
 function renderUserRecommendations(index) {

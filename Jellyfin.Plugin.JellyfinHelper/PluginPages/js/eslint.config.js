@@ -261,7 +261,6 @@ const sharedModuleGlobals = {
     toggleCollapsible: 'writable',
     _ensembleDiagCache: 'writable',
     loadEnsembleDiagnostics: 'writable',
-    ensembleYesNo: 'writable',
     renderEnsembleDiagnostics: 'writable',
     renderUserRecommendations: 'writable',
     renderRecommendationCard: 'writable',
