@@ -156,6 +156,31 @@ public sealed class EnsembleScoringStrategyNeuralTests
     }
 
     [Fact]
+    public void Train_OwnsNeuralFalse_UserCountDips_BetaDoesNotFallBack()
+    {
+        // Once a data-rich user's neural contribution has ramped up, a later run where their own count is
+        // lower (but still above the threshold) must not yank beta back down. The dosing tracks the high-water
+        // mark, so the footnote percentage does not flicker when a user's per-run example count fluctuates.
+        var shared = new NeuralScoringStrategy();
+        Assert.True(((ITrainableStrategy)shared).Train(CleanExamples(200)));
+
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
+
+        // A rich run drives beta to the cap.
+        Assert.True(perUser.Train(CleanExamples(260), heldOutForMetrics: null, trainNeural: false));
+        var betaHigh = perUser.CurrentNeuralBeta;
+        Assert.Equal(EnsembleScoringStrategy.NeuralMaxBetaFraction, betaHigh, 6);
+
+        // A leaner run, still above the threshold, whose bare ramp target would sit well below the cap.
+        Assert.True(perUser.Train(CleanExamples(160), heldOutForMetrics: null, trainNeural: false));
+        Assert.Equal(betaHigh, perUser.CurrentNeuralBeta, 6);
+
+        shared.Dispose();
+    }
+
+    [Fact]
     public void Dispose_WithNeuralStrategy_DisposesNeural()
     {
         var neural = new NeuralScoringStrategy();

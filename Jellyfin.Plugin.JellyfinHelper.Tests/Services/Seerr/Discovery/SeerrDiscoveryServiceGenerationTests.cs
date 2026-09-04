@@ -90,12 +90,21 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         _libraryManager = libraryManager;
 
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            ensemble,
+            null,
+            null,
+            EnsembleScoringStrategy.DefaultAlphaMin,
+            EnsembleScoringStrategy.DefaultAlphaMax,
+            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            pluginLog.Object);
+
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             _history.Object,
             _arr.Object,
             libraryManager.Object,
-            ensemble,
+            perUserRegistry,
             _cache,
             _feedbackStore.Object,
             pluginLog.Object,

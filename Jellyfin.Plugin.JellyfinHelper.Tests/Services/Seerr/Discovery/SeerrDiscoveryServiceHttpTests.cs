@@ -63,12 +63,21 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         _cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object);
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
 
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            ensemble,
+            null,
+            null,
+            EnsembleScoringStrategy.DefaultAlphaMin,
+            EnsembleScoringStrategy.DefaultAlphaMax,
+            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            pluginLog.Object);
+
         _sut = new SeerrDiscoveryService(
             _httpFactoryMock.Object,
             history.Object,
             arr.Object,
             libraryManager.Object,
-            ensemble,
+            perUserRegistry,
             _cache,
             feedbackStore.Object,
             pluginLog.Object,

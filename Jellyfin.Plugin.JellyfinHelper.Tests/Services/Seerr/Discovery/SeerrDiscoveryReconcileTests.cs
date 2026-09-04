@@ -72,12 +72,21 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
         var libraryManager = TestMockFactory.CreateLibraryManager();
         libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
 
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            _ensemble,
+            null,
+            null,
+            EnsembleScoringStrategy.DefaultAlphaMin,
+            EnsembleScoringStrategy.DefaultAlphaMax,
+            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            pluginLog.Object);
+
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             new Mock<IWatchHistoryService>().Object,
             new Mock<IArrIntegrationService>().Object,
             libraryManager.Object,
-            _ensemble,
+            perUserRegistry,
             _cache,
             _feedbackStore,
             pluginLog.Object,

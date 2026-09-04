@@ -118,7 +118,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
     private readonly ILibraryManager _libraryManager;
-    private readonly EnsembleScoringStrategy _ensemble;
+    private readonly IPerUserEnsembleRegistry _perUserRegistry;
     private readonly DiscoveryCacheService _cache;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
     private readonly IPluginLogService _pluginLog;
@@ -142,7 +142,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="arrIntegration">The Arr integration service.</param>
     /// <param name="libraryManager">The Jellyfin library manager, used to exclude titles already in the library.</param>
-    /// <param name="ensemble">The ensemble scoring strategy (combines heuristic + learned + neural).</param>
+    /// <param name="perUserRegistry">The per-user ensemble registry, so discovery scores each user's candidates with that user's own blend, matching how recommendations are scored.</param>
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="pluginLog">The plugin log service.</param>
@@ -152,7 +152,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IWatchHistoryService watchHistoryService,
         IArrIntegrationService arrIntegration,
         ILibraryManager libraryManager,
-        EnsembleScoringStrategy ensemble,
+        IPerUserEnsembleRegistry perUserRegistry,
         DiscoveryCacheService cache,
         IDiscoveryFeedbackStore feedbackStore,
         IPluginLogService pluginLog,
@@ -162,7 +162,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(watchHistoryService);
         ArgumentNullException.ThrowIfNull(arrIntegration);
         ArgumentNullException.ThrowIfNull(libraryManager);
-        ArgumentNullException.ThrowIfNull(ensemble);
+        ArgumentNullException.ThrowIfNull(perUserRegistry);
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(feedbackStore);
         ArgumentNullException.ThrowIfNull(pluginLog);
@@ -172,7 +172,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _watchHistoryService = watchHistoryService;
         _arrIntegration = arrIntegration;
         _libraryManager = libraryManager;
-        _ensemble = ensemble;
+        _perUserRegistry = perUserRegistry;
         _cache = cache;
         _feedbackStore = feedbackStore;
         _pluginLog = pluginLog;
@@ -1719,10 +1719,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
             _logger);
 
-        // Persisted training-set means so the features we cannot compute for a TMDb candidate are imputed
-        // to the distribution the model was trained on (matches DiscoveryFeedbackExampleBuilder). Snapshot
-        // once per user; null on a cold model keeps the legacy neutral constants.
-        var featureMeans = _ensemble.LearnedStrategy.GetFeatureMeans();
+        // The user's own ensemble (per-user blend when they have enough history, else the global fallback),
+        // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
+        // once per user and read the feature means from the SAME model that scores, so the features we impute
+        // for a TMDb candidate match the distribution that model was trained on.
+        var userStrategy = _perUserRegistry.GetScoringStrategyForUser(profile.UserId);
+        var featureMeans = _perUserRegistry.GetEnsembleForUser(profile.UserId).LearnedStrategy.GetFeatureMeans();
 
         // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(uniqueCandidates.Count);
@@ -1730,7 +1732,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var features = ExternalCandidateFeatureBuilder.Build(
                 candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
-            var score = _ensemble.Score(features);
+            var score = userStrategy.Score(features);
             preScored.Add((candidate, score));
         }
 
@@ -1761,7 +1763,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var features = ExternalCandidateFeatureBuilder.Build(
                 candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
-            var score = _ensemble.Score(features);
+            var score = userStrategy.Score(features);
             scored.Add((candidate, features, score));
         }
 

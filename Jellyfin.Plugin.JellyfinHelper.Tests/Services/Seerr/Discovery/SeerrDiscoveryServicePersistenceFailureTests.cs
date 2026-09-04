@@ -86,12 +86,20 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
     {
         var libraryManager = TestMockFactory.CreateLibraryManager();
         libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            _ensemble,
+            null,
+            null,
+            EnsembleScoringStrategy.DefaultAlphaMin,
+            EnsembleScoringStrategy.DefaultAlphaMax,
+            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            _pluginLog.Object);
         return new(
             _httpFactory.Object,
             _history.Object,
             _arr.Object,
             libraryManager.Object,
-            _ensemble,
+            perUserRegistry,
             cache,
             _feedbackStore.Object,
             _pluginLog.Object,
@@ -260,8 +268,17 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             var libraryManager = TestMockFactory.CreateLibraryManager();
             libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
 
+            var perUserRegistry = new PerUserEnsembleRegistry(
+                _ensemble,
+                null,
+                null,
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+                _pluginLog.Object);
+
             var svc = new SeerrDiscoveryService(
-                factory.Object, _history.Object, _arr.Object, libraryManager.Object, _ensemble, cache,
+                factory.Object, _history.Object, _arr.Object, libraryManager.Object, perUserRegistry, cache,
                 _feedbackStore.Object, _pluginLog.Object,
                 new Mock<ILogger<SeerrDiscoveryService>>().Object);
 

@@ -86,12 +86,21 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         var pluginLog = new Mock<IPluginLogService>();
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
 
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            ensemble,
+            null,
+            null,
+            EnsembleScoringStrategy.DefaultAlphaMin,
+            EnsembleScoringStrategy.DefaultAlphaMax,
+            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            pluginLog.Object);
+
         return new SeerrDiscoveryService(
             httpFactoryMock.Object,
             history.Object,
             arr.Object,
             libraryManager.Object,
-            ensemble,
+            perUserRegistry,
             _cache,
             feedbackStore.Object,
             pluginLog.Object,

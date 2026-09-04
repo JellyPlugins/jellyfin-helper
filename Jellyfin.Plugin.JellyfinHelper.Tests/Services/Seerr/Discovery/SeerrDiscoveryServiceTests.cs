@@ -36,9 +36,17 @@ public class SeerrDiscoveryServiceTests
         var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: Path.GetTempFileName());
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         var logger = new Mock<ILogger<SeerrDiscoveryService>>();
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            ensemble,
+            null,
+            null,
+            EnsembleScoringStrategy.DefaultAlphaMin,
+            EnsembleScoringStrategy.DefaultAlphaMax,
+            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            pluginLog.Object);
         return new SeerrDiscoveryService(
             factory.Object, history.Object, arr.Object, libraryManager.Object,
-            ensemble, cache, feedbackStore.Object, pluginLog.Object, logger.Object);
+            perUserRegistry, cache, feedbackStore.Object, pluginLog.Object, logger.Object);
     }
 
     [Fact]

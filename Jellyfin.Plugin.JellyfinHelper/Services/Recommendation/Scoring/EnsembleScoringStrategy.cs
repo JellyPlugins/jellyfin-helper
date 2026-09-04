@@ -786,11 +786,15 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
-    ///     Doses the shared MLP for a per-user model from that user's own example count. Below the activation
-    ///     threshold the MLP stays off; at or above it, beta starts at a small floor (so a data-rich user gets
-    ///     an immediate but modest neural say) and ramps toward the shared cap over the next 100 examples.
-    ///     Gated on the GLOBAL MLP's validation quality, since the per-user model never trains the MLP itself.
-    ///     Caller must hold _syncRoot.
+    ///     Doses the shared MLP for a per-user model from that user's own example count, mirroring how the
+    ///     global path in <see cref="UpdateNeuralBeta"/> nudges beta rather than reassigning it. Below the
+    ///     activation threshold the MLP stays fully off. At or above it the target is a floor (so a data-rich
+    ///     user gets an immediate but modest neural say) ramping toward the shared cap over the next 100
+    ///     examples, and beta only ever climbs toward that target, so a run where this user's count dips does
+    ///     not yank the contribution back down. When the globally trained MLP is not generalizing this round,
+    ///     beta is halved rather than reset, so one transient bad global loss does not blank out a user's
+    ///     neural say only to snap it back next run. Gated on the GLOBAL MLP's validation quality, since the
+    ///     per-user model never trains the MLP itself. Caller must hold _syncRoot.
     /// </summary>
     /// <param name="userExampleCount">This user's own example count for the current run (n_u), not the accumulated total.</param>
     private void UpdatePerUserNeuralBeta(int userExampleCount)
@@ -808,18 +812,26 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         if (!globalNeuralQualityOk)
         {
-            // The globally trained MLP is not generalizing, so it earns no per-user contribution this round.
-            _neuralBeta = 0.0;
+            // The globally trained MLP is not generalizing this round. Decay toward zero the same way the
+            // global path does, so a single bad run only dampens the contribution instead of erasing it.
+            _neuralBeta *= 0.5;
+            if (_neuralBeta < NeuralPerUserBetaFloor)
+            {
+                _neuralBeta = 0.0;
+            }
+
             return;
         }
 
-        // Start at the floor the moment the user clears the threshold, then climb to the cap over 100 more
-        // examples. The cap keeps the user's own learned weights and the heuristic dominant.
+        // Target: the floor the moment the user clears the threshold, climbing to the cap over 100 more
+        // examples. The cap keeps the user's own learned weights and the heuristic dominant. Take the max so
+        // beta rises toward the target but never drops on a run where n_u happens to be lower.
         var progress = Math.Clamp(
             (userExampleCount - NeuralActivationThreshold) / 100.0,
             0.0,
             1.0);
-        _neuralBeta = NeuralPerUserBetaFloor + ((NeuralMaxBetaFraction - NeuralPerUserBetaFloor) * progress);
+        var rampTarget = NeuralPerUserBetaFloor + ((NeuralMaxBetaFraction - NeuralPerUserBetaFloor) * progress);
+        _neuralBeta = Math.Max(_neuralBeta, rampTarget);
     }
 
     /// <summary>
