@@ -1308,35 +1308,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // Cap to the current ramp ceiling so that a state persisted under an older
             // (lower) NeuralActivationThreshold cannot overshoot the beta value the live
             // ramp would produce at the same example count after a threshold increase.
-            if (!_ownsNeural)
+            if (RestoreNeuralBeta(data) is { } restoredBeta)
             {
-                // A per-user model's persisted TrainingExampleCount is the accumulated total, not this user's
-                // per-run count, so it cannot gate the restore. Accept any in-range persisted beta as-is; the
-                // next training run recomputes it from the real per-user example count via UpdatePerUserNeuralBeta.
-                _neuralBeta = data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction ? data.NeuralBeta : 0.0;
-            }
-            else if (_neural is not null
-                && data.TrainingExampleCount >= NeuralActivationThreshold
-                && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
-            {
-                var rampCeiling = NeuralMaxBetaFraction * Math.Clamp(
-                    (data.TrainingExampleCount - NeuralActivationThreshold) / 100.0,
-                    0.0,
-                    1.0);
-                _neuralBeta = Math.Min(data.NeuralBeta, rampCeiling);
-            }
-            else if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
-            {
-                _neuralBeta = 0.0;
-            }
-            else if (_neural is not null && data.NeuralBeta > NeuralMaxBetaFraction &&
-                     _logger is not null && _logger.IsEnabled(LogLevel.Information))
-            {
-                // A persisted NeuralBeta above the current ceiling usually means the ceiling was lowered in an update.
-                _logger.LogInformation(
-                    "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
-                    data.NeuralBeta,
-                    NeuralMaxBetaFraction);
+                _neuralBeta = restoredBeta;
             }
 
             // Restore adaptive sigmoid midpoint offset (clamped to valid range).
@@ -1350,6 +1324,56 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 _metricsHistory = new List<MetricsSnapshot>(data.MetricsHistory);
             }
         }
+    }
+
+    /// <summary>
+    ///     Resolves the neural beta to restore from persisted state, or null to leave the current value
+    ///     untouched. A persisted beta above the current ceiling is discarded (and logged) so the ramp
+    ///     restarts from zero rather than overshooting after the ceiling was lowered in an update.
+    /// </summary>
+    /// <param name="data">The validated persisted ensemble state.</param>
+    /// <returns>The beta to assign, or null to keep the current beta.</returns>
+    private double? RestoreNeuralBeta(EnsembleStateData data)
+    {
+        if (!_ownsNeural)
+        {
+            // A per-user model's persisted TrainingExampleCount is the accumulated total, not this user's
+            // per-run count, so it cannot gate the restore. Accept any in-range persisted beta as-is; the
+            // next training run recomputes it from the real per-user example count via UpdatePerUserNeuralBeta.
+            return data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction ? data.NeuralBeta : 0.0;
+        }
+
+        if (_neural is null)
+        {
+            return null;
+        }
+
+        if (data.TrainingExampleCount >= NeuralActivationThreshold
+            && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
+        {
+            var rampCeiling = NeuralMaxBetaFraction * Math.Clamp(
+                (data.TrainingExampleCount - NeuralActivationThreshold) / 100.0,
+                0.0,
+                1.0);
+            return Math.Min(data.NeuralBeta, rampCeiling);
+        }
+
+        if (data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
+        {
+            return 0.0;
+        }
+
+        if (data.NeuralBeta > NeuralMaxBetaFraction &&
+            _logger is not null && _logger.IsEnabled(LogLevel.Information))
+        {
+            // A persisted NeuralBeta above the current ceiling usually means the ceiling was lowered in an update.
+            _logger.LogInformation(
+                "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
+                data.NeuralBeta,
+                NeuralMaxBetaFraction);
+        }
+
+        return null;
     }
 
     /// <summary>

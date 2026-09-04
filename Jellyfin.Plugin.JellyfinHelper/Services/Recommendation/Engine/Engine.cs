@@ -703,7 +703,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <returns>The per-item studios, tags and BoxSet id maps, keyed by item id.</returns>
     /// <param name="movies">The allowed movies, already loaded by the caller.</param>
     /// <param name="series">The allowed series, already loaded by the caller.</param>
-    private Training.LibraryItemMetadata BuildLibraryItemMetadata(
+    private static Training.LibraryItemMetadata BuildLibraryItemMetadata(
         IReadOnlyList<BaseItem> movies,
         IReadOnlyList<BaseItem> series)
     {
@@ -1760,46 +1760,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var rawIdf = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
             var maxIdf = 0.0;
 
-            // Accumulate document frequencies for one facet, then fold its per-term IDF into the shared
-            // table. N is the count of distinct terms in the facet and df the number of items carrying a
-            // term, matching the repository facet's original IDF definition.
-            void Accumulate(Func<BaseItem, IReadOnlyList<string>?> termsOf)
+            // Fold each facet's per-term IDF into the shared table. Keep the higher IDF when a term appears in
+            // both facets (defensive; keys rarely collide) and track the running maximum for normalization.
+            foreach (var facet in new[] { ComputeFacetIdf(items, static item => item.Genres), ComputeFacetIdf(items, static item => item.Studios) })
             {
-                var documentFrequency = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (var item in items)
+                foreach (var (name, idf) in facet)
                 {
-                    if (termsOf(item) is not { Count: > 0 } terms)
-                    {
-                        continue;
-                    }
-
-                    // A term counts once per item even if it repeats, so df stays a document frequency.
-                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var term in terms)
-                    {
-                        if (!string.IsNullOrWhiteSpace(term) && seen.Add(term))
-                        {
-                            documentFrequency[term] = documentFrequency.GetValueOrDefault(term) + 1;
-                        }
-                    }
-                }
-
-                var n = documentFrequency.Count;
-                if (n == 0)
-                {
-                    return;
-                }
-
-                foreach (var (name, df) in documentFrequency)
-                {
-                    // add-one smoothing on the document frequency -> never log(N/0); df>=0 always.
-                    var idf = Math.Log((double)(n + 1) / (df + 1));
-                    if (!double.IsFinite(idf) || idf < 0.0)
-                    {
-                        idf = 0.0;
-                    }
-
-                    // Keep the higher IDF if a term appears in both facets (defensive; keys rarely collide).
                     if (!rawIdf.TryGetValue(name, out var existing) || idf > existing)
                     {
                         rawIdf[name] = idf;
@@ -1811,9 +1777,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     }
                 }
             }
-
-            Accumulate(static item => item.Genres);
-            Accumulate(static item => item.Studios);
 
             if (rawIdf.Count == 0 || maxIdf <= 0.0)
             {
@@ -1836,6 +1799,59 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 logger: _logger);
             return new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         }
+    }
+
+    /// <summary>
+    ///     Computes the per-term IDF for one facet (genres or studios) over the candidate items. N is the count
+    ///     of distinct terms and df the number of items carrying a term, matching the repository facet's IDF
+    ///     definition, with add-one smoothing so log(N/0) never occurs and every IDF is finite and non-negative.
+    /// </summary>
+    /// <param name="items">The candidate items to count over.</param>
+    /// <param name="termsOf">Selects a single item's terms for this facet.</param>
+    /// <returns>A case-insensitive term -> IDF map for the facet.</returns>
+    private static Dictionary<string, double> ComputeFacetIdf(
+        IReadOnlyList<BaseItem> items,
+        Func<BaseItem, IReadOnlyList<string>?> termsOf)
+    {
+        var documentFrequency = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            if (termsOf(item) is not { Count: > 0 } terms)
+            {
+                continue;
+            }
+
+            // A term counts once per item even if it repeats, so df stays a document frequency.
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var term in terms)
+            {
+                if (!string.IsNullOrWhiteSpace(term) && seen.Add(term))
+                {
+                    documentFrequency[term] = documentFrequency.GetValueOrDefault(term) + 1;
+                }
+            }
+        }
+
+        var idfByTerm = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var n = documentFrequency.Count;
+        if (n == 0)
+        {
+            return idfByTerm;
+        }
+
+        foreach (var (name, df) in documentFrequency)
+        {
+            // add-one smoothing on the document frequency -> never log(N/0); df>=0 always.
+            var idf = Math.Log((double)(n + 1) / (df + 1));
+            if (!double.IsFinite(idf) || idf < 0.0)
+            {
+                idf = 0.0;
+            }
+
+            idfByTerm[name] = idf;
+        }
+
+        return idfByTerm;
     }
 
     /// <summary>

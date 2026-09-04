@@ -35,6 +35,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
     private readonly Mock<IHttpClientFactory> _httpFactory;
     private readonly EnsembleScoringStrategy _ensemble;
     private readonly Mock<IPluginLogService> _pluginLog;
+    private readonly List<PerUserEnsembleRegistry> _registries = [];
 
     public SeerrDiscoveryServicePersistenceFailureTests()
     {
@@ -77,6 +78,11 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var registry in _registries)
+        {
+            registry.Dispose();
+        }
+
         _handler.Dispose();
         _ensemble.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();
@@ -90,10 +96,12 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             _ensemble,
             null,
             null,
-            EnsembleScoringStrategy.DefaultAlphaMin,
-            EnsembleScoringStrategy.DefaultAlphaMax,
-            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
             _pluginLog.Object);
+        _registries.Add(perUserRegistry);
         return new(
             _httpFactory.Object,
             _history.Object,
@@ -272,10 +280,12 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
                 _ensemble,
                 null,
                 null,
-                EnsembleScoringStrategy.DefaultAlphaMin,
-                EnsembleScoringStrategy.DefaultAlphaMax,
-                EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
                 _pluginLog.Object);
+            _registries.Add(perUserRegistry);
 
             var svc = new SeerrDiscoveryService(
                 factory.Object, _history.Object, _arr.Object, libraryManager.Object, perUserRegistry, cache,

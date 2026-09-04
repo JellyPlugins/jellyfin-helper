@@ -31,6 +31,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     private readonly Mock<IHttpClientFactory> _httpFactoryMock;
     private readonly SeerrDiscoveryService _sut;
     private readonly DiscoveryCacheService _cache;
+    private readonly PerUserEnsembleRegistry _perUserRegistry;
 
     public SeerrDiscoveryServiceHttpTests()
     {
@@ -67,10 +68,12 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             ensemble,
             null,
             null,
-            EnsembleScoringStrategy.DefaultAlphaMin,
-            EnsembleScoringStrategy.DefaultAlphaMax,
-            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
             pluginLog.Object);
+        _perUserRegistry = perUserRegistry;
 
         _sut = new SeerrDiscoveryService(
             _httpFactoryMock.Object,
@@ -86,6 +89,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
 
     public void Dispose()
     {
+        _perUserRegistry.Dispose();
         _handler.Dispose();
         _cache.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();

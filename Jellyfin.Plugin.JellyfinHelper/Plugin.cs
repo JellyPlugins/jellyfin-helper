@@ -744,13 +744,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // reason as the prefixed loop: never touch an unrelated file that happens to share the stem.
             foreach (var pattern in PerUserDataFileGlobs)
             {
-                foreach (var file in Directory.GetFiles(dataPath, pattern))
-                {
-                    if (Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase))
-                    {
-                        DeleteDataFile(file);
-                    }
-                }
+                DeleteMatchingJsonFiles(dataPath, pattern);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -768,6 +762,19 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "Failed to clean up data file");
+        }
+    }
+
+    // Deletes the .json files in dataPath matching the glob. The extension guard keeps an unrelated file that
+    // happens to share the glob stem from being deleted, the same defence the prefixed cleanup loop uses.
+    private void DeleteMatchingJsonFiles(string dataPath, string pattern)
+    {
+        foreach (var file in Directory.GetFiles(dataPath, pattern))
+        {
+            if (Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase))
+            {
+                DeleteDataFile(file);
+            }
         }
     }
 

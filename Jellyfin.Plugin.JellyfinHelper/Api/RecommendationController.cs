@@ -145,8 +145,7 @@ public class RecommendationController : ControllerBase
                 RecommendationsDisabledMessage);
         }
 
-        var perUser = userId is { } id && id != Guid.Empty;
-        if (!perUser)
+        if (userId is not { } id || id == Guid.Empty)
         {
             var globalDiagnostics = _engine.GetEnsembleDiagnostics();
             return globalDiagnostics is null
@@ -154,7 +153,7 @@ public class RecommendationController : ControllerBase
                 : Ok(EnsembleDiagnosticsResponse.FromDiagnostics(globalDiagnostics));
         }
 
-        var (diagnostics, isPerUser) = _engine.GetUserEnsembleDiagnostics(userId!.Value);
+        var (diagnostics, isPerUser) = _engine.GetUserEnsembleDiagnostics(id);
         if (diagnostics is null)
         {
             return Ok(new EnsembleDiagnosticsResponse { Available = false });
@@ -162,7 +161,7 @@ public class RecommendationController : ControllerBase
 
         // The per-user flag comes from the same resolution as the snapshot, so a cold-start user on the
         // global model is never mislabelled as having an individual model.
-        var userName = _watchHistoryService.GetUserWatchProfile(userId.Value)?.UserName;
+        var userName = _watchHistoryService.GetUserWatchProfile(id)?.UserName;
 
         return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics, isPerUser, userName));
     }

@@ -646,12 +646,13 @@ public class TrainingServiceTests
                 global,
                 neural,
                 dataPath,
-                EnsembleScoringStrategy.DefaultAlphaMin,
-                EnsembleScoringStrategy.DefaultAlphaMax,
-                EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
                 _pluginLogMock.Object);
 
-            var sut = CreateSut();
+            using var sut = CreateSut();
             var trained = sut.TrainPerUser(registry, previous, incremental: true);
 
             Assert.True(trained);

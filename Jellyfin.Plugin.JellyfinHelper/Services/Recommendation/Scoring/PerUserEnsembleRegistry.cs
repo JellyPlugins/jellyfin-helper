@@ -28,9 +28,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private readonly EnsembleScoringStrategy _globalEnsemble;
     private readonly NeuralScoringStrategy? _sharedNeural;
     private readonly string? _dataPath;
-    private readonly double _alphaMin;
-    private readonly double _alphaMax;
-    private readonly double _genrePenaltyFloor;
+    private readonly EnsembleBlendBounds _blendBounds;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger? _logger;
 
@@ -54,18 +52,14 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     ///     per-user ensembles are constructed with <c>ownsNeural: false</c>.
     /// </param>
     /// <param name="dataPath">The plugin data folder for per-user files. Null keeps per-user models in memory only.</param>
-    /// <param name="alphaMin">Minimum blending factor for per-user ensembles.</param>
-    /// <param name="alphaMax">Maximum blending factor for per-user ensembles.</param>
-    /// <param name="genrePenaltyFloor">Genre penalty floor for per-user ensembles.</param>
+    /// <param name="blendBounds">The alpha bounds and genre-penalty floor for per-user ensembles.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">Optional logger forwarded to each per-user ensemble.</param>
     public PerUserEnsembleRegistry(
         EnsembleScoringStrategy globalEnsemble,
         NeuralScoringStrategy? sharedNeural,
         string? dataPath,
-        double alphaMin,
-        double alphaMax,
-        double genrePenaltyFloor,
+        EnsembleBlendBounds blendBounds,
         IPluginLogService pluginLog,
         ILogger? logger = null)
     {
@@ -75,9 +69,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         _globalEnsemble = globalEnsemble;
         _sharedNeural = sharedNeural;
         _dataPath = dataPath;
-        _alphaMin = alphaMin;
-        _alphaMax = alphaMax;
-        _genrePenaltyFloor = genrePenaltyFloor;
+        _blendBounds = blendBounds;
         _pluginLog = pluginLog;
         _logger = logger;
     }
@@ -232,9 +224,9 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             _sharedHeuristic,
             _sharedNeural,
             statePath,
-            _alphaMin,
-            _alphaMax,
-            _genrePenaltyFloor,
+            _blendBounds.AlphaMin,
+            _blendBounds.AlphaMax,
+            _blendBounds.GenrePenaltyFloor,
             _logger,
             ownsNeural: false);
     }

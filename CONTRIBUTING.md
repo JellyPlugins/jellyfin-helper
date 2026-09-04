@@ -332,6 +332,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── StandardizationTransitionTests.cs      # Warm-start: crossing the standardization threshold rescales weights (not reset), finite weights/scores, learned ranking preserved, zero-variance guard
 │       │   ├── StrategySelectorTests.cs                # Cohort router: exploration gate, deterministic hash bucketing, routing
 │       │   ├── PerUserEnsembleRegistryTests.cs         # Per-user registry: cold-start fallback identity, warm-start, shared-neural-not-disposed, orphan pruning
+│       │   ├── EnsembleBlendBoundsTests.cs             # Blend-bounds value: null-config defaults, configured pass-through, record equality
 │       │   ├── PerUserGoldenDigestTests.cs             # Single-user per-user model reproduces the global fit (behaviour preservation)
 │       │   ├── LearnedScoringStrategySeedTests.cs      # SeedFrom warm-start: copies weights/bias/standardization stats, identical scores, source independence
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
@@ -502,6 +503,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── IStrategySelector.cs
 │   │   │   ├── IPerUserEnsembleRegistry.cs   # Per-user ensemble registry contract (per-user models + global fallback)
 │   │   │   ├── PerUserEnsembleRegistry.cs    # Holds one ensemble per user; cold-start falls back to the shared global
+│   │   │   ├── EnsembleBlendBounds.cs        # Groups the per-user blend bounds (alpha min/max, genre-penalty floor) into one config-resolved value
 │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
@@ -838,6 +840,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RankingMetricsTests.cs`
 - `PerUserRankingMetricsTests.cs`
 - `PerUserEnsembleRegistryTests.cs`
+- `EnsembleBlendBoundsTests.cs`
 - `PerUserGoldenDigestTests.cs`
 - `LearnedScoringStrategySeedTests.cs`
 - `ScoreExplanationTests.cs`
@@ -1149,6 +1152,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `CandidateFeatures.cs`
 - `DefaultWeights.cs`
+- `EnsembleBlendBounds.cs` - Groups the per-user ensemble blend bounds (alpha min/max and genre-penalty floor) into one value, resolved from configuration with ensemble defaults
 - `EnsembleScoringStrategy.cs`
 - `EnsembleDiagnostics.cs`
 - `HeuristicScoringStrategy.cs`

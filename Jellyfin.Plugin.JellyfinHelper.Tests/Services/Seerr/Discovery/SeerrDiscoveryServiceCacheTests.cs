@@ -40,6 +40,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
     // Infrastructure
 
     private readonly DiscoveryCacheService _cache;
+    private readonly List<PerUserEnsembleRegistry> _registries = [];
 
     public SeerrDiscoveryServiceCacheTests()
     {
@@ -54,6 +55,11 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var registry in _registries)
+        {
+            registry.Dispose();
+        }
+
         _cache.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();
     }
@@ -87,10 +93,12 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
             ensemble,
             null,
             null,
-            EnsembleScoringStrategy.DefaultAlphaMin,
-            EnsembleScoringStrategy.DefaultAlphaMax,
-            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
             pluginLog.Object);
+        _registries.Add(perUserRegistry);
 
         return new SeerrDiscoveryService(
             httpFactoryMock.Object,

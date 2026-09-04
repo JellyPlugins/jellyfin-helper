@@ -46,7 +46,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void GetScoringStrategyForUser_ColdStartUser_ReturnsExactGlobalInstance()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
         // No per-user weights file exists, so a fresh user must fall back to the SAME global instance
@@ -60,7 +60,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void GetScoringStrategyForUser_EmptyUserId_ReturnsGlobal()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
         Assert.Same(global, registry.GetScoringStrategyForUser(Guid.Empty));
@@ -70,7 +70,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void GetOrCreateTrainableEnsembleForUser_CreatesDistinctPerUserInstance()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
 
@@ -88,7 +88,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     {
         var neural = new NeuralScoringStrategy();
         // Train the global learned model so it has non-default weights + standardization stats to seed from.
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         Assert.True(global.LearnedStrategy.Train(GenerateExamples(60)));
 
         using var registry = BuildRegistry(global, neural);
@@ -103,7 +103,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void PerUserEnsemble_SharesGlobalNeuralByReference()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
         var perUser = registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
@@ -115,7 +115,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void Dispose_DoesNotDisposeSharedNeural()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         var registry = BuildRegistry(global, neural);
         registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
 
@@ -131,7 +131,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void HasPerUserModel_TrueOnlyAfterFileExists()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
 
@@ -149,7 +149,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void PruneOrphans_DeletesFilesForRemovedUsersOnly()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
         var keep = Guid.NewGuid();
@@ -173,7 +173,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void PruneOrphans_LeavesGlobalFilesUntouched()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
         // Plant the unsuffixed global files - the per-user globs must never match these.
@@ -192,7 +192,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void GetDiagnostics_ColdStartUser_ReturnsGlobalSnapshot()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
         var diag = registry.GetDiagnostics(Guid.NewGuid());
@@ -206,7 +206,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void GetOrCreateTrainableEnsembleForUser_ConcurrentSameUser_BuildsExactlyOneInstance()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
 
@@ -229,7 +229,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void PerUserEnsembles_ShareSingleHeuristicInstance()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
         var a = registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
@@ -244,7 +244,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     public void GetUserModelDiagnostics_ColdStartThenTrained_FlipsIsPerUserAtomically()
     {
         var neural = new NeuralScoringStrategy();
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
 
@@ -268,7 +268,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     {
         var neural = new NeuralScoringStrategy();
         // Train the global on a large set so it carries a high example count and a high blend alpha.
-        var global = BuildGlobal(neural);
+        using var global = BuildGlobal(neural);
         Assert.True(global.Train(GenerateExamples(60)));
         var globalDiag = global.GetDiagnosticsSnapshot();
 
@@ -303,9 +303,10 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
             global,
             neural,
             _dataPath,
-            EnsembleScoringStrategy.DefaultAlphaMin,
-            EnsembleScoringStrategy.DefaultAlphaMax,
-            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
             _pluginLog.Object);
 
     private static System.Collections.Generic.List<TrainingExample> GenerateExamples(int count)

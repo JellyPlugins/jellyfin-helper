@@ -134,10 +134,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IPerUserEnsembleRegistry>(sp =>
         {
             var dataPath = Plugin.Instance?.DataFolderPath;
-            var config = Plugin.Instance?.Configuration;
-            var alphaMin = config?.EnsembleAlphaMin ?? EnsembleScoringStrategy.DefaultAlphaMin;
-            var alphaMax = config?.EnsembleAlphaMax ?? EnsembleScoringStrategy.DefaultAlphaMax;
-            var genrePenaltyFloor = config?.EnsembleGenrePenaltyFloor ?? EnsembleScoringStrategy.DefaultGenrePenaltyFloor;
+            var blendBounds = EnsembleBlendBounds.FromConfiguration(Plugin.Instance?.Configuration);
 
             var globalEnsemble = sp.GetRequiredService<EnsembleScoringStrategy>();
             var sharedNeural = sp.GetRequiredService<NeuralScoringStrategy>();
@@ -148,9 +145,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 globalEnsemble,
                 sharedNeural,
                 string.IsNullOrEmpty(dataPath) ? null : dataPath,
-                alphaMin,
-                alphaMax,
-                genrePenaltyFloor,
+                blendBounds,
                 pluginLog,
                 logger);
         });
