@@ -217,18 +217,41 @@ public sealed class LibraryPathResolverAllowedRootTests
     }
 
     [Fact]
-    public void GetAllowedLibraryRootIds_NoExclusions_ReturnsEmpty()
+    public void GetAllowedLibraryRootIds_NoExclusions_ReturnsNull()
     {
-        // An empty exclusion set means nothing is scoped out, so callers should leave their query
-        // unrestricted rather than filtering to a subset of roots.
+        // An empty exclusion set means nothing is scoped out, so the query is unrestricted. Null signals
+        // that, distinct from an empty list which means every library was excluded.
         var libraryManager = new Mock<ILibraryManager>();
 
         var ids = LibraryPathResolver.GetAllowedLibraryRootIds(
             libraryManager.Object,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
-        Assert.Empty(ids);
+        Assert.Null(ids);
         libraryManager.Verify(m => m.GetVirtualFolders(), Times.Never);
+    }
+
+    [Fact]
+    public void GetAllowedLibraryRootIds_EveryLibraryExcluded_ReturnsEmptyNotNull()
+    {
+        // With every virtual folder excluded there are zero allowed roots. This must be an empty (but
+        // non-null) list so a caller scopes the query to nothing, rather than null which would read as
+        // unrestricted and leak every library back in.
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(m => m.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Movies", ItemId = Guid.NewGuid().ToString("N"), Locations = ["/media/movies"] },
+                new VirtualFolderInfo { Name = "Anime", ItemId = Guid.NewGuid().ToString("N"), Locations = ["/media/anime"] }
+            ]);
+
+        var ids = LibraryPathResolver.GetAllowedLibraryRootIds(
+            libraryManager.Object,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Movies", "Anime" });
+
+        Assert.NotNull(ids);
+        Assert.Empty(ids);
     }
 
     [Fact]

@@ -677,4 +677,108 @@ public class TrainingServiceTests
             }
         }
     }
+
+    [Fact]
+    public void TrainPerUser_NoPreviousResults_ReturnsFalseWithoutTraining()
+    {
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-empty-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+            using var sut = CreateSut();
+
+            var trained = sut.TrainPerUser(registry, Array.Empty<RecommendationResult>());
+
+            // An empty result set has nothing to train on, so no model file is written and false is returned.
+            Assert.False(trained);
+            Assert.False(File.Exists(Path.Combine(dataPath, "ml_weights.json")));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
+
+    [Fact]
+    public void TrainPerUser_UserBelowThreshold_GetsNoPerUserModel()
+    {
+        // A single user with only a couple of examples trains the global model but stays under the per-user
+        // threshold, so the registry must not create a dedicated per-user model for them.
+        var user = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 2) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var previous = new[]
+        {
+            CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-below-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+            using var sut = CreateSut();
+
+            sut.TrainPerUser(registry, previous);
+
+            Assert.False(registry.HasPerUserModel(user));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
 }

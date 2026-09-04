@@ -89,6 +89,35 @@ public sealed class PluginResolveRealPathTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task AncestorLinkTargetingItsOwnChild_TerminatesWithoutThrowing()
+    {
+        // An ancestor component links to one of its own descendants (/plugins/link -> /plugins/link/child).
+        // Resolving the child canonicalizes the parent, whose leaf resolves back to a path under the same
+        // link, so a per-level traversal state would recurse forever and overflow the stack. The shared
+        // traversal context must bound this across the ancestor recursion, not just within one level.
+        var link = Rooted("plugins", "link");
+        var child = Rooted("plugins", "link", "child");
+
+        string Resolver(string candidate) =>
+            PathComparer.Equals(candidate, link) ? child : null!;
+
+        string? result = null;
+        var task = System.Threading.Tasks.Task.Run(() => result = Plugin.ResolveRealPathCore(child, Resolver));
+
+        try
+        {
+            await task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (OperationCanceledException)
+        {
+            Assert.Fail("Resolution of an ancestor-link cycle did not terminate.");
+        }
+
+        // The guarantee is termination with a value rather than a stack overflow or a hang.
+        Assert.NotNull(result);
+    }
+
+    [Fact]
     public void ResolveRealPathCore_ExceedingMaxHops_StopsAtCap()
     {
         // A chain that always points one component deeper never cycles, so only the hop cap can stop it.

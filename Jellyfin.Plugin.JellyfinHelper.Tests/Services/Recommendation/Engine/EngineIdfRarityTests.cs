@@ -94,4 +94,28 @@ public sealed class EngineIdfRarityTests
         Assert.NotNull(userResult);
         Assert.NotEmpty(userResult!.Recommendations);
     }
+
+    [Fact]
+    public void BuildGenreStudioIdfTable_TermOnEveryCandidate_ScoresAsCommonNotRare()
+    {
+        // Three documents share the ubiquitous genre; each also carries its own one-off genre. The number of
+        // distinct genres (4) exceeds the document count (3), which is exactly the case where using the
+        // distinct-term count as N would misfire: a genre present on every candidate would score as rare.
+        // With the document count as N a term on all three documents is common and normalizes to zero, while
+        // a one-off genre is the rarest and normalizes to one.
+        var harness = EngineTestFactory.Create();
+        var items = new List<BaseItem>
+        {
+            MakeMovie("A", ["Common", "OnlyA"]),
+            MakeMovie("B", ["Common", "OnlyB"]),
+            MakeMovie("C", ["Common", "OnlyC"]),
+        };
+
+        var table = harness.Engine.BuildGenreStudioIdfTable(items);
+
+        Assert.Equal(0.0, table["Common"]);
+        Assert.Equal(1.0, table["OnlyA"]);
+        Assert.Equal(1.0, table["OnlyB"]);
+        Assert.Equal(1.0, table["OnlyC"]);
+    }
 }

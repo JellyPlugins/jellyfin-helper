@@ -99,13 +99,18 @@ public static class LibraryPathResolver
     /// <remarks>
     /// Facet aggregations such as genre and studio counts have no per-item path to post-filter, so
     /// the exclusion must be applied to the query itself through ancestor ids. A virtual folder whose
-    /// name is excluded, or whose id does not parse, is left out. An empty result means no library is
-    /// excluded, and callers should then leave their query unrestricted.
+    /// name is excluded, or whose id does not parse, is left out. The return value distinguishes the
+    /// two states a plain empty list would conflate: <c>null</c> means the query is unrestricted (no
+    /// library is excluded), while an empty (but non-null) list means every library was excluded and
+    /// the query must therefore match nothing rather than everything.
     /// </remarks>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="excludedLibraryNames">Library names to exclude (case-insensitive). May be empty.</param>
-    /// <returns>The item ids of the non-excluded library roots, or an empty list when nothing is excluded.</returns>
-    public static IReadOnlyList<Guid> GetAllowedLibraryRootIds(
+    /// <returns>
+    /// <c>null</c> when nothing is excluded (unrestricted), otherwise the item ids of the non-excluded
+    /// library roots (possibly empty when everything is excluded).
+    /// </returns>
+    public static IReadOnlyList<Guid>? GetAllowedLibraryRootIds(
         ILibraryManager libraryManager,
         IReadOnlySet<string> excludedLibraryNames)
     {
@@ -114,7 +119,7 @@ public static class LibraryPathResolver
 
         if (excludedLibraryNames.Count == 0)
         {
-            return [];
+            return null;
         }
 
         var excludedNames = excludedLibraryNames.ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -481,10 +481,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Paths compare case-insensitively on Windows and case-sensitively elsewhere, so the visited
         // set must use the same comparer to detect a cycle correctly on either platform.
         var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-        var visited = new HashSet<string>(comparer);
+        var context = new LinkTraversalContext(new HashSet<string>(comparer));
+        return ResolveRealPathCore(path, resolveLeafLink, context);
+    }
 
+    private static string ResolveRealPathCore(string path, Func<string, string?> resolveLeafLink, LinkTraversalContext context)
+    {
         var full = Path.GetFullPath(path);
-        var hops = 0;
         while (true)
         {
             var parent = Path.GetDirectoryName(full);
@@ -495,8 +498,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
 
             // Canonicalize the parent directory chain first (recursively), then reattach this
-            // component's name and resolve the component itself if it is a link.
-            var realParent = ResolveRealPathCore(parent, resolveLeafLink);
+            // component's name and resolve the component itself if it is a link. The traversal context
+            // is shared so hops and visited components accumulate across the ancestor recursion.
+            var realParent = ResolveRealPathCore(parent, resolveLeafLink, context);
             var candidate = Path.Combine(realParent, Path.GetFileName(full));
 
             var resolvedLeaf = resolveLeafLink(candidate);
@@ -507,7 +511,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             // Stop once we have followed too many hops or would revisit a component, returning the
             // last resolved candidate. This bounds a cycle without throwing.
-            if (++hops > MaxLinkHops || !visited.Add(candidate))
+            if (++context.Hops > MaxLinkHops || !context.Visited.Add(candidate))
             {
                 return candidate;
             }
@@ -846,5 +850,19 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             // Best effort - if the playlists directory is inaccessible, nothing we can do.
         }
+    }
+
+    /// <summary>
+    ///     Shared cycle-detection and hop-count state for one path canonicalization. The same instance
+    ///     threads through the ancestor recursion so the visited set and hop bound span every component,
+    ///     not just one recursion level. Without this an ancestor link that targets its own descendant
+    ///     (for example <c>/plugins/link -&gt; /plugins/link/child</c>) would recurse with fresh state each
+    ///     level and overflow the stack before <see cref="MaxLinkHops"/> could bound it.
+    /// </summary>
+    private sealed class LinkTraversalContext(HashSet<string> visited)
+    {
+        public HashSet<string> Visited { get; } = visited;
+
+        public int Hops { get; set; }
     }
 }

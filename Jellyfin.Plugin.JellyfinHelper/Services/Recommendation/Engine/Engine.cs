@@ -181,6 +181,19 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         UpdateDiscoveryWatchedStatus(cancellationToken);
 
+        // Reconcile per-user model files against the live user list regardless of whether there is anything to
+        // train on, since a user can be removed between runs. This is independent of the training data.
+        _perUserRegistry.PruneOrphans([.. _watchHistoryService.GetAllUserIds()]);
+
+        // With no previous results there is nothing to train on, so return before the expensive library scan
+        // below. TrainPerUser would reject the empty set anyway; exiting here avoids a full movie/series/episode
+        // load on an initial or empty run.
+        if (previousResults.Count == 0)
+        {
+            _pluginLog.LogInfo(LogCategory, "Training skipped - no previous recommendations available.", logger: _logger);
+            return false;
+        }
+
         // Use live library data so training and inference share the same progression and rarity tables.
         // Load the library once here and reuse it for the IDF prior and the studio/tag/BoxSet maps, so the
         // rarity prior is built over the exact population the serve path scores (train/serve parity) and the
@@ -194,13 +207,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // CollectionProgression signals that read the same metadata) differ between train and serve for any
         // watched item that was never previously recommended.
         var libraryItemMetadata = BuildLibraryItemMetadata(allMovies, allSeries);
-
-        // Remove per-user model/state files for users that no longer exist (reconciliation against the live
-        // user list, the same approach used to clean up stale recommendation playlists). The live set comes
-        // straight from the user manager, not from a profile build: profile building skips any user it
-        // cannot build, so a transient failure there must not make a live user look removed and delete their
-        // model files.
-        _perUserRegistry.PruneOrphans([.. _watchHistoryService.GetAllUserIds()]);
 
         // Train the global model (learned + neural + global blend) once, then a per-user learned model for
         // every user above the example threshold, warm-started from the global fit.
@@ -1746,7 +1752,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </summary>
     /// <param name="items">The candidate Movie/Series items to count over, already scoped to the allowed libraries.</param>
     /// <returns>A case-insensitive genre/studio -> normalized-IDF map (empty when unavailable).</returns>
-    private Dictionary<string, double> BuildGenreStudioIdfTable(IReadOnlyList<BaseItem> items)
+    internal Dictionary<string, double> BuildGenreStudioIdfTable(IReadOnlyList<BaseItem> items)
     {
         var table = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         try
@@ -1802,9 +1808,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Computes the per-term IDF for one facet (genres or studios) over the candidate items. N is the count
-    ///     of distinct terms and df the number of items carrying a term, matching the repository facet's IDF
-    ///     definition, with add-one smoothing so log(N/0) never occurs and every IDF is finite and non-negative.
+    ///     Computes the per-term IDF for one facet (genres or studios) over the candidate items. N is the number
+    ///     of candidate documents and df the number of items carrying a term, with add-one smoothing so log(N/0)
+    ///     never occurs and every IDF is finite and non-negative. A term present on every candidate is common,
+    ///     not rare, so its IDF is near zero; a term on one candidate among many is rare and scores high.
     /// </summary>
     /// <param name="items">The candidate items to count over.</param>
     /// <param name="termsOf">Selects a single item's terms for this facet.</param>
@@ -1833,7 +1840,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         var idfByTerm = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        var n = documentFrequency.Count;
+        // N is the number of candidate documents. Using the distinct-term count instead would let a genre
+        // present on every candidate score as rare whenever the library also carries many one-off terms.
+        var n = items.Count;
         if (n == 0)
         {
             return idfByTerm;

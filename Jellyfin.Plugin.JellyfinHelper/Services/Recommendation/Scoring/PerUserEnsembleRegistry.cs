@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
@@ -28,7 +29,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private readonly EnsembleScoringStrategy _globalEnsemble;
     private readonly NeuralScoringStrategy? _sharedNeural;
     private readonly string? _dataPath;
-    private readonly EnsembleBlendBounds _blendBounds;
+    private readonly Lock _blendBoundsLock = new();
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger? _logger;
 
@@ -41,6 +42,10 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     // callers may each allocate a Lazy wrapper, but only the dictionary winner's Value is ever evaluated;
     // the losing wrappers are discarded without constructing (and leaking) a second ensemble.
     private readonly ConcurrentDictionary<Guid, Lazy<EnsembleScoringStrategy>> _perUser = new();
+
+    // Mutable so a configuration change can retune per-user ensembles without a restart; guarded by
+    // _blendBoundsLock. See Reconfigure.
+    private EnsembleBlendBounds _blendBounds;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="PerUserEnsembleRegistry"/> class.
@@ -122,6 +127,28 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         _perUser.GetOrAdd(
             userId,
             id => new Lazy<EnsembleScoringStrategy>(() => BuildPerUserEnsemble(id))).Value;
+
+    /// <inheritdoc />
+    public void Reconfigure(EnsembleBlendBounds blendBounds)
+    {
+        // Store the new bounds so any per-user ensemble built later starts from them, and push them onto every
+        // ensemble already materialized this session. Without this a config change would reconfigure only the
+        // global ensemble and leave existing per-user models on their construction-time bounds until restart.
+        lock (_blendBoundsLock)
+        {
+            _blendBounds = blendBounds;
+        }
+
+        foreach (var entry in _perUser.Values)
+        {
+            // Only reconfigure ensembles that have actually been built. Touching entry.Value on an
+            // unmaterialized Lazy would construct it here for no reason.
+            if (entry.IsValueCreated)
+            {
+                entry.Value.Reconfigure(blendBounds.AlphaMin, blendBounds.AlphaMax, blendBounds.GenrePenaltyFloor);
+            }
+        }
+    }
 
     /// <inheritdoc />
     public EnsembleDiagnostics GetDiagnostics(Guid userId) => GetEnsembleForUser(userId).GetDiagnosticsSnapshot();
@@ -219,14 +246,20 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // The heuristic sub-strategy MUST have its genre penalty disabled (floor = 1.0); the ensemble applies
         // the penalty centrally. It is stateless, so the single shared instance is reused here. The shared
         // neural is passed by reference with ownsNeural:false.
+        EnsembleBlendBounds bounds;
+        lock (_blendBoundsLock)
+        {
+            bounds = _blendBounds;
+        }
+
         return new EnsembleScoringStrategy(
             learned,
             _sharedHeuristic,
             _sharedNeural,
             statePath,
-            _blendBounds.AlphaMin,
-            _blendBounds.AlphaMax,
-            _blendBounds.GenrePenaltyFloor,
+            bounds.AlphaMin,
+            bounds.AlphaMax,
+            bounds.GenrePenaltyFloor,
             _logger,
             ownsNeural: false);
     }

@@ -83,4 +83,13 @@ public interface IPerUserEnsembleRegistry : IDisposable
     /// </summary>
     /// <param name="liveUserIds">The set of user ids that currently exist.</param>
     void PruneOrphans(IReadOnlyCollection<Guid> liveUserIds);
+
+    /// <summary>
+    ///     Applies new blend bounds (alpha min/max and genre-penalty floor) to future per-user models and to
+    ///     every per-user ensemble already materialized this session. Called when the configuration changes so
+    ///     per-user models track the same bounds as the global ensemble instead of keeping stale ones until a
+    ///     restart.
+    /// </summary>
+    /// <param name="blendBounds">The new blend bounds to apply.</param>
+    void Reconfigure(EnsembleBlendBounds blendBounds);
 }

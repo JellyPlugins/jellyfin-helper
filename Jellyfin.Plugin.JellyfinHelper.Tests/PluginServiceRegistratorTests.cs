@@ -158,6 +158,9 @@ public class PluginServiceRegistratorTests
         Assert.NotNull(provider.GetService<NeuralScoringStrategy>());
         Assert.NotNull(provider.GetService<HeuristicScoringStrategy>());
         Assert.NotNull(provider.GetService<EnsembleScoringStrategy>());
+        // The per-user registry factory reads Plugin.Instance for its data path and blend bounds and resolves
+        // the shared global ensemble and neural, so resolving it exercises that whole factory.
+        Assert.NotNull(provider.GetService<IPerUserEnsembleRegistry>());
     }
 
     [Fact]

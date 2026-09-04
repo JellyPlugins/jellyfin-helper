@@ -67,6 +67,20 @@ public class ConfigurationControllerTests
     }
 
     [Fact]
+    public async Task UpdateConfiguration_InvertedAlphaBounds_KeepsBothRequestedEndpoints()
+    {
+        // The request inverts the pair (min above max). Applying the two setters in sequence against the
+        // persisted other bound would drop one endpoint; both requested values must survive, ordered.
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.9, EnsembleAlphaMax = 0.1 };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0.1, _config.EnsembleAlphaMin);
+        Assert.Equal(0.9, _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_ValidConfig_ReturnsOk()
     {
         var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = 5, TrashRetentionDays = 10 };

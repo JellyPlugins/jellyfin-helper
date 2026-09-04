@@ -264,6 +264,26 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Reconfigure_UpdatesAlreadyMaterializedPerUserEnsembleBounds()
+    {
+        var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        // Materialize a per-user ensemble, which is built from the registry's current blend bounds
+        // (AlphaMax defaults to EnsembleScoringStrategy.DefaultAlphaMax).
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
+        Assert.Equal(EnsembleScoringStrategy.DefaultAlphaMax, perUser.GetDiagnosticsSnapshot().AlphaMax);
+
+        // A configuration change reconfigures the registry, which must push the new bounds onto the already
+        // built per-user ensemble rather than leaving it on its construction-time bounds until a restart.
+        registry.Reconfigure(new EnsembleBlendBounds(0.2, 0.6, 0.25));
+
+        Assert.Equal(0.6, perUser.GetDiagnosticsSnapshot().AlphaMax);
+        Assert.Equal(0.2, perUser.GetDiagnosticsSnapshot().AlphaMin);
+    }
+
+    [Fact]
     public void PerUserEnsemble_WarmStartedFromGlobal_ComputesAlphaFromOwnExampleCount()
     {
         var neural = new NeuralScoringStrategy();
