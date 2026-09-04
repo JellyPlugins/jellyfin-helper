@@ -43,15 +43,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ];
 
     /// <summary>
-    ///     Globs for the per-user recommendation model/state files (<c>ml_weights_{userId}.json</c> and
-    ///     <c>ensemble_state_{userId}.json</c>). One pair exists per user with a per-user model, so uninstall
-    ///     cleanup must sweep them by pattern rather than exact name.
+    ///     Matches only the per-user recommendation model/state files this plugin writes
+    ///     (<c>ml_weights_{id:N}.json</c> and <c>ensemble_state_{id:N}.json</c>, where the id is the 32-hex
+    ///     user id). Anchored on the full name so uninstall cleanup deletes exactly these and never an
+    ///     unrelated file that merely shares the stem (for example a user-made <c>ml_weights_backup.json</c>)
+    ///     nor the unsuffixed global files.
     /// </summary>
-    private static readonly string[] PerUserDataFileGlobs =
-    [
-        "ml_weights_*.json",
-        "ensemble_state_*.json",
-    ];
+    private static readonly Regex PerUserDataFilePattern =
+        new(
+            @"^(?:ml_weights|ensemble_state)_[0-9a-fA-F]{32}\.json$",
+            RegexOptions.CultureInvariant);
 
     /// <summary>
     ///     Guards the "install File Transformation" warning so it is emitted at most once per server start, even though InjectScript runs both from the constructor and again from the startup hosted service (and could be retried).
@@ -740,12 +741,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             // Per-user recommendation model/state files (ml_weights_{id}.json / ensemble_state_{id}.json).
             // These share no jellyfin-helper- prefix and are not in the fixed list above, so they need their
-            // own globs or an uninstall would leave one pair per user behind. Guarded to .json for the same
-            // reason as the prefixed loop: never touch an unrelated file that happens to share the stem.
-            foreach (var pattern in PerUserDataFileGlobs)
-            {
-                DeleteMatchingJsonFiles(dataPath, pattern);
-            }
+            // own sweep or an uninstall would leave one pair per user behind. Matched on the exact id-suffixed
+            // shape so only files this plugin writes are removed.
+            DeletePerUserDataFiles(dataPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -765,13 +763,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
-    // Deletes the .json files in dataPath matching the glob. The extension guard keeps an unrelated file that
-    // happens to share the glob stem from being deleted, the same defence the prefixed cleanup loop uses.
-    private void DeleteMatchingJsonFiles(string dataPath, string pattern)
+    // Deletes only the per-user recommendation files whose full name matches the id-suffixed shape this plugin
+    // writes. A glob like ml_weights_*.json would also sweep up a file that merely shares the stem, so the name
+    // is checked against the anchored pattern rather than a wildcard.
+    private void DeletePerUserDataFiles(string dataPath)
     {
-        foreach (var file in Directory.GetFiles(dataPath, pattern))
+        foreach (var file in Directory.GetFiles(dataPath))
         {
-            if (Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase))
+            if (PerUserDataFilePattern.IsMatch(Path.GetFileName(file)))
             {
                 DeleteDataFile(file);
             }

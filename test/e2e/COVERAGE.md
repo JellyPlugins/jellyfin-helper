@@ -318,8 +318,9 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
   `Recommendations/{userId}` EXCLUDES anything watched, and results are ranked
   (Score in [0,1], sorted descending).
 - **Per-user recommendation models** (`recommendations-peruser-fs.api.spec.ts`): training
-  persists the global model files (`ml_weights.json`, `neural_weights.json`,
-  `ensemble_state.json`); a user above the example threshold gets per-user files
+  persists the global ensemble state (`ensemble_state.json`), with the learned and neural
+  weight files (`ml_weights.json`, `neural_weights.json`) written once their example
+  thresholds are met; a user above the example threshold gets per-user files
   (`ml_weights_{id}.json`, `ensemble_state_{id}.json`) with the expected JSON shape; a
   second run does not regress the per-user `TrainingExampleCount`; and an orphaned
   per-user file is pruned on the next run while the global files survive.

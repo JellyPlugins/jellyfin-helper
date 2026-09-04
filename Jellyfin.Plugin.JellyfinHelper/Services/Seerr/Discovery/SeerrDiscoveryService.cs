@@ -1721,10 +1721,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // The user's own ensemble (per-user blend when they have enough history, else the global fallback),
         // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
-        // once per user and read the feature means from the SAME model that scores, so the features we impute
-        // for a TMDb candidate match the distribution that model was trained on.
-        var userStrategy = _perUserRegistry.GetScoringStrategyForUser(profile.UserId);
-        var featureMeans = _perUserRegistry.GetEnsembleForUser(profile.UserId).LearnedStrategy.GetFeatureMeans();
+        // once per user and read the feature means from the SAME instance that scores, so a per-user model
+        // materializing mid-run cannot leave scoring and feature means on two different models.
+        var userStrategy = _perUserRegistry.GetEnsembleForUser(profile.UserId);
+        var featureMeans = userStrategy.LearnedStrategy.GetFeatureMeans();
 
         // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(uniqueCandidates.Count);

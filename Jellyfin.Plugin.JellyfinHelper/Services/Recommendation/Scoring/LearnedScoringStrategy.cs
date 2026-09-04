@@ -251,18 +251,35 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        var sourceWeights = source.GetCurrentWeights();
-        var sourceBias = source.CurrentBias;
-        var sourceMeans = source.GetFeatureMeans();
-        var sourceStdDevs = source.GetFeatureStdDevs();
+        // Capture weights, bias, and standardization stats under a single source lock. Reading them through
+        // the individual accessors would take four separate locks, so a concurrent source.Train could leave
+        // the target with weights from one model state and standardization stats from another, and Score would
+        // then normalize with mismatched statistics.
+        var snapshot = source.CaptureSeedSnapshot();
 
         lock (_syncRoot)
         {
-            _weights = (double[])sourceWeights.Clone();
-            _bias = sourceBias;
-            _featureMeans = sourceMeans is not null ? [.. sourceMeans] : null;
-            _featureStdDevs = sourceStdDevs is not null ? [.. sourceStdDevs] : null;
+            _weights = snapshot.Weights;
+            _bias = snapshot.Bias;
+            _featureMeans = snapshot.FeatureMeans;
+            _featureStdDevs = snapshot.FeatureStdDevs;
             _trainingGeneration = 0;
+        }
+    }
+
+    /// <summary>
+    ///     Takes a consistent copy of the weights, bias, and standardization stats under one lock so a warm
+    ///     start seeds from a single coherent model state rather than a mix of concurrent training states.
+    /// </summary>
+    private (double[] Weights, double Bias, double[]? FeatureMeans, double[]? FeatureStdDevs) CaptureSeedSnapshot()
+    {
+        lock (_syncRoot)
+        {
+            return (
+                (double[])_weights.Clone(),
+                _bias,
+                _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
+                _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null);
         }
     }
 

@@ -31,16 +31,32 @@ const GLOBAL_STATE = `${DATA_DIR}/ensemble_state.json`;
 /** Synthetic user id planted by the prune test. Cleaned up unconditionally so a failed run cannot leak it. */
 const ORPHAN_ID = '00000000000000000000000000000abc';
 
+/**
+ * Config fields this suite changes via activateRecommendationsOnly. The teardown restores every one of them
+ * to the suite default so a later spec that shares the container does not inherit disabled tasks.
+ */
+const CONFIG_DEFAULTS = {
+  RecommendationsTaskMode: 'DryRun',
+  SyncRecommendationsToPlaylist: false,
+  TrickplayTaskMode: 'DryRun',
+  EmptyMediaFolderTaskMode: 'DryRun',
+  OrphanedSubtitleTaskMode: 'DryRun',
+  LinkRepairTaskMode: 'DryRun',
+  SeerrCleanupTaskMode: 'DryRun',
+};
+
 let ctx: APIRequestContext;
+let auth: ReturnType<typeof loadAuth>;
 
 test.beforeAll(async () => {
-  ctx = await apiContext(loadAuth());
+  auth = loadAuth();
+  ctx = await apiContext(auth);
 });
 test.afterAll(async () => {
-  // Return the engine to the suite's shared default so later specs are unaffected.
+  // Restore every field this suite touched so later specs sharing the server are unaffected.
   await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
-    data: { RecommendationsTaskMode: 'DryRun' },
+    data: CONFIG_DEFAULTS,
   }).catch(() => undefined);
   await ctx.dispose();
 });
@@ -51,6 +67,14 @@ async function putConfig(body: Record<string, unknown>) {
     data: body,
   });
   expect(res.ok(), `config update failed: ${res.status()}`).toBeTruthy();
+}
+
+/** All Movie item ids in the scanned library. */
+async function movieItems(): Promise<Array<{ id: string; name: string }>> {
+  const res = await ctx.get(`/Items?IncludeItemTypes=Movie&Recursive=true&userId=${auth.userId}`);
+  expect(res.ok(), `/Items status ${res.status()}`).toBeTruthy();
+  const body = (await res.json()) as { Items?: Array<{ Id: string; Name: string }> };
+  return (body.Items ?? []).map((i) => ({ id: i.Id, name: i.Name }));
 }
 
 /** Activate recommendations only; disable every filesystem stage so the run is isolated. */
@@ -79,6 +103,24 @@ function perUserStateFiles(): string[] {
 test.describe.serial('per-user recommendation model files', () => {
   test.skip(!hasDocker(), 'docker exec unavailable - cannot inspect the plugin data folder');
 
+  test.beforeAll(async () => {
+    if (!hasDocker()) {
+      return;
+    }
+
+    // The engine trains from a real watch profile, and cold-start users alone do not drive training. Mark a
+    // few movies played (and favorite one) so the admin has genuine history, which is what makes the results
+    // cache non-empty and the training pass, and thus the global ensemble state, deterministic on this fixture.
+    const movies = await movieItems();
+    expect(movies.length, 'need several movies to build a watch profile').toBeGreaterThan(3);
+    for (const m of movies.slice(0, 3)) {
+      const mark = await ctx.post(`/UserPlayedItems/${m.id}?userId=${auth.userId}`);
+      expect(mark.ok(), `mark-played ${m.name}: ${mark.status()}`).toBeTruthy();
+    }
+    const fav = await ctx.post(`/UserFavoriteItems/${movies[0].id}?userId=${auth.userId}`);
+    expect([200, 204]).toContain(fav.status());
+  });
+
   test.afterEach(() => {
     if (!hasDocker()) {
       return;
@@ -98,8 +140,8 @@ test.describe.serial('per-user recommendation model files', () => {
     await activateRecommendationsOnly();
 
     // Training runs off the previous run's cached results, so the very first Activate run only generates
-    // recommendations (empty cache means nothing to train on) and writes no model files. The first run here
-    // seeds the results cache; the second is the one that actually trains and persists the global model.
+    // recommendations (nothing cached yet to train on) and writes no model files. The first run here seeds
+    // the results cache; the second is the one that actually trains and persists the global model.
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
     const result = await runCleanupTask(ctx);
@@ -107,7 +149,7 @@ test.describe.serial('per-user recommendation model files', () => {
     await sleep(1000);
 
     // The ensemble writes its blend state whenever training is attempted, on both the success and the
-    // insufficient-data branch, so this file is the reliable signal that the global training pass ran.
+    // insufficient-data branch, so with a seeded watch profile driving training this file must exist.
     expect(containerFileExists(GLOBAL_STATE), 'global ensemble_state.json should exist').toBeTruthy();
 
     // The learned and neural weight files are written only once their own example thresholds are met (learned
@@ -205,11 +247,13 @@ test.describe.serial('per-user recommendation model files', () => {
     const orphanState = `${DATA_DIR}/ensemble_state_${ORPHAN_ID}.json`;
     const sample = existing[0];
     execInContainer(`cp ${DATA_DIR}/${sample} ${orphanWeights}`);
+    // A per-user weight file always pairs with a state file, so require it here rather than skipping the copy.
+    // Otherwise the state-pruned assertion below could pass simply because the file was never planted.
     const sampleState = perUserStateFiles()[0];
-    if (sampleState) {
-      execInContainer(`cp ${DATA_DIR}/${sampleState} ${orphanState}`);
-    }
+    expect(sampleState, 'a per-user state file must exist to plant an orphan state').toBeTruthy();
+    execInContainer(`cp ${DATA_DIR}/${sampleState} ${orphanState}`);
     expect(containerFileExists(orphanWeights), 'planted orphan weights file should exist').toBeTruthy();
+    expect(containerFileExists(orphanState), 'planted orphan state file should exist').toBeTruthy();
 
     // The next training run reconciles per-user files against the live user list and prunes the orphan.
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');

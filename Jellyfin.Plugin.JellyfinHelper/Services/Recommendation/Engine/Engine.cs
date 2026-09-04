@@ -195,11 +195,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // watched item that was never previously recommended.
         var libraryItemMetadata = BuildLibraryItemMetadata(allMovies, allSeries);
 
-        var allProfilesForTraining = _watchHistoryService.GetAllUserWatchProfiles();
-
         // Remove per-user model/state files for users that no longer exist (reconciliation against the live
         // user list, the same approach used to clean up stale recommendation playlists). The live set comes
-        // straight from the user manager, not from the profiles above: profile building skips any user it
+        // straight from the user manager, not from a profile build: profile building skips any user it
         // cannot build, so a transient failure there must not make a live user look removed and delete their
         // model files.
         _perUserRegistry.PruneOrphans([.. _watchHistoryService.GetAllUserIds()]);
@@ -214,7 +212,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             var ensemble = _perUserRegistry.GlobalEnsemble;
-            var allProfiles = allProfilesForTraining;
+            // Fetched here rather than up front so a skipped or empty-results training run does not pay for a
+            // profile build it never uses.
+            var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
             var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
             foreach (var profile in allProfiles)
             {
