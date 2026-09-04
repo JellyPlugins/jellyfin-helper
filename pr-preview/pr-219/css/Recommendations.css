@@ -263,8 +263,12 @@
     opacity: 0.85;
 }
 
-/* The strategy label ("Recommendation strategy for Alice:") anchors the line, so give it a touch more weight. */
+/* The strategy label ("Recommendation strategy for Alice:") anchors the line, so give it a touch more weight.
+   It sits on its own line above the percentage breakdown, which keeps the composition readable and stops the
+   label and shares from running together into an awkward wrap on narrow screens. */
 .recs-ensemble-label {
+    display: block;
+    margin-bottom: 0.15em;
     font-weight: 600;
 }
 
