@@ -261,6 +261,7 @@
   "recsEnsembleNeural": "Sinir ağı motoru",
   "recsEnsembleOff": "kapalı",
   "recsEnsembleStrategyPerUser": "{0} için öneri stratejisi:",
+  "recsEnsembleThisUser": "bu kullanıcı",
   "recsEnsembleStrategyGlobal": "Genel öneri stratejisi (bu kullanıcının henüz kendine ait bir modeli yok):",
   "recsEnsembleStatus": "Durum",
   "recsEnsembleStatusFrozen": "donduruldu",

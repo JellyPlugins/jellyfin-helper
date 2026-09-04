@@ -50,11 +50,11 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var neural = new NeuralScoringStrategy();
 
-        var withNeural = new EnsembleScoringStrategy(learned, heuristic, neural);
+        using var withNeural = new EnsembleScoringStrategy(learned, heuristic, neural);
         Assert.Same(neural, withNeural.NeuralStrategy);
 
         // The convenience ctor wires no neural strategy.
-        var withoutNeural = new EnsembleScoringStrategy();
+        using var withoutNeural = new EnsembleScoringStrategy();
         Assert.Null(withoutNeural.NeuralStrategy);
     }
 
@@ -64,7 +64,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var neural = new NeuralScoringStrategy();
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // First round crosses the activation threshold.
         ensemble.Train(CleanExamples(160));
@@ -84,7 +84,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     public void Train_NeuralFailsToTrainWhileLearnedSucceeds_DecaysBeta()
     {
         var neural = new NeuralScoringStrategy();
-        var ensemble = BuildActivatedEnsemble(neural);
+        using var ensemble = BuildActivatedEnsemble(neural);
         var betaBefore = ensemble.CurrentNeuralBeta;
         Assert.True(betaBefore > 0, $"Neural beta must have activated, was {betaBefore:F4}");
 
@@ -112,7 +112,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
 
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
+        using var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
 
         // 40 examples per round: accumulated count climbs past 150 over rounds, but no single run reaches it.
         for (var round = 0; round < 15; round++)
@@ -139,7 +139,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
 
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
+        using var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
 
         // Exactly at the threshold: beta starts at the floor (not zero), the immediate small contribution.
         Assert.True(perUser.Train(CleanExamples(150), heldOutForMetrics: null, trainNeural: false));
@@ -166,7 +166,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
 
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
+        using var perUser = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
 
         // A rich run drives beta to the cap.
         Assert.True(perUser.Train(CleanExamples(260), heldOutForMetrics: null, trainNeural: false));
@@ -230,7 +230,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     public void Train_LearnedFailsWithActiveBeta_DecaysBetaToZeroAndCapsHistory()
     {
         var neural = new NeuralScoringStrategy();
-        var ensemble = BuildActivatedEnsemble(neural);
+        using var ensemble = BuildActivatedEnsemble(neural);
         var betaStart = ensemble.CurrentNeuralBeta;
         Assert.True(betaStart > 0, $"Neural beta must have activated, was {betaStart:F4}");
 
@@ -262,7 +262,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     public void Train_NeuralFailsRepeatedly_SnapsBetaToZeroBelowFloor()
     {
         var neural = new NeuralScoringStrategy();
-        var ensemble = BuildActivatedEnsemble(neural);
+        using var ensemble = BuildActivatedEnsemble(neural);
         var betaStart = ensemble.CurrentNeuralBeta;
         Assert.True(betaStart > 0, $"Neural beta must have activated, was {betaStart:F4}");
 
@@ -331,7 +331,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var neural = new NeuralScoringStrategy();
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Baselines before any training: the neural has never trained (generation 0, initial weights).
         var neuralGenBefore = neural.TrainingGeneration;
@@ -356,7 +356,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var neural = new NeuralScoringStrategy();
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         var neuralGenBefore = neural.TrainingGeneration;
         var neuralWeightsBefore = neural.GetCurrentWeightsHidden();

@@ -261,6 +261,7 @@
   "recsEnsembleNeural": "Motor neural",
   "recsEnsembleOff": "desativado",
   "recsEnsembleStrategyPerUser": "Estratégia de recomendação para {0}:",
+  "recsEnsembleThisUser": "este utilizador",
   "recsEnsembleStrategyGlobal": "Estratégia de recomendação global (este utilizador ainda não tem um modelo individual):",
   "recsEnsembleStatus": "Estado",
   "recsEnsembleStatusFrozen": "congelado",

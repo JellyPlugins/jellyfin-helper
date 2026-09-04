@@ -127,6 +127,27 @@ public class RecommendationControllerDiagnosticsTests
     }
 
     [Fact]
+    public void GetEnsembleDiagnostics_WithUserId_PerUserModelButProfileUnavailable_ReturnsPerUserDtoWithNullName()
+    {
+        var userId = Guid.NewGuid();
+
+        // A per-user model file can exist while the watch profile fails to build (transient error, or a user
+        // with a trained model but no current watch history), so the name is null even though the model is
+        // per-user. The response must keep IsPerUser true so the footnote is not mislabelled as the global model.
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId))
+            .Returns((new EnsembleDiagnostics { Alpha = 0.7, NeuralEnabled = true }, true));
+        _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId)).Returns((UserWatchProfile?)null);
+
+        var result = _controller.GetEnsembleDiagnostics(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
+        Assert.True(dto.Available);
+        Assert.True(dto.IsPerUser);
+        Assert.Null(dto.UserName);
+    }
+
+    [Fact]
     public void GetEnsembleDiagnostics_WithUserId_ColdStartUser_ReturnsGlobalFallbackDto()
     {
         var userId = Guid.NewGuid();
