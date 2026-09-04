@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Moq;
@@ -199,6 +200,95 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
 
         Assert.Equal(globalDiag.Alpha, diag.Alpha);
         Assert.Equal(globalDiag.TrainingExampleCount, diag.TrainingExampleCount);
+    }
+
+    [Fact]
+    public void GetOrCreateTrainableEnsembleForUser_ConcurrentSameUser_BuildsExactlyOneInstance()
+    {
+        var neural = new NeuralScoringStrategy();
+        var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        // Fire many concurrent GetOrCreate calls for one user. The registry stores a Lazy per user, so the
+        // ensemble must be built exactly once and every caller must observe the same reference. Before the
+        // Lazy guard, a racing GetOrAdd could build several throw-away ensembles and hand different ones out.
+        const int concurrency = 16;
+        var results = new EnsembleScoringStrategy[concurrency];
+        Parallel.For(0, concurrency, i => results[i] = registry.GetOrCreateTrainableEnsembleForUser(userId));
+
+        var first = results[0];
+        Assert.NotSame(global, first);
+        foreach (var resolved in results)
+        {
+            Assert.Same(first, resolved);
+        }
+    }
+
+    [Fact]
+    public void PerUserEnsembles_ShareSingleHeuristicInstance()
+    {
+        var neural = new NeuralScoringStrategy();
+        var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        var a = registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
+        var b = registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
+
+        // One stateless genre-penalty-disabled heuristic is shared across every per-user ensemble rather than
+        // each ensemble constructing its own copy - distinct ensembles must reference the same instance.
+        Assert.Same(a.HeuristicStrategy, b.HeuristicStrategy);
+    }
+
+    [Fact]
+    public void GetUserModelDiagnostics_ColdStartThenTrained_FlipsIsPerUserAtomically()
+    {
+        var neural = new NeuralScoringStrategy();
+        var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        // Cold-start: no per-user file, so the snapshot must be the global fallback flagged IsPerUser=false.
+        var (coldDiag, coldIsPerUser) = registry.GetUserModelDiagnostics(userId);
+        Assert.False(coldIsPerUser);
+        Assert.Equal(global.GetDiagnosticsSnapshot().Alpha, coldDiag.Alpha);
+
+        // Creating + training a per-user model persists ml_weights_{id}.json.
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.LearnedStrategy.Train(GenerateExamples(30)));
+
+        // The snapshot and the per-user flag are resolved together, so once the model exists the flag flips.
+        var (warmDiag, warmIsPerUser) = registry.GetUserModelDiagnostics(userId);
+        Assert.True(warmIsPerUser);
+        Assert.Equal(perUser.GetDiagnosticsSnapshot().Alpha, warmDiag.Alpha);
+    }
+
+    [Fact]
+    public void PerUserEnsemble_WarmStartedFromGlobal_ComputesAlphaFromOwnExampleCount()
+    {
+        var neural = new NeuralScoringStrategy();
+        // Train the global on a large set so it carries a high example count and a high blend alpha.
+        var global = BuildGlobal(neural);
+        Assert.True(global.Train(GenerateExamples(60)));
+        var globalDiag = global.GetDiagnosticsSnapshot();
+
+        using var registry = BuildRegistry(global, neural);
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
+
+        // Warm-start seeds the learned weights but NOT the blend state. Training the per-user ensemble on a
+        // small set must compute its own alpha from ITS example count (15), not inherit the global's higher
+        // blend confidence from 60 examples.
+        Assert.True(perUser.Train(GenerateExamples(15)));
+        var perUserDiag = perUser.GetDiagnosticsSnapshot();
+
+        Assert.Equal(15, perUserDiag.TrainingExampleCount);
+        Assert.NotEqual(globalDiag.TrainingExampleCount, perUserDiag.TrainingExampleCount);
+
+        // Alpha grows monotonically with the example count via the sigmoid, so the data-poor user's alpha must
+        // not exceed the data-rich global's alpha. This is the invariant the SeedFrom-does-not-copy-blend fix protects.
+        Assert.True(
+            perUserDiag.Alpha <= globalDiag.Alpha,
+            $"per-user alpha ({perUserDiag.Alpha}) must not exceed global alpha ({globalDiag.Alpha})");
     }
 
     private EnsembleScoringStrategy BuildGlobal(NeuralScoringStrategy neural) =>

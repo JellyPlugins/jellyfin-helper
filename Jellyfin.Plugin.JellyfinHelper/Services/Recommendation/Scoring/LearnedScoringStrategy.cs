@@ -242,6 +242,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     ///     stats, <c>WarmStartWeightsForModeChange</c> would see no prior standardization, skip the rescale,
     ///     and apply standardized-space weights to raw features - silently wrong scores. The training
     ///     generation is reset to 0 so this model's SGD RNG seed does not inherit the source's progression.
+    ///     Only the learned weights carry over as a prior. The owning ensemble's blend factor (alpha) is
+    ///     deliberately not seeded: it must grow from the per-user example count so a data-poor user blends
+    ///     conservatively rather than inheriting the global model's confidence and being overrun by it.
     /// </remarks>
     /// <param name="source">The model to copy weights and standardization state from.</param>
     internal void SeedFrom(LearnedScoringStrategy source)

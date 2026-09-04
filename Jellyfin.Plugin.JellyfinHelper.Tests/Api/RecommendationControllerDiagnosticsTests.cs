@@ -110,9 +110,9 @@ public class RecommendationControllerDiagnosticsTests
         var userId = Guid.NewGuid();
 
         var perUserDiagnostics = new EnsembleDiagnostics { Alpha = 0.68, NeuralEnabled = true };
-        _mockEngine.Setup(e => e.GetEnsembleDiagnostics(userId)).Returns(perUserDiagnostics);
-        // The honest per-user signal comes from HasPerUserModel, NOT a reference comparison of snapshots.
-        _mockEngine.Setup(e => e.HasPerUserModel(userId)).Returns(true);
+        // Snapshot and per-user flag are resolved atomically in one call, so a cold-start user cannot be
+        // mislabelled as having an individual model.
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId)).Returns((perUserDiagnostics, true));
         _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId))
             .Returns(new UserWatchProfile { UserId = userId, UserName = "Bob" });
 
@@ -131,12 +131,11 @@ public class RecommendationControllerDiagnosticsTests
     {
         var userId = Guid.NewGuid();
 
-        // Cold-start: the engine returns the GLOBAL snapshot for this user (no per-user model) and
-        // HasPerUserModel is false. IsPerUser must be false so the UI shows the global-fallback label.
-        // This is the regression guard for the old ReferenceEquals bug that reported per-user for everyone.
-        _mockEngine.Setup(e => e.GetEnsembleDiagnostics(userId))
-            .Returns(new EnsembleDiagnostics { Alpha = 0.4, NeuralEnabled = true });
-        _mockEngine.Setup(e => e.HasPerUserModel(userId)).Returns(false);
+        // Cold-start: the atomic resolution returns the GLOBAL snapshot for this user paired with
+        // IsPerUser=false (no per-user model). IsPerUser must be false so the UI shows the global-fallback
+        // label. This is the regression guard for the old ReferenceEquals bug that reported per-user for everyone.
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId))
+            .Returns((new EnsembleDiagnostics { Alpha = 0.4, NeuralEnabled = true }, false));
         _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId))
             .Returns(new UserWatchProfile { UserId = userId, UserName = "NewUser" });
 
@@ -164,9 +163,9 @@ public class RecommendationControllerDiagnosticsTests
         Assert.Null(dto.UserName);
         Assert.Equal(0.5, dto.Alpha);
 
-        // Global path must use the parameterless engine call and never the per-user overload.
+        // Global path must use the parameterless engine call and never the per-user resolution.
         _mockEngine.Verify(e => e.GetEnsembleDiagnostics(), Times.Once);
-        _mockEngine.Verify(e => e.GetEnsembleDiagnostics(It.IsAny<Guid>()), Times.Never);
+        _mockEngine.Verify(e => e.GetUserEnsembleDiagnostics(It.IsAny<Guid>()), Times.Never);
     }
 
     [Fact]
@@ -180,6 +179,6 @@ public class RecommendationControllerDiagnosticsTests
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, status.StatusCode);
         _mockEngine.Verify(e => e.GetEnsembleDiagnostics(), Times.Never);
-        _mockEngine.Verify(e => e.GetEnsembleDiagnostics(It.IsAny<Guid>()), Times.Never);
+        _mockEngine.Verify(e => e.GetUserEnsembleDiagnostics(It.IsAny<Guid>()), Times.Never);
     }
 }

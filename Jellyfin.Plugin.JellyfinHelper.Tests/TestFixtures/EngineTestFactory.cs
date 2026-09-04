@@ -89,6 +89,8 @@ internal static class EngineTestFactory
         perUserRegistry.SetupGet(r => r.GlobalEnsemble).Returns(globalEnsemble);
         perUserRegistry.Setup(r => r.GetOrCreateTrainableEnsembleForUser(It.IsAny<Guid>())).Returns(globalEnsemble);
         perUserRegistry.Setup(r => r.GetDiagnostics(It.IsAny<Guid>())).Returns(globalEnsemble.GetDiagnosticsSnapshot());
+        perUserRegistry.Setup(r => r.GetUserModelDiagnostics(It.IsAny<Guid>()))
+                       .Returns((globalEnsemble.GetDiagnosticsSnapshot(), false));
         perUserRegistry.Setup(r => r.HasPerUserModel(It.IsAny<Guid>())).Returns(false);
 
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();

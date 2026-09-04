@@ -182,9 +182,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         UpdateDiscoveryWatchedStatus(cancellationToken);
 
         // Use live library data so training and inference share the same progression and rarity tables.
-        // Load candidates once and derive both the episode counts and the IDF table from them, so the
-        // rarity prior is built over the exact population the serve path scores (train/serve parity).
-        var (candidatesForTraining, seriesEpisodeCounts) = LoadCandidateItems();
+        // Load the library once here and reuse it for the IDF prior and the studio/tag/BoxSet maps, so the
+        // rarity prior is built over the exact population the serve path scores (train/serve parity) and the
+        // library is not scanned twice per training run.
+        var (candidatesForTraining, seriesEpisodeCounts) = LoadCandidateItems(out var allMovies, out var allSeries);
 
         _genreStudioIdf = BuildGenreStudioIdfTable(candidatesForTraining);
 
@@ -192,7 +193,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // serve-time candidateLookup, or StudioMatch/TagSimilarity (and the ContentNearestNeighbor /
         // CollectionProgression signals that read the same metadata) differ between train and serve for any
         // watched item that was never previously recommended.
-        var libraryItemMetadata = BuildLibraryItemMetadata();
+        var libraryItemMetadata = BuildLibraryItemMetadata(allMovies, allSeries);
 
         var allProfilesForTraining = _watchHistoryService.GetAllUserWatchProfiles();
 
@@ -246,11 +247,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         _strategy is EnsembleScoringStrategy ensemble ? ensemble.GetDiagnosticsSnapshot() : null;
 
     /// <inheritdoc />
-    public EnsembleDiagnostics? GetEnsembleDiagnostics(Guid userId) =>
-        _strategy is EnsembleScoringStrategy ? _perUserRegistry.GetDiagnostics(userId) : null;
+    public (EnsembleDiagnostics? Diagnostics, bool IsPerUser) GetUserEnsembleDiagnostics(Guid userId)
+    {
+        if (_strategy is not EnsembleScoringStrategy)
+        {
+            return (null, false);
+        }
 
-    /// <inheritdoc />
-    public bool HasPerUserModel(Guid userId) => _perUserRegistry.HasPerUserModel(userId);
+        var (diagnostics, isPerUser) = _perUserRegistry.GetUserModelDiagnostics(userId);
+        return (diagnostics, isPerUser);
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<RecommendationResult> GetAllRecommendations(
@@ -390,7 +396,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="userName">Optional user display name for the result metadata.</param>
     /// <param name="preloadedCandidates">
     ///     Optional pre-loaded candidate list from the batch path.
-    ///     When null, candidates are loaded fresh via <see cref="LoadCandidateItems" />.
+    ///     When null, candidates are loaded fresh via <see cref="LoadCandidateItems()" />.
     /// </param>
     /// <param name="maxParentalRating">
     ///     Optional maximum parental rating for the user.
@@ -562,17 +568,23 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <summary>
     ///     Loads all candidate items (movies and series) from the library, together with a per-series episode count map derived from the same episode query used for the empty-series filter (no extra DB round-trip).
     /// </summary>
+    /// <param name="allMovies">Receives every allowed movie before the empty-placeholder filter, so a caller that also needs studio/tag metadata can reuse this load instead of re-querying the library.</param>
+    /// <param name="allSeries">Receives every allowed series before the empty-series filter, for the same reuse.</param>
     /// <returns>
     ///     Candidates and a <c>seriesId -> totalEpisodeCount</c> map. The map only contains
     ///     series with at least one playable episode; consumers must treat missing keys as
     ///     "no progression signal available".
     /// </returns>
-    private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems()
+    private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems(
+        out IReadOnlyList<BaseItem> allMovies,
+        out IReadOnlyList<BaseItem> allSeries)
     {
         var scope = GetLibraryRootScope();
 
         var movies = QueryAllowedItems(BaseItemKind.Movie, isFolder: false, scope);
         var series = QueryAllowedItems(BaseItemKind.Series, isFolder: true, scope);
+        allMovies = movies;
+        allSeries = series;
 
         var candidates = new List<BaseItem>(movies.Count + series.Count);
 
@@ -626,6 +638,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         return (candidates, seriesEpisodeCounts);
     }
 
+    // Overload for the serve paths that only need the candidate list and episode counts, not the raw
+    // pre-filter movie/series lists.
+    private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems()
+        => LoadCandidateItems(out _, out _);
+
     // Allowed/excluded library roots for this generation run, or null when nothing is excluded.
     // Resolved once per candidate load and passed to each query filter to avoid re-reading virtual
     // folders. Carries excluded roots so an excluded library nested under an allowed one is denied.
@@ -674,23 +691,19 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Loads Movies and Series from the live library and produces the item -> (studios / tags /
-    ///     BoxSet ids) maps used at training time. Mirrors the candidate queries in
-    ///     <see cref="LoadCandidateItems"/> and reuses <see cref="ResolveBoxSetIds"/> so the BoxSet
-    ///     resolution is byte-identical to the serve-time <c>candidateBoxSetLookup</c>. Threaded into
-    ///     training so watched-item studios/tags resolve from the same source the serve path reads.
+    ///     Produces the item -> (studios / tags / BoxSet ids) maps used at training time from the movies
+    ///     and series the caller already loaded via <see cref="LoadCandidateItems(out IReadOnlyList{BaseItem}, out IReadOnlyList{BaseItem})"/>.
+    ///     Reuses <see cref="ResolveBoxSetIds"/> so BoxSet resolution is byte-identical to the serve-time
+    ///     <c>candidateBoxSetLookup</c>, letting watched-item studios/tags resolve from the same source the
+    ///     serve path reads.
     /// </summary>
     /// <returns>The per-item studios, tags and BoxSet id maps, keyed by item id.</returns>
-    private Training.LibraryItemMetadata BuildLibraryItemMetadata()
+    /// <param name="movies">The allowed movies, already loaded by the caller.</param>
+    /// <param name="series">The allowed series, already loaded by the caller.</param>
+    private Training.LibraryItemMetadata BuildLibraryItemMetadata(
+        IReadOnlyList<BaseItem> movies,
+        IReadOnlyList<BaseItem> series)
     {
-        // Scope to the same allowed roots the candidate load uses. An excluded library must not feed
-        // training-time studio, tag or BoxSet lookups for items that are never scored as candidates,
-        // or the learned model would fit on features the serve path never produces.
-        var scope = GetLibraryRootScope();
-
-        var movies = QueryAllowedItems(BaseItemKind.Movie, isFolder: false, scope);
-        var series = QueryAllowedItems(BaseItemKind.Series, isFolder: true, scope);
-
         var studios = new Dictionary<Guid, IReadOnlyList<string>>(movies.Count + series.Count);
         var tags = new Dictionary<Guid, IReadOnlyList<string>>(movies.Count + series.Count);
         var boxSetIds = new Dictionary<Guid, IReadOnlyList<Guid>>();
@@ -769,7 +782,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse: only items in BoxSets).</param>
     /// <param name="contentAffinityLookup">Per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
     /// <param name="seriesEpisodeCounts">
-    ///     Per-series total episode count (from <see cref="LoadCandidateItems"/>) used by
+    ///     Per-series total episode count (from <see cref="LoadCandidateItems()"/>) used by
     ///     <see cref="PreferenceBuilder"/> to weight watched-episode signals by the fraction
     ///     of the series the user has actually seen. Missing keys treated as "no signal".
     /// </param>

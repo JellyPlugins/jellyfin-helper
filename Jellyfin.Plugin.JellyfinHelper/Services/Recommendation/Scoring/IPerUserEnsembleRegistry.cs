@@ -59,6 +59,16 @@ public interface IPerUserEnsembleRegistry : IDisposable
     EnsembleDiagnostics GetDiagnostics(Guid userId);
 
     /// <summary>
+    ///     Resolves the user's ensemble once and returns both its diagnostics snapshot and whether that
+    ///     ensemble is a dedicated per-user model (as opposed to the shared global fallback). Preferred over
+    ///     calling <see cref="GetDiagnostics"/> and <see cref="HasPerUserModel"/> separately, which can
+    ///     disagree if the user's model appears between the two calls.
+    /// </summary>
+    /// <param name="userId">The user to snapshot.</param>
+    /// <returns>The diagnostics snapshot paired with the per-user flag.</returns>
+    (EnsembleDiagnostics Diagnostics, bool IsPerUser) GetUserModelDiagnostics(Guid userId);
+
+    /// <summary>
     ///     Returns whether the given user currently has a dedicated per-user model (a persisted per-user
     ///     weights file exists or one is already materialized this session). False means the user falls back
     ///     to the global model. Used by diagnostics to label the snapshot honestly.

@@ -604,4 +604,76 @@ public class TrainingServiceTests
     }
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
+
+    [Fact]
+    public void TrainPerUser_IncrementalSubsamplesPool_UsersAboveThresholdStillGetPerUserModel()
+    {
+        // Regression guard: incremental subsampling must apply ONLY to the global pass. Per-user passes see
+        // the full per-user slices, and the per-user threshold is checked against the UNSUBSAMPLED count. So
+        // a user whose real example count clears the threshold must still get a per-user model even when the
+        // pooled set is large enough to trigger incremental subsampling. Before the fix, subsampling the pool
+        // first could drop a user's visible count below the threshold and silently skip their model.
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
+
+        // Two data-rich users (30 watched items + 30 prior recommendations each) produce far more than the
+        // 12-example per-user threshold individually, and a pooled total well past IncrementalMinExamplesThreshold (30).
+        var profiles = new Collection<UserWatchProfile>
+        {
+            CreateLargeProfile(userA, watchedCount: 30),
+            CreateLargeProfile(userB, watchedCount: 30)
+        };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var previous = new[]
+        {
+            CreateLargeResult(userA, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)),
+            CreateLargeResult(userB, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+                _pluginLogMock.Object);
+
+            var sut = CreateSut();
+            var trained = sut.TrainPerUser(registry, previous, incremental: true);
+
+            Assert.True(trained);
+            // Both users cleared the threshold on their full slices, so both must have a dedicated per-user
+            // model persisted despite the global pass subsampling the pooled set.
+            Assert.True(registry.HasPerUserModel(userA));
+            Assert.True(registry.HasPerUserModel(userB));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
 }

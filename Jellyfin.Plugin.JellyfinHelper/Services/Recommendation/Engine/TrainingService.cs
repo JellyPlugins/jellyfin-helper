@@ -160,13 +160,20 @@ internal sealed class TrainingService : IDisposable
         {
             var globalEnsemble = registry.GlobalEnsemble;
 
-            // Build the pooled examples once; the global pass and every per-user pass share this exact set.
+            // Build the full pooled example set once. The global pass may subsample it for efficiency, but
+            // the per-user passes must see each user's real example count, so they train on this full set.
             var pooled = BuildTrainingExamples(
-                globalEnsemble, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, libraryItemMetadata, cancellationToken);
+                globalEnsemble, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
+
+            var globalExamples = incremental && pooled.Count >= EngineConstants.IncrementalMinExamplesThreshold
+                ? ApplyIncrementalSampling(pooled, previousResults)
+                : pooled;
 
             // Global pass: trains the learned model, the neural MLP (once), and the global blend state.
-            var globalTrained = TrainStrategyOnExamples(globalEnsemble, pooled, trainNeural: true, cancellationToken);
+            var globalTrained = TrainStrategyOnExamples(globalEnsemble, globalExamples, trainNeural: true, cancellationToken);
 
+            // Per-user passes train on the full per-user slices so incremental subsampling of the pooled set
+            // never drops a user below the threshold or starves their model of their own recent history.
             TrainPerUserModels(registry, pooled, cancellationToken);
 
             return globalTrained;
@@ -183,7 +190,7 @@ internal sealed class TrainingService : IDisposable
     ///     examples, warm-started from the global model on first creation.
     /// </summary>
     /// <param name="registry">The per-user ensemble registry.</param>
-    /// <param name="pooled">The pooled training examples (tagged with UserId).</param>
+    /// <param name="pooled">The full pooled training examples (tagged with UserId, before incremental subsampling).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     private void TrainPerUserModels(
         IPerUserEnsembleRegistry registry,
@@ -241,31 +248,33 @@ internal sealed class TrainingService : IDisposable
         CancellationToken cancellationToken)
     {
         var trainingExamples = BuildTrainingExamples(
-            strategy, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, libraryItemMetadata, cancellationToken);
+            strategy, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
+
+        var sampled = incremental && trainingExamples.Count >= EngineConstants.IncrementalMinExamplesThreshold
+            ? ApplyIncrementalSampling(trainingExamples, previousResults)
+            : trainingExamples;
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        return TrainStrategyOnExamples(strategy, trainingExamples, trainNeural: true, cancellationToken);
+        return TrainStrategyOnExamples(strategy, sampled, trainNeural: true, cancellationToken);
     }
 
     /// <summary>
-    ///     Builds the pooled training examples for this run (all phases + discovery feedback), logs the
-    ///     composition, and applies incremental sampling when requested. Shared by the global training path
-    ///     and the per-user path so both operate on the identical example set.
+    ///     Builds the pooled training examples for this run (all phases + discovery feedback) and logs the
+    ///     composition. Shared by the global training path and the per-user path; incremental subsampling is
+    ///     applied by the caller so the per-user path can still see each user's full example count.
     /// </summary>
     /// <param name="strategy">The strategy whose feature means impute discovery features.</param>
     /// <param name="previousResults">The previous-run recommendation results.</param>
     /// <param name="seriesEpisodeCounts">Per-series episode counts for progression parity.</param>
-    /// <param name="incremental">Whether to subsample older examples.</param>
     /// <param name="genreStudioIdf">Library-wide genre/studio IDF rarity table.</param>
     /// <param name="libraryItemMetadata">Item metadata map from the live library.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The pooled training examples (post incremental sampling).</returns>
+    /// <returns>The full pooled training examples.</returns>
     private List<TrainingExample> BuildTrainingExamples(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
-        bool incremental,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
         LibraryItemMetadata? libraryItemMetadata,
         CancellationToken cancellationToken)
@@ -300,9 +309,7 @@ internal sealed class TrainingService : IDisposable
             $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
             _logger);
 
-        return incremental && examples.Count >= EngineConstants.IncrementalMinExamplesThreshold
-            ? ApplyIncrementalSampling(examples, previousResults)
-            : examples;
+        return examples;
     }
 
     /// <summary>

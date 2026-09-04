@@ -33,7 +33,16 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private readonly double _genrePenaltyFloor;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger? _logger;
-    private readonly ConcurrentDictionary<Guid, EnsembleScoringStrategy> _perUser = new();
+
+    // The heuristic is stateless (fixed weights, no training state, no mutation), so one instance is shared
+    // by reference across every per-user ensemble. Its floor is 1.0 because the ensemble applies the genre
+    // penalty centrally; a per-instance heuristic would only duplicate an immutable object.
+    private readonly HeuristicScoringStrategy _sharedHeuristic = new(genrePenaltyFloor: 1.0);
+
+    // Values are lazy so a GetOrAdd race for the same user builds the ensemble exactly once. Concurrent
+    // callers may each allocate a Lazy wrapper, but only the dictionary winner's Value is ever evaluated;
+    // the losing wrappers are discarded without constructing (and leaking) a second ensemble.
+    private readonly ConcurrentDictionary<Guid, Lazy<EnsembleScoringStrategy>> _perUser = new();
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="PerUserEnsembleRegistry"/> class.
@@ -90,7 +99,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // Already materialized this session.
         if (_perUser.TryGetValue(userId, out var existing))
         {
-            return existing;
+            return existing.Value;
         }
 
         // Cold-start: only adopt a per-user model when its weights file is actually present on disk. A user
@@ -101,7 +110,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return _globalEnsemble;
         }
 
-        return _perUser.GetOrAdd(userId, BuildPerUserEnsemble);
+        return GetOrAddPerUser(userId);
     }
 
     /// <inheritdoc />
@@ -112,11 +121,30 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return _globalEnsemble;
         }
 
-        return _perUser.GetOrAdd(userId, BuildPerUserEnsemble);
+        return GetOrAddPerUser(userId);
     }
+
+    // Returns the cached per-user ensemble, building it exactly once even under concurrent callers. The
+    // Lazy value factory is what actually constructs the ensemble, so a losing GetOrAdd wrapper never runs it.
+    private EnsembleScoringStrategy GetOrAddPerUser(Guid userId) =>
+        _perUser.GetOrAdd(
+            userId,
+            id => new Lazy<EnsembleScoringStrategy>(() => BuildPerUserEnsemble(id))).Value;
 
     /// <inheritdoc />
     public EnsembleDiagnostics GetDiagnostics(Guid userId) => GetEnsembleForUser(userId).GetDiagnosticsSnapshot();
+
+    /// <inheritdoc />
+    public (EnsembleDiagnostics Diagnostics, bool IsPerUser) GetUserModelDiagnostics(Guid userId)
+    {
+        // Resolve once so the snapshot and the per-user flag describe the same ensemble. The flag is derived
+        // from the resolved instance itself: GetEnsembleForUser returns the shared global ensemble for a
+        // cold-start user and a distinct instance otherwise, so a reference check is authoritative here (no
+        // second file probe that could disagree with the resolution).
+        var ensemble = GetEnsembleForUser(userId);
+        var isPerUser = userId != Guid.Empty && !ReferenceEquals(ensemble, _globalEnsemble);
+        return (ensemble.GetDiagnosticsSnapshot(), isPerUser);
+    }
 
     /// <inheritdoc />
     public bool HasPerUserModel(Guid userId)
@@ -163,11 +191,15 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <inheritdoc />
     public void Dispose()
     {
-        // Dispose only the per-user ensembles. Each was constructed with ownsNeural:false, so this leaves the
-        // shared neural (owned by the global ensemble) intact.
-        foreach (var ensemble in _perUser.Values)
+        // Dispose only the per-user ensembles that were actually built. Each was constructed with
+        // ownsNeural:false, so this leaves the shared neural (owned by the global ensemble) intact.
+        // Touching a never-evaluated Lazy would construct an ensemble just to dispose it.
+        foreach (var lazy in _perUser.Values)
         {
-            ensemble.Dispose();
+            if (lazy.IsValueCreated)
+            {
+                lazy.Value.Dispose();
+            }
         }
 
         _perUser.Clear();
@@ -192,13 +224,12 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             learned.SeedFrom(_globalEnsemble.LearnedStrategy);
         }
 
-        // The heuristic sub-strategy MUST disable its own genre penalty (floor = 1.0); the ensemble applies
-        // the penalty centrally. The shared neural is passed by reference with ownsNeural:false.
-        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-
+        // The heuristic sub-strategy MUST have its genre penalty disabled (floor = 1.0); the ensemble applies
+        // the penalty centrally. It is stateless, so the single shared instance is reused here. The shared
+        // neural is passed by reference with ownsNeural:false.
         return new EnsembleScoringStrategy(
             learned,
-            heuristic,
+            _sharedHeuristic,
             _sharedNeural,
             statePath,
             _alphaMin,
@@ -229,9 +260,9 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         try
         {
             File.Delete(file);
-            if (_perUser.TryRemove(id, out var evicted))
+            if (_perUser.TryRemove(id, out var evicted) && evicted.IsValueCreated)
             {
-                evicted.Dispose();
+                evicted.Value.Dispose();
             }
 
             _pluginLog.LogInfo(LogSource, $"Pruned per-user model file for removed user {id:N}.", _logger);

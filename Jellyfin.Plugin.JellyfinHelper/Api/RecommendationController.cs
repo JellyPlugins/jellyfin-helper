@@ -154,17 +154,14 @@ public class RecommendationController : ControllerBase
                 : Ok(EnsembleDiagnosticsResponse.FromDiagnostics(globalDiagnostics));
         }
 
-        var diagnostics = _engine.GetEnsembleDiagnostics(userId!.Value);
+        var (diagnostics, isPerUser) = _engine.GetUserEnsembleDiagnostics(userId!.Value);
         if (diagnostics is null)
         {
             return Ok(new EnsembleDiagnosticsResponse { Available = false });
         }
 
-        // A per-user model exists only once the user's example count clears the threshold; below it the engine
-        // returns the global snapshot. Ask the engine directly (HasPerUserModel) rather than comparing two
-        // freshly-allocated snapshots. Each GetDiagnosticsSnapshot() returns a new record, so a reference
-        // comparison would always report "per-user" even for a cold-start user on the global model.
-        var isPerUser = _engine.HasPerUserModel(userId.Value);
+        // The per-user flag comes from the same resolution as the snapshot, so a cold-start user on the
+        // global model is never mislabelled as having an individual model.
         var userName = _watchHistoryService.GetUserWatchProfile(userId.Value)?.UserName;
 
         return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics, isPerUser, userName));

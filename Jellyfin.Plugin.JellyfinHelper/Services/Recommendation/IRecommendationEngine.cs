@@ -50,18 +50,14 @@ public interface IRecommendationEngine
     EnsembleDiagnostics? GetEnsembleDiagnostics();
 
     /// <summary>
-    ///     Gets a diagnostics snapshot for a specific user's model: the per-user ensemble's state when the
-    ///     user has a dedicated model, otherwise the global ensemble's state (cold-start fallback).
+    ///     Gets a diagnostics snapshot for a specific user's model together with whether that snapshot came
+    ///     from a dedicated per-user model or the shared global fallback. Resolved in a single call so the
+    ///     snapshot and the per-user flag always describe the same ensemble.
     /// </summary>
     /// <param name="userId">The user whose model state to snapshot.</param>
-    /// <returns>An <see cref="EnsembleDiagnostics"/> snapshot, or null when the active strategy is not an ensemble.</returns>
-    EnsembleDiagnostics? GetEnsembleDiagnostics(Guid userId);
-
-    /// <summary>
-    ///     Returns whether the given user currently has a dedicated, individually-trained model (as opposed to
-    ///     falling back to the shared global model). Used to label diagnostics honestly.
-    /// </summary>
-    /// <param name="userId">The user to check.</param>
-    /// <returns><see langword="true"/> when the user has a per-user model; otherwise <see langword="false"/>.</returns>
-    bool HasPerUserModel(Guid userId);
+    /// <returns>
+    ///     The snapshot paired with the per-user flag. <c>Diagnostics</c> is null when the active strategy is
+    ///     not an ensemble, in which case <c>IsPerUser</c> is false.
+    /// </returns>
+    (EnsembleDiagnostics? Diagnostics, bool IsPerUser) GetUserEnsembleDiagnostics(Guid userId);
 }
