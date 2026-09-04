@@ -183,7 +183,7 @@ public class ConfigurationController : ControllerBase
         [FromBody] ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
     {
-        // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which runs with Order = int.MinValue so it fires *before* [ApiController]'s built-in ModelStateInvalidFilter.
+        // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which orders below [ApiController]'s built-in ModelStateInvalidFilter (-2000) so it fires *before* the automatic 400.
         if (request is null)
         {
             return BadRequest(new { message = "Request body is required." });
@@ -545,11 +545,8 @@ public class ConfigurationController : ControllerBase
             config.EnsembleGenrePenaltyFloor = Math.Clamp(request.EnsembleGenrePenaltyFloor.Value, 0.0, 1.0);
         }
 
-        // Enforce min <= max after both values may have been updated.
-        if (config.EnsembleAlphaMin > config.EnsembleAlphaMax)
-        {
-            config.EnsembleAlphaMax = config.EnsembleAlphaMin;
-        }
+        // The min/max invariant is enforced by the EnsembleAlphaMin/Max setters, which swap an
+        // inverted pair on assignment; no additional reconciliation is needed here.
     }
 
     /// <summary>

@@ -58,10 +58,10 @@ public class DiscoveryControllerTests : IDisposable
     }
 
     [Fact]
-    public void Get_ReturnsOkWithResults()
+    public async Task Get_ReturnsOkWithResults()
     {
         var controller = CreateController();
-        var result = controller.GetDiscoveryResults();
+        var result = await controller.GetDiscoveryResults();
         Assert.IsType<OkObjectResult>(result.Result);
     }
 

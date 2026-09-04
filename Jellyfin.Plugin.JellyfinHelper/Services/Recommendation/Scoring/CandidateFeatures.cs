@@ -316,7 +316,7 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the hour-of-day affinity (0-1). How well this content matches the user's viewing patterns for the current time of day (e.g.
+    ///     Gets or sets the hour-of-day affinity (0-1). How well this content matches the user's viewing patterns for the current time of day, for example late-night versus morning viewing.
     /// </summary>
     public double HourOfDayAffinity
     {

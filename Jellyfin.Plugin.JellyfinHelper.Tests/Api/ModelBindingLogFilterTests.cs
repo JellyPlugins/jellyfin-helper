@@ -152,13 +152,13 @@ public class ModelBindingLogFilterTests
     }
 
     /// <summary>
-    ///     Contract test: the filter MUST have MinValue as its execution order so it runs before [ApiController]'s built-in ModelStateInvalidFilter (which uses Order = int.MinValue + 100).
+    ///     Contract test: the filter must order below the built-in ModelStateInvalidFilter (which runs at -2000) so it fires first and can log the binding failure before the automatic 400 is written.
     /// </summary>
     [Fact]
-    public void Order_IsMinValue_SoRunsBeforeApiControllerAuto400()
+    public void Order_RunsBeforeApiControllerAuto400()
     {
         var filter = CreateFilter();
-        Assert.Equal(int.MinValue, filter.Order);
+        Assert.True(filter.Order < -2000, $"Filter order {filter.Order} must be below the built-in ModelStateInvalidFilter order of -2000.");
     }
 
     // Branch-coverage tests for the error-string composition helpers on the ModelState path. The `bindingErrors` join produces different strings depending on which of the three fallback branches inside the SelectMany-Select projection fires: 1.

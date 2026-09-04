@@ -152,6 +152,52 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSeerrUsersAsync_ConcurrentColdMiss_CoalescesToSingleHttpRequest()
+    {
+        // A cold-cache burst must collapse onto one shared fetch rather than stampede Seerr with one
+        // roster read per caller. Only a single response is queued, so any second request would fall
+        // through to a 404 and the assertion below would fail.
+        const int concurrency = 8;
+        using var handler = new CountingHttpHandler(responseDelayMs: 30);
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+
+        var sut = BuildService(handler);
+
+        var tasks = Enumerable
+            .Range(0, concurrency)
+            .Select(_ => sut.GetSeerrUsersAsync(CancellationToken.None))
+            .ToArray();
+
+        var results = await Task.WhenAll(tasks);
+
+        Assert.All(results, list => Assert.Equal(3, list.Count));
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_OneCallerCancels_OthersStillComplete()
+    {
+        // A single caller cancelling its wait must not abort the shared fetch for the coalesced
+        // callers. The cancelling caller observes its own cancellation; the rest still get the roster.
+        using var handler = new CountingHttpHandler(responseDelayMs: 50);
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+
+        var sut = BuildService(handler);
+
+        using var cts = new CancellationTokenSource();
+        var cancelling = sut.GetSeerrUsersAsync(cts.Token);
+        var surviving = sut.GetSeerrUsersAsync(CancellationToken.None);
+
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await cancelling);
+
+        var survivingResult = await surviving;
+        Assert.Equal(3, survivingResult.Count);
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
     public async Task GetSeerrUsersAsync_AfterStampede_SubsequentCallServedFromCache()
     {
         // Arrange: 4 concurrent callers warm the cache, then a 5th call should be

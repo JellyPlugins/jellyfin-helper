@@ -165,26 +165,11 @@ internal static class RankingMetrics
             return (0.0, 0.0, 0.0);
         }
 
-        // Group by user so precision reflects per-user top K rather than a global pool
-        var hasUser = examples.Any(e => e.UserId != Guid.Empty);
-        if (!hasUser)
-        {
-            var predictions = new double[examples.Count];
-            var labels = new double[examples.Count];
-
-            for (var i = 0; i < examples.Count; i++)
-            {
-                predictions[i] = strategy.Score(examples[i].Features);
-                labels[i] = examples[i].Label;
-            }
-
-            return (
-                ComputePrecisionAtK(predictions, labels, k, relevanceThreshold),
-                ComputeRecallAtK(predictions, labels, k, relevanceThreshold),
-                ComputeNdcgAtK(predictions, labels, k));
-        }
-
-        var groups = examples.Where(e => e.UserId != Guid.Empty).GroupBy(e => e.UserId);
+        // Group by user so precision reflects per-user top K rather than a global pool.
+        // Examples without a user id collapse into a single Guid.Empty group so they still
+        // contribute; a cache mixing legacy user-less examples with per-user ones would
+        // otherwise measure only the per-user subset and bias the metrics.
+        var groups = examples.GroupBy(e => e.UserId);
         var totalP = 0.0;
         var totalR = 0.0;
         var totalN = 0.0;

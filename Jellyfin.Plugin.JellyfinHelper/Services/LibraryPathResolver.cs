@@ -93,6 +93,50 @@ public static class LibraryPathResolver
         roots.DistinctBy(NormalizeForPrefix, PathComparison.Comparer).ToList();
 
     /// <summary>
+    /// Gets the item ids of the allowed library roots, so a facet query that counts by ancestor
+    /// (rather than by item path) can be restricted to the same libraries the path scope permits.
+    /// </summary>
+    /// <remarks>
+    /// Facet aggregations such as genre and studio counts have no per-item path to post-filter, so
+    /// the exclusion must be applied to the query itself through ancestor ids. A virtual folder whose
+    /// name is excluded, or whose id does not parse, is left out. An empty result means no library is
+    /// excluded, and callers should then leave their query unrestricted.
+    /// </remarks>
+    /// <param name="libraryManager">The library manager.</param>
+    /// <param name="excludedLibraryNames">Library names to exclude (case-insensitive). May be empty.</param>
+    /// <returns>The item ids of the non-excluded library roots, or an empty list when nothing is excluded.</returns>
+    public static IReadOnlyList<Guid> GetAllowedLibraryRootIds(
+        ILibraryManager libraryManager,
+        IReadOnlySet<string> excludedLibraryNames)
+    {
+        ArgumentNullException.ThrowIfNull(libraryManager);
+        ArgumentNullException.ThrowIfNull(excludedLibraryNames);
+
+        if (excludedLibraryNames.Count == 0)
+        {
+            return [];
+        }
+
+        var excludedNames = excludedLibraryNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var allowedIds = new List<Guid>();
+        foreach (var folder in libraryManager.GetVirtualFolders())
+        {
+            if (excludedNames.Contains(folder.Name ?? string.Empty))
+            {
+                continue;
+            }
+
+            if (Guid.TryParse(folder.ItemId, out var id) && id != Guid.Empty)
+            {
+                allowedIds.Add(id);
+            }
+        }
+
+        return allowedIds;
+    }
+
+    /// <summary>
     /// Determines whether an item path is permitted by the supplied scope, resolving the case where
     /// an excluded root is nested under an allowed one (or vice versa).
     /// </summary>

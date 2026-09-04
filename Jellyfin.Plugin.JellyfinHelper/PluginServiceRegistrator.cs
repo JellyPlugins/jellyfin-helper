@@ -38,7 +38,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         _ = applicationHost; // Required by interface but unused
 
-        // Hardening for all outbound named clients (Arr / Seerr): * MaxResponseContentBufferSize caps how much a response body can buffer, so a compromised/MITM'd upstream cannot stream a multi-GB body into a single string and OOM the Jellyfin process (Seerr reads used unbounded.
+        // Hardening for all outbound named clients (Arr / Seerr): MaxResponseContentBufferSize caps how much a response body can buffer, so a compromised or MITM'd upstream cannot stream a multi-GB body into a single string and OOM the Jellyfin process. Seerr reads were previously unbounded.
         const long maxResponseBytes = 100L * 1024 * 1024; // 100 MB, matching ArrIntegration's LimitedStream cap
 
         static HttpMessageHandler NoRedirectHandler() =>

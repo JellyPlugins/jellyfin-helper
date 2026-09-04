@@ -134,6 +134,7 @@ Tests mirror the source structure:
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── PluginServiceRegistratorTests.cs      # DI-container smoke test: every registered service must resolve
 ├── PluginTests.cs                        # Bootstrap: Instance publishing, GetPages, UpdateIndexHtml idempotency, OnUninstalling cleanup guards
+├── PluginResolveRealPathTests.cs         # Bounded symlink resolution: plain path, single link, cycle terminates, max-hops cap, IOException propagates (fail-closed)
 ├── Api/                           # Controller tests
 │   ├── ArrIntegrationControllerTests.cs
 │   ├── ArrIntegrationControllerExtendedTests.cs      # Index bounds, 502 with named instance, trash exclusion, partial-config 400 contract
@@ -632,6 +633,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ContributingDocCoverageTests.cs` - Drift guard: every tracked source/test file must be listed in this index
 - `PluginServiceRegistratorTests.cs`
 - `PluginTests.cs`
+- `PluginResolveRealPathTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Api/`
 

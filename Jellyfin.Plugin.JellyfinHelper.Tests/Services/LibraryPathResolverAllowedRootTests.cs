@@ -215,4 +215,73 @@ public sealed class LibraryPathResolverAllowedRootTests
 
         Assert.Equal(["/media/movies"], scope.AllowedRoots);
     }
+
+    [Fact]
+    public void GetAllowedLibraryRootIds_NoExclusions_ReturnsEmpty()
+    {
+        // An empty exclusion set means nothing is scoped out, so callers should leave their query
+        // unrestricted rather than filtering to a subset of roots.
+        var libraryManager = new Mock<ILibraryManager>();
+
+        var ids = LibraryPathResolver.GetAllowedLibraryRootIds(
+            libraryManager.Object,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        Assert.Empty(ids);
+        libraryManager.Verify(m => m.GetVirtualFolders(), Times.Never);
+    }
+
+    [Fact]
+    public void GetAllowedLibraryRootIds_WithExclusion_ReturnsOnlyAllowedRootIds()
+    {
+        var allowedId = Guid.NewGuid();
+        var excludedId = Guid.NewGuid();
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(m => m.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Movies", ItemId = allowedId.ToString("N"), Locations = ["/media/movies"] },
+                new VirtualFolderInfo { Name = "Anime", ItemId = excludedId.ToString("N"), Locations = ["/media/anime"] }
+            ]);
+
+        var ids = LibraryPathResolver.GetAllowedLibraryRootIds(
+            libraryManager.Object,
+            new HashSet<string>(StringComparer.Ordinal) { "anime" });
+
+        Assert.Equal([allowedId], ids);
+    }
+
+    [Fact]
+    public void GetAllowedLibraryRootIds_UnparsableOrEmptyItemId_Skipped()
+    {
+        // A virtual folder whose item id is missing or malformed cannot scope a query, so it is left
+        // out rather than silently widening the query.
+        var allowedId = Guid.NewGuid();
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(m => m.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Movies", ItemId = allowedId.ToString("N"), Locations = ["/media/movies"] },
+                new VirtualFolderInfo { Name = "Broken", ItemId = "not-a-guid", Locations = ["/media/broken"] },
+                new VirtualFolderInfo { Name = "NoId", ItemId = null, Locations = ["/media/noid"] },
+                new VirtualFolderInfo { Name = "Anime", ItemId = Guid.NewGuid().ToString("N"), Locations = ["/media/anime"] }
+            ]);
+
+        var ids = LibraryPathResolver.GetAllowedLibraryRootIds(
+            libraryManager.Object,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Anime" });
+
+        Assert.Equal([allowedId], ids);
+    }
+
+    [Fact]
+    public void GetAllowedLibraryRootIds_NullLibraryManager_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => LibraryPathResolver.GetAllowedLibraryRootIds(
+                null!,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Anime" }));
+    }
 }

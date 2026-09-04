@@ -123,6 +123,42 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
+    ///     Asynchronous counterpart of <see cref="Load"/>. Preferred for callers on request-driven
+    ///     paths so the request thread is not blocked on the file lock or the first-load disk read.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token honoured while waiting for the file lock.</param>
+    /// <returns>A deep-copied list of discovery results, or an empty list if the file does not exist or is invalid.</returns>
+    public async Task<IReadOnlyList<DiscoveryResult>> LoadAsync(CancellationToken cancellationToken = default)
+    {
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            try
+            {
+                await EnsureLoadedLockedAsync(cancellationToken).ConfigureAwait(false);
+                var cache = _memoryCache ??= [];
+                return cache.ConvertAll(r => r.Clone());
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                _pluginLog.LogWarning(
+                    LogCategory,
+                    $"Could not load discovery results from {_filePath}: {ex.Message}",
+                    ex,
+                    _logger);
+                // Cache empty result to prevent repeated failed disk reads on every API call.
+                // Next Save() will repopulate the cache with fresh data.
+                _memoryCache = [];
+                return [];
+            }
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
     ///     Removes a specific TMDb item from the specified user's cached recommendation list.
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the item to remove.</param>
@@ -455,15 +491,49 @@ public sealed class DiscoveryCacheService : IDisposable
     /// </summary>
     private void EnsureLoadedLocked()
     {
-        if (_memoryCache != null)
+        if (!ShouldReadFromDisk())
         {
             return;
+        }
+
+        var json = File.ReadAllText(_filePath);
+        DeserializeIntoCache(json);
+    }
+
+    /// <summary>
+    ///     Asynchronous counterpart of <see cref="EnsureLoadedLocked"/>. Must be called while holding _fileLock.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token honoured during the disk read.</param>
+    /// <returns>A task that completes once the cache is populated.</returns>
+    private async Task EnsureLoadedLockedAsync(CancellationToken cancellationToken)
+    {
+        if (!ShouldReadFromDisk())
+        {
+            return;
+        }
+
+        var json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
+        DeserializeIntoCache(json);
+    }
+
+    /// <summary>
+    ///     Determines whether the on-disk file needs to be read to populate the cache, applying the
+    ///     same existence and oversize-file handling as the legacy inline logic. Returns <c>false</c>
+    ///     (and sets _memoryCache) when the cache is already loaded, the file is missing, or the file
+    ///     is oversized (in which case it is deleted best-effort). Must be called while holding _fileLock.
+    /// </summary>
+    /// <returns><c>true</c> if the caller must read and deserialize the file; otherwise <c>false</c>.</returns>
+    private bool ShouldReadFromDisk()
+    {
+        if (_memoryCache != null)
+        {
+            return false;
         }
 
         if (!File.Exists(_filePath))
         {
             _memoryCache = [];
-            return;
+            return false;
         }
 
         // Reject oversized files (likely corrupted or tampered).
@@ -485,10 +555,18 @@ public sealed class DiscoveryCacheService : IDisposable
             }
 
             _memoryCache = [];
-            return;
+            return false;
         }
 
-        var json = File.ReadAllText(_filePath);
+        return true;
+    }
+
+    /// <summary>
+    ///     Deserializes the discovery-cache JSON into _memoryCache, filtering out null entries.
+    /// </summary>
+    /// <param name="json">The raw JSON read from disk.</param>
+    private void DeserializeIntoCache(string json)
+    {
         _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions)
                            ?.Where(r => r != null).ToList() ?? [];
     }

@@ -131,6 +131,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private IReadOnlyList<SeerrUser>? _cachedSeerrUsers;
     private DateTime _cachedSeerrUsersExpiry = DateTime.MinValue;
 
+    // Holds the in-flight roster fetch so concurrent callers coalesce onto a single Seerr request
+    // instead of each launching their own. Cleared when the fetch completes so the next miss refreshes.
+    private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)>? _inflightUserFetch;
+
     /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrDiscoveryService"/> class.
     /// </summary>
@@ -259,7 +263,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Snapshot the previously-persisted pools once so a transient per-user failure can carry the user's
         // last-known-good pool forward instead of being wiped by the full-overwrite Save below. Keyed by user.
-        var previousByUser = _cache.Load().ToDictionary(r => r.UserId);
+        var previousByUser = (await _cache.LoadAsync(cancellationToken).ConfigureAwait(false)).ToDictionary(r => r.UserId);
 
         // Users whose pool in allResults is a carried-forward snapshot, not freshly generated this run. Their
         // items were already shown in a prior run, so they must be excluded from feedback recording to avoid
@@ -354,7 +358,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         Guid jellyfinUserId,
         HashSet<(int TmdbId, string MediaType)> requestedKeys)
     {
-        var userResult = _cache.Load().FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
+        var userResult = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
         if (userResult == null || userResult.Recommendations.Count == 0)
         {
             return 0;
@@ -1535,6 +1539,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private async Task<IReadOnlyList<SeerrUser>> GetCachedSeerrUsersAsync(CancellationToken cancellationToken)
     {
+        // Honor an already-cancelled token before any work. The shared fetch below runs on its own
+        // token so one caller cannot abort it for the others, which means the caller's cancellation
+        // would otherwise go unobserved on a cache hit or a synchronously completed fetch.
+        cancellationToken.ThrowIfCancellationRequested();
+
         // Fast path: check if cache is still valid under lock to ensure atomicity
         // of the (_cachedSeerrUsers, _cachedSeerrUsersExpiry) pair across threads.
         lock (_userCacheLock)
@@ -1545,8 +1554,31 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        // Slow path: refresh from Seerr API (outside lock to avoid blocking during I/O).
-        var (freshUsers, complete) = await FetchSeerrUsersInternalAsync(cancellationToken).ConfigureAwait(false);
+        // Slow path: coalesce concurrent callers onto one fetch so a discovery run that fans out over
+        // many users, or a burst of frontend requests, does not stampede Seerr with N parallel roster
+        // reads. The shared fetch runs on its own token so one caller cancelling does not abort it for
+        // the others; each caller still observes its own cancellation while awaiting.
+        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch;
+        lock (_userCacheLock)
+        {
+            if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
+            {
+                return _cachedSeerrUsers;
+            }
+
+            // Reuse an in-flight fetch, but never a settled one: a completed task holds a stale result
+            // (including a failed fetch that must not be cached), so a fresh miss starts a new fetch
+            // rather than replaying the old outcome. This does not depend on the completion cleanup
+            // having run yet, which would otherwise race a caller arriving right after the fetch settles.
+            if (_inflightUserFetch is not { IsCompleted: false })
+            {
+                _inflightUserFetch = StartSeerrUserFetchAsync();
+            }
+
+            fetch = _inflightUserFetch;
+        }
+
+        (IReadOnlyList<SeerrUser> freshUsers, bool complete) = await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         // Only cache complete, non-empty results to allow retry on next call when Seerr is temporarily unavailable or returns partial data.
         if (freshUsers.Count > 0 && complete)
@@ -1578,6 +1610,26 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             return _cachedSeerrUsers ?? freshUsers;
         }
+    }
+
+    // Starts a single shared roster fetch and clears the in-flight slot once it settles, so the next
+    // cache miss starts a fresh fetch rather than awaiting a stale completed task. Runs on its own
+    // token so it is not cancelled by any one caller's token.
+    private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> StartSeerrUserFetchAsync()
+    {
+        var fetch = FetchSeerrUsersInternalAsync(CancellationToken.None);
+        _ = fetch.ContinueWith(
+            _ =>
+            {
+                lock (_userCacheLock)
+                {
+                    _inflightUserFetch = null;
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return fetch;
     }
 
     private async Task<DiscoveryResult?> GenerateForUserAsync(

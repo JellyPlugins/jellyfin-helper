@@ -13,7 +13,7 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 
 ### Breaking
 - **Requires Jellyfin 12.0+.** v3.x will not install on Jellyfin 10.x. If you're still on 10.x, stay on v2.1.0.6 (served from the same plugin repository).
-- **Recommendations retrain from scratch.** The recommendation model is a new, much larger design, so any model your server had already trained is discarded on upgrade and rebuilt automatically over the next scheduled runs. Your suggestions settle back in after the plugin has seen your library again.
+- **Recommendations retrain from scratch.** The recommendation model is a new, much larger design, so any model your server had already trained is discarded on upgrade and rebuilt automatically over the next scheduled runs. Your suggestions settle back in after the plugin has seen your library again. Technically the candidate vector grows to 38 features and the persisted weight schema version moves from 2 to 3, so existing `ml_weights.json`, `neural_weights.json` and `ensemble_state.json` are treated as incompatible and rebuilt.
 - **A few API responses changed** (only relevant if you script against the plugin). Saving configuration now uses `PUT` instead of `POST`; the log level is set through its own endpoint rather than the settings save; and several endpoints return clearer status codes (a submitted request now reports "created", clearing logs reports "no content", a failed integration test reports a gateway error instead of a fake success, and the user-activity endpoints report "unavailable" until the scheduled task has built their data). The growth-timeline export field `totalFilesScanned` is now `totalDirectoriesScanned`.
 
 ### Added
@@ -50,7 +50,7 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 
 ### Tests
 - **New end-to-end test suite.** Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running each cleanup mode, importing/exporting a backup, and clicking through every dashboard tab. It also deliberately throws bad and hostile input at the plugin and uses "canary" files to prove that cleanup never deletes or touches anything outside your libraries, and that every admin-only action stays locked to admins. **296 tests across 46 files**, running automatically on every change plus a nightly full run.
-- **Unit tests: 5311 total** (+2986 vs. v2.1.0.6), including full coverage of the typed API responses.
+- **Unit tests: 5336 total** Including full coverage of the typed API responses.
 
 ---
 

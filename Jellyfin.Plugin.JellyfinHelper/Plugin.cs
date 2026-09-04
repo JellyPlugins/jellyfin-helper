@@ -48,6 +48,27 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private int _readOnlyWarningEmitted;
 
     /// <summary>
+    ///     Upper bound on the number of link hops any single path resolution will follow before
+    ///     giving up. Mirrors the typical operating-system SYMLOOP_MAX so a maliciously deep or
+    ///     cyclic chain cannot make resolution run unbounded.
+    /// </summary>
+    internal const int MaxLinkHops = 40;
+
+    /// <summary>
+    ///     Resolves the link target of a single path component against the real filesystem, returning
+    ///     the final target when the component is a symlink or junction and <c>null</c> otherwise.
+    /// </summary>
+    /// <remarks>
+    ///     An <see cref="IOException"/> raised here (for example when the OS reports <c>ELOOP</c> on a
+    ///     link cycle) is allowed to propagate so the caller can fail closed.
+    /// </remarks>
+    internal static readonly Func<string, string?> RealLeafResolver = candidate =>
+    {
+        FileSystemInfo leaf = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
+        return leaf.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+    };
+
+    /// <summary>
     ///     Initializes a new instance of the <see cref="Plugin" /> class.
     /// </summary>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths" /> interface.</param>
@@ -436,26 +457,60 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="path">The path to canonicalize.</param>
     /// <returns>The real, fully symlink-resolved absolute path.</returns>
     private static string ResolveRealPath(string path)
+        => ResolveRealPathCore(path, RealLeafResolver);
+
+    /// <summary>
+    ///     Canonicalizes a path by resolving each ancestor directory and then following the final
+    ///     component's link target. The traversal is bounded by both <see cref="MaxLinkHops"/> and a
+    ///     visited set so that a symlink cycle terminates and returns the last resolved candidate
+    ///     rather than recursing without end.
+    /// </summary>
+    /// <param name="path">The path to canonicalize.</param>
+    /// <param name="resolveLeafLink">
+    ///     Resolves a single component's link target to its final target's full path, or <c>null</c>
+    ///     when the component is not a link. Injected so the bounded traversal is testable without
+    ///     real symlinks.
+    /// </param>
+    /// <returns>The real, fully symlink-resolved absolute path.</returns>
+    internal static string ResolveRealPathCore(string path, Func<string, string?> resolveLeafLink)
     {
+        // Paths compare case-insensitively on Windows and case-sensitively elsewhere, so the visited
+        // set must use the same comparer to detect a cycle correctly on either platform.
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var visited = new HashSet<string>(comparer);
+
         var full = Path.GetFullPath(path);
-
-        var parent = Path.GetDirectoryName(full);
-        if (string.IsNullOrEmpty(parent))
+        var hops = 0;
+        while (true)
         {
-            // Root component (e.g. "C:\" or "/"), nothing above it to resolve.
-            return full;
+            var parent = Path.GetDirectoryName(full);
+            if (string.IsNullOrEmpty(parent))
+            {
+                // Root component (e.g. "C:\" or "/"), nothing above it to resolve.
+                return full;
+            }
+
+            // Canonicalize the parent directory chain first (recursively), then reattach this
+            // component's name and resolve the component itself if it is a link.
+            var realParent = ResolveRealPathCore(parent, resolveLeafLink);
+            var candidate = Path.Combine(realParent, Path.GetFileName(full));
+
+            var resolvedLeaf = resolveLeafLink(candidate);
+            if (resolvedLeaf == null)
+            {
+                return candidate;
+            }
+
+            // Stop once we have followed too many hops or would revisit a component, returning the
+            // last resolved candidate. This bounds a cycle without throwing.
+            if (++hops > MaxLinkHops || !visited.Add(candidate))
+            {
+                return candidate;
+            }
+
+            // The link may point through further links; iterate rather than recurse.
+            full = Path.GetFullPath(resolvedLeaf);
         }
-
-        // Canonicalize the parent directory chain first (recursively), then reattach this
-        // component's name and resolve the component itself if it is a link.
-        var realParent = ResolveRealPath(parent);
-        var candidate = Path.Combine(realParent, Path.GetFileName(full));
-
-        FileSystemInfo leaf = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
-        var resolvedLeaf = leaf.ResolveLinkTarget(returnFinalTarget: true);
-        return resolvedLeaf != null
-            ? ResolveRealPath(resolvedLeaf.FullName) // link may point through further links
-            : candidate;
     }
 
     /// <summary>

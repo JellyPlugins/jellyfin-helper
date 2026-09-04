@@ -29,14 +29,23 @@ public class ComposeConfigPage : Task
         {
             var template = File.ReadAllText(TemplateFile);
 
-            var cssBuilder = new StringBuilder();
-            foreach (var trimmed in CssFiles.Split(Separator, StringSplitOptions.RemoveEmptyEntries).Select(cssFile => cssFile.Trim()))
-            {
-                if (string.IsNullOrEmpty(trimmed))
-                {
-                    continue;
-                }
+            var cssList = CssFiles.Split(Separator, StringSplitOptions.RemoveEmptyEntries)
+                .Select(cssFile => cssFile.Trim())
+                .Where(cssFile => !string.IsNullOrEmpty(cssFile))
+                .ToList();
+            var jsList = JsFiles.Split(Separator, StringSplitOptions.RemoveEmptyEntries)
+                .Select(jsFile => jsFile.Trim())
+                .Where(jsFile => !string.IsNullOrEmpty(jsFile))
+                .ToList();
 
+            if (!ValidateModuleOrder(cssList, jsList))
+            {
+                return false;
+            }
+
+            var cssBuilder = new StringBuilder();
+            foreach (var trimmed in cssList)
+            {
                 if (!File.Exists(trimmed))
                 {
                     Log.LogError("Configured CSS module was not found: {0}", trimmed);
@@ -50,13 +59,8 @@ public class ComposeConfigPage : Task
             jsBuilder.AppendLine("(function () {");
             jsBuilder.AppendLine("'use strict';");
 
-            foreach (var trimmed in JsFiles.Split(Separator, StringSplitOptions.RemoveEmptyEntries).Select(jsFile => jsFile.Trim()))
+            foreach (var trimmed in jsList)
             {
-                if (string.IsNullOrEmpty(trimmed))
-                {
-                    continue;
-                }
-
                 if (!File.Exists(trimmed))
                 {
                     Log.LogError("Configured JS module was not found: {0}", trimmed);
@@ -107,4 +111,56 @@ public class ComposeConfigPage : Task
             return false;
         }
     }
+
+    // The composed IIFE depends on a fixed module order that nothing else enforces at build time.
+    // Shared must load first so its helpers exist before any tab uses them, and Main must load
+    // last because it closes the IIFE and wires up tab routing. A silent reorder in the csproj
+    // would still concatenate cleanly but produce a broken page, so we fail the build here instead.
+    private bool ValidateModuleOrder(System.Collections.Generic.List<string> cssList, System.Collections.Generic.List<string> jsList)
+    {
+        var valid = true;
+
+        if (cssList.Count == 0)
+        {
+            Log.LogError("No CSS modules were configured; Shared.css must be present and first");
+            valid = false;
+        }
+        else if (!IsFile(cssList[0], "Shared.css"))
+        {
+            Log.LogError("First CSS module must be Shared.css but was {0}. CSS order: {1}", Path.GetFileName(cssList[0]), FileNames(cssList));
+            valid = false;
+        }
+
+        if (jsList.Count == 0)
+        {
+            Log.LogError("No JS modules were configured; Shared.js must be first and Main.js last");
+            return false;
+        }
+
+        if (!IsFile(jsList[0], "Shared.js"))
+        {
+            Log.LogError("First JS module must be Shared.js but was {0}. JS order: {1}", Path.GetFileName(jsList[0]), FileNames(jsList));
+            valid = false;
+        }
+
+        var mainIndex = jsList.FindIndex(js => IsFile(js, "Main.js"));
+        if (mainIndex < 0)
+        {
+            Log.LogError("Main.js is missing from the JS modules; it closes the IIFE and must be last. JS order: {0}", FileNames(jsList));
+            valid = false;
+        }
+        else if (mainIndex != jsList.Count - 1)
+        {
+            Log.LogError("Main.js must be the last JS module but was at position {0} of {1}. JS order: {2}", mainIndex + 1, jsList.Count, FileNames(jsList));
+            valid = false;
+        }
+
+        return valid;
+    }
+
+    private static bool IsFile(string path, string fileName)
+        => string.Equals(Path.GetFileName(path), fileName, StringComparison.OrdinalIgnoreCase);
+
+    private static string FileNames(System.Collections.Generic.List<string> paths)
+        => string.Join(", ", paths.Select(Path.GetFileName));
 }

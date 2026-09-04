@@ -672,19 +672,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <returns>The per-item studios, tags and BoxSet id maps, keyed by item id.</returns>
     private Training.LibraryItemMetadata BuildLibraryItemMetadata()
     {
-        var movies = _libraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Movie],
-                IsFolder = false
-            });
+        // Scope to the same allowed roots the candidate load uses. An excluded library must not feed
+        // training-time studio, tag or BoxSet lookups for items that are never scored as candidates,
+        // or the learned model would fit on features the serve path never produces.
+        var scope = GetLibraryRootScope();
 
-        var series = _libraryManager.GetItemList(
-            new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Series],
-                IsFolder = true
-            });
+        var movies = QueryAllowedItems(BaseItemKind.Movie, isFolder: false, scope);
+        var series = QueryAllowedItems(BaseItemKind.Series, isFolder: true, scope);
 
         var studios = new Dictionary<Guid, IReadOnlyList<string>>(movies.Count + series.Count);
         var tags = new Dictionary<Guid, IReadOnlyList<string>>(movies.Count + series.Count);
@@ -1730,6 +1724,24 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         try
         {
             var query = new InternalItemsQuery { Recursive = true };
+
+            // Facet counts are aggregated by the repository and carry no per-item path, so the
+            // excluded-library scope cannot be applied by post-filtering. Restrict the query to the
+            // allowed library roots instead, keeping this prior in parity with the scoped candidate
+            // and training-metadata queries.
+            var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
+            if (excluded.Count > 0)
+            {
+                var allowedRootIds = LibraryPathResolver.GetAllowedLibraryRootIds(_libraryManager, excluded);
+                if (allowedRootIds.Count == 0)
+                {
+                    // Every library is excluded, so there is nothing to build a prior from.
+                    return table;
+                }
+
+                query.AncestorIds = [.. allowedRootIds];
+            }
+
             var rawIdf = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
             var maxIdf = 0.0;
 
