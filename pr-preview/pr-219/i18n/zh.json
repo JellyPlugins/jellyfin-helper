@@ -261,6 +261,7 @@
   "recsEnsembleNeural": "神经引擎",
   "recsEnsembleOff": "关闭",
   "recsEnsembleStrategyPerUser": "{0} 的推荐策略：",
+  "recsEnsembleThisUser": "该用户",
   "recsEnsembleStrategyGlobal": "全局推荐策略（该用户尚无个人模型）：",
   "recsEnsembleStatus": "状态",
   "recsEnsembleStatusFrozen": "已冻结",

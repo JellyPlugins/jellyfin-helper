@@ -261,6 +261,7 @@
   "recsEnsembleNeural": "Neural Engine",
   "recsEnsembleOff": "off",
   "recsEnsembleStrategyPerUser": "Recommendation strategy for {0}:",
+  "recsEnsembleThisUser": "this user",
   "recsEnsembleStrategyGlobal": "Global recommendation strategy (this user has no individual model yet):",
   "recsEnsembleStatus": "Status",
   "recsEnsembleStatusFrozen": "frozen",

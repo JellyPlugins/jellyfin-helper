@@ -261,6 +261,7 @@
   "recsEnsembleNeural": "Neural motor",
   "recsEnsembleOff": "av",
   "recsEnsembleStrategyPerUser": "Rekommendationsstrategi för {0}:",
+  "recsEnsembleThisUser": "den här användaren",
   "recsEnsembleStrategyGlobal": "Global rekommendationsstrategi (den här användaren har ännu ingen egen modell):",
   "recsEnsembleStatus": "Status",
   "recsEnsembleStatusFrozen": "fryst",
