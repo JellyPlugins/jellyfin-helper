@@ -247,7 +247,6 @@
     margin-top: 1.5em;
     padding-top: 0.6em;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    opacity: 0.55;
     font-size: 0.8em;
     line-height: 1.5;
     font-variant-numeric: tabular-nums;
@@ -255,6 +254,41 @@
 
 .recs-diag-footnote:empty {
     display: none;
+}
+
+/* The blend line is the primary read: slightly larger than a caption, full-strength text. */
+.recs-ensemble-blend {
+    font-size: 0.9em;
+    line-height: 1.5;
+    opacity: 0.85;
+}
+
+/* The strategy label ("Recommendation strategy for Alice:") anchors the line, so give it a touch more weight. */
+.recs-ensemble-label {
+    font-weight: 600;
+}
+
+/* The percentages carry the information, so they are the one bold, tabular element on the line. */
+.recs-ensemble-val {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Middots between shares recede so the eye groups name+value pairs, not the whole run-on. */
+.recs-ensemble-sep {
+    opacity: 0.4;
+    margin: 0 0.15em;
+}
+
+/* The maturity status reads as a quieter caption beneath the blend line. */
+.recs-ensemble-status {
+    margin-top: 0.4em;
+    font-size: 0.8em;
+    opacity: 0.6;
+}
+
+.recs-ensemble-trend {
+    font-weight: 600;
 }
 
 @media (prefers-color-scheme: light) {

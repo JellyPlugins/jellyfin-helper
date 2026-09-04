@@ -179,16 +179,19 @@ function renderEnsembleDiagnostics(host, data) {
     var neuralShare = alpha * beta;
 
     // The neural engine is only part of the mix when it was built for this model and actually dosed in.
+    // Each share renders as "<name> <bold value>" so the percentage carries the typographic weight while
+    // the strategy name stays quiet.
+    var share = function (nameKey, nameFallback, valueHtml) {
+        return escHtml(T(nameKey, nameFallback)) + ' <strong class="recs-ensemble-val">' + valueHtml + '</strong>';
+    };
     var neuralActive = data.NeuralEnabled && neuralShare > 0.0005;
-    var neuralText = neuralActive
-        ? T('recsEnsembleNeural', 'Neural Engine') + ' ' + pct(neuralShare)
-        : T('recsEnsembleNeural', 'Neural Engine') + ' ' + T('recsEnsembleOff', 'off');
+    var neuralValue = neuralActive ? pct(neuralShare) : escHtml(T('recsEnsembleOff', 'off'));
 
     var composition = [
-        T('recsEnsembleHeuristic', 'Heuristic') + ' ' + pct(heuristicShare),
-        T('recsEnsembleMl', 'Machine Learning') + ' ' + pct(mlShare),
-        neuralText
-    ].join(' \u00B7 ');
+        share('recsEnsembleHeuristic', 'Heuristic', pct(heuristicShare)),
+        share('recsEnsembleMl', 'Machine Learning', pct(mlShare)),
+        share('recsEnsembleNeural', 'Neural Engine', neuralValue)
+    ].join(' <span class="recs-ensemble-sep">\u00B7</span> ');
 
     var label;
     if (data.IsPerUser && data.UserName) {
@@ -199,15 +202,27 @@ function renderEnsembleDiagnostics(host, data) {
         label = escHtml(T('recsEnsembleStrategyGlobal', 'Global recommendation strategy (this user has no individual model yet):'));
     }
 
-    // Second line: the plain-language maturity status, not the raw sigmoid internals.
+    // Second line: the plain-language maturity status, not the raw sigmoid internals. The trend arrives as
+    // its backend enum name (Improving/Stable/Degrading/InsufficientData); translate it rather than showing
+    // the raw English token.
+    var trendKeys = {
+        Improving: ['recsEnsembleTrendImproving', 'Improving'],
+        Stable: ['recsEnsembleTrendStable', 'Stable'],
+        Degrading: ['recsEnsembleTrendDegrading', 'Degrading'],
+        InsufficientData: ['recsEnsembleTrendInsufficient', 'Warming up']
+    };
+    var trendRaw = String(data.Trend || '');
+    var trendPair = trendKeys[trendRaw];
+    var trendText = trendPair ? escHtml(T(trendPair[0], trendPair[1])) : escHtml(trendRaw);
     var status = data.QualityGateFrozen
-        ? T('recsEnsembleStatusFrozen', 'frozen')
-        : escHtml(String(data.Trend || ''));
-    var summary = T('recsEnsembleTrainedOn', 'Trained on {0} examples').replace('{0}', escHtml(String(data.TrainingExampleCount)))
-        + ' \u00B7 ' + T('recsEnsembleStatus', 'Status') + ' ' + status;
+        ? escHtml(T('recsEnsembleStatusFrozen', 'frozen'))
+        : trendText;
+    var summary = escHtml(T('recsEnsembleTrainedOn', 'Trained on {0} examples').replace('{0}', String(data.TrainingExampleCount)))
+        + ' <span class="recs-ensemble-sep">\u00B7</span> '
+        + escHtml(T('recsEnsembleStatus', 'Status')) + ' <span class="recs-ensemble-trend">' + status + '</span>';
 
     host.innerHTML =
-        '<div class="recs-ensemble-line">' + label + ' ' + composition + '</div>' +
+        '<div class="recs-ensemble-line recs-ensemble-blend"><span class="recs-ensemble-label">' + label + '</span> ' + composition + '</div>' +
         '<div class="recs-ensemble-line recs-ensemble-status">' + summary + '</div>';
 }
 
