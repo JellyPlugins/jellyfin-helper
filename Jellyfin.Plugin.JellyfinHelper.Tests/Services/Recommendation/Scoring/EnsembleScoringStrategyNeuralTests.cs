@@ -159,8 +159,9 @@ public sealed class EnsembleScoringStrategyNeuralTests
     public void Train_OwnsNeuralFalse_UserCountDips_BetaDoesNotFallBack()
     {
         // Once a data-rich user's neural contribution has ramped up, a later run where their own count is
-        // lower (but still above the threshold) must not yank beta back down. The dosing tracks the high-water
-        // mark, so the footnote percentage does not flicker when a user's per-run example count fluctuates.
+        // lower must not yank beta back down, whether that later run is still above the threshold or drops
+        // below it. The dosing tracks the high-water mark, so the footnote percentage does not flicker when a
+        // user's per-run example count fluctuates.
         var shared = new NeuralScoringStrategy();
         Assert.True(((ITrainableStrategy)shared).Train(CleanExamples(200)));
 
@@ -175,6 +176,12 @@ public sealed class EnsembleScoringStrategyNeuralTests
 
         // A leaner run, still above the threshold, whose bare ramp target would sit well below the cap.
         Assert.True(perUser.Train(CleanExamples(160), heldOutForMetrics: null, trainNeural: false));
+        Assert.Equal(betaHigh, perUser.CurrentNeuralBeta, 6);
+
+        // A run below the activation threshold on an already-activated user holds the established beta rather
+        // than resetting it to zero: the user has proven data maturity, so one lean batch must not blank out
+        // the neural say only to snap it back on the next rich run.
+        Assert.True(perUser.Train(CleanExamples(40), heldOutForMetrics: null, trainNeural: false));
         Assert.Equal(betaHigh, perUser.CurrentNeuralBeta, 6);
 
         shared.Dispose();

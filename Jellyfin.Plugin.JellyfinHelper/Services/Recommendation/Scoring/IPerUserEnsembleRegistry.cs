@@ -85,6 +85,16 @@ public interface IPerUserEnsembleRegistry : IDisposable
     void PruneOrphans(IReadOnlyCollection<Guid> liveUserIds);
 
     /// <summary>
+    ///     Removes a user's dedicated per-user model: disposes any cached instance and deletes the persisted
+    ///     weights and state files, so the next score for this user falls back to the global model. Called from
+    ///     training when a user that previously had enough data drops below the per-user threshold, so a stale
+    ///     personal fit is not kept indefinitely. Best-effort: it never throws.
+    /// </summary>
+    /// <param name="userId">The user whose per-user model should be evicted.</param>
+    /// <returns><see langword="true"/> when a model existed and was evicted; otherwise <see langword="false"/>.</returns>
+    bool EvictPerUserModel(Guid userId);
+
+    /// <summary>
     ///     Applies new blend bounds (alpha min/max and genre-penalty floor) to future per-user models and to
     ///     every per-user ensemble already materialized this session. Called when the configuration changes so
     ///     per-user models track the same bounds as the global ensemble instead of keeping stale ones until a

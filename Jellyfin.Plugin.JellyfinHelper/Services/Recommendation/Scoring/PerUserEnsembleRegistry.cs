@@ -134,18 +134,22 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // Store the new bounds so any per-user ensemble built later starts from them, and push them onto every
         // ensemble already materialized this session. Without this a config change would reconfigure only the
         // global ensemble and leave existing per-user models on their construction-time bounds until restart.
+        // The whole update runs under the bounds lock, which BuildPerUserEnsemble also holds across
+        // construction, so an ensemble whose build is in flight cannot finish on the old bounds and escape this
+        // pass: it either becomes visible (and is reconfigured below) or is still blocked on the lock and will
+        // read the new bounds when it proceeds. Only reconfigure ensembles that have actually been built, since
+        // touching Value on an unmaterialized Lazy would construct it here for no reason and deadlock on the
+        // non-reentrant lock.
         lock (_blendBoundsLock)
         {
             _blendBounds = blendBounds;
-        }
 
-        foreach (var entry in _perUser.Values)
-        {
-            // Only reconfigure ensembles that have actually been built. Touching entry.Value on an
-            // unmaterialized Lazy would construct it here for no reason.
-            if (entry.IsValueCreated)
+            foreach (var entry in _perUser.Values)
             {
-                entry.Value.Reconfigure(blendBounds.AlphaMin, blendBounds.AlphaMax, blendBounds.GenrePenaltyFloor);
+                if (entry.IsValueCreated)
+                {
+                    entry.Value.Reconfigure(blendBounds.AlphaMin, blendBounds.AlphaMax, blendBounds.GenrePenaltyFloor);
+                }
             }
         }
     }
@@ -208,6 +212,30 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     }
 
     /// <inheritdoc />
+    public bool EvictPerUserModel(Guid userId)
+    {
+        if (userId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var hadCached = _perUser.ContainsKey(userId);
+        var learnedPath = GetLearnedWeightsPath(userId);
+        var statePath = GetEnsembleStatePath(userId);
+        var hadFiles = (learnedPath is not null && File.Exists(learnedPath))
+                       || (statePath is not null && File.Exists(statePath));
+
+        if (!hadCached && !hadFiles)
+        {
+            return false;
+        }
+
+        EvictUser(userId);
+        _pluginLog.LogInfo(LogSource, $"Evicted per-user model for user {userId:N} (below the per-user threshold).", _logger);
+        return true;
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
         // Dispose only the per-user ensembles that were actually built. Each was constructed with
@@ -246,22 +274,24 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // The heuristic sub-strategy MUST have its genre penalty disabled (floor = 1.0); the ensemble applies
         // the penalty centrally. It is stateless, so the single shared instance is reused here. The shared
         // neural is passed by reference with ownsNeural:false.
-        EnsembleBlendBounds bounds;
+        // Hold the bounds lock across construction so a concurrent Reconfigure cannot slip in after the bounds
+        // are read but before the ensemble exists. Reconfigure takes the same lock and only reaches a built
+        // ensemble through IsValueCreated, so serializing here guarantees this instance is either constructed
+        // with the latest bounds or reconfigured by the writer once it becomes visible, never left stale.
         lock (_blendBoundsLock)
         {
-            bounds = _blendBounds;
+            var bounds = _blendBounds;
+            return new EnsembleScoringStrategy(
+                learned,
+                _sharedHeuristic,
+                _sharedNeural,
+                statePath,
+                bounds.AlphaMin,
+                bounds.AlphaMax,
+                bounds.GenrePenaltyFloor,
+                _logger,
+                ownsNeural: false);
         }
-
-        return new EnsembleScoringStrategy(
-            learned,
-            _sharedHeuristic,
-            _sharedNeural,
-            statePath,
-            bounds.AlphaMin,
-            bounds.AlphaMax,
-            bounds.GenrePenaltyFloor,
-            _logger,
-            ownsNeural: false);
     }
 
     /// <summary>
@@ -295,6 +325,40 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(LogSource, $"Could not prune per-user file '{file}': {ex.Message}", ex, _logger);
+        }
+    }
+
+    /// <summary>
+    ///     Removes the cached instance for a user and deletes both persisted files. Best-effort: individual
+    ///     file failures are logged and swallowed so a locked or already-gone file does not leave the cache
+    ///     inconsistent.
+    /// </summary>
+    /// <param name="userId">The user to evict.</param>
+    private void EvictUser(Guid userId)
+    {
+        if (_perUser.TryRemove(userId, out var evicted) && evicted.IsValueCreated)
+        {
+            evicted.Value.Dispose();
+        }
+
+        foreach (var path in new[] { GetLearnedWeightsPath(userId), GetEnsembleStatePath(userId) })
+        {
+            if (path is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogWarning(LogSource, $"Could not delete per-user file '{path}': {ex.Message}", ex, _logger);
+            }
         }
     }
 

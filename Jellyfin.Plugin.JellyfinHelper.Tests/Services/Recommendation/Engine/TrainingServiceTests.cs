@@ -781,4 +781,71 @@ public class TrainingServiceTests
             }
         }
     }
+
+    [Fact]
+    public void TrainPerUser_UserDropsBelowThresholdAfterHavingModel_EvictsAndFallsBackToGlobal()
+    {
+        // A user who built a per-user model on a data-rich run and then falls below the threshold on a later
+        // run must not keep scoring on the stale personal fit: the model is evicted so the user resolves back
+        // to the shared global ensemble. Without eviction the next score would still find the old per-user file.
+        var user = Guid.NewGuid();
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-evict-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            using var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+            using var sut = CreateSut();
+
+            // Data-rich run: the user clears the threshold and gets a dedicated per-user model.
+            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 30) });
+            sut.TrainPerUser(
+                registry,
+                new[] { CreateLargeResult(user, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) });
+            Assert.True(registry.HasPerUserModel(user));
+            Assert.NotSame(global, registry.GetScoringStrategyForUser(user));
+
+            // Later lean run: the same user falls below the threshold, so the model is evicted.
+            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 2) });
+            sut.TrainPerUser(
+                registry,
+                new[] { CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 8, 0, 0, 0, DateTimeKind.Utc)) });
+
+            Assert.False(registry.HasPerUserModel(user));
+            Assert.False(File.Exists(Path.Combine(dataPath, $"ml_weights_{user:N}.json")));
+            Assert.Same(global, registry.GetScoringStrategyForUser(user));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
 }

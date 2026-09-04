@@ -76,7 +76,7 @@ public sealed class PluginResolveRealPathTests
             await task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.NotNull(result);
         }
-        catch (OperationCanceledException)
+        catch (TimeoutException)
         {
             Assert.Fail("Resolution of a symlink cycle did not terminate.");
         }
@@ -108,7 +108,7 @@ public sealed class PluginResolveRealPathTests
         {
             await task.WaitAsync(TimeSpan.FromSeconds(5));
         }
-        catch (OperationCanceledException)
+        catch (TimeoutException)
         {
             Assert.Fail("Resolution of an ancestor-link cycle did not terminate.");
         }

@@ -6,6 +6,7 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -160,8 +161,23 @@ public class RecommendationController : ControllerBase
         }
 
         // The per-user flag comes from the same resolution as the snapshot, so a cold-start user on the
-        // global model is never mislabelled as having an individual model.
-        var userName = _watchHistoryService.GetUserWatchProfile(id)?.UserName;
+        // global model is never mislabelled as having an individual model. The name is a display-only extra:
+        // GetUserWatchProfile builds the profile without the per-user isolation GetAllUserWatchProfiles has, so
+        // a transient build failure must not turn valid diagnostics into a 500. Fall back to a null name.
+        string? userName = null;
+        try
+        {
+            userName = _watchHistoryService.GetUserWatchProfile(id)?.UserName;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            // The name is a display-only nicety and null is already a valid, handled value, so a failed lookup
+            // is swallowed rather than logged: it is neither actionable nor worth a controller-level logger.
+        }
 
         return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics, isPerUser, userName));
     }

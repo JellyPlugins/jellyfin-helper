@@ -199,6 +199,7 @@ internal sealed class TrainingService : IDisposable
     {
         var trainedUsers = 0;
         var skippedUsers = 0;
+        var evictedUsers = 0;
 
         foreach (var group in pooled.GroupBy(e => e.UserId))
         {
@@ -214,8 +215,15 @@ internal sealed class TrainingService : IDisposable
             var userExamples = group.ToList();
             if (userExamples.Count < PerUserEnsembleRegistry.PerUserModelThreshold)
             {
-                // Below threshold: no per-user model. The user keeps scoring on the global model (registry
-                // fallback), so their recommendations are unchanged rather than fit on too little data.
+                // Below threshold: no per-user model. Evict any model this user built on a previous, richer run
+                // so they fall back to the global model rather than keep scoring on a stale personal fit; a user
+                // who never had one is untouched. Either way their recommendations stay on the global model
+                // rather than being fit on too little data.
+                if (registry.EvictPerUserModel(group.Key))
+                {
+                    evictedUsers++;
+                }
+
                 skippedUsers++;
                 continue;
             }
@@ -230,7 +238,8 @@ internal sealed class TrainingService : IDisposable
         _pluginLog.LogInfo(
             LogSource,
             $"Per-user training: {trainedUsers} users trained, {skippedUsers} below the " +
-            $"{PerUserEnsembleRegistry.PerUserModelThreshold}-example threshold (kept on the global model).",
+            $"{PerUserEnsembleRegistry.PerUserModelThreshold}-example threshold (kept on the global model), " +
+            $"{evictedUsers} previously-trained users evicted after dropping below the threshold.",
             _logger);
     }
 

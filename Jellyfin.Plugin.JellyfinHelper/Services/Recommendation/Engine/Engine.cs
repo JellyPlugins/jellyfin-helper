@@ -238,12 +238,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     .Where(w => w.HasMeaningfulInteraction())
                     .Select(w => w.ItemId));
 
-            foreach (var w in profile.WatchedItems)
+            foreach (var w in profile.WatchedItems.Where(w => w.SeriesId.HasValue && w.HasMeaningfulInteraction()))
             {
-                if (w.SeriesId.HasValue && w.HasMeaningfulInteraction())
-                {
-                    watched.Add(w.SeriesId.Value);
-                }
+                watched.Add(w.SeriesId!.Value);
             }
 
             foreach (var favSeriesId in profile.FavoriteSeriesIds)

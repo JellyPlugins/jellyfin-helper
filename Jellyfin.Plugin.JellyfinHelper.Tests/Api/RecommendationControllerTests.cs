@@ -5,6 +5,7 @@ using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -160,6 +161,45 @@ public class RecommendationControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         Assert.Equal("Alice", ((UserWatchProfile)ok.Value!).UserName);
+    }
+
+    [Fact]
+    public void GetEnsembleDiagnostics_PerUser_IncludesUserName()
+    {
+        var userId = Guid.NewGuid();
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId))
+            .Returns((new EnsembleDiagnostics(), true));
+        _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId))
+            .Returns(new UserWatchProfile { UserId = userId, UserName = "Alice" });
+
+        var result = _controller.GetEnsembleDiagnostics(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
+        Assert.True(data.Available);
+        Assert.True(data.IsPerUser);
+        Assert.Equal("Alice", data.UserName);
+    }
+
+    [Fact]
+    public void GetEnsembleDiagnostics_UserNameLookupThrows_StillReturnsDiagnosticsWithNullName()
+    {
+        // The name lookup is a display-only extra layered on top of already-resolved diagnostics. A transient
+        // profile-build failure there must not turn a valid 200 into a 500; the response comes back with a null
+        // name instead.
+        var userId = Guid.NewGuid();
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId))
+            .Returns((new EnsembleDiagnostics(), true));
+        _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId))
+            .Throws(new InvalidOperationException("profile build blew up"));
+
+        var result = _controller.GetEnsembleDiagnostics(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
+        Assert.True(data.Available);
+        Assert.True(data.IsPerUser);
+        Assert.Null(data.UserName);
     }
 
     [Fact]

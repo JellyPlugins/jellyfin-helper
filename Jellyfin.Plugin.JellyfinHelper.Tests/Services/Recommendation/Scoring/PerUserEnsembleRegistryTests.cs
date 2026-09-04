@@ -311,6 +311,57 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
             $"per-user alpha ({perUserDiag.Alpha}) must not exceed global alpha ({globalDiag.Alpha})");
     }
 
+    [Fact]
+    public void EvictPerUserModel_ExistingModel_DeletesFilesAndFallsBackToGlobal()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.LearnedStrategy.Train(GenerateExamples(30)));
+        Assert.True(File.Exists(Path.Combine(_dataPath, $"ml_weights_{userId:N}.json")));
+        Assert.NotSame(global, registry.GetScoringStrategyForUser(userId));
+
+        var evicted = registry.EvictPerUserModel(userId);
+
+        Assert.True(evicted);
+        Assert.False(File.Exists(Path.Combine(_dataPath, $"ml_weights_{userId:N}.json")));
+        Assert.False(File.Exists(Path.Combine(_dataPath, $"ensemble_state_{userId:N}.json")));
+        Assert.False(registry.HasPerUserModel(userId));
+        // After eviction the user scores on the shared global instance again (reference identity).
+        Assert.Same(global, registry.GetScoringStrategyForUser(userId));
+    }
+
+    [Fact]
+    public void EvictPerUserModel_NoModel_ReturnsFalseAndLeavesGlobalUntouched()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        Assert.False(registry.EvictPerUserModel(Guid.NewGuid()));
+        Assert.False(registry.EvictPerUserModel(Guid.Empty));
+    }
+
+    [Fact]
+    public void Reconfigure_ThenBuild_UsesTheNewBoundsForTheFreshEnsemble()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        // Reconfigure before any per-user ensemble is materialized, then build one: it must pick up the new
+        // bounds at construction, not the registry's original construction-time bounds.
+        registry.Reconfigure(new EnsembleBlendBounds(0.15, 0.55, 0.3));
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
+        var diag = perUser.GetDiagnosticsSnapshot();
+
+        Assert.Equal(0.15, diag.AlphaMin);
+        Assert.Equal(0.55, diag.AlphaMax);
+    }
+
     private EnsembleScoringStrategy BuildGlobal(NeuralScoringStrategy neural) =>
         new(
             new LearnedScoringStrategy(Path.Combine(_dataPath, "ml_weights.json")),

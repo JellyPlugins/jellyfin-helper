@@ -791,22 +791,36 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     /// <summary>
     ///     Doses the shared MLP for a per-user model from that user's own example count, mirroring how the
-    ///     global path in <see cref="UpdateNeuralBeta"/> nudges beta rather than reassigning it. Below the
-    ///     activation threshold the MLP stays fully off. At or above it the target is a floor (so a data-rich
-    ///     user gets an immediate but modest neural say) ramping toward the shared cap over the next 100
-    ///     examples, and beta only ever climbs toward that target, so a run where this user's count dips does
-    ///     not yank the contribution back down. When the globally trained MLP is not generalizing this round,
-    ///     beta is halved rather than reset, so one transient bad global loss does not blank out a user's
-    ///     neural say only to snap it back next run. Gated on the GLOBAL MLP's validation quality, since the
-    ///     per-user model never trains the MLP itself. Caller must hold _syncRoot.
+    ///     global path in <see cref="UpdateNeuralBeta"/> nudges beta rather than reassigning it. A user who has
+    ///     never reached the activation threshold keeps the MLP fully off. Once a richer round has activated it,
+    ///     a later sub-threshold round holds the established beta rather than resetting it. At or above the
+    ///     threshold the target is a floor (so a data-rich user gets an immediate but modest neural say) ramping
+    ///     toward the shared cap over the next 100 examples, and beta only ever climbs toward that target, so a
+    ///     run where this user's count dips does not yank the contribution back down. When the globally trained
+    ///     MLP is not generalizing this round, beta is halved rather than reset, so one transient bad global loss
+    ///     does not blank out a user's neural say only to snap it back next run. Gated on the GLOBAL MLP's
+    ///     validation quality, since the per-user model never trains the MLP itself. Caller must hold _syncRoot.
     /// </summary>
     /// <param name="userExampleCount">This user's own example count for the current run (n_u), not the accumulated total.</param>
     private void UpdatePerUserNeuralBeta(int userExampleCount)
     {
-        if (_neural is null || userExampleCount < NeuralActivationThreshold)
+        if (_neural is null)
         {
-            // Data-poor user: the MLP would add noise, not signal. Keep it fully out.
             _neuralBeta = 0.0;
+            return;
+        }
+
+        if (userExampleCount < NeuralActivationThreshold)
+        {
+            // A user who has never crossed the activation threshold stays fully off: the MLP would add noise,
+            // not signal. But once a richer earlier round has established a beta, a later lean round holds it
+            // rather than snapping neural off, matching the documented climb-only behavior and the quality-fail
+            // branch below, which dampens instead of erasing.
+            if (_neuralBeta <= 0.0)
+            {
+                _neuralBeta = 0.0;
+            }
+
             return;
         }
 
