@@ -131,6 +131,29 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             var ensemble = sp.GetRequiredService<EnsembleScoringStrategy>();
             return new StrategySelector(ensemble);
         });
+        serviceCollection.AddSingleton<IPerUserEnsembleRegistry>(sp =>
+        {
+            var dataPath = Plugin.Instance?.DataFolderPath;
+            var config = Plugin.Instance?.Configuration;
+            var alphaMin = config?.EnsembleAlphaMin ?? EnsembleScoringStrategy.DefaultAlphaMin;
+            var alphaMax = config?.EnsembleAlphaMax ?? EnsembleScoringStrategy.DefaultAlphaMax;
+            var genrePenaltyFloor = config?.EnsembleGenrePenaltyFloor ?? EnsembleScoringStrategy.DefaultGenrePenaltyFloor;
+
+            var globalEnsemble = sp.GetRequiredService<EnsembleScoringStrategy>();
+            var sharedNeural = sp.GetRequiredService<NeuralScoringStrategy>();
+            var pluginLog = sp.GetRequiredService<IPluginLogService>();
+            var logger = sp.GetRequiredService<ILogger<PerUserEnsembleRegistry>>();
+
+            return new PerUserEnsembleRegistry(
+                globalEnsemble,
+                sharedNeural,
+                string.IsNullOrEmpty(dataPath) ? null : dataPath,
+                alphaMin,
+                alphaMax,
+                genrePenaltyFloor,
+                pluginLog,
+                logger);
+        });
         serviceCollection.AddSingleton<IRecommendationEngine, Engine>();
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();

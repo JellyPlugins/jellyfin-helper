@@ -89,9 +89,6 @@ function renderRecommendations(container, results) {
     var toggleBtn = document.getElementById('recsActivityToggle');
     if (toggleBtn) { toggleBtn.addEventListener('click', function () { toggleCollapsible('recsActivityBody', 'recsActivityToggle'); }); }
 
-    // Load the model-state footnote once (shared model state, independent of the selected user).
-    loadEnsembleDiagnostics();
-
     var discoveryContainer = document.getElementById('discoverySection');
     if (discoveryContainer) { renderDiscoverySection(discoveryContainer); }
 
@@ -115,6 +112,9 @@ function onUserChanged(index) {
     loadUserWatchProfile(index);
     loadUserActivity(index);
     loadDiscoveryForUser(index);
+    // The model footnote now describes the SELECTED user's model (per-user), so refresh it on user change.
+    var selected = _recsResults ? _recsResults[index] : null;
+    loadEnsembleDiagnostics(selected ? selected.UserId : null);
 }
 
 function toggleCollapsible(bodyId, toggleId) {
@@ -136,26 +136,28 @@ function toggleCollapsible(bodyId, toggleId) {
 // Fetches the read-only ensemble diagnostics once and caches the payload. Re-rendering the tab replaces the
 // footnote element, so every call must render the cached data into the current element rather than relying on
 // the element that existed at fetch time.
-var _ensembleDiagLoaded = false;
-var _ensembleDiagData = null;
-function loadEnsembleDiagnostics() {
-    if (_ensembleDiagLoaded) {
-        var cachedHost = document.getElementById('recsEnsembleFootnote');
-        if (cachedHost && _ensembleDiagData) renderEnsembleDiagnostics(cachedHost, _ensembleDiagData);
+// Per-user footnote: cache the diagnostics response keyed by user id so switching back to a user is instant.
+var _ensembleDiagCache = {};
+function loadEnsembleDiagnostics(userId) {
+    var host = document.getElementById('recsEnsembleFootnote');
+    var key = userId || '';
+    var url = 'JellyfinHelper/Recommendations/Diagnostics/Ensemble';
+    if (userId) { url += '?userId=' + encodeURIComponent(userId); }
+
+    if (Object.prototype.hasOwnProperty.call(_ensembleDiagCache, key)) {
+        if (host) renderEnsembleDiagnostics(host, _ensembleDiagCache[key]);
         return;
     }
-    _ensembleDiagLoaded = true;
-    apiGet('JellyfinHelper/Recommendations/Diagnostics/Ensemble', function (data) {
-        _ensembleDiagData = data;
+
+    apiGet(url, function (data) {
+        _ensembleDiagCache[key] = data;
         // Resolve the host again here: a tab re-render may have replaced the element while the request was in flight.
-        var host = document.getElementById('recsEnsembleFootnote');
-        if (host) renderEnsembleDiagnostics(host, data);
+        var h = document.getElementById('recsEnsembleFootnote');
+        if (h) renderEnsembleDiagnostics(h, data);
     }, function () {
         // A footnote stays silent on failure rather than showing an error banner.
-        _ensembleDiagLoaded = false;
-        _ensembleDiagData = null;
-        var host = document.getElementById('recsEnsembleFootnote');
-        if (host) host.innerHTML = '';
+        var h = document.getElementById('recsEnsembleFootnote');
+        if (h) h.innerHTML = '';
     });
 }
 
@@ -169,8 +171,7 @@ function renderEnsembleDiagnostics(host, data) {
         return;
     }
     var fmt = function (n) { return (typeof n === 'number') ? n.toFixed(2) : escHtml(String(n)); };
-    // Compact one-line model-state footnote. Describes the shared model, not the selected user, so it is kept
-    // small and unobtrusive at the very bottom of the tab.
+    // Compact one-line model-state footnote for the selected user.
     var parts = [
         T('recsEnsembleAlpha', 'Alpha (\u03B1)') + ' ' + fmt(data.Alpha),
         T('recsEnsembleNeuralBeta', 'Neural (\u03B2)') + ' ' + fmt(data.NeuralBeta),
@@ -178,7 +179,15 @@ function renderEnsembleDiagnostics(host, data) {
         T('recsEnsembleExamples', 'Training examples') + ' ' + escHtml(String(data.TrainingExampleCount)),
         T('recsEnsembleNeuralEnabled', 'Neural enabled') + ' ' + escHtml(ensembleYesNo(data.NeuralEnabled))
     ];
-    host.innerHTML = escHtml(T('recsEnsembleNote', 'Shared recommendation model (not per user):')) + ' ' + parts.join(' \u00B7 ');
+    var label;
+    if (data.IsPerUser && data.UserName) {
+        // "Recommendation model for {name}:" - the model is individually trained for this user.
+        label = T('recsEnsembleNotePerUser', 'Recommendation model for {0}:').replace('{0}', escHtml(String(data.UserName)));
+    } else {
+        // Cold-start / below threshold: this user still scores on the shared global model.
+        label = escHtml(T('recsEnsembleNoteGlobalFallback', 'Global recommendation model (this user has no individual model yet):'));
+    }
+    host.innerHTML = label + ' ' + parts.join(' \u00B7 ');
 }
 
 function renderUserRecommendations(index) {

@@ -43,6 +43,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ];
 
     /// <summary>
+    ///     Globs for the per-user recommendation model/state files (<c>ml_weights_{userId}.json</c> and
+    ///     <c>ensemble_state_{userId}.json</c>). One pair exists per user with a per-user model, so uninstall
+    ///     cleanup must sweep them by pattern rather than exact name.
+    /// </summary>
+    private static readonly string[] PerUserDataFileGlobs =
+    [
+        "ml_weights_*.json",
+        "ensemble_state_*.json",
+    ];
+
+    /// <summary>
     ///     Guards the "install File Transformation" warning so it is emitted at most once per server start, even though InjectScript runs both from the constructor and again from the startup hosted service (and could be retried).
     /// </summary>
     private int _readOnlyWarningEmitted;
@@ -720,6 +731,21 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 if (File.Exists(file))
                 {
                     DeleteDataFile(file);
+                }
+            }
+
+            // Per-user recommendation model/state files (ml_weights_{id}.json / ensemble_state_{id}.json).
+            // These share no jellyfin-helper- prefix and are not in the fixed list above, so they need their
+            // own globs or an uninstall would leave one pair per user behind. Guarded to .json for the same
+            // reason as the prefixed loop: never touch an unrelated file that happens to share the stem.
+            foreach (var pattern in PerUserDataFileGlobs)
+            {
+                foreach (var file in Directory.GetFiles(dataPath, pattern))
+                {
+                    if (Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase))
+                    {
+                        DeleteDataFile(file);
+                    }
                 }
             }
         }

@@ -172,4 +172,93 @@ public sealed class EnsembleScoringStrategyNeuralTests
 
         Assert.Equal(0.0, ensemble.CurrentNeuralBeta);
     }
+
+    [Fact]
+    public void Dispose_OwnsNeuralFalse_DoesNotDisposeSharedNeural()
+    {
+        // Train the shared neural so it scores away from the disposed-degradation baseline of 0.5.
+        var shared = new NeuralScoringStrategy();
+        Assert.True(((ITrainableStrategy)shared).Train(CleanExamples(160)));
+
+        var probe = new CandidateFeatures
+        {
+            GenreSimilarity = 0.9,
+            CombinedCriticScore = 0.85,
+            RecencyScore = 0.7,
+            GenreCount = 4
+        };
+        var beforeScore = shared.Score(probe);
+
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+
+        // ownsNeural: false - a per-user ensemble that borrows the shared neural must not tear it down.
+        var borrowing = new EnsembleScoringStrategy(learned, heuristic, shared, ownsNeural: false);
+        borrowing.Dispose();
+
+        // Disposing a NeuralScoringStrategy tears down its ReaderWriterLockSlim; a disposed instance
+        // silently degrades to the 0.5 baseline. The shared neural must instead keep its trained score.
+        var afterScore = shared.Score(probe);
+        Assert.Equal(beforeScore, afterScore, 12);
+        Assert.NotEqual(0.5, afterScore, 6);
+
+        shared.Dispose();
+
+        // Contrast: the default ownsNeural: true DOES dispose the composed neural, degrading it to 0.5.
+        var ownedNeural = new NeuralScoringStrategy();
+        Assert.True(((ITrainableStrategy)ownedNeural).Train(CleanExamples(160)));
+        Assert.NotEqual(0.5, ownedNeural.Score(probe), 6);
+
+        var owning = new EnsembleScoringStrategy(
+            new LearnedScoringStrategy(),
+            new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+            ownedNeural);
+        owning.Dispose();
+
+        Assert.Equal(0.5, ownedNeural.Score(probe), 12);
+    }
+
+    [Fact]
+    public void Train_TrainNeuralFalse_DoesNotTrainNeural()
+    {
+        var neural = new NeuralScoringStrategy();
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+
+        // Baselines before any training: the neural has never trained (generation 0, initial weights).
+        var neuralGenBefore = neural.TrainingGeneration;
+        var neuralWeightsBefore = neural.GetCurrentWeightsHidden();
+        var learnedWeightsBefore = ensemble.LearnedStrategy.GetCurrentWeights();
+        Assert.Equal(0, neuralGenBefore);
+
+        // 3-arg overload with trainNeural: false - learned trains, neural is left untouched.
+        Assert.True(ensemble.Train(CleanExamples(160), heldOutForMetrics: null, trainNeural: false));
+
+        // Learned model DID train: its weights moved.
+        Assert.NotEqual(learnedWeightsBefore, ensemble.LearnedStrategy.GetCurrentWeights());
+
+        // Neural model did NOT train: generation unchanged and weights byte-identical.
+        Assert.Equal(neuralGenBefore, neural.TrainingGeneration);
+        Assert.Equal(neuralWeightsBefore, neural.GetCurrentWeightsHidden());
+    }
+
+    [Fact]
+    public void Train_TrainNeuralTrue_TrainsNeural()
+    {
+        var neural = new NeuralScoringStrategy();
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+
+        var neuralGenBefore = neural.TrainingGeneration;
+        var neuralWeightsBefore = neural.GetCurrentWeightsHidden();
+
+        // 3-arg overload with trainNeural: true (the default path) - both models train.
+        Assert.True(ensemble.Train(CleanExamples(160), heldOutForMetrics: null, trainNeural: true));
+
+        // Neural model DID train: generation advanced and weights moved.
+        Assert.True(neural.TrainingGeneration > neuralGenBefore);
+        Assert.NotEqual(neuralWeightsBefore, neural.GetCurrentWeightsHidden());
+    }
 }

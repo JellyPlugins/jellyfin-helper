@@ -118,6 +118,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     private readonly LearnedScoringStrategy _learned;
     private readonly ILogger? _logger;
     private readonly NeuralScoringStrategy? _neural;
+    private readonly bool _ownsNeural;
     private readonly string? _statePath;
     private readonly object _syncRoot = new();
     private double _alpha;
@@ -147,6 +148,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <param name="alphaMax">Maximum blending factor.</param>
     /// <param name="genrePenaltyFloor">Minimum genre penalty multiplier.</param>
     /// <param name="logger">Optional logger for training diagnostics.</param>
+    /// <param name="ownsNeural">
+    ///     Whether this instance owns the neural sub-strategy's lifetime. When <c>true</c> (the default),
+    ///     <see cref="Dispose"/> disposes the neural strategy. Per-user ensembles share ONE global neural
+    ///     instance by reference and must pass <c>false</c>, or disposing one per-user ensemble would tear
+    ///     down the shared neural (and its <see cref="System.Threading.ReaderWriterLockSlim"/>) for everyone.
+    /// </param>
     public EnsembleScoringStrategy(
         LearnedScoringStrategy learned,
         HeuristicScoringStrategy heuristic,
@@ -155,7 +162,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double alphaMin = DefaultAlphaMin,
         double alphaMax = DefaultAlphaMax,
         double genrePenaltyFloor = DefaultGenrePenaltyFloor,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        bool ownsNeural = true)
     {
         ArgumentNullException.ThrowIfNull(learned);
         ArgumentNullException.ThrowIfNull(heuristic);
@@ -176,6 +184,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         _learned = learned;
         _neural = neural;
+        _ownsNeural = ownsNeural;
         _heuristic = heuristic;
         _logger = logger;
 
@@ -587,13 +596,35 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     /// <inheritdoc />
     public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
+        => Train(examples, heldOutForMetrics, trainNeural: true);
+
+    /// <summary>
+    ///     Trains the learned sub-strategy and, when <paramref name="trainNeural"/> is true, the neural
+    ///     sub-strategy, then updates this ensemble's blend factors.
+    /// </summary>
+    /// <remarks>
+    ///     Per-user ensembles pass <c>trainNeural: false</c>: the neural MLP is trained once on the global
+    ///     pooled set (it needs the large pool to avoid overfitting), while each per-user ensemble only fits
+    ///     its own linear learned weights and doses the shared MLP via its own β. β still updates here off the
+    ///     shared neural's last validation loss, so a data-poor user gets β≈0 and a power user ramps up.
+    /// </remarks>
+    /// <param name="examples">Training examples with features and labels.</param>
+    /// <param name="heldOutForMetrics">Optional held-out slice for ranking-metric computation.</param>
+    /// <param name="trainNeural">Whether to (re)train the neural sub-strategy on these examples.</param>
+    /// <returns>True if learned training was performed, false if insufficient data.</returns>
+    public bool Train(
+        IReadOnlyList<TrainingExample> examples,
+        IReadOnlyList<TrainingExample>? heldOutForMetrics,
+        bool trainNeural)
     {
         ArgumentNullException.ThrowIfNull(examples);
 
         var result = ((ITrainableStrategy)_learned).Train(examples, heldOutForMetrics);
 
-        // Also train neural strategy if available (independent of learned success)
-        var neuralTrained = _neural is not null
+        // Train the neural strategy only when this ensemble owns that responsibility (the global ensemble).
+        // Per-user ensembles share one globally-trained MLP and must not re-fit it on a single user's slice.
+        var neuralTrained = trainNeural
+            && _neural is not null
             && ((ITrainableStrategy)_neural).Train(examples, heldOutForMetrics);
 
         if (result)
@@ -1370,11 +1401,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
-    ///     Disposes the composed neural strategy, which owns a ReaderWriterLockSlim.
+    ///     Disposes the composed neural strategy (which owns a ReaderWriterLockSlim) only when this instance
+    ///     owns it. Per-user ensembles share one global neural instance and are constructed with
+    ///     <c>ownsNeural: false</c>, so disposing a per-user ensemble must not tear down the shared neural.
     /// </summary>
     public void Dispose()
     {
-        _neural?.Dispose();
+        if (_ownsNeural)
+        {
+            _neural?.Dispose();
+        }
     }
 
     /// <summary>

@@ -48,4 +48,20 @@ public interface IRecommendationEngine
     /// </summary>
     /// <returns>An <see cref="EnsembleDiagnostics"/> snapshot, or null when the active strategy is not an ensemble.</returns>
     EnsembleDiagnostics? GetEnsembleDiagnostics();
+
+    /// <summary>
+    ///     Gets a diagnostics snapshot for a specific user's model: the per-user ensemble's state when the
+    ///     user has a dedicated model, otherwise the global ensemble's state (cold-start fallback).
+    /// </summary>
+    /// <param name="userId">The user whose model state to snapshot.</param>
+    /// <returns>An <see cref="EnsembleDiagnostics"/> snapshot, or null when the active strategy is not an ensemble.</returns>
+    EnsembleDiagnostics? GetEnsembleDiagnostics(Guid userId);
+
+    /// <summary>
+    ///     Returns whether the given user currently has a dedicated, individually-trained model (as opposed to
+    ///     falling back to the shared global model). Used to label diagnostics honestly.
+    /// </summary>
+    /// <param name="userId">The user to check.</param>
+    /// <returns><see langword="true"/> when the user has a per-user model; otherwise <see langword="false"/>.</returns>
+    bool HasPerUserModel(Guid userId);
 }

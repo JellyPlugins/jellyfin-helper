@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **296 tests** (API + UI) across 46 spec files
+every UI interaction. **300 tests** (API + UI) across 47 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -317,6 +317,12 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
   consumes a REAL watch profile: `WatchProfile/{userId}` reflects played items,
   `Recommendations/{userId}` EXCLUDES anything watched, and results are ranked
   (Score in [0,1], sorted descending).
+- **Per-user recommendation models** (`recommendations-peruser-fs.api.spec.ts`): training
+  persists the global model files (`ml_weights.json`, `neural_weights.json`,
+  `ensemble_state.json`); a user above the example threshold gets per-user files
+  (`ml_weights_{id}.json`, `ensemble_state_{id}.json`) with the expected JSON shape; a
+  second run does not regress the per-user `TrainingExampleCount`; and an orphaned
+  per-user file is pruned on the next run while the global files survive.
 - **Media statistics** (`media-stats-fs.api.spec.ts`): codec / resolution / health
   breakdowns match the KNOWN fixtures: H.264 / HEVC / MPEG-4 keys with positive
   counts, sub-less clips reflected in the no-subtitle health count.

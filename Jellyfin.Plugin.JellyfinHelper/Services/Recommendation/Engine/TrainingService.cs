@@ -117,10 +117,151 @@ internal sealed class TrainingService : IDisposable
     }
 
     /// <summary>
+    ///     Trains the global model once on the pooled examples (learned + neural + global blend state), then
+    ///     trains a dedicated per-user learned model for every user with enough examples, warm-started from
+    ///     the global model. The neural MLP is fit only in the global pass; per-user ensembles reuse it by
+    ///     reference and only dose it via their own β.
+    /// </summary>
+    /// <param name="registry">The per-user ensemble registry (owns the global ensemble + per-user models).</param>
+    /// <param name="previousResults">The previous-run recommendation results.</param>
+    /// <param name="seriesEpisodeCounts">Per-series episode counts for progression parity.</param>
+    /// <param name="incremental">When true, subsample older examples for efficiency.</param>
+    /// <param name="genreStudioIdf">Library-wide genre/studio IDF rarity table.</param>
+    /// <param name="libraryItemMetadata">Item metadata map from the live library.</param>
+    /// <param name="cancellationToken">Token to cancel the training operation.</param>
+    /// <returns>True if the global training pass was performed, false if skipped.</returns>
+    internal bool TrainPerUser(
+        IPerUserEnsembleRegistry registry,
+        IReadOnlyList<RecommendationResult> previousResults,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts = null,
+        bool incremental = false,
+        IReadOnlyDictionary<string, double>? genreStudioIdf = null,
+        LibraryItemMetadata? libraryItemMetadata = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+
+        if (previousResults.Count == 0)
+        {
+            _pluginLog.LogInfo(LogSource, "Training skipped - no previous recommendations available.", _logger);
+            return false;
+        }
+
+        if (!_trainGate.Wait(0, CancellationToken.None))
+        {
+            _pluginLog.LogInfo(
+                LogSource,
+                "Training skipped - another training run is already in progress.",
+                _logger);
+            return false;
+        }
+
+        try
+        {
+            var globalEnsemble = registry.GlobalEnsemble;
+
+            // Build the pooled examples once; the global pass and every per-user pass share this exact set.
+            var pooled = BuildTrainingExamples(
+                globalEnsemble, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, libraryItemMetadata, cancellationToken);
+
+            // Global pass: trains the learned model, the neural MLP (once), and the global blend state.
+            var globalTrained = TrainStrategyOnExamples(globalEnsemble, pooled, trainNeural: true, cancellationToken);
+
+            TrainPerUserModels(registry, pooled, cancellationToken);
+
+            return globalTrained;
+        }
+        finally
+        {
+            _trainGate.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Trains one dedicated learned model per user whose example count clears the per-user threshold.
+    ///     Each per-user pass fits only the linear learned weights (trainNeural: false) on that user's own
+    ///     examples, warm-started from the global model on first creation.
+    /// </summary>
+    /// <param name="registry">The per-user ensemble registry.</param>
+    /// <param name="pooled">The pooled training examples (tagged with UserId).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private void TrainPerUserModels(
+        IPerUserEnsembleRegistry registry,
+        List<TrainingExample> pooled,
+        CancellationToken cancellationToken)
+    {
+        var trainedUsers = 0;
+        var skippedUsers = 0;
+
+        foreach (var group in pooled.GroupBy(e => e.UserId))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Guid.Empty groups legacy/discovery-only examples with no owning user stay folded into
+            // the global model rather than spawning a bogus per-user model.
+            if (group.Key == Guid.Empty)
+            {
+                continue;
+            }
+
+            var userExamples = group.ToList();
+            if (userExamples.Count < PerUserEnsembleRegistry.PerUserModelThreshold)
+            {
+                // Below threshold: no per-user model. The user keeps scoring on the global model (registry
+                // fallback), so their recommendations are unchanged rather than fit on too little data.
+                skippedUsers++;
+                continue;
+            }
+
+            var ensemble = registry.GetOrCreateTrainableEnsembleForUser(group.Key);
+            if (TrainStrategyOnExamples(ensemble, userExamples, trainNeural: false, cancellationToken))
+            {
+                trainedUsers++;
+            }
+        }
+
+        _pluginLog.LogInfo(
+            LogSource,
+            $"Per-user training: {trainedUsers} users trained, {skippedUsers} below the " +
+            $"{PerUserEnsembleRegistry.PerUserModelThreshold}-example threshold (kept on the global model).",
+            _logger);
+    }
+
+    /// <summary>
     ///     Core training logic, called under the <see cref="_trainGate"/> semaphore.
     ///     Delegates example building to <see cref="TrainingDataBuilder"/>.
     /// </summary>
     private bool TrainCore(
+        IScoringStrategy strategy,
+        IReadOnlyList<RecommendationResult> previousResults,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        bool incremental,
+        IReadOnlyDictionary<string, double>? genreStudioIdf,
+        LibraryItemMetadata? libraryItemMetadata,
+        CancellationToken cancellationToken)
+    {
+        var trainingExamples = BuildTrainingExamples(
+            strategy, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, libraryItemMetadata, cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return TrainStrategyOnExamples(strategy, trainingExamples, trainNeural: true, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Builds the pooled training examples for this run (all phases + discovery feedback), logs the
+    ///     composition, and applies incremental sampling when requested. Shared by the global training path
+    ///     and the per-user path so both operate on the identical example set.
+    /// </summary>
+    /// <param name="strategy">The strategy whose feature means impute discovery features.</param>
+    /// <param name="previousResults">The previous-run recommendation results.</param>
+    /// <param name="seriesEpisodeCounts">Per-series episode counts for progression parity.</param>
+    /// <param name="incremental">Whether to subsample older examples.</param>
+    /// <param name="genreStudioIdf">Library-wide genre/studio IDF rarity table.</param>
+    /// <param name="libraryItemMetadata">Item metadata map from the live library.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The pooled training examples (post incremental sampling).</returns>
+    private List<TrainingExample> BuildTrainingExamples(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
@@ -159,18 +300,43 @@ internal sealed class TrainingService : IDisposable
             $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
             _logger);
 
-        var trainingExamples = incremental && examples.Count >= EngineConstants.IncrementalMinExamplesThreshold
+        return incremental && examples.Count >= EngineConstants.IncrementalMinExamplesThreshold
             ? ApplyIncrementalSampling(examples, previousResults)
             : examples;
+    }
 
+    /// <summary>
+    ///     Trains a single strategy on the supplied examples: reserves a held-out validation split, trains,
+    ///     and logs ranking metrics. Extracted so the global and per-user paths share identical train + log
+    ///     behaviour.
+    /// </summary>
+    /// <param name="strategy">The strategy to train.</param>
+    /// <param name="trainingExamples">The examples to fit on (already sampled).</param>
+    /// <param name="trainNeural">
+    ///     Whether the ensemble should (re)train its neural sub-strategy. False on per-user passes so the MLP
+    ///     is fit only once, globally.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True if training was performed, false if insufficient data.</returns>
+    private bool TrainStrategyOnExamples(
+        IScoringStrategy strategy,
+        List<TrainingExample> trainingExamples,
+        bool trainNeural,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         // Reserve the most recent 10% of examples (by GeneratedAtUtc) as held-out validation, train on the remaining 90%, for honest generalization metrics instead of optimistic training-set fit.
         SplitHeldOut(trainingExamples, out var trainSplit, out var heldOutSplit);
 
         // Pass the held-out slice into the strategy so the metrics it publishes (used by the ensemble's quality gate + trend analyser) come from the same out-of-sample set the log line below reports.
-        var trained = strategy is ITrainableStrategy trainable
-            && trainable.Train(trainSplit, heldOutSplit.Count >= 2 ? heldOutSplit : null);
+        var heldOutForMetrics = heldOutSplit.Count >= 2 ? heldOutSplit : null;
+        var trained = strategy switch
+        {
+            EnsembleScoringStrategy ensemble => ensemble.Train(trainSplit, heldOutForMetrics, trainNeural),
+            ITrainableStrategy trainable => trainable.Train(trainSplit, heldOutForMetrics),
+            _ => false
+        };
 
         if (trained)
         {

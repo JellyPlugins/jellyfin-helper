@@ -127,11 +127,16 @@ public class RecommendationController : ControllerBase
     ///     quality-gate freeze, sigmoid midpoint, trend, and training counts) for operator diagnostics. Pure read:
     ///     it never generates recommendations or fills the cache.
     /// </summary>
+    /// <param name="userId">
+    ///     Optional user id. When supplied (and non-empty), returns that user's per-user model state (or the
+    ///     global model as cold-start fallback, flagged via <see cref="EnsembleDiagnosticsResponse.IsPerUser"/>).
+    ///     When omitted, returns the shared global model state.
+    /// </param>
     /// <returns>The ensemble diagnostics, or a response with <see cref="EnsembleDiagnosticsResponse.Available"/> set to false when the active strategy is not an ensemble or no state exists yet.</returns>
     [HttpGet("Diagnostics/Ensemble")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public ActionResult<EnsembleDiagnosticsResponse> GetEnsembleDiagnostics()
+    public ActionResult<EnsembleDiagnosticsResponse> GetEnsembleDiagnostics([FromQuery] Guid? userId = null)
     {
         if (_configService.GetConfiguration().RecommendationsTaskMode == TaskMode.Deactivate)
         {
@@ -140,13 +145,29 @@ public class RecommendationController : ControllerBase
                 RecommendationsDisabledMessage);
         }
 
-        var diagnostics = _engine.GetEnsembleDiagnostics();
+        var perUser = userId is { } id && id != Guid.Empty;
+        if (!perUser)
+        {
+            var globalDiagnostics = _engine.GetEnsembleDiagnostics();
+            return globalDiagnostics is null
+                ? Ok(new EnsembleDiagnosticsResponse { Available = false })
+                : Ok(EnsembleDiagnosticsResponse.FromDiagnostics(globalDiagnostics));
+        }
+
+        var diagnostics = _engine.GetEnsembleDiagnostics(userId!.Value);
         if (diagnostics is null)
         {
             return Ok(new EnsembleDiagnosticsResponse { Available = false });
         }
 
-        return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics));
+        // A per-user model exists only once the user's example count clears the threshold; below it the engine
+        // returns the global snapshot. Ask the engine directly (HasPerUserModel) rather than comparing two
+        // freshly-allocated snapshots. Each GetDiagnosticsSnapshot() returns a new record, so a reference
+        // comparison would always report "per-user" even for a cold-start user on the global model.
+        var isPerUser = _engine.HasPerUserModel(userId.Value);
+        var userName = _watchHistoryService.GetUserWatchProfile(userId.Value)?.UserName;
+
+        return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics, isPerUser, userName));
     }
 
     /// <summary>

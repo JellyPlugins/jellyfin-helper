@@ -43,6 +43,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private readonly SimilarityComputer _similarityComputer;
     private readonly IScoringStrategy _strategy;
     private readonly IStrategySelector _strategySelector;
+    private readonly IPerUserEnsembleRegistry _perUserRegistry;
     private readonly TrainingService _trainingService;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IDiscoveryFeedbackStore _discoveryFeedbackStore;
@@ -73,6 +74,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="logger">The logger instance.</param>
     /// <param name="strategy">The scoring strategy resolved via DI.</param>
     /// <param name="strategySelector">The strategy selector for A/B testing.</param>
+    /// <param name="perUserRegistry">The per-user ensemble registry (per-user models + global fallback).</param>
     /// <param name="discoveryFeedbackStore">The discovery feedback store for training data enrichment.</param>
     /// <param name="itemRepository">The item repository used to derive library-wide genre/studio rarity (IDF).</param>
     public Engine(
@@ -83,6 +85,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         ILogger<Engine> logger,
         IScoringStrategy strategy,
         IStrategySelector strategySelector,
+        IPerUserEnsembleRegistry perUserRegistry,
         IDiscoveryFeedbackStore discoveryFeedbackStore,
         IItemRepository itemRepository)
     {
@@ -93,6 +96,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         _logger = logger;
         _strategy = strategy;
         _strategySelector = strategySelector;
+        _perUserRegistry = perUserRegistry;
         _discoveryFeedbackStore = discoveryFeedbackStore;
         _itemRepository = itemRepository;
         _similarityComputer = new SimilarityComputer(libraryManager, pluginLog, logger);
@@ -151,6 +155,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var boxSetLookup = snapshot.CandidateBoxSetLookup;
         var contentAffinityLookup = snapshot.ContentAffinityLookup;
         var alphaOffset = _strategySelector.GetAlphaOffset(userProfile.UserId);
+        // Per-user model when the user has one; else the global ensemble (cold-start). The returned instance
+        // is always an EnsembleScoringStrategy, so the alpha-offset fast path in ScoreCandidate still applies.
+        var userStrategy = _perUserRegistry.GetScoringStrategyForUser(userProfile.UserId);
         // Live single-user path: no batch-scoped CollaborativeContext exists, so pass null and let GenerateForUser derive aggregates locally from precomputedUserSets (also null here).
         return GenerateForUser(
             userProfile,
@@ -161,7 +168,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             contentAffinityLookup,
             seriesEpisodeCounts,
             maxResults,
-            _strategy,
+            userStrategy,
             null,
             alphaOffset,
             liveSeed,
@@ -190,13 +197,23 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // watched item that was never previously recommended.
         var libraryItemMetadata = BuildLibraryItemMetadata();
 
-        var trained = _trainingService.Train(_strategy, previousResults, seriesEpisodeCounts, incremental, _genreStudioIdf, libraryItemMetadata, cancellationToken);
+        var allProfilesForTraining = _watchHistoryService.GetAllUserWatchProfiles();
 
-        // Adjust learning speed based on cohort watch rates.
-        if (trained && _strategy is EnsembleScoringStrategy ensemble && previousResults.Count > 0)
+        // Remove per-user model/state files for users that no longer exist (reconciliation against the live
+        // user list, the same approach used to clean up stale recommendation playlists).
+        _perUserRegistry.PruneOrphans([.. allProfilesForTraining.Select(p => p.UserId)]);
+
+        // Train the global model (learned + neural + global blend) once, then a per-user learned model for
+        // every user above the example threshold, warm-started from the global fit.
+        var trained = _trainingService.TrainPerUser(_perUserRegistry, previousResults, seriesEpisodeCounts, incremental, _genreStudioIdf, libraryItemMetadata, cancellationToken);
+
+        // Adjust learning speed based on cohort watch rates. Cohort A/B calibration stays global. It tunes
+        // the shared sigmoid midpoint from aggregate cohort watch-rates, which would be meaningless per user.
+        if (trained && previousResults.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+            var ensemble = _perUserRegistry.GlobalEnsemble;
+            var allProfiles = allProfilesForTraining;
             var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
             foreach (var profile in allProfiles)
             {
@@ -230,6 +247,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <inheritdoc />
     public EnsembleDiagnostics? GetEnsembleDiagnostics() =>
         _strategy is EnsembleScoringStrategy ensemble ? ensemble.GetDiagnosticsSnapshot() : null;
+
+    /// <inheritdoc />
+    public EnsembleDiagnostics? GetEnsembleDiagnostics(Guid userId) =>
+        _strategy is EnsembleScoringStrategy ? _perUserRegistry.GetDiagnostics(userId) : null;
+
+    /// <inheritdoc />
+    public bool HasPerUserModel(Guid userId) => _perUserRegistry.HasPerUserModel(userId);
 
     /// <inheritdoc />
     public IReadOnlyList<RecommendationResult> GetAllRecommendations(
@@ -330,7 +354,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                             contentAffinityLookup,
                             seriesEpisodeCounts,
                             maxResultsPerUser,
-                            _strategy,
+                            _perUserRegistry.GetScoringStrategyForUser(profile.UserId),
                             precomputedUserSets,
                             _strategySelector.GetAlphaOffset(profile.UserId),
                             batchSeed,

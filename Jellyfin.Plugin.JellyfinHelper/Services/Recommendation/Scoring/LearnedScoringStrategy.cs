@@ -216,6 +216,53 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         }
     }
 
+    /// <summary>
+    ///     Returns a snapshot of the persisted per-feature standardization std-devs, or null when the model
+    ///     has not yet trained under standardization. The companion to <see cref="GetFeatureMeans"/>: a
+    ///     warm-start must copy both, because scoring only standardizes when both are non-null and
+    ///     <see cref="SeedFrom"/> relies on carrying the full standardization state across the seed.
+    /// </summary>
+    /// <returns>A cloned copy of the per-feature std-devs, or null if unavailable.</returns>
+    internal IReadOnlyList<double>? GetFeatureStdDevs()
+    {
+        lock (_syncRoot)
+        {
+            return _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null;
+        }
+    }
+
+    /// <summary>
+    ///     Seeds this model's weights, bias, and standardization statistics from another (typically the
+    ///     global) model, so a new per-user model starts from the global fit instead of cold defaults.
+    /// </summary>
+    /// <remarks>
+    ///     The standardization stats (<c>_featureMeans</c>/<c>_featureStdDevs</c>) MUST be carried over, not
+    ///     just weights and bias. The global model is trained standardized; a per-user model with fewer than
+    ///     <see cref="MinExamplesForStandardization"/> examples will train unstandardized. Without the seeded
+    ///     stats, <c>WarmStartWeightsForModeChange</c> would see no prior standardization, skip the rescale,
+    ///     and apply standardized-space weights to raw features - silently wrong scores. The training
+    ///     generation is reset to 0 so this model's SGD RNG seed does not inherit the source's progression.
+    /// </remarks>
+    /// <param name="source">The model to copy weights and standardization state from.</param>
+    internal void SeedFrom(LearnedScoringStrategy source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        var sourceWeights = source.GetCurrentWeights();
+        var sourceBias = source.CurrentBias;
+        var sourceMeans = source.GetFeatureMeans();
+        var sourceStdDevs = source.GetFeatureStdDevs();
+
+        lock (_syncRoot)
+        {
+            _weights = (double[])sourceWeights.Clone();
+            _bias = sourceBias;
+            _featureMeans = sourceMeans is not null ? [.. sourceMeans] : null;
+            _featureStdDevs = sourceStdDevs is not null ? [.. sourceStdDevs] : null;
+            _trainingGeneration = 0;
+        }
+    }
+
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
