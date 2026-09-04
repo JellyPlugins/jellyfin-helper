@@ -286,7 +286,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void PerUserEnsemble_WarmStartedFromGlobal_ComputesAlphaFromOwnExampleCount()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         // Train the global on a large set so it carries a high example count and a high blend alpha.
         using var global = BuildGlobal(neural);
         Assert.True(global.Train(GenerateExamples(60)));

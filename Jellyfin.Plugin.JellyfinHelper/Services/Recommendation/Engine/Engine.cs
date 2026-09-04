@@ -217,38 +217,44 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         if (trained && previousResults.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var ensemble = _perUserRegistry.GlobalEnsemble;
-            // Fetched here rather than up front so a skipped or empty-results training run does not pay for a
-            // profile build it never uses.
-            var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
-            var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
-            foreach (var profile in allProfiles)
-            {
-                var watched = new HashSet<Guid>(
-                    profile.WatchedItems
-                        .Where(w => w.HasMeaningfulInteraction())
-                        .Select(w => w.ItemId));
-
-                foreach (var w in profile.WatchedItems)
-                {
-                    if (w.SeriesId.HasValue && w.HasMeaningfulInteraction())
-                    {
-                        watched.Add(w.SeriesId.Value);
-                    }
-                }
-
-                foreach (var favSeriesId in profile.FavoriteSeriesIds)
-                {
-                    watched.Add(favSeriesId);
-                }
-
-                watchedItemLookup[profile.UserId] = watched;
-            }
-
-            ensemble.ApplyCohortFeedback(previousResults, watchedItemLookup);
+            ApplyGlobalCohortFeedback(previousResults);
         }
 
         return trained;
+    }
+
+    private void ApplyGlobalCohortFeedback(IReadOnlyList<RecommendationResult> previousResults)
+    {
+        var ensemble = _perUserRegistry.GlobalEnsemble;
+
+        // Fetched here rather than up front so a skipped or empty-results training run does not pay for a
+        // profile build it never uses.
+        var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+        var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
+        foreach (var profile in allProfiles)
+        {
+            var watched = new HashSet<Guid>(
+                profile.WatchedItems
+                    .Where(w => w.HasMeaningfulInteraction())
+                    .Select(w => w.ItemId));
+
+            foreach (var w in profile.WatchedItems)
+            {
+                if (w.SeriesId.HasValue && w.HasMeaningfulInteraction())
+                {
+                    watched.Add(w.SeriesId.Value);
+                }
+            }
+
+            foreach (var favSeriesId in profile.FavoriteSeriesIds)
+            {
+                watched.Add(favSeriesId);
+            }
+
+            watchedItemLookup[profile.UserId] = watched;
+        }
+
+        ensemble.ApplyCohortFeedback(previousResults, watchedItemLookup);
     }
 
     /// <inheritdoc />

@@ -685,7 +685,7 @@ public class TrainingServiceTests
         Directory.CreateDirectory(dataPath);
         try
         {
-            var neural = new NeuralScoringStrategy();
+            using var neural = new NeuralScoringStrategy();
             using var global = new EnsembleScoringStrategy(
                 new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
                 new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
@@ -744,7 +744,7 @@ public class TrainingServiceTests
         Directory.CreateDirectory(dataPath);
         try
         {
-            var neural = new NeuralScoringStrategy();
+            using var neural = new NeuralScoringStrategy();
             using var global = new EnsembleScoringStrategy(
                 new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
                 new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),

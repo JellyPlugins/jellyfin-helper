@@ -219,9 +219,9 @@ public class ConfigurationController : ControllerBase
             ApplyRequestToConfig(request, cfg);
             _ensemble.Reconfigure(cfg.EnsembleAlphaMin, cfg.EnsembleAlphaMax, cfg.EnsembleGenrePenaltyFloor);
 
-            // Per-user models keep their own copy of the blend bounds, so push the same change to them too;
-            // otherwise the global ensemble would use the new bounds while per-user models stayed on the old
-            // ones until the next restart.
+            // Per-user models keep their own copy of the blend bounds, so the same change is pushed to them as
+            // well. Otherwise the global ensemble would use the new bounds while per-user models stayed on the
+            // old ones until the next restart.
             _perUserRegistry?.Reconfigure(EnsembleBlendBounds.FromConfiguration(cfg));
         });
 
