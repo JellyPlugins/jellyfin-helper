@@ -24,6 +24,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
     private const string TimelineFileName = "jellyfin-helper-growth-timeline.json";
     private const string BaselineFileName = "jellyfin-helper-growth-baseline.json";
+    private const string DailyGranularity = "daily";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _baselineFilePath;
@@ -126,11 +127,9 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             // Trim leading zero-value data points but keep one zero just before the first non-zero as a visual baseline start.
             dataPoints = TimelineAggregator.TrimLeadingZeros(dataPoints);
 
-            // Consolidate data points into the current granularity. When the time span grows (e.g.
-            var finalGranularity = dataPoints.Count > 0
-                ? TimelineAggregator.DetermineGranularity(dataPoints[0].Date, now)
-                : "monthly";
-            dataPoints = TimelineAggregator.ConsolidateToGranularity(dataPoints, finalGranularity);
+            // Storage is always daily and lossless. Coarser display buckets (week, month, year)
+            // are a client-side zoom projection, never baked into the stored series.
+            const string finalGranularity = DailyGranularity;
 
             // Remove consecutive data points with identical values to reduce storage size.
             // The UI will interpolate missing buckets back when rendering the chart.
@@ -142,7 +141,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                 return new GrowthTimelineResult
                 {
                     ComputedAt = now,
-                    Granularity = "monthly",
+                    Granularity = finalGranularity,
                     FirstScanTimestamp = baseline.FirstScanTimestamp
                 };
             }
@@ -189,18 +188,32 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     {
         // Persist a 0-snapshot so that the timeline reflects the empty state
         // instead of showing stale data from a previous scan.
-        var existingTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
+        var rawTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
+        var existingTimeline = DiscardLegacyTimeline(rawTimeline);
+        if (rawTimeline != null && existingTimeline == null)
+        {
+            // A legacy coarse timeline was discarded; persist its removal so the stale
+            // file is not read again on the next scan.
+            var legacyReplacement = new GrowthTimelineResult
+            {
+                ComputedAt = now,
+                Granularity = DailyGranularity
+            };
+            await SaveTimelineAsync(legacyReplacement, cancellationToken).ConfigureAwait(false);
+            return legacyReplacement;
+        }
+
         if (existingTimeline is not { DataPoints.Count: > 0 })
         {
             return new GrowthTimelineResult
             {
                 ComputedAt = now,
-                Granularity = "monthly"
+                Granularity = DailyGranularity
             };
         }
 
         var earliestExisting = existingTimeline.DataPoints[0].Date;
-        var granularity = TimelineAggregator.DetermineGranularity(earliestExisting, now);
+        const string granularity = DailyGranularity;
         var zeroPoints = TimelineAggregator.MergeSnapshotIntoTimeline(
             existingTimeline.DataPoints.ToList(),
             now,
@@ -210,7 +223,6 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
         // Run through the same finalization path as normal scans
         zeroPoints = TimelineAggregator.TrimLeadingZeros(zeroPoints);
-        zeroPoints = TimelineAggregator.ConsolidateToGranularity(zeroPoints, granularity);
         zeroPoints = TimelineAggregator.DeduplicateConsecutivePoints(zeroPoints);
 
         var zeroResult = new GrowthTimelineResult
@@ -250,6 +262,25 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         }
 
         return baseline;
+    }
+
+    /// <summary>
+    ///     Discards a timeline persisted by an older plugin version that stored coarser-than-daily buckets. Storage is now always daily and lossless; a non-daily file is dropped once so the caller rebuilds a clean daily series from the baseline. The baseline is resolution-independent and is not affected.
+    /// </summary>
+    /// <param name="timeline">The loaded timeline (may be null).</param>
+    /// <returns>The timeline unchanged, or <see langword="null"/> when a legacy coarse timeline was discarded.</returns>
+    private GrowthTimelineResult? DiscardLegacyTimeline(GrowthTimelineResult? timeline)
+    {
+        if (timeline is null || TimelineAggregator.IsDayBased(timeline))
+        {
+            return timeline;
+        }
+
+        _pluginLog.LogInfo(
+            LogSource,
+            $"Discarding legacy '{timeline.Granularity}' timeline ({timeline.DataPoints.Count} points). A new daily timeline will be rebuilt from the baseline.",
+            _logger);
+        return null;
     }
 
     /// <summary>
@@ -293,7 +324,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         timelineEntries.Sort((a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
 
         var earliest = timelineEntries.Count > 0 ? timelineEntries[0].CreatedUtc : now;
-        var granularity = TimelineAggregator.DetermineGranularity(earliest, now);
+        const string granularity = DailyGranularity;
 
         _pluginLog.LogInfo(
             LogSource,
@@ -322,6 +353,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
 
         var existingTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
+        existingTimeline = DiscardLegacyTimeline(existingTimeline);
 
         // Calculate current absolute totals in a single pass (avoids two iterations)
         long currentTotalSize = 0;
@@ -341,15 +373,12 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                 $"Append-only scan: {existingTimeline.DataPoints.Count} existing points, current total: {currentTotalSize} bytes, {currentTotalCount} items.",
                 _logger);
 
-            var earliestExisting = existingTimeline.DataPoints[0].Date;
-            var granularity = TimelineAggregator.DetermineGranularity(earliestExisting, now);
-
             dataPoints = TimelineAggregator.MergeSnapshotIntoTimeline(
                 existingTimeline.DataPoints.ToList(),
                 now,
                 currentTotalSize,
                 currentTotalCount,
-                granularity);
+                DailyGranularity);
         }
         else
         {
@@ -364,9 +393,8 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             timelineEntries.Sort((a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
 
             var earliest = timelineEntries.Count > 0 ? timelineEntries[0].CreatedUtc : now;
-            var granularity = TimelineAggregator.DetermineGranularity(earliest, now);
 
-            dataPoints = TimelineAggregator.BuildCumulativeTimeline(timelineEntries, earliest, now, granularity);
+            dataPoints = TimelineAggregator.BuildCumulativeTimeline(timelineEntries, earliest, now, DailyGranularity);
         }
 
         // Update baseline with current state for next scan
@@ -411,6 +439,13 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         {
             _fileLock.Release();
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<IDisposable> AcquireExclusiveAsync(CancellationToken cancellationToken)
+    {
+        await _computeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return new Releaser(_computeLock);
     }
 
     /// <summary>
@@ -861,5 +896,30 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         public DateTime CreatedUtc;
         public long Size;
         public long Count;
+    }
+
+    /// <summary>
+    ///     Releases the exclusive gate handed out by <see cref="AcquireExclusiveAsync"/> when disposed.
+    /// </summary>
+    private sealed class Releaser : IDisposable
+    {
+        private readonly SemaphoreSlim _semaphore;
+        private bool _released;
+
+        public Releaser(SemaphoreSlim semaphore)
+        {
+            _semaphore = semaphore;
+        }
+
+        public void Dispose()
+        {
+            if (_released)
+            {
+                return;
+            }
+
+            _released = true;
+            _semaphore.Release();
+        }
     }
 }

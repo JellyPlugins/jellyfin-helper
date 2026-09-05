@@ -14,10 +14,11 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait("Category", "Performance")]
-    public void Sanitize_LargeTimeline_6000DataPoints_TrimsToMaxAndCompletesWithin500ms()
+    public void Sanitize_LargeTimeline_OverCap_TrimsToMaxAndCompletesWithin500ms()
     {
-        // Arrange: BackupData with 6,000 timeline data points (exceeds MaxTimelineDataPoints = 5000)
-        var backup = CreateLargeBackup(timelinePoints: 6_000, baselineDirs: 100, arrInstances: 5);
+        // Arrange: a daily timeline that exceeds MaxTimelineDataPoints so the trim path runs.
+        var overCap = BackupValidator.MaxTimelineDataPoints + 1_000;
+        var backup = CreateLargeBackup(timelinePoints: overCap, baselineDirs: 100, arrInstances: 5);
 
         // Act
         var sw = Stopwatch.StartNew();
@@ -25,12 +26,11 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"Sanitize: 6,000 timeline points \u2192 {backup.GrowthTimeline?.DataPoints.Count} in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"Sanitize: {overCap} timeline points \u2192 {backup.GrowthTimeline?.DataPoints.Count} in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 500, $"Took {sw.ElapsedMilliseconds}ms, expected < 500ms");
         var growthTimeline = backup.GrowthTimeline;
         Assert.NotNull(growthTimeline);
-        Assert.True(growthTimeline.DataPoints.Count <= 5000,
-            $"Expected \u2264 5000 data points after sanitize, got {growthTimeline.DataPoints.Count}");
+        Assert.Equal(BackupValidator.MaxTimelineDataPoints, growthTimeline.DataPoints.Count);
     }
 
     [Fact]
@@ -128,10 +128,10 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
 
     [Fact]
     [Trait("Category", "Performance")]
-    public void Sanitize_MaxSizeTimeline_5000Points_NoTrimming_CompletesWithin500ms()
+    public void Sanitize_MaxSizeTimeline_AtCap_NoTrimming_CompletesWithin500ms()
     {
-        // Arrange: BackupData with exactly MaxTimelineDataPoints (5,000) - no trimming expected Threshold: 500ms accounts for validation overhead (path sanitization, Arr instance checks) and CI runner variance.
-        var backup = CreateLargeBackup(timelinePoints: 5_000, baselineDirs: 100, arrInstances: 2);
+        // Arrange: exactly MaxTimelineDataPoints - no trimming expected. Threshold: 500ms accounts for validation overhead (path sanitization, Arr instance checks) and CI runner variance.
+        var backup = CreateLargeBackup(timelinePoints: BackupValidator.MaxTimelineDataPoints, baselineDirs: 100, arrInstances: 2);
 
         // Act
         var sw = Stopwatch.StartNew();
@@ -139,28 +139,30 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"Sanitize: 5,000 timeline points (at limit) \u2192 {backup.GrowthTimeline?.DataPoints.Count} in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"Sanitize: {BackupValidator.MaxTimelineDataPoints} timeline points (at limit) \u2192 {backup.GrowthTimeline?.DataPoints.Count} in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 500, $"Took {sw.ElapsedMilliseconds}ms, expected < 500ms");
         var growthTimeline = backup.GrowthTimeline;
         Assert.NotNull(growthTimeline);
-        Assert.Equal(5_000, growthTimeline.DataPoints.Count);
+        Assert.Equal(BackupValidator.MaxTimelineDataPoints, growthTimeline.DataPoints.Count);
     }
 
     private static BackupData CreateLargeBackup(int timelinePoints, int baselineDirs, int arrInstances)
     {
         var now = DateTime.UtcNow;
 
+        // Day-based series: points must be midnight-UTC aligned so the sanitizer keeps them.
+        var dayOrigin = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc);
         var timeline = new GrowthTimelineResult
         {
             ComputedAt = now,
             Granularity = "daily",
-            EarliestFileDate = now.AddDays(-timelinePoints)
+            EarliestFileDate = dayOrigin.AddDays(-timelinePoints)
         };
         for (var i = 0; i < timelinePoints; i++)
         {
             timeline.DataPoints.Add(new GrowthTimelinePoint
             {
-                Date = now.AddDays(-timelinePoints + i),
+                Date = dayOrigin.AddDays(-timelinePoints + i),
                 CumulativeSize = i * 1_000_000_000L,
                 CumulativeFileCount = i * 10
             });

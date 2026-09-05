@@ -63,19 +63,30 @@ public static class BackupSanitizer
     }
 
     /// <summary>
-    ///     Trims the growth timeline to the newest MaxTimelineDataPoints entries and clamps each data point's cumulative size / file count to a non-negative value.
+    ///     Drops a non-day-based (legacy coarse) growth timeline so it is never imported, then trims an oversized daily timeline to the earliest point plus the newest entries and clamps each cumulative value to non-negative.
     /// </summary>
     /// <param name="backup">The backup whose growth timeline is sanitized in place.</param>
     private static void SanitizeGrowthTimeline(BackupData backup)
     {
-        // Timeline data points limit - keep only the newest MaxTimelineDataPoints entries
+        // Only day-based timelines are accepted. A legacy coarse timeline from an older backup is
+        // dropped here, before validation, so restore skips it and the next scan rebuilds daily.
+        if (backup.GrowthTimeline != null && !TimelineAggregator.IsDayBased(backup.GrowthTimeline))
+        {
+            backup.GrowthTimeline = null;
+            return;
+        }
+
+        // Timeline data points limit - keep the earliest point plus the newest entries so the
+        // growth-curve origin (EarliestFileDate) survives even when trimming a very long series.
         if (backup.GrowthTimeline is { DataPoints.Count: > BackupValidator.MaxTimelineDataPoints })
         {
-            var kept = backup.GrowthTimeline.DataPoints
-                .OrderByDescending(p => p.Date)
-                .Take(BackupValidator.MaxTimelineDataPoints)
-                .OrderBy(p => p.Date)
-                .ToList();
+            var ordered = backup.GrowthTimeline.DataPoints.OrderBy(p => p.Date).ToList();
+            var earliest = ordered[0];
+            var newest = ordered
+                .Skip(1)
+                .TakeLast(BackupValidator.MaxTimelineDataPoints - 1);
+            var kept = new List<GrowthTimelinePoint> { earliest };
+            kept.AddRange(newest);
 
             backup.GrowthTimeline.DataPoints.Clear();
             foreach (var point in kept)

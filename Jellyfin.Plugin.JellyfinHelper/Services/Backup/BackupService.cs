@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -40,6 +41,10 @@ public sealed class BackupService : IBackupService
     private readonly ILogger<BackupService> _logger;
     private readonly IPluginLogService _pluginLog;
 
+    // Optional gate onto the timeline service's read-compute-write lock. When present, backup
+    // export and restore serialize against scheduled scans so neither clobbers the other's write.
+    private readonly IGrowthTimelineService? _growthTimeline;
+
     /// <summary>
     ///     Initializes a new instance of the <see cref="BackupService" /> class.
     /// </summary>
@@ -47,11 +52,13 @@ public sealed class BackupService : IBackupService
     /// <param name="configService">The plugin configuration service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="growthTimeline">The growth timeline service, used to coordinate file access with scans.</param>
     public BackupService(
         IApplicationPaths applicationPaths,
         IPluginConfigurationService configService,
         IPluginLogService pluginLog,
-        ILogger<BackupService> logger)
+        ILogger<BackupService> logger,
+        IGrowthTimelineService growthTimeline)
     {
         ArgumentNullException.ThrowIfNull(applicationPaths);
 
@@ -59,6 +66,7 @@ public sealed class BackupService : IBackupService
         _configService = configService;
         _pluginLog = pluginLog;
         _logger = logger;
+        _growthTimeline = growthTimeline;
     }
 
     /// <summary>
@@ -68,16 +76,35 @@ public sealed class BackupService : IBackupService
     /// <param name="configService">The plugin configuration service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="growthTimeline">The optional growth timeline service used to coordinate file access.</param>
     internal BackupService(
         string dataPath,
         IPluginConfigurationService configService,
         IPluginLogService pluginLog,
-        ILogger<BackupService> logger)
+        ILogger<BackupService> logger,
+        IGrowthTimelineService? growthTimeline = null)
     {
         _dataPath = dataPath;
         _configService = configService;
         _pluginLog = pluginLog;
         _logger = logger;
+        _growthTimeline = growthTimeline;
+    }
+
+    /// <summary>
+    ///     Acquires the timeline service's exclusive gate so this backup operation cannot race a
+    ///     scheduled scan write. Returns a no-op scope when no timeline service is wired (unit tests).
+    /// </summary>
+    private IDisposable AcquireTimelineGate()
+    {
+        if (_growthTimeline is null)
+        {
+            return NoopScope.Instance;
+        }
+
+        // Restore/export are rare, admin-triggered, off the hot path; a blocking wait here is fine
+        // and keeps the synchronous IBackupService contract intact.
+        return _growthTimeline.AcquireExclusiveAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -169,15 +196,19 @@ public sealed class BackupService : IBackupService
                 });
         }
 
-        // Growth timeline
-        backup.GrowthTimeline = LoadJsonFile<GrowthTimelineResult>(
-            Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"),
-            out _);
+        // Growth timeline + baseline. Read under the timeline gate so we cannot capture a file
+        // mid-write from a concurrent scan. AtomicFile already prevents torn reads; the gate keeps
+        // the two files consistent with each other.
+        using (AcquireTimelineGate())
+        {
+            backup.GrowthTimeline = LoadJsonFile<GrowthTimelineResult>(
+                Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"),
+                out _);
 
-        // Growth baseline (required to preserve diff-based trend history after restore)
-        backup.GrowthBaseline = LoadJsonFile<GrowthTimelineBaseline>(
-            Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"),
-            out _);
+            backup.GrowthBaseline = LoadJsonFile<GrowthTimelineBaseline>(
+                Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"),
+                out _);
+        }
 
         // When the caller opts out of secrets, redact all API key values so the exported file cannot be used to harvest plaintext credentials.
         if (!includeSecrets)
@@ -231,18 +262,26 @@ public sealed class BackupService : IBackupService
 
         var timelineWriteOk = false;
         var baselineWriteOk = false;
+
+        // Hold the timeline gate across both writes so a concurrent scan cannot clobber the
+        // just-restored files, and so the merge below reads a stable current series.
+        using var gate = AcquireTimelineGate();
         try
         {
-            // Restore growth timeline
+            // Restore growth timeline. The incoming timeline is day-based (coarse ones were dropped
+            // during sanitize). Merge it into the current on-disk series so restoring an older backup
+            // fills history in retroactively instead of discarding newer days; higher cumulative wins
+            // on any overlapping day.
             if (backup.GrowthTimeline != null)
             {
-                if (SaveJsonFile(timelinePath, backup.GrowthTimeline))
+                var merged = MergeWithCurrentTimeline(timelinePath, backup.GrowthTimeline);
+                if (SaveJsonFile(timelinePath, merged))
                 {
                     timelineWriteOk = true;
                     summary.TimelineRestored = true;
                     _pluginLog.LogInfo(
                         LogSource,
-                        $"Restored growth timeline ({backup.GrowthTimeline.DataPoints.Count} data points)",
+                        $"Restored growth timeline ({merged.DataPoints.Count} data points after merge)",
                         _logger);
                 }
                 else
@@ -563,6 +602,89 @@ public sealed class BackupService : IBackupService
         return fallback;
     }
 
+    /// <summary>
+    ///     Merges an incoming day-based timeline with the current on-disk series so a restore fills
+    ///     history in retroactively. The current file is read directly (the caller already holds the
+    ///     timeline gate). A missing or non-day-based current file is ignored, leaving the incoming
+    ///     series as the result.
+    /// </summary>
+    /// <param name="timelinePath">The on-disk timeline path.</param>
+    /// <param name="incoming">The sanitized day-based timeline from the backup.</param>
+    /// <returns>The merged timeline to persist.</returns>
+    private GrowthTimelineResult MergeWithCurrentTimeline(string timelinePath, GrowthTimelineResult incoming)
+    {
+        var current = LoadJsonFile<GrowthTimelineResult>(timelinePath, out _);
+        if (current is null || !TimelineAggregator.IsDayBased(current))
+        {
+            return incoming;
+        }
+
+        // Preserve the current on-disk point for any overlapping day. Independent per-field
+        // maxima would combine size from one point and count from another, producing a state
+        // that never existed (e.g. after deletions or an empty-state scan).
+        var byDay = new Dictionary<DateTime, GrowthTimelinePoint>();
+        foreach (var point in current.DataPoints)
+        {
+            var day = TimelineAggregator.GetBucketStart(point.Date, "daily");
+            byDay[day] = new GrowthTimelinePoint
+            {
+                Date = day,
+                CumulativeSize = point.CumulativeSize,
+                CumulativeFileCount = point.CumulativeFileCount
+            };
+        }
+
+        foreach (var point in incoming.DataPoints)
+        {
+            var day = TimelineAggregator.GetBucketStart(point.Date, "daily");
+            if (!byDay.ContainsKey(day))
+            {
+                byDay[day] = new GrowthTimelinePoint
+                {
+                    Date = day,
+                    CumulativeSize = point.CumulativeSize,
+                    CumulativeFileCount = point.CumulativeFileCount
+                };
+            }
+        }
+
+        var mergedPoints = byDay.Values.OrderBy(p => p.Date).ToList();
+        mergedPoints = TimelineAggregator.DeduplicateConsecutivePoints(mergedPoints);
+
+        var result = new GrowthTimelineResult
+        {
+            Granularity = "daily",
+            ComputedAt = DateTime.UtcNow,
+            EarliestFileDate = mergedPoints.Count > 0 ? mergedPoints[0].Date : incoming.EarliestFileDate,
+            TotalDirectoriesScanned = incoming.TotalDirectoriesScanned,
+            FirstScanTimestamp = EarliestFirstScan(current.FirstScanTimestamp, incoming.FirstScanTimestamp)
+        };
+        foreach (var point in mergedPoints)
+        {
+            result.DataPoints.Add(point);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Returns the earlier of two optional first-scan timestamps, preferring whichever is set.
+    /// </summary>
+    private static DateTime? EarliestFirstScan(DateTime? a, DateTime? b)
+    {
+        if (a is null)
+        {
+            return b;
+        }
+
+        if (b is null)
+        {
+            return a;
+        }
+
+        return a.Value <= b.Value ? a : b;
+    }
+
     private T? LoadJsonFile<T>(string filePath, out bool oversized)
         where T : class
     {
@@ -615,6 +737,19 @@ public sealed class BackupService : IBackupService
         {
             _pluginLog.LogError(LogSource, $"Could not save {filePath} during restore", ex, _logger);
             return false;
+        }
+    }
+
+    /// <summary>
+    ///     A do-nothing disposable used when no timeline service is available to gate access.
+    /// </summary>
+    private sealed class NoopScope : IDisposable
+    {
+        public static readonly NoopScope Instance = new();
+
+        public void Dispose()
+        {
+            // Nothing to release.
         }
     }
 }

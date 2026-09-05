@@ -9,12 +9,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 /// </summary>
 public static class TimelineAggregator
 {
+    private const string DailyGranularity = "daily";
+
     /// <summary>
     ///     Determines the best granularity based on the time span between the oldest file and now.
     /// </summary>
     /// <param name="earliest">The earliest file date.</param>
     /// <param name="now">The current date.</param>
-    /// <returns>The granularity string (daily, weekly, monthly, quarterly, yearly).</returns>
+    /// <returns>The granularity string (daily, weekly, monthly, yearly).</returns>
     internal static string DetermineGranularity(DateTime earliest, DateTime now)
     {
         var span = now - earliest;
@@ -23,10 +25,9 @@ public static class TimelineAggregator
         return totalDays switch
         {
             > 5 * 365 => "yearly",
-            > 2 * 365 => "quarterly",
             > 365 => "monthly",
             > 90 => "weekly",
-            _ => "daily"
+            _ => DailyGranularity
         };
     }
 
@@ -35,7 +36,7 @@ public static class TimelineAggregator
     /// </summary>
     /// <param name="earliest">The earliest date to start from.</param>
     /// <param name="now">The current date (upper bound).</param>
-    /// <param name="granularity">The granularity (daily, weekly, monthly, quarterly, yearly).</param>
+    /// <param name="granularity">The granularity (daily, weekly, monthly, yearly).</param>
     /// <returns>A list of bucket start dates.</returns>
     internal static List<DateTime> GenerateBucketStarts(DateTime earliest, DateTime now, string granularity)
     {
@@ -182,7 +183,7 @@ public static class TimelineAggregator
     /// <param name="sortedEntries">The file entries sorted by creation date.</param>
     /// <param name="earliest">The earliest date to start from.</param>
     /// <param name="now">The current date (upper bound).</param>
-    /// <param name="granularity">The granularity (daily, weekly, monthly, quarterly, yearly).</param>
+    /// <param name="granularity">The granularity (daily, weekly, monthly, yearly).</param>
     /// <returns>A list of cumulative growth timeline data points.</returns>
     internal static List<GrowthTimelinePoint> BuildCumulativeTimeline(
         List<GrowthTimelineService.FileEntry> sortedEntries,
@@ -270,16 +271,15 @@ public static class TimelineAggregator
     ///     Gets the start of the bucket containing the given date.
     /// </summary>
     /// <param name="date">The date to find the bucket start for.</param>
-    /// <param name="granularity">The granularity (daily, weekly, monthly, quarterly, yearly).</param>
+    /// <param name="granularity">The granularity (daily, weekly, monthly, yearly).</param>
     /// <returns>The start date of the bucket containing the given date.</returns>
     internal static DateTime GetBucketStart(DateTime date, string granularity)
     {
         return granularity switch
         {
-            "daily" => new DateTime(date.Year, date.Month, date.Day, 0, 0, 0, DateTimeKind.Utc),
+            DailyGranularity => new DateTime(date.Year, date.Month, date.Day, 0, 0, 0, DateTimeKind.Utc),
             "weekly" => GetStartOfWeek(date),
             "monthly" => new DateTime(date.Year, date.Month, 1, 0, 0, 0, DateTimeKind.Utc),
-            "quarterly" => new DateTime(date.Year, ((date.Month - 1) / 3 * 3) + 1, 1, 0, 0, 0, DateTimeKind.Utc),
             "yearly" => new DateTime(date.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             _ => new DateTime(date.Year, date.Month, 1, 0, 0, 0, DateTimeKind.Utc)
         };
@@ -289,16 +289,15 @@ public static class TimelineAggregator
     ///     Advances a bucket start to the next bucket.
     /// </summary>
     /// <param name="current">The current bucket start date.</param>
-    /// <param name="granularity">The granularity (daily, weekly, monthly, quarterly, yearly).</param>
+    /// <param name="granularity">The granularity (daily, weekly, monthly, yearly).</param>
     /// <returns>The start date of the next bucket.</returns>
     private static DateTime AdvanceBucket(DateTime current, string granularity)
     {
         return granularity switch
         {
-            "daily" => current.AddDays(1),
+            DailyGranularity => current.AddDays(1),
             "weekly" => current.AddDays(7),
             "monthly" => current.AddMonths(1),
-            "quarterly" => current.AddMonths(3),
             "yearly" => current.AddYears(1),
             _ => current.AddMonths(1)
         };
@@ -430,5 +429,57 @@ public static class TimelineAggregator
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Determines whether a timeline is stored at daily resolution. A day-based series carries the "daily" granularity marker and has every point aligned to midnight UTC. Coarser timelines from older plugin versions fail this check and are rebuilt from the baseline instead of being reused.
+    /// </summary>
+    /// <param name="timeline">The timeline to inspect.</param>
+    /// <returns><see langword="true"/> when the timeline is day-based; otherwise <see langword="false"/>.</returns>
+    internal static bool IsDayBased(GrowthTimelineResult timeline)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        if (!string.Equals(timeline.Granularity, DailyGranularity, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // A daily point is always midnight UTC by construction. A non-midnight or non-UTC point means the
+        // series was bucketed coarser (or hand-edited), so it is not a genuine daily series.
+        return timeline.DataPoints.All(point => point.Date.Kind == DateTimeKind.Utc && point.Date.TimeOfDay == TimeSpan.Zero);
+    }
+
+    /// <summary>
+    ///     Merges two daily cumulative series into one. Points are unioned by calendar day; when the same day exists in both series the higher cumulative size and count win, which is correct for monotonic cumulative data and independent of argument order. The result is sorted ascending and deduplicated.
+    /// </summary>
+    /// <param name="first">The first daily series (may be empty).</param>
+    /// <param name="second">The second daily series (may be empty).</param>
+    /// <returns>The merged, sorted, deduplicated daily series.</returns>
+    internal static List<GrowthTimelinePoint> MergeDailySeries(
+        IReadOnlyCollection<GrowthTimelinePoint> first,
+        IReadOnlyCollection<GrowthTimelinePoint> second)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(second);
+
+        var byDay = new Dictionary<DateTime, GrowthTimelinePoint>();
+
+        foreach (var point in first.Concat(second))
+        {
+            var day = GetBucketStart(point.Date, DailyGranularity);
+            var hasExisting = byDay.TryGetValue(day, out var existing);
+            var size = hasExisting ? Math.Max(existing!.CumulativeSize, point.CumulativeSize) : point.CumulativeSize;
+            var count = hasExisting ? Math.Max(existing!.CumulativeFileCount, point.CumulativeFileCount) : point.CumulativeFileCount;
+            byDay[day] = new GrowthTimelinePoint
+            {
+                Date = day,
+                CumulativeSize = size,
+                CumulativeFileCount = count
+            };
+        }
+
+        var merged = byDay.Values.OrderBy(p => p.Date).ToList();
+        return DeduplicateConsecutivePoints(merged);
     }
 }

@@ -45,10 +45,10 @@ public sealed class TimelineAggregatorTests
     [InlineData(2 * 365 + 1)]
     [InlineData(1000)]
     [InlineData(5 * 365)]
-    public void DetermineGranularity_731To1825Days_ReturnsQuarterly(int daysAgo)
+    public void DetermineGranularity_2To5Years_ReturnsMonthly(int daysAgo)
     {
         var earliest = Now.AddDays(-daysAgo);
-        Assert.Equal("quarterly", TimelineAggregator.DetermineGranularity(earliest, Now));
+        Assert.Equal("monthly", TimelineAggregator.DetermineGranularity(earliest, Now));
     }
 
     [Theory]
@@ -306,24 +306,6 @@ public sealed class TimelineAggregatorTests
         Assert.Empty(points);
     }
 
-    [Theory]
-    [InlineData(2, 1)]   // Feb -> Q1 starts Jan
-    [InlineData(5, 4)]   // May -> Q2 starts Apr
-    [InlineData(8, 7)]   // Aug -> Q3 starts Jul
-    [InlineData(11, 10)] // Nov -> Q4 starts Oct
-    public void GetBucketStart_Quarterly_SnapsToFirstDayOfQuarter(int inputMonth, int expectedMonth)
-    {
-        var date = new DateTime(2024, inputMonth, 15, 13, 45, 0, DateTimeKind.Utc);
-
-        var start = TimelineAggregator.GetBucketStart(date, "quarterly");
-
-        Assert.Equal(2024, start.Year);
-        Assert.Equal(expectedMonth, start.Month);
-        Assert.Equal(1, start.Day);
-        Assert.Equal(0, start.Hour);
-        Assert.Equal(DateTimeKind.Utc, start.Kind);
-    }
-
     [Fact]
     public void GetBucketStart_Yearly_SnapsToJanuaryFirst()
     {
@@ -336,17 +318,10 @@ public sealed class TimelineAggregatorTests
     }
 
     [Fact]
-    public void GenerateBucketStarts_QuarterlyAndYearly_AdvanceByQuarterAndYear()
+    public void GenerateBucketStarts_Yearly_AdvancesByYear()
     {
         var start = new DateTime(2020, 2, 10, 0, 0, 0, DateTimeKind.Utc);
         var end = new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc);
-
-        var quarterly = TimelineAggregator.GenerateBucketStarts(start, end, "quarterly");
-        Assert.True(quarterly.Count >= 2);
-        for (var i = 1; i < quarterly.Count; i++)
-        {
-            Assert.Equal(quarterly[i - 1].AddMonths(3), quarterly[i]);
-        }
 
         var yearly = TimelineAggregator.GenerateBucketStarts(start, end, "yearly");
         Assert.True(yearly.Count >= 2);
@@ -437,5 +412,124 @@ public sealed class TimelineAggregatorTests
         Assert.Equal(Now, tail.Date);
         Assert.Equal(150, tail.CumulativeSize);
         Assert.Equal(15, tail.CumulativeFileCount);
+    }
+
+    [Fact]
+    public void IsDayBased_DailyGranularityMidnightPoints_ReturnsTrue()
+    {
+        var timeline = new GrowthTimelineResult { Granularity = "daily" };
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 10, CumulativeFileCount = 1 });
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 2, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 20, CumulativeFileCount = 2 });
+
+        Assert.True(TimelineAggregator.IsDayBased(timeline));
+    }
+
+    [Fact]
+    public void IsDayBased_EmptyDailyTimeline_ReturnsTrue()
+    {
+        var timeline = new GrowthTimelineResult { Granularity = "daily" };
+
+        Assert.True(TimelineAggregator.IsDayBased(timeline));
+    }
+
+    [Theory]
+    [InlineData("monthly")]
+    [InlineData("weekly")]
+    [InlineData("yearly")]
+    public void IsDayBased_CoarseGranularity_ReturnsFalse(string granularity)
+    {
+        var timeline = new GrowthTimelineResult { Granularity = granularity };
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 10, CumulativeFileCount = 1 });
+
+        Assert.False(TimelineAggregator.IsDayBased(timeline));
+    }
+
+    [Fact]
+    public void IsDayBased_DailyMarkerButNonMidnightPoint_ReturnsFalse()
+    {
+        var timeline = new GrowthTimelineResult { Granularity = "daily" };
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 1, 13, 45, 0, DateTimeKind.Utc), CumulativeSize = 10, CumulativeFileCount = 1 });
+
+        Assert.False(TimelineAggregator.IsDayBased(timeline));
+    }
+
+    [Fact]
+    public void MergeDailySeries_DisjointDays_UnionsAndSorts()
+    {
+        var first = new List<GrowthTimelinePoint>
+        {
+            new() { Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 10, CumulativeFileCount = 1 },
+            new() { Date = new DateTime(2025, 1, 3, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 30, CumulativeFileCount = 3 }
+        };
+        var second = new List<GrowthTimelinePoint>
+        {
+            new() { Date = new DateTime(2025, 1, 2, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 20, CumulativeFileCount = 2 }
+        };
+
+        var merged = TimelineAggregator.MergeDailySeries(first, second);
+
+        Assert.Equal(3, merged.Count);
+        Assert.Equal(new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), merged[0].Date);
+        Assert.Equal(new DateTime(2025, 1, 2, 0, 0, 0, DateTimeKind.Utc), merged[1].Date);
+        Assert.Equal(new DateTime(2025, 1, 3, 0, 0, 0, DateTimeKind.Utc), merged[2].Date);
+    }
+
+    [Fact]
+    public void MergeDailySeries_OverlappingDay_HigherCumulativeWins()
+    {
+        var day = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var first = new List<GrowthTimelinePoint>
+        {
+            new() { Date = day, CumulativeSize = 100, CumulativeFileCount = 5 }
+        };
+        var second = new List<GrowthTimelinePoint>
+        {
+            new() { Date = day, CumulativeSize = 40, CumulativeFileCount = 9 }
+        };
+
+        var merged = TimelineAggregator.MergeDailySeries(first, second);
+
+        // Size and count are compared independently; each keeps its own maximum.
+        Assert.Single(merged);
+        Assert.Equal(100, merged[0].CumulativeSize);
+        Assert.Equal(9, merged[0].CumulativeFileCount);
+    }
+
+    [Fact]
+    public void MergeDailySeries_IsOrderIndependent()
+    {
+        var day = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var a = new List<GrowthTimelinePoint> { new() { Date = day, CumulativeSize = 100, CumulativeFileCount = 5 } };
+        var b = new List<GrowthTimelinePoint> { new() { Date = day, CumulativeSize = 40, CumulativeFileCount = 9 } };
+
+        var ab = TimelineAggregator.MergeDailySeries(a, b);
+        var ba = TimelineAggregator.MergeDailySeries(b, a);
+
+        Assert.Equal(ab[0].CumulativeSize, ba[0].CumulativeSize);
+        Assert.Equal(ab[0].CumulativeFileCount, ba[0].CumulativeFileCount);
+    }
+
+    [Fact]
+    public void MergeDailySeries_NormalizesNonMidnightDatesToDay()
+    {
+        var first = new List<GrowthTimelinePoint>
+        {
+            new() { Date = new DateTime(2025, 1, 1, 13, 45, 0, DateTimeKind.Utc), CumulativeSize = 10, CumulativeFileCount = 1 }
+        };
+
+        var merged = TimelineAggregator.MergeDailySeries(first, new List<GrowthTimelinePoint>());
+
+        Assert.Single(merged);
+        Assert.Equal(new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), merged[0].Date);
+    }
+
+    [Fact]
+    public void MergeDailySeries_EmptyInputs_ReturnsEmpty()
+    {
+        var merged = TimelineAggregator.MergeDailySeries(
+            new List<GrowthTimelinePoint>(),
+            new List<GrowthTimelinePoint>());
+
+        Assert.Empty(merged);
     }
 }

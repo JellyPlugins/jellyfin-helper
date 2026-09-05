@@ -9,15 +9,17 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 /// </summary>
 public class BackupSanitizerTests
 {
+    private static readonly DateTime DayOrigin = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
     private static BackupData MakeTimelineBackup(int pointCount)
     {
         var data = new BackupData();
-        var timeline = new GrowthTimelineResult();
+        var timeline = new GrowthTimelineResult { Granularity = "daily" };
         for (var i = 0; i < pointCount; i++)
         {
             timeline.DataPoints.Add(new GrowthTimelinePoint
             {
-                Date = DateTime.UtcNow.AddDays(-pointCount + i),
+                Date = DayOrigin.AddDays(i),
                 CumulativeSize = (i + 1) * 1024L,
                 CumulativeFileCount = i + 1
             });
@@ -45,20 +47,21 @@ public class BackupSanitizerTests
     }
 
     [Fact]
-    public void Sanitize_TimelineOverLimit_KeepsNewestPoints()
+    public void Sanitize_TimelineOverLimit_KeepsEarliestAndNewestPoints()
     {
-        // Verify that after trimming, the retained points are the MaxTimelineDataPoints newest.
+        // After trimming, the retained points are the earliest point plus the newest N-1, so both
+        // the growth-curve origin and the latest value survive.
         var fullData = MakeTimelineBackup(BackupValidator.MaxTimelineDataPoints + 5);
-        var before = fullData.GrowthTimeline!.DataPoints
-            .OrderByDescending(p => p.Date)
-            .Take(BackupValidator.MaxTimelineDataPoints)
-            .Select(p => p.Date)
-            .ToHashSet();
+        var ordered = fullData.GrowthTimeline!.DataPoints.OrderBy(p => p.Date).ToList();
+        var earliest = ordered[0].Date;
+        var expected = new List<DateTime> { earliest };
+        expected.AddRange(ordered.Skip(1).TakeLast(BackupValidator.MaxTimelineDataPoints - 1).Select(p => p.Date));
 
         BackupSanitizer.Sanitize(fullData);
 
-        var after = fullData.GrowthTimeline!.DataPoints.Select(p => p.Date).ToHashSet();
-        Assert.Equal(before, after);
+        var after = fullData.GrowthTimeline!.DataPoints.Select(p => p.Date).ToList();
+        Assert.Equal(expected, after);
+        Assert.Equal(earliest, after[0]);
     }
 
     [Fact]
@@ -263,5 +266,57 @@ public class BackupSanitizerTests
         var result = BackupSanitizer.TruncateString(value, 3);
 
         Assert.Equal("A😀", result);
+    }
+
+    [Fact]
+    public void Sanitize_CoarseTimeline_IsDropped()
+    {
+        // A legacy monthly timeline from an old backup must be dropped so restore skips it and the
+        // next scan rebuilds a clean daily series.
+        var data = new BackupData
+        {
+            GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" }
+        };
+        data.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
+        {
+            Date = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            CumulativeSize = 100,
+            CumulativeFileCount = 1
+        });
+
+        BackupSanitizer.Sanitize(data);
+
+        Assert.Null(data.GrowthTimeline);
+    }
+
+    [Fact]
+    public void Sanitize_DailyMarkerButNonMidnightPoints_IsDropped()
+    {
+        // A daily marker with a non-midnight point is not a genuine daily series and must be dropped.
+        var data = new BackupData
+        {
+            GrowthTimeline = new GrowthTimelineResult { Granularity = "daily" }
+        };
+        data.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
+        {
+            Date = new DateTime(2024, 1, 1, 13, 45, 0, DateTimeKind.Utc),
+            CumulativeSize = 100,
+            CumulativeFileCount = 1
+        });
+
+        BackupSanitizer.Sanitize(data);
+
+        Assert.Null(data.GrowthTimeline);
+    }
+
+    [Fact]
+    public void Sanitize_DayBasedTimeline_IsKept()
+    {
+        var data = MakeTimelineBackup(3);
+
+        BackupSanitizer.Sanitize(data);
+
+        Assert.NotNull(data.GrowthTimeline);
+        Assert.Equal(3, data.GrowthTimeline!.DataPoints.Count);
     }
 }

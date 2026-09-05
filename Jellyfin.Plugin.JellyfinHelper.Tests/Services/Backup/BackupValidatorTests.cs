@@ -240,6 +240,43 @@ public class BackupValidatorTests
         Assert.Contains(result.Warnings, w => w.Contains("Unknown timeline granularity 'hourly'"));
     }
 
+    [Fact]
+    public void Validate_GrowthTimeline_Quarterly_AddsWarning()
+    {
+        // Quarterly was removed as a valid granularity; a legacy quarterly backup now warns.
+        var backup = CreateValidBackup();
+        var timeline = new GrowthTimelineResult { Granularity = "quarterly" };
+        timeline.DataPoints.Add(new GrowthTimelinePoint
+        {
+            Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            CumulativeSize = 1,
+            CumulativeFileCount = 1
+        });
+        backup.GrowthTimeline = timeline;
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Warnings, w => w.Contains("Unknown timeline granularity 'quarterly'"));
+    }
+
+    [Fact]
+    public void Validate_GrowthTimeline_Daily_NoGranularityWarning()
+    {
+        var backup = CreateValidBackup();
+        var timeline = new GrowthTimelineResult { Granularity = "daily" };
+        timeline.DataPoints.Add(new GrowthTimelinePoint
+        {
+            Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            CumulativeSize = 1,
+            CumulativeFileCount = 1
+        });
+        backup.GrowthTimeline = timeline;
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("granularity"));
+    }
+
     // Growth baseline
 
     [Fact]

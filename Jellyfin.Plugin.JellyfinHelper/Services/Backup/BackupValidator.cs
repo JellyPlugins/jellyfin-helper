@@ -20,9 +20,10 @@ public static class BackupValidator
     private const int MaxBackupVersion = 1;
 
     /// <summary>
-    ///     Maximum number of growth timeline data points allowed in a backup.
+    ///     Maximum number of growth timeline data points allowed in a backup. Sized for decades of a
+    ///     lossless daily series (deduplicated) while staying well under the per-file size guard.
     /// </summary>
-    internal const int MaxTimelineDataPoints = 5000;
+    internal const int MaxTimelineDataPoints = 20_000;
 
     /// <summary>
     ///     Maximum number of baseline directory entries allowed in a backup. Each top-level media directory (movie folder, TV show folder, etc.) is one entry.
@@ -84,11 +85,11 @@ public static class BackupValidator
     };
 
     /// <summary>
-    ///     Valid timeline granularity values.
+    ///     Valid timeline granularity values. Storage is daily-only; any non-daily marker is treated as legacy and discarded.
     /// </summary>
     private static readonly HashSet<string> ValidGranularities = new(StringComparer.OrdinalIgnoreCase)
     {
-        "daily", "weekly", "monthly", "quarterly", "yearly"
+        "daily"
     };
 
     // Regex to detect script injection in string fields. Covers the common HTML/script vectors plus the two dangerous URL schemes (data:text/html and vbscript:) that the earlier pattern missed.
@@ -421,9 +422,10 @@ public static class BackupValidator
                 $"GrowthTimeline has {timeline.DataPoints.Count} data points (max {MaxTimelineDataPoints}). Will be trimmed.");
         }
 
-        if (!string.IsNullOrEmpty(timeline.Granularity) && !ValidGranularities.Contains(timeline.Granularity))
+        if (string.IsNullOrEmpty(timeline.Granularity) || !ValidGranularities.Contains(timeline.Granularity))
         {
-            result.Warnings.Add($"Unknown timeline granularity '{timeline.Granularity}'. Will be accepted as-is.");
+            var marker = string.IsNullOrEmpty(timeline.Granularity) ? "<missing>" : timeline.Granularity;
+            result.Warnings.Add($"Unknown timeline granularity '{marker}' is not daily and will be discarded on restore; history will be rebuilt from the baseline.");
         }
 
         // Check for negative cumulative sizes and file counts (sanity check)

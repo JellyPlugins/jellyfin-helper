@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
-public class TrendsHtmlTests : ConfigPageTestBase
+public partial class TrendsHtmlTests : ConfigPageTestBase
 {
     /// <summary>
     ///     Verifies the trend tab elements, functions, endpoint, and timeline references are present.
@@ -17,6 +17,10 @@ public class TrendsHtmlTests : ConfigPageTestBase
     [InlineData("function renderTrendChart")]
     [InlineData("function loadTrendData")]
     [InlineData("function formatGranularityLabel")]
+    [InlineData("function bucketStartDate")]
+    [InlineData("function projectToGranularity")]
+    [InlineData("function pickLevelForSpan")]
+    [InlineData("function drawTrendWindow")]
     [InlineData("JellyfinHelper/GrowthTimeline")]
     [InlineData("timeline.dataPoints")]
     [InlineData("timeline.granularity")]
@@ -43,6 +47,15 @@ public class TrendsHtmlTests : ConfigPageTestBase
         Assert.Contains(marker, HtmlContent);
     }
 
+    [GeneratedRegex(@"(?:fullDaily|dailyPoints|projected|dataPoints)\[[^\]]+\]\.(\w+)")]
+    private static partial Regex DataPointPropertyRegex();
+
+    [GeneratedRegex(@"\b(?:p|pt|point)\.(cumulativeSize|cumulativeFileCount|date)\b")]
+    private static partial Regex AliasPointPropertyRegex();
+
+    [GeneratedRegex(@"timeline\.(\w+)")]
+    private static partial Regex TimelinePropertyRegex();
+
     [Fact]
     public void Html_TrendChart_AllReferencedDataPointProperties_ExistOnClass()
     {
@@ -51,36 +64,15 @@ public class TrendsHtmlTests : ConfigPageTestBase
             .Select(p => p.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var start = HtmlContent.IndexOf("function renderTrendChart", StringComparison.Ordinal);
-        Assert.True(start >= 0, "renderTrendChart function not found.");
-
-        var bodyStart = HtmlContent.IndexOf('{', start);
-        Assert.True(bodyStart >= 0, "renderTrendChart opening brace not found.");
-
-        var depth = 0;
-        var bodyEnd = -1;
-        for (var i = bodyStart; i < HtmlContent.Length; i++)
-        {
-            if (HtmlContent[i] == '{')
-            {
-                depth++;
-            }
-            else if (HtmlContent[i] == '}')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    bodyEnd = i;
-                    break;
-                }
-            }
-        }
-
-        Assert.True(bodyEnd > bodyStart, "renderTrendChart function body not found.");
-        var functionBody = HtmlContent[(bodyStart + 1)..bodyEnd];
-
-        var referenced = Regex.Matches(functionBody, @"dataPoints\[[^\]]+\]\.(\w+)")
-            .Select(m => m.Groups[1].Value)
+        // The renderer accesses daily points as fullDaily[i].prop / dailyPoints[i].prop /
+        // projected[i].prop and via aliases like p.cumulativeSize in projectToGranularity.
+        // Any JS property name read off a point array must map to a real C# property so a
+        // rename cannot silently desync training/serve field names.
+        var indexed = DataPointPropertyRegex().Matches(HtmlContent)
+            .Select(m => m.Groups[1].Value);
+        var aliased = AliasPointPropertyRegex().Matches(HtmlContent)
+            .Select(m => m.Groups[1].Value);
+        var referenced = indexed.Concat(aliased)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -101,7 +93,7 @@ public class TrendsHtmlTests : ConfigPageTestBase
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Check timeline.xxx references (excluding dataPoints access via [])
-        var timelineRefs = Regex.Matches(HtmlContent, @"timeline\.(\w+)")
+        var timelineRefs = TimelinePropertyRegex().Matches(HtmlContent)
             .Select(m => m.Groups[1].Value)
             .Where(p => !string.Equals(p, "dataPoints", StringComparison.OrdinalIgnoreCase)
                      || resultProperties.Contains(p))
@@ -119,12 +111,12 @@ public class TrendsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_FormatGranularityLabel_HandlesAllGranularities()
     {
-        // The JS function should handle all 5 granularity levels
+        // The JS function handles the four zoom granularity levels (quarterly was removed).
         Assert.Contains("'yearly'", HtmlContent);
-        Assert.Contains("'quarterly'", HtmlContent);
         Assert.Contains("'monthly'", HtmlContent);
         Assert.Contains("'weekly'", HtmlContent);
         Assert.Contains("'daily'", HtmlContent);
+        Assert.DoesNotContain("'quarterly'", HtmlContent);
     }
 
     [Fact]
@@ -156,6 +148,24 @@ public class TrendsHtmlTests : ConfigPageTestBase
         // The interaction handler should update and hide the diff panel
         Assert.Contains("function updateDiffPanel", HtmlContent);
         Assert.Contains("function hideDiffPanel", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TrendChart_ContainsZoomPanGestures()
+    {
+        // Desktop wheel zoom + drag pan and the window-mutation helpers.
+        Assert.Contains("function zoomAbout", HtmlContent);
+        Assert.Contains("function panByPixels", HtmlContent);
+        Assert.Contains("'wheel'", HtmlContent);
+        // Mobile pinch uses finger distance.
+        Assert.Contains("Math.hypot", HtmlContent);
+    }
+
+    [Fact]
+    public void Css_TrendChart_DisablesNativeTouchGestures()
+    {
+        // Horizontal pan/pinch is handled in JS; vertical swipe is left to the browser for page scroll.
+        Assert.Contains("touch-action: pan-y", HtmlContent);
     }
 
     [Fact]

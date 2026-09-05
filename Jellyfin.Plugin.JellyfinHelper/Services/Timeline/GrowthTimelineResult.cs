@@ -10,10 +10,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 public class GrowthTimelineResult
 {
     /// <summary>
-    /// Gets or sets the granularity used for bucketing (daily, weekly, monthly, quarterly, yearly).
+    /// Gets or sets the storage resolution marker for this series. Always "daily" going forward; the display granularity (daily, weekly, monthly, yearly) is chosen client-side from the visible zoom window.
     /// </summary>
     [JsonPropertyName("granularity")]
-    public string Granularity { get; set; } = "monthly";
+    public string Granularity { get; set; } = "daily";
 
     /// <summary>
     /// Gets or sets the earliest file creation date found across all libraries.

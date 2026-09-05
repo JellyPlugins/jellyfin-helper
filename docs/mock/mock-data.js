@@ -130,16 +130,18 @@ InJellyfinOnly:["Home Video (2023)","Family Recording (2024)"]
 var MOCK_LOGS={Entries:(function(){var e=[],src=["MediaStatistics","TrickplayCleaner","EmptyFolderCleaner","SubtitleCleaner","LinkRepair","TrashService","ArrIntegration"],lvl=["INFO","INFO","INFO","DEBUG","WARN","ERROR","INFO","INFO","DEBUG","INFO"],msg=["Statistics scan started for 3 libraries","Scanning: Movies (1247 video files)","Scanning: TV Shows (3842 video files)","Processing: /data/movies/Inception (2010)","Trickplay folder has no matching video: /data/trickplay/deleted-movie","Failed to access: /data/restricted - Access denied","Scan completed in 14.2s - 5089 videos, 12450 audio files","Empty folder cleanup: 3 folders deleted, 45.2 MB freed","Checking subtitle: /data/movies/Old Movie/Old Movie.en.srt","Link repair: 2 files repaired, 0 errors"],now=Date.now();for(var i=0;i<msg.length;i++){e.push({Timestamp:new Date(now-(msg.length-i)*60000).toISOString(),Level:lvl[i],Source:src[i%src.length],Message:msg[i],Exception:lvl[i]==="ERROR"?"System.UnauthorizedAccessException: Access denied.\n   at System.IO.Directory.InternalEnumerateEntries(...)":null});}return e;})(),TotalCount:10};
 
 var MOCK_GROWTH_TIMELINE=(function(){
-var dp=[],start=new Date(2016,5,1),now=new Date(),cs=0,cf=0,m=new Date(start),seed=42;
+// Daily lossless series (deduped), matching what the plugin now stores. Growth is bursty with
+// flat plateaus so the chart's gap interpolation and zoom projection are exercised.
+var raw=[],start=Date.UTC(2016,5,1),dayMs=86400000,now=Date.now(),cs=0,cf=0,seed=42;
 function rnd(){seed=(seed*16807)%2147483647;return(seed-1)/2147483646;}
-while(m<=now){var y=m.getFullYear(),mo=m.getMonth(),yi=y-2016;
-var bf=Math.floor(10+yi*8+rnd()*(15+yi*5));
-if(mo===0||mo===9||mo===11)bf=Math.floor(bf*(1.3+rnd()*0.4));
-var avg=(1.5+yi*0.5+rnd()*1.5)*1073741824;
-cs+=Math.floor(bf*avg);cf+=bf;
-dp.push({date:new Date(y,mo,1).toISOString(),cumulativeSize:cs,cumulativeFileCount:cf});
-m.setMonth(m.getMonth()+1);}
-return{granularity:"monthly",earliestFileDate:start.toISOString(),computedAt:now.toISOString(),totalDirectoriesScanned:cf,dataPoints:dp};})();
+for(var t=start;t<=now;t+=dayMs){var d=new Date(t),yi=d.getUTCFullYear()-2016;
+// Most days add nothing (plateau); some days add a burst of files.
+if(rnd()<0.18){var bf=Math.floor(1+rnd()*(4+yi*2));var avg=(1.5+yi*0.5+rnd()*1.5)*1073741824;
+cs+=Math.floor(bf*avg);cf+=bf;}
+raw.push({date:new Date(t).toISOString(),cumulativeSize:cs,cumulativeFileCount:cf});}
+// Deduplicate consecutive-identical points, always keeping the last (matches the backend).
+var dp=[];for(var i=0;i<raw.length;i++){if(i===0||i===raw.length-1||raw[i].cumulativeSize!==raw[i-1].cumulativeSize||raw[i].cumulativeFileCount!==raw[i-1].cumulativeFileCount)dp.push(raw[i]);}
+return{granularity:"daily",earliestFileDate:new Date(start).toISOString(),computedAt:new Date(now).toISOString(),totalDirectoriesScanned:cf,dataPoints:dp};})();
 
 var MOCK_LIBRARY_INSIGHTS={
 Largest:[

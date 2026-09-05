@@ -277,7 +277,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── GrowthTimelinePersistenceFailureTests.cs # Baseline save/load failures degrade gracefully without throwing
 │   │   ├── LibraryInsightsServiceTraversalTests.cs  # Directory-walk over a real tree with a scripted IFileSystem for sizes/timestamps
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
-│   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/quarterly/yearly thresholds) and GenerateBucketStarts bucket spacing.
+│   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/yearly thresholds), GenerateBucketStarts bucket spacing, IsDayBased detection and MergeDailySeries.
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -587,7 +587,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   └── Timeline/                # Library growth tracking
 │       ├── IGrowthTimelineService.cs   # Interface for timeline generation
 │       ├── GrowthTimelineService.cs    # Orchestrator: scans library directories, builds incremental entries, writes result JSON
-│       ├── TimelineAggregator.cs       # Pure stateless aggregation: DetermineGranularity (daily/weekly/monthly/quarterly/yearly by span), GenerateBucketStarts, BuildIncrementalEntries, ConsolidateToGranularity - all internal static, no I/O
+│       ├── TimelineAggregator.cs       # Pure stateless aggregation: DetermineGranularity (daily/weekly/monthly/yearly by span), GenerateBucketStarts, BuildIncrementalEntries, ConsolidateToGranularity (display projection), IsDayBased, MergeDailySeries - all internal static, no I/O. Storage is always daily; coarser levels are a client-side zoom projection.
 │       ├── GrowthTimelineBaseline.cs   # Baseline snapshot DTO (first-scan directory sizes + timestamps)
 │       ├── BaselineDirectoryEntry.cs   # Single directory entry in the baseline
 │       ├── GrowthTimelineResult.cs     # Timeline result DTO (buckets + granularity label)

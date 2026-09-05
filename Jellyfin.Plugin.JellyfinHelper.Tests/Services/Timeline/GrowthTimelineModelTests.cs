@@ -69,10 +69,10 @@ public class GrowthTimelineModelTests
     // GrowthTimelineResult
 
     [Fact]
-    public void GrowthTimelineResult_DefaultGranularity_IsMonthly()
+    public void GrowthTimelineResult_DefaultGranularity_IsDaily()
     {
         var result = new GrowthTimelineResult();
-        Assert.Equal("monthly", result.Granularity);
+        Assert.Equal("daily", result.Granularity);
     }
 
     [Fact]
@@ -112,13 +112,13 @@ public class GrowthTimelineModelTests
 
         var result = new GrowthTimelineResult
         {
-            Granularity = "quarterly",
+            Granularity = "yearly",
             EarliestFileDate = earliest,
             ComputedAt = computedAt,
             TotalDirectoriesScanned = 5000,
         };
 
-        Assert.Equal("quarterly", result.Granularity);
+        Assert.Equal("yearly", result.Granularity);
         Assert.Equal(earliest, result.EarliestFileDate);
         Assert.Equal(computedAt, result.ComputedAt);
         Assert.Equal(5000, result.TotalDirectoriesScanned);

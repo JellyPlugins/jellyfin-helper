@@ -10,7 +10,14 @@
     border-radius: var(--radius-lg);
     overflow: visible;
     position: relative;
-    touch-action: manipulation; /* allow pinch-zoom on chart area */
+    /* Horizontal pan and pinch-zoom are handled in JS; vertical swipe is left to the
+       browser so trackpad two-finger scroll and mobile vertical scroll work naturally. */
+    touch-action: pan-y;
+    cursor: grab;
+}
+
+.trend-chart:active {
+    cursor: grabbing;
 }
 
 .trend-chart svg {
