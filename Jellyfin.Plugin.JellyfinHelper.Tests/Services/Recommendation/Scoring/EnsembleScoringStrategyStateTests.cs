@@ -381,12 +381,14 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
 
         var sut = new EnsembleScoringStrategy(learned, heuristic, statePath: StatePath, logger: logger.Object);
+        using (sut)
+        {
+            var trained = sut.Train(CleanExamples(30));
 
-        var trained = sut.Train(CleanExamples(30));
-
-        Assert.True(trained, "Training still succeeds even when the weights save fails");
-        Assert.False(learned.LastWeightsSaveSucceeded, "The unwritable weights path must report a failed save");
-        Assert.False(File.Exists(StatePath), "No ensemble state must be written when the weights were not persisted");
+            Assert.True(trained, "Training still succeeds even when the weights save fails");
+            Assert.False(learned.LastWeightsSaveSucceeded, "The unwritable weights path must report a failed save");
+            Assert.False(File.Exists(StatePath), "No ensemble state must be written when the weights were not persisted");
+        }
     }
 
     [Fact]
@@ -394,7 +396,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
     {
         // The positive counterpart: with a writable weights path the save succeeds and the ensemble state is
         // persisted, so the last-trained stamp is refreshed as normal.
-        var sut = BuildSut();
+        using var sut = BuildSut();
 
         var trained = sut.Train(CleanExamples(30));
 

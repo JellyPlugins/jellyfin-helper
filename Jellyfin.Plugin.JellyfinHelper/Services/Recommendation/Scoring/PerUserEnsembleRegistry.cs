@@ -285,7 +285,17 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
                     continue;
                 }
 
-                if (ResolveLastTrainedUtc(id, file) >= cutoffUtc)
+                var lastTrained = ResolveLastTrainedUtc(id, file);
+                if (lastTrained is null)
+                {
+                    // When the last-trained time cannot be read at all, treat the model as of unknown age rather
+                    // than infinitely old. Ageing it out here would delete a possibly healthy model whenever the
+                    // clock or the file metadata is momentarily unreadable, so keep it and let a later run decide.
+                    _pluginLog.LogWarning(LogSource, $"Skipping stale check for user {id:N}: last-trained time could not be resolved.", logger: _logger);
+                    continue;
+                }
+
+                if (lastTrained >= cutoffUtc)
                 {
                     continue;
                 }
@@ -296,6 +306,35 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
                 {
                     evicted++;
                     _pluginLog.LogInfo(LogSource, $"Evicted stale per-user model for user {id:N} (not retrained since {cutoffUtc:O}).", _logger);
+                }
+            }
+
+            // A state file with no companion weights file is not a model the read path can ever rebuild, so it
+            // is leftover metadata rather than something to age. This survives the weights walk above (which
+            // only sees ids that still have weights) and PruneOrphans (which keeps files for live users), so
+            // clean it up here regardless of age.
+            foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json"))
+            {
+                var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
+                if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
+                {
+                    continue;
+                }
+
+                var weightsPath = GetLearnedWeightsPath(id);
+                if (weightsPath is not null && _fileSystem.File.Exists(weightsPath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    _fileSystem.File.Delete(file);
+                    _pluginLog.LogInfo(LogSource, $"Removed orphaned ensemble state for user {id:N} with no weights file.", _logger);
+                }
+                catch (Exception ex) when (!ex.IsFatal())
+                {
+                    _pluginLog.LogWarning(LogSource, $"Could not remove orphaned ensemble state '{file}': {ex.Message}", ex, _logger);
                 }
             }
         }
@@ -455,8 +494,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// </summary>
     /// <param name="userId">The user whose model is being aged.</param>
     /// <param name="weightsFile">The user's weights file, used for the write-time fallback.</param>
-    /// <returns>The last-trained time in UTC, or <see cref="DateTime.MinValue"/> when nothing can be read.</returns>
-    private DateTime ResolveLastTrainedUtc(Guid userId, string weightsFile)
+    /// <returns>The last-trained time in UTC, or <see langword="null"/> when nothing readable can determine it.</returns>
+    private DateTime? ResolveLastTrainedUtc(Guid userId, string weightsFile)
     {
         var statePath = GetEnsembleStatePath(userId);
         if (statePath is not null && _fileSystem.File.Exists(statePath))
@@ -484,7 +523,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(LogSource, $"Could not read weights file time for user {userId:N}: {ex.Message}", ex, _logger);
-            return DateTime.MinValue;
+            return null;
         }
     }
 

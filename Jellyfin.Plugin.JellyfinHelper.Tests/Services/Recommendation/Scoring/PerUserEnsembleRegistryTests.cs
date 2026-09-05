@@ -467,6 +467,51 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     }
 
     [Fact]
+    public void EvictStaleModels_StateFileWithoutWeights_RemovedButNotCounted()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        // A state file with no companion weights file is leftover metadata: the read path keys on the weights
+        // file, so it can never rebuild a model from this alone. The weights walk never sees this id and orphan
+        // pruning keeps files for live users, so the sweep must clean it up on its own. It is not a retired
+        // model, so it must not be counted.
+        var orphanState = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
+        File.WriteAllText(orphanState, "{}");
+
+        var evicted = registry.EvictStaleModels(DateTime.UtcNow);
+
+        Assert.Equal(0, evicted);
+        Assert.False(File.Exists(orphanState));
+    }
+
+    [Fact]
+    public void EvictStaleModels_StateFileWithWeights_KeptDuringOrphanSweep()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        // The counterpart to the orphan case: a state file whose weights file still exists belongs to a real
+        // model that is fresh, so the orphan sweep must leave both in place. Train the user and stamp the state
+        // after the cutoff so the age check keeps it, then confirm neither file is removed.
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.Train(GenerateExamples(30)));
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+        var stateFile = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
+        PinLastTrained(userId, new DateTime(2020, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(0, evicted);
+        Assert.True(File.Exists(weightsFile));
+        Assert.True(File.Exists(stateFile));
+    }
+
+    [Fact]
     public void EvictStaleModels_StateFileMissing_UsesWeightsFileWriteTime()
     {
         using var neural = new NeuralScoringStrategy();
@@ -633,7 +678,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     }
 
     [Fact]
-    public void EvictStaleModels_WeightsWriteTimeThrows_TreatsModelAsStaleAndEvicts()
+    public void EvictStaleModels_LastTrainedTimeUnreadable_SkipsWithoutEvicting()
     {
         using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
@@ -641,18 +686,17 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
 
         // With no readable state stamp the sweep falls back to the weights file write time. If even that read
-        // fails the model has no trustworthy age, so it is treated as stale (DateTime.MinValue) and evicted.
-        // Enumerate the one weights file, report no state file, and make the write-time read throw.
+        // fails the model has no trustworthy age, and deleting it would throw away a possibly healthy model on
+        // a momentarily unreadable file system. Enumerate the one weights file, report no state file, and make
+        // the write-time read throw; the model must be left in place and never deleted.
         var directory = new Mock<IDirectory>();
         directory.Setup(d => d.Exists(_dataPath)).Returns(true);
         directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json")).Returns([weightsFile]);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ensemble_state_*.json")).Returns([]);
         var statePath = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
         var file = new Mock<IFile>();
-        // The weights file exists until the eviction deletes it, then reports gone so the removal is confirmed.
-        var weightsDeleted = false;
-        file.Setup(f => f.Exists(weightsFile)).Returns(() => !weightsDeleted);
+        file.Setup(f => f.Exists(weightsFile)).Returns(true);
         file.Setup(f => f.Exists(statePath)).Returns(false);
-        file.Setup(f => f.Delete(weightsFile)).Callback(() => weightsDeleted = true);
         file.Setup(f => f.GetLastWriteTimeUtc(weightsFile)).Throws(new IOException("stat failed"));
         var fileSystem = new Mock<IFileSystem>();
         fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
@@ -662,8 +706,8 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
 
         var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
 
-        Assert.Equal(1, evicted);
-        file.Verify(f => f.Delete(weightsFile), Times.Once);
+        Assert.Equal(0, evicted);
+        file.Verify(f => f.Delete(weightsFile), Times.Never);
     }
 
     [Fact]
@@ -681,6 +725,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         var directory = new Mock<IDirectory>();
         directory.Setup(d => d.Exists(_dataPath)).Returns(true);
         directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json")).Returns([weightsFile]);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ensemble_state_*.json")).Returns([]);
         var file = new Mock<IFile>();
         file.Setup(f => f.Exists(weightsFile)).Returns(true);
         file.Setup(f => f.Exists(statePath)).Returns(false);
