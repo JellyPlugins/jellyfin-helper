@@ -54,6 +54,16 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         return new EnsembleScoringStrategy(learned, heuristic, neural, statePath: StatePath, logger: logger?.Object);
     }
 
+    // A per-user ensemble shares the global neural by reference and passes ownsNeural:false, so its beta
+    // restore takes the !_ownsNeural branch that accepts any in-range persisted beta without gating on the
+    // (global) example count.
+    private EnsembleScoringStrategy BuildPerUserSut(NeuralScoringStrategy neural)
+    {
+        var learned = new LearnedScoringStrategy(WeightsPath);
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        return new EnsembleScoringStrategy(learned, heuristic, neural, statePath: StatePath, ownsNeural: false);
+    }
+
     private static string SerializeState(object state)
     {
         var options = new JsonSerializerOptions
@@ -215,6 +225,54 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
+    }
+
+    [Fact]
+    public void Constructor_PerUserInRangeNeuralBeta_RestoredVerbatim()
+    {
+        // A per-user ensemble (ownsNeural:false) does not own the shared MLP, so its persisted TrainingExampleCount
+        // cannot gate the beta ramp. Any in-range persisted beta must restore exactly as stored; the next per-user
+        // training run recomputes it from the real per-user example count.
+        var beta = EnsembleScoringStrategy.NeuralMaxBetaFraction / 2.0;
+        File.WriteAllText(StatePath, SerializeState(new
+        {
+            SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
+            TrainingExampleCount = 5,
+            Alpha = AlphaMin,
+            NeuralBeta = beta,
+            QualityGateFrozen = false,
+            SigmoidMidpointOffset = 0.0,
+            UpdatedAt = "2026-01-01T00:00:00.0000000Z",
+            MetricsHistory = Array.Empty<object>()
+        }));
+
+        using var neural = new NeuralScoringStrategy();
+        using var sut = BuildPerUserSut(neural);
+
+        Assert.Equal(beta, sut.CurrentNeuralBeta, 6);
+    }
+
+    [Fact]
+    public void Constructor_PerUserOutOfRangeNeuralBeta_ResetsToZero()
+    {
+        // An out-of-range persisted beta on a per-user model is not clamped but reset to zero so the ramp restarts
+        // rather than restoring an impossible value.
+        File.WriteAllText(StatePath, SerializeState(new
+        {
+            SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
+            TrainingExampleCount = 5,
+            Alpha = AlphaMin,
+            NeuralBeta = EnsembleScoringStrategy.NeuralMaxBetaFraction + 0.5,
+            QualityGateFrozen = false,
+            SigmoidMidpointOffset = 0.0,
+            UpdatedAt = "2026-01-01T00:00:00.0000000Z",
+            MetricsHistory = Array.Empty<object>()
+        }));
+
+        using var neural = new NeuralScoringStrategy();
+        using var sut = BuildPerUserSut(neural);
+
+        Assert.Equal(0.0, sut.CurrentNeuralBeta);
     }
 
     [Fact]

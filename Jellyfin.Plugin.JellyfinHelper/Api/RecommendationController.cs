@@ -6,6 +6,7 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -127,11 +128,16 @@ public class RecommendationController : ControllerBase
     ///     quality-gate freeze, sigmoid midpoint, trend, and training counts) for operator diagnostics. Pure read:
     ///     it never generates recommendations or fills the cache.
     /// </summary>
+    /// <param name="userId">
+    ///     Optional user id. When supplied (and non-empty), returns that user's per-user model state (or the
+    ///     global model as cold-start fallback, flagged via <see cref="EnsembleDiagnosticsResponse.IsPerUser"/>).
+    ///     When omitted, returns the shared global model state.
+    /// </param>
     /// <returns>The ensemble diagnostics, or a response with <see cref="EnsembleDiagnosticsResponse.Available"/> set to false when the active strategy is not an ensemble or no state exists yet.</returns>
     [HttpGet("Diagnostics/Ensemble")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public ActionResult<EnsembleDiagnosticsResponse> GetEnsembleDiagnostics()
+    public ActionResult<EnsembleDiagnosticsResponse> GetEnsembleDiagnostics([FromQuery] Guid? userId = null)
     {
         if (_configService.GetConfiguration().RecommendationsTaskMode == TaskMode.Deactivate)
         {
@@ -140,13 +146,40 @@ public class RecommendationController : ControllerBase
                 RecommendationsDisabledMessage);
         }
 
-        var diagnostics = _engine.GetEnsembleDiagnostics();
+        if (userId is not { } id || id == Guid.Empty)
+        {
+            var globalDiagnostics = _engine.GetEnsembleDiagnostics();
+            return globalDiagnostics is null
+                ? Ok(new EnsembleDiagnosticsResponse { Available = false })
+                : Ok(EnsembleDiagnosticsResponse.FromDiagnostics(globalDiagnostics));
+        }
+
+        var (diagnostics, isPerUser) = _engine.GetUserEnsembleDiagnostics(id);
         if (diagnostics is null)
         {
             return Ok(new EnsembleDiagnosticsResponse { Available = false });
         }
 
-        return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics));
+        // The per-user flag comes from the same resolution as the snapshot, so a cold-start user on the
+        // global model is never mislabelled as having an individual model. The name is a display-only extra:
+        // GetUserWatchProfile builds the profile without the per-user isolation GetAllUserWatchProfiles has, so
+        // a transient build failure must not turn valid diagnostics into a 500. Fall back to a null name.
+        string? userName = null;
+        try
+        {
+            userName = _watchHistoryService.GetUserWatchProfile(id)?.UserName;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            // The name is a display-only nicety and null is already a valid, handled value, so a failed lookup
+            // is swallowed rather than logged: it is neither actionable nor worth a controller-level logger.
+        }
+
+        return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics, isPerUser, userName));
     }
 
     /// <summary>

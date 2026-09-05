@@ -134,6 +134,7 @@ Tests mirror the source structure:
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── PluginServiceRegistratorTests.cs      # DI-container smoke test: every registered service must resolve
 ├── PluginTests.cs                        # Bootstrap: Instance publishing, GetPages, UpdateIndexHtml idempotency, OnUninstalling cleanup guards
+├── PluginResolveRealPathTests.cs         # Bounded symlink resolution: plain path, single link, cycle terminates, max-hops cap, IOException propagates (fail-closed)
 ├── Api/                           # Controller tests
 │   ├── ArrIntegrationControllerTests.cs
 │   ├── ArrIntegrationControllerExtendedTests.cs      # Index bounds, 502 with named instance, trash exclusion, partial-config 400 contract
@@ -330,6 +331,10 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── LearnedScoringStrategyRobustnessTests.cs # NaN/degenerate inputs discarded, not applied
 │       │   ├── StandardizationTransitionTests.cs      # Warm-start: crossing the standardization threshold rescales weights (not reset), finite weights/scores, learned ranking preserved, zero-variance guard
 │       │   ├── StrategySelectorTests.cs                # Cohort router: exploration gate, deterministic hash bucketing, routing
+│       │   ├── PerUserEnsembleRegistryTests.cs         # Per-user registry: cold-start fallback identity, warm-start, shared-neural-not-disposed, orphan pruning
+│       │   ├── EnsembleBlendBoundsTests.cs             # Blend-bounds value: null-config defaults, configured pass-through, record equality
+│       │   ├── PerUserGoldenDigestTests.cs             # Single-user per-user model reproduces the global fit (behaviour preservation)
+│       │   ├── LearnedScoringStrategySeedTests.cs      # SeedFrom warm-start: copies weights/bias/standardization stats, identical scores, source independence
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
 │       │   ├── ScoreExplanationTests.cs
 │       │   ├── TrainingExampleTests.cs
@@ -496,6 +501,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── Scoring/                 # Pluggable scoring strategies
 │   │   │   ├── IScoringStrategy.cs   # Also declares ITrainableStrategy (no separate file)
 │   │   │   ├── IStrategySelector.cs
+│   │   │   ├── IPerUserEnsembleRegistry.cs   # Per-user ensemble registry contract (per-user models + global fallback)
+│   │   │   ├── PerUserEnsembleRegistry.cs    # Holds one ensemble per user; cold-start falls back to the shared global
+│   │   │   ├── EnsembleBlendBounds.cs        # Groups the per-user blend bounds (alpha min/max, genre-penalty floor) into one config-resolved value
 │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
@@ -632,6 +640,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ContributingDocCoverageTests.cs` - Drift guard: every tracked source/test file must be listed in this index
 - `PluginServiceRegistratorTests.cs`
 - `PluginTests.cs`
+- `PluginResolveRealPathTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Api/`
 
@@ -830,6 +839,10 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `NeuralScoringStrategyTests.cs`
 - `RankingMetricsTests.cs`
 - `PerUserRankingMetricsTests.cs`
+- `PerUserEnsembleRegistryTests.cs`
+- `EnsembleBlendBoundsTests.cs`
+- `PerUserGoldenDigestTests.cs`
+- `LearnedScoringStrategySeedTests.cs`
 - `ScoreExplanationTests.cs`
 - `ScoringAblationEvalTests.cs`
 - `ScoringStrategyTests.cs`
@@ -1139,14 +1152,17 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `CandidateFeatures.cs`
 - `DefaultWeights.cs`
+- `EnsembleBlendBounds.cs` - Groups the per-user ensemble blend bounds (alpha min/max and genre-penalty floor) into one value, resolved from configuration with ensemble defaults
 - `EnsembleScoringStrategy.cs`
 - `EnsembleDiagnostics.cs`
 - `HeuristicScoringStrategy.cs`
 - `IScoringStrategy.cs`
 - `IStrategySelector.cs`
+- `IPerUserEnsembleRegistry.cs`
 - `LearnedScoringStrategy.cs`
 - `NeuralFeatureImportance.cs`
 - `NeuralScoringStrategy.cs`
+- `PerUserEnsembleRegistry.cs`
 - `RankingMetrics.cs`
 - `ScoreExplanation.cs`
 - `ScoringHelper.cs`

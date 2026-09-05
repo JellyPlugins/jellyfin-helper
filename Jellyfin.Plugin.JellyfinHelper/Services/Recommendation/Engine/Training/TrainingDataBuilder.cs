@@ -645,7 +645,7 @@ internal static class TrainingDataBuilder
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = rec.DateCreated.HasValue
                 ? ContentScoring.ComputeRecencyScore(rec.DateCreated.Value)
-                : 0.5,
+                : ContentScoring.ComputeRecencyScore(default),
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 rec.Genres,
                 rec.PeopleNames,
@@ -1038,7 +1038,7 @@ internal static class TrainingDataBuilder
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = w.DateCreated.HasValue
                 ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value)
-                : 0.5,
+                : ContentScoring.ComputeRecencyScore(default),
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(w.TmdbCollectionName, preferredFranchisesOrganic),
@@ -1273,7 +1273,7 @@ internal static class TrainingDataBuilder
             TagSimilarity = negTagSimilarity,
             LibraryAddedRecency = neg.DateCreated.HasValue
                 ? ContentScoring.ComputeRecencyScore(neg.DateCreated.Value)
-                : 0.5,
+                : ContentScoring.ComputeRecencyScore(default),
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 negGenres,
                 neg.PeopleNames,

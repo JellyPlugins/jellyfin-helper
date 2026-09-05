@@ -23,6 +23,15 @@ public interface IWatchHistoryService
     Collection<UserWatchProfile> GetAllUserWatchProfiles();
 
     /// <summary>
+    ///     Returns the ids of every live Jellyfin user, straight from the user manager without building a
+    ///     profile. Reconciliation against the live user set must use this rather than the ids of
+    ///     <see cref="GetAllUserWatchProfiles"/>: profile building can throw for an individual user and is
+    ///     skipped, so a live user could be absent from that collection and be mistaken for a removed one.
+    /// </summary>
+    /// <returns>The ids of all current users.</returns>
+    IReadOnlyCollection<Guid> GetAllUserIds();
+
+    /// <summary>
     ///     Builds the library-wide per-series playable-episode count map (seriesId -> totalEpisodeCount).
     /// </summary>
     /// <returns>

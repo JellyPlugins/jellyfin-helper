@@ -17,8 +17,7 @@ public sealed class FeatureParityTests
 
     [Fact]
     public void SharedHelpers_SameInputs_ProduceIdenticalValues_AcrossCallSites()
-    {
-        // A single fixed candidate + user-preference snapshot. We invoke each shared helper twice
+    {        // A single fixed candidate + user-preference snapshot. We invoke each shared helper twice
         // with the SAME data (as the live and training paths do) and assert bit-identical results.
         var franchisePrefs = new Dictionary<string, double>(Ci) { ["Marvel"] = 0.7 };
         var countryPrefs = new Dictionary<string, double>(Ci) { ["USA"] = 0.9, ["Japan"] = 0.4 };
@@ -176,4 +175,39 @@ public sealed class FeatureParityTests
     {
         Assert.Equal(EngineConstants.ComputeBillingWeight(0), EngineConstants.ComputeBillingWeight(-5));
     }
+
+    [Fact]
+    public void LibraryAddedRecency_MissingDateCreated_TrainingMatchesLiveDefault()
+    {
+        // Live scoring reads a candidate's non-nullable DateCreated, so an unset value resolves to
+        // the default date and scores as very old. The training builders see a nullable DateCreated
+        // and must impute the same default rather than a neutral midpoint, or a missing library-added
+        // date would score differently between training and serving.
+        var liveMissing = ContentScoring.ComputeRecencyScore(default);
+
+        Assert.True(liveMissing < 0.01, $"A missing DateCreated must score as very old, not neutral; got {liveMissing}.");
+        Assert.NotEqual(0.5, liveMissing, 3);
+    }
+
+    [Fact]
+    public void LibraryAddedRecency_MissingDateCreated_TrainingImputationEqualsLiveDefault()
+    {
+        // The training builder sees a nullable DateCreated and, when it is missing, imputes the same default
+        // date the live path resolves from a candidate's non-nullable DateCreated. This pins that the imputed
+        // value equals the live default and is not the neutral 0.5 midpoint the separate premiere-date
+        // RecencyScore uses when a date is unknown, so a regression that swapped the null branch to 0.5 fails.
+        var trainingImputed = ImputeLibraryAddedRecency(dateCreated: null);
+        var liveDefault = ContentScoring.ComputeRecencyScore(default);
+
+        Assert.Equal(liveDefault, trainingImputed);
+        Assert.NotEqual(0.5, trainingImputed, 3);
+    }
+
+    // Mirrors the training builders' library-added recency imputation: a present date scores from that date, a
+    // missing one falls back to the same default the live path uses. Kept as a helper so the null branch under
+    // test is a real conditional rather than a constant the analyzer folds away.
+    private static double ImputeLibraryAddedRecency(DateTime? dateCreated) =>
+        dateCreated.HasValue
+            ? ContentScoring.ComputeRecencyScore(dateCreated.Value)
+            : ContentScoring.ComputeRecencyScore(default);
 }

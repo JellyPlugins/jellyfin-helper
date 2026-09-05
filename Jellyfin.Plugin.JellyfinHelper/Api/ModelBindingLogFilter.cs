@@ -31,9 +31,9 @@ public sealed class ModelBindingLogFilter : IAsyncActionFilter, IOrderedFilter
     }
 
     /// <summary>
-    ///     Gets the filter execution order. Set to MinValue so we run before the built-in ModelStateInvalidFilter registered by [ApiController].
+    ///     Gets the filter execution order. Set below Jellyfin's own filters and the built-in ModelStateInvalidFilter (-2000) registered by [ApiController] so we run first.
     /// </summary>
-    public int Order => int.MinValue;
+    public int Order => -3000;
 
     /// <inheritdoc />
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)

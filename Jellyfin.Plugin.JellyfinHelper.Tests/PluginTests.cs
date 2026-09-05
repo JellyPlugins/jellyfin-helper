@@ -559,6 +559,52 @@ public sealed class PluginTests : IDisposable
     }
 
     [Fact]
+    public void OnUninstalling_DeletesPerUserRecommendationModelFiles()
+    {
+        // One pair of id-suffixed files per user with a trained per-user model. Uninstall must sweep all of
+        // them, matched on the exact 32-hex id shape this plugin writes.
+        var userA = Guid.NewGuid().ToString("N");
+        var userB = Guid.NewGuid().ToString("N");
+        var weightsA = Path.Combine(_dataPath, $"ml_weights_{userA}.json");
+        var stateA = Path.Combine(_dataPath, $"ensemble_state_{userA}.json");
+        var weightsB = Path.Combine(_dataPath, $"ml_weights_{userB}.json");
+        var stateB = Path.Combine(_dataPath, $"ensemble_state_{userB}.json");
+        foreach (var f in new[] { weightsA, stateA, weightsB, stateB })
+        {
+            File.WriteAllText(f, "{}");
+        }
+
+        var plugin = CreatePlugin();
+        plugin.OnUninstalling();
+
+        Assert.False(File.Exists(weightsA), "per-user ml_weights must be removed on uninstall");
+        Assert.False(File.Exists(stateA), "per-user ensemble_state must be removed on uninstall");
+        Assert.False(File.Exists(weightsB));
+        Assert.False(File.Exists(stateB));
+    }
+
+    [Fact]
+    public void OnUninstalling_PreservesFilesThatOnlyShareThePerUserStem()
+    {
+        // A user-made file that happens to share the ml_weights_ / ensemble_state_ stem but does not carry the
+        // 32-hex id suffix is not something this plugin wrote, so uninstall must leave it in place.
+        var backup = Path.Combine(_dataPath, "ml_weights_backup.json");
+        var notes = Path.Combine(_dataPath, "ensemble_state_notes.json");
+        // A genuine per-user file alongside them, to prove the sweep still runs.
+        var realPerUser = Path.Combine(_dataPath, $"ml_weights_{Guid.NewGuid():N}.json");
+        File.WriteAllText(backup, "{}");
+        File.WriteAllText(notes, "{}");
+        File.WriteAllText(realPerUser, "{}");
+
+        var plugin = CreatePlugin();
+        plugin.OnUninstalling();
+
+        Assert.True(File.Exists(backup), "a file that only shares the stem must be preserved");
+        Assert.True(File.Exists(notes), "a file that only shares the stem must be preserved");
+        Assert.False(File.Exists(realPerUser), "the id-suffixed per-user file must still be removed");
+    }
+
+    [Fact]
     public void OnUninstalling_PreservesUnrelatedFilesInDataPath()
     {
         // A wildcard change to "jellyfin-*" or "*.json" would nuke unrelated files.

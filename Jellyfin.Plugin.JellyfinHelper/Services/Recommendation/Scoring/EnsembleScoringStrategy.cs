@@ -86,6 +86,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal const double NeuralMaxBetaFraction = 0.4;
 
     /// <summary>
+    ///     Starting neural fraction for a per-user model the moment its own example count clears
+    ///     <see cref="NeuralActivationThreshold"/>. Unlike the global ramp (which starts at 0 and climbs),
+    ///     a data-rich per-user model gets an immediate small contribution so the shared MLP has a real say
+    ///     without ever overwhelming the user's own learned weights, then grows toward the shared cap.
+    /// </summary>
+    internal const double NeuralPerUserBetaFloor = 0.12;
+
+    /// <summary>
     ///     Minimum neural beta below which the neural strategy is deactivated. Prevents infinitesimal floating-point ghost values from keeping the neural path active with no meaningful contribution.
     /// </summary>
     internal const double NeuralBetaMinFloor = 0.01;
@@ -118,6 +126,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     private readonly LearnedScoringStrategy _learned;
     private readonly ILogger? _logger;
     private readonly NeuralScoringStrategy? _neural;
+    private readonly bool _ownsNeural;
     private readonly string? _statePath;
     private readonly object _syncRoot = new();
     private double _alpha;
@@ -147,6 +156,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <param name="alphaMax">Maximum blending factor.</param>
     /// <param name="genrePenaltyFloor">Minimum genre penalty multiplier.</param>
     /// <param name="logger">Optional logger for training diagnostics.</param>
+    /// <param name="ownsNeural">
+    ///     Whether this instance owns the neural sub-strategy's lifetime. When <c>true</c> (the default),
+    ///     <see cref="Dispose"/> disposes the neural strategy. Per-user ensembles share ONE global neural
+    ///     instance by reference and must pass <c>false</c>, or disposing one per-user ensemble would tear
+    ///     down the shared neural (and its <see cref="System.Threading.ReaderWriterLockSlim"/>) for everyone.
+    /// </param>
     public EnsembleScoringStrategy(
         LearnedScoringStrategy learned,
         HeuristicScoringStrategy heuristic,
@@ -155,7 +170,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double alphaMin = DefaultAlphaMin,
         double alphaMax = DefaultAlphaMax,
         double genrePenaltyFloor = DefaultGenrePenaltyFloor,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        bool ownsNeural = true)
     {
         ArgumentNullException.ThrowIfNull(learned);
         ArgumentNullException.ThrowIfNull(heuristic);
@@ -176,6 +192,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         _learned = learned;
         _neural = neural;
+        _ownsNeural = ownsNeural;
         _heuristic = heuristic;
         _logger = logger;
 
@@ -587,13 +604,39 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     /// <inheritdoc />
     public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
+        => Train(examples, heldOutForMetrics, trainNeural: true);
+
+    /// <summary>
+    ///     Trains the learned sub-strategy and, when <paramref name="trainNeural"/> is true, the neural
+    ///     sub-strategy, then updates this ensemble's blend factors.
+    /// </summary>
+    /// <remarks>
+    ///     Per-user ensembles pass <c>trainNeural: false</c>: the neural MLP is trained once on the global
+    ///     pooled set (it needs the large pool to avoid overfitting), while each per-user ensemble only fits
+    ///     its own linear learned weights and doses the shared MLP via its own β. β still updates here off the
+    ///     shared neural's last validation loss, so a data-poor user gets β≈0 and a power user ramps up.
+    /// </remarks>
+    /// <param name="examples">Training examples with features and labels.</param>
+    /// <param name="heldOutForMetrics">Optional held-out slice for ranking-metric computation.</param>
+    /// <param name="trainNeural">Whether to (re)train the neural sub-strategy on these examples.</param>
+    /// <returns>True if learned training was performed, false if insufficient data.</returns>
+    public bool Train(
+        IReadOnlyList<TrainingExample> examples,
+        IReadOnlyList<TrainingExample>? heldOutForMetrics,
+        bool trainNeural)
     {
         ArgumentNullException.ThrowIfNull(examples);
 
         var result = ((ITrainableStrategy)_learned).Train(examples, heldOutForMetrics);
 
-        // Also train neural strategy if available (independent of learned success)
-        var neuralTrained = _neural is not null
+        // Train the neural strategy only when this ensemble owns that responsibility (the global ensemble).
+        // Per-user ensembles share one globally-trained MLP and must not re-fit it on a single user's slice.
+        // The _ownsNeural check is what enforces this: the two-argument Train overload delegates with
+        // trainNeural: true, so without it a per-user ensemble passed through that overload would overwrite
+        // the shared MLP with one user's examples.
+        var neuralTrained = trainNeural
+            && _ownsNeural
+            && _neural is not null
             && ((ITrainableStrategy)_neural).Train(examples, heldOutForMetrics);
 
         if (result)
@@ -615,7 +658,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
                 UpdateAlphaFromQualityGate(qualityGatePassed, validationLoss, sigmoidAlpha);
 
-                UpdateNeuralBeta(neuralTrained);
+                UpdateNeuralBeta(neuralTrained, examples.Count);
 
                 RecordMetricsSnapshot(validationLoss, examples.Count);
 
@@ -692,8 +735,20 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Updates the neural blending factor β via the activation ramp / decay logic. Caller must hold _syncRoot.
     /// </summary>
-    private void UpdateNeuralBeta(bool neuralTrained)
+    private void UpdateNeuralBeta(bool neuralTrained, int examplesThisRound)
     {
+        // A per-user ensemble (ownsNeural:false) never fits the shared MLP, so it cannot judge the MLP from
+        // its own training. It instead doses the globally-trained-and-validated MLP by its OWN example count:
+        // the MLP carries only universal non-linearities (no per-user taste), so the global validation is a
+        // valid statement about its quality, while how much to blend scales with this user's data maturity.
+        // Basing the ramp on the per-run count (not the accumulated total) is what keeps a data-poor user,
+        // whose count never reaches the threshold, from ever activating neural.
+        if (!_ownsNeural)
+        {
+            UpdatePerUserNeuralBeta(examplesThisRound);
+            return;
+        }
+
         // Update neural beta: blend neural in after NeuralActivationThreshold using a sigmoid ramp from 0 to NeuralMaxBetaFraction.
         if (_neural is not null && neuralTrained && _trainingExampleCount >= NeuralActivationThreshold)
         {
@@ -735,8 +790,76 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
+    ///     Doses the shared MLP for a per-user model from that user's own example count, mirroring how the
+    ///     global path in <see cref="UpdateNeuralBeta"/> nudges beta rather than reassigning it. A user who has
+    ///     never reached the activation threshold keeps the MLP fully off. Once a richer round has activated it,
+    ///     a later sub-threshold round holds the established beta rather than resetting it. At or above the
+    ///     threshold the target is a floor (so a data-rich user gets an immediate but modest neural say) ramping
+    ///     toward the shared cap over the next 100 examples, and beta only ever climbs toward that target, so a
+    ///     run where this user's count dips does not yank the contribution back down. When the globally trained
+    ///     MLP is not generalizing this round, beta is halved rather than reset, so one transient bad global loss
+    ///     does not blank out a user's neural say only to snap it back next run. Gated on the GLOBAL MLP's
+    ///     validation quality, since the per-user model never trains the MLP itself. Caller must hold _syncRoot.
+    /// </summary>
+    /// <param name="userExampleCount">This user's own example count for the current run (n_u), not the accumulated total.</param>
+    private void UpdatePerUserNeuralBeta(int userExampleCount)
+    {
+        if (_neural is null)
+        {
+            _neuralBeta = 0.0;
+            return;
+        }
+
+        if (userExampleCount < NeuralActivationThreshold)
+        {
+            // A user who has never crossed the activation threshold stays fully off: the MLP would add noise,
+            // not signal. But once a richer earlier round has established a beta, a later lean round holds it
+            // rather than snapping neural off, matching the documented climb-only behavior and the quality-fail
+            // branch below, which dampens instead of erasing.
+            if (_neuralBeta <= 0.0)
+            {
+                _neuralBeta = 0.0;
+            }
+
+            return;
+        }
+
+        var neuralValidationLoss = _neural.LastValidationLoss;
+        var globalNeuralQualityOk = !double.IsNaN(neuralValidationLoss)
+                                    && neuralValidationLoss <= ValidationLossThreshold;
+
+        if (!globalNeuralQualityOk)
+        {
+            // The globally trained MLP is not generalizing this round. Decay toward zero the same way the
+            // global path does, so a single bad run only dampens the contribution instead of erasing it.
+            // The cutoff is the tiny ghost floor, not the per-user activation floor: halving against the
+            // activation floor would snap any freshly activated beta (which starts at that floor) straight to
+            // zero on the first bad round, which is the erase behaviour this branch exists to avoid.
+            _neuralBeta *= 0.5;
+            if (_neuralBeta < NeuralBetaMinFloor)
+            {
+                _neuralBeta = 0.0;
+            }
+
+            return;
+        }
+
+        // Target: the floor the moment the user clears the threshold, climbing to the cap over 100 more
+        // examples. The cap keeps the user's own learned weights and the heuristic dominant. Take the max so
+        // beta rises toward the target but never drops on a run where n_u happens to be lower.
+        var progress = Math.Clamp(
+            (userExampleCount - NeuralActivationThreshold) / 100.0,
+            0.0,
+            1.0);
+        var rampTarget = NeuralPerUserBetaFloor + ((NeuralMaxBetaFraction - NeuralPerUserBetaFloor) * progress);
+        _neuralBeta = Math.Max(_neuralBeta, rampTarget);
+    }
+
+    /// <summary>
     ///     Appends a real (successful-training) metrics snapshot and trims history. Caller must hold _syncRoot.
     /// </summary>
+    /// <param name="validationLoss">The held-out validation loss for this training round.</param>
+    /// <param name="exampleCount">The number of examples this training round saw.</param>
     private void RecordMetricsSnapshot(double validationLoss, int exampleCount)
     {
         // Record metrics snapshot and analyze trend BEFORE saving state,
@@ -1202,28 +1325,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // Cap to the current ramp ceiling so that a state persisted under an older
             // (lower) NeuralActivationThreshold cannot overshoot the beta value the live
             // ramp would produce at the same example count after a threshold increase.
-            if (_neural is not null
-                && data.TrainingExampleCount >= NeuralActivationThreshold
-                && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
+            if (RestoreNeuralBeta(data) is { } restoredBeta)
             {
-                var rampCeiling = NeuralMaxBetaFraction * Math.Clamp(
-                    (data.TrainingExampleCount - NeuralActivationThreshold) / 100.0,
-                    0.0,
-                    1.0);
-                _neuralBeta = Math.Min(data.NeuralBeta, rampCeiling);
-            }
-            else if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
-            {
-                _neuralBeta = 0.0;
-            }
-            else if (_neural is not null && data.NeuralBeta > NeuralMaxBetaFraction &&
-                     _logger is not null && _logger.IsEnabled(LogLevel.Information))
-            {
-                // A persisted NeuralBeta above the current ceiling usually means the ceiling was lowered in an update.
-                _logger.LogInformation(
-                    "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
-                    data.NeuralBeta,
-                    NeuralMaxBetaFraction);
+                _neuralBeta = restoredBeta;
             }
 
             // Restore adaptive sigmoid midpoint offset (clamped to valid range).
@@ -1237,6 +1341,56 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 _metricsHistory = new List<MetricsSnapshot>(data.MetricsHistory);
             }
         }
+    }
+
+    /// <summary>
+    ///     Resolves the neural beta to restore from persisted state, or null to leave the current value
+    ///     untouched. A persisted beta above the current ceiling is discarded (and logged) so the ramp
+    ///     restarts from zero rather than overshooting after the ceiling was lowered in an update.
+    /// </summary>
+    /// <param name="data">The validated persisted ensemble state.</param>
+    /// <returns>The beta to assign, or null to keep the current beta.</returns>
+    private double? RestoreNeuralBeta(EnsembleStateData data)
+    {
+        if (!_ownsNeural)
+        {
+            // A per-user model's persisted TrainingExampleCount is the accumulated total, not this user's
+            // per-run count, so it cannot gate the restore. Accept any in-range persisted beta as-is; the
+            // next training run recomputes it from the real per-user example count via UpdatePerUserNeuralBeta.
+            return data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction ? data.NeuralBeta : 0.0;
+        }
+
+        if (_neural is null)
+        {
+            return null;
+        }
+
+        if (data.TrainingExampleCount >= NeuralActivationThreshold
+            && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
+        {
+            var rampCeiling = NeuralMaxBetaFraction * Math.Clamp(
+                (data.TrainingExampleCount - NeuralActivationThreshold) / 100.0,
+                0.0,
+                1.0);
+            return Math.Min(data.NeuralBeta, rampCeiling);
+        }
+
+        if (data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
+        {
+            return 0.0;
+        }
+
+        if (data.NeuralBeta > NeuralMaxBetaFraction &&
+            _logger is not null && _logger.IsEnabled(LogLevel.Information))
+        {
+            // A persisted NeuralBeta above the current ceiling usually means the ceiling was lowered in an update.
+            _logger.LogInformation(
+                "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
+                data.NeuralBeta,
+                NeuralMaxBetaFraction);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1370,11 +1524,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
-    ///     Disposes the composed neural strategy, which owns a ReaderWriterLockSlim.
+    ///     Disposes the composed neural strategy (which owns a ReaderWriterLockSlim) only when this instance
+    ///     owns it. Per-user ensembles share one global neural instance and are constructed with
+    ///     <c>ownsNeural: false</c>, so disposing a per-user ensemble must not tear down the shared neural.
     /// </summary>
     public void Dispose()
     {
-        _neural?.Dispose();
+        if (_ownsNeural)
+        {
+            _neural?.Dispose();
+        }
     }
 
     /// <summary>

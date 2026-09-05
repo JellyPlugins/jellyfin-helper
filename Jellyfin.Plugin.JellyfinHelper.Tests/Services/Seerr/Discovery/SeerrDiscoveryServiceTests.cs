@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -13,9 +15,21 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 [Collection("ConfigOverride")]
-public class SeerrDiscoveryServiceTests
+public class SeerrDiscoveryServiceTests : IDisposable
 {
-    private static SeerrDiscoveryService CreateService()
+    private readonly List<PerUserEnsembleRegistry> _registries = [];
+
+    public void Dispose()
+    {
+        foreach (var registry in _registries)
+        {
+            registry.Dispose();
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    private SeerrDiscoveryService CreateService()
     {
         var factory = new Mock<System.Net.Http.IHttpClientFactory>();
         var history = new Mock<IWatchHistoryService>();
@@ -36,9 +50,19 @@ public class SeerrDiscoveryServiceTests
         var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: Path.GetTempFileName());
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         var logger = new Mock<ILogger<SeerrDiscoveryService>>();
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            ensemble,
+            null,
+            null,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+            pluginLog.Object);
+        _registries.Add(perUserRegistry);
         return new SeerrDiscoveryService(
             factory.Object, history.Object, arr.Object, libraryManager.Object,
-            ensemble, cache, feedbackStore.Object, pluginLog.Object, logger.Object);
+            perUserRegistry, cache, feedbackStore.Object, pluginLog.Object, logger.Object);
     }
 
     [Fact]

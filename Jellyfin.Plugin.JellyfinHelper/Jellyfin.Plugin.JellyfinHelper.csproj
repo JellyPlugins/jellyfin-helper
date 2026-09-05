@@ -93,30 +93,44 @@
             <DocsI18nSource Include="$(MSBuildProjectDirectory)\i18n\*.json"/>
         </ItemGroup>
 
-        <!-- Clean target directories to mirror source (remove stale/renamed assets) -->
+        <!--
+          Sync must be crash-safe: an interruption cannot be allowed to leave docs/css, docs/js,
+          or docs/i18n emptied. So we stage the fresh assets into temporary sibling directories
+          FIRST, and only once every copy has fully succeeded do we perform the destructive swap.
+          The RemoveDir of the live directory happens immediately before the Move of its staged
+          replacement, keeping the window where docs/ is missing as small as MSBuild allows. If the
+          build is interrupted at any point during staging, the existing docs/ is still fully intact.
+        -->
+
+        <!-- Start from clean staging dirs in case a previous interrupted run left them behind -->
+        <RemoveDir Directories="$(DocsRoot)\css.tmp" Condition="Exists('$(DocsRoot)\css.tmp')"/>
+        <RemoveDir Directories="$(DocsRoot)\js.tmp" Condition="Exists('$(DocsRoot)\js.tmp')"/>
+        <RemoveDir Directories="$(DocsRoot)\i18n.tmp" Condition="Exists('$(DocsRoot)\i18n.tmp')"/>
+
+        <MakeDir Directories="$(DocsRoot)\css.tmp"/>
+        <MakeDir Directories="$(DocsRoot)\js.tmp"/>
+        <MakeDir Directories="$(DocsRoot)\i18n.tmp"/>
+
+        <!-- Stage fresh content into the temp dirs (non-destructive to the live docs/) -->
+        <Copy SourceFiles="@(DocsCssSource)" DestinationFolder="$(DocsRoot)\css.tmp"/>
+        <Copy SourceFiles="@(DocsJsSource)" DestinationFolder="$(DocsRoot)\js.tmp"/>
+        <Copy SourceFiles="@(DocsI18nSource)" DestinationFolder="$(DocsRoot)\i18n.tmp"/>
+
+        <!-- Swap staged content into place: remove the live dir then move the staged one in.
+             This is the only destructive step and runs after staging is proven to have succeeded. -->
         <RemoveDir Directories="$(DocsRoot)\css" Condition="Exists('$(DocsRoot)\css')"/>
+        <Move SourceFiles="@(DocsCssSource->'$(DocsRoot)\css.tmp\%(Filename)%(Extension)')" DestinationFolder="$(DocsRoot)\css"/>
+
         <RemoveDir Directories="$(DocsRoot)\js" Condition="Exists('$(DocsRoot)\js')"/>
+        <Move SourceFiles="@(DocsJsSource->'$(DocsRoot)\js.tmp\%(Filename)%(Extension)')" DestinationFolder="$(DocsRoot)\js"/>
+
         <RemoveDir Directories="$(DocsRoot)\i18n" Condition="Exists('$(DocsRoot)\i18n')"/>
+        <Move SourceFiles="@(DocsI18nSource->'$(DocsRoot)\i18n.tmp\%(Filename)%(Extension)')" DestinationFolder="$(DocsRoot)\i18n"/>
 
-        <!-- Recreate target directories -->
-        <MakeDir Directories="$(DocsRoot)\css"/>
-        <MakeDir Directories="$(DocsRoot)\js"/>
-        <MakeDir Directories="$(DocsRoot)\i18n"/>
-
-        <!-- Copy CSS files -->
-        <Copy SourceFiles="@(DocsCssSource)"
-              DestinationFolder="$(DocsRoot)\css"
-              SkipUnchangedFiles="true"/>
-
-        <!-- Copy JS files -->
-        <Copy SourceFiles="@(DocsJsSource)"
-              DestinationFolder="$(DocsRoot)\js"
-              SkipUnchangedFiles="true"/>
-
-        <!-- Copy i18n files -->
-        <Copy SourceFiles="@(DocsI18nSource)"
-              DestinationFolder="$(DocsRoot)\i18n"
-              SkipUnchangedFiles="true"/>
+        <!-- Remove now-empty staging dirs -->
+        <RemoveDir Directories="$(DocsRoot)\css.tmp" Condition="Exists('$(DocsRoot)\css.tmp')"/>
+        <RemoveDir Directories="$(DocsRoot)\js.tmp" Condition="Exists('$(DocsRoot)\js.tmp')"/>
+        <RemoveDir Directories="$(DocsRoot)\i18n.tmp" Condition="Exists('$(DocsRoot)\i18n.tmp')"/>
 
         <Message Importance="High" Text="Synced CSS, JS, and i18n files to docs/ for GitHub Pages demo"/>
     </Target>

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
-## [3.0.0.0] - 2026-07-25
+## [3.0.0.0] - 2026-09-04
 
 A major release for Jellyfin 12. Smarter, fairer recommendations; a redesigned
 dashboard; a big push on security and data-safety; and a brand-new end-to-end
@@ -13,7 +13,7 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 
 ### Breaking
 - **Requires Jellyfin 12.0+.** v3.x will not install on Jellyfin 10.x. If you're still on 10.x, stay on v2.1.0.6 (served from the same plugin repository).
-- **Recommendations retrain from scratch.** The recommendation model is a new, much larger design, so any model your server had already trained is discarded on upgrade and rebuilt automatically over the next scheduled runs. Your suggestions settle back in after the plugin has seen your library again.
+- **Recommendations retrain from scratch.** The recommendation model is a new, much larger design, so any model your server had already trained is discarded on upgrade and rebuilt automatically over the next scheduled runs. Your suggestions settle back in after the plugin has seen your library again. Technically the candidate vector grows to 38 features and the persisted weight schema version moves from 2 to 3, so existing `ml_weights.json`, `neural_weights.json` and `ensemble_state.json` are treated as incompatible and rebuilt.
 - **A few API responses changed** (only relevant if you script against the plugin). Saving configuration now uses `PUT` instead of `POST`; the log level is set through its own endpoint rather than the settings save; and several endpoints return clearer status codes (a submitted request now reports "created", clearing logs reports "no content", a failed integration test reports a gateway error instead of a fake success, and the user-activity endpoints report "unavailable" until the scheduled task has built their data). The growth-timeline export field `totalFilesScanned` is now `totalDirectoriesScanned`.
 
 ### Added
@@ -24,6 +24,8 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 ### Improved
 - **Excluded libraries stay out of recommendations.** Any library you exclude is now respected by the recommendation engine on both sides: it no longer shapes your taste profile during training and never appears as a suggestion, so noise like home videos can't dilute your results. Discovery now also skips titles already in your Jellyfin library (not just the ones tracked by Radarr/Sonarr) and honours Seerr's own "already available" status. Something you've already watched won't come back as a suggestion even when it exists as a second, duplicate library entry, including a show you've only watched episodes of.
 - **Better recommendations from day one.** Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Shows you actually finished shape your taste more than ones you dropped after two episodes. Box-set suggestions ("finish the trilogy") stay consistent between what you see and what the model learned from.
+- **Recommendations are now trained per user.** Each user now gets their own recommendation model, trained only on their own watch history, so a very active account's taste can no longer drown out a lighter one's. The mix of rule-based, learned and neural signals is tuned individually: someone with little history leans on the safe rule-based scoring, and the heavier neural network only joins in, gradually, once a person has enough of their own history to justify it.
+- **See each user's recommendation strategy at a glance.** The Discover tab now spells out, per user, how their suggestions are put together (for example "Heuristic 55% · Machine Learning 33% · Neural Engine 12%") along with how many examples their model has learned from and whether it's still improving, instead of showing raw tuning numbers only a developer could read.
 - **Fairer cold-start.** Brand-new users get community-blended suggestions (top-rated + trending + what the rest of the household watches) instead of pure recency, so the first list feels curated rather than random.
 - **More diverse top picks.** Ranking now balances genre, studio and release era together, so no more ten near-identical superhero films in a row. Small recommendation lists no longer fill up with random exploration picks, and your list stays stable across a restart on the same day.
 - **Fresh suggestions between nightly runs.** On-demand recommendations now notice newly added library items within about half an hour, instead of waiting for the next scheduled run.
@@ -49,8 +51,8 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 - **More reliable backup restore.** Restore is lock-guarded and writes history data before configuration, an age of 0 is honoured, and only normal web addresses are accepted.
 
 ### Tests
-- **New end-to-end test suite.** Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running each cleanup mode, importing/exporting a backup, and clicking through every dashboard tab. It also deliberately throws bad and hostile input at the plugin and uses "canary" files to prove that cleanup never deletes or touches anything outside your libraries, and that every admin-only action stays locked to admins. **296 tests across 46 files**, running automatically on every change plus a nightly full run.
-- **Unit tests: 5311 total** (+2986 vs. v2.1.0.6), including full coverage of the typed API responses.
+- **New end-to-end test suite.** Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running each cleanup mode, importing/exporting a backup, and clicking through every dashboard tab. It also deliberately throws bad and hostile input at the plugin and uses "canary" files to prove that cleanup never deletes or touches anything outside your libraries, and that every admin-only action stays locked to admins. **300 tests across 47 files**, running automatically on every change plus a nightly full run.
+- **Unit tests: 5403 total** Including full coverage of the typed API responses.
 
 ---
 

@@ -604,4 +604,248 @@ public class TrainingServiceTests
     }
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
+
+    [Fact]
+    public void TrainPerUser_IncrementalSubsamplesPool_UsersAboveThresholdStillGetPerUserModel()
+    {
+        // Regression guard: incremental subsampling must apply ONLY to the global pass. Per-user passes see
+        // the full per-user slices, and the per-user threshold is checked against the UNSUBSAMPLED count. So
+        // a user whose real example count clears the threshold must still get a per-user model even when the
+        // pooled set is large enough to trigger incremental subsampling. Before the fix, subsampling the pool
+        // first could drop a user's visible count below the threshold and silently skip their model.
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
+
+        // Two data-rich users (30 watched items + 30 prior recommendations each) produce far more than the
+        // 12-example per-user threshold individually, and a pooled total well past IncrementalMinExamplesThreshold (30).
+        var profiles = new Collection<UserWatchProfile>
+        {
+            CreateLargeProfile(userA, watchedCount: 30),
+            CreateLargeProfile(userB, watchedCount: 30)
+        };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var previous = new[]
+        {
+            CreateLargeResult(userA, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)),
+            CreateLargeResult(userB, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+
+            using var sut = CreateSut();
+            var trained = sut.TrainPerUser(registry, previous, incremental: true);
+
+            Assert.True(trained);
+            // Both users cleared the threshold on their full slices, so both must have a dedicated per-user
+            // model persisted despite the global pass subsampling the pooled set.
+            Assert.True(registry.HasPerUserModel(userA));
+            Assert.True(registry.HasPerUserModel(userB));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
+
+    [Fact]
+    public void TrainPerUser_NoPreviousResults_ReturnsFalseWithoutTraining()
+    {
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-empty-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            using var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+            using var sut = CreateSut();
+
+            var trained = sut.TrainPerUser(registry, Array.Empty<RecommendationResult>());
+
+            // An empty result set has nothing to train on, so no model file is written and false is returned.
+            Assert.False(trained);
+            Assert.False(File.Exists(Path.Combine(dataPath, "ml_weights.json")));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
+
+    [Fact]
+    public void TrainPerUser_UserBelowThreshold_GetsNoPerUserModel()
+    {
+        // A single user with only a couple of examples trains the global model but stays under the per-user
+        // threshold, so the registry must not create a dedicated per-user model for them.
+        var user = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 2) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var previous = new[]
+        {
+            CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-below-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            using var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+            using var sut = CreateSut();
+
+            sut.TrainPerUser(registry, previous);
+
+            Assert.False(registry.HasPerUserModel(user));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
+
+    [Fact]
+    public void TrainPerUser_UserDropsBelowThresholdAfterHavingModel_EvictsAndFallsBackToGlobal()
+    {
+        // A user who built a per-user model on a data-rich run and then falls below the threshold on a later
+        // run must not keep scoring on the stale personal fit: the model is evicted so the user resolves back
+        // to the shared global ensemble. Without eviction the next score would still find the old per-user file.
+        var user = Guid.NewGuid();
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-evict-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            using var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+            using var sut = CreateSut();
+
+            // Data-rich run: the user clears the threshold and gets a dedicated per-user model.
+            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 30) });
+            sut.TrainPerUser(
+                registry,
+                new[] { CreateLargeResult(user, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) });
+            Assert.True(registry.HasPerUserModel(user));
+            Assert.NotSame(global, registry.GetScoringStrategyForUser(user));
+
+            // Later lean run: the same user falls below the threshold, so the model is evicted.
+            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 2) });
+            sut.TrainPerUser(
+                registry,
+                new[] { CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 8, 0, 0, 0, DateTimeKind.Utc)) });
+
+            Assert.False(registry.HasPerUserModel(user));
+            Assert.False(File.Exists(Path.Combine(dataPath, $"ml_weights_{user:N}.json")));
+            Assert.Same(global, registry.GetScoringStrategyForUser(user));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
 }

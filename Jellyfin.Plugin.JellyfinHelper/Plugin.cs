@@ -21,15 +21,14 @@ namespace Jellyfin.Plugin.JellyfinHelper;
 /// <summary>
 ///     The main plugin.
 /// </summary>
-public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    private readonly IApplicationPaths _applicationPaths;
-    private readonly ILogger<Plugin> _logger;
-
     /// <summary>
-    ///     Serializes the read-modify-write in UpdateIndexHtml.
+    ///     Upper bound on the number of link hops any single path resolution will follow before
+    ///     giving up. Mirrors the typical operating-system SYMLOOP_MAX so a maliciously deep or
+    ///     cyclic chain cannot make resolution run unbounded.
     /// </summary>
-    private readonly object _indexHtmlLock = new();
+    internal const int MaxLinkHops = 40;
 
     /// <summary>
     ///     Data files this plugin persists to DataPath that do <b>not</b> follow the jellyfin-helper-*.json naming convention and therefore would not be matched by the prefix glob in CleanupDataFiles.
@@ -41,6 +40,32 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         "ensemble_state.json",
         "jellyfin-helper-batch-generation.txt",
     ];
+
+    /// <summary>
+    ///     Resolves the link target of a single path component against the real filesystem, returning
+    ///     the final target when the component is a symlink or junction and <c>null</c> otherwise.
+    /// </summary>
+    /// <remarks>
+    ///     An <see cref="IOException"/> raised here (for example when the OS reports <c>ELOOP</c> on a
+    ///     link cycle) is allowed to propagate so the caller can fail closed.
+    /// </remarks>
+    internal static readonly Func<string, string?> RealLeafResolver = candidate =>
+    {
+        FileSystemInfo leaf = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
+
+        // Resolve a single link hop, not the whole chain. ResolveRealPathCore counts hops and detects
+        // cycles between calls, so following the entire chain here would bypass MaxLinkHops and leave
+        // the documented bound resting only on the OS ELOOP limit, which differs across platforms.
+        return leaf.ResolveLinkTarget(returnFinalTarget: false)?.FullName;
+    };
+
+    private readonly IApplicationPaths _applicationPaths;
+    private readonly ILogger<Plugin> _logger;
+
+    /// <summary>
+    ///     Serializes the read-modify-write in UpdateIndexHtml.
+    /// </summary>
+    private readonly object _indexHtmlLock = new();
 
     /// <summary>
     ///     Guards the "install File Transformation" warning so it is emitted at most once per server start, even though InjectScript runs both from the constructor and again from the startup hosted service (and could be retried).
@@ -436,26 +461,64 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="path">The path to canonicalize.</param>
     /// <returns>The real, fully symlink-resolved absolute path.</returns>
     private static string ResolveRealPath(string path)
+        => ResolveRealPathCore(path, RealLeafResolver);
+
+    /// <summary>
+    ///     Canonicalizes a path by resolving each ancestor directory and then following the final
+    ///     component's link target. The traversal is bounded by both <see cref="MaxLinkHops"/> and a
+    ///     visited set so that a symlink cycle terminates and returns the last resolved candidate
+    ///     rather than recursing without end.
+    /// </summary>
+    /// <param name="path">The path to canonicalize.</param>
+    /// <param name="resolveLeafLink">
+    ///     Resolves a single component's link target to its final target's full path, or <c>null</c>
+    ///     when the component is not a link. Injected so the bounded traversal is testable without
+    ///     real symlinks.
+    /// </param>
+    /// <returns>The real, fully symlink-resolved absolute path.</returns>
+    internal static string ResolveRealPathCore(string path, Func<string, string?> resolveLeafLink)
+    {
+        // Paths compare case-insensitively on Windows and case-sensitively elsewhere, so the visited
+        // set must use the same comparer to detect a cycle correctly on either platform.
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var context = new LinkTraversalContext(new HashSet<string>(comparer));
+        return ResolveRealPathCore(path, resolveLeafLink, context);
+    }
+
+    private static string ResolveRealPathCore(string path, Func<string, string?> resolveLeafLink, LinkTraversalContext context)
     {
         var full = Path.GetFullPath(path);
-
-        var parent = Path.GetDirectoryName(full);
-        if (string.IsNullOrEmpty(parent))
+        while (true)
         {
-            // Root component (e.g. "C:\" or "/"), nothing above it to resolve.
-            return full;
+            var parent = Path.GetDirectoryName(full);
+            if (string.IsNullOrEmpty(parent))
+            {
+                // Root component (e.g. "C:\" or "/"), nothing above it to resolve.
+                return full;
+            }
+
+            // Canonicalize the parent directory chain first (recursively), then reattach this
+            // component's name and resolve the component itself if it is a link. The traversal context
+            // is shared so hops and visited components accumulate across the ancestor recursion.
+            var realParent = ResolveRealPathCore(parent, resolveLeafLink, context);
+            var candidate = Path.Combine(realParent, Path.GetFileName(full));
+
+            var resolvedLeaf = resolveLeafLink(candidate);
+            if (resolvedLeaf == null)
+            {
+                return candidate;
+            }
+
+            // Stop once we have followed too many hops or would revisit a component, returning the
+            // last resolved candidate. This bounds a cycle without throwing.
+            if (++context.Hops > MaxLinkHops || !context.Visited.Add(candidate))
+            {
+                return candidate;
+            }
+
+            // The link may point through further links; iterate rather than recurse.
+            full = Path.GetFullPath(resolvedLeaf);
         }
-
-        // Canonicalize the parent directory chain first (recursively), then reattach this
-        // component's name and resolve the component itself if it is a link.
-        var realParent = ResolveRealPath(parent);
-        var candidate = Path.Combine(realParent, Path.GetFileName(full));
-
-        FileSystemInfo leaf = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
-        var resolvedLeaf = leaf.ResolveLinkTarget(returnFinalTarget: true);
-        return resolvedLeaf != null
-            ? ResolveRealPath(resolvedLeaf.FullName) // link may point through further links
-            : candidate;
     }
 
     /// <summary>
@@ -667,6 +730,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     DeleteDataFile(file);
                 }
             }
+
+            // Per-user recommendation model/state files (ml_weights_{id}.json / ensemble_state_{id}.json).
+            // These share no jellyfin-helper- prefix and are not in the fixed list above, so they need their
+            // own sweep or an uninstall would leave one pair per user behind. Matched on the exact id-suffixed
+            // shape so only files this plugin writes are removed.
+            DeletePerUserDataFiles(dataPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -685,6 +754,31 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning(ex, "Failed to clean up data file");
         }
     }
+
+    // Deletes only the per-user recommendation files whose full name matches the id-suffixed shape this plugin
+    // writes. A glob like ml_weights_*.json would also sweep up a file that merely shares the stem, so the name
+    // is checked against the anchored pattern rather than a wildcard.
+    // Deletes only the per-user recommendation files whose full name matches the id-suffixed shape this plugin
+    // writes. A glob like ml_weights_*.json would also sweep up a file that merely shares the stem, so the name
+    // is checked against the anchored pattern rather than a wildcard.
+    private void DeletePerUserDataFiles(string dataPath)
+    {
+        foreach (var file in Directory.GetFiles(dataPath).Where(f => PerUserDataFilePattern().IsMatch(Path.GetFileName(f))))
+        {
+            DeleteDataFile(file);
+        }
+    }
+
+    /// <summary>
+    ///     Matches only the per-user recommendation model/state files this plugin writes
+    ///     (<c>ml_weights_{id:N}.json</c> and <c>ensemble_state_{id:N}.json</c>, where the id is the 32-hex
+    ///     user id). Anchored on the full name so uninstall cleanup deletes exactly these and never an
+    ///     unrelated file that merely shares the stem (for example a user-made <c>ml_weights_backup.json</c>)
+    ///     nor the unsuffixed global files.
+    /// </summary>
+    /// <returns>The compiled regex.</returns>
+    [GeneratedRegex(@"^(?:ml_weights|ensemble_state)_[0-9a-fA-F]{32}\.json$", RegexOptions.CultureInvariant)]
+    private static partial Regex PerUserDataFilePattern();
 
     /// <summary>
     ///     Removes stale atomic-write temp files left in the Jellyfin WebPath by UpdateIndexHtml.
@@ -756,5 +850,19 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             // Best effort - if the playlists directory is inaccessible, nothing we can do.
         }
+    }
+
+    /// <summary>
+    ///     Shared cycle-detection and hop-count state for one path canonicalization. The same instance
+    ///     threads through the ancestor recursion so the visited set and hop bound span every component,
+    ///     not just one recursion level. Without this an ancestor link that targets its own descendant
+    ///     (for example <c>/plugins/link -&gt; /plugins/link/child</c>) would recurse with fresh state each
+    ///     level and overflow the stack before <see cref="MaxLinkHops"/> could bound it.
+    /// </summary>
+    private sealed class LinkTraversalContext(HashSet<string> visited)
+    {
+        public HashSet<string> Visited { get; } = visited;
+
+        public int Hops { get; set; }
     }
 }

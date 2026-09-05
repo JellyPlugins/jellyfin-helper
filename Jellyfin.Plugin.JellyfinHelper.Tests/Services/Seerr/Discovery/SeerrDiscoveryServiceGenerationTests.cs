@@ -40,6 +40,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly Mock<ILibraryManager> _libraryManager;
     private readonly DiscoveryCacheService _cache;
     private readonly string _cacheFilePath;
+    private readonly PerUserEnsembleRegistry _perUserRegistry;
     private readonly SeerrDiscoveryService _sut;
 
     public SeerrDiscoveryServiceGenerationTests()
@@ -90,12 +91,23 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         _libraryManager = libraryManager;
 
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            ensemble,
+            null,
+            null,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+            pluginLog.Object);
+        _perUserRegistry = perUserRegistry;
+
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             _history.Object,
             _arr.Object,
             libraryManager.Object,
-            ensemble,
+            perUserRegistry,
             _cache,
             _feedbackStore.Object,
             pluginLog.Object,
@@ -104,6 +116,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
     public void Dispose()
     {
+        _perUserRegistry.Dispose();
         _handler.Dispose();
         _cache.Dispose();
         if (File.Exists(_cacheFilePath))

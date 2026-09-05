@@ -115,6 +115,64 @@ public sealed class EngineInstanceTests
     }
 
     [Fact]
+    public void TrainStrategy_EmptyPreviousResults_PrunesOrphansBeforeEarlyReturn()
+    {
+        // Orphan reconciliation against the live user list must run regardless of whether there is anything to
+        // train on, because a user can be removed between runs. It happens before the empty-results early return,
+        // and the expensive library scan (candidate loading via GetItemList) must be skipped on the empty run.
+        var harness = EngineTestFactory.Create();
+        var userId = Guid.NewGuid();
+        harness.WatchHistory.Setup(w => w.GetAllUserIds()).Returns([userId]);
+
+        var trained = harness.Engine.TrainStrategy(
+            new Collection<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>(),
+            incremental: false,
+            CancellationToken.None);
+
+        Assert.False(trained);
+        harness.PerUserRegistry.Verify(
+            r => r.PruneOrphans(It.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(userId))),
+            Times.Once);
+        // Empty previous results skip the library load entirely.
+        harness.LibraryManager.Verify(
+            lm => lm.GetItemList(It.IsAny<MediaBrowser.Controller.Entities.InternalItemsQuery>()),
+            Times.Never);
+    }
+
+    // GetUserEnsembleDiagnostics - strategy-type guard
+
+    [Fact]
+    public void GetUserEnsembleDiagnostics_NonEnsembleStrategy_ReturnsNullAndNotPerUser()
+    {
+        // The default harness runs a HeuristicScoringStrategy, so per-user diagnostics are unavailable and the
+        // guard short-circuits to (null, false) without consulting the registry.
+        var harness = EngineTestFactory.Create();
+
+        var (diagnostics, isPerUser) = harness.Engine.GetUserEnsembleDiagnostics(Guid.NewGuid());
+
+        Assert.Null(diagnostics);
+        Assert.False(isPerUser);
+    }
+
+    [Fact]
+    public void GetUserEnsembleDiagnostics_EnsembleStrategy_DelegatesToRegistry()
+    {
+        // With an ensemble-backed engine the guard passes and the call delegates to the registry, forwarding
+        // whatever (snapshot, isPerUser) tuple the registry resolves for that user.
+        using var ensemble = new EnsembleScoringStrategy();
+        var harness = EngineTestFactory.Create(ensemble);
+        var userId = Guid.NewGuid();
+        var expected = ensemble.GetDiagnosticsSnapshot();
+        harness.PerUserRegistry.Setup(r => r.GetUserModelDiagnostics(userId)).Returns((expected, true));
+
+        var (diagnostics, isPerUser) = harness.Engine.GetUserEnsembleDiagnostics(userId);
+
+        Assert.True(isPerUser);
+        Assert.Equal(expected.Alpha, diagnostics!.Alpha);
+        harness.PerUserRegistry.Verify(r => r.GetUserModelDiagnostics(userId), Times.Once);
+    }
+
+    [Fact]
     public void TrainStrategy_EmptyPreviousResults_IncrementalMode_ReturnsFalse()
     {
         // BUG GUARD: the incremental=true branch takes a different code path through the underlying TrainingService (it merges the incoming examples with a sample of historical examples).
@@ -126,7 +184,7 @@ public sealed class EngineInstanceTests
         Assert.False(trained);
     }
 
-    // TEST-1: TryPublishSnapshot - out-of-order write rejection
+    // TryPublishSnapshot - out-of-order write rejection
 
     [Fact]
     public void TryPublishSnapshot_FirstPublish_WithNullCurrent_ReturnsTrue()
@@ -184,7 +242,7 @@ public sealed class EngineInstanceTests
         Assert.True(result);
     }
 
-    // TEST-8: GetAllRecommendations - one throwing user does not abort the batch
+    // GetAllRecommendations - one throwing user does not abort the batch
 
     [Fact]
     public void GetAllRecommendations_OneUserThrows_BatchContinuesAndLogsWarning()
@@ -227,7 +285,7 @@ public sealed class EngineInstanceTests
             Times.Once);
     }
 
-    // TEST-4: GetOrBuildCommunityPopularity - concurrent callers compute only once
+    // GetOrBuildCommunityPopularity - concurrent callers compute only once
 
     [Fact]
     public async Task GetOrBuildCommunityPopularity_ConcurrentCallers_BuildCalledAtMostOnce()

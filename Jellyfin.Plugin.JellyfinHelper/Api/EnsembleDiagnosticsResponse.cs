@@ -49,11 +49,37 @@ public sealed class EnsembleDiagnosticsResponse
     public bool NeuralEnabled { get; set; }
 
     /// <summary>
+    ///     Gets or sets a value indicating whether these diagnostics describe a per-user model. False means
+    ///     the values come from the shared global model (the user has no dedicated model yet / cold-start).
+    /// </summary>
+    public bool IsPerUser { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the display name of the user these diagnostics describe, when the request was scoped
+    ///     to a user. Null for the global (non-user-scoped) snapshot.
+    /// </summary>
+    public string? UserName { get; set; }
+
+    /// <summary>
     ///     Maps an <see cref="EnsembleDiagnostics"/> snapshot to a populated response with <see cref="Available"/> set to true.
     /// </summary>
     /// <param name="diagnostics">The ensemble diagnostics snapshot to map.</param>
     /// <returns>A populated <see cref="EnsembleDiagnosticsResponse"/>.</returns>
-    public static EnsembleDiagnosticsResponse FromDiagnostics(EnsembleDiagnostics diagnostics)
+    public static EnsembleDiagnosticsResponse FromDiagnostics(EnsembleDiagnostics diagnostics) =>
+        FromDiagnostics(diagnostics, isPerUser: false, userName: null);
+
+    /// <summary>
+    ///     Maps an <see cref="EnsembleDiagnostics"/> snapshot to a populated response, tagging whether it is a
+    ///     per-user model and for which user.
+    /// </summary>
+    /// <param name="diagnostics">The ensemble diagnostics snapshot to map.</param>
+    /// <param name="isPerUser">Whether the snapshot describes a per-user model.</param>
+    /// <param name="userName">The display name of the scoped user, or null.</param>
+    /// <returns>A populated <see cref="EnsembleDiagnosticsResponse"/>.</returns>
+    public static EnsembleDiagnosticsResponse FromDiagnostics(
+        EnsembleDiagnostics diagnostics,
+        bool isPerUser,
+        string? userName)
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
 
@@ -70,7 +96,9 @@ public sealed class EnsembleDiagnosticsResponse
             MetricsHistoryCount = diagnostics.MetricsHistoryCount,
             AlphaMin = diagnostics.AlphaMin,
             AlphaMax = diagnostics.AlphaMax,
-            NeuralEnabled = diagnostics.NeuralEnabled
+            NeuralEnabled = diagnostics.NeuralEnabled,
+            IsPerUser = isPerUser,
+            UserName = userName
         };
     }
 }

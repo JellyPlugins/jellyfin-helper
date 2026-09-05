@@ -41,6 +41,7 @@ public class ConfigurationController : ControllerBase
     private readonly ILogger<ConfigurationController> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly ISeerrIntegrationService _seerrService;
+    private readonly IPerUserEnsembleRegistry? _perUserRegistry;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="ConfigurationController" /> class.
@@ -53,6 +54,11 @@ public class ConfigurationController : ControllerBase
     /// <param name="seerrService">The Seerr integration service for connection testing.</param>
     /// <param name="libraryManager">The Jellyfin library manager for listing available libraries.</param>
     /// <param name="ensemble">The ensemble scoring strategy - notified on config save so alpha bounds take effect without restart.</param>
+    /// <param name="perUserRegistry">
+    ///     The per-user ensemble registry - notified on config save so per-user models pick up new blend bounds
+    ///     without a restart. Optional so existing callers and tests that do not exercise per-user reconfiguration
+    ///     keep working.
+    /// </param>
     public ConfigurationController(
         IArrIntegrationService arrService,
         IPluginLogService pluginLog,
@@ -61,7 +67,8 @@ public class ConfigurationController : ControllerBase
         IPluginConfigurationService configService,
         ISeerrIntegrationService seerrService,
         ILibraryManager libraryManager,
-        EnsembleScoringStrategy ensemble)
+        EnsembleScoringStrategy ensemble,
+        IPerUserEnsembleRegistry? perUserRegistry = null)
     {
         _arrService = arrService;
         _pluginLog = pluginLog;
@@ -71,6 +78,7 @@ public class ConfigurationController : ControllerBase
         _seerrService = seerrService;
         _libraryManager = libraryManager;
         _ensemble = ensemble;
+        _perUserRegistry = perUserRegistry;
     }
 
     /// <summary>
@@ -183,7 +191,7 @@ public class ConfigurationController : ControllerBase
         [FromBody] ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
     {
-        // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which runs with Order = int.MinValue so it fires *before* [ApiController]'s built-in ModelStateInvalidFilter.
+        // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which orders below [ApiController]'s built-in ModelStateInvalidFilter (-2000) so it fires *before* the automatic 400.
         if (request is null)
         {
             return BadRequest(new { message = "Request body is required." });
@@ -210,6 +218,11 @@ public class ConfigurationController : ControllerBase
             persistedLogLevel = cfg.PluginLogLevel;
             ApplyRequestToConfig(request, cfg);
             _ensemble.Reconfigure(cfg.EnsembleAlphaMin, cfg.EnsembleAlphaMax, cfg.EnsembleGenrePenaltyFloor);
+
+            // Per-user models keep their own copy of the blend bounds, so the same change is pushed to them as
+            // well. Otherwise the global ensemble would use the new bounds while per-user models stayed on the
+            // old ones until the next restart.
+            _perUserRegistry?.Reconfigure(EnsembleBlendBounds.FromConfiguration(cfg));
         });
 
         _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
@@ -530,12 +543,22 @@ public class ConfigurationController : ControllerBase
     /// <param name="config">The existing plugin configuration to update.</param>
     private static void ApplyEnsembleSettings(ConfigurationUpdateRequest request, PluginConfiguration config)
     {
-        if (request.EnsembleAlphaMin.HasValue)
+        if (request.EnsembleAlphaMin.HasValue && request.EnsembleAlphaMax.HasValue)
+        {
+            // Both bounds are supplied together, so order them before assigning. Each setter normalizes the
+            // pair against the currently persisted other bound, so setting them one at a time against a stale
+            // value can drop a requested endpoint (a request of min 0.9, max 0.1 would otherwise settle on the
+            // old max). Assigning the lower first keeps both requested values.
+            var lower = Math.Clamp(Math.Min(request.EnsembleAlphaMin.Value, request.EnsembleAlphaMax.Value), 0.0, 1.0);
+            var upper = Math.Clamp(Math.Max(request.EnsembleAlphaMin.Value, request.EnsembleAlphaMax.Value), 0.0, 1.0);
+            config.EnsembleAlphaMin = lower;
+            config.EnsembleAlphaMax = upper;
+        }
+        else if (request.EnsembleAlphaMin.HasValue)
         {
             config.EnsembleAlphaMin = Math.Clamp(request.EnsembleAlphaMin.Value, 0.0, 1.0);
         }
-
-        if (request.EnsembleAlphaMax.HasValue)
+        else if (request.EnsembleAlphaMax.HasValue)
         {
             config.EnsembleAlphaMax = Math.Clamp(request.EnsembleAlphaMax.Value, 0.0, 1.0);
         }
@@ -543,12 +566,6 @@ public class ConfigurationController : ControllerBase
         if (request.EnsembleGenrePenaltyFloor.HasValue)
         {
             config.EnsembleGenrePenaltyFloor = Math.Clamp(request.EnsembleGenrePenaltyFloor.Value, 0.0, 1.0);
-        }
-
-        // Enforce min <= max after both values may have been updated.
-        if (config.EnsembleAlphaMin > config.EnsembleAlphaMax)
-        {
-            config.EnsembleAlphaMax = config.EnsembleAlphaMin;
         }
     }
 

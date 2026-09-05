@@ -116,6 +116,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
         return profiles;
     }
 
+    /// <inheritdoc />
+    public IReadOnlyCollection<Guid> GetAllUserIds() =>
+        _userManager.GetUsers().Select(u => u.Id).ToList();
+
     /// <summary>
     ///     Loads all video items from the library (movies, episodes, etc.).
     ///     Called once and shared across all user profile builds.

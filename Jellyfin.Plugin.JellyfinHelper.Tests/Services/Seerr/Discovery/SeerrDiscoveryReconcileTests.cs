@@ -36,6 +36,7 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
     private readonly DiscoveryFeedbackStore _feedbackStore;
     private readonly NeuralScoringStrategy _neural;
     private readonly EnsembleScoringStrategy _ensemble;
+    private readonly PerUserEnsembleRegistry _perUserRegistry;
     private readonly string _feedbackDir;
 
     public SeerrDiscoveryReconcileTests()
@@ -72,12 +73,23 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
         var libraryManager = TestMockFactory.CreateLibraryManager();
         libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
 
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            _ensemble,
+            null,
+            null,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+            pluginLog.Object);
+        _perUserRegistry = perUserRegistry;
+
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             new Mock<IWatchHistoryService>().Object,
             new Mock<IArrIntegrationService>().Object,
             libraryManager.Object,
-            _ensemble,
+            perUserRegistry,
             _cache,
             _feedbackStore,
             pluginLog.Object,
@@ -86,6 +98,7 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
 
     public void Dispose()
     {
+        _perUserRegistry.Dispose();
         _handler.Dispose();
         _cache.Dispose();
         _ensemble.Dispose();

@@ -216,6 +216,73 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         }
     }
 
+    /// <summary>
+    ///     Returns a snapshot of the persisted per-feature standardization std-devs, or null when the model
+    ///     has not yet trained under standardization. The companion to <see cref="GetFeatureMeans"/>: a
+    ///     warm-start must copy both, because scoring only standardizes when both are non-null and
+    ///     <see cref="SeedFrom"/> relies on carrying the full standardization state across the seed.
+    /// </summary>
+    /// <returns>A cloned copy of the per-feature std-devs, or null if unavailable.</returns>
+    internal IReadOnlyList<double>? GetFeatureStdDevs()
+    {
+        lock (_syncRoot)
+        {
+            return _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null;
+        }
+    }
+
+    /// <summary>
+    ///     Seeds this model's weights, bias, and standardization statistics from another (typically the
+    ///     global) model, so a new per-user model starts from the global fit instead of cold defaults.
+    /// </summary>
+    /// <remarks>
+    ///     The standardization stats (<c>_featureMeans</c>/<c>_featureStdDevs</c>) MUST be carried over, not
+    ///     just weights and bias. The global model is trained standardized; a per-user model with fewer than
+    ///     <see cref="MinExamplesForStandardization"/> examples will train unstandardized. Without the seeded
+    ///     stats, <c>WarmStartWeightsForModeChange</c> would see no prior standardization, skip the rescale,
+    ///     and apply standardized-space weights to raw features - silently wrong scores. The training
+    ///     generation is reset to 0 so this model's SGD RNG seed does not inherit the source's progression.
+    ///     Only the learned weights carry over as a prior. The owning ensemble's blend factor (alpha) is
+    ///     deliberately not seeded: it must grow from the per-user example count so a data-poor user blends
+    ///     conservatively rather than inheriting the global model's confidence and being overrun by it.
+    /// </remarks>
+    /// <param name="source">The model to copy weights and standardization state from.</param>
+    internal void SeedFrom(LearnedScoringStrategy source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        // Capture weights, bias, and standardization stats under a single source lock. Reading them through
+        // the individual accessors would take four separate locks, so a concurrent source.Train could leave
+        // the target with weights from one model state and standardization stats from another, and Score would
+        // then normalize with mismatched statistics.
+        var snapshot = source.CaptureSeedSnapshot();
+
+        lock (_syncRoot)
+        {
+            _weights = snapshot.Weights;
+            _bias = snapshot.Bias;
+            _featureMeans = snapshot.FeatureMeans;
+            _featureStdDevs = snapshot.FeatureStdDevs;
+            _trainingGeneration = 0;
+        }
+    }
+
+    /// <summary>
+    ///     Takes a consistent copy of the weights, bias, and standardization stats under one lock so a warm
+    ///     start seeds from a single coherent model state rather than a mix of concurrent training states.
+    /// </summary>
+    private (double[] Weights, double Bias, double[]? FeatureMeans, double[]? FeatureStdDevs) CaptureSeedSnapshot()
+    {
+        lock (_syncRoot)
+        {
+            return (
+                (double[])_weights.Clone(),
+                _bias,
+                _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
+                _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null);
+        }
+    }
+
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {

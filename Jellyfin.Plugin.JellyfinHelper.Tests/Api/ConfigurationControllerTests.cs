@@ -67,6 +67,20 @@ public class ConfigurationControllerTests
     }
 
     [Fact]
+    public async Task UpdateConfiguration_InvertedAlphaBounds_KeepsBothRequestedEndpoints()
+    {
+        // The request inverts the pair (min above max). Applying the two setters in sequence against the
+        // persisted other bound would drop one endpoint; both requested values must survive, ordered.
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.9, EnsembleAlphaMax = 0.1 };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0.1, _config.EnsembleAlphaMin);
+        Assert.Equal(0.9, _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_ValidConfig_ReturnsOk()
     {
         var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = 5, TrashRetentionDays = 10 };
@@ -1476,7 +1490,7 @@ public class ConfigurationControllerTests
         Assert.Equal(string.Empty, _config.RadarrInstances[0].ApiKey);
     }
 
-    // TEST-6: Two Radarr instances share the same URL but have different names.
+    // Two Radarr instances share the same URL but have different names.
     // The sentinel must restore each instance's own key - not always the first match.
     [Fact]
     public async Task ApplyRequestToConfig_TwoRadarrInstancesSameUrl_SentinelRestoresCorrectKey()
@@ -1649,6 +1663,95 @@ public class ConfigurationControllerTests
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
+        Assert.True(_config.EnsembleAlphaMin <= _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_WithPerUserRegistry_ReconfiguresPerUserBoundsOnSave()
+    {
+        // The per-user registry is optional in the ctor, so the default controller leaves it null and only the
+        // no-op path runs. Constructing the controller WITH a registry proves the save pushes the new blend
+        // bounds down to the per-user models so they do not stay on stale bounds until a restart.
+        var registryMock = new Mock<IPerUserEnsembleRegistry>();
+        var configHelperMock = new Mock<ICleanupConfigHelper>();
+        configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
+        using var ensemble = new EnsembleScoringStrategy();
+        var controller = new ConfigurationController(
+            _arrServiceMock.Object,
+            _pluginLogMock.Object,
+            new Mock<ILogger<ConfigurationController>>().Object,
+            configHelperMock.Object,
+            _configServiceMock.Object,
+            _seerrServiceMock.Object,
+            new Mock<MediaBrowser.Controller.Library.ILibraryManager>().Object,
+            ensemble,
+            registryMock.Object);
+
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.3, EnsembleAlphaMax = 0.7 };
+
+        var result = await controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        registryMock.Verify(r => r.Reconfigure(It.IsAny<EnsembleBlendBounds>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OnlyAlphaMinProvided_ClampsMinLeavingMaxUntouched()
+    {
+        // The single-bound arm clamps just the supplied endpoint into [0,1]. The other bound is not part of the
+        // request and must keep its stored value. An in-range min below the stored max avoids the setter's
+        // min <= max swap so the untouched max is observable.
+        _config.EnsembleAlphaMax = 0.8;
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.3, EnsembleAlphaMax = null };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0.8, _config.EnsembleAlphaMax);
+        Assert.Equal(0.3, _config.EnsembleAlphaMin);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OnlyAlphaMinOutOfRange_ClampsIntoUnitInterval()
+    {
+        // The clamp itself is what the single-bound arm exists to apply: an above-range min is pulled back into
+        // [0,1] rather than persisted verbatim.
+        _config.EnsembleAlphaMax = 1.0;
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 5.0, EnsembleAlphaMax = null };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.InRange(_config.EnsembleAlphaMin, 0.0, 1.0);
+        Assert.True(_config.EnsembleAlphaMin <= _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OnlyAlphaMaxProvided_ClampsMaxLeavingMinUntouched()
+    {
+        // Symmetric single-bound arm for AlphaMax: only the supplied endpoint is clamped into [0,1]. An in-range
+        // max above the stored min avoids the swap so the untouched min is observable.
+        _config.EnsembleAlphaMin = 0.2;
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = null, EnsembleAlphaMax = 0.6 };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0.2, _config.EnsembleAlphaMin);
+        Assert.Equal(0.6, _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OnlyAlphaMaxOutOfRange_ClampsIntoUnitInterval()
+    {
+        // An out-of-range (negative) max is clamped up to 0.0 by the single-bound arm.
+        _config.EnsembleAlphaMin = 0.0;
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = null, EnsembleAlphaMax = -3.0 };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.InRange(_config.EnsembleAlphaMax, 0.0, 1.0);
         Assert.True(_config.EnsembleAlphaMin <= _config.EnsembleAlphaMax);
     }
 

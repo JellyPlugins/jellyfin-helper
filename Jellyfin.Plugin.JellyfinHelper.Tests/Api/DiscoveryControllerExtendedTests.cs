@@ -314,7 +314,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     }
 
     [Fact]
-    public void GetDiscoveryResults_FiltersDismissedItems()
+    public async Task GetDiscoveryResults_FiltersDismissedItems()
     {
         var userId = Guid.NewGuid();
         var dismissedTmdbId = 999;
@@ -339,7 +339,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults();
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -349,7 +349,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     }
 
     [Fact]
-    public void GetDiscoveryResults_FiltersRequestedItems()
+    public async Task GetDiscoveryResults_FiltersRequestedItems()
     {
         var userId = Guid.NewGuid();
         var requestedTmdbId = 555;
@@ -374,7 +374,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults();
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -384,7 +384,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     }
 
     [Fact]
-    public void GetDiscoveryResults_FiltersAlreadyRequestedFlag()
+    public async Task GetDiscoveryResults_FiltersAlreadyRequestedFlag()
     {
         var userId = Guid.NewGuid();
         _feedbackStoreMock.Setup(s => s.GetDismissedItems(userId))
@@ -408,7 +408,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults();
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -418,7 +418,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     }
 
     [Fact]
-    public void GetDiscoveryResults_FeedbackStoreThrows_StillReturnsOk()
+    public async Task GetDiscoveryResults_FeedbackStoreThrows_StillReturnsOk()
     {
         var userId = Guid.NewGuid();
         _feedbackStoreMock.Setup(s => s.GetDismissedItems(userId))
@@ -439,7 +439,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults();
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -448,7 +448,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     }
 
     [Fact]
-    public void GetDiscoveryResults_TakesOnlyMaxVisiblePerUser()
+    public async Task GetDiscoveryResults_TakesOnlyMaxVisiblePerUser()
     {
         var userId = Guid.NewGuid();
         _feedbackStoreMock.Setup(s => s.GetDismissedItems(userId))
@@ -465,7 +465,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save([new DiscoveryResult { UserId = userId, UserName = "u", Recommendations = recs }]);
 
         var controller = CreateController();
-        var response = controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults();
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);

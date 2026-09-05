@@ -102,7 +102,10 @@ public sealed class UserDiscoveryController : ControllerBase
         // already requested elsewhere leaves the view and the next backfill item takes its slot.
         await MaybeReconcileAsync(currentUserId, cancellationToken).ConfigureAwait(false);
 
-        var results = _cache.Load();
+        // Read the persisted pool without the request token: reconcile above already absorbs a
+        // client disconnect, and this endpoint's contract is to still render the cached view rather
+        // than fail it. The read only touches the in-memory cache after the first load, so it is cheap.
+        var results = await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false);
         var userResult = results.FirstOrDefault(r => r.UserId.Equals(currentUserId));
         if (userResult == null)
         {

@@ -118,7 +118,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
     private readonly ILibraryManager _libraryManager;
-    private readonly EnsembleScoringStrategy _ensemble;
+    private readonly IPerUserEnsembleRegistry _perUserRegistry;
     private readonly DiscoveryCacheService _cache;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
     private readonly IPluginLogService _pluginLog;
@@ -131,6 +131,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private IReadOnlyList<SeerrUser>? _cachedSeerrUsers;
     private DateTime _cachedSeerrUsersExpiry = DateTime.MinValue;
 
+    // Holds the in-flight roster fetch so concurrent callers coalesce onto a single Seerr request
+    // instead of each launching their own. Cleared when the fetch completes so the next miss refreshes.
+    private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)>? _inflightUserFetch;
+
     /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrDiscoveryService"/> class.
     /// </summary>
@@ -138,7 +142,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="arrIntegration">The Arr integration service.</param>
     /// <param name="libraryManager">The Jellyfin library manager, used to exclude titles already in the library.</param>
-    /// <param name="ensemble">The ensemble scoring strategy (combines heuristic + learned + neural).</param>
+    /// <param name="perUserRegistry">The per-user ensemble registry, so discovery scores each user's candidates with that user's own blend, matching how recommendations are scored.</param>
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="pluginLog">The plugin log service.</param>
@@ -148,7 +152,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IWatchHistoryService watchHistoryService,
         IArrIntegrationService arrIntegration,
         ILibraryManager libraryManager,
-        EnsembleScoringStrategy ensemble,
+        IPerUserEnsembleRegistry perUserRegistry,
         DiscoveryCacheService cache,
         IDiscoveryFeedbackStore feedbackStore,
         IPluginLogService pluginLog,
@@ -158,7 +162,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(watchHistoryService);
         ArgumentNullException.ThrowIfNull(arrIntegration);
         ArgumentNullException.ThrowIfNull(libraryManager);
-        ArgumentNullException.ThrowIfNull(ensemble);
+        ArgumentNullException.ThrowIfNull(perUserRegistry);
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(feedbackStore);
         ArgumentNullException.ThrowIfNull(pluginLog);
@@ -168,7 +172,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _watchHistoryService = watchHistoryService;
         _arrIntegration = arrIntegration;
         _libraryManager = libraryManager;
-        _ensemble = ensemble;
+        _perUserRegistry = perUserRegistry;
         _cache = cache;
         _feedbackStore = feedbackStore;
         _pluginLog = pluginLog;
@@ -259,7 +263,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Snapshot the previously-persisted pools once so a transient per-user failure can carry the user's
         // last-known-good pool forward instead of being wiped by the full-overwrite Save below. Keyed by user.
-        var previousByUser = _cache.Load().ToDictionary(r => r.UserId);
+        var previousByUser = (await _cache.LoadAsync(cancellationToken).ConfigureAwait(false)).ToDictionary(r => r.UserId);
 
         // Users whose pool in allResults is a carried-forward snapshot, not freshly generated this run. Their
         // items were already shown in a prior run, so they must be excluded from feedback recording to avoid
@@ -354,7 +358,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         Guid jellyfinUserId,
         HashSet<(int TmdbId, string MediaType)> requestedKeys)
     {
-        var userResult = _cache.Load().FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
+        var userResult = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
         if (userResult == null || userResult.Recommendations.Count == 0)
         {
             return 0;
@@ -1535,6 +1539,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private async Task<IReadOnlyList<SeerrUser>> GetCachedSeerrUsersAsync(CancellationToken cancellationToken)
     {
+        // Honor an already-cancelled token before any work. The shared fetch below runs on its own
+        // token so one caller cannot abort it for the others, which means the caller's cancellation
+        // would otherwise go unobserved on a cache hit or a synchronously completed fetch.
+        cancellationToken.ThrowIfCancellationRequested();
+
         // Fast path: check if cache is still valid under lock to ensure atomicity
         // of the (_cachedSeerrUsers, _cachedSeerrUsersExpiry) pair across threads.
         lock (_userCacheLock)
@@ -1545,24 +1554,41 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        // Slow path: refresh from Seerr API (outside lock to avoid blocking during I/O).
-        var (freshUsers, complete) = await FetchSeerrUsersInternalAsync(cancellationToken).ConfigureAwait(false);
+        // Slow path: coalesce concurrent callers onto one fetch so a discovery run that fans out over
+        // many users, or a burst of frontend requests, does not stampede Seerr with N parallel roster
+        // reads. The shared fetch runs on its own token so one caller cancelling does not abort it for
+        // the others; each caller still observes its own cancellation while awaiting.
+        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch;
+        lock (_userCacheLock)
+        {
+            if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
+            {
+                return _cachedSeerrUsers;
+            }
 
-        // Only cache complete, non-empty results to allow retry on next call when Seerr is temporarily unavailable or returns partial data.
+            // Reuse an in-flight fetch, but never a settled one: a completed task holds a stale result
+            // (including a failed fetch that must not be cached), so a fresh miss starts a new fetch
+            // rather than replaying the old outcome. This does not depend on the completion cleanup
+            // having run yet, which would otherwise race a caller arriving right after the fetch settles.
+            if (_inflightUserFetch is not { IsCompleted: false })
+            {
+                _inflightUserFetch = StartSeerrUserFetchAsync();
+            }
+
+            fetch = _inflightUserFetch;
+        }
+
+        (IReadOnlyList<SeerrUser> freshUsers, bool complete) = await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        // The shared fetch has already written a successful, complete result to the cache before completing
+        // (see StartSeerrUserFetchAsync), so once it settles the cache is warm and the fast path above catches
+        // any later caller in this burst. Read the cached copy here so every caller returns the same instance.
         if (freshUsers.Count > 0 && complete)
         {
             lock (_userCacheLock)
             {
-                // Double-checked: another concurrent caller may have already populated
-                // the cache while we were fetching outside the lock.
-                if (_cachedSeerrUsers == null || DateTime.UtcNow >= _cachedSeerrUsersExpiry)
+                if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
                 {
-                    _cachedSeerrUsers = freshUsers;
-                    _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
-                }
-                else
-                {
-                    // Another thread already populated the cache; return its copy
                     return _cachedSeerrUsers;
                 }
             }
@@ -1578,6 +1604,58 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             return _cachedSeerrUsers ?? freshUsers;
         }
+    }
+
+    // Starts a single shared roster fetch, publishes a successful complete result to the cache before the
+    // task completes, and clears the in-flight slot once it settles. Publishing inside the task closes the
+    // window where a caller arriving after the fetch settled but before the cache was written would start a
+    // second fetch: by the time the task is observably complete the cache is already warm. An incomplete or
+    // failed fetch writes nothing, so it stays on the retriable path and is never replayed from a settled task.
+    // Runs on its own token so it is not cancelled by any one caller's token.
+    private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> StartSeerrUserFetchAsync()
+    {
+        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch = FetchAndCacheSeerrUsersAsync();
+        _ = fetch.ContinueWith(
+            _ =>
+            {
+                lock (_userCacheLock)
+                {
+                    // Clear only our own slot. A caller arriving after this fetch settles but before this
+                    // continuation runs may have already installed a replacement fetch; wiping it would
+                    // strand that fresh request and force the next caller to start a third one.
+                    if (ReferenceEquals(_inflightUserFetch, fetch))
+                    {
+                        _inflightUserFetch = null;
+                    }
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return fetch;
+    }
+
+    // Fetches the roster and, on a successful complete read, writes it to the cache before returning, so the
+    // cache is warm the instant the shared task is observably complete.
+    private async Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> FetchAndCacheSeerrUsersAsync()
+    {
+        (IReadOnlyList<SeerrUser> users, bool complete) = await FetchSeerrUsersInternalAsync(CancellationToken.None).ConfigureAwait(false);
+
+        // Only cache complete, non-empty results to allow retry on the next call when Seerr is temporarily
+        // unavailable or returns partial data.
+        if (users.Count > 0 && complete)
+        {
+            lock (_userCacheLock)
+            {
+                if (_cachedSeerrUsers == null || DateTime.UtcNow >= _cachedSeerrUsersExpiry)
+                {
+                    _cachedSeerrUsers = users;
+                    _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
+                }
+            }
+        }
+
+        return (users, complete);
     }
 
     private async Task<DiscoveryResult?> GenerateForUserAsync(
@@ -1661,10 +1739,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
             _logger);
 
-        // Persisted training-set means so the features we cannot compute for a TMDb candidate are imputed
-        // to the distribution the model was trained on (matches DiscoveryFeedbackExampleBuilder). Snapshot
-        // once per user; null on a cold model keeps the legacy neutral constants.
-        var featureMeans = _ensemble.LearnedStrategy.GetFeatureMeans();
+        // The user's own ensemble (per-user blend when they have enough history, else the global fallback),
+        // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
+        // once per user and read the feature means from the SAME instance that scores, so a per-user model
+        // materializing mid-run cannot leave scoring and feature means on two different models.
+        var userStrategy = _perUserRegistry.GetEnsembleForUser(profile.UserId);
+        var featureMeans = userStrategy.LearnedStrategy.GetFeatureMeans();
 
         // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(uniqueCandidates.Count);
@@ -1672,7 +1752,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var features = ExternalCandidateFeatureBuilder.Build(
                 candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
-            var score = _ensemble.Score(features);
+            var score = userStrategy.Score(features);
             preScored.Add((candidate, score));
         }
 
@@ -1703,7 +1783,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var features = ExternalCandidateFeatureBuilder.Build(
                 candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
-            var score = _ensemble.Score(features);
+            var score = userStrategy.Score(features);
             scored.Add((candidate, features, score));
         }
 

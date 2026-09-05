@@ -11,6 +11,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using Moq;
 using Xunit;
@@ -41,6 +42,21 @@ public sealed class EngineExclusionTests
         }
 
         return movie;
+    }
+
+    private static Movie MakeMovieWithGenre(string name, string path, string genre)
+    {
+        return new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Path = path,
+            ProductionYear = 2020,
+            Genres = [genre],
+            CommunityRating = 7.5f,
+            PremiereDate = new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc),
+            DateCreated = DateTime.UtcNow.AddDays(-30)
+        };
     }
 
     private static void WireMovies(EngineTestFactory.EngineHarness harness, List<BaseItem> movies)
@@ -143,6 +159,54 @@ public sealed class EngineExclusionTests
         Assert.NotNull(result);
         Assert.Contains(result!.Recommendations, r => r.ItemId == a.Id);
         Assert.Contains(result.Recommendations, r => r.ItemId == b.Id);
+    }
+
+    [Fact]
+    public void GetAllRecommendations_ExcludedLibraryNestedUnderAllowed_KeepsNestedGenreOutOfBatch()
+    {
+        // Regression: the IDF rarity table is now counted in-memory from the same path-filtered items
+        // the candidates come from, so a genre living only in an excluded library nested under an
+        // allowed root ("/media/anime" under allowed "/media") must feed neither the candidate pool
+        // nor the rarity table. Exercise the batch path and prove the nested excluded item is dropped.
+        var harness = EngineTestFactory.Create();
+
+        harness.ConfigService
+            .Setup(c => c.GetConfiguration())
+            .Returns(new PluginConfiguration { ExcludedLibraries = "Anime" });
+        harness.LibraryManager
+            .Setup(lm => lm.GetVirtualFolders())
+            .Returns(
+            [
+                new VirtualFolderInfo { Name = "Media", CollectionType = CollectionTypeOptions.movies, Locations = ["/media"] },
+                new VirtualFolderInfo { Name = "Anime", CollectionType = CollectionTypeOptions.tvshows, Locations = ["/media/anime"] }
+            ]);
+
+        var keep = MakeMovie("Real Film", "/media/movies/real.mkv");
+        var drop = MakeMovieWithGenre("Isekai Clip", "/media/anime/clip.mkv", "Isekai");
+        WireMovies(harness, [keep, drop]);
+
+        var userId = Guid.NewGuid();
+        harness.WatchHistory.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile>
+            {
+                new()
+                {
+                    UserId = userId,
+                    UserName = "warm",
+                    WatchedItems = new Collection<WatchedItemInfo>
+                    {
+                        new() { ItemId = Guid.NewGuid(), Name = "W", ItemType = "Movie", Played = true, PlayCount = 1, Genres = new List<string> { "Action" } }
+                    }
+                }
+            });
+
+        var results = harness.Engine.GetAllRecommendations(10, CancellationToken.None);
+
+        Assert.NotNull(results);
+        var userResult = results.FirstOrDefault(r => r.UserId == userId);
+        Assert.NotNull(userResult);
+        Assert.Contains(userResult!.Recommendations, r => r.ItemId == keep.Id);
+        Assert.DoesNotContain(userResult.Recommendations, r => r.ItemId == drop.Id);
     }
 
     [Fact]

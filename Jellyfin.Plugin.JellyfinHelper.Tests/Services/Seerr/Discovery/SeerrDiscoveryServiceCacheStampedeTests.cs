@@ -20,7 +20,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     TEST-10 - Concurrent correctness tests for GetCachedSeerrUsersAsync (exercised through the public GetSeerrUsersAsync entry point).
+///     Concurrent correctness tests for GetCachedSeerrUsersAsync (exercised through the public GetSeerrUsersAsync entry point).
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
@@ -39,6 +39,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         """;
 
     private readonly DiscoveryCacheService _cache;
+    private readonly List<PerUserEnsembleRegistry> _registries = [];
 
     public SeerrDiscoveryServiceCacheStampedeTests()
     {
@@ -54,6 +55,11 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var registry in _registries)
+        {
+            registry.Dispose();
+        }
+
         _cache.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();
     }
@@ -86,12 +92,23 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         var pluginLog = new Mock<IPluginLogService>();
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
 
+        var perUserRegistry = new PerUserEnsembleRegistry(
+            ensemble,
+            null,
+            null,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+            pluginLog.Object);
+        _registries.Add(perUserRegistry);
+
         return new SeerrDiscoveryService(
             httpFactoryMock.Object,
             history.Object,
             arr.Object,
             libraryManager.Object,
-            ensemble,
+            perUserRegistry,
             _cache,
             feedbackStore.Object,
             pluginLog.Object,
@@ -149,6 +166,52 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             var names = list.Select(u => u.DisplayName).OrderBy(x => x).ToList();
             Assert.Equal(displayNames, names);
         }
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_ConcurrentColdMiss_CoalescesToSingleHttpRequest()
+    {
+        // A cold-cache burst must collapse onto one shared fetch rather than stampede Seerr with one
+        // roster read per caller. Only a single response is queued, so any second request would fall
+        // through to a 404 and the assertion below would fail.
+        const int concurrency = 8;
+        using var handler = new CountingHttpHandler(responseDelayMs: 30);
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+
+        var sut = BuildService(handler);
+
+        var tasks = Enumerable
+            .Range(0, concurrency)
+            .Select(_ => sut.GetSeerrUsersAsync(CancellationToken.None))
+            .ToArray();
+
+        var results = await Task.WhenAll(tasks);
+
+        Assert.All(results, list => Assert.Equal(3, list.Count));
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_OneCallerCancels_OthersStillComplete()
+    {
+        // A single caller cancelling its wait must not abort the shared fetch for the coalesced
+        // callers. The cancelling caller observes its own cancellation; the rest still get the roster.
+        using var handler = new CountingHttpHandler(responseDelayMs: 50);
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+
+        var sut = BuildService(handler);
+
+        using var cts = new CancellationTokenSource();
+        var cancelling = sut.GetSeerrUsersAsync(cts.Token);
+        var surviving = sut.GetSeerrUsersAsync(CancellationToken.None);
+
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await cancelling);
+
+        var survivingResult = await surviving;
+        Assert.Equal(3, survivingResult.Count);
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
     }
 
     [Fact]

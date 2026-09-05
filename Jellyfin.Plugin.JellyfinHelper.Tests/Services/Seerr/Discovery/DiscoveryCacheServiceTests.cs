@@ -715,4 +715,156 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.Single(loaded);
         Assert.Equal("PostRecovery", loaded[0].Recommendations[0].Title);
     }
+
+    [Fact]
+    public async Task LoadAsync_NoFileOnDisk_ReturnsEmpty()
+    {
+        var results = await _sut.LoadAsync();
+        Assert.NotNull(results);
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task LoadAsync_SavedResults_RoundTrip()
+    {
+        var userId = Guid.NewGuid();
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = userId,
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 42, MediaType = "movie", Title = "The Answer", Score = 0.9 }]
+            }
+        ]);
+
+        var loaded = await _sut.LoadAsync();
+
+        Assert.Single(loaded);
+        Assert.Equal(userId, loaded[0].UserId);
+        Assert.Single(loaded[0].Recommendations);
+        Assert.Equal(42, loaded[0].Recommendations[0].TmdbId);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ReadsFromDisk_JustLikeSyncLoad()
+    {
+        var userId = Guid.NewGuid();
+        _sut.Save([new DiscoveryResult { UserId = userId }]);
+        Assert.True(File.Exists(_cacheFilePath));
+
+        // Fresh instance so there is no pre-warmed _memoryCache and the file is actually read asynchronously.
+        using var freshSut = new DiscoveryCacheService(
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<DiscoveryCacheService>>().Object);
+
+        var loaded = await freshSut.LoadAsync();
+
+        Assert.Single(loaded);
+        Assert.Equal(userId, loaded[0].UserId);
+    }
+
+    [Fact]
+    public async Task LoadAsync_CorruptedJson_ReturnsEmpty_AndDoesNotThrow()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
+        File.WriteAllText(_cacheFilePath, "{ this is not valid json ");
+
+        var results = await _sut.LoadAsync();
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task LoadAsync_OversizedFile_DeletesFileAndReturnsEmpty()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
+        using (var stream = new FileStream(
+                   _cacheFilePath,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            // 50 MiB + 1 byte - strictly above the cap.
+            stream.SetLength((50L * 1024 * 1024) + 1);
+        }
+
+        using var freshSut = new DiscoveryCacheService(
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<DiscoveryCacheService>>().Object);
+
+        var results = await freshSut.LoadAsync();
+
+        Assert.Empty(results);
+        Assert.False(File.Exists(_cacheFilePath),
+            "the oversized cache file must be deleted after LoadAsync rejects it");
+    }
+
+    [Fact]
+    public async Task LoadAsync_CacheFileContainsNullEntries_FiltersNullsAndReturnsValidEntries()
+    {
+        var userId = Guid.NewGuid();
+        var json = $$"""[null, {"UserId":"{{userId}}","Recommendations":[]}]""";
+        Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
+        File.WriteAllText(_cacheFilePath, json);
+
+        using var freshSut = new DiscoveryCacheService(
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<DiscoveryCacheService>>().Object);
+
+        var results = await freshSut.LoadAsync();
+
+        Assert.Single(results);
+        Assert.Equal(userId, results[0].UserId);
+    }
+
+    [Fact]
+    public async Task LoadAsync_CachesFirstRead_SecondReadDoesNotHitDeletedFile()
+    {
+        var userId = Guid.NewGuid();
+        _sut.Save([new DiscoveryResult { UserId = userId }]);
+
+        using var freshSut = new DiscoveryCacheService(
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<DiscoveryCacheService>>().Object);
+
+        // First read populates the in-memory cache from disk.
+        var first = await freshSut.LoadAsync();
+        Assert.Single(first);
+
+        // Deleting the backing file must not affect a subsequent load: the in-memory
+        // cache serves the second read without touching disk.
+        SafeDelete(_cacheFilePath);
+
+        var second = await freshSut.LoadAsync();
+        Assert.Single(second);
+        Assert.Equal(userId, second[0].UserId);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ReturnsDetachedClones_MutatingResultDoesNotAffectCache()
+    {
+        var userId = Guid.NewGuid();
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = userId,
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 1, MediaType = "movie", AlreadyRequested = false }]
+            }
+        ]);
+
+        var first = await _sut.LoadAsync();
+        first[0].Recommendations[0].AlreadyRequested = true;
+
+        var second = await _sut.LoadAsync();
+        Assert.False(second[0].Recommendations[0].AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task LoadAsync_CancelledBeforeStart_Throws()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await _sut.LoadAsync(cts.Token));
+    }
 }

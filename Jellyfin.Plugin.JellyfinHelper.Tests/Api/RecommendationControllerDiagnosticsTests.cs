@@ -1,3 +1,4 @@
+using System;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -101,5 +102,104 @@ public class RecommendationControllerDiagnosticsTests
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, status.StatusCode);
         _mockEngine.Verify(e => e.GetEnsembleDiagnostics(), Times.Never);
+    }
+
+    [Fact]
+    public void GetEnsembleDiagnostics_WithUserId_PerUserModel_ReturnsPerUserDto()
+    {
+        var userId = Guid.NewGuid();
+
+        var perUserDiagnostics = new EnsembleDiagnostics { Alpha = 0.68, NeuralEnabled = true };
+        // Snapshot and per-user flag are resolved atomically in one call, so a cold-start user cannot be
+        // mislabelled as having an individual model.
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId)).Returns((perUserDiagnostics, true));
+        _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId))
+            .Returns(new UserWatchProfile { UserId = userId, UserName = "Bob" });
+
+        var result = _controller.GetEnsembleDiagnostics(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
+        Assert.True(dto.Available);
+        Assert.True(dto.IsPerUser);
+        Assert.Equal("Bob", dto.UserName);
+        Assert.Equal(0.68, dto.Alpha);
+    }
+
+    [Fact]
+    public void GetEnsembleDiagnostics_WithUserId_PerUserModelButProfileUnavailable_ReturnsPerUserDtoWithNullName()
+    {
+        var userId = Guid.NewGuid();
+
+        // A per-user model file can exist while the watch profile fails to build (transient error, or a user
+        // with a trained model but no current watch history), so the name is null even though the model is
+        // per-user. The response must keep IsPerUser true so the footnote is not mislabelled as the global model.
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId))
+            .Returns((new EnsembleDiagnostics { Alpha = 0.7, NeuralEnabled = true }, true));
+        _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId)).Returns((UserWatchProfile?)null);
+
+        var result = _controller.GetEnsembleDiagnostics(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
+        Assert.True(dto.Available);
+        Assert.True(dto.IsPerUser);
+        Assert.Null(dto.UserName);
+    }
+
+    [Fact]
+    public void GetEnsembleDiagnostics_WithUserId_ColdStartUser_ReturnsGlobalFallbackDto()
+    {
+        var userId = Guid.NewGuid();
+
+        // Cold-start: the atomic resolution returns the GLOBAL snapshot for this user paired with
+        // IsPerUser=false (no per-user model). IsPerUser must be false so the UI shows the global-fallback
+        // label. This is the regression guard for the old ReferenceEquals bug that reported per-user for everyone.
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId))
+            .Returns((new EnsembleDiagnostics { Alpha = 0.4, NeuralEnabled = true }, false));
+        _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId))
+            .Returns(new UserWatchProfile { UserId = userId, UserName = "NewUser" });
+
+        var result = _controller.GetEnsembleDiagnostics(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
+        Assert.True(dto.Available);
+        Assert.False(dto.IsPerUser);
+        Assert.Equal(0.4, dto.Alpha);
+    }
+
+    [Fact]
+    public void GetEnsembleDiagnostics_NoUserId_ReturnsGlobalDto()
+    {
+        var globalDiagnostics = new EnsembleDiagnostics { Alpha = 0.5, NeuralEnabled = true };
+        _mockEngine.Setup(e => e.GetEnsembleDiagnostics()).Returns(globalDiagnostics);
+
+        var result = _controller.GetEnsembleDiagnostics(userId: null);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
+        Assert.True(dto.Available);
+        Assert.False(dto.IsPerUser);
+        Assert.Null(dto.UserName);
+        Assert.Equal(0.5, dto.Alpha);
+
+        // Global path must use the parameterless engine call and never the per-user resolution.
+        _mockEngine.Verify(e => e.GetEnsembleDiagnostics(), Times.Once);
+        _mockEngine.Verify(e => e.GetUserEnsembleDiagnostics(It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Fact]
+    public void GetEnsembleDiagnostics_WithUserId_Deactivated_Returns503()
+    {
+        _mockConfigService.Setup(c => c.GetConfiguration())
+            .Returns(new PluginConfiguration { RecommendationsTaskMode = TaskMode.Deactivate });
+
+        var result = _controller.GetEnsembleDiagnostics(Guid.NewGuid());
+
+        var status = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, status.StatusCode);
+        _mockEngine.Verify(e => e.GetEnsembleDiagnostics(), Times.Never);
+        _mockEngine.Verify(e => e.GetUserEnsembleDiagnostics(It.IsAny<Guid>()), Times.Never);
     }
 }

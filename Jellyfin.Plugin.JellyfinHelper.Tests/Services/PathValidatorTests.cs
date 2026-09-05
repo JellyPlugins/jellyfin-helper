@@ -7,22 +7,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 public class PathValidatorTests
 {
-    [Fact]
-    public void IsSafePath_ReturnsFalse_WhenPathIsNull()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void IsSafePath_ReturnsFalse_ForBlankPath(string? path)
     {
-        Assert.False(PathValidator.IsSafePath(null, "/base"));
-    }
-
-    [Fact]
-    public void IsSafePath_ReturnsFalse_WhenPathIsEmpty()
-    {
-        Assert.False(PathValidator.IsSafePath("", "/base"));
-    }
-
-    [Fact]
-    public void IsSafePath_ReturnsFalse_WhenPathIsWhitespace()
-    {
-        Assert.False(PathValidator.IsSafePath("   ", "/base"));
+        Assert.False(PathValidator.IsSafePath(path, "/base"));
     }
 
     [Fact]
@@ -53,22 +44,13 @@ public class PathValidatorTests
         Assert.False(PathValidator.IsSafePath(outsidePath, basePath));
     }
 
-    [Fact]
-    public void SanitizeFileName_ReturnsExport_WhenNull()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void SanitizeFileName_ReturnsExport_ForBlankInput(string? name)
     {
-        Assert.Equal("export", PathValidator.SanitizeFileName(null!));
-    }
-
-    [Fact]
-    public void SanitizeFileName_ReturnsExport_WhenEmpty()
-    {
-        Assert.Equal("export", PathValidator.SanitizeFileName(""));
-    }
-
-    [Fact]
-    public void SanitizeFileName_ReturnsExport_WhenWhitespace()
-    {
-        Assert.Equal("export", PathValidator.SanitizeFileName("   "));
+        Assert.Equal("export", PathValidator.SanitizeFileName(name!));
     }
 
     [Fact]
@@ -77,18 +59,12 @@ public class PathValidatorTests
         Assert.Equal("report.csv", PathValidator.SanitizeFileName("report.csv"));
     }
 
-    [Fact]
-    public void SanitizeFileName_StripsDirectoryComponents()
+    [Theory]
+    [InlineData("subdir/file.txt")]
+    [InlineData("subdir\\file.txt")]
+    public void SanitizeFileName_StripsDirectoryComponents(string input)
     {
-        var result = PathValidator.SanitizeFileName("subdir/file.txt");
-        Assert.Equal("file.txt", result);
-    }
-
-    [Fact]
-    public void SanitizeFileName_StripsBackslashDirectoryComponents()
-    {
-        var result = PathValidator.SanitizeFileName("subdir\\file.txt");
-        Assert.Equal("file.txt", result);
+        Assert.Equal("file.txt", PathValidator.SanitizeFileName(input));
     }
 
     // IsSafePath(base, base) must return true. The path is the allowed root itself.
