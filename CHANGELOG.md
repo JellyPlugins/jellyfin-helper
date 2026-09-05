@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
-## [3.0.0.0] - 2026-09-04
+## [3.0.0.0] - YYYY-MM-DD
 
 A major release for Jellyfin 12. Smarter, fairer recommendations; a redesigned
 dashboard; a big push on security and data-safety; and a brand-new end-to-end
