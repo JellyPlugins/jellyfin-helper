@@ -363,6 +363,45 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         VerifyWarningLogged(logger);
     }
 
+    [Fact]
+    public void Train_WeightsSaveFails_DoesNotWriteEnsembleState()
+    {
+        // If the learned weights cannot be persisted, the ensemble must not stamp a fresh last-trained time,
+        // because that would leave the old weights on disk looking freshly trained and let the idle sweep keep
+        // a model that was never saved. Point the learned weights at an unwritable path (a file occupies a
+        // segment that must be a directory) while the state path is writable, then prove no state file appears.
+        var blockingFile = Path.Join(_tempDir, "wblocker");
+        File.WriteAllText(blockingFile, "x");
+        var unwritableWeightsPath = Path.Join(blockingFile, "nested", "ml_weights.json");
+
+        var learned = new LearnedScoringStrategy(unwritableWeightsPath);
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+
+        var logger = new Mock<ILogger>();
+        logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+
+        var sut = new EnsembleScoringStrategy(learned, heuristic, statePath: StatePath, logger: logger.Object);
+
+        var trained = sut.Train(CleanExamples(30));
+
+        Assert.True(trained, "Training still succeeds even when the weights save fails");
+        Assert.False(learned.LastWeightsSaveSucceeded, "The unwritable weights path must report a failed save");
+        Assert.False(File.Exists(StatePath), "No ensemble state must be written when the weights were not persisted");
+    }
+
+    [Fact]
+    public void Train_WeightsSaveSucceeds_WritesEnsembleState()
+    {
+        // The positive counterpart: with a writable weights path the save succeeds and the ensemble state is
+        // persisted, so the last-trained stamp is refreshed as normal.
+        var sut = BuildSut();
+
+        var trained = sut.Train(CleanExamples(30));
+
+        Assert.True(trained);
+        Assert.True(File.Exists(StatePath), "Ensemble state must be written after a successful weights save");
+    }
+
     private static List<TrainingExample> CleanExamples(int count, int seed = 42)
     {
         var examples = new List<TrainingExample>(count);

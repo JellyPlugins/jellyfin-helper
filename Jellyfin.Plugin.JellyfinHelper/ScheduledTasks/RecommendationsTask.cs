@@ -134,6 +134,11 @@ public class RecommendationsTask
 
         try
         {
+            // Reconcile per-user models before the cached-results guard below. Idle retirement and orphan
+            // pruning must run on every active run, not only when there are cached results to train on, or a
+            // stale per-user model could stay selected indefinitely on a server whose result cache is empty.
+            _recsEngine.RetireStalePerUserModels();
+
             var previousResults = _recsCacheService.LoadResults();
             if (previousResults is { Count: > 0 })
             {

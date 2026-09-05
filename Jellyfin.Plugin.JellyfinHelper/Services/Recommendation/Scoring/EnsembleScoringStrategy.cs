@@ -686,7 +686,18 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     trend);
             }
 
-            TrySaveState();
+            // Refresh the persisted blend state (which carries the last-trained timestamp) only when the
+            // learned weights were durably saved. If the weights write failed, stamping a fresh time here would
+            // leave the old weights on disk looking freshly trained, so the idle sweep would keep a model that
+            // was never actually persisted. Leaving the previous state untouched keeps the timestamp honest.
+            if (_learned.LastWeightsSaveSucceeded)
+            {
+                TrySaveState();
+            }
+            else if (_logger is not null && _logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("Skipping ensemble state save because the learned weights were not persisted this run.");
+            }
         }
         else
         {

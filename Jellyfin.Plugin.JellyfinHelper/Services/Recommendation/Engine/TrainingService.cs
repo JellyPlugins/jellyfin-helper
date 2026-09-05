@@ -176,26 +176,38 @@ internal sealed class TrainingService : IDisposable
             // never drops a user below the threshold or starves their model of their own recent history.
             TrainPerUserModels(registry, pooled, cancellationToken);
 
-            // Retire per-user models for users who once had enough data but have since gone quiet: the per-user
-            // pass above only visits users present in this run's examples, so a user with a model on disk but no
-            // examples this cycle is otherwise never reconsidered. Age is measured from each model's last-trained
-            // time, so a user active within the window (which just refreshed that time above) is never touched.
-            var idleCutoff = DateTime.UtcNow - TimeSpan.FromDays(EngineConstants.PerUserModelMaxIdleDays);
-            var staleEvicted = registry.EvictStaleModels(idleCutoff);
-            if (staleEvicted > 0)
-            {
-                _pluginLog.LogInfo(
-                    LogSource,
-                    $"Retired {staleEvicted} per-user model(s) not retrained in {EngineConstants.PerUserModelMaxIdleDays} days; those users fall back to the global model.",
-                    _logger);
-            }
-
             return globalTrained;
         }
         finally
         {
             _trainGate.Release();
         }
+    }
+
+    /// <summary>
+    ///     Retires per-user models that have gone idle beyond the configured window, independently of whether
+    ///     there was anything to train on this run. The per-user training pass only revisits users present in
+    ///     the current examples, so a user with a model on disk but no examples this cycle is otherwise never
+    ///     reconsidered. Age is measured from each model's persisted last-trained time, so a user active within
+    ///     the window is never touched and a single quiet cycle cannot evict a live user.
+    /// </summary>
+    /// <param name="registry">The per-user ensemble registry.</param>
+    /// <returns>The number of stale per-user models that were confirmed retired.</returns>
+    public int RetireStaleModels(IPerUserEnsembleRegistry registry)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+
+        var idleCutoff = DateTime.UtcNow - TimeSpan.FromDays(EngineConstants.PerUserModelMaxIdleDays);
+        var staleEvicted = registry.EvictStaleModels(idleCutoff);
+        if (staleEvicted > 0)
+        {
+            _pluginLog.LogInfo(
+                LogSource,
+                $"Retired {staleEvicted} per-user model(s) not retrained in {EngineConstants.PerUserModelMaxIdleDays} days; those users fall back to the global model.",
+                _logger);
+        }
+
+        return staleEvicted;
     }
 
     /// <summary>

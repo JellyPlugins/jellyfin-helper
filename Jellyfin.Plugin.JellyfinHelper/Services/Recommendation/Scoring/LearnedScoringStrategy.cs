@@ -81,6 +81,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     private double _lastNdcgAtK = double.NaN;
     private int _trainingGeneration;
     private double[] _weights;
+    private bool _lastWeightsSaveSucceeded;
 
     /// <summary>
     ///     Persisted Z-score standardization statistics. When non-null, scoring applies the same standardization that was used during training to ensure consistency.
@@ -128,6 +129,21 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             lock (_syncRoot)
             {
                 return _lastValidationLoss;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Gets a value indicating whether the most recent training run durably persisted its weights. False when the weights path
+    ///     write failed, so a caller can avoid stamping a fresh last-trained time over weights that were not saved.
+    /// </summary>
+    internal bool LastWeightsSaveSucceeded
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _lastWeightsSaveSucceeded;
             }
         }
     }
@@ -440,7 +456,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         }
 
         // Persist outside the lock - TrySaveWeights() takes its own lock for a brief snapshot, then performs serialization and file I/O without holding the scoring lock.
-        TrySaveWeights();
+        var saved = TrySaveWeights();
+        lock (_syncRoot)
+        {
+            _lastWeightsSaveSucceeded = saved;
+        }
 
         return true;
     }
@@ -1146,11 +1166,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>
     ///     Persists current weights to disk synchronously.
     /// </summary>
-    private void TrySaveWeights()
+    private bool TrySaveWeights()
     {
         if (string.IsNullOrEmpty(_weightsPath))
         {
-            return;
+            // No path configured means in-memory-only operation; there is no persisted file whose freshness
+            // could go out of sync, so treat this as a successful no-op.
+            return true;
         }
 
         try
@@ -1180,6 +1202,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
             // Use AtomicFile so a transient Windows AV/indexer sharing violation on the final File.Move gets a bounded retry instead of silently dropping the save (it also cleans up temp files).
             AtomicFile.WriteAllText(_weightsPath, json);
+            return true;
         }
         catch (IOException ex)
         {
@@ -1212,6 +1235,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             // Non-critical - log for diagnostics but don't fail
             _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to serialize weights");
         }
+
+        // Any catch above means the weights are not persisted; report that so callers do not treat the
+        // in-memory weights as durably saved.
+        return false;
     }
 
     /// <summary>

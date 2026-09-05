@@ -332,12 +332,10 @@ public class TrainingServiceTests
     ///     Builds a large watch profile with N distinct watched items across several genres, which - combined with N recommendations per user - produces enough training examples to trigger the held-out validation split path (>= 20 examples).
     /// </summary>
     [Fact]
-    public void TrainPerUser_ModelIdleBeyondWindow_RetiredWithInfoLog()
+    public void RetireStaleModels_ModelIdleBeyondWindow_RetiredWithInfoLog()
     {
-        // A user builds a per-user model, then goes quiet for longer than the idle window. A later run for a
-        // different user never revisits the quiet user, so the age sweep must retire the stale model and log the
-        // retirement. This drives the staleEvicted > 0 branch that the happy-path per-user tests never reach.
-        var activeUser = Guid.NewGuid();
+        // A user builds a per-user model, then goes quiet for longer than the idle window. RetireStaleModels
+        // runs the age sweep independently of training, so it must retire the stale model and log the retirement.
         var idleUser = Guid.NewGuid();
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
@@ -370,8 +368,8 @@ public class TrainingServiceTests
                 new[] { CreateLargeResult(idleUser, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) });
             Assert.True(registry.HasPerUserModel(idleUser));
 
-            // Rewind the idle user's persisted last-trained time to well beyond the idle window so the next run's
-            // age sweep sees it as stale. The active user's run below never touches the idle user's stamp.
+            // Rewind the idle user's persisted last-trained time to well beyond the idle window so the sweep
+            // sees it as stale.
             var idleStatePath = Path.Join(dataPath, $"ensemble_state_{idleUser:N}.json");
             var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(idleStatePath))!;
             node["UpdatedAt"] = DateTime.UtcNow
@@ -379,14 +377,9 @@ public class TrainingServiceTests
                 .ToString("O", System.Globalization.CultureInfo.InvariantCulture);
             File.WriteAllText(idleStatePath, node.ToJsonString());
 
-            // A later run only for a different, active user. The idle user is not in these results, so the
-            // per-user pass never revisits them and only the age sweep can retire the stale model.
-            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
-                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(activeUser, watchedCount: 30) });
-            sut.TrainPerUser(
-                registry,
-                new[] { CreateLargeResult(activeUser, recommendationCount: 30, new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc)) });
+            var retired = sut.RetireStaleModels(registry);
 
+            Assert.Equal(1, retired);
             Assert.False(registry.HasPerUserModel(idleUser));
             Assert.False(File.Exists(Path.Join(dataPath, $"ml_weights_{idleUser:N}.json")));
             _pluginLogMock.Verify(

@@ -254,7 +254,9 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return false;
         }
 
-        EvictUser(userId);
+        // This path reports eviction as attempted regardless of the delete outcome; the confirmed-removal
+        // signal only matters to the stale sweep, which counts it.
+        _ = EvictUser(userId);
         _pluginLog.LogInfo(LogSource, $"Evicted per-user model for user {userId:N} (below the per-user threshold).", _logger);
         return true;
     }
@@ -288,9 +290,13 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
                     continue;
                 }
 
-                EvictUser(id);
-                evicted++;
-                _pluginLog.LogInfo(LogSource, $"Evicted stale per-user model for user {id:N} (not retrained since {cutoffUtc:O}).", _logger);
+                // Count the model only when its weights file is confirmed gone. If the delete failed the read
+                // path can rebuild the same stale model, so reporting it as retired would be a lie.
+                if (EvictUser(id))
+                {
+                    evicted++;
+                    _pluginLog.LogInfo(LogSource, $"Evicted stale per-user model for user {id:N} (not retrained since {cutoffUtc:O}).", _logger);
+                }
             }
         }
         catch (Exception ex) when (!ex.IsFatal())
@@ -397,17 +403,21 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <summary>
     ///     Removes the cached instance for a user and deletes both persisted files. Best-effort: individual
     ///     file failures are logged and swallowed so a locked or already-gone file does not leave the cache
-    ///     inconsistent.
+    ///     inconsistent. Returns whether the weights file is confirmed gone, because that file is what the read
+    ///     path keys on when rebuilding a per-user model; a failed weights delete means the model is not really
+    ///     retired.
     /// </summary>
     /// <param name="userId">The user to evict.</param>
-    private void EvictUser(Guid userId)
+    /// <returns>True when the weights file no longer exists after the attempt.</returns>
+    private bool EvictUser(Guid userId)
     {
         // Delete the persisted files before dropping the cached instance. The read path resolves a per-user
         // model only when the weights file exists and re-checks that file after building, so deleting first
         // means a score racing this eviction either sees the file already gone (and stays on the global model)
         // or discards its freshly built instance on the re-check. Removing the cache entry first would leave
         // that ordering open to a stray rebuild that outlives the eviction.
-        foreach (var path in new[] { GetLearnedWeightsPath(userId), GetEnsembleStatePath(userId) })
+        var weightsPath = GetLearnedWeightsPath(userId);
+        foreach (var path in new[] { weightsPath, GetEnsembleStatePath(userId) })
         {
             if (path is null)
             {
@@ -431,6 +441,10 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         {
             evicted.Value.Dispose();
         }
+
+        // The weights file is the source of truth for a per-user model. If a delete failure left it on disk the
+        // model is not actually retired and the read path can rebuild it, so report that back to the caller.
+        return weightsPath is null || !_fileSystem.File.Exists(weightsPath);
     }
 
     /// <summary>
