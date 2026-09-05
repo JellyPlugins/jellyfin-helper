@@ -432,6 +432,13 @@ public class PluginConfigurationSerializationTests
         Assert.Empty(config.DrainClampReports());
     }
 
+    [Fact]
+    public void SeerrCleanupAgeDays_Negative_CollapseToDisabledSentinel()
+    {
+        var config = new PluginConfiguration { SeerrCleanupAgeDays = -5 };
+        Assert.Equal(0, config.SeerrCleanupAgeDays);
+    }
+
     [Theory]
     [InlineData(3651, 3650)]
     public void SeerrCleanupAgeDays_OutOfRange_AppearsInClampReport(int raw, int expected)
@@ -561,15 +568,23 @@ public class PluginConfigurationSerializationTests
             $"Min({config.EnsembleAlphaMin}) must be <= Max({config.EnsembleAlphaMax}) after setting Min above Max");
     }
 
-    [Theory]
-    [InlineData(0.7, 0.3)]
-    [InlineData(0.5, 0.5)]
-    public void EnsembleAlphaMin_SetAtOrBelowMax_PreservesBoth(double max, double min)
+    [Fact]
+    public void EnsembleAlphaMin_SetBelowMax_PreservesMax()
     {
-        var config = new PluginConfiguration { EnsembleAlphaMax = max };
-        config.EnsembleAlphaMin = min;
+        var config = new PluginConfiguration { EnsembleAlphaMax = 0.7 };
+        config.EnsembleAlphaMin = 0.3;
 
-        Assert.Equal(min, config.EnsembleAlphaMin);
-        Assert.Equal(max, config.EnsembleAlphaMax);
+        Assert.Equal(0.3, config.EnsembleAlphaMin);
+        Assert.Equal(0.7, config.EnsembleAlphaMax);
+    }
+
+    [Fact]
+    public void EnsembleAlphaMin_SetEqual_IsAllowed()
+    {
+        var config = new PluginConfiguration { EnsembleAlphaMax = 0.5 };
+        config.EnsembleAlphaMin = 0.5;
+
+        Assert.Equal(0.5, config.EnsembleAlphaMin);
+        Assert.Equal(0.5, config.EnsembleAlphaMax);
     }
 }

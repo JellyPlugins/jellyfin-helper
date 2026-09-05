@@ -9,29 +9,73 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr;
 /// </summary>
 public class SeerrMediaDetailsTests
 {
-    // DisplayTitle prefers a non-blank Title, then falls back to a non-blank Name.
-    [Theory]
-    [InlineData("The Matrix", null, "The Matrix")]
-    [InlineData(null, "Breaking Bad", "Breaking Bad")]
-    [InlineData("Movie Title", "TV Name", "Movie Title")]
-    [InlineData("", "Fallback Show", "Fallback Show")]
-    [InlineData("   ", "Real Show", "Real Show")]
-    public void DisplayTitle_PrefersTitleThenName(string? title, string? name, string expected)
+    [Fact]
+    public void DisplayTitle_OnlyTitle_ReturnsTitle()
     {
-        var details = new SeerrMediaDetails { Title = title, Name = name };
-        Assert.Equal(expected, details.DisplayTitle);
+        var details = new SeerrMediaDetails { Title = "The Matrix", Name = null };
+        Assert.Equal("The Matrix", details.DisplayTitle);
     }
 
-    // When neither field carries a non-blank value, DisplayTitle is null.
-    [Theory]
-    [InlineData(null, null)]
-    [InlineData(null, "")]
-    [InlineData(null, "   ")]
-    [InlineData("", "")]
-    [InlineData("  ", "  ")]
-    public void DisplayTitle_BlankInputs_ReturnsNull(string? title, string? name)
+    [Fact]
+    public void DisplayTitle_OnlyName_ReturnsName()
     {
-        var details = new SeerrMediaDetails { Title = title, Name = name };
+        var details = new SeerrMediaDetails { Title = null, Name = "Breaking Bad" };
+        Assert.Equal("Breaking Bad", details.DisplayTitle);
+    }
+
+    [Fact]
+    public void DisplayTitle_BothTitleAndName_PrefersTitleOverName()
+    {
+        var details = new SeerrMediaDetails { Title = "Movie Title", Name = "TV Name" };
+        Assert.Equal("Movie Title", details.DisplayTitle);
+    }
+
+    [Fact]
+    public void DisplayTitle_BothNull_ReturnsNull()
+    {
+        var details = new SeerrMediaDetails { Title = null, Name = null };
+        Assert.Null(details.DisplayTitle);
+    }
+
+    [Fact]
+    public void DisplayTitle_EmptyTitle_FallsBackToName()
+    {
+        var details = new SeerrMediaDetails { Title = "", Name = "Fallback Show" };
+        Assert.Equal("Fallback Show", details.DisplayTitle);
+    }
+
+    [Fact]
+    public void DisplayTitle_WhitespaceTitle_FallsBackToName()
+    {
+        var details = new SeerrMediaDetails { Title = "   ", Name = "Real Show" };
+        Assert.Equal("Real Show", details.DisplayTitle);
+    }
+
+    [Fact]
+    public void DisplayTitle_EmptyName_ReturnsNull()
+    {
+        var details = new SeerrMediaDetails { Title = null, Name = "" };
+        Assert.Null(details.DisplayTitle);
+    }
+
+    [Fact]
+    public void DisplayTitle_WhitespaceName_ReturnsNull()
+    {
+        var details = new SeerrMediaDetails { Title = null, Name = "   " };
+        Assert.Null(details.DisplayTitle);
+    }
+
+    [Fact]
+    public void DisplayTitle_BothEmpty_ReturnsNull()
+    {
+        var details = new SeerrMediaDetails { Title = "", Name = "" };
+        Assert.Null(details.DisplayTitle);
+    }
+
+    [Fact]
+    public void DisplayTitle_BothWhitespace_ReturnsNull()
+    {
+        var details = new SeerrMediaDetails { Title = "  ", Name = "  " };
         Assert.Null(details.DisplayTitle);
     }
 
@@ -56,19 +100,52 @@ public class SeerrMediaDetailsTests
         Assert.Null(details.DisplayTitle);
     }
 
-    [Theory]
-    [InlineData("""{"title":"Inception","name":null}""", "Inception", null, "Inception")]
-    [InlineData("""{"title":null,"name":"The Wire"}""", null, "The Wire", "The Wire")]
-    [InlineData("""{"title":"Movie","name":"Show"}""", "Movie", "Show", "Movie")]
-    [InlineData("{}", null, null, null)]
-    public void Deserialize_PopulatesTitleNameAndDisplayTitle(string json, string? title, string? name, string? displayTitle)
+    [Fact]
+    public void Deserialize_MovieResponse_ParsesTitleCorrectly()
     {
+        var json = """{"title":"Inception","name":null}""";
         var details = JsonSerializer.Deserialize<SeerrMediaDetails>(json);
 
         Assert.NotNull(details);
-        Assert.Equal(title, details!.Title);
-        Assert.Equal(name, details.Name);
-        Assert.Equal(displayTitle, details.DisplayTitle);
+        Assert.Equal("Inception", details!.Title);
+        Assert.Null(details.Name);
+        Assert.Equal("Inception", details.DisplayTitle);
+    }
+
+    [Fact]
+    public void Deserialize_TvResponse_ParsesNameCorrectly()
+    {
+        var json = """{"title":null,"name":"The Wire"}""";
+        var details = JsonSerializer.Deserialize<SeerrMediaDetails>(json);
+
+        Assert.NotNull(details);
+        Assert.Null(details!.Title);
+        Assert.Equal("The Wire", details.Name);
+        Assert.Equal("The Wire", details.DisplayTitle);
+    }
+
+    [Fact]
+    public void Deserialize_BothFields_ParsesCorrectly()
+    {
+        var json = """{"title":"Movie","name":"Show"}""";
+        var details = JsonSerializer.Deserialize<SeerrMediaDetails>(json);
+
+        Assert.NotNull(details);
+        Assert.Equal("Movie", details!.Title);
+        Assert.Equal("Show", details.Name);
+        Assert.Equal("Movie", details.DisplayTitle);
+    }
+
+    [Fact]
+    public void Deserialize_EmptyJson_DefaultsToNull()
+    {
+        var json = "{}";
+        var details = JsonSerializer.Deserialize<SeerrMediaDetails>(json);
+
+        Assert.NotNull(details);
+        Assert.Null(details!.Title);
+        Assert.Null(details.Name);
+        Assert.Null(details.DisplayTitle);
     }
 
     [Fact]

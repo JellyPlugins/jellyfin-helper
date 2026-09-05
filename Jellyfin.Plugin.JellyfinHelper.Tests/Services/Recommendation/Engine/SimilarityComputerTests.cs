@@ -343,25 +343,41 @@ public sealed class SimilarityComputerTests
 
     // Weighted ComputePeopleSimilarity overload === These tests exercise the weighted-budget denominator: matched-weight / max(|candidate| × avg(preferredWeight), MinDenominatorFloor).
 
-    public static TheoryData<string[], (string, double)[]> PeopleSimilarityZeroCases() => new()
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_EmptyCandidate_ReturnsZero()
     {
-        { [], [("Nolan", 8.0)] },
-        { ["Nolan"], [] },
-        { ["Alice", "Bob"], [("Carol", 5.0), ("Dave", 3.0)] },
-    };
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { { "Nolan", 8.0 } };
 
-    [Theory]
-    [MemberData(nameof(PeopleSimilarityZeroCases))]
-    public void ComputePeopleSimilarityWeighted_ReturnsZero(string[] candidate, (string, double)[] weightPairs)
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_EmptyWeights_ReturnsZero()
     {
-        var candidateSet = new HashSet<string>(candidate, StringComparer.OrdinalIgnoreCase);
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Nolan" };
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, weight) in weightPairs)
-        {
-            weights[name] = weight;
-        }
 
-        Assert.Equal(0.0, SimilarityComputer.ComputePeopleSimilarity(candidateSet, weights));
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_NoOverlap_ReturnsZero()
+    {
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob" };
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Carol", 5.0 },
+            { "Dave", 3.0 }
+        };
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.Equal(0.0, result);
     }
 
     [Fact]
@@ -573,11 +589,10 @@ public sealed class SimilarityComputerTests
     [Theory]
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NaN)]
-    [InlineData(0.0)]
-    public void ComputeGenreSimilarity_DegenerateUserNorm_ReturnsZero(double userNormSq)
+    public void ComputeGenreSimilarity_NonFiniteUserNorm_ReturnsZero(double userNormSq)
     {
-        // A corrupt/degenerate precomputed user norm (Inf, NaN, or zero magnitude) must short-circuit
-        // to 0 rather than propagate a non-finite value or divide by zero, even when a real genre matches.
+        // A corrupt/degenerate precomputed user norm (Inf or NaN) must short-circuit to 0
+        // rather than propagate a non-finite value into the ranking, even when a real genre matches.
         var candidateGenres = new List<string> { "Action" };
         var preferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
@@ -585,6 +600,22 @@ public sealed class SimilarityComputerTests
         };
 
         var result = SimilarityComputer.ComputeGenreSimilarity(candidateGenres, preferences, userNormSq);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputeGenreSimilarity_ZeroUserNorm_ReturnsZero()
+    {
+        // A zero-magnitude user vector has no cosine direction: even with a positive dot product
+        // the score must short-circuit to 0 instead of dividing by zero.
+        var candidateGenres = new List<string> { "Action" };
+        var preferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Action", 3.0 }
+        };
+
+        var result = SimilarityComputer.ComputeGenreSimilarity(candidateGenres, preferences, 0.0);
 
         Assert.Equal(0.0, result);
     }
@@ -605,24 +636,45 @@ public sealed class SimilarityComputerTests
         Assert.Equal(0.0, result);
     }
 
-    public static TheoryData<string[], string[], double> TagSimilarityJaccardCases() => new()
+    [Fact]
+    public void ComputeTagSimilarity_OverlappingTags_ReturnsJaccard()
     {
-        { ["Space", "Robots", "Drama"], ["space", "robots"], 2.0 / 3.0 },
-        { ["Comedy", "Musical"], ["Horror", "Thriller"], 0.0 },
-        { ["SPACE", "robots"], ["space", "ROBOTS"], 1.0 },
-    };
-
-    [Theory]
-    [MemberData(nameof(TagSimilarityJaccardCases))]
-    public void ComputeTagSimilarity_Jaccard(string[] candidateTags, string[] preferred, double expected)
-    {
+        // Jaccard = |A ∩ B| / |A ∪ B|. Two of the candidate's three tags match the preferred set
+        // (case-insensitively), so the score is 2/3.
         var candidate = NewCandidate("Tagged");
-        candidate.Tags = candidateTags;
-        var preferredTags = new HashSet<string>(preferred, StringComparer.OrdinalIgnoreCase);
+        candidate.Tags = new[] { "Space", "Robots", "Drama" };
+        var preferredTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "space", "robots" };
 
         var result = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags);
 
-        Assert.Equal(expected, result, 10);
+        Assert.Equal(2.0 / 3.0, result, 10);
+    }
+
+    [Fact]
+    public void ComputeTagSimilarity_DisjointTags_ReturnsZero()
+    {
+        // No overlap means an empty intersection, so Jaccard collapses to 0.
+        var candidate = NewCandidate("Disjoint");
+        candidate.Tags = new[] { "Comedy", "Musical" };
+        var preferredTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Horror", "Thriller" };
+
+        var result = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputeTagSimilarity_CaseVariantTags_MatchOrdinalIgnoreCase()
+    {
+        // Tag matching is OrdinalIgnoreCase: a fully case-mismatched but otherwise identical tag set
+        // yields perfect overlap (Jaccard = 1).
+        var candidate = NewCandidate("CaseTags");
+        candidate.Tags = new[] { "SPACE", "robots" };
+        var preferredTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "space", "ROBOTS" };
+
+        var result = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags);
+
+        Assert.Equal(1.0, result, 10);
     }
 
     [Fact]

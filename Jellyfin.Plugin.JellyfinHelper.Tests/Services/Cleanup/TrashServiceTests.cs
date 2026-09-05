@@ -216,26 +216,77 @@ public class TrashServiceTests : IDisposable
         Assert.False(File.Exists(oldFile));
     }
 
-    [Theory]
-    [InlineData(0, 9999)]
-    [InlineData(-1, 365)]
-    [InlineData(0, 0)]
-    public void PurgeExpiredTrash_DisabledOrAtCutoff_ItemNotPurged(int retentionDays, int ageDays)
+    [Fact]
+    public void PurgeExpiredTrash_RetentionDaysZero_Disabled_NothingPurged()
     {
-        // retentionDays <= 0 is the disabled sentinel so nothing is purged regardless of age, and
-        // an item timestamped exactly at Now is not strictly older than the cutoff either.
         var trashPath = Path.Join(_testRoot, "trash");
 
-        var timestamp = Now.AddDays(-ageDays).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var itemDir = Path.Join(trashPath, $"{timestamp}_SomeMovie");
-        Directory.CreateDirectory(itemDir);
-        File.WriteAllBytes(Path.Join(itemDir, "movie.mkv"), new byte[300]);
+        // RetentionDays = 0 is the "disabled" sentinel - nothing should be purged,
+        // regardless of how old the item is.
+        var oldTimestamp = Now.AddDays(-9999).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
+        Directory.CreateDirectory(oldDir);
+        File.WriteAllBytes(Path.Join(oldDir, "movie.mkv"), new byte[300]);
 
-        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, retentionDays, _loggerMock, Now);
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
 
         Assert.Equal(0, itemsPurged);
         Assert.Equal(0, bytesFreed);
-        Assert.True(Directory.Exists(itemDir));
+        Assert.True(Directory.Exists(oldDir), "Item must not be purged when retentionDays=0 (disabled)");
+    }
+
+    [Fact]
+    public void PurgeExpiredTrash_RetentionDaysZero_MaximallyOldItem_IsNeverPurged()
+    {
+        // retentionDays = 0 is the "disabled" sentinel - purge should never run regardless of item age.
+        var trashPath = Path.Join(_testRoot, "trash");
+
+        var ancientTimestamp = Now.AddDays(-9999).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var ancientDir = Path.Join(trashPath, $"{ancientTimestamp}_AncientMovie");
+        Directory.CreateDirectory(ancientDir);
+        File.WriteAllBytes(Path.Join(ancientDir, "movie.mkv"), new byte[400]);
+
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
+
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(ancientDir), "Maximally old item must not be purged when retention is disabled (0)");
+    }
+
+    [Fact]
+    public void PurgeExpiredTrash_RetentionDaysMinus1_Disabled()
+    {
+        // retentionDays = -1 is an out-of-range / disabled value - nothing should be purged.
+        var trashPath = Path.Join(_testRoot, "trash");
+
+        var oldTimestamp = Now.AddDays(-365).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
+        Directory.CreateDirectory(oldDir);
+        File.WriteAllBytes(Path.Join(oldDir, "movie.mkv"), new byte[200]);
+
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, -1, _loggerMock, Now);
+
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(oldDir), "No items should be purged when retentionDays is -1 (disabled)");
+    }
+
+    [Fact]
+    public void PurgeExpiredTrash_RetentionDaysZero_ItemAtExactCutoff_NotPurged()
+    {
+        var trashPath = Path.Join(_testRoot, "trash");
+
+        // Item with timestamp exactly at Now -> timestamp is NOT < cutoff (Now) -> NOT purged.
+        var exactTimestamp = Now.ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var exactDir = Path.Join(trashPath, $"{exactTimestamp}_ExactMovie");
+        Directory.CreateDirectory(exactDir);
+        File.WriteAllBytes(Path.Join(exactDir, "movie.mkv"), new byte[200]);
+
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
+
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(exactDir), "Item at exact cutoff should NOT be purged");
     }
 
     [Fact]
@@ -607,11 +658,8 @@ public class TrashServiceTests : IDisposable
     [InlineData("no-timestamp-here")]
     [InlineData("short")]
     [InlineData("")]
-    [InlineData("20260101-120000_")]
     public void ExtractOriginalName_InvalidTimestamp_ReturnsFullName(string input)
     {
-        // A valid timestamp prefix followed by an empty original name (e.g. "yyyyMMdd-HHmmss_")
-        // must also fall back to returning the full input rather than an empty string.
         var result = TrashService.ExtractOriginalName(input);
         Assert.Equal(input, result);
     }
@@ -621,6 +669,16 @@ public class TrashServiceTests : IDisposable
     {
         var result = TrashService.ExtractOriginalName(null!);
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void ExtractOriginalName_EmptyOriginal_ReturnsFallback()
+    {
+        // "yyyyMMdd-HHmmss_" is a valid timestamp prefix followed by an empty original name.
+        // ExtractOriginalName must fall back to returning the full input rather than an empty string.
+        const string input = "20260101-120000_";
+        var result = TrashService.ExtractOriginalName(input);
+        Assert.Equal(input, result);
     }
 
     [Fact]

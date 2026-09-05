@@ -102,22 +102,47 @@ public class SettingsHtmlTests : ConfigPageTestBase
         Assert.Contains(configProperty + ":", HtmlContent);
     }
 
-    /// <summary>
-    ///     Verifies the trash dialog markers, endpoints, and save-flow conditions are present.
-    /// </summary>
-    /// <param name="marker">The trash-related marker expected in the HTML.</param>
-    [Theory]
-    [InlineData("function showTrashDisableDialog")]
-    [InlineData("function showTrashDeleteConfirmation")]
-    [InlineData("function removeTrashDialog")]
-    [InlineData("_wasTrashEnabled")]
-    [InlineData("apiGet('JellyfinHelper/Trash/Folders'")]
-    [InlineData("apiDelete('JellyfinHelper/Trash/Folders'")]
-    [InlineData("_wasTrashEnabled && !payload.UseTrash")]
-    [InlineData("var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled")]
-    public void Html_ContainsTrashMarker(string marker)
+    // Trash disable dialog
+    [Fact]
+    public void Html_ContainsShowTrashDisableDialogFunction()
     {
-        Assert.Contains(marker, HtmlContent);
+        Assert.Contains("function showTrashDisableDialog", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsShowTrashDeleteConfirmationFunction()
+    {
+        Assert.Contains("function showTrashDeleteConfirmation", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsRemoveTrashDialogFunction()
+    {
+        Assert.Contains("function removeTrashDialog", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsWasTrashEnabledVariable()
+    {
+        Assert.Contains("_wasTrashEnabled", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TrashDisableDialog_CallsGetTrashFoldersEndpoint()
+    {
+        Assert.Contains("apiGet('JellyfinHelper/Trash/Folders'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TrashDisableDialog_CallsDeleteTrashFoldersEndpoint()
+    {
+        Assert.Contains("apiDelete('JellyfinHelper/Trash/Folders'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_SaveSettings_ChecksTrashDisableCondition()
+    {
+        Assert.Contains("_wasTrashEnabled && !payload.UseTrash", HtmlContent);
     }
 
     [Fact]
@@ -150,6 +175,12 @@ public class SettingsHtmlTests : ConfigPageTestBase
     public void Html_TrashDisableDialog_CancelReChecksTrashCheckbox()
     {
         Assert.Contains("cfgTrash", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_DoSaveSettings_DetectsTrashChanged()
+    {
+        Assert.Contains("var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled", HtmlContent);
     }
 
     [Fact]
@@ -241,31 +272,22 @@ public class SettingsHtmlTests : ConfigPageTestBase
         Assert.Contains(elementId, HtmlContent);
     }
 
-    /// <summary>
-    ///     Verifies the Seerr connection markers and test endpoint are present.
-    /// </summary>
-    /// <param name="marker">The Seerr-related marker expected in the HTML.</param>
-    [Theory]
-    [InlineData("btnTestSeerr")]
-    [InlineData("seerrNotConfigured")]
-    [InlineData("seerrFillFields")]
-    [InlineData("JellyfinHelper/Seerr/Test")]
-    public void Html_ContainsSeerrMarker(string marker)
+    [Fact]
+    public void Html_ContainsSeerrTestConnectionButton()
     {
-        Assert.Contains(marker, HtmlContent);
+        Assert.Contains("btnTestSeerr", HtmlContent);
     }
 
-    /// <summary>
-    ///     Verifies each Seerr configuration property is written into the save payload.
-    /// </summary>
-    /// <param name="configProperty">The payload property name expected in the HTML.</param>
-    [Theory]
-    [InlineData("SeerrUrl")]
-    [InlineData("SeerrApiKey")]
-    [InlineData("SeerrCleanupAgeDays")]
-    public void Html_SavesSeerrPropertyInPayload(string configProperty)
+    [Fact]
+    public void Html_SavesSeerrUrlInPayload()
     {
-        Assert.Contains(configProperty + ":", HtmlContent);
+        Assert.Contains("SeerrUrl:", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_SavesSeerrApiKeyInPayload()
+    {
+        Assert.Contains("SeerrApiKey:", HtmlContent);
     }
 
     [Fact]
@@ -282,10 +304,28 @@ public class SettingsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_SavesSeerrCleanupAgeDaysInPayload()
+    {
+        Assert.Contains("SeerrCleanupAgeDays:", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_SeerrNotConfiguredWarningShown()
+    {
+        Assert.Contains("seerrNotConfigured", HtmlContent);
+    }
+
+    [Fact]
     public void Html_SeerrCollapsibleSection()
     {
         Assert.Contains("arrCollapsibleSeerr", HtmlContent);
         Assert.Contains("arrCountSeerr", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_SeerrFillFieldsValidation()
+    {
+        Assert.Contains("seerrFillFields", HtmlContent);
     }
 
     [Fact]
@@ -314,6 +354,12 @@ public class SettingsHtmlTests : ConfigPageTestBase
 
         // Verify the actual ternary fallback logic exists (url && key && modeEl) ? value : 'Deactivate'
         Assert.Contains("? modeEl.value : 'Deactivate'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_SeerrTestCallsCorrectEndpoint()
+    {
+        Assert.Contains("JellyfinHelper/Seerr/Test", HtmlContent);
     }
 
     [Fact]

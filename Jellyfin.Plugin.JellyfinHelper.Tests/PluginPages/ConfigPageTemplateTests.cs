@@ -8,51 +8,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// </summary>
 public class ConfigPageTemplateTests : ConfigPageTestBase
 {
-    /// <summary>
-    ///     Verifies the template structure and emby-styling markers survive composition.
-    /// </summary>
-    /// <param name="marker">The structure or emby marker expected in the HTML.</param>
-    [Theory]
-    [InlineData("data-role=\"page\"")]
-    [InlineData("emby-checkbox")]
-    [InlineData("emby-select")]
-    [InlineData("type-interior")]
-    [InlineData("content-primary")]
-    [InlineData("data-role=\"content\"")]
-    [InlineData("<h2>Jellyfin Helper</h2>")]
-    [InlineData("pluginConfigurationPage")]
-    public void Html_ContainsStructureMarker(string marker)
+    [Fact]
+    public void Html_HasDataRolePage()
     {
-        Assert.Contains(marker, HtmlContent);
-    }
-
-    /// <summary>
-    ///     Verifies the stats and element-id markers survive composition.
-    /// </summary>
-    /// <param name="marker">The stats or id marker expected in the HTML.</param>
-    [Theory]
-    [InlineData("stats-header")]
-    [InlineData("stats-container")]
-    [InlineData("id=\"statsContent\"")]
-    [InlineData("id=\"statsPlaceholder\"")]
-    [InlineData("id=\"statsResult\"")]
-    [InlineData("id=\"loadingIndicator\"")]
-    [InlineData("id=\"JellyfinHelperConfigPage\"")]
-    public void Html_ContainsStatsMarker(string marker)
-    {
-        Assert.Contains(marker, HtmlContent);
-    }
-
-    /// <summary>
-    ///     Verifies the raw build-task placeholders were replaced during composition.
-    /// </summary>
-    /// <param name="placeholder">The placeholder comment that must not survive.</param>
-    [Theory]
-    [InlineData("/* CSS_CONTENT */")]
-    [InlineData("/* JS_CONTENT */")]
-    public void Html_DoesNotContainRawPlaceholder(string placeholder)
-    {
-        Assert.DoesNotContain(placeholder, HtmlContent);
+        Assert.Contains("data-role=\"page\"", HtmlContent);
     }
 
     [Fact]
@@ -60,6 +19,49 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
     {
         Assert.Contains("data-require=", HtmlContent);
         Assert.Contains("emby-input", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_HasEmbyCheckboxRequirement()
+    {
+        Assert.Contains("emby-checkbox", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_HasEmbySelectRequirement()
+    {
+        Assert.Contains("emby-select", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_HasTypeInteriorClass()
+    {
+        Assert.Contains("type-interior", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_HasContentPrimarySection()
+    {
+        Assert.Contains("content-primary", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_HasDataRoleContentWrapper()
+    {
+        Assert.Contains("data-role=\"content\"", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_DoesNotContainRawCssPlaceholder()
+    {
+        // If the placeholder still appears verbatim, the build task failed.
+        Assert.DoesNotContain("/* CSS_CONTENT */", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_DoesNotContainRawJsPlaceholder()
+    {
+        Assert.DoesNotContain("/* JS_CONTENT */", HtmlContent);
     }
 
     [Fact]
@@ -96,6 +98,18 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_ContainsPluginHeader()
+    {
+        Assert.Contains("<h2>Jellyfin Helper</h2>", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsStatsHeader()
+    {
+        Assert.Contains("stats-header", HtmlContent);
+    }
+
+    [Fact]
     public void Html_ContainsLastScanBadgeContainer()
     {
         Assert.Contains("last-scan-badge", HtmlContent);
@@ -124,9 +138,39 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_ContainsStatsContainer()
+    {
+        Assert.Contains("stats-container", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsStatsContent()
+    {
+        Assert.Contains("id=\"statsContent\"", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsStatsPlaceholder()
+    {
+        Assert.Contains("id=\"statsPlaceholder\"", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsStatsResult()
+    {
+        Assert.Contains("id=\"statsResult\"", HtmlContent);
+    }
+
+    [Fact]
     public void Html_StatsResult_HiddenByDefault()
     {
         Assert.Matches(new Regex(@"id=""statsResult""[^>]*style=""display:none;"""), HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsLoadingIndicator()
+    {
+        Assert.Contains("id=\"loadingIndicator\"", HtmlContent);
     }
 
     [Fact]
@@ -139,5 +183,18 @@ public class ConfigPageTemplateTests : ConfigPageTestBase
     public void Html_LoadingIndicator_HasSpinner()
     {
         Assert.Matches(new Regex(@"id=""loadingIndicator""[\s\S]*?class=""spinner"""), HtmlContent);
+    }
+
+    [Fact]
+    public void Html_RootPageElementHasExpectedId()
+    {
+        Assert.Contains("id=\"JellyfinHelperConfigPage\"", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_RootPageHasPluginConfigurationPageClass()
+    {
+        // Required by Jellyfin to render inside the plugin admin area
+        Assert.Contains("pluginConfigurationPage", HtmlContent);
     }
 }

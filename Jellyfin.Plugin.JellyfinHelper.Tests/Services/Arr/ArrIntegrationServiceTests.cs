@@ -101,20 +101,32 @@ public class ArrIntegrationServiceTests
             ItExpr.IsAny<CancellationToken>());
     }
 
-    [Theory]
-    [InlineData("Radarr", "5.2.0.1234", "http://localhost:7878")]
-    [InlineData("Sonarr", "4.0.1.100", "http://localhost:8989")]
-    public async Task TestConnection_SuccessfulResponse_ReturnsTrue(string appName, string version, string url)
+    [Fact]
+    public async Task TestConnection_SuccessfulResponse_ReturnsTrue()
     {
-        var json = $$"""{"appName":"{{appName}}","version":"{{version}}"}""";
+        var json = """{"appName":"Radarr","version":"5.2.0.1234"}""";
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object);
 
-        var (success, message) = await service.TestConnectionAsync(url, "testapikey");
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey");
 
         Assert.True(success);
-        Assert.Contains(appName, message);
-        Assert.Contains(version, message);
+        Assert.Contains("Radarr", message);
+        Assert.Contains("5.2.0.1234", message);
+    }
+
+    [Fact]
+    public async Task TestConnection_SuccessfulResponse_SonarrAppName()
+    {
+        var json = """{"appName":"Sonarr","version":"4.0.1.100"}""";
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var service = CreateService(handler.Object);
+
+        var (success, message) = await service.TestConnectionAsync("http://localhost:8989", "testapikey");
+
+        Assert.True(success);
+        Assert.Contains("Sonarr", message);
+        Assert.Contains("4.0.1.100", message);
     }
 
     [Fact]

@@ -8,17 +8,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// </summary>
 public class RecommendationsHtmlTests : ConfigPageTestBase
 {
-    /// <summary>
-    ///     Verifies each five-minute TTL marker is present in the composed Recommendations.js.
-    /// </summary>
-    /// <param name="marker">The TTL literal expected in the HTML.</param>
-    [Theory]
-    [InlineData("5 * 60 * 1000")]
-    [InlineData("_discoveryCacheTtlMs = 5 * 60 * 1000")]
-    [InlineData("_seerrServicesCacheTtlMs = 5 * 60 * 1000")]
-    public void Html_Cache_HasFiveMinuteTtl(string marker)
+    [Fact]
+    public void Html_RecsCache_HasFiveMinuteTtl()
     {
-        Assert.Contains(marker, HtmlContent);
+        Assert.Contains("5 * 60 * 1000", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_DiscoveryCache_HasFiveMinuteTtl()
+    {
+        Assert.Contains("_discoveryCacheTtlMs = 5 * 60 * 1000", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_SeerrServicesCache_HasFiveMinuteTtl()
+    {
+        Assert.Contains("_seerrServicesCacheTtlMs = 5 * 60 * 1000", HtmlContent);
     }
 
     [Fact]
@@ -31,21 +36,36 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
-    /// <summary>
-    ///     Verifies each loader guards late responses with a request-ID comparison.
-    /// </summary>
-    /// <param name="fn">The loader function name.</param>
-    /// <param name="reqVar">The request-ID variable the loader compares against.</param>
-    [Theory]
-    [InlineData("loadRecommendations", "_recsListReqId")]
-    [InlineData("loadUserWatchProfile", "_profileReqId")]
-    [InlineData("loadUserActivity", "_activityReqId")]
-    [InlineData("loadDiscoveryForUser", "_discoveryReqId")]
-    public void Html_Loader_UsesRequestIdGuard(string fn, string reqVar)
+    [Fact]
+    public void Html_LoadRecommendations_UsesRequestIdGuard()
     {
         // reqId prevents late responses from overwriting fresh ones after a tab switch.
         Assert.Matches(
-            new Regex(@"function\s+" + fn + @"[\s\S]*?reqId\s*!==\s*" + reqVar),
+            new Regex(@"function\s+loadRecommendations[\s\S]*?reqId\s*!==\s*_recsListReqId"),
+            HtmlContent);
+    }
+
+    [Fact]
+    public void Html_LoadUserWatchProfile_UsesRequestIdGuard()
+    {
+        Assert.Matches(
+            new Regex(@"function\s+loadUserWatchProfile[\s\S]*?reqId\s*!==\s*_profileReqId"),
+            HtmlContent);
+    }
+
+    [Fact]
+    public void Html_LoadUserActivity_UsesRequestIdGuard()
+    {
+        Assert.Matches(
+            new Regex(@"function\s+loadUserActivity[\s\S]*?reqId\s*!==\s*_activityReqId"),
+            HtmlContent);
+    }
+
+    [Fact]
+    public void Html_LoadDiscoveryForUser_UsesRequestIdGuard()
+    {
+        Assert.Matches(
+            new Regex(@"function\s+loadDiscoveryForUser[\s\S]*?reqId\s*!==\s*_discoveryReqId"),
             HtmlContent);
     }
 

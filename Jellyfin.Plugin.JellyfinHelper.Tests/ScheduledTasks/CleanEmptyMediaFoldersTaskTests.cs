@@ -459,31 +459,63 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
-    public static IEnumerable<object[]> ExcludedLibraryTypeCases()
+    [Fact]
+    public async Task ExecuteInternalAsync_MusicLibrary_IsCompletelySkipped()
     {
-        yield return [CollectionTypeOptions.music, "/media/music"];
-        yield return [CollectionTypeOptions.boxsets, "/media/boxsets"];
-        yield return [CollectionTypeOptions.books, "/media/books"];
-    }
+        const string musicPath = "/media/music";
 
-    [Theory]
-    [MemberData(nameof(ExcludedLibraryTypeCases))]
-    public async Task ExecuteInternalAsync_ExcludedLibraryType_IsCompletelySkipped(
-        CollectionTypeOptions collectionType, string path)
-    {
-        // Music, boxset and book libraries are excluded by collection type so a Book library
-        // (PDF/CBZ/EPUB) is never scanned or deleted; eBooks would otherwise be misclassified as
-        // orphaned media. Neutral paths avoid overlap with the collections-path location filter.
-        var folder = new VirtualFolderInfo
+        var musicFolder = new VirtualFolderInfo
         {
-            Locations = [path],
-            CollectionType = collectionType
+            Name = "Music",
+            Locations = [musicPath],
+            CollectionType = CollectionTypeOptions.music
         };
-        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([folder]);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([musicFolder]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        _fileSystemMock.Verify(f => f.GetDirectories(path), Times.Never);
+        // Music library should never be scanned at all
+        _fileSystemMock.Verify(f => f.GetDirectories(musicPath), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_BoxsetLibrary_IsCompletelySkipped()
+    {
+        const string collectionsPath = "/config/data/collections";
+
+        var boxsetFolder = new VirtualFolderInfo
+        {
+            Name = "Collections",
+            Locations = [collectionsPath],
+            CollectionType = CollectionTypeOptions.boxsets
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([boxsetFolder]);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        // Boxset/Collections library should never be scanned at all
+        _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath), Times.Never);
+    }
+
+    // Regression tests for the eBook data-loss bug (GitHub issue): a Book library (PDF/CBZ/EPUB) must NEVER be scanned or have its folders deleted by the empty-media-folder cleanup, because eBooks are not video/audio and would otherwise be classified as "orphaned media" and deleted.
+
+    [Fact]
+    public async Task ExecuteInternalAsync_BookLibrary_IsCompletelySkipped()
+    {
+        const string booksPath = "/media/books";
+
+        var bookFolder = new VirtualFolderInfo
+        {
+            Name = "Books",
+            Locations = [booksPath],
+            CollectionType = CollectionTypeOptions.books
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([bookFolder]);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        // A Book library must never even be scanned.
+        _fileSystemMock.Verify(f => f.GetDirectories(booksPath), Times.Never);
     }
 
     [Fact]

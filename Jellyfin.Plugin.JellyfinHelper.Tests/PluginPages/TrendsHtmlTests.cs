@@ -7,40 +7,64 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 public class TrendsHtmlTests : ConfigPageTestBase
 {
-    /// <summary>
-    ///     Verifies the trend tab elements, functions, endpoint, and timeline references are present.
-    /// </summary>
-    /// <param name="marker">The trend-related marker expected in the HTML.</param>
-    [Theory]
-    [InlineData("id=\"tab-trends\"")]
-    [InlineData("id=\"trendChartContainer\"")]
-    [InlineData("function renderTrendChart")]
-    [InlineData("function loadTrendData")]
-    [InlineData("function formatGranularityLabel")]
-    [InlineData("JellyfinHelper/GrowthTimeline")]
-    [InlineData("timeline.dataPoints")]
-    [InlineData("timeline.granularity")]
-    [InlineData("timeline.totalDirectoriesScanned")]
-    [InlineData("timeline.earliestFileDate")]
-    public void Html_ContainsTrendMarker(string marker)
+    [Fact]
+    public void Html_ContainsTrendsTab()
     {
-        Assert.Contains(marker, HtmlContent);
+        Assert.Contains("id=\"tab-trends\"", HtmlContent);
     }
 
-    /// <summary>
-    ///     Verifies the insights tab elements, functions, and endpoint are present.
-    /// </summary>
-    /// <param name="marker">The insights-related marker expected in the HTML.</param>
-    [Theory]
-    [InlineData("id=\"insightsContainer\"")]
-    [InlineData("function loadInsightsData")]
-    [InlineData("function renderInsightCards")]
-    [InlineData("function toggleInsightPanel")]
-    [InlineData("JellyfinHelper/LibraryInsights")]
-    [InlineData("insight-card")]
-    public void Html_ContainsInsightsMarker(string marker)
+    [Fact]
+    public void Html_ContainsTrendChartContainer()
     {
-        Assert.Contains(marker, HtmlContent);
+        Assert.Contains("id=\"trendChartContainer\"", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsRenderTrendChartFunction()
+    {
+        Assert.Contains("function renderTrendChart", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsLoadTrendDataFunction()
+    {
+        Assert.Contains("function loadTrendData", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsFormatGranularityLabelFunction()
+    {
+        Assert.Contains("function formatGranularityLabel", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_LoadTrendData_ReferencesCorrectApiEndpoint()
+    {
+        Assert.Contains("JellyfinHelper/GrowthTimeline", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_RenderTrendChart_ReferencesTimelineDataPoints()
+    {
+        Assert.Contains("timeline.dataPoints", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_RenderTrendChart_ReferencesTimelineGranularity()
+    {
+        Assert.Contains("timeline.granularity", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_RenderTrendChart_ReferencesTimelineTotalDirectoriesScanned()
+    {
+        Assert.Contains("timeline.totalDirectoriesScanned", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_RenderTrendChart_ReferencesTimelineEarliestFileDate()
+    {
+        Assert.Contains("timeline.earliestFileDate", HtmlContent);
     }
 
     [Fact]
@@ -171,6 +195,36 @@ public class TrendsHtmlTests : ConfigPageTestBase
     // -- Insights section -------------------------------------------
 
     [Fact]
+    public void Html_ContainsInsightsContainer()
+    {
+        Assert.Contains("id=\"insightsContainer\"", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsLoadInsightsFunction()
+    {
+        Assert.Contains("function loadInsightsData", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsRenderInsightCardsFunction()
+    {
+        Assert.Contains("function renderInsightCards", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsToggleInsightPanelFunction()
+    {
+        Assert.Contains("function toggleInsightPanel", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_LoadInsights_ReferencesCorrectApiEndpoint()
+    {
+        Assert.Contains("JellyfinHelper/LibraryInsights", HtmlContent);
+    }
+
+    [Fact]
     public void Html_Insights_UsesI18nKeys()
     {
         Assert.Contains("T('insightLargest'", HtmlContent);
@@ -178,6 +232,12 @@ public class TrendsHtmlTests : ConfigPageTestBase
         Assert.Contains("T('insightNoData'", HtmlContent);
         Assert.Contains("T('insightsError'", HtmlContent);
         Assert.Contains("T('loadingInsights'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_Insights_ContainsInsightCardClass()
+    {
+        Assert.Contains("insight-card", HtmlContent);
     }
 
     [Fact]

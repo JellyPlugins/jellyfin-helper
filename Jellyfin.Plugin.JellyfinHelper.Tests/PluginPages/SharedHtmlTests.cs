@@ -8,41 +8,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// </summary>
 public class SharedHtmlTests : ConfigPageTestBase
 {
-    /// <summary>
-    ///     Verifies the core utility functions are declared in the composed Shared.js.
-    /// </summary>
-    /// <param name="signature">The function signature marker expected in the HTML.</param>
-    [Theory]
-    [InlineData("function mi(name)")]
-    [InlineData("function T(")]
-    [InlineData("function loadTranslations")]
-    [InlineData("function applyStaticTranslations")]
-    [InlineData("function getCssVar")]
-    [InlineData("function formatBytes")]
-    [InlineData("function formatTimeAgo")]
-    [InlineData("function escHtml")]
-    [InlineData("function escAttr")]
-    public void Html_ContainsUtilityFunction(string signature)
+    [Fact]
+    public void Html_ContainsMaterialIconHelperFunction()
     {
-        Assert.Contains(signature, HtmlContent);
-    }
-
-    /// <summary>
-    ///     Verifies the UI helper functions are declared in the composed Shared.js.
-    /// </summary>
-    /// <param name="signature">The function signature marker expected in the HTML.</param>
-    [Theory]
-    [InlineData("function pluralize")]
-    [InlineData("function showAutoSaveIndicatorOverlay")]
-    [InlineData("function showButtonFeedback")]
-    [InlineData("function createDialogOverlay")]
-    [InlineData("function createDialogBtn")]
-    [InlineData("function removeDialogById")]
-    [InlineData("function attachTogglePanelHandlers")]
-    [InlineData("function resolveArrInstances")]
-    public void Html_ContainsUiFunction(string signature)
-    {
-        Assert.Contains(signature, HtmlContent);
+        Assert.Contains("function mi(name)", HtmlContent);
     }
 
     [Fact]
@@ -79,6 +48,24 @@ public class SharedHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_ContainsTranslationFunction()
+    {
+        Assert.Contains("function T(", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsLoadTranslationsFunction()
+    {
+        Assert.Contains("function loadTranslations", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsApplyStaticTranslationsFunction()
+    {
+        Assert.Contains("function applyStaticTranslations", HtmlContent);
+    }
+
+    [Fact]
     public void Html_LoadTranslations_CallsTranslationsEndpoint()
     {
         Assert.Contains("JellyfinHelper/Translations", HtmlContent);
@@ -90,6 +77,18 @@ public class SharedHtmlTests : ConfigPageTestBase
         Assert.Matches(
             new Regex(@"function\s+T\s*\([^)]*\)\s*\{[\s\S]*?(hasOwnProperty\.call|Object\.hasOwn)"),
             HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsGetCssVarFunction()
+    {
+        Assert.Contains("function getCssVar", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsFormatBytesFunction()
+    {
+        Assert.Contains("function formatBytes", HtmlContent);
     }
 
     [Fact]
@@ -112,6 +111,12 @@ public class SharedHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
+    [Fact]
+    public void Html_ContainsFormatTimeAgoFunction()
+    {
+        Assert.Contains("function formatTimeAgo", HtmlContent);
+    }
+
     [Theory]
     [InlineData("justNow")]
     [InlineData("minuteAgo")]
@@ -123,6 +128,18 @@ public class SharedHtmlTests : ConfigPageTestBase
     public void Html_FormatTimeAgo_UsesI18nKey(string key)
     {
         Assert.Contains("'" + key + "'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsEscHtmlFunction()
+    {
+        Assert.Contains("function escHtml", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsEscAttrFunction()
+    {
+        Assert.Contains("function escAttr", HtmlContent);
     }
 
     [Theory]
@@ -232,9 +249,21 @@ public class SharedHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_ContainsPluralizeFunction()
+    {
+        Assert.Contains("function pluralize", HtmlContent);
+    }
+
+    [Fact]
     public void Html_Pluralize_UsesCountOne()
     {
         Assert.Matches(new Regex(@"function\s+pluralize[\s\S]*?count\s*===\s*1"), HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsAutoSaveIndicatorOverlayFunction()
+    {
+        Assert.Contains("function showAutoSaveIndicatorOverlay", HtmlContent);
     }
 
     [Fact]
@@ -269,6 +298,12 @@ public class SharedHtmlTests : ConfigPageTestBase
     {
         // Success fades after 2s, error after 3s
         Assert.Matches(new Regex(@"ok\s*\?\s*2000\s*:\s*3000"), HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsShowButtonFeedbackFunction()
+    {
+        Assert.Contains("function showButtonFeedback", HtmlContent);
     }
 
     [Fact]
@@ -344,12 +379,36 @@ public class SharedHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_ContainsCreateDialogOverlayFunction()
+    {
+        Assert.Contains("function createDialogOverlay", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsCreateDialogBtnFunction()
+    {
+        Assert.Contains("function createDialogBtn", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsRemoveDialogByIdFunction()
+    {
+        Assert.Contains("function removeDialogById", HtmlContent);
+    }
+
+    [Fact]
     public void Html_CreateDialogBtn_SupportsAllStyleVariants()
     {
         // cancel, danger, success, and primary/warning fallback
         Assert.Matches(new Regex(@"function\s+createDialogBtn[\s\S]*?['""]cancel['""]"), HtmlContent);
         Assert.Matches(new Regex(@"function\s+createDialogBtn[\s\S]*?['""]danger['""]"), HtmlContent);
         Assert.Matches(new Regex(@"function\s+createDialogBtn[\s\S]*?['""]success['""]"), HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsAttachTogglePanelHandlersFunction()
+    {
+        Assert.Contains("function attachTogglePanelHandlers", HtmlContent);
     }
 
     [Fact]
@@ -376,6 +435,12 @@ public class SharedHtmlTests : ConfigPageTestBase
         Assert.Matches(
             new Regex(@"function\s+attachTogglePanelHandlers[\s\S]*?file-tree-panel-visible"),
             HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsResolveArrInstancesFunction()
+    {
+        Assert.Contains("function resolveArrInstances", HtmlContent);
     }
 
     [Fact]

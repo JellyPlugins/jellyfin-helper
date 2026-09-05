@@ -10,35 +10,152 @@ public sealed class ScoreExplanationTests
 {
     // DetermineDominantSignal Tests
 
-    [Theory]
-    [InlineData(0.9, 0.1, 0.2, 0.1, 0.05, 0.03, "Genre")]
-    [InlineData(0.1, 0.8, 0.2, 0.1, 0.05, 0.03, "Collaborative")]
-    [InlineData(0.1, 0.1, 0.9, 0.1, 0.05, 0.03, "Rating")]
-    [InlineData(0.1, 0.1, 0.2, 0.95, 0.05, 0.03, "UserRating")]
-    [InlineData(0.1, 0.1, 0.2, 0.1, 0.85, 0.03, "Recency")]
-    [InlineData(0.1, 0.1, 0.2, 0.1, 0.05, 0.95, "YearProximity")]
-    [InlineData(0.5, 0.1, 0.2, 0.1, 0.05, 0.03, "Genre")]
-    [InlineData(0.1, -0.95, 0.2, 0.1, 0.05, 0.03, "Collaborative")]
-    public void DetermineDominantSignal_RequiredSignals(double g, double c, double r, double ur, double rec, double yp, string expected) =>
-        Assert.Equal(expected, ScoreExplanation.DetermineDominantSignal(g, c, r, ur, rec, yp));
+    [Fact]
+    public void DetermineDominantSignal_GenreHighest_ReturnsGenre()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.9,
+            collabContrib: 0.1,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.03);
 
-    [Theory]
-    [InlineData(0.99, 0.1, 0.1, "Interaction")]
-    [InlineData(0.1, 0.95, 0.1, "People")]
-    [InlineData(0.1, 0.1, 0.99, "Studio")]
-    public void DetermineDominantSignal_OptionalSignals(double interaction, double people, double studio, string expected) =>
-        Assert.Equal(
-            expected,
-            ScoreExplanation.DetermineDominantSignal(
-                genreContrib: 0.1,
-                collabContrib: 0.1,
-                ratingContrib: 0.2,
-                userRatingContrib: 0.1,
-                recencyContrib: 0.05,
-                yearProxContrib: 0.03,
-                interactionContrib: interaction,
-                peopleContrib: people,
-                studioContrib: studio));
+        Assert.Equal("Genre", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_CollaborativeHighest_ReturnsCollaborative()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: 0.8,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.03);
+
+        Assert.Equal("Collaborative", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_RatingHighest_ReturnsRating()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: 0.1,
+            ratingContrib: 0.9,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.03);
+
+        Assert.Equal("Rating", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_UserRatingHighest_ReturnsUserRating()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: 0.1,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.95,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.03);
+
+        Assert.Equal("UserRating", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_RecencyHighest_ReturnsRecency()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: 0.1,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.85,
+            yearProxContrib: 0.03);
+
+        Assert.Equal("Recency", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_YearProximityHighest_ReturnsYearProximity()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: 0.1,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.95);
+
+        Assert.Equal("YearProximity", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_InteractionHighest_ReturnsInteraction()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: 0.1,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.03,
+            interactionContrib: 0.99);
+
+        Assert.Equal("Interaction", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_PeopleHighest_ReturnsPeople()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: 0.1,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.03,
+            interactionContrib: 0.1,
+            peopleContrib: 0.95);
+
+        Assert.Equal("People", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_StudioHighest_ReturnsStudio()
+    {
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: 0.1,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.03,
+            interactionContrib: 0.1,
+            peopleContrib: 0.1,
+            studioContrib: 0.99);
+
+        Assert.Equal("Studio", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_NegativeValues_UsesAbsolute()
+    {
+        // Negative contribution with largest absolute value should win
+        var result = ScoreExplanation.DetermineDominantSignal(
+            genreContrib: 0.1,
+            collabContrib: -0.95,
+            ratingContrib: 0.2,
+            userRatingContrib: 0.1,
+            recencyContrib: 0.05,
+            yearProxContrib: 0.03);
+
+        Assert.Equal("Collaborative", result);
+    }
 
     [Fact]
     public void DetermineDominantSignal_AllZeros_ReturnsNone()
@@ -46,6 +163,14 @@ public sealed class ScoreExplanationTests
         // When all contributions are zero, no signal is dominant
         var result = ScoreExplanation.DetermineDominantSignal(0, 0, 0, 0, 0, 0);
         Assert.Equal("None", result);
+    }
+
+    [Fact]
+    public void DetermineDominantSignal_OptionalDefaultsToZero()
+    {
+        // Without optional params, interaction/people/studio default to 0
+        var result = ScoreExplanation.DetermineDominantSignal(0.5, 0.1, 0.2, 0.1, 0.05, 0.03);
+        Assert.Equal("Genre", result);
     }
 
     // Blend Tests

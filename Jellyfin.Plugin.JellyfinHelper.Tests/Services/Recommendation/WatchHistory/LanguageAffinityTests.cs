@@ -11,15 +11,32 @@ public sealed class LanguageAffinityTests
 {
     // LanguageProfileEntry Tests
 
-    [Theory]
-    [InlineData(10, 0, 10.0)]
-    [InlineData(0, 8, 2.0)]
-    [InlineData(5, 4, 6.0)]
-    [InlineData(0, 0, 0.0)]
-    public void WeightedScore_Value(int chosen, int forced, double expected)
+    [Fact]
+    public void WeightedScore_ChosenOnly_ReturnsFullCount()
     {
-        var entry = new LanguageProfileEntry { ChosenCount = chosen, ForcedCount = forced };
-        Assert.Equal(expected, entry.WeightedScore, 10);
+        var entry = new LanguageProfileEntry { ChosenCount = 10, ForcedCount = 0 };
+        Assert.Equal(10.0, entry.WeightedScore, 10);
+    }
+
+    [Fact]
+    public void WeightedScore_ForcedOnly_ReturnsQuarterWeight()
+    {
+        var entry = new LanguageProfileEntry { ChosenCount = 0, ForcedCount = 8 };
+        Assert.Equal(2.0, entry.WeightedScore, 10); // 8 * 0.25 = 2.0
+    }
+
+    [Fact]
+    public void WeightedScore_Mixed_CombinesCorrectly()
+    {
+        var entry = new LanguageProfileEntry { ChosenCount = 5, ForcedCount = 4 };
+        Assert.Equal(6.0, entry.WeightedScore, 10); // 5 + (4 * 0.25) = 6.0
+    }
+
+    [Fact]
+    public void WeightedScore_ZeroCounts_ReturnsZero()
+    {
+        var entry = new LanguageProfileEntry();
+        Assert.Equal(0.0, entry.WeightedScore, 10);
     }
 
     // UserWatchProfile Language Property Tests

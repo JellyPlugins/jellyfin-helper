@@ -646,24 +646,36 @@ public class LinkRepairServiceTests
         Assert.Equal(LinkFileStatus.Valid, result.Status);
     }
 
-    public static IEnumerable<object[]> ReadTargetExceptionVariants()
+    [Fact]
+    public void ProcessLinkFile_ReadTargetThrowsIOException_ReturnsInvalidContent_DoesNotPropagate()
     {
-        yield return [new IOException("read failed")];
-        yield return [new UnauthorizedAccessException("denied")];
-    }
-
-    [Theory]
-    [MemberData(nameof(ReadTargetExceptionVariants))]
-    public void ProcessLinkFile_ReadTargetThrows_ReturnsInvalidContent_DoesNotPropagate(Exception ex)
-    {
-        // A handler throwing while reading must be caught & mapped to InvalidContent - never propagate up and abort the whole library scan.
+        // A handler throwing IOException must be caught & mapped to InvalidContent - never propagate up and abort the whole library scan.
         var handler = new Mock<ILinkHandler>();
         handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
         handler.Setup(x => x.SupportsUrlTargets).Returns(false);
         handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
-            .Throws(ex);
+            .Throws(new IOException("read failed"));
 
         var linkFile = _fileSystem.Path.GetFullPath("/series/ReadThrows/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("payload"));
+
+        var result = _service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_ReadTargetThrowsUnauthorized_ReturnsInvalidContent_DoesNotPropagate()
+    {
+        // Sibling coverage: the UnauthorizedAccessException path must also be caught
+        // and mapped to InvalidContent (previously silently conflated with IOException).
+        var handler = new Mock<ILinkHandler>();
+        handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
+        handler.Setup(x => x.SupportsUrlTargets).Returns(false);
+        handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
+            .Throws(new UnauthorizedAccessException("denied"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/ReadThrowsUnauth/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("payload"));
 
         var result = _service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);
@@ -1021,21 +1033,12 @@ public class LinkRepairServiceTests
 
     // ProcessLinkFile: strm WriteTarget exception variants
 
-    public static IEnumerable<object[]> WriteTargetExceptionVariants()
+    [Fact]
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsNotSupported_ReturnsBroken()
     {
-        yield return [new NotSupportedException("read-only fs")];
-        yield return [new ArgumentException("invalid path chars")];
-        yield return [new IOException("disk full")];
-        yield return [new UnauthorizedAccessException("denied")];
-    }
-
-    [Theory]
-    [MemberData(nameof(WriteTargetExceptionVariants))]
-    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrows_ReturnsBroken(Exception ex)
-    {
-        // Any exception from WriteTarget must be caught and mapped to Broken, and NewTargetPath
-        // cleared so the UI does not show a phantom repair.
-        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteThrows");
+        // NotSupportedException from WriteTarget must be caught and mapped to Broken,
+        // and NewTargetPath must be cleared so the UI does not show a phantom repair.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteNotSupported");
         var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
         var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
         _fileSystem.AddDirectory(movieDir);
@@ -1046,9 +1049,87 @@ public class LinkRepairServiceTests
         throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
         throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
         throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
-            .Throws(ex);
+            .Throws(new NotSupportedException("read-only fs"));
 
-        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteThrows/movie.strm");
+        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteNotSupported/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
+
+        var result = _service.ProcessLinkFile(linkFile, throwingHandler.Object, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsArgumentException_ReturnsBroken()
+    {
+        // ArgumentException from WriteTarget must also be caught and mapped to Broken.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteArgEx");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var throwingHandler = new Mock<ILinkHandler>();
+        throwingHandler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
+        throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new ArgumentException("invalid path chars"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteArgEx/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
+
+        var result = _service.ProcessLinkFile(linkFile, throwingHandler.Object, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsIOException_ReturnsBroken()
+    {
+        // IOException from WriteTarget (e.g. disk full) must be caught and mapped to Broken.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteIOEx");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var throwingHandler = new Mock<ILinkHandler>();
+        throwingHandler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
+        throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new IOException("disk full"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteIOEx/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
+
+        var result = _service.ProcessLinkFile(linkFile, throwingHandler.Object, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsUnauthorized_ReturnsBroken()
+    {
+        // UnauthorizedAccessException from WriteTarget must also be caught and mapped to Broken.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteUnauth");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var throwingHandler = new Mock<ILinkHandler>();
+        throwingHandler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
+        throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new UnauthorizedAccessException("denied"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteUnauth/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
 
         var result = _service.ProcessLinkFile(linkFile, throwingHandler.Object, dryRun: false);

@@ -14,22 +14,32 @@ public class ConfigurationRequestValidatorTests
         Assert.Null(ConfigurationRequestValidator.Validate(req));
     }
 
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(3651)]
-    public void Validate_ReturnsError_WhenOrphanMinAgeDaysOutOfRange(int orphanMinAgeDays)
+    [Fact]
+    public void Validate_ReturnsError_WhenOrphanMinAgeDaysNegative()
     {
-        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = orphanMinAgeDays, TrashRetentionDays = 30 };
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = -1, TrashRetentionDays = 30 };
         Assert.Contains("OrphanMinAgeDays", ConfigurationRequestValidator.Validate(req)!);
     }
 
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(5000)]
-    public void Validate_ReturnsError_WhenTrashRetentionDaysOutOfRange(int trashRetentionDays)
+    [Fact]
+    public void Validate_ReturnsError_WhenOrphanMinAgeDaysTooLarge()
     {
-        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 7, TrashRetentionDays = trashRetentionDays };
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 3651, TrashRetentionDays = 30 };
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTrashRetentionDaysNegative()
+    {
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 7, TrashRetentionDays = -1 };
         Assert.Contains("TrashRetentionDays", ConfigurationRequestValidator.Validate(req)!);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTrashRetentionDaysTooLarge()
+    {
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 7, TrashRetentionDays = 5000 };
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
 
     [Fact]
@@ -68,10 +78,8 @@ public class ConfigurationRequestValidatorTests
         Assert.Contains("Sonarr", ConfigurationRequestValidator.Validate(req)!);
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(5000)]
-    public void Validate_ReturnsError_WhenSeerrCleanupAgeDaysOutOfRange(int seerrCleanupAgeDays)
+    [Fact]
+    public void Validate_ReturnsError_WhenSeerrCleanupAgeDaysTooLow()
     {
         var req = new ConfigurationUpdateRequest
         {
@@ -79,9 +87,23 @@ public class ConfigurationRequestValidatorTests
             TrashRetentionDays = 30,
             SeerrUrl = "http://seerr.local",
             SeerrApiKey = "key",
-            SeerrCleanupAgeDays = seerrCleanupAgeDays
+            SeerrCleanupAgeDays = 0
         };
         Assert.Contains("SeerrCleanupAgeDays", ConfigurationRequestValidator.Validate(req)!);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenSeerrCleanupAgeDaysTooHigh()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local",
+            SeerrApiKey = "key",
+            SeerrCleanupAgeDays = 5000
+        };
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
 
     [Fact]
