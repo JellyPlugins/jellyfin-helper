@@ -53,9 +53,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     // Stored as a single immutable snapshot to prevent concurrent readers from mixing data across batches.
     private volatile CandidateSnapshot? _cachedSnapshot;
 
-    // Library-wide genre/studio IDF rarity table, refreshed alongside the candidate snapshot. Null until the first snapshot computes it, in which case the GenreStudioIdfPrior feature degrades to a neutral 0.0.
-    private volatile IReadOnlyDictionary<string, double>? _genreStudioIdf;
-
     private static readonly TimeSpan CandidateSnapshotMaxAge = TimeSpan.FromMinutes(30);
 
     // Monotonic counter incremented once per GetAllRecommendations invocation. Snapshotted before the parallel scoring loop so every user in the same batch shares the same batchGeneration value, making the exploration seed deterministic per (user, batch) pair.
@@ -161,6 +158,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             peopleLookup,
             boxSetLookup,
             contentAffinityLookup,
+            snapshot.GenreStudioIdf,
             seriesEpisodeCounts,
             maxResults,
             userStrategy,
@@ -200,7 +198,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // library is not scanned twice per training run.
         var (candidatesForTraining, seriesEpisodeCounts) = LoadCandidateItems(out var allMovies, out var allSeries);
 
-        _genreStudioIdf = BuildGenreStudioIdfTable(candidatesForTraining);
+        // Rarity prior built over the exact population the serve path scores (train/serve parity).
+        // Training does not publish a snapshot, so this stays a local and is threaded straight into the trainer.
+        var genreStudioIdf = BuildGenreStudioIdfTable(candidatesForTraining);
 
         // Training must resolve each watched item's studios/tags from the live library, identical to the
         // serve-time candidateLookup, or StudioMatch/TagSimilarity (and the ContentNearestNeighbor /
@@ -210,7 +210,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         // Train the global model (learned + neural + global blend) once, then a per-user learned model for
         // every user above the example threshold, warm-started from the global fit.
-        var trained = _trainingService.TrainPerUser(_perUserRegistry, previousResults, seriesEpisodeCounts, incremental, _genreStudioIdf, libraryItemMetadata, cancellationToken);
+        var trained = _trainingService.TrainPerUser(_perUserRegistry, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, libraryItemMetadata, cancellationToken);
 
         // Adjust learning speed based on cohort watch rates. Cohort A/B calibration stays global. It tunes
         // the shared sigmoid midpoint from aggregate cohort watch-rates, which would be meaningless per user.
@@ -291,7 +291,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates);
 
         // Refresh the library-wide genre/studio IDF rarity table once per batch (shared across users).
-        _genreStudioIdf = BuildGenreStudioIdfTable(candidates);
+        // Kept as a local and handed to the snapshot ctor so the table travels atomically with the
+        // candidate population it was built over, even if the stale-publish guard drops this write.
+        var genreStudioIdf = BuildGenreStudioIdfTable(candidates);
 
         // Pre-compute BoxSet membership for all candidates once (shared across users), avoiding
         // redundant parent-hierarchy traversals in ScoreCandidate / BuildWatchedBoxSetCounts.
@@ -326,7 +328,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             PublicationSequence: 0, // assigned atomically inside TryPublishSnapshot
             ObservedSequence: observedSequence, // watermark captured before the build began
             DateTime.UtcNow,
-            contentAffinityLookup));
+            contentAffinityLookup,
+            genreStudioIdf));
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -367,6 +370,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                             peopleLookup,
                             candidateBoxSetLookup,
                             contentAffinityLookup,
+                            genreStudioIdf,
                             seriesEpisodeCounts,
                             maxResultsPerUser,
                             _perUserRegistry.GetScoringStrategyForUser(profile.UserId),
@@ -793,6 +797,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="peopleLookup">Pre-built people lookup (item ID -> person names).</param>
     /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse: only items in BoxSets).</param>
     /// <param name="contentAffinityLookup">Per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
+    /// <param name="genreStudioIdf">Library-wide genre/studio IDF rarity table built over the same candidate population, sourced from the resolved snapshot (or a training local) so scoring reads the table that describes the items it is scoring.</param>
     /// <param name="seriesEpisodeCounts">
     ///     Per-series total episode count (from <see cref="LoadCandidateItems()"/>) used by
     ///     <see cref="PreferenceBuilder"/> to weight watched-episode signals by the fraction
@@ -829,6 +834,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         Dictionary<Guid, HashSet<string>> peopleLookup,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
         Dictionary<Guid, CandidateContentAffinity> contentAffinityLookup,
+        IReadOnlyDictionary<string, double>? genreStudioIdf,
         IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         int maxResults,
         IScoringStrategy strategy,
@@ -898,9 +904,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // so the O(W log W) sort inside ComputeWriterAffinity does not re-run per candidate.
         var averageWriterWeight = SimilarityComputer.ComputeAveragePreferredWeight(preferredWriterWeights);
         var preferredBilledPeople = preferredPeopleWeights;
-
-        // Library-wide genre/studio IDF rarity table (computed once per snapshot from the allowed items).
-        var genreStudioIdf = _genreStudioIdf;
 
         var userGenreNormSq = ComputeUserGenreNormSq(genrePreferences);
 
@@ -2022,8 +2025,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var boxSetLookup = BuildCandidateBoxSetLookupFresh(candidates);
             var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates);
 
-            // Refresh the library-wide genre/studio IDF rarity table alongside the live snapshot.
-            _genreStudioIdf = BuildGenreStudioIdfTable(candidates);
+            // Build the library-wide genre/studio IDF rarity table over these candidates and hand it to the
+            // snapshot ctor so the table travels atomically with the candidate population it describes.
+            var genreStudioIdf = BuildGenreStudioIdfTable(candidates);
 
             // Increment inside the lock so the sequence is assigned atomically with the cache write,
             // preventing a race with the batch path's TryPublishSnapshot.
@@ -2039,7 +2043,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 PublicationSequence: seq,
                 ObservedSequence: seq, // built and published under the same lock; the guard never applies here
                 DateTime.UtcNow,
-                contentAffinityLookup);
+                contentAffinityLookup,
+                genreStudioIdf);
 
             // Republish so subsequent live requests hit the fresh cache without re-entering the slow path. Already inside the refresh lock, so a direct assignment is safe.
             _cachedSnapshot = fresh;
@@ -2077,7 +2082,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     internal bool TryPublishSnapshotForTest(long publicationSequence)
     {
         var snapshot = new CandidateSnapshot(
-            [], [], [], [], null, false, 0, publicationSequence, publicationSequence, DateTime.UtcNow, []);
+            [], [], [], [], null, false, 0, publicationSequence, publicationSequence, DateTime.UtcNow, [], null);
 
         lock (_snapshotRefreshLock)
         {
@@ -2576,6 +2581,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     equal the cached value and make the guard unreachable) is what gives the guard teeth.
     /// </param>
     /// <param name="ContentAffinityLookup">Item ID -> per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
+    /// <param name="GenreStudioIdf">Library-wide genre/studio IDF rarity table built over exactly these Candidates. It travels with the snapshot so scoring always reads the table that describes the same candidate population being scored, even when a stale-publish guard rejects a competing snapshot write. Null degrades the GenreStudioIdfPrior feature to a neutral 0.0.</param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
         Dictionary<Guid, HashSet<string>> PeopleLookup,
@@ -2587,5 +2593,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         long PublicationSequence,
         long ObservedSequence,
         DateTime CreatedAtUtc,
-        Dictionary<Guid, CandidateContentAffinity> ContentAffinityLookup);
+        Dictionary<Guid, CandidateContentAffinity> ContentAffinityLookup,
+        IReadOnlyDictionary<string, double>? GenreStudioIdf);
 }

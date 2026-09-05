@@ -189,6 +189,52 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     }
 
     [Fact]
+    public void PruneOrphans_MalformedPerUserFilename_LeftUntouched()
+    {
+        var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        // A file that matches the per-user glob but whose embedded id is not a hex GUID must fail the id parse
+        // and be skipped rather than throwing or being deleted.
+        var malformed = Path.Combine(_dataPath, "ml_weights_notahexid.json");
+        File.WriteAllText(malformed, "{}");
+
+        var ex = Record.Exception(() => registry.PruneOrphans([Guid.NewGuid()]));
+
+        Assert.Null(ex);
+        Assert.True(File.Exists(malformed));
+    }
+
+    [Fact]
+    public void GetScoringStrategyForUser_WeightsFileDeletedAfterExistsCheck_FallsBackToGlobalAndDoesNotCache()
+    {
+        var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        // Materialize + train a per-user model so its weights file exists on disk and the user resolves to a
+        // distinct per-user instance.
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.LearnedStrategy.Train(GenerateExamples(30)));
+        var weightsFile = Path.Combine(_dataPath, $"ml_weights_{userId:N}.json");
+        Assert.True(File.Exists(weightsFile));
+
+        // Simulate the eviction race: the weights file is deleted directly on disk, and the session-cached entry
+        // is dropped so the read path re-checks the file. With the file gone the stray entry must be discarded and
+        // the user falls back to the exact global instance rather than lingering on a per-user model.
+        File.Delete(weightsFile);
+        Assert.True(registry.EvictPerUserModel(userId));
+
+        var resolved = registry.GetScoringStrategyForUser(userId);
+
+        Assert.Same(global, resolved);
+        // The fallback must not have re-cached a per-user model for this user.
+        Assert.False(registry.HasPerUserModel(userId));
+    }
+
+    [Fact]
     public void GetDiagnostics_ColdStartUser_ReturnsGlobalSnapshot()
     {
         var neural = new NeuralScoringStrategy();

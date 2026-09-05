@@ -102,12 +102,29 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // Cold-start: only adopt a per-user model when its weights file is actually present on disk. A user
         // below the training threshold has no file and must score with the global model (byte-identical to
         // the previous global-only behaviour), so the read path never creates an empty per-user model.
-        if (_dataPath is null || !File.Exists(GetLearnedWeightsPath(userId)))
+        var weightsPath = GetLearnedWeightsPath(userId);
+        if (_dataPath is null || weightsPath is null || !File.Exists(weightsPath))
         {
             return _globalEnsemble;
         }
 
-        return GetOrAddPerUser(userId);
+        var perUser = GetOrAddPerUser(userId);
+
+        // A concurrent eviction (training deleting a below-threshold user's files) can delete the weights file
+        // between the check above and the build here, leaving a freshly warm-started ensemble cached for a user
+        // who should be back on the global model. If the file has since gone, discard that entry so eviction
+        // wins and the user falls back to the global model rather than lingering on a stray per-user instance.
+        if (!File.Exists(weightsPath) && _perUser.TryRemove(userId, out var stray))
+        {
+            if (stray.IsValueCreated)
+            {
+                stray.Value.Dispose();
+            }
+
+            return _globalEnsemble;
+        }
+
+        return perUser;
     }
 
     /// <inheritdoc />
@@ -336,11 +353,11 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <param name="userId">The user to evict.</param>
     private void EvictUser(Guid userId)
     {
-        if (_perUser.TryRemove(userId, out var evicted) && evicted.IsValueCreated)
-        {
-            evicted.Value.Dispose();
-        }
-
+        // Delete the persisted files before dropping the cached instance. The read path resolves a per-user
+        // model only when the weights file exists and re-checks that file after building, so deleting first
+        // means a score racing this eviction either sees the file already gone (and stays on the global model)
+        // or discards its freshly built instance on the re-check. Removing the cache entry first would leave
+        // that ordering open to a stray rebuild that outlives the eviction.
         foreach (var path in new[] { GetLearnedWeightsPath(userId), GetEnsembleStatePath(userId) })
         {
             if (path is null)
@@ -359,6 +376,11 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             {
                 _pluginLog.LogWarning(LogSource, $"Could not delete per-user file '{path}': {ex.Message}", ex, _logger);
             }
+        }
+
+        if (_perUser.TryRemove(userId, out var evicted) && evicted.IsValueCreated)
+        {
+            evicted.Value.Dispose();
         }
     }
 

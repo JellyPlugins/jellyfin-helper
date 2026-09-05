@@ -136,7 +136,8 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         Assert.True(callsAfterFirst >= 1, "At least one HTTP call must have occurred to warm the cache.");
     }
 
-    // Stampede: concurrent cold-cache callers all fan out to HTTP (documents current "allow stampede" behaviour and verifies that once any caller has written the cache the result is consistent).
+    // Concurrent cold-cache callers coalesce onto one in-flight roster fetch, so the shared fetch runs once
+    // and every caller observes the same result once it has been written to the cache.
 
     [Fact]
     public async Task ResolveSeerrUserIdAsync_ConcurrentColdCacheMisses_AllReceiveConsistentResult()
@@ -160,7 +161,10 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         // Assert: every caller must receive the same, correct Seerr user ID.
         Assert.All(results, r => Assert.Equal(1, r));
 
-        // The current implementation does NOT coalesce concurrent fetches - each concurrent caller independently reaches FetchSeerrUsersInternalAsync.
+        // Coalescing funnels concurrent callers onto a single FetchSeerrUsersInternalAsync, so the burst
+        // issues at most a small number of HTTP calls rather than one per caller. A caller that arrives after
+        // the shared fetch has settled but before its result is cached may still start one more fetch, so the
+        // count is bounded by the caller count rather than pinned to exactly one.
         Assert.InRange(handler.CallCount, 1, concurrency);
     }
 

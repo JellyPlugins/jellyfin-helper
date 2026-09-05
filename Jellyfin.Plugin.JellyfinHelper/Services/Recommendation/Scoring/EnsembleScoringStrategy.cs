@@ -832,8 +832,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         {
             // The globally trained MLP is not generalizing this round. Decay toward zero the same way the
             // global path does, so a single bad run only dampens the contribution instead of erasing it.
+            // The cutoff is the tiny ghost floor, not the per-user activation floor: halving against the
+            // activation floor would snap any freshly activated beta (which starts at that floor) straight to
+            // zero on the first bad round, which is the erase behaviour this branch exists to avoid.
             _neuralBeta *= 0.5;
-            if (_neuralBeta < NeuralPerUserBetaFloor)
+            if (_neuralBeta < NeuralBetaMinFloor)
             {
                 _neuralBeta = 0.0;
             }

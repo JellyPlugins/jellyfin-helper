@@ -1667,6 +1667,94 @@ public class ConfigurationControllerTests
     }
 
     [Fact]
+    public async Task UpdateConfiguration_WithPerUserRegistry_ReconfiguresPerUserBoundsOnSave()
+    {
+        // The per-user registry is optional in the ctor, so the default controller leaves it null and only the
+        // no-op path runs. Constructing the controller WITH a registry proves the save pushes the new blend
+        // bounds down to the per-user models so they do not stay on stale bounds until a restart.
+        var registryMock = new Mock<IPerUserEnsembleRegistry>();
+        var configHelperMock = new Mock<ICleanupConfigHelper>();
+        configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
+        var controller = new ConfigurationController(
+            _arrServiceMock.Object,
+            _pluginLogMock.Object,
+            new Mock<ILogger<ConfigurationController>>().Object,
+            configHelperMock.Object,
+            _configServiceMock.Object,
+            _seerrServiceMock.Object,
+            new Mock<MediaBrowser.Controller.Library.ILibraryManager>().Object,
+            new EnsembleScoringStrategy(),
+            registryMock.Object);
+
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.3, EnsembleAlphaMax = 0.7 };
+
+        var result = await controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        registryMock.Verify(r => r.Reconfigure(It.IsAny<EnsembleBlendBounds>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OnlyAlphaMinProvided_ClampsMinLeavingMaxUntouched()
+    {
+        // The single-bound arm clamps just the supplied endpoint into [0,1]. The other bound is not part of the
+        // request and must keep its stored value. An in-range min below the stored max avoids the setter's
+        // min <= max swap so the untouched max is observable.
+        _config.EnsembleAlphaMax = 0.8;
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.3, EnsembleAlphaMax = null };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0.8, _config.EnsembleAlphaMax);
+        Assert.Equal(0.3, _config.EnsembleAlphaMin);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OnlyAlphaMinOutOfRange_ClampsIntoUnitInterval()
+    {
+        // The clamp itself is what the single-bound arm exists to apply: an above-range min is pulled back into
+        // [0,1] rather than persisted verbatim.
+        _config.EnsembleAlphaMax = 1.0;
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 5.0, EnsembleAlphaMax = null };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.InRange(_config.EnsembleAlphaMin, 0.0, 1.0);
+        Assert.True(_config.EnsembleAlphaMin <= _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OnlyAlphaMaxProvided_ClampsMaxLeavingMinUntouched()
+    {
+        // Symmetric single-bound arm for AlphaMax: only the supplied endpoint is clamped into [0,1]. An in-range
+        // max above the stored min avoids the swap so the untouched min is observable.
+        _config.EnsembleAlphaMin = 0.2;
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = null, EnsembleAlphaMax = 0.6 };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0.2, _config.EnsembleAlphaMin);
+        Assert.Equal(0.6, _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OnlyAlphaMaxOutOfRange_ClampsIntoUnitInterval()
+    {
+        // An out-of-range (negative) max is clamped up to 0.0 by the single-bound arm.
+        _config.EnsembleAlphaMin = 0.0;
+        var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = null, EnsembleAlphaMax = -3.0 };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.InRange(_config.EnsembleAlphaMax, 0.0, 1.0);
+        Assert.True(_config.EnsembleAlphaMin <= _config.EnsembleAlphaMax);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_UseTrashWithValidRelativePath_SavesWithoutTrashEscapeWarning()
     {
         // A plain relative path passes strict validation and resolves cleanly under the root,

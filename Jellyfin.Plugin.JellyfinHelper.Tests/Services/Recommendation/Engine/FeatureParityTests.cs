@@ -188,4 +188,19 @@ public sealed class FeatureParityTests
         Assert.True(liveMissing < 0.01, $"A missing DateCreated must score as very old, not neutral; got {liveMissing}.");
         Assert.NotEqual(0.5, liveMissing, 3);
     }
+
+    [Fact]
+    public void LibraryAddedRecency_MissingDateCreated_TrainingImputationEqualsLiveDefault()
+    {
+        // The training builder sees a nullable DateCreated and, when it is missing, must feed the same default
+        // date the live path resolves from a candidate's non-nullable DateCreated. Both sides therefore evaluate
+        // ContentScoring.ComputeRecencyScore(default), which must agree exactly and must not be the neutral 0.5
+        // midpoint the separate premiere-date RecencyScore uses when a date is unknown.
+        DateTime? trainingMissingDateCreated = null;
+        var trainingSide = ContentScoring.ComputeRecencyScore(trainingMissingDateCreated ?? default);
+        var liveSide = ContentScoring.ComputeRecencyScore(default);
+
+        Assert.Equal(liveSide, trainingSide);
+        Assert.NotEqual(0.5, trainingSide, 3);
+    }
 }
