@@ -148,8 +148,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 string.IsNullOrEmpty(dataPath) ? null : dataPath,
                 blendBounds,
                 pluginLog,
-                fileSystem,
-                logger);
+                logger,
+                fileSystem);
         });
         serviceCollection.AddSingleton<IRecommendationEngine, Engine>();
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();

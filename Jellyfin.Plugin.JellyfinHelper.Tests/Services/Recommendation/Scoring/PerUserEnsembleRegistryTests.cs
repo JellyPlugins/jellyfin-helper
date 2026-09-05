@@ -646,8 +646,12 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         var directory = new Mock<IDirectory>();
         directory.Setup(d => d.Exists(_dataPath)).Returns(true);
         directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json")).Returns([weightsFile]);
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
         var file = new Mock<IFile>();
-        file.Setup(f => f.Exists(It.IsAny<string>())).Returns(false);
+        // The weights file exists (so eviction deletes it); the state file does not (so the age read falls back
+        // to the weights write time, which then throws).
+        file.Setup(f => f.Exists(weightsFile)).Returns(true);
+        file.Setup(f => f.Exists(statePath)).Returns(false);
         file.Setup(f => f.GetLastWriteTimeUtc(weightsFile)).Throws(new IOException("stat failed"));
         var fileSystem = new Mock<IFileSystem>();
         fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
@@ -658,6 +662,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
 
         Assert.Equal(1, evicted);
+        file.Verify(f => f.Delete(weightsFile), Times.Once);
     }
 
     private EnsembleScoringStrategy BuildGlobal(NeuralScoringStrategy neural) =>

@@ -63,16 +63,16 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <param name="dataPath">The plugin data folder for per-user files. Null keeps per-user models in memory only.</param>
     /// <param name="blendBounds">The alpha bounds and genre-penalty floor for per-user ensembles.</param>
     /// <param name="pluginLog">The plugin log service.</param>
-    /// <param name="fileSystem">Abstracts file access so persistence failures can be exercised in tests. Defaults to the real file system.</param>
     /// <param name="logger">Optional logger forwarded to each per-user ensemble.</param>
+    /// <param name="fileSystem">Abstracts file access so persistence failures can be exercised in tests. Defaults to the real file system.</param>
     public PerUserEnsembleRegistry(
         EnsembleScoringStrategy globalEnsemble,
         NeuralScoringStrategy? sharedNeural,
         string? dataPath,
         EnsembleBlendBounds blendBounds,
         IPluginLogService pluginLog,
-        IFileSystem? fileSystem = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        IFileSystem? fileSystem = null)
     {
         ArgumentNullException.ThrowIfNull(globalEnsemble);
         ArgumentNullException.ThrowIfNull(pluginLog);

@@ -914,18 +914,20 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(1, result.Failed);
     }
 
-    public static IEnumerable<object?[]> ResolveMediaShortCircuitCases()
+    public static TheoryData<bool> ResolveMediaShortCircuitCases() => new()
     {
-        yield return [null];
-        yield return [new SeerrMedia { MediaType = "movie", TmdbId = 0 }];
-    }
+        true,
+        false,
+    };
 
     [Theory]
     [MemberData(nameof(ResolveMediaShortCircuitCases))]
-    internal async Task ResolveMediaTitleAsync_NoResolvableMedia_ReturnsUnknown_NoHttpCall(SeerrMedia? media)
+    internal async Task ResolveMediaTitleAsync_NoResolvableMedia_ReturnsUnknown_NoHttpCall(bool nullMedia)
     {
-        // Null media and TMDB ids <= 0 must short-circuit BEFORE any HTTP call so no
-        // Seerr API quota is spent on a request that cannot possibly resolve.
+        // Both a null media and a media with a non-resolvable TMDB id (0) must short-circuit BEFORE any HTTP
+        // call so no Seerr API quota is spent on a request that cannot possibly resolve.
+        var media = nullMedia ? null : new SeerrMedia { MediaType = "movie", TmdbId = 0 };
+
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
             .Setup<Task<HttpResponseMessage>>(

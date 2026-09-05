@@ -646,22 +646,41 @@ public class LinkRepairServiceTests
         Assert.Equal(LinkFileStatus.Valid, result.Status);
     }
 
-    public static TheoryData<Exception> ReadTargetExceptionVariants() => new()
+    // Exception kinds passed to the handler-throws theories. An enum is serializable so the test explorer can
+    // enumerate each row; the actual exception is built inside the test from this selector.
+    public enum HandlerExceptionKind
     {
-        new IOException("read failed"),
-        new UnauthorizedAccessException("denied"),
+        Io,
+        UnauthorizedAccess,
+        NotSupported,
+        Argument,
+    }
+
+    private static Exception CreateHandlerException(HandlerExceptionKind kind) => kind switch
+    {
+        HandlerExceptionKind.Io => new IOException("read failed"),
+        HandlerExceptionKind.UnauthorizedAccess => new UnauthorizedAccessException("denied"),
+        HandlerExceptionKind.NotSupported => new NotSupportedException("read-only fs"),
+        HandlerExceptionKind.Argument => new ArgumentException("invalid path chars"),
+        _ => new IOException("read failed"),
+    };
+
+    public static TheoryData<HandlerExceptionKind> ReadTargetExceptionVariants() => new()
+    {
+        HandlerExceptionKind.Io,
+        HandlerExceptionKind.UnauthorizedAccess,
     };
 
     [Theory]
     [MemberData(nameof(ReadTargetExceptionVariants))]
-    public void ProcessLinkFile_ReadTargetThrows_ReturnsInvalidContent_DoesNotPropagate(Exception ex)
+    public void ProcessLinkFile_ReadTargetThrows_ReturnsInvalidContent_DoesNotPropagate(HandlerExceptionKind kind)
     {
         // A handler throwing while reading must be caught & mapped to InvalidContent - never propagate up and abort the whole library scan.
         var handler = new Mock<ILinkHandler>();
         handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
         handler.Setup(x => x.SupportsUrlTargets).Returns(false);
         handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
-            .Throws(ex);
+            .Throws(CreateHandlerException(kind));
 
         var linkFile = _fileSystem.Path.GetFullPath("/series/ReadThrows/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("payload"));
@@ -1021,17 +1040,17 @@ public class LinkRepairServiceTests
 
     // ProcessLinkFile: strm WriteTarget exception variants
 
-    public static TheoryData<Exception> WriteTargetExceptionVariants() => new()
+    public static TheoryData<HandlerExceptionKind> WriteTargetExceptionVariants() => new()
     {
-        new NotSupportedException("read-only fs"),
-        new ArgumentException("invalid path chars"),
-        new IOException("disk full"),
-        new UnauthorizedAccessException("denied"),
+        HandlerExceptionKind.NotSupported,
+        HandlerExceptionKind.Argument,
+        HandlerExceptionKind.Io,
+        HandlerExceptionKind.UnauthorizedAccess,
     };
 
     [Theory]
     [MemberData(nameof(WriteTargetExceptionVariants))]
-    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrows_ReturnsBroken(Exception ex)
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrows_ReturnsBroken(HandlerExceptionKind kind)
     {
         // Any exception from WriteTarget must be caught and mapped to Broken, and NewTargetPath
         // cleared so the UI does not show a phantom repair.
@@ -1046,7 +1065,7 @@ public class LinkRepairServiceTests
         throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
         throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
         throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
-            .Throws(ex);
+            .Throws(CreateHandlerException(kind));
 
         var linkFile = _fileSystem.Path.GetFullPath("/series/WriteThrows/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
