@@ -1,6 +1,5 @@
 'use strict';
 
-
 function formatGranularityLabel(dateStr, granularity) {
     var d = new Date(dateStr);
     if (Number.isNaN(d.getTime())) return '-';
@@ -19,7 +18,11 @@ function formatGranularityLabel(dateStr, granularity) {
     }
 }
 
-/** * Interpolates missing intermediate buckets between sparse data points. * When the backend deduplicates consecutive identical points, gaps appear * in the timeline. */
+/**
+ * Interpolates missing intermediate buckets between sparse data points.
+ * When the backend deduplicates consecutive identical points, gaps appear
+ * in the timeline.
+ */
 function interpolateDataPoints(dataPoints, granularity) {
     if (dataPoints.length < 2) return dataPoints;
 
@@ -58,7 +61,7 @@ function interpolateDataPoints(dataPoints, granularity) {
 
     // Ensure the last real data point is always included so the chart doesn't end early
     if (truncated) {
-        result[result.length - 1] = dataPoints[dataPoints.length - 1];
+        result[result.length - 1] = dataPoints.at(-1);
         console.warn('[JellyfinHelper] Trend timeline truncated to ' + maxPoints + ' points (granularity: ' + granularity + ').');
     }
     return result;
@@ -121,8 +124,7 @@ function projectToGranularity(dailyPoints, level) {
     if (level === 'daily' || dailyPoints.length <= 1) return dailyPoints;
 
     var buckets = new Map();
-    for (var i = 0; i < dailyPoints.length; i++) {
-        var p = dailyPoints[i];
+    for (const p of dailyPoints) {
         var key = bucketStartDate(p.date, level).getTime();
         // Last point per bucket wins (points are sorted chronologically).
         buckets.set(key, {
@@ -188,6 +190,58 @@ function computeNiceYScale(rawMax) {
 // Fixed chart geometry shared by renderer and interaction handler.
 var TREND_GEOM = { width: 880, height: 240, padL: 65, padR: 45, padT: 20, padB: 56 };
 
+function clampTrendX(x, g) {
+    var left = g.padL;
+    var right = g.width - g.padR;
+    if (x < left) return left;
+    if (x > right) return right;
+    return x;
+}
+
+function collectVisiblePoints(projected, startTime, endTime) {
+    var visible = [];
+    var firstBefore = null;
+    var firstAfter = null;
+    for (const pt of projected) {
+        var t = new Date(pt.date).getTime();
+        if (t < startTime) {
+            firstBefore = pt;
+        } else if (t > endTime) {
+            if (firstAfter === null) firstAfter = pt;
+        } else {
+            visible.push(pt);
+        }
+    }
+    var render = [];
+    if (firstBefore) render.push(firstBefore);
+    for (const v of visible) render.push(v);
+    if (firstAfter) render.push(firstAfter);
+    if (render.length === 0 && projected.length > 0) {
+        render.push(projected.at(-1));
+    }
+    return render;
+}
+
+function buildTrendSvgPoints(render, startTime, endTime, g, yMax, chartW, chartH) {
+    var timeSpan = endTime - startTime || 1;
+    function xOf(t) {
+        return g.padL + (t - startTime) / timeSpan * chartW;
+    }
+    function yOf(size) {
+        return g.padT + chartH - (size / yMax * chartH);
+    }
+    var pointData = [];
+    var points = [];
+    for (const pt of render) {
+        var tt = new Date(pt.date).getTime();
+        var x = clampTrendX(xOf(tt), g);
+        var y = yOf(pt.cumulativeSize);
+        points.push(x.toFixed(1) + ',' + y.toFixed(1));
+        pointData.push({ d: pt.date, s: pt.cumulativeSize, c: pt.cumulativeFileCount, x: x, y: y, t: tt });
+    }
+    return { pointData: pointData, points: points, xOf: xOf, yOf: yOf };
+}
+
 /**
  * Builds the SVG for the current visible window over the dense daily series.
  * Pure with respect to the DOM: returns the SVG string plus the projected point data
@@ -204,63 +258,27 @@ function drawTrendWindow(state) {
     var level = pickLevelForSpan(spanDays);
     var projected = projectToGranularity(state.fullDaily, level);
 
-    // Visible points plus one boundary point on each side so the line reaches the edges.
-    var visible = [];
-    var firstBefore = null;
-    var firstAfter = null;
-    for (var i = 0; i < projected.length; i++) {
-        var t = new Date(projected[i].date).getTime();
-        if (t < state.startTime) {
-            firstBefore = projected[i];
-        } else if (t > state.endTime) {
-            if (firstAfter === null) firstAfter = projected[i];
-        } else {
-            visible.push(projected[i]);
-        }
-    }
-    var render = [];
-    if (firstBefore) render.push(firstBefore);
-    render = render.concat(visible);
-    if (firstAfter) render.push(firstAfter);
-    if (render.length === 0 && projected.length > 0) {
-        render.push(projected[projected.length - 1]);
-    }
+    var render = collectVisiblePoints(projected, state.startTime, state.endTime);
 
     // Dynamic Y axis from the maximum of the VISIBLE window, so zooming rescales the unit.
     var rawMax = 0;
-    for (var r = 0; r < render.length; r++) {
-        if (render[r].cumulativeSize > rawMax) rawMax = render[r].cumulativeSize;
+    for (const pt of render) {
+        if (pt.cumulativeSize > rawMax) rawMax = pt.cumulativeSize;
     }
     var yScale = computeNiceYScale(rawMax);
     var yMax = yScale.yMax;
 
-    var startTime = state.startTime;
-    var endTime = state.endTime;
-    var timeSpan = endTime - startTime || 1;
-    function xOf(t) {
-        return g.padL + (t - startTime) / timeSpan * chartW;
-    }
-    function yOf(size) {
-        return g.padT + chartH - (size / yMax * chartH);
-    }
-
-    var pointData = [];
-    var points = [];
-    for (var j = 0; j < render.length; j++) {
-        var pt = render[j];
-        var tt = new Date(pt.date).getTime();
-        var x = xOf(tt);
-        var y = yOf(pt.cumulativeSize);
-        points.push(x.toFixed(1) + ',' + y.toFixed(1));
-        pointData.push({ d: pt.date, s: pt.cumulativeSize, c: pt.cumulativeFileCount, x: x, y: y, t: tt });
-    }
+    var built = buildTrendSvgPoints(render, state.startTime, state.endTime, g, yMax, chartW, chartH);
+    var pointData = built.pointData;
+    var points = built.points;
+    var yOf = built.yOf;
 
     var svg = '<svg width="100%" viewBox="0 0 ' + g.width + ' ' + g.height + '" preserveAspectRatio="xMidYMid meet">';
 
-    for (var gi = 0; gi < yScale.ticks.length; gi++) {
-        var gy = yOf(yScale.ticks[gi]);
+    for (const tick of yScale.ticks) {
+        var gy = yOf(tick);
         svg += '<line x1="' + g.padL + '" y1="' + gy.toFixed(1) + '" x2="' + (g.width - g.padR) + '" y2="' + gy.toFixed(1) + '" stroke="rgba(255,255,255,0.06)" />';
-        svg += '<text x="' + (g.padL - 5) + '" y="' + (gy + 4).toFixed(1) + '" text-anchor="end" fill="rgba(255,255,255,0.4)" font-size="10">' + formatBytes(yScale.ticks[gi]) + '</text>';
+        svg += '<text x="' + (g.padL - 5) + '" y="' + (gy + 4).toFixed(1) + '" text-anchor="end" fill="rgba(255,255,255,0.4)" font-size="10">' + formatBytes(tick) + '</text>';
     }
 
     var areaFillRaw = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-light').trim() || 'rgba(0,164,220,0.15)';
@@ -270,7 +288,7 @@ function drawTrendWindow(state) {
 
     if (points.length > 0) {
         var firstX = points[0].split(',')[0];
-        var lastX = points[points.length - 1].split(',')[0];
+        var lastX = points.at(-1).split(',')[0];
         var baseY = (g.padT + chartH).toFixed(1);
         var areaPoints = firstX + ',' + baseY + ' ' + points.join(' ') + ' ' + lastX + ',' + baseY;
         svg += '<polygon points="' + areaPoints + '" fill="' + areaFill + '" />';
@@ -286,8 +304,8 @@ function drawTrendWindow(state) {
     else if (pointData.length <= 200) dotRadius = 1.5;
     else dotRadius = 0;
     if (dotRadius > 0) {
-        for (var k = 0; k < points.length; k++) {
-            var coords = points[k].split(',');
+        for (const p of points) {
+            var coords = p.split(',');
             svg += '<circle cx="' + coords[0] + '" cy="' + coords[1] + '" r="' + dotRadius + '" fill="' + trendColor + '" opacity="0.6" />';
         }
     }
@@ -296,12 +314,12 @@ function drawTrendWindow(state) {
     // check, so two labels can never overlap at any zoom level or window position.
     var minLabelGapPx = 60;
     var lastLabelX = -Infinity;
-    for (var m = 0; m < pointData.length; m++) {
-        var lx = pointData[m].x;
+    for (const pt of pointData) {
+        var lx = pt.x;
         if (lx - lastLabelX < minLabelGapPx) continue;
         // Keep labels inside the plot so the last one is never clipped at the right edge.
         if (lx > g.width - g.padR - 4) continue;
-        var lbl = formatGranularityLabel(pointData[m].d, level);
+        var lbl = formatGranularityLabel(pt.d, level);
         svg += '<text x="' + lx.toFixed(1) + '" y="' + (g.padT + chartH + 18) + '" text-anchor="middle" fill="rgba(255,255,255,0.55)" font-size="10" font-weight="500">' + escHtml(lbl) + '</text>';
         lastLabelX = lx;
     }
@@ -321,20 +339,19 @@ function renderTrendChart(timeline) {
     // once; all zoom levels are projected from this on the fly.
     var validGranularities = ['daily', 'weekly', 'monthly', 'yearly'];
     var rawGranularity = timeline.granularity || 'daily';
-    var storedLevel = String(rawGranularity).toLowerCase();
-    if (!validGranularities.includes(storedLevel)) storedLevel = 'daily';
+    var lowered = String(rawGranularity).toLowerCase();
+    if (!validGranularities.includes(lowered)) {
+        console.warn('[JellyfinHelper] Unknown granularity "' + rawGranularity + '", falling back to "daily".');
+    }
     var fullDaily = interpolateDataPoints(timeline.dataPoints, 'daily');
 
     // Skip a long flat near-zero baseline before real growth starts, keeping one zero point.
     var peakSize = 0;
-    for (var p = 0; p < fullDaily.length; p++) {
-        if (fullDaily[p].cumulativeSize > peakSize) peakSize = fullDaily[p].cumulativeSize;
+    for (const p of fullDaily) {
+        if (p.cumulativeSize > peakSize) peakSize = p.cumulativeSize;
     }
     var zeroThreshold = peakSize * 0.005;
-    var firstSignificant = -1;
-    for (var z = 0; z < fullDaily.length; z++) {
-        if (fullDaily[z].cumulativeSize > zeroThreshold) { firstSignificant = z; break; }
-    }
+    var firstSignificant = fullDaily.findIndex(function (p) { return p.cumulativeSize > zeroThreshold; });
     if (firstSignificant < 0) firstSignificant = fullDaily.length - 1;
     var startIndex = Math.max(0, firstSignificant - 1);
     if (startIndex > 0) fullDaily = fullDaily.slice(startIndex);
@@ -344,7 +361,7 @@ function renderTrendChart(timeline) {
     }
 
     var minTime = new Date(fullDaily[0].date).getTime();
-    var maxTime = new Date(fullDaily[fullDaily.length - 1].date).getTime();
+    var maxTime = new Date(fullDaily.at(-1).date).getTime();
 
     // Initial window = full domain, so the opening view auto-picks the same level the old
     // age-based logic would have shown (day/week/month/year by total span).
@@ -397,6 +414,16 @@ function renderTrendChart(timeline) {
     return { html: html, chartState: chartState };
 }
 
+function touchDistance(touches) {
+    var dx = touches[0].clientX - touches[1].clientX;
+    var dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+}
+
+function touchMidX(touches) {
+    return (touches[0].clientX + touches[1].clientX) / 2;
+}
+
 /**
  * Attaches interactive tooltip/crosshair behavior to the trend chart.
  * Called after renderTrendChart HTML is inserted into the DOM.
@@ -407,18 +434,16 @@ function attachTrendInteraction(container, chartState) {
 
     var g = TREND_GEOM;
     var chartW = g.width - g.padL - g.padR;
-    var chartH = g.height - g.padT - g.padB;
     var vbWidth = g.width;
     var vbHeight = g.height;
 
-    // Per-render state, refreshed by redraw(): the projected points, current level, y-axis max.
+    // Per-render state, refreshed by redraw(): the projected points, current level.
     var pointData = [];
     var level = 'daily';
-    var yMax = 1;
     // "Now" is always the latest point of the full daily series, so the diff panel compares
     // against the true latest value even when panned into the past.
     var currentPt = (function () {
-        var last = chartState.fullDaily[chartState.fullDaily.length - 1];
+        var last = chartState.fullDaily.at(-1);
         return { d: last.date, s: last.cumulativeSize, c: last.cumulativeFileCount };
     })();
 
@@ -430,7 +455,6 @@ function attachTrendInteraction(container, chartState) {
         if (svgHost) svgHost.outerHTML = drawn.svg;
         pointData = drawn.pointData;
         level = drawn.level;
-        yMax = drawn.yMax;
         if (metaLevelEl) metaLevelEl.textContent = level;
         rebindSvg();
     }
@@ -448,9 +472,11 @@ function attachTrendInteraction(container, chartState) {
         // Nearest visible projected point by pixel x.
         var best = 0;
         var bestDist = Infinity;
-        for (var i = 0; i < pointData.length; i++) {
-            var dist = Math.abs((pointData[i].x - g.padL) - chartX);
-            if (dist < bestDist) { bestDist = dist; best = i; }
+        var idx = 0;
+        for (const pt of pointData) {
+            var dist = Math.abs((pt.x - g.padL) - chartX);
+            if (dist < bestDist) { bestDist = dist; best = idx; }
+            idx++;
         }
         return best;
     }
@@ -645,18 +671,58 @@ function attachTrendInteraction(container, chartState) {
         redraw();
     }
 
-    // Desktop: wheel zooms toward the cursor.
+    setupWheelZoom(chart, clientXToTime, zoomAbout, hideTooltip, domainStart, domainEnd, chartState, MIN_SPAN_MS);
+    setupDragPan(chart, panByPixels, hideTooltip);
+    setupTouchGestures(chart, clientXToTime, zoomAbout, panByPixels, hideTooltip, onHover);
+
+    // Rebinds hover listeners after each redraw replaces the <svg> element. Pan/zoom listeners
+    // live on the stable chart container, so they are attached once, not here.
+    function rebindSvg() {
+        svgEl = chart.querySelector('svg');
+        if (!svgEl) return;
+
+        svgEl.addEventListener('mousemove', function (e) {
+            if (e.buttons !== 0) return; // dragging pans, not hovers
+            onHover(e.clientX);
+        });
+        svgEl.addEventListener('mouseleave', function () {
+            hideTooltip();
+        });
+    }
+
+    rebindSvg();
+}
+
+function setupWheelZoom(chart, clientXToTime, zoomAbout, hideTooltip, domainStart, domainEnd, chartState, minSpanMs) {
     chart.addEventListener('wheel', function (e) {
+        var isPinch = e.ctrlKey || e.metaKey;
+        var absDelta = Math.abs(e.deltaY);
+        var isMouseWheel = absDelta >= 40;
+
+        // Trackpad two-finger swipe without pinch: let the browser handle page scroll.
+        if (!isPinch && !isMouseWheel) {
+            return;
+        }
+
+        // When fully zoomed out, allow wheel to scroll the page instead of consuming it as a no-op zoom-out.
+        var currentSpan = chartState.endTime - chartState.startTime;
+        var fullSpan = domainEnd - domainStart;
+        var isZoomOut = e.deltaY > 0;
+        if (isZoomOut && currentSpan >= fullSpan - 1) {
+            // Already at full extent and also not at minimum span edge: allow native scroll
+            if (currentSpan <= minSpanMs + 1 && !isZoomOut) return;
+            return;
+        }
+
         e.preventDefault();
         var anchor = clientXToTime(e.clientX);
-        var factor = e.deltaY < 0 ? 0.85 : 1.18;
+        var factor = isPinch ? (e.deltaY < 0 ? 0.92 : 1.08) : (e.deltaY < 0 ? 0.85 : 1.18);
         hideTooltip();
         zoomAbout(anchor, factor);
     }, {passive: false});
+}
 
-    // Desktop: drag pans. Movement beyond a small threshold enters pan mode and suppresses hover.
-    // Move/up listeners live on window only for the duration of a drag, so they never leak
-    // across chart reloads.
+function setupDragPan(chart, panByPixels, hideTooltip) {
     var mouseDown = false;
     var panning = false;
     var lastMouseX = 0;
@@ -673,13 +739,17 @@ function attachTrendInteraction(container, chartState) {
             lastMouseX = e.clientX;
         }
     }
+
     function onWindowMouseUp() {
         mouseDown = false;
         panning = false;
         window.removeEventListener('mousemove', onWindowMouseMove);
         window.removeEventListener('mouseup', onWindowMouseUp);
     }
+
     chart.addEventListener('mousedown', function (e) {
+        // Only left button drags
+        if (e.button !== 0) return;
         mouseDown = true;
         panning = false;
         downMouseX = e.clientX;
@@ -687,23 +757,15 @@ function attachTrendInteraction(container, chartState) {
         window.addEventListener('mousemove', onWindowMouseMove);
         window.addEventListener('mouseup', onWindowMouseUp);
     });
+}
 
-    // Mobile: one-finger swipe pans / tap shows tooltip; two-finger pinch zooms.
+function setupTouchGestures(chart, clientXToTime, zoomAbout, panByPixels, hideTooltip, onHover) {
     var touchMode = null; // null | 'pan' | 'pinch'
     var touchStartX = 0;
     var touchStartY = 0;
     var touchStartT = 0;
     var lastTouchX = 0;
     var pinchStartDist = 0;
-
-    function touchDistance(touches) {
-        var dx = touches[0].clientX - touches[1].clientX;
-        var dy = touches[0].clientY - touches[1].clientY;
-        return Math.hypot(dx, dy);
-    }
-    function touchMidX(touches) {
-        return (touches[0].clientX + touches[1].clientX) / 2;
-    }
 
     chart.addEventListener('touchstart', function (e) {
         if (e.touches.length === 2) {
@@ -740,6 +802,9 @@ function attachTrendInteraction(container, chartState) {
                 if (Math.abs(x - touchStartX) > 8 && Math.abs(x - touchStartX) > Math.abs(y - touchStartY)) {
                     touchMode = 'pan';
                     hideTooltip();
+                } else if (Math.abs(y - touchStartY) > 12) {
+                    // Vertical swipe: let the browser scroll, do not enter pan mode
+                    touchMode = 'scroll';
                 }
             }
             if (touchMode === 'pan') {
@@ -762,6 +827,14 @@ function attachTrendInteraction(container, chartState) {
         if (e.touches.length === 0) {
             touchMode = null;
             pinchStartDist = 0;
+        } else if (e.touches.length === 1) {
+            // Transition from pinch to single-finger after releasing one finger
+            touchMode = null;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            lastTouchX = touchStartX;
+            touchStartT = Date.now();
+            pinchStartDist = 0;
         }
     });
 
@@ -770,25 +843,7 @@ function attachTrendInteraction(container, chartState) {
         pinchStartDist = 0;
         hideTooltip();
     });
-
-    // Rebinds hover listeners after each redraw replaces the <svg> element. Pan/zoom listeners
-    // live on the stable chart container, so they are attached once, not here.
-    function rebindSvg() {
-        svgEl = chart.querySelector('svg');
-        if (!svgEl) return;
-
-        svgEl.addEventListener('mousemove', function (e) {
-            if (mouseDown) return; // dragging pans, not hovers
-            onHover(e.clientX);
-        });
-        svgEl.addEventListener('mouseleave', function () {
-            if (!panning) hideTooltip();
-        });
-    }
-
-    rebindSvg();
 }
-
 
 
 var _insightsLoadSeq = 0;
@@ -891,11 +946,11 @@ function buildLargestTree(data) {
     });
     var html = '<div class="insight-tree">';
 
-    libKeys.forEach(function (lib) {
+    for (const lib of libKeys) {
         var items = grouped[lib];
         var libSize = 0;
-        for (var s = 0; s < items.length; s++) {
-            var _sz = Number(items[s].Size);
+        for (const it of items) {
+            var _sz = Number(it.Size);
             if (Number.isFinite(_sz) && _sz > 0) libSize += _sz;
         }
 
@@ -905,8 +960,7 @@ function buildLargestTree(data) {
         html += '<span class="insight-tree-lib-size">' + formatBytes(libSize) + '</span>';
         html += '</div>';
 
-        for (var i = 0; i < items.length; i++) {
-            var e = items[i];
+        for (const e of items) {
             var badge = getInsightTypeBadge(e.CollectionType);
             html += '<span class="insight-tree-badge">' + badge + '</span>';
             html += '<span class="insight-tree-name">' + escHtml(e.Name) + '</span>';
@@ -916,7 +970,7 @@ function buildLargestTree(data) {
         }
 
         html += '</div>';
-    });
+    }
 
     html += '</div>';
     return html;
@@ -938,7 +992,7 @@ function buildRecentTree(data) {
     var libKeys = Object.keys(grouped).sort(function (a, b) {
         return insightLibrarySortOrder(a, grouped) - insightLibrarySortOrder(b, grouped);
     });
-    libKeys.forEach(function (libName) {
+    for (const libName of libKeys) {
         var groupItems = grouped[libName];
         var totalSize = 0;
         for (const groupItem of groupItems) {
@@ -968,7 +1022,7 @@ function buildRecentTree(data) {
         }
 
         html += '</div>';
-    });
+    }
 
     html += '</div>';
     return html;
@@ -984,8 +1038,8 @@ function insightLibrarySortOrder(libName, grouped) {
     if (!items || items.length === 0) return 2;
     // Scan until non-empty CollectionType
     var ct = '';
-    for (var i = 0; i < items.length; i++) {
-        if (items[i].CollectionType) { ct = items[i].CollectionType.toLowerCase(); break; }
+    for (const it of items) {
+        if (it.CollectionType) { ct = it.CollectionType.toLowerCase(); break; }
     }
     if (ct === 'movies' || ct === 'homevideos' || ct === 'musicvideos') return 0;
     if (ct === 'tvshows') return 1;
@@ -994,10 +1048,10 @@ function insightLibrarySortOrder(libName, grouped) {
 
 function groupByLibrary(entries) {
     var map = Object.create(null);
-    for (var i = 0; i < entries.length; i++) {
-        var lib = entries[i].LibraryName || 'Unknown';
+    for (const e of entries) {
+        var lib = e.LibraryName || 'Unknown';
         if (!map[lib]) map[lib] = [];
-        map[lib].push(entries[i]);
+        map[lib].push(e);
     }
     return map;
 }
