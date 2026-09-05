@@ -619,7 +619,37 @@ public sealed class BackupService : IBackupService
             return incoming;
         }
 
-        var mergedPoints = TimelineAggregator.MergeDailySeries(current.DataPoints, incoming.DataPoints);
+        // Preserve the current on-disk point for any overlapping day. Independent per-field
+        // maxima would combine size from one point and count from another, producing a state
+        // that never existed (e.g. after deletions or an empty-state scan).
+        var byDay = new Dictionary<DateTime, GrowthTimelinePoint>();
+        foreach (var point in current.DataPoints)
+        {
+            var day = TimelineAggregator.GetBucketStart(point.Date, "daily");
+            byDay[day] = new GrowthTimelinePoint
+            {
+                Date = day,
+                CumulativeSize = point.CumulativeSize,
+                CumulativeFileCount = point.CumulativeFileCount
+            };
+        }
+
+        foreach (var point in incoming.DataPoints)
+        {
+            var day = TimelineAggregator.GetBucketStart(point.Date, "daily");
+            if (!byDay.ContainsKey(day))
+            {
+                byDay[day] = new GrowthTimelinePoint
+                {
+                    Date = day,
+                    CumulativeSize = point.CumulativeSize,
+                    CumulativeFileCount = point.CumulativeFileCount
+                };
+            }
+        }
+
+        var mergedPoints = byDay.Values.OrderBy(p => p.Date).ToList();
+        mergedPoints = TimelineAggregator.DeduplicateConsecutivePoints(mergedPoints);
 
         var result = new GrowthTimelineResult
         {

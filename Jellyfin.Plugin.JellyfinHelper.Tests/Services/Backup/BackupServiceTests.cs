@@ -957,10 +957,10 @@ public class BackupServiceTests
             var mergedJson = File.ReadAllText(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json"));
             var merged = JsonSerializer.Deserialize<GrowthTimelineResult>(mergedJson)!;
 
-            // Day 1 filled in retroactively; days 2 and 3 present; day 2 kept the higher value (250 > 200).
+            // Day 1 filled in retroactively; days 2 and 3 present; overlapping day 2 preserves the current on-disk point (200) rather than the backup's higher value to avoid a synthetic state that never existed.
             Assert.Equal(3, merged.DataPoints.Count);
             Assert.Equal(new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), merged.DataPoints[0].Date);
-            Assert.Equal(250, merged.DataPoints[1].CumulativeSize);
+            Assert.Equal(200, merged.DataPoints[1].CumulativeSize);
             Assert.Equal(new DateTime(2025, 1, 3, 0, 0, 0, DateTimeKind.Utc), merged.DataPoints[2].Date);
         }
         finally

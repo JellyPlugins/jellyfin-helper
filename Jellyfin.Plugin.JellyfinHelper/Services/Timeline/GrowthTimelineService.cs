@@ -188,8 +188,21 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     {
         // Persist a 0-snapshot so that the timeline reflects the empty state
         // instead of showing stale data from a previous scan.
-        var existingTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
-        existingTimeline = DiscardLegacyTimeline(existingTimeline);
+        var rawTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
+        var existingTimeline = DiscardLegacyTimeline(rawTimeline);
+        if (rawTimeline != null && existingTimeline == null)
+        {
+            // A legacy coarse timeline was discarded; persist its removal so the stale
+            // file is not read again on the next scan.
+            var legacyReplacement = new GrowthTimelineResult
+            {
+                ComputedAt = now,
+                Granularity = DailyGranularity
+            };
+            await SaveTimelineAsync(legacyReplacement, cancellationToken).ConfigureAwait(false);
+            return legacyReplacement;
+        }
+
         if (existingTimeline is not { DataPoints.Count: > 0 })
         {
             return new GrowthTimelineResult

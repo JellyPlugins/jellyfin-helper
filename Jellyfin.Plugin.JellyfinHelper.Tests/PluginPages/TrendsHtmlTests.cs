@@ -50,6 +50,9 @@ public partial class TrendsHtmlTests : ConfigPageTestBase
     [GeneratedRegex(@"(?:fullDaily|dailyPoints|projected|dataPoints)\[[^\]]+\]\.(\w+)")]
     private static partial Regex DataPointPropertyRegex();
 
+    [GeneratedRegex(@"\b(?:p|pt|point)\.(cumulativeSize|cumulativeFileCount|date)\b")]
+    private static partial Regex AliasPointPropertyRegex();
+
     [GeneratedRegex(@"timeline\.(\w+)")]
     private static partial Regex TimelinePropertyRegex();
 
@@ -62,10 +65,14 @@ public partial class TrendsHtmlTests : ConfigPageTestBase
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // The renderer accesses daily points as fullDaily[i].prop / dailyPoints[i].prop /
-        // projected[i].prop. Any JS property name read off a point array must map to a real
-        // C# property so a rename cannot silently desync training/serve field names.
-        var referenced = DataPointPropertyRegex().Matches(HtmlContent)
-            .Select(m => m.Groups[1].Value)
+        // projected[i].prop and via aliases like p.cumulativeSize in projectToGranularity.
+        // Any JS property name read off a point array must map to a real C# property so a
+        // rename cannot silently desync training/serve field names.
+        var indexed = DataPointPropertyRegex().Matches(HtmlContent)
+            .Select(m => m.Groups[1].Value);
+        var aliased = AliasPointPropertyRegex().Matches(HtmlContent)
+            .Select(m => m.Groups[1].Value);
+        var referenced = indexed.Concat(aliased)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 

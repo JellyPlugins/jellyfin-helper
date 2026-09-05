@@ -445,9 +445,9 @@ public static class TimelineAggregator
             return false;
         }
 
-        // A daily point is always midnight UTC by construction. A non-midnight point means the
+        // A daily point is always midnight UTC by construction. A non-midnight or non-UTC point means the
         // series was bucketed coarser (or hand-edited), so it is not a genuine daily series.
-        return timeline.DataPoints.All(point => point.Date.TimeOfDay == TimeSpan.Zero);
+        return timeline.DataPoints.All(point => point.Date.Kind == DateTimeKind.Utc && point.Date.TimeOfDay == TimeSpan.Zero);
     }
 
     /// <summary>
