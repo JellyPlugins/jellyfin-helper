@@ -577,28 +577,213 @@ function attachTrendInteraction(container, chartState) {
         updateDiffPanel(idx);
     }
 
-    // Rebinds listeners after each redraw replaces the <svg> element.
+    // Zoom / pan window model. The window is a [startTime, endTime] range over the full domain;
+    // gestures mutate it and redraw. Minimum span is two days so daily zoom cannot invert.
+    var MIN_SPAN_MS = 2 * TREND_DAY_MS;
+    var domainStart = chartState.minTime;
+    var domainEnd = chartState.maxTime;
+
+    function clampWindow() {
+        var span = chartState.endTime - chartState.startTime;
+        if (span < MIN_SPAN_MS) {
+            var mid = (chartState.startTime + chartState.endTime) / 2;
+            chartState.startTime = mid - MIN_SPAN_MS / 2;
+            chartState.endTime = mid + MIN_SPAN_MS / 2;
+            span = MIN_SPAN_MS;
+        }
+        var fullSpan = domainEnd - domainStart;
+        if (span >= fullSpan) {
+            chartState.startTime = domainStart;
+            chartState.endTime = domainEnd;
+            return;
+        }
+        if (chartState.startTime < domainStart) {
+            chartState.endTime += domainStart - chartState.startTime;
+            chartState.startTime = domainStart;
+        }
+        if (chartState.endTime > domainEnd) {
+            chartState.startTime -= chartState.endTime - domainEnd;
+            chartState.endTime = domainEnd;
+        }
+    }
+
+    // Maps a client X pixel to a time in the current window, accounting for letterboxing.
+    function clientXToTime(clientX) {
+        var host = chart.querySelector('svg');
+        if (!host) return chartState.startTime;
+        var rect = host.getBoundingClientRect();
+        var scale = Math.min(rect.width / vbWidth, rect.height / vbHeight);
+        var offsetX = (rect.width - vbWidth * scale) / 2;
+        var svgX = (clientX - rect.left - offsetX) / scale;
+        var frac = (svgX - g.padL) / chartW;
+        if (frac < 0) frac = 0;
+        if (frac > 1) frac = 1;
+        return chartState.startTime + frac * (chartState.endTime - chartState.startTime);
+    }
+
+    // Zooms the window about a fixed time anchor so that point stays under the cursor/fingers.
+    function zoomAbout(anchorTime, factor) {
+        var newStart = anchorTime - (anchorTime - chartState.startTime) * factor;
+        var newEnd = anchorTime + (chartState.endTime - anchorTime) * factor;
+        chartState.startTime = newStart;
+        chartState.endTime = newEnd;
+        clampWindow();
+        redraw();
+    }
+
+    function panByPixels(pixelDelta) {
+        // Convert a horizontal pixel delta into a time shift over the current window.
+        var host = chart.querySelector('svg');
+        if (!host) return;
+        var rect = host.getBoundingClientRect();
+        var scale = Math.min(rect.width / vbWidth, rect.height / vbHeight) || 1;
+        var svgDelta = pixelDelta / scale;
+        var timeDelta = -(svgDelta / chartW) * (chartState.endTime - chartState.startTime);
+        chartState.startTime += timeDelta;
+        chartState.endTime += timeDelta;
+        clampWindow();
+        redraw();
+    }
+
+    // Desktop: wheel zooms toward the cursor.
+    chart.addEventListener('wheel', function (e) {
+        e.preventDefault();
+        var anchor = clientXToTime(e.clientX);
+        var factor = e.deltaY < 0 ? 0.85 : 1.18;
+        hideTooltip();
+        zoomAbout(anchor, factor);
+    }, {passive: false});
+
+    // Desktop: drag pans. Movement beyond a small threshold enters pan mode and suppresses hover.
+    // Move/up listeners live on window only for the duration of a drag, so they never leak
+    // across chart reloads.
+    var mouseDown = false;
+    var panning = false;
+    var lastMouseX = 0;
+    var downMouseX = 0;
+
+    function onWindowMouseMove(e) {
+        if (!mouseDown) return;
+        if (!panning && Math.abs(e.clientX - downMouseX) > 4) {
+            panning = true;
+            hideTooltip();
+        }
+        if (panning) {
+            panByPixels(e.clientX - lastMouseX);
+            lastMouseX = e.clientX;
+        }
+    }
+    function onWindowMouseUp() {
+        mouseDown = false;
+        panning = false;
+        window.removeEventListener('mousemove', onWindowMouseMove);
+        window.removeEventListener('mouseup', onWindowMouseUp);
+    }
+    chart.addEventListener('mousedown', function (e) {
+        mouseDown = true;
+        panning = false;
+        downMouseX = e.clientX;
+        lastMouseX = e.clientX;
+        window.addEventListener('mousemove', onWindowMouseMove);
+        window.addEventListener('mouseup', onWindowMouseUp);
+    });
+
+    // Mobile: one-finger swipe pans / tap shows tooltip; two-finger pinch zooms.
+    var touchMode = null; // null | 'pan' | 'pinch'
+    var touchStartX = 0;
+    var touchStartY = 0;
+    var touchStartT = 0;
+    var lastTouchX = 0;
+    var pinchStartDist = 0;
+
+    function touchDistance(touches) {
+        var dx = touches[0].clientX - touches[1].clientX;
+        var dy = touches[0].clientY - touches[1].clientY;
+        return Math.hypot(dx, dy);
+    }
+    function touchMidX(touches) {
+        return (touches[0].clientX + touches[1].clientX) / 2;
+    }
+
+    chart.addEventListener('touchstart', function (e) {
+        if (e.touches.length === 2) {
+            touchMode = 'pinch';
+            pinchStartDist = touchDistance(e.touches);
+            hideTooltip();
+            e.preventDefault();
+        } else if (e.touches.length === 1) {
+            touchMode = null;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            lastTouchX = touchStartX;
+            touchStartT = Date.now();
+        }
+    }, {passive: false});
+
+    chart.addEventListener('touchmove', function (e) {
+        if (e.touches.length === 2 && touchMode === 'pinch') {
+            e.preventDefault();
+            var dist = touchDistance(e.touches);
+            if (pinchStartDist > 0 && dist > 0) {
+                var anchor = clientXToTime(touchMidX(e.touches));
+                var factor = pinchStartDist / dist; // fingers apart -> factor < 1 -> zoom in
+                zoomAbout(anchor, factor);
+                pinchStartDist = dist;
+            }
+            return;
+        }
+        if (e.touches.length === 1) {
+            var x = e.touches[0].clientX;
+            var y = e.touches[0].clientY;
+            if (touchMode === null) {
+                // Decide pan vs tap once movement is clearly horizontal.
+                if (Math.abs(x - touchStartX) > 8 && Math.abs(x - touchStartX) > Math.abs(y - touchStartY)) {
+                    touchMode = 'pan';
+                    hideTooltip();
+                }
+            }
+            if (touchMode === 'pan') {
+                e.preventDefault();
+                panByPixels(x - lastTouchX);
+                lastTouchX = x;
+            }
+        }
+    }, {passive: false});
+
+    chart.addEventListener('touchend', function (e) {
+        // A short, near-stationary single-finger touch is a tap: show the tooltip at that point.
+        if (touchMode === null && e.changedTouches.length === 1) {
+            var dt = Date.now() - touchStartT;
+            var moved = Math.abs(e.changedTouches[0].clientX - touchStartX);
+            if (dt < 500 && moved < 8) {
+                onHover(e.changedTouches[0].clientX);
+            }
+        }
+        if (e.touches.length === 0) {
+            touchMode = null;
+            pinchStartDist = 0;
+        }
+    });
+
+    chart.addEventListener('touchcancel', function () {
+        touchMode = null;
+        pinchStartDist = 0;
+        hideTooltip();
+    });
+
+    // Rebinds hover listeners after each redraw replaces the <svg> element. Pan/zoom listeners
+    // live on the stable chart container, so they are attached once, not here.
     function rebindSvg() {
         svgEl = chart.querySelector('svg');
         if (!svgEl) return;
 
         svgEl.addEventListener('mousemove', function (e) {
+            if (mouseDown) return; // dragging pans, not hovers
             onHover(e.clientX);
         });
         svgEl.addEventListener('mouseleave', function () {
-            hideTooltip();
+            if (!panning) hideTooltip();
         });
-
-        svgEl.addEventListener('touchstart', function (e) {
-            if (e.touches.length === 1) onHover(e.touches[0].clientX);
-        }, {passive: true});
-        svgEl.addEventListener('touchmove', function (e) {
-            if (e.touches.length === 1) onHover(e.touches[0].clientX);
-        }, {passive: true});
-        // touchend: intentionally no-op - tooltip stays visible until next touch.
-        svgEl.addEventListener('touchcancel', function () {
-            hideTooltip();
-        }, {passive: true});
     }
 
     rebindSvg();

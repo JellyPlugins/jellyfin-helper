@@ -10,7 +10,14 @@
     border-radius: var(--radius-lg);
     overflow: visible;
     position: relative;
-    touch-action: manipulation; /* allow pinch-zoom on chart area */
+    /* We handle wheel zoom and touch pan/pinch ourselves, so the browser must not
+       claim these gestures for native scroll/zoom. */
+    touch-action: none;
+    cursor: grab;
+}
+
+.trend-chart:active {
+    cursor: grabbing;
 }
 
 .trend-chart svg {

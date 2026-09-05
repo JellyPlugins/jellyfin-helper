@@ -140,6 +140,24 @@ public class TrendsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_TrendChart_ContainsZoomPanGestures()
+    {
+        // Desktop wheel zoom + drag pan and the window-mutation helpers.
+        Assert.Contains("function zoomAbout", HtmlContent);
+        Assert.Contains("function panByPixels", HtmlContent);
+        Assert.Contains("'wheel'", HtmlContent);
+        // Mobile pinch uses finger distance.
+        Assert.Contains("Math.hypot", HtmlContent);
+    }
+
+    [Fact]
+    public void Css_TrendChart_DisablesNativeTouchGestures()
+    {
+        // touch-action:none is required so pinch/pan reach our handlers instead of native zoom.
+        Assert.Contains("touch-action: none", HtmlContent);
+    }
+
+    [Fact]
     public void Html_TrendChart_GeneratesSvg()
     {
         // The renderTrendChart function should generate SVG elements
