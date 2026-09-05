@@ -119,12 +119,12 @@ public class TrendsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_FormatGranularityLabel_HandlesAllGranularities()
     {
-        // The JS function should handle all 5 granularity levels
+        // The JS function handles the four zoom granularity levels (quarterly was removed).
         Assert.Contains("'yearly'", HtmlContent);
-        Assert.Contains("'quarterly'", HtmlContent);
         Assert.Contains("'monthly'", HtmlContent);
         Assert.Contains("'weekly'", HtmlContent);
         Assert.Contains("'daily'", HtmlContent);
+        Assert.DoesNotContain("'quarterly'", HtmlContent);
     }
 
     [Fact]

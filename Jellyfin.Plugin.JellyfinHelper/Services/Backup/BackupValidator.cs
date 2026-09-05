@@ -88,7 +88,7 @@ public static class BackupValidator
     /// </summary>
     private static readonly HashSet<string> ValidGranularities = new(StringComparer.OrdinalIgnoreCase)
     {
-        "daily", "weekly", "monthly", "quarterly", "yearly"
+        "daily", "weekly", "monthly", "yearly"
     };
 
     // Regex to detect script injection in string fields. Covers the common HTML/script vectors plus the two dangerous URL schemes (data:text/html and vbscript:) that the earlier pattern missed.

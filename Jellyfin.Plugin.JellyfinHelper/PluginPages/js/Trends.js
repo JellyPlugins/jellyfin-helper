@@ -8,10 +8,6 @@ function formatGranularityLabel(dateStr, granularity) {
     switch (granularity) {
         case 'yearly':
             return d.getUTCFullYear().toString();
-        case 'quarterly': {
-            var q = Math.floor(d.getUTCMonth() / 3) + 1;
-            return 'Q' + q + ' ' + d.getUTCFullYear();
-        }
         case 'monthly':
             return d.toLocaleDateString(undefined, {year: 'numeric', month: 'short', timeZone: 'UTC'});
         case 'weekly':
@@ -83,9 +79,6 @@ function advanceBucketDate(date, granularity) {
         case 'monthly':
             d.setUTCMonth(d.getUTCMonth() + 1);
             break;
-        case 'quarterly':
-            d.setUTCMonth(d.getUTCMonth() + 3);
-            break;
         case 'yearly':
             d.setUTCFullYear(d.getUTCFullYear() + 1);
             break;
@@ -103,7 +96,7 @@ function renderTrendChart(timeline) {
     // The backend already groups data into the correct granularity and deduplicates
     // consecutive identical points for compact storage. We only need to interpolate
     // the gaps back for a continuous chart line.
-    var validGranularities = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly'];
+    var validGranularities = ['daily', 'weekly', 'monthly', 'yearly'];
     var rawGranularity = timeline.granularity || 'monthly';
     var granularity = String(rawGranularity).toLowerCase();
     if (!validGranularities.includes(granularity)) {

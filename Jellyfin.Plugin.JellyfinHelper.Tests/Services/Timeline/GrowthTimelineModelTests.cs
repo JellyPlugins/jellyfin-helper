@@ -112,13 +112,13 @@ public class GrowthTimelineModelTests
 
         var result = new GrowthTimelineResult
         {
-            Granularity = "quarterly",
+            Granularity = "yearly",
             EarliestFileDate = earliest,
             ComputedAt = computedAt,
             TotalDirectoriesScanned = 5000,
         };
 
-        Assert.Equal("quarterly", result.Granularity);
+        Assert.Equal("yearly", result.Granularity);
         Assert.Equal(earliest, result.EarliestFileDate);
         Assert.Equal(computedAt, result.ComputedAt);
         Assert.Equal(5000, result.TotalDirectoriesScanned);
