@@ -351,14 +351,25 @@ function renderArrCollapseButton(expanded, icon, text, countText, type) {
     return arrCollapseButton;
 }
 
-// Rebuild the entire UI after a language change
+// Rebuild the entire UI after a language change.
+// The tab contents are language-baked at render time (T() is resolved into the
+// HTML strings), so a language switch has to re-render and re-fetch the data-driven
+// tabs - there is no lighter DOM-only text swap available. To keep that full rebuild
+// from reading as a page reload, we fade the container out, swap in place, restore the
+// previously active tab (instead of jumping to Settings), then fade back in.
 function rebuildUI() {
     applyStaticTranslations();
+
+    // Remember which tab was open so the rebuild doesn't yank the user to Settings.
+    var activeBtn = document.querySelector('.tab-btn.active');
+    var activeTab = activeBtn ? activeBtn.dataset.tab : 'settings';
 
     var placeholder = document.getElementById('statsPlaceholder');
     var result = document.getElementById('statsResult');
     if (placeholder) placeholder.style.display = 'none';
     if (result) {
+        result.style.transition = 'opacity 0.18s ease';
+        result.style.opacity = '0';
         resetLogsTabState();
         result.innerHTML = renderShell();
         result.style.display = 'block';
@@ -370,9 +381,17 @@ function rebuildUI() {
     loadTrendData();
     loadInsightsData();
 
-    // Switch back to the Settings tab after rebuild
-    var settingsBtn = document.querySelector('.tab-btn[data-tab="settings"]');
-    if (settingsBtn) settingsBtn.click();
+    // Reactivate the previously open tab without going through .click(), which would
+    // re-trigger the unsaved-changes guard mid-rebuild.
+    var targetBtn = document.querySelector('.tab-btn[data-tab="' + activeTab + '"]');
+    if (targetBtn && typeof doTabSwitch === 'function') {
+        doTabSwitch(targetBtn, activeTab);
+    }
+
+    // Fade the freshly rendered UI back in on the next frame so the swap is not visible.
+    if (result) {
+        setTimeout(function () { result.style.opacity = '1'; }, 20);
+    }
 }
 
 
