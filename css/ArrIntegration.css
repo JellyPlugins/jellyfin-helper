@@ -106,19 +106,6 @@
     background-position: right 0.5em center;
     background-size: 1.3em;
     cursor: pointer;
-    transition: border-color 0.2s;
-}
-
-/* noinspection CssUnusedSymbol */
-.arr-instance-select:hover {
-    border-color: var(--color-primary);
-}
-
-/* noinspection CssUnusedSymbol */
-.arr-instance-select:focus-visible {
-    border-color: var(--color-primary);
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
 }
 
 /* noinspection CssUnusedSymbol */
