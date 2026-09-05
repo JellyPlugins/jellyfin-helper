@@ -427,6 +427,13 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         }
     }
 
+    /// <inheritdoc />
+    public async Task<IDisposable> AcquireExclusiveAsync(CancellationToken cancellationToken)
+    {
+        await _computeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return new Releaser(_computeLock);
+    }
+
     /// <summary>
     ///     Collects top-level media directory entries (path, creation date, total size) from all libraries.
     /// </summary>
@@ -875,5 +882,30 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         public DateTime CreatedUtc;
         public long Size;
         public long Count;
+    }
+
+    /// <summary>
+    ///     Releases the exclusive gate handed out by <see cref="AcquireExclusiveAsync"/> when disposed.
+    /// </summary>
+    private sealed class Releaser : IDisposable
+    {
+        private readonly SemaphoreSlim _semaphore;
+        private bool _released;
+
+        public Releaser(SemaphoreSlim semaphore)
+        {
+            _semaphore = semaphore;
+        }
+
+        public void Dispose()
+        {
+            if (_released)
+            {
+                return;
+            }
+
+            _released = true;
+            _semaphore.Release();
+        }
     }
 }

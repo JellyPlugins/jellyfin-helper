@@ -6,6 +6,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Serialization;
@@ -36,7 +37,7 @@ public static class ControllerTestFactory
         var configServiceMock = new Mock<IPluginConfigurationService>();
         configServiceMock.Setup(c => c.GetConfiguration()).Returns(configuration ?? new PluginConfiguration());
         configServiceMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
-        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, TestMockFactory.CreateLogger<BackupService>().Object);
+        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, TestMockFactory.CreateLogger<BackupService>().Object, Mock.Of<IGrowthTimelineService>());
 
         var controller = new BackupController(
             backupService,

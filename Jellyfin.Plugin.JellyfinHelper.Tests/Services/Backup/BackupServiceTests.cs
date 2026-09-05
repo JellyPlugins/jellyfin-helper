@@ -747,10 +747,10 @@ public class BackupServiceTests
                 logger.Object);
 
             var backup = CreateValidBackup();
-            backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
+            backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "daily" };
             backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
             {
-                Date = ReferenceTime,
+                Date = new DateTime(2025, 6, 15, 0, 0, 0, DateTimeKind.Utc),
                 CumulativeSize = 1000
             });
             backup.GrowthBaseline = new GrowthTimelineBaseline
@@ -847,15 +847,18 @@ public class BackupServiceTests
     }
 
     [Fact]
-    public void TimelineTrimming_OverLimit_OldestRemoved()
+    public void TimelineTrimming_OverLimit_PreservesEarliestAndKeepsNewest()
     {
         var backup = CreateValidBackup();
-        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
+        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "daily" };
+        var origin = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var totalPoints = BackupValidator.MaxTimelineDataPoints + 5;
+
+        // Ascending daily points from a very old origin. Index 0 is the earliest (growth-curve origin).
         for (var i = 0; i < totalPoints; i++)
             backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
             {
-                Date = ReferenceTime.AddDays(-i),
+                Date = origin.AddDays(i),
                 CumulativeSize = i * 1000,
                 CumulativeFileCount = i
             });
@@ -863,9 +866,12 @@ public class BackupServiceTests
         BackupSanitizer.Sanitize(backup);
 
         Assert.Equal(BackupValidator.MaxTimelineDataPoints, backup.GrowthTimeline.DataPoints.Count);
-        // All remaining points should be the newest (closest to ReferenceTime)
-        Assert.All(backup.GrowthTimeline.DataPoints,
-            p => Assert.True(p.Date >= ReferenceTime.AddDays(-(BackupValidator.MaxTimelineDataPoints - 1))));
+
+        // The earliest point must survive so the curve keeps its origin.
+        Assert.Equal(origin, backup.GrowthTimeline.DataPoints[0].Date);
+
+        // The newest point must survive so the curve keeps its latest value.
+        Assert.Equal(origin.AddDays(totalPoints - 1), backup.GrowthTimeline.DataPoints[^1].Date);
     }
 
     [Fact]
@@ -892,7 +898,7 @@ public class BackupServiceTests
     public void Validate_TimelineWithBothNegativeSizeAndCount_EmitsBothWarningsOnce()
     {
         var backup = CreateValidBackup();
-        var timeline = new GrowthTimelineResult { Granularity = "monthly" };
+        var timeline = new GrowthTimelineResult { Granularity = "daily" };
         timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -1, CumulativeFileCount = -1 });
         timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 2, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -2, CumulativeFileCount = -2 });
         timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -3, CumulativeFileCount = -3 });
@@ -919,5 +925,76 @@ public class BackupServiceTests
         var result = BackupValidator.Validate(backup);
 
         Assert.Contains(result.Errors, e => e.Contains("script injection"));
+    }
+
+    [Fact]
+    public void RestoreBackup_DayBasedBackup_MergesIntoCurrentSeries()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-backup-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            // Current on-disk daily series: days 2 and 3.
+            var current = new GrowthTimelineResult { Granularity = "daily" };
+            current.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 2, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 200, CumulativeFileCount = 2 });
+            current.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 3, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 300, CumulativeFileCount = 3 });
+            File.WriteAllText(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json"), JsonSerializer.Serialize(current));
+
+            var configService = new Mock<IPluginConfigurationService>();
+            var service = new BackupService(tempDir, configService.Object, TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<BackupService>().Object);
+
+            // Backup (older server) daily series: day 1 (new history) and day 2 (overlap, higher value).
+            var backup = CreateValidBackup();
+            backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "daily" };
+            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 100, CumulativeFileCount = 1 });
+            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 2, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 250, CumulativeFileCount = 2 });
+
+            var summary = service.RestoreBackup(backup);
+
+            Assert.True(summary.TimelineRestored);
+
+            var mergedJson = File.ReadAllText(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json"));
+            var merged = JsonSerializer.Deserialize<GrowthTimelineResult>(mergedJson)!;
+
+            // Day 1 filled in retroactively; days 2 and 3 present; day 2 kept the higher value (250 > 200).
+            Assert.Equal(3, merged.DataPoints.Count);
+            Assert.Equal(new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), merged.DataPoints[0].Date);
+            Assert.Equal(250, merged.DataPoints[1].CumulativeSize);
+            Assert.Equal(new DateTime(2025, 1, 3, 0, 0, 0, DateTimeKind.Utc), merged.DataPoints[2].Date);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RestoreBackup_NoCurrentTimeline_WritesBackupSeriesVerbatim()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-backup-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var configService = new Mock<IPluginConfigurationService>();
+            var service = new BackupService(tempDir, configService.Object, TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<BackupService>().Object);
+
+            var backup = CreateValidBackup();
+            backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "daily" };
+            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = 100, CumulativeFileCount = 1 });
+
+            var summary = service.RestoreBackup(backup);
+
+            Assert.True(summary.TimelineRestored);
+            var written = JsonSerializer.Deserialize<GrowthTimelineResult>(
+                File.ReadAllText(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json")))!;
+            Assert.Single(written.DataPoints);
+            Assert.Equal(100, written.DataPoints[0].CumulativeSize);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
     }
 }

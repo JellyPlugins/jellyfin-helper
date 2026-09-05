@@ -20,9 +20,10 @@ public static class BackupValidator
     private const int MaxBackupVersion = 1;
 
     /// <summary>
-    ///     Maximum number of growth timeline data points allowed in a backup.
+    ///     Maximum number of growth timeline data points allowed in a backup. Sized for decades of a
+    ///     lossless daily series (deduplicated) while staying well under the per-file size guard.
     /// </summary>
-    internal const int MaxTimelineDataPoints = 5000;
+    internal const int MaxTimelineDataPoints = 20_000;
 
     /// <summary>
     ///     Maximum number of baseline directory entries allowed in a backup. Each top-level media directory (movie folder, TV show folder, etc.) is one entry.

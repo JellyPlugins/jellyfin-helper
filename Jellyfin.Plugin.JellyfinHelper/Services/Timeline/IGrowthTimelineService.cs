@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,4 +23,13 @@ public interface IGrowthTimelineService
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The cached timeline or null.</returns>
     Task<GrowthTimelineResult?> LoadTimelineAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Acquires the same exclusive gate the service uses around its read-compute-write sequence.
+    /// Backup export and restore hold it while reading or writing the timeline files so they cannot
+    /// race a scheduled scan and clobber a concurrent write.
+    /// </summary>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>A disposable that releases the gate when disposed.</returns>
+    Task<IDisposable> AcquireExclusiveAsync(CancellationToken cancellationToken);
 }

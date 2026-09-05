@@ -67,7 +67,7 @@ public sealed class BackupServiceErrorHandlingTests : IDisposable
 
     private static GrowthTimelineResult MakeTimeline()
     {
-        var timeline = new GrowthTimelineResult { Granularity = "monthly" };
+        var timeline = new GrowthTimelineResult { Granularity = "daily" };
         timeline.DataPoints.Add(new GrowthTimelinePoint
         {
             Date = new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc),
