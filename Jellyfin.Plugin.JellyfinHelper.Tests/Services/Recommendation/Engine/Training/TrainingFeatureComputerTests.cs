@@ -202,6 +202,7 @@ public class TrainingFeatureComputerTests
         { ["A"], [], 0.0 },
         { ["A", "B"], ["A", "B"], 1.0 },
         { ["action", "DRAMA"], ["Action", "drama"], 1.0 },
+        { ["Action", "action"], ["ACTION"], 1.0 },
         { ["A", "B"], ["A", "C"], 1.0 / 3.0 },
     };
 
