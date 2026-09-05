@@ -124,6 +124,16 @@
     border-radius: var(--radius-lg);
     margin-top: 0.8em;
     overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+/* The border lives on the container, so hovering or keyboard-focusing the
+   header lights up the whole collapsible edge blue - matching the dropdown
+   hover treatment defined centrally in Shared.css. */
+/* noinspection CssUnusedSymbol */
+.arr-collapsible:hover,
+.arr-collapsible:focus-within {
+    border-color: var(--color-primary);
 }
 
 /* noinspection CssUnusedSymbol */
@@ -153,7 +163,7 @@
 
 /* noinspection CssUnusedSymbol */
 .arr-collapsible-header:focus-visible {
-    outline: 2px solid var(--color-primary, #00a4dc);
+    outline: 2px solid var(--color-primary);
     outline-offset: -2px;
     background: rgba(255, 255, 255, 0.06);
 }
