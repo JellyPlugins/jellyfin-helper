@@ -41,11 +41,6 @@
     min-width: 200px;
 }
 
-.recs-select:focus-visible {
-    outline: 2px solid var(--color-primary, #00a4dc);
-    outline-offset: 2px;
-}
-
 .recs-select option {
     background: #2b2b2b;
     color: #e0e0e0;

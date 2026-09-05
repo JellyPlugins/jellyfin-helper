@@ -450,6 +450,36 @@
     vertical-align: middle;
 }
 
+/* Shared interaction states for custom-styled native <select> dropdowns.
+   The Settings tab (.settings-form select), the Arr tab (.arr-instance-select),
+   the Logs tab (.logs-toolbar select) and the Recommendations tab (.recs-select)
+   render visually consistent dropdowns; keeping their hover/focus feedback here
+   guarantees they stay in sync instead of drifting apart in per-tab stylesheets. */
+.settings-form select,
+.arr-instance-select,
+.logs-toolbar select,
+.recs-select {
+    transition: border-color 0.2s;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-form select:hover,
+.arr-instance-select:hover,
+.logs-toolbar select:hover,
+.recs-select:hover {
+    border-color: var(--color-primary);
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-form select:focus-visible,
+.arr-instance-select:focus-visible,
+.logs-toolbar select:focus-visible,
+.recs-select:focus-visible {
+    border-color: var(--color-primary);
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
 .file-tree-panel {
     max-height: 0;
     overflow: hidden;
