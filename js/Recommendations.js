@@ -89,9 +89,6 @@ function renderRecommendations(container, results) {
     var toggleBtn = document.getElementById('recsActivityToggle');
     if (toggleBtn) { toggleBtn.addEventListener('click', function () { toggleCollapsible('recsActivityBody', 'recsActivityToggle'); }); }
 
-    // Load the model-state footnote once (shared model state, independent of the selected user).
-    loadEnsembleDiagnostics();
-
     var discoveryContainer = document.getElementById('discoverySection');
     if (discoveryContainer) { renderDiscoverySection(discoveryContainer); }
 
@@ -115,6 +112,9 @@ function onUserChanged(index) {
     loadUserWatchProfile(index);
     loadUserActivity(index);
     loadDiscoveryForUser(index);
+    // The model footnote now describes the SELECTED user's model (per-user), so refresh it on user change.
+    var selected = _recsResults ? _recsResults[index] : null;
+    loadEnsembleDiagnostics(selected ? selected.UserId : null);
 }
 
 function toggleCollapsible(bodyId, toggleId) {
@@ -136,31 +136,50 @@ function toggleCollapsible(bodyId, toggleId) {
 // Fetches the read-only ensemble diagnostics once and caches the payload. Re-rendering the tab replaces the
 // footnote element, so every call must render the cached data into the current element rather than relying on
 // the element that existed at fetch time.
-var _ensembleDiagLoaded = false;
-var _ensembleDiagData = null;
-function loadEnsembleDiagnostics() {
-    if (_ensembleDiagLoaded) {
-        var cachedHost = document.getElementById('recsEnsembleFootnote');
-        if (cachedHost && _ensembleDiagData) renderEnsembleDiagnostics(cachedHost, _ensembleDiagData);
+// Per-user footnote: cache the diagnostics response keyed by user id so switching back to a user is instant.
+var _ensembleDiagCache = {};
+// Monotonic token so a slow response for a previously selected user cannot overwrite the footnote after the
+// admin has already switched to another user, matching the profile/activity/discovery loaders in this file.
+var _ensembleDiagReqId = 0;
+function loadEnsembleDiagnostics(userId) {
+    var host = document.getElementById('recsEnsembleFootnote');
+    var key = userId || '';
+    var url = 'JellyfinHelper/Recommendations/Diagnostics/Ensemble';
+    if (userId) { url += '?userId=' + encodeURIComponent(userId); }
+
+    var reqId = ++_ensembleDiagReqId;
+
+    if (Object.hasOwn(_ensembleDiagCache, key)) {
+        if (host) renderEnsembleDiagnostics(host, _ensembleDiagCache[key]);
         return;
     }
-    _ensembleDiagLoaded = true;
-    apiGet('JellyfinHelper/Recommendations/Diagnostics/Ensemble', function (data) {
-        _ensembleDiagData = data;
+
+    apiGet(url, function (data) {
+        // Cache regardless of staleness so switching back to this user stays instant, but only paint when this
+        // is still the most recent request.
+        _ensembleDiagCache[key] = data;
+        if (reqId !== _ensembleDiagReqId) return;
         // Resolve the host again here: a tab re-render may have replaced the element while the request was in flight.
-        var host = document.getElementById('recsEnsembleFootnote');
-        if (host) renderEnsembleDiagnostics(host, data);
+        var h = document.getElementById('recsEnsembleFootnote');
+        if (h) renderEnsembleDiagnostics(h, data);
     }, function () {
+        if (reqId !== _ensembleDiagReqId) return;
         // A footnote stays silent on failure rather than showing an error banner.
-        _ensembleDiagLoaded = false;
-        _ensembleDiagData = null;
-        var host = document.getElementById('recsEnsembleFootnote');
-        if (host) host.innerHTML = '';
+        var h = document.getElementById('recsEnsembleFootnote');
+        if (h) h.innerHTML = '';
     });
 }
 
-function ensembleYesNo(b) {
-    return b ? T('recsYes', 'Yes') : T('recsNo', 'No');
+// Clamp a blend factor to [0,1] and render it as a whole-number percentage. Hoisted to module scope so it is
+// defined once rather than rebuilt on every footnote render.
+function ensembleShareText(x) {
+    return Math.round(Math.max(0, Math.min(1, x)) * 100) + '%';
+}
+
+// Render one strategy share as "<name> <bold value>" so the percentage carries the typographic weight while
+// the strategy name stays quiet.
+function ensembleShareHtml(nameKey, nameFallback, valueHtml) {
+    return escHtml(T(nameKey, nameFallback)) + ' <strong class="recs-ensemble-val">' + valueHtml + '</strong>';
 }
 
 function renderEnsembleDiagnostics(host, data) {
@@ -168,17 +187,60 @@ function renderEnsembleDiagnostics(host, data) {
         host.innerHTML = '';
         return;
     }
-    var fmt = function (n) { return (typeof n === 'number') ? n.toFixed(2) : escHtml(String(n)); };
-    // Compact one-line model-state footnote. Describes the shared model, not the selected user, so it is kept
-    // small and unobtrusive at the very bottom of the tab.
-    var parts = [
-        T('recsEnsembleAlpha', 'Alpha (\u03B1)') + ' ' + fmt(data.Alpha),
-        T('recsEnsembleNeuralBeta', 'Neural (\u03B2)') + ' ' + fmt(data.NeuralBeta),
-        T('recsEnsembleTrend', 'Trend') + ' ' + escHtml(String(data.Trend || '')),
-        T('recsEnsembleExamples', 'Training examples') + ' ' + escHtml(String(data.TrainingExampleCount)),
-        T('recsEnsembleNeuralEnabled', 'Neural enabled') + ' ' + escHtml(ensembleYesNo(data.NeuralEnabled))
-    ];
-    host.innerHTML = escHtml(T('recsEnsembleNote', 'Shared recommendation model (not per user):')) + ' ' + parts.join(' \u00B7 ');
+
+    // Turn the raw blend factors into the three shares an admin can actually read. The score blends
+    // ML against the heuristic by alpha, and within the ML part the neural engine takes the fraction beta:
+    //   heuristic = 1 - alpha, machine learning = alpha * (1 - beta), neural = alpha * beta.
+    var alpha = (typeof data.Alpha === 'number') ? data.Alpha : 0;
+    var beta = (typeof data.NeuralBeta === 'number') ? data.NeuralBeta : 0;
+
+    var heuristicShare = 1 - alpha;
+    var mlShare = alpha * (1 - beta);
+    var neuralShare = alpha * beta;
+
+    // The neural engine is only part of the mix when it was built for this model and actually dosed in.
+    var neuralActive = data.NeuralEnabled && neuralShare > 0.0005;
+    var neuralValue = neuralActive ? ensembleShareText(neuralShare) : escHtml(T('recsEnsembleOff', 'off'));
+
+    var composition = [
+        ensembleShareHtml('recsEnsembleHeuristic', 'Heuristic', ensembleShareText(heuristicShare)),
+        ensembleShareHtml('recsEnsembleMl', 'Machine Learning', ensembleShareText(mlShare)),
+        ensembleShareHtml('recsEnsembleNeural', 'Neural Engine', neuralValue)
+    ].join(' <span class="recs-ensemble-sep">\u00B7</span> ');
+
+    var label;
+    if (data.IsPerUser) {
+        // This user has an individually trained model. Use their name when the backend supplied it, otherwise
+        // a neutral term so the per-user status is never mislabelled as the shared global model.
+        var who = data.UserName ? escHtml(String(data.UserName)) : escHtml(T('recsEnsembleThisUser', 'this user'));
+        label = T('recsEnsembleStrategyPerUser', 'Recommendation strategy for {0}:').replace('{0}', who);
+    } else {
+        // Cold-start / below threshold: this user still scores on the shared global model.
+        label = escHtml(T('recsEnsembleStrategyGlobal', 'Global recommendation strategy (this user has no individual model yet):'));
+    }
+
+    // Second line: the plain-language maturity status, not the raw sigmoid internals. The trend arrives as
+    // its backend enum name (Improving/Stable/Degrading/InsufficientData); translate it rather than showing
+    // the raw English token.
+    var trendKeys = {
+        Improving: ['recsEnsembleTrendImproving', 'Improving'],
+        Stable: ['recsEnsembleTrendStable', 'Stable'],
+        Degrading: ['recsEnsembleTrendDegrading', 'Degrading'],
+        InsufficientData: ['recsEnsembleTrendInsufficient', 'Warming up']
+    };
+    var trendRaw = String(data.Trend || '');
+    var trendPair = trendKeys[trendRaw];
+    var trendText = trendPair ? escHtml(T(trendPair[0], trendPair[1])) : escHtml(trendRaw);
+    var status = data.QualityGateFrozen
+        ? escHtml(T('recsEnsembleStatusFrozen', 'frozen'))
+        : trendText;
+    var summary = escHtml(T('recsEnsembleTrainedOn', 'Trained on {0} examples').replace('{0}', String(data.TrainingExampleCount)))
+        + ' <span class="recs-ensemble-sep">\u00B7</span> '
+        + escHtml(T('recsEnsembleStatus', 'Status')) + ' <span class="recs-ensemble-trend">' + status + '</span>';
+
+    host.innerHTML =
+        '<div class="recs-ensemble-line recs-ensemble-blend"><span class="recs-ensemble-label">' + label + '</span> ' + composition + '</div>' +
+        '<div class="recs-ensemble-line recs-ensemble-status">' + summary + '</div>';
 }
 
 function renderUserRecommendations(index) {

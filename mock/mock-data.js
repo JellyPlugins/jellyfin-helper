@@ -263,7 +263,15 @@ var MOCK_RECOMMENDATIONS=[
 ];
 
 var MOCK_WATCH_PROFILES={};
-var MOCK_ENSEMBLE_DIAGNOSTICS={Available:true,Alpha:0.62,NeuralBeta:0.28,QualityGateFrozen:false,SigmoidMidpointOffset:-6,EffectiveSigmoidMidpoint:44,Trend:"Improving",TrainingExampleCount:342,MetricsHistoryCount:10,AlphaMin:0.15,AlphaMax:0.85,NeuralEnabled:true};
+// Alice has crossed the per-user threshold, so she gets her own individually trained model with her own
+// blend and maturity. Bob is still below it, so he falls back to the shared global strategy (no model yet).
+// Switching the selected user in the demo swaps between these two footnote states.
+var MOCK_ENSEMBLE_DIAGNOSTICS={Available:true,IsPerUser:false,Alpha:0.62,NeuralBeta:0.28,QualityGateFrozen:false,SigmoidMidpointOffset:-6,EffectiveSigmoidMidpoint:44,Trend:"Improving",TrainingExampleCount:342,MetricsHistoryCount:10,AlphaMin:0.15,AlphaMax:0.85,NeuralEnabled:true};
+var MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER={};
+MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid1]={Available:true,IsPerUser:true,UserName:"Alice",Alpha:0.68,NeuralBeta:0.31,QualityGateFrozen:false,SigmoidMidpointOffset:-6,EffectiveSigmoidMidpoint:44,Trend:"Improving",TrainingExampleCount:412,MetricsHistoryCount:10,AlphaMin:0.15,AlphaMax:0.85,NeuralEnabled:true};
+// Bob has no per-user model yet (IsPerUser:false), so his footnote shows the shared global snapshot with only
+// his name attached. Deriving it from the global object keeps the two in sync instead of drifting apart.
+MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid2]=Object.assign({},MOCK_ENSEMBLE_DIAGNOSTICS,{UserName:"Bob"});
 MOCK_WATCH_PROFILES[_uid1]={WatchedMovieCount:85,WatchedEpisodeCount:240,WatchedSeriesCount:12,FavoriteCount:15,GenreDistribution:{"Sci-Fi":45,"Action":38,"Thriller":22,"Drama":18,"Adventure":12,"Mystery":8,"Horror":5}};
 MOCK_WATCH_PROFILES[_uid2]={WatchedMovieCount:42,WatchedEpisodeCount:180,WatchedSeriesCount:8,FavoriteCount:8,GenreDistribution:{"Drama":40,"Comedy":35,"Romance":15,"Thriller":10,"Adventure":6,"War":3}};
 
@@ -316,7 +324,7 @@ else if(url.includes("ArrIntegration/Compare/"))resolve(structuredClone(MOCK_ARR
 else if(url.includes("Logs/Download")){var lt=MOCK_LOGS.Entries.map(function(e){return e.Timestamp+" ["+e.Level+"] "+e.Source+": "+e.Message;}).join("\n");resolve(lt);}
 else if(url.includes("Logs")&&method==="DELETE"){MOCK_LOGS.Entries=[];MOCK_LOGS.TotalCount=0;resolve({});}
 else if(url.includes("Logs"))resolve(structuredClone(MOCK_LOGS));
-else if(url.includes("Recommendations/Diagnostics/Ensemble"))resolve(structuredClone(MOCK_ENSEMBLE_DIAGNOSTICS));
+else if(url.includes("Recommendations/Diagnostics/Ensemble")){var ep=url.split("userId=");var eid=ep.length>1?decodeURIComponent(ep[1].split("&")[0]):"";resolve(structuredClone(MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[eid]||MOCK_ENSEMBLE_DIAGNOSTICS));}
 else if(url.includes("Recommendations/WatchProfile/")){var wp=url.split("WatchProfile/");var wid=wp.length>1?wp[1].split("?")[0]:"";resolve(structuredClone(MOCK_WATCH_PROFILES[wid]||{}));}
 else if(url.includes("Recommendations/WatchProfiles"))resolve(structuredClone(MOCK_WATCH_PROFILES));
 else if(url.includes("Recommendations/")&&!url.includes("WatchProfile")){var rp=url.split("Recommendations/");var rid=rp.length>1?rp[1].split("?")[0]:"";var ur=MOCK_RECOMMENDATIONS.filter(function(r){return r.UserId===rid;});resolve(structuredClone(ur.length>0?ur[0]:{}));}
