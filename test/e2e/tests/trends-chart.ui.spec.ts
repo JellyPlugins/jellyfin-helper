@@ -60,7 +60,7 @@ test.describe('trend chart desktop zoom/pan', () => {
       await page.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2);
       await page.mouse.wheel(0, -120);
     }
-    await page.waitForTimeout(200);
+    await expect.poll(async () => await currentLevel(page), { timeout: 2_000 }).not.toBe('');
     const after = await currentLevel(page);
 
     // Either the level refined (e.g. monthly -> weekly -> daily) or it was already daily.
@@ -79,7 +79,7 @@ test.describe('trend chart desktop zoom/pan', () => {
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await page.mouse.wheel(0, -120);
     }
-    await page.waitForTimeout(150);
+    await expect.poll(async () => await page.locator('.trend-chart svg').count(), { timeout: 2_000 }).toBeGreaterThan(0);
 
     const labelsBefore = await page.locator('.trend-chart svg text[text-anchor="middle"]').allTextContents();
 
@@ -87,7 +87,7 @@ test.describe('trend chart desktop zoom/pan', () => {
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2, { steps: 10 });
     await page.mouse.up();
-    await page.waitForTimeout(150);
+    await expect.poll(async () => (await page.locator('.trend-chart svg text[text-anchor="middle"]').allTextContents()).join('|'), { timeout: 2_000 }).not.toBe(labelsBefore.join('|'));
 
     const labelsAfter = await page.locator('.trend-chart svg text[text-anchor="middle"]').allTextContents();
     expect(labelsAfter.join('|')).not.toBe(labelsBefore.join('|'));
@@ -131,7 +131,7 @@ test.describe('trend chart touch gestures', () => {
       await touch('touchMove', [{ x: cx - spread, y: cy }, { x: cx + spread, y: cy }]);
     }
     await touch('touchEnd', []);
-    await page.waitForTimeout(200);
+    await expect.poll(async () => await currentLevel(page), { timeout: 2_000 }).not.toBe('');
 
     const after = await currentLevel(page);
     const order = ['yearly', 'monthly', 'weekly', 'daily'];

@@ -24,6 +24,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
     private const string TimelineFileName = "jellyfin-helper-growth-timeline.json";
     private const string BaselineFileName = "jellyfin-helper-growth-baseline.json";
+    private const string DailyGranularity = "daily";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _baselineFilePath;
@@ -128,7 +129,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
             // Storage is always daily and lossless. Coarser display buckets (week, month, year)
             // are a client-side zoom projection, never baked into the stored series.
-            const string finalGranularity = "daily";
+            const string finalGranularity = DailyGranularity;
 
             // Remove consecutive data points with identical values to reduce storage size.
             // The UI will interpolate missing buckets back when rendering the chart.
@@ -194,12 +195,12 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             return new GrowthTimelineResult
             {
                 ComputedAt = now,
-                Granularity = "daily"
+                Granularity = DailyGranularity
             };
         }
 
         var earliestExisting = existingTimeline.DataPoints[0].Date;
-        const string granularity = "daily";
+        const string granularity = DailyGranularity;
         var zeroPoints = TimelineAggregator.MergeSnapshotIntoTimeline(
             existingTimeline.DataPoints.ToList(),
             now,
@@ -310,7 +311,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         timelineEntries.Sort((a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
 
         var earliest = timelineEntries.Count > 0 ? timelineEntries[0].CreatedUtc : now;
-        const string granularity = "daily";
+        const string granularity = DailyGranularity;
 
         _pluginLog.LogInfo(
             LogSource,
@@ -364,7 +365,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                 now,
                 currentTotalSize,
                 currentTotalCount,
-                "daily");
+                DailyGranularity);
         }
         else
         {
@@ -380,7 +381,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
             var earliest = timelineEntries.Count > 0 ? timelineEntries[0].CreatedUtc : now;
 
-            dataPoints = TimelineAggregator.BuildCumulativeTimeline(timelineEntries, earliest, now, "daily");
+            dataPoints = TimelineAggregator.BuildCumulativeTimeline(timelineEntries, earliest, now, DailyGranularity);
         }
 
         // Update baseline with current state for next scan

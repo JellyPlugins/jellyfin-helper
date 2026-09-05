@@ -9,6 +9,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 /// </summary>
 public static class TimelineAggregator
 {
+    private const string DailyGranularity = "daily";
+
     /// <summary>
     ///     Determines the best granularity based on the time span between the oldest file and now.
     /// </summary>
@@ -25,7 +27,7 @@ public static class TimelineAggregator
             > 5 * 365 => "yearly",
             > 365 => "monthly",
             > 90 => "weekly",
-            _ => "daily"
+            _ => DailyGranularity
         };
     }
 
@@ -275,7 +277,7 @@ public static class TimelineAggregator
     {
         return granularity switch
         {
-            "daily" => new DateTime(date.Year, date.Month, date.Day, 0, 0, 0, DateTimeKind.Utc),
+            DailyGranularity => new DateTime(date.Year, date.Month, date.Day, 0, 0, 0, DateTimeKind.Utc),
             "weekly" => GetStartOfWeek(date),
             "monthly" => new DateTime(date.Year, date.Month, 1, 0, 0, 0, DateTimeKind.Utc),
             "yearly" => new DateTime(date.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -293,7 +295,7 @@ public static class TimelineAggregator
     {
         return granularity switch
         {
-            "daily" => current.AddDays(1),
+            DailyGranularity => current.AddDays(1),
             "weekly" => current.AddDays(7),
             "monthly" => current.AddMonths(1),
             "yearly" => current.AddYears(1),
@@ -438,22 +440,14 @@ public static class TimelineAggregator
     {
         ArgumentNullException.ThrowIfNull(timeline);
 
-        if (!string.Equals(timeline.Granularity, "daily", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(timeline.Granularity, DailyGranularity, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
         // A daily point is always midnight UTC by construction. A non-midnight point means the
         // series was bucketed coarser (or hand-edited), so it is not a genuine daily series.
-        foreach (var point in timeline.DataPoints)
-        {
-            if (point.Date.TimeOfDay != TimeSpan.Zero)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return timeline.DataPoints.All(point => point.Date.TimeOfDay == TimeSpan.Zero);
     }
 
     /// <summary>
@@ -473,26 +467,16 @@ public static class TimelineAggregator
 
         foreach (var point in first.Concat(second))
         {
-            var day = GetBucketStart(point.Date, "daily");
-            if (byDay.TryGetValue(day, out var existing))
+            var day = GetBucketStart(point.Date, DailyGranularity);
+            var hasExisting = byDay.TryGetValue(day, out var existing);
+            var size = hasExisting ? Math.Max(existing!.CumulativeSize, point.CumulativeSize) : point.CumulativeSize;
+            var count = hasExisting ? Math.Max(existing!.CumulativeFileCount, point.CumulativeFileCount) : point.CumulativeFileCount;
+            byDay[day] = new GrowthTimelinePoint
             {
-                // Same calendar day in both series: keep the higher cumulative values.
-                byDay[day] = new GrowthTimelinePoint
-                {
-                    Date = day,
-                    CumulativeSize = Math.Max(existing.CumulativeSize, point.CumulativeSize),
-                    CumulativeFileCount = Math.Max(existing.CumulativeFileCount, point.CumulativeFileCount)
-                };
-            }
-            else
-            {
-                byDay[day] = new GrowthTimelinePoint
-                {
-                    Date = day,
-                    CumulativeSize = point.CumulativeSize,
-                    CumulativeFileCount = point.CumulativeFileCount
-                };
-            }
+                Date = day,
+                CumulativeSize = size,
+                CumulativeFileCount = count
+            };
         }
 
         var merged = byDay.Values.OrderBy(p => p.Date).ToList();

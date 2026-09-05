@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
-public class TrendsHtmlTests : ConfigPageTestBase
+public partial class TrendsHtmlTests : ConfigPageTestBase
 {
     /// <summary>
     ///     Verifies the trend tab elements, functions, endpoint, and timeline references are present.
@@ -47,6 +47,12 @@ public class TrendsHtmlTests : ConfigPageTestBase
         Assert.Contains(marker, HtmlContent);
     }
 
+    [GeneratedRegex(@"(?:fullDaily|dailyPoints|projected|dataPoints)\[[^\]]+\]\.(\w+)")]
+    private static partial Regex DataPointPropertyRegex();
+
+    [GeneratedRegex(@"timeline\.(\w+)")]
+    private static partial Regex TimelinePropertyRegex();
+
     [Fact]
     public void Html_TrendChart_AllReferencedDataPointProperties_ExistOnClass()
     {
@@ -58,9 +64,7 @@ public class TrendsHtmlTests : ConfigPageTestBase
         // The renderer accesses daily points as fullDaily[i].prop / dailyPoints[i].prop /
         // projected[i].prop. Any JS property name read off a point array must map to a real
         // C# property so a rename cannot silently desync training/serve field names.
-        var referenced = Regex.Matches(
-                HtmlContent,
-                @"(?:fullDaily|dailyPoints|projected|dataPoints)\[[^\]]+\]\.(\w+)")
+        var referenced = DataPointPropertyRegex().Matches(HtmlContent)
             .Select(m => m.Groups[1].Value)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -82,7 +86,7 @@ public class TrendsHtmlTests : ConfigPageTestBase
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Check timeline.xxx references (excluding dataPoints access via [])
-        var timelineRefs = Regex.Matches(HtmlContent, @"timeline\.(\w+)")
+        var timelineRefs = TimelinePropertyRegex().Matches(HtmlContent)
             .Select(m => m.Groups[1].Value)
             .Where(p => !string.Equals(p, "dataPoints", StringComparison.OrdinalIgnoreCase)
                      || resultProperties.Contains(p))
@@ -153,8 +157,8 @@ public class TrendsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Css_TrendChart_DisablesNativeTouchGestures()
     {
-        // touch-action:none is required so pinch/pan reach our handlers instead of native zoom.
-        Assert.Contains("touch-action: none", HtmlContent);
+        // Horizontal pan/pinch is handled in JS; vertical swipe is left to the browser for page scroll.
+        Assert.Contains("touch-action: pan-y", HtmlContent);
     }
 
     [Fact]

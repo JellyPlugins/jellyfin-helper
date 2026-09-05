@@ -10,9 +10,9 @@
     border-radius: var(--radius-lg);
     overflow: visible;
     position: relative;
-    /* We handle wheel zoom and touch pan/pinch ourselves, so the browser must not
-       claim these gestures for native scroll/zoom. */
-    touch-action: none;
+    /* Horizontal pan and pinch-zoom are handled in JS; vertical swipe is left to the
+       browser so trackpad two-finger scroll and mobile vertical scroll work naturally. */
+    touch-action: pan-y;
     cursor: grab;
 }
 
