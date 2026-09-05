@@ -331,6 +331,81 @@ public class TrainingServiceTests
     /// <summary>
     ///     Builds a large watch profile with N distinct watched items across several genres, which - combined with N recommendations per user - produces enough training examples to trigger the held-out validation split path (>= 20 examples).
     /// </summary>
+    [Fact]
+    public void RetireStaleModels_ModelIdleBeyondWindow_RetiredWithInfoLog()
+    {
+        // A user builds a per-user model, then goes quiet for longer than the idle window. RetireStaleModels
+        // runs the age sweep independently of training, so it must retire the stale model and log the retirement.
+        var idleUser = Guid.NewGuid();
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var dataPath = Path.Join(Path.GetTempPath(), "jfh-trainperuser-idle-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            using var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Join(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Join(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+            using var sut = CreateSut();
+
+            // Data-rich run for the idle user creates their per-user model.
+            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(idleUser, watchedCount: 30) });
+            sut.TrainPerUser(
+                registry,
+                new[] { CreateLargeResult(idleUser, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) });
+            Assert.True(registry.HasPerUserModel(idleUser));
+
+            // Rewind the idle user's persisted last-trained time to well beyond the idle window so the sweep
+            // sees it as stale.
+            var idleStatePath = Path.Join(dataPath, $"ensemble_state_{idleUser:N}.json");
+            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(idleStatePath))!;
+            node["UpdatedAt"] = DateTime.UtcNow
+                .AddDays(-(EngineConstants.PerUserModelMaxIdleDays + 5))
+                .ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+            File.WriteAllText(idleStatePath, node.ToJsonString());
+
+            var retired = sut.RetireStaleModels(registry);
+
+            Assert.Equal(1, retired);
+            Assert.False(registry.HasPerUserModel(idleUser));
+            Assert.False(File.Exists(Path.Join(dataPath, $"ml_weights_{idleUser:N}.json")));
+            _pluginLogMock.Verify(
+                l => l.LogInfo(
+                    It.IsAny<string>(),
+                    It.Is<string>(m => m.Contains("Retired") && m.Contains("per-user model")),
+                    It.IsAny<ILogger>()),
+                Times.Once);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
+
     private static UserWatchProfile CreateLargeProfile(Guid userId, int watchedCount)
     {
         var profile = new UserWatchProfile
@@ -632,16 +707,16 @@ public class TrainingServiceTests
             CreateLargeResult(userB, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
         };
 
-        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-tests-" + Guid.NewGuid().ToString("N"));
+        var dataPath = Path.Join(Path.GetTempPath(), "jfh-trainperuser-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dataPath);
         try
         {
             var neural = new NeuralScoringStrategy();
             using var global = new EnsembleScoringStrategy(
-                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new LearnedScoringStrategy(Path.Join(dataPath, "ml_weights.json")),
                 new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
                 neural,
-                Path.Combine(dataPath, "ensemble_state.json"));
+                Path.Join(dataPath, "ensemble_state.json"));
             using var registry = new PerUserEnsembleRegistry(
                 global,
                 neural,
@@ -681,16 +756,16 @@ public class TrainingServiceTests
     [Fact]
     public void TrainPerUser_NoPreviousResults_ReturnsFalseWithoutTraining()
     {
-        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-empty-" + Guid.NewGuid().ToString("N"));
+        var dataPath = Path.Join(Path.GetTempPath(), "jfh-trainperuser-empty-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dataPath);
         try
         {
             using var neural = new NeuralScoringStrategy();
             using var global = new EnsembleScoringStrategy(
-                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new LearnedScoringStrategy(Path.Join(dataPath, "ml_weights.json")),
                 new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
                 neural,
-                Path.Combine(dataPath, "ensemble_state.json"));
+                Path.Join(dataPath, "ensemble_state.json"));
             using var registry = new PerUserEnsembleRegistry(
                 global,
                 neural,
@@ -706,7 +781,7 @@ public class TrainingServiceTests
 
             // An empty result set has nothing to train on, so no model file is written and false is returned.
             Assert.False(trained);
-            Assert.False(File.Exists(Path.Combine(dataPath, "ml_weights.json")));
+            Assert.False(File.Exists(Path.Join(dataPath, "ml_weights.json")));
         }
         finally
         {
@@ -740,16 +815,16 @@ public class TrainingServiceTests
             CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
         };
 
-        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-below-" + Guid.NewGuid().ToString("N"));
+        var dataPath = Path.Join(Path.GetTempPath(), "jfh-trainperuser-below-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dataPath);
         try
         {
             using var neural = new NeuralScoringStrategy();
             using var global = new EnsembleScoringStrategy(
-                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new LearnedScoringStrategy(Path.Join(dataPath, "ml_weights.json")),
                 new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
                 neural,
-                Path.Combine(dataPath, "ensemble_state.json"));
+                Path.Join(dataPath, "ensemble_state.json"));
             using var registry = new PerUserEnsembleRegistry(
                 global,
                 neural,
@@ -791,16 +866,16 @@ public class TrainingServiceTests
         var user = Guid.NewGuid();
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-evict-" + Guid.NewGuid().ToString("N"));
+        var dataPath = Path.Join(Path.GetTempPath(), "jfh-trainperuser-evict-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dataPath);
         try
         {
             using var neural = new NeuralScoringStrategy();
             using var global = new EnsembleScoringStrategy(
-                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new LearnedScoringStrategy(Path.Join(dataPath, "ml_weights.json")),
                 new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
                 neural,
-                Path.Combine(dataPath, "ensemble_state.json"));
+                Path.Join(dataPath, "ensemble_state.json"));
             using var registry = new PerUserEnsembleRegistry(
                 global,
                 neural,
@@ -829,7 +904,7 @@ public class TrainingServiceTests
                 new[] { CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 8, 0, 0, 0, DateTimeKind.Utc)) });
 
             Assert.False(registry.HasPerUserModel(user));
-            Assert.False(File.Exists(Path.Combine(dataPath, $"ml_weights_{user:N}.json")));
+            Assert.False(File.Exists(Path.Join(dataPath, $"ml_weights_{user:N}.json")));
             Assert.Same(global, registry.GetScoringStrategyForUser(user));
         }
         finally

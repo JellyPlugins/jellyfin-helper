@@ -179,13 +179,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         UpdateDiscoveryWatchedStatus(cancellationToken);
 
-        // Reconcile per-user model files against the live user list regardless of whether there is anything to
-        // train on, since a user can be removed between runs. This is independent of the training data.
-        _perUserRegistry.PruneOrphans([.. _watchHistoryService.GetAllUserIds()]);
-
         // With no previous results there is nothing to train on, so return before the expensive library scan
         // below. TrainPerUser would reject the empty set anyway; exiting here avoids a full movie/series/episode
-        // load on an initial or empty run.
+        // load on an initial or empty run. Per-user reconciliation (orphan pruning and idle retirement) is not
+        // done here: it runs in RetireStalePerUserModels so it happens on every active run, not only when there
+        // are cached results to train on.
         if (previousResults.Count == 0)
         {
             _pluginLog.LogInfo(LogCategory, "Training skipped - no previous recommendations available.", logger: _logger);
@@ -221,6 +219,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         return trained;
+    }
+
+    /// <inheritdoc />
+    public int RetireStalePerUserModels()
+    {
+        // Reconcile per-user model files against the live user list first, so a model belonging to a removed
+        // user is pruned rather than merely aged out. Both steps run here, independent of training, so they
+        // happen on every active run even when there are no cached results to train on.
+        _perUserRegistry.PruneOrphans([.. _watchHistoryService.GetAllUserIds()]);
+        return _trainingService.RetireStaleModels(_perUserRegistry);
     }
 
     private void ApplyGlobalCohortFeedback(IReadOnlyList<RecommendationResult> previousResults)

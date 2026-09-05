@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.IO.Abstractions;
 using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -22,7 +23,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
 
     public PerUserEnsembleRegistryTests()
     {
-        _dataPath = Path.Combine(Path.GetTempPath(), "jfh-peruser-tests-" + Guid.NewGuid().ToString("N"));
+        _dataPath = Path.Join(Path.GetTempPath(), "jfh-peruser-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dataPath);
     }
 
@@ -160,13 +161,13 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
             Assert.True(e.LearnedStrategy.Train(GenerateExamples(30)));
         }
 
-        Assert.True(File.Exists(Path.Combine(_dataPath, $"ml_weights_{remove:N}.json")));
+        Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{remove:N}.json")));
 
         registry.PruneOrphans([keep]);
 
-        Assert.True(File.Exists(Path.Combine(_dataPath, $"ml_weights_{keep:N}.json")));
-        Assert.False(File.Exists(Path.Combine(_dataPath, $"ml_weights_{remove:N}.json")));
-        Assert.False(File.Exists(Path.Combine(_dataPath, $"ensemble_state_{remove:N}.json")));
+        Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{keep:N}.json")));
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{remove:N}.json")));
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{remove:N}.json")));
     }
 
     [Fact]
@@ -177,8 +178,8 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         using var registry = BuildRegistry(global, neural);
 
         // Plant the unsuffixed global files - the per-user globs must never match these.
-        var globalWeights = Path.Combine(_dataPath, "ml_weights.json");
-        var globalState = Path.Combine(_dataPath, "ensemble_state.json");
+        var globalWeights = Path.Join(_dataPath, "ml_weights.json");
+        var globalState = Path.Join(_dataPath, "ensemble_state.json");
         File.WriteAllText(globalWeights, "{}");
         File.WriteAllText(globalState, "{}");
 
@@ -197,7 +198,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
 
         // A file that matches the per-user glob but whose embedded id is not a hex GUID must fail the id parse
         // and be skipped rather than throwing or being deleted.
-        var malformed = Path.Combine(_dataPath, "ml_weights_notahexid.json");
+        var malformed = Path.Join(_dataPath, "ml_weights_notahexid.json");
         File.WriteAllText(malformed, "{}");
 
         var ex = Record.Exception(() => registry.PruneOrphans([Guid.NewGuid()]));
@@ -218,7 +219,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         // distinct per-user instance.
         var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
         Assert.True(perUser.LearnedStrategy.Train(GenerateExamples(30)));
-        var weightsFile = Path.Combine(_dataPath, $"ml_weights_{userId:N}.json");
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
         Assert.True(File.Exists(weightsFile));
 
         // Simulate the eviction race: the weights file is deleted directly on disk, and the session-cached entry
@@ -367,14 +368,14 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
 
         var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
         Assert.True(perUser.LearnedStrategy.Train(GenerateExamples(30)));
-        Assert.True(File.Exists(Path.Combine(_dataPath, $"ml_weights_{userId:N}.json")));
+        Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{userId:N}.json")));
         Assert.NotSame(global, registry.GetScoringStrategyForUser(userId));
 
         var evicted = registry.EvictPerUserModel(userId);
 
         Assert.True(evicted);
-        Assert.False(File.Exists(Path.Combine(_dataPath, $"ml_weights_{userId:N}.json")));
-        Assert.False(File.Exists(Path.Combine(_dataPath, $"ensemble_state_{userId:N}.json")));
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{userId:N}.json")));
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json")));
         Assert.False(registry.HasPerUserModel(userId));
         // After eviction the user scores on the shared global instance again (reference identity).
         Assert.Same(global, registry.GetScoringStrategyForUser(userId));
@@ -389,6 +390,252 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
 
         Assert.False(registry.EvictPerUserModel(Guid.NewGuid()));
         Assert.False(registry.EvictPerUserModel(Guid.Empty));
+    }
+
+    [Fact]
+    public void EvictStaleModels_ModelOlderThanCutoff_IsEvictedAndFallsBackToGlobal()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.Train(GenerateExamples(30)));
+        Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{userId:N}.json")));
+
+        // Pin the last-trained time to a fixed point in the past so the sweep is deterministic and does not
+        // depend on the wall clock at test time.
+        PinLastTrained(userId, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(1, evicted);
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{userId:N}.json")));
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json")));
+        Assert.Same(global, registry.GetScoringStrategyForUser(userId));
+    }
+
+    [Fact]
+    public void EvictStaleModels_ModelNewerThanCutoff_IsKept()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.Train(GenerateExamples(30)));
+
+        // A user trained after the cutoff has an up-to-date model and must survive the sweep untouched, which
+        // is what stops a single quiet cycle from evicting a still-active user.
+        PinLastTrained(userId, new DateTime(2020, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(0, evicted);
+        Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{userId:N}.json")));
+        Assert.True(registry.HasPerUserModel(userId));
+    }
+
+    [Fact]
+    public void EvictStaleModels_NoModels_ReturnsZero()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        Assert.Equal(0, registry.EvictStaleModels(DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void EvictStaleModels_MalformedPerUserFilename_LeftUntouchedAndNotCounted()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        // A file matching the weights glob but carrying a non-hex id fails the id parse, so the sweep must skip
+        // it rather than throwing or counting it as an eviction.
+        var malformed = Path.Join(_dataPath, "ml_weights_notahexid.json");
+        File.WriteAllText(malformed, "{}");
+
+        var evicted = registry.EvictStaleModels(DateTime.UtcNow);
+
+        Assert.Equal(0, evicted);
+        Assert.True(File.Exists(malformed));
+    }
+
+    [Fact]
+    public void EvictStaleModels_StateFileWithoutWeights_RemovedButNotCounted()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        // A state file with no companion weights file is leftover metadata: the read path keys on the weights
+        // file, so it can never rebuild a model from this alone. The weights walk never sees this id and orphan
+        // pruning keeps files for live users, so the sweep must clean it up on its own. It is not a retired
+        // model, so it must not be counted.
+        var orphanState = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
+        File.WriteAllText(orphanState, "{}");
+
+        var evicted = registry.EvictStaleModels(DateTime.UtcNow);
+
+        Assert.Equal(0, evicted);
+        Assert.False(File.Exists(orphanState));
+    }
+
+    [Fact]
+    public void EvictStaleModels_StateFileWithWeights_KeptDuringOrphanSweep()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        // The counterpart to the orphan case: a state file whose weights file still exists belongs to a real
+        // model that is fresh, so the orphan sweep must leave both in place. Train the user and stamp the state
+        // after the cutoff so the age check keeps it, then confirm neither file is removed.
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.Train(GenerateExamples(30)));
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+        var stateFile = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
+        PinLastTrained(userId, new DateTime(2020, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(0, evicted);
+        Assert.True(File.Exists(weightsFile));
+        Assert.True(File.Exists(stateFile));
+    }
+
+    [Fact]
+    public void EvictStaleModels_StateFileMissing_UsesWeightsFileWriteTime()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.Train(GenerateExamples(30)));
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+
+        // With no state file the age decision falls back to the weights file's own write time. Delete the state
+        // file and stamp the weights file well before the cutoff so the fallback drives an eviction.
+        File.Delete(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json"));
+        File.SetLastWriteTimeUtc(weightsFile, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(1, evicted);
+        Assert.False(File.Exists(weightsFile));
+    }
+
+    [Fact]
+    public void EvictStaleModels_StateFileWriteTimeAfterCutoff_KeepsModel()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.Train(GenerateExamples(30)));
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+
+        // Symmetric to the missing-state eviction: with the weights file stamped after the cutoff the fallback
+        // keeps the model, proving the write-time branch drives both outcomes.
+        File.Delete(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json"));
+        File.SetLastWriteTimeUtc(weightsFile, new DateTime(2020, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(0, evicted);
+        Assert.True(File.Exists(weightsFile));
+    }
+
+    [Fact]
+    public void EvictStaleModels_UnparseableStateStamp_FallsBackToWeightsFileWriteTime()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.Train(GenerateExamples(30)));
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+
+        // A state file whose UpdatedAt cannot be parsed must not be trusted; the sweep falls back to the weights
+        // file write time, so an old weights file is still evicted.
+        SetStateStamp(userId, "not-a-timestamp");
+        File.SetLastWriteTimeUtc(weightsFile, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(1, evicted);
+        Assert.False(File.Exists(weightsFile));
+    }
+
+    [Fact]
+    public void EvictStaleModels_CorruptStateJson_DoesNotThrowAndFallsBackToWeightsFileWriteTime()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var userId = Guid.NewGuid();
+
+        var perUser = registry.GetOrCreateTrainableEnsembleForUser(userId);
+        Assert.True(perUser.Train(GenerateExamples(30)));
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+
+        // A state file that is not valid JSON must be swallowed and the sweep must still complete off the weights
+        // file write time rather than aborting the whole pass.
+        File.WriteAllText(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json"), "not json {{{");
+        File.SetLastWriteTimeUtc(weightsFile, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var evicted = 0;
+        var ex = Record.Exception(() => evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc)));
+
+        Assert.Null(ex);
+        Assert.Equal(1, evicted);
+    }
+
+    [Fact]
+    public void EvictStaleModels_NoDataPath_ReturnsZero()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        // A registry with no data path cannot enumerate weight files, so the sweep is a no-op returning zero.
+        using var registry = new PerUserEnsembleRegistry(
+            global,
+            neural,
+            dataPath: null,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+            _pluginLog.Object);
+
+        Assert.Equal(0, registry.EvictStaleModels(DateTime.UtcNow));
+    }
+
+    // Rewrites the persisted UpdatedAt stamp so the age sweep reads a fixed last-trained time instead of the
+    // now-stamp a real training save would write.
+    private void PinLastTrained(Guid userId, DateTime lastTrainedUtc) =>
+        SetStateStamp(userId, lastTrainedUtc.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+
+    // Writes a raw UpdatedAt value into the persisted state so tests can exercise both valid stamps and the
+    // unparseable-stamp fallback path.
+    private void SetStateStamp(Guid userId, string rawStamp)
+    {
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(statePath))!;
+        node["UpdatedAt"] = rawStamp;
+        File.WriteAllText(statePath, node.ToJsonString());
     }
 
     [Fact]
@@ -408,12 +655,99 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.Equal(0.55, diag.AlphaMax);
     }
 
+    [Fact]
+    public void EvictStaleModels_EnumerateThrows_SwallowedAndReturnsZero()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+
+        // The eviction sweep enumerates the data folder; an unexpected file-system failure there must be
+        // swallowed so a single broken sweep never brings down the training run. Drive that outer catch by
+        // making enumeration throw while the folder still reports as existing.
+        var directory = new Mock<IDirectory>();
+        directory.Setup(d => d.Exists(_dataPath)).Returns(true);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json"))
+            .Throws(new IOException("enumeration failed"));
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
+        fileSystem.SetupGet(fs => fs.File).Returns(new FileSystem().File);
+
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+
+        Assert.Equal(0, registry.EvictStaleModels(DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void EvictStaleModels_LastTrainedTimeUnreadable_SkipsWithoutEvicting()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        var userId = Guid.NewGuid();
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+
+        // With no readable state stamp the sweep falls back to the weights file write time. If even that read
+        // fails the model has no trustworthy age, and deleting it would throw away a possibly healthy model on
+        // a momentarily unreadable file system. Enumerate the one weights file, report no state file, and make
+        // the write-time read throw; the model must be left in place and never deleted.
+        var directory = new Mock<IDirectory>();
+        directory.Setup(d => d.Exists(_dataPath)).Returns(true);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json")).Returns([weightsFile]);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ensemble_state_*.json")).Returns([]);
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
+        var file = new Mock<IFile>();
+        file.Setup(f => f.Exists(weightsFile)).Returns(true);
+        file.Setup(f => f.Exists(statePath)).Returns(false);
+        file.Setup(f => f.GetLastWriteTimeUtc(weightsFile)).Throws(new IOException("stat failed"));
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
+        fileSystem.SetupGet(fs => fs.File).Returns(file.Object);
+
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(0, evicted);
+        file.Verify(f => f.Delete(weightsFile), Times.Never);
+    }
+
+    [Fact]
+    public void EvictStaleModels_WeightsDeleteFails_NotCountedAsEvicted()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        var userId = Guid.NewGuid();
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
+
+        // A stale model whose weights file cannot be deleted is not actually retired: the read path can rebuild
+        // it. The delete throws and the file stays present, so the sweep must swallow the failure and count zero
+        // rather than logging a retirement that did not happen.
+        var directory = new Mock<IDirectory>();
+        directory.Setup(d => d.Exists(_dataPath)).Returns(true);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json")).Returns([weightsFile]);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ensemble_state_*.json")).Returns([]);
+        var file = new Mock<IFile>();
+        file.Setup(f => f.Exists(weightsFile)).Returns(true);
+        file.Setup(f => f.Exists(statePath)).Returns(false);
+        file.Setup(f => f.Delete(weightsFile)).Throws(new UnauthorizedAccessException("locked"));
+        file.Setup(f => f.GetLastWriteTimeUtc(weightsFile)).Returns(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
+        fileSystem.SetupGet(fs => fs.File).Returns(file.Object);
+
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(0, evicted);
+    }
+
     private EnsembleScoringStrategy BuildGlobal(NeuralScoringStrategy neural) =>
         new(
-            new LearnedScoringStrategy(Path.Combine(_dataPath, "ml_weights.json")),
+            new LearnedScoringStrategy(Path.Join(_dataPath, "ml_weights.json")),
             new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
             neural,
-            Path.Combine(_dataPath, "ensemble_state.json"));
+            Path.Join(_dataPath, "ensemble_state.json"));
 
     private PerUserEnsembleRegistry BuildRegistry(EnsembleScoringStrategy global, NeuralScoringStrategy neural) =>
         new(
@@ -425,6 +759,19 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
                 EnsembleScoringStrategy.DefaultAlphaMax,
                 EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
             _pluginLog.Object);
+
+    private PerUserEnsembleRegistry BuildRegistryWithFileSystem(
+        EnsembleScoringStrategy global, NeuralScoringStrategy neural, IFileSystem fileSystem) =>
+        new(
+            global,
+            neural,
+            _dataPath,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+            _pluginLog.Object,
+            fileSystem: fileSystem);
 
     private static System.Collections.Generic.List<TrainingExample> GenerateExamples(int count)
     {

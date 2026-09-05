@@ -43,6 +43,14 @@ public interface IRecommendationEngine
     bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults, bool incremental = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    ///     Retires per-user models that have gone idle beyond the configured window and reconciles per-user
+    ///     files against the live user list. This runs independently of training so idle models are retired
+    ///     even on an active run that has no cached results to train on.
+    /// </summary>
+    /// <returns>The number of stale per-user models that were confirmed retired.</returns>
+    int RetireStalePerUserModels();
+
+    /// <summary>
     ///     Gets a read-only snapshot of the active ensemble scoring strategy's live internal state (alpha, neural beta,
     ///     quality-gate freeze, sigmoid midpoint, trend, and training counts) for operator diagnostics.
     /// </summary>

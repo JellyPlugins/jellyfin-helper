@@ -746,10 +746,14 @@ public class ConfigurationControllerTests
         Assert.DoesNotContain("do not currently exist", json, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task UpdateConfiguration_SeerrCleanupAgeDays_TooLarge_ReturnsBadRequest()
+    [Theory]
+    [InlineData(99999)]
+    [InlineData(0)]
+    public async Task UpdateConfiguration_SeerrCleanupAgeDays_OutOfRange_ReturnsBadRequest(int seerrCleanupAgeDays)
     {
-        // BUG GUARD: The validator MUST reject SeerrCleanupAgeDays > 3650 with 400 (hard-fail), NOT silently clamp.
+        // BUG GUARD: with Seerr configured the validator MUST hard-fail out-of-range cleanup ages
+        // (above 3650 or the disabled-only 0) with 400, NOT silently clamp. The disable state is
+        // signalled by clearing SeerrUrl, not by setting cleanupAge=0.
         _seerrServiceMock
             .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
@@ -758,7 +762,7 @@ public class ConfigurationControllerTests
         {
             SeerrUrl = "https://seerr.example.com",
             SeerrApiKey = "k",
-            SeerrCleanupAgeDays = 99999
+            SeerrCleanupAgeDays = seerrCleanupAgeDays
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         var bad = Assert.IsType<BadRequestObjectResult>(result);
@@ -766,54 +770,22 @@ public class ConfigurationControllerTests
         Assert.Contains("SeerrCleanupAgeDays", json, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task UpdateConfiguration_SeerrCleanupAgeDays_TooSmall_ReturnsBadRequest()
+    [Theory]
+    [InlineData(99999)]
+    [InlineData(30)]
+    public async Task UpdateConfiguration_SeerrCleanupAgeDays_ForcedToZeroWhenSeerrDisabled(int seerrCleanupAgeDays)
     {
-        // Symmetric guard for the lower bound: 0 must be rejected when Seerr is configured
-        // (the "disable" state is signalled by clearing SeerrUrl, not by setting cleanupAge=0).
-        _seerrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "OK"));
-
-        var request = new ConfigurationUpdateRequest
-        {
-            SeerrUrl = "https://seerr.example.com",
-            SeerrApiKey = "k",
-            SeerrCleanupAgeDays = 0
-        };
-        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-        var bad = Assert.IsType<BadRequestObjectResult>(result);
-        var json = JsonSerializer.Serialize(bad.Value);
-        Assert.Contains("SeerrCleanupAgeDays", json, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task UpdateConfiguration_SeerrCleanupAgeDays_ClampedWhenSeerrDisabled_DoesNotValidate()
-    {
-        // When Seerr is disabled (no URL), the age validator MUST be skipped so that clients sending a legacy non-zero age don't get a BadRequest - the code silently forces the stored value to 0.
+        // BUG GUARD: without a Seerr URL the age setting is meaningless. The age validator MUST be
+        // skipped (a legacy non-zero age must not 400) and the stored value forced to 0 so the
+        // scheduled cleanup task can trivially detect the disabled state.
         var request = new ConfigurationUpdateRequest
         {
             SeerrUrl = string.Empty,
             SeerrApiKey = string.Empty,
-            SeerrCleanupAgeDays = 99999
+            SeerrCleanupAgeDays = seerrCleanupAgeDays
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal(0, _config.SeerrCleanupAgeDays);
-    }
-
-    [Fact]
-    public async Task UpdateConfiguration_SeerrCleanupAgeDays_ZeroedWhenSeerrDisabled()
-    {
-        // BUG GUARD: without a Seerr URL, the age setting is meaningless and MUST be forced
-        // to 0 so the scheduled cleanup task can trivially detect the "disabled" state.
-        var request = new ConfigurationUpdateRequest
-        {
-            SeerrUrl = string.Empty,
-            SeerrApiKey = string.Empty,
-            SeerrCleanupAgeDays = 30
-        };
-        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.Equal(0, _config.SeerrCleanupAgeDays);
     }
 
@@ -872,24 +844,17 @@ public class ConfigurationControllerTests
         Assert.Equal("en", _config.Language);
     }
 
-    [Fact]
-    public async Task UpdateConfiguration_InvalidPersistedLogLevel_SelfHealsToInfo()
+    [Theory]
+    [InlineData("GARBAGE", "INFO")]
+    [InlineData("warn", "WARN")]
+    public async Task UpdateConfiguration_PersistedLogLevel_Normalized(string persisted, string expected)
     {
-        // Legacy configs may have an unknown level (e.g. "TRACE" from an older schema).
-        // ApplyRequestToConfig must normalise these to INFO instead of leaving garbage.
-        _config.PluginLogLevel = "GARBAGE";
+        // Legacy configs may hold an unknown level (e.g. "TRACE" from an older schema) or mixed
+        // case. ApplyRequestToConfig must self-heal unknown values to INFO and upper-case the rest.
+        _config.PluginLogLevel = persisted;
         var request = new ConfigurationUpdateRequest();
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-        Assert.Equal("INFO", _config.PluginLogLevel);
-    }
-
-    [Fact]
-    public async Task UpdateConfiguration_MixedCasePersistedLogLevel_NormalizedToUpperCase()
-    {
-        _config.PluginLogLevel = "warn";
-        var request = new ConfigurationUpdateRequest();
-        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-        Assert.Equal("WARN", _config.PluginLogLevel);
+        Assert.Equal(expected, _config.PluginLogLevel);
     }
 
     [Fact]
@@ -908,26 +873,18 @@ public class ConfigurationControllerTests
         Assert.Contains("..", json, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task UpdateConfiguration_UseTrashWithInvalidCharacters_ReturnsBadRequest()
+    [Theory]
+    [InlineData("trash*folder")]
+    [InlineData("trash\u0007folder")]
+    [InlineData("   ")]
+    public async Task UpdateConfiguration_UseTrashWithInvalidPath_ReturnsBadRequest(string trashFolderPath)
     {
-        // Invalid folder-name chars must be rejected with 400, not silently persisted.
+        // Invalid folder-name chars, control chars, and (when trash is enabled) a whitespace-only
+        // path must be rejected with 400, not silently persisted.
         var request = new ConfigurationUpdateRequest
         {
             UseTrash = true,
-            TrashFolderPath = "trash*folder"
-        };
-        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result);
-    }
-
-    [Fact]
-    public async Task UpdateConfiguration_UseTrashWithControlChars_ReturnsBadRequest()
-    {
-        var request = new ConfigurationUpdateRequest
-        {
-            UseTrash = true,
-            TrashFolderPath = "trash\u0007folder"
+            TrashFolderPath = trashFolderPath
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<BadRequestObjectResult>(result);
@@ -958,19 +915,6 @@ public class ConfigurationControllerTests
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
-    }
-
-    [Fact]
-    public async Task UpdateConfiguration_UseTrashWithEmptyPath_ReturnsBadRequest()
-    {
-        // When trash is enabled, an empty path must be rejected - the feature has no default fallback.
-        var request = new ConfigurationUpdateRequest
-        {
-            UseTrash = true,
-            TrashFolderPath = "   " // whitespace-only
-        };
-        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]

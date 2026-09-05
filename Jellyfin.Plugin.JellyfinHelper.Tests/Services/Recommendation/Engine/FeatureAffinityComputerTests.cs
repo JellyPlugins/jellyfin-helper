@@ -12,18 +12,15 @@ public sealed class FeatureAffinityComputerTests
 {
     private static readonly StringComparer Ci = StringComparer.OrdinalIgnoreCase;
 
-    [Fact]
-    public void FranchiseAffinity_NullCandidateFranchise_ReturnsZero()
+    [Theory]
+    [InlineData(null, "Marvel", 1.0, 0.0)]
+    [InlineData("   ", "Marvel", 1.0, 0.0)]
+    [InlineData("Star Wars", "Marvel", 1.0, 0.0)]
+    [InlineData("marvel", "Marvel", 0.8, 0.8)]
+    public void FranchiseAffinity_Value(string? candidate, string prefKey, double prefWeight, double expected)
     {
-        var prefs = new Dictionary<string, double>(Ci) { ["Marvel"] = 1.0 };
-        Assert.Equal(0.0, SimilarityComputer.ComputeFranchiseAffinity(null, prefs));
-    }
-
-    [Fact]
-    public void FranchiseAffinity_WhitespaceCandidateFranchise_ReturnsZero()
-    {
-        var prefs = new Dictionary<string, double>(Ci) { ["Marvel"] = 1.0 };
-        Assert.Equal(0.0, SimilarityComputer.ComputeFranchiseAffinity("   ", prefs));
+        var prefs = new Dictionary<string, double>(Ci) { [prefKey] = prefWeight };
+        Assert.Equal(expected, SimilarityComputer.ComputeFranchiseAffinity(candidate, prefs));
     }
 
     [Fact]
@@ -32,54 +29,27 @@ public sealed class FeatureAffinityComputerTests
         Assert.Equal(0.0, SimilarityComputer.ComputeFranchiseAffinity("Marvel", new Dictionary<string, double>(Ci)));
     }
 
-    [Fact]
-    public void FranchiseAffinity_UnknownFranchise_ReturnsZero()
+    public static TheoryData<string[]?, double, double> ProductionLocationCases() => new()
     {
-        var prefs = new Dictionary<string, double>(Ci) { ["Marvel"] = 1.0 };
-        Assert.Equal(0.0, SimilarityComputer.ComputeFranchiseAffinity("Star Wars", prefs));
-    }
+        { null, 1.0, 0.0 },
+        { [], 1.0, 0.0 },
+        { ["  ", ""], 1.0, 0.0 },
+        { ["japan"], 0.9, 0.9 },
+        { ["Japan", "USA"], 1.0, 0.5 },
+    };
 
-    [Fact]
-    public void FranchiseAffinity_KnownFranchise_ReturnsWeight_CaseInsensitive()
+    [Theory]
+    [MemberData(nameof(ProductionLocationCases))]
+    public void ProductionLocationAffinity_Value(string[]? candidate, double japanWeight, double expected)
     {
-        var prefs = new Dictionary<string, double>(Ci) { ["Marvel"] = 0.8 };
-        Assert.Equal(0.8, SimilarityComputer.ComputeFranchiseAffinity("marvel", prefs));
-    }
-
-    [Fact]
-    public void ProductionLocationAffinity_NullOrEmptyCandidate_ReturnsZero()
-    {
-        var prefs = new Dictionary<string, double>(Ci) { ["Japan"] = 1.0 };
-        Assert.Equal(0.0, SimilarityComputer.ComputeProductionLocationAffinity(null, prefs));
-        Assert.Equal(0.0, SimilarityComputer.ComputeProductionLocationAffinity([], prefs));
+        var prefs = new Dictionary<string, double>(Ci) { ["Japan"] = japanWeight };
+        Assert.Equal(expected, SimilarityComputer.ComputeProductionLocationAffinity(candidate, prefs));
     }
 
     [Fact]
     public void ProductionLocationAffinity_EmptyPreferences_ReturnsZero()
     {
         Assert.Equal(0.0, SimilarityComputer.ComputeProductionLocationAffinity(["Japan"], new Dictionary<string, double>(Ci)));
-    }
-
-    [Fact]
-    public void ProductionLocationAffinity_AllWhitespaceCandidate_ReturnsZero_NoDivideByZero()
-    {
-        var prefs = new Dictionary<string, double>(Ci) { ["Japan"] = 1.0 };
-        Assert.Equal(0.0, SimilarityComputer.ComputeProductionLocationAffinity(["  ", ""], prefs));
-    }
-
-    [Fact]
-    public void ProductionLocationAffinity_FullMatch_ReturnsPreferenceWeight()
-    {
-        var prefs = new Dictionary<string, double>(Ci) { ["Japan"] = 0.9 };
-        Assert.Equal(0.9, SimilarityComputer.ComputeProductionLocationAffinity(["japan"], prefs));
-    }
-
-    [Fact]
-    public void ProductionLocationAffinity_PartialMatch_AveragesOverCandidateCountries()
-    {
-        var prefs = new Dictionary<string, double>(Ci) { ["Japan"] = 1.0 };
-        // 1 of 2 candidate countries matches (weight 1.0) -> 1.0 / 2 = 0.5.
-        Assert.Equal(0.5, SimilarityComputer.ComputeProductionLocationAffinity(["Japan", "USA"], prefs));
     }
 
     [Fact]

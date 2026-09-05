@@ -12,53 +12,23 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Activity;
 
 public class UserActivityInsightsServiceTests
 {
-    [Fact]
-    public void CalculateCompletion_Played_Returns100()
-        => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(0, 1000, played: true));
-
-    [Fact]
-    public void CalculateCompletion_Played_IgnoresPosition()
-        => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(500, 1000, played: true));
-
-    [Fact]
-    public void CalculateCompletion_ZeroRuntime_ReturnsZero()
-        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(500, 0, played: false));
-
-    [Fact]
-    public void CalculateCompletion_NegativeRuntime_ReturnsZero()
-        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(500, -100, played: false));
-
-    [Fact]
-    public void CalculateCompletion_ZeroPosition_ReturnsZero()
-        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(0, 1000, played: false));
-
-    [Fact]
-    public void CalculateCompletion_NegativePosition_ReturnsZero()
-        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(-100, 1000, played: false));
-
-    [Fact]
-    public void CalculateCompletion_HalfWatched_Returns50()
-        => Assert.Equal(50.0, UserActivityInsightsService.CalculateCompletion(500, 1000, played: false));
-
-    [Fact]
-    public void CalculateCompletion_PartialWatch_RoundsToOneDecimal()
-        => Assert.Equal(33.3, UserActivityInsightsService.CalculateCompletion(333, 1000, played: false), 1);
-
-    [Fact]
-    public void CalculateCompletion_ExceedsRuntime_CapsAt100()
-        => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(1500, 1000, played: false));
-
-    [Fact]
-    public void CalculateCompletion_AlmostComplete_RoundsCorrectly()
-        => Assert.Equal(99.9, UserActivityInsightsService.CalculateCompletion(999, 1000, played: false), 1);
-
-    [Fact]
-    public void CalculateCompletion_BothZero_ReturnsZero()
-        => Assert.Equal(0.0, UserActivityInsightsService.CalculateCompletion(0, 0, played: false));
-
-    [Fact]
-    public void CalculateCompletion_Played_ZeroRuntime_StillReturns100()
-        => Assert.Equal(100.0, UserActivityInsightsService.CalculateCompletion(0, 0, played: true));
+    // A played item is always 100 regardless of position or runtime. Otherwise completion is position over
+    // runtime as a percentage, floored at 0 for non-positive inputs and capped at 100 when position overshoots.
+    [Theory]
+    [InlineData(0, 1000, true, 100.0)]
+    [InlineData(500, 1000, true, 100.0)]
+    [InlineData(0, 0, true, 100.0)]
+    [InlineData(500, 0, false, 0.0)]
+    [InlineData(500, -100, false, 0.0)]
+    [InlineData(0, 1000, false, 0.0)]
+    [InlineData(-100, 1000, false, 0.0)]
+    [InlineData(0, 0, false, 0.0)]
+    [InlineData(500, 1000, false, 50.0)]
+    [InlineData(333, 1000, false, 33.3)]
+    [InlineData(999, 1000, false, 99.9)]
+    [InlineData(1500, 1000, false, 100.0)]
+    public void CalculateCompletion_ReturnsExpectedPercent(long position, long runtime, bool played, double expected)
+        => Assert.Equal(expected, UserActivityInsightsService.CalculateCompletion(position, runtime, played: played), 1);
 
     // These lock in observable behavior so internal fetch-path swaps
     // (e.g. batch user-data on Jellyfin 12+) can be verified against the same suite.

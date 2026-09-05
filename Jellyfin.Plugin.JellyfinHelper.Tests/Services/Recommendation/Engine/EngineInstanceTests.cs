@@ -115,11 +115,11 @@ public sealed class EngineInstanceTests
     }
 
     [Fact]
-    public void TrainStrategy_EmptyPreviousResults_PrunesOrphansBeforeEarlyReturn()
+    public void TrainStrategy_EmptyPreviousResults_SkipsLibraryScanAndDoesNotReconcile()
     {
-        // Orphan reconciliation against the live user list must run regardless of whether there is anything to
-        // train on, because a user can be removed between runs. It happens before the empty-results early return,
-        // and the expensive library scan (candidate loading via GetItemList) must be skipped on the empty run.
+        // With empty previous results TrainStrategy returns before the expensive library scan. Per-user
+        // reconciliation moved out of this path into RetireStalePerUserModels, so training must no longer prune
+        // orphans itself, and the candidate load must be skipped on the empty run.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         harness.WatchHistory.Setup(w => w.GetAllUserIds()).Returns([userId]);
@@ -131,12 +131,27 @@ public sealed class EngineInstanceTests
 
         Assert.False(trained);
         harness.PerUserRegistry.Verify(
-            r => r.PruneOrphans(It.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(userId))),
-            Times.Once);
-        // Empty previous results skip the library load entirely.
+            r => r.PruneOrphans(It.IsAny<IReadOnlyCollection<Guid>>()),
+            Times.Never);
         harness.LibraryManager.Verify(
             lm => lm.GetItemList(It.IsAny<MediaBrowser.Controller.Entities.InternalItemsQuery>()),
             Times.Never);
+    }
+
+    [Fact]
+    public void RetireStalePerUserModels_PrunesOrphansAgainstLiveUsers()
+    {
+        // Reconciliation runs independently of training so idle and removed-user models are retired even on an
+        // active run with no cached results. It must prune orphans against the live user list.
+        var harness = EngineTestFactory.Create();
+        var userId = Guid.NewGuid();
+        harness.WatchHistory.Setup(w => w.GetAllUserIds()).Returns([userId]);
+
+        harness.Engine.RetireStalePerUserModels();
+
+        harness.PerUserRegistry.Verify(
+            r => r.PruneOrphans(It.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(userId))),
+            Times.Once);
     }
 
     // GetUserEnsembleDiagnostics - strategy-type guard

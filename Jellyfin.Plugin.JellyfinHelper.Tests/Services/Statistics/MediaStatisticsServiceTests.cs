@@ -2388,34 +2388,14 @@ public class ClassifyMethodTests
         Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
     }
 
-    [Fact]
-    public void ClassifyResolution_Portrait_UsesMinMaxCorrectly()
+    [Theory]
+    [InlineData(1080, 1920, "1080p")] // Portrait order still resolves to 1080p
+    [InlineData(1440, 1080, "1080p")] // Anamorphic, classified by min dimension not max
+    [InlineData(960, 720, "720p")] // 4:3 at 720p, max dimension below 1280
+    [InlineData(576, 720, "576p")] // Standard PAL
+    public void ClassifyResolution_OrientationAndAnamorphic(int width, int height, string expected)
     {
-        // Portrait 1080×1920 should still be classified as 1080p
-        Assert.Equal("1080p", MediaStatisticsService.ClassifyResolution(1080, 1920));
-    }
-
-    [Fact]
-    public void ClassifyResolution_Anamorphic_1440x1080()
-    {
-        // 1440x1080 (anamorphic) - minDimension=1080, maxDimension=1440 (< 1920)
-        // This only passes with minDimension-based classification, not maxDimension-based.
-        Assert.Equal("1080p", MediaStatisticsService.ClassifyResolution(1440, 1080));
-    }
-
-    [Fact]
-    public void ClassifyResolution_Narrow720p_960x720()
-    {
-        // 960×720 (4:3 at 720p) - minDimension=720, maxDimension=960 (< 1280)
-        // Matches the (>= 720, _) branch
-        Assert.Equal("720p", MediaStatisticsService.ClassifyResolution(960, 720));
-    }
-
-    [Fact]
-    public void ClassifyResolution_576p_PAL()
-    {
-        // Standard PAL resolution (portrait-order check)
-        Assert.Equal("576p", MediaStatisticsService.ClassifyResolution(576, 720));
+        Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
     }
 
     [Theory]
@@ -2436,16 +2416,11 @@ public class ClassifyMethodTests
     [Theory]
     [InlineData(VideoRange.HDR, "HDR")]
     [InlineData(VideoRange.SDR, "SDR")]
+    [InlineData(VideoRange.Unknown, "Unknown")]
     public void ClassifyDynamicRange_FallbackToVideoRange(VideoRange range, string expected)
     {
         // When VideoRangeType is Unknown, falls back to VideoRange
         Assert.Equal(expected, MediaStatisticsService.ClassifyDynamicRange(VideoRangeType.Unknown, range));
-    }
-
-    [Fact]
-    public void ClassifyDynamicRange_BothUnknown_ReturnsUnknown()
-    {
-        Assert.Equal("Unknown", MediaStatisticsService.ClassifyDynamicRange(VideoRangeType.Unknown, VideoRange.Unknown));
     }
 
     [Fact]

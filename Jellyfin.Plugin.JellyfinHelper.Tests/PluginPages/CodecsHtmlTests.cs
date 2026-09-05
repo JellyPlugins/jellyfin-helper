@@ -15,41 +15,22 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("id=\"codecsContent\"", HtmlContent);
     }
 
-    [Fact]
-    public void Html_ContainsFillCodecsDataFunction()
+    /// <summary>
+    ///     Verifies each Codecs tab function is declared in the composed HTML.
+    /// </summary>
+    /// <param name="signature">The function signature marker expected in the HTML.</param>
+    [Theory]
+    [InlineData("function fillCodecsData")]
+    [InlineData("function renderDonutSvg")]
+    [InlineData("function renderCodecBreakdown")]
+    [InlineData("function attachCodecClickHandlers")]
+    [InlineData("function renderFileTree")]
+    [InlineData("function collectCodecPaths")]
+    [InlineData("function renderDonutChart")]
+    [InlineData("function triggerCodecRowForSegment")]
+    public void Html_ContainsCodecsFunction(string signature)
     {
-        Assert.Contains("function fillCodecsData", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsDonutSvgFunction()
-    {
-        Assert.Contains("function renderDonutSvg", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsCodecBreakdownFunction()
-    {
-        Assert.Contains("function renderCodecBreakdown", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsCodecClickHandlers()
-    {
-        Assert.Contains("function attachCodecClickHandlers", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsSharedFileTreeRenderer()
-    {
-        // renderFileList was replaced by the tree-based renderFileTree in Shared.js
-        Assert.Contains("function renderFileTree", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsCodecPathCollector()
-    {
-        Assert.Contains("function collectCodecPaths", HtmlContent);
+        Assert.Contains(signature, HtmlContent);
     }
 
     [Fact]
@@ -70,55 +51,20 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("CODEC_CATEGORY_MAP", HtmlContent);
     }
 
-    [Fact]
-    public void Html_CodecCategoryMap_VideoCodecsExcludesMusic()
+    /// <summary>
+    ///     Verifies each codec category map entry has its expected library-type flags.
+    /// </summary>
+    /// <param name="pattern">The whitespace-tolerant regex describing one category entry.</param>
+    [Theory]
+    [InlineData(@"'videoCodecs':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    [InlineData(@"'videoAudioCodecs':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    [InlineData(@"'musicAudioCodecs':\s*\{\s*movies:\s*false,\s*tvShows:\s*false,\s*music:\s*true,\s*other:\s*false\s*\}")]
+    [InlineData(@"'containers':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*true,\s*other:\s*true\s*\}")]
+    [InlineData(@"'resolutions':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    [InlineData(@"'dynamicRanges':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    public void Html_CodecCategoryMap_HasExpectedLibraryFlags(string pattern)
     {
-        // videoCodecs should have music: false (whitespace-tolerant)
-        Assert.Matches(
-            @"'videoCodecs':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}",
-            HtmlContent);
-    }
-
-    [Fact]
-    public void Html_CodecCategoryMap_VideoAudioCodecsExcludesMusic()
-    {
-        Assert.Matches(
-            @"'videoAudioCodecs':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}",
-            HtmlContent);
-    }
-
-    [Fact]
-    public void Html_CodecCategoryMap_MusicAudioCodecsExcludesVideo()
-    {
-        // musicAudioCodecs should only include music - validate as one contiguous block
-        Assert.Matches(
-            @"'musicAudioCodecs':\s*\{\s*movies:\s*false,\s*tvShows:\s*false,\s*music:\s*true,\s*other:\s*false\s*\}",
-            HtmlContent);
-    }
-
-    [Fact]
-    public void Html_CodecCategoryMap_ContainersIncludesAll()
-    {
-        // containers should include all library types (whitespace-tolerant)
-        Assert.Matches(
-            @"'containers':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*true,\s*other:\s*true\s*\}",
-            HtmlContent);
-    }
-
-    [Fact]
-    public void Html_CodecCategoryMap_ResolutionsExcludesMusic()
-    {
-        Assert.Matches(
-            @"'resolutions':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}",
-            HtmlContent);
-    }
-
-    [Fact]
-    public void Html_CodecCategoryMap_DynamicRangesExcludesMusic()
-    {
-        Assert.Matches(
-            @"'dynamicRanges':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}",
-            HtmlContent);
+        Assert.Matches(pattern, HtmlContent);
     }
 
     [Fact]
@@ -211,12 +157,6 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_ContainsDonutChartRenderer()
-    {
-        Assert.Contains("function renderDonutChart", HtmlContent);
-    }
-
-    [Fact]
     public void Html_ContainsDonutTooltipStateVariables()
     {
         Assert.Contains("_donutTooltipData", HtmlContent);
@@ -227,11 +167,5 @@ public class CodecsHtmlTests : ConfigPageTestBase
     public void Html_ContainsDonutTooltipCssClass()
     {
         Assert.Contains("donut-tooltip", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsCodecRowTriggerForSegment()
-    {
-        Assert.Contains("function triggerCodecRowForSegment", HtmlContent);
     }
 }

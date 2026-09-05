@@ -134,6 +134,14 @@ internal static class EngineConstants
     internal const int IncrementalMinExamplesThreshold = 30;
 
     /// <summary>
+    ///     Days a per-user model may go without being retrained before it is evicted and the user falls back to
+    ///     the global model. A user active within this window refreshes the model and is never evicted, so a
+    ///     quiet cycle cannot drop a live user. Sized well above the weekly training cadence so several missed
+    ///     runs are tolerated before an abandoned personal fit is retired.
+    /// </summary>
+    internal const int PerUserModelMaxIdleDays = 60;
+
+    /// <summary>
     ///     Maximum candidate count before a performance warning is emitted. Libraries with more items than this threshold may experience slower on-demand scoring.
     /// </summary>
     internal const int CandidateCountWarningThreshold = 5000;
