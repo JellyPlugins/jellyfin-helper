@@ -3,6 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -253,6 +255,48 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     }
 
     /// <inheritdoc />
+    public int EvictStaleModels(DateTime cutoffUtc)
+    {
+        if (_dataPath is null || !Directory.Exists(_dataPath))
+        {
+            return 0;
+        }
+
+        var evicted = 0;
+
+        try
+        {
+            // Walk the weights files rather than the cached instances: a stale user is precisely one the
+            // training pass never revisits, so they are usually not materialized this session and only exist
+            // on disk. The state file's last-trained time drives the decision, so a user retrained within the
+            // window (which rewrites that time) is never seen as stale here.
+            foreach (var file in Directory.EnumerateFiles(_dataPath, "ml_weights_*.json"))
+            {
+                var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
+                if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
+                {
+                    continue;
+                }
+
+                if (ResolveLastTrainedUtc(id, file) >= cutoffUtc)
+                {
+                    continue;
+                }
+
+                EvictUser(id);
+                evicted++;
+                _pluginLog.LogInfo(LogSource, $"Evicted stale per-user model for user {id:N} (not retrained since {cutoffUtc:O}).", _logger);
+            }
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogSource, $"Stale per-user model eviction failed: {ex.Message}", ex, _logger);
+        }
+
+        return evicted;
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
         // Dispose only the per-user ensembles that were actually built. Each was constructed with
@@ -384,6 +428,47 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         }
     }
 
+    /// <summary>
+    ///     Resolves when a user's per-user model was last trained. Reads the <c>UpdatedAt</c> stamp from the
+    ///     ensemble-state file, which is written only by a training save, so it is a true last-trained time. A
+    ///     minimal projection is used so a state-schema change does not break this read. Falls back to the
+    ///     weights file's last write time when the state file is missing or unreadable.
+    /// </summary>
+    /// <param name="userId">The user whose model is being aged.</param>
+    /// <param name="weightsFile">The user's weights file, used for the write-time fallback.</param>
+    /// <returns>The last-trained time in UTC, or <see cref="DateTime.MinValue"/> when nothing can be read.</returns>
+    private DateTime ResolveLastTrainedUtc(Guid userId, string weightsFile)
+    {
+        var statePath = GetEnsembleStatePath(userId);
+        if (statePath is not null && File.Exists(statePath))
+        {
+            try
+            {
+                var json = File.ReadAllText(statePath);
+                var stamp = JsonSerializer.Deserialize<LastTrainedProjection>(json)?.UpdatedAt;
+                if (!string.IsNullOrEmpty(stamp)
+                    && DateTime.TryParse(stamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
+                {
+                    return parsed.ToUniversalTime();
+                }
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogWarning(LogSource, $"Could not read last-trained time for user {userId:N}: {ex.Message}", ex, _logger);
+            }
+        }
+
+        try
+        {
+            return File.GetLastWriteTimeUtc(weightsFile);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogSource, $"Could not read weights file time for user {userId:N}: {ex.Message}", ex, _logger);
+            return DateTime.MinValue;
+        }
+    }
+
     /// <summary>Builds the per-user learned-weights path, or null when no data path is configured.</summary>
     /// <param name="userId">The user id.</param>
     /// <returns>The path, or null.</returns>
@@ -407,4 +492,14 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <returns>The compiled regex.</returns>
     [GeneratedRegex(@"^(?:ml_weights|ensemble_state)_(?<id>[0-9a-fA-F]{32})\.json$", RegexOptions.CultureInvariant)]
     private static partial Regex PerUserFileIdPattern();
+
+    /// <summary>
+    ///     Minimal projection of the ensemble-state file used only to read the last-trained stamp for staleness
+    ///     checks, kept independent of the full state schema so a schema change cannot break the age sweep.
+    /// </summary>
+    private sealed class LastTrainedProjection
+    {
+        [JsonPropertyName("UpdatedAt")]
+        public string? UpdatedAt { get; set; }
+    }
 }

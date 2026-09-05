@@ -459,13 +459,20 @@ public class PluginLogServiceTests : IDisposable
     }
 
     /// <summary>
-    ///     Verifies that only ERROR is stored when configured MinLevel is ERROR.
+    ///     Verifies that the configured MinLevel governs which levels are retained in the buffer.
     /// </summary>
-    [Fact]
-    public void AddEntry_MinLevelError_OnlyStoresErrors()
+    /// <param name="minLevel">The configured minimum level.</param>
+    /// <param name="expectedCount">The number of entries expected to be stored.</param>
+    /// <param name="expectedLevels">Comma separated set of levels expected to be stored.</param>
+    [Theory]
+    [InlineData("ERROR", 1, "ERROR")]
+    [InlineData("WARN", 2, "WARN,ERROR")]
+    [InlineData("INFO", 3, "INFO,WARN,ERROR")]
+    [InlineData("DEBUG", 4, "DEBUG,INFO,WARN,ERROR")]
+    public void AddEntry_MinLevel_StoresLevelsAtOrAboveThreshold(string minLevel, int expectedCount, string expectedLevels)
     {
-        const string src = "__PLT_MatrixE__";
-        _sut.TestMinLevelOverride = "ERROR";
+        const string src = "__PLT_Matrix__";
+        _sut.TestMinLevelOverride = minLevel;
 
         _sut.LogDebug(src, "d");
         _sut.LogInfo(src, "i");
@@ -473,70 +480,10 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogError(src, "e");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.All(entries, e => Assert.Equal("ERROR", e.Level));
-    }
+        Assert.Equal(expectedCount, entries.Count);
 
-    /// <summary>
-    ///     Verifies that WARN and ERROR are stored when configured MinLevel is WARN.
-    /// </summary>
-    [Fact]
-    public void AddEntry_MinLevelWarn_StoresWarnAndError()
-    {
-        const string src = "__PLT_MatrixW__";
-        _sut.TestMinLevelOverride = "WARN";
-
-        _sut.LogDebug(src, "d");
-        _sut.LogInfo(src, "i");
-        _sut.LogWarning(src, "w");
-        _sut.LogError(src, "e");
-
-        var entries = _sut.GetEntries(source: src);
-        Assert.Equal(2, entries.Count);
-        Assert.Contains(entries, e => e.Level == "WARN");
-        Assert.Contains(entries, e => e.Level == "ERROR");
-        Assert.DoesNotContain(entries, e => e.Level == "DEBUG");
-        Assert.DoesNotContain(entries, e => e.Level == "INFO");
-    }
-
-    /// <summary>
-    ///     Verifies that INFO, WARN and ERROR are stored when configured MinLevel is INFO.
-    /// </summary>
-    [Fact]
-    public void AddEntry_MinLevelInfo_StoresInfoWarnError()
-    {
-        const string src = "__PLT_MatrixI__";
-        _sut.TestMinLevelOverride = "INFO";
-
-        _sut.LogDebug(src, "d");
-        _sut.LogInfo(src, "i");
-        _sut.LogWarning(src, "w");
-        _sut.LogError(src, "e");
-
-        var entries = _sut.GetEntries(source: src);
-        Assert.Equal(3, entries.Count);
-        Assert.DoesNotContain(entries, e => e.Level == "DEBUG");
-        Assert.Contains(entries, e => e.Level == "INFO");
-        Assert.Contains(entries, e => e.Level == "WARN");
-        Assert.Contains(entries, e => e.Level == "ERROR");
-    }
-
-    /// <summary>
-    ///     Verifies that all levels are stored when configured MinLevel is DEBUG.
-    /// </summary>
-    [Fact]
-    public void AddEntry_MinLevelDebug_StoresAllLevels()
-    {
-        const string src = "__PLT_MatrixD__";
-        _sut.TestMinLevelOverride = "DEBUG";
-
-        _sut.LogDebug(src, "d");
-        _sut.LogInfo(src, "i");
-        _sut.LogWarning(src, "w");
-        _sut.LogError(src, "e");
-
-        var entries = _sut.GetEntries(source: src);
-        Assert.Equal(4, entries.Count);
+        var expected = expectedLevels.Split(',');
+        Assert.Equal(expected.OrderBy(l => l), entries.Select(e => e.Level).OrderBy(l => l));
     }
 
     /// <summary>

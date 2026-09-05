@@ -15,53 +15,26 @@ public sealed class RankingMetricsTests
     [Fact]
     public void DefaultRelevanceThreshold_Is05() => Assert.Equal(0.5, RankingMetrics.DefaultRelevanceThreshold);
 
-    [Fact]
-    public void PrecisionAtK_PerfectRanking_ReturnsOne()
+    public static TheoryData<double[], double[], int, double> PrecisionAtKValueCases() => new()
     {
-        var pred = new[] { 0.9, 0.8, 0.7, 0.6, 0.1, 0.05 };
-        var lbl = new[] { 1.0, 0.8, 0.7, 0.6, 0.0, 0.0 };
-        Assert.Equal(1.0, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 4), 10);
-    }
+        { new[] { 0.9, 0.8, 0.7, 0.6, 0.1, 0.05 }, new[] { 1.0, 0.8, 0.7, 0.6, 0.0, 0.0 }, 4, 1.0 },
+        { new[] { 0.9, 0.8, 0.1, 0.05 }, new[] { 0.0, 0.0, 1.0, 0.8 }, 2, 0.0 },
+        { new[] { 0.95, 0.90, 0.85, 0.80, 0.75, 0.10, 0.05 }, new[] { 1.0, 0.0, 0.8, 0.0, 0.7, 1.0, 0.9 }, 5, 3.0 / 5.0 },
+        { new[] { 0.9, 0.8, 0.7 }, new[] { 1.0, 0.8, 0.6 }, 10, 1.0 },
+        { new[] { 0.9, 0.8, 0.7 }, new[] { 0.0, 0.1, 0.2 }, 3, 0.0 },
+        { new[] { 0.9, 0.8, 0.7, 0.6 }, new[] { 1.0, 0.9, 0.8, 0.7 }, 4, 1.0 },
+        { new[] { 0.9 }, new[] { 1.0 }, 1, 1.0 },
+        { new[] { 0.9 }, new[] { 0.1 }, 1, 0.0 },
+    };
 
-    [Fact]
-    public void PrecisionAtK_WorstRanking_ReturnsZero()
-    {
-        var pred = new[] { 0.9, 0.8, 0.1, 0.05 };
-        var lbl = new[] { 0.0, 0.0, 1.0, 0.8 };
-        Assert.Equal(0.0, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 2), 10);
-    }
-
-    [Fact]
-    public void PrecisionAtK_MixedRanking()
-    {
-        var pred = new[] { 0.95, 0.90, 0.85, 0.80, 0.75, 0.10, 0.05 };
-        var lbl = new[] { 1.0, 0.0, 0.8, 0.0, 0.7, 1.0, 0.9 };
-        Assert.Equal(3.0 / 5.0, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 5), 10);
-    }
+    [Theory]
+    [MemberData(nameof(PrecisionAtKValueCases))]
+    public void PrecisionAtK_Value(double[] pred, double[] lbl, int k, double expected) =>
+        Assert.Equal(expected, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: k), 10);
 
     [Fact]
     public void PrecisionAtK_Empty_ReturnsZero() =>
         Assert.Equal(0.0, RankingMetrics.ComputePrecisionAtK([], [], k: 5), 10);
-
-    [Fact]
-    public void PrecisionAtK_KZero_ReturnsZero() =>
-        Assert.Equal(0.0, RankingMetrics.ComputePrecisionAtK(new[] { 0.9 }, new[] { 1.0 }, k: 0), 10);
-
-    [Fact]
-    public void PrecisionAtK_KLargerThanN()
-    {
-        var pred = new[] { 0.9, 0.8, 0.7 };
-        var lbl = new[] { 1.0, 0.8, 0.6 };
-        Assert.Equal(1.0, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 10), 10);
-    }
-
-    [Fact]
-    public void PrecisionAtK_NoRelevant_ReturnsZero()
-    {
-        var pred = new[] { 0.9, 0.8, 0.7 };
-        var lbl = new[] { 0.0, 0.1, 0.2 };
-        Assert.Equal(0.0, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 3), 10);
-    }
 
     [Fact]
     public void PrecisionAtK_CustomThreshold()
@@ -72,53 +45,26 @@ public sealed class RankingMetricsTests
         Assert.Equal(1.0 / 3.0, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 3, relevanceThreshold: 0.7), 10);
     }
 
-    [Fact]
-    public void RecallAtK_AllRelevantInTopK_ReturnsOne()
+    public static TheoryData<double[], double[], int, double> RecallAtKValueCases() => new()
     {
-        var pred = new[] { 0.9, 0.8, 0.7, 0.1, 0.05 };
-        var lbl = new[] { 1.0, 0.8, 0.6, 0.0, 0.0 };
-        Assert.Equal(1.0, RankingMetrics.ComputeRecallAtK(pred, lbl, k: 3), 10);
-    }
+        { new[] { 0.9, 0.8, 0.7, 0.1, 0.05 }, new[] { 1.0, 0.8, 0.6, 0.0, 0.0 }, 3, 1.0 },
+        { new[] { 0.9, 0.8, 0.7, 0.6, 0.5 }, new[] { 1.0, 0.0, 0.8, 0.7, 0.6 }, 3, 2.0 / 4.0 },
+        { new[] { 0.9, 0.8 }, new[] { 0.0, 0.1 }, 2, 0.0 },
+        { new[] { 0.9, 0.8 }, new[] { 1.0, 0.8 }, 100, 1.0 },
+        { new[] { 0.9, 0.8, 0.7, 0.6, 0.5 }, new[] { 0.0, 0.0, 1.0, 0.0, 0.0 }, 3, 1.0 },
+        { new[] { 0.9, 0.8, 0.7, 0.6, 0.5 }, new[] { 0.0, 0.0, 0.0, 0.0, 1.0 }, 2, 0.0 },
+        { new[] { 0.9, 0.8, 0.7, 0.6 }, new[] { 1.0, 0.9, 0.8, 0.7 }, 4, 1.0 },
+        { new[] { 0.9 }, new[] { 1.0 }, 1, 1.0 },
+    };
 
-    [Fact]
-    public void RecallAtK_PartialRecovery()
-    {
-        var pred = new[] { 0.9, 0.8, 0.7, 0.6, 0.5 };
-        var lbl = new[] { 1.0, 0.0, 0.8, 0.7, 0.6 };
-        Assert.Equal(2.0 / 4.0, RankingMetrics.ComputeRecallAtK(pred, lbl, k: 3), 10);
-    }
-
-    [Fact]
-    public void RecallAtK_NoRelevant_ReturnsZero() =>
-        Assert.Equal(0.0, RankingMetrics.ComputeRecallAtK(new[] { 0.9, 0.8 }, new[] { 0.0, 0.1 }, k: 2), 10);
+    [Theory]
+    [MemberData(nameof(RecallAtKValueCases))]
+    public void RecallAtK_Value(double[] pred, double[] lbl, int k, double expected) =>
+        Assert.Equal(expected, RankingMetrics.ComputeRecallAtK(pred, lbl, k: k), 10);
 
     [Fact]
     public void RecallAtK_Empty_ReturnsZero() =>
         Assert.Equal(0.0, RankingMetrics.ComputeRecallAtK([], [], k: 5), 10);
-
-    [Fact]
-    public void RecallAtK_KZero_ReturnsZero() =>
-        Assert.Equal(0.0, RankingMetrics.ComputeRecallAtK(new[] { 0.9 }, new[] { 1.0 }, k: 0), 10);
-
-    [Fact]
-    public void RecallAtK_KLargerThanN_AllRelevant() =>
-        Assert.Equal(1.0, RankingMetrics.ComputeRecallAtK(new[] { 0.9, 0.8 }, new[] { 1.0, 0.8 }, k: 100), 10);
-
-    [Fact]
-    public void RecallAtK_SingleRelevant_Found()
-    {
-        var pred = new[] { 0.9, 0.8, 0.7, 0.6, 0.5 };
-        var lbl = new[] { 0.0, 0.0, 1.0, 0.0, 0.0 };
-        Assert.Equal(1.0, RankingMetrics.ComputeRecallAtK(pred, lbl, k: 3), 10);
-    }
-
-    [Fact]
-    public void RecallAtK_SingleRelevant_NotFound()
-    {
-        var pred = new[] { 0.9, 0.8, 0.7, 0.6, 0.5 };
-        var lbl = new[] { 0.0, 0.0, 0.0, 0.0, 1.0 };
-        Assert.Equal(0.0, RankingMetrics.ComputeRecallAtK(pred, lbl, k: 2), 10);
-    }
 
     [Fact]
     public void NdcgAtK_PerfectRanking_ReturnsOne()
@@ -145,10 +91,6 @@ public sealed class RankingMetricsTests
     [Fact]
     public void NdcgAtK_Empty_ReturnsZero() =>
         Assert.Equal(0.0, RankingMetrics.ComputeNdcgAtK([], [], k: 5), 10);
-
-    [Fact]
-    public void NdcgAtK_KZero_ReturnsZero() =>
-        Assert.Equal(0.0, RankingMetrics.ComputeNdcgAtK(new[] { 0.9 }, new[] { 1.0 }, k: 0), 10);
 
     [Fact]
     public void NdcgAtK_SingleItem_ReturnsOne() =>
@@ -333,22 +275,6 @@ public sealed class RankingMetricsTests
     }
 
     [Fact]
-    public void PrecisionAtK_AllRelevant_ReturnsOne()
-    {
-        var pred = new[] { 0.9, 0.8, 0.7, 0.6 };
-        var lbl = new[] { 1.0, 0.9, 0.8, 0.7 };
-        Assert.Equal(1.0, RankingMetrics.ComputePrecisionAtK(pred, lbl, k: 4), 10);
-    }
-
-    [Fact]
-    public void RecallAtK_AllRelevant_ReturnsOne()
-    {
-        var pred = new[] { 0.9, 0.8, 0.7, 0.6 };
-        var lbl = new[] { 1.0, 0.9, 0.8, 0.7 };
-        Assert.Equal(1.0, RankingMetrics.ComputeRecallAtK(pred, lbl, k: 4), 10);
-    }
-
-    [Fact]
     public void PrecisionAtK_TiedScores_StillComputes()
     {
         var pred = new[] { 0.5, 0.5, 0.5, 0.5, 0.5 };
@@ -368,29 +294,23 @@ public sealed class RankingMetricsTests
         Assert.InRange(ndcg, 0.0, 1.0);
     }
 
-    [Fact]
-    public void PrecisionAtK_NegativeK_ReturnsZero() =>
-        Assert.Equal(0.0, RankingMetrics.ComputePrecisionAtK(new[] { 0.9 }, new[] { 1.0 }, k: -1), 10);
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void PrecisionAtK_NonPositiveK_ReturnsZero(int k) =>
+        Assert.Equal(0.0, RankingMetrics.ComputePrecisionAtK(new[] { 0.9 }, new[] { 1.0 }, k: k), 10);
 
-    [Fact]
-    public void RecallAtK_NegativeK_ReturnsZero() =>
-        Assert.Equal(0.0, RankingMetrics.ComputeRecallAtK(new[] { 0.9 }, new[] { 1.0 }, k: -1), 10);
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void RecallAtK_NonPositiveK_ReturnsZero(int k) =>
+        Assert.Equal(0.0, RankingMetrics.ComputeRecallAtK(new[] { 0.9 }, new[] { 1.0 }, k: k), 10);
 
-    [Fact]
-    public void NdcgAtK_NegativeK_ReturnsZero() =>
-        Assert.Equal(0.0, RankingMetrics.ComputeNdcgAtK(new[] { 0.9 }, new[] { 1.0 }, k: -1), 10);
-
-    [Fact]
-    public void PrecisionAtK_SingleRelevantItem_ReturnsOne() =>
-        Assert.Equal(1.0, RankingMetrics.ComputePrecisionAtK(new[] { 0.9 }, new[] { 1.0 }, k: 1), 10);
-
-    [Fact]
-    public void PrecisionAtK_SingleIrrelevantItem_ReturnsZero() =>
-        Assert.Equal(0.0, RankingMetrics.ComputePrecisionAtK(new[] { 0.9 }, new[] { 0.1 }, k: 1), 10);
-
-    [Fact]
-    public void RecallAtK_SingleRelevantItem_K1_ReturnsOne() =>
-        Assert.Equal(1.0, RankingMetrics.ComputeRecallAtK(new[] { 0.9 }, new[] { 1.0 }, k: 1), 10);
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void NdcgAtK_NonPositiveK_ReturnsZero(int k) =>
+        Assert.Equal(0.0, RankingMetrics.ComputeNdcgAtK(new[] { 0.9 }, new[] { 1.0 }, k: k), 10);
 
     [Fact]
     public void ComputeAll_UsesDefaultKAndThreshold()

@@ -179,46 +179,40 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal(0, liveConfig.TrashRetentionDays);
     }
 
-    [Fact]
-    public void RestoreBackup_EmptyTrashFolderPath_UsesDefault()
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RestoreBackup_EmptyOrWhitespaceTrashFolderPath_UsesDefault(string trashPath)
     {
         // BUG GUARD: If the persisted trash path is missing/blank, RestoreConfiguration must inject the sensible default ".jellyfin-trash" - leaving it empty would break subsequent trash operations that assume a valid folder name.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
-        backup.TrashFolderPath = "";
+        backup.TrashFolderPath = trashPath;
 
         service.RestoreBackup(backup);
 
         Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
     }
 
-    [Fact]
-    public void RestoreBackup_WhitespaceTrashFolderPath_UsesDefault()
+    [Theory]
+    [InlineData("../../etc", ".jellyfin-trash")]
+    [InlineData(".custom-trash", ".custom-trash")]
+    public void RestoreBackup_TrashOff_DefangsTraversalButPreservesLegitimateRelative(string backupPath, string expected)
     {
-        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
-        var backup = MakeMinimalValidBackup();
-        backup.TrashFolderPath = "   ";
-
-        service.RestoreBackup(backup);
-
-        Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
-    }
-
-    [Fact]
-    public void RestoreBackup_TraversalTrashPath_TrashOff_DefangsToDefault()
-    {
-        // AUDIT GUARD (backup-01): a crafted backup with UseTrash=false must NOT hard-fail the restore, but the traversal path must be defanged to the default so it can never reach live config.
+        // AUDIT GUARD (backup-01): with UseTrash=false a traversal path must be defanged to the
+        // default so it can never reach live config, while a legitimate relative custom path
+        // (neither traversal nor sensitive) survives unchanged.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup(useTrash: false);
-        backup.TrashFolderPath = "../../etc";
+        backup.TrashFolderPath = backupPath;
 
         service.RestoreBackup(backup);
 
-        Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
+        Assert.Equal(expected, liveConfig.TrashFolderPath);
     }
 
     [Fact]
-    public void RestoreBackup_SensitiveAbsoluteTrashPath_TrashOff_DefangsToDefault()
+    public void RestoreBackup_TrashOff_DefangsAbsolutePath()
     {
         // AUDIT GUARD (backup-01): a sensitive absolute system path with UseTrash=false must be defanged to the default rather than persisted into live config.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
@@ -228,20 +222,6 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
-    }
-
-    [Fact]
-    public void RestoreBackup_LegitimateRelativeTrashPath_TrashOff_IsPreserved()
-    {
-        // The defang must NOT over-reach: a legitimate relative custom path (neither traversal nor
-        // sensitive) survives a UseTrash=false restore unchanged.
-        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
-        var backup = MakeMinimalValidBackup(useTrash: false);
-        backup.TrashFolderPath = ".custom-trash";
-
-        service.RestoreBackup(backup);
-
-        Assert.Equal(".custom-trash", liveConfig.TrashFolderPath);
     }
 
     [Fact]
@@ -431,22 +411,30 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal("sonarr-live-key", liveConfig.SonarrInstances[0].ApiKey);
     }
 
-    [Fact]
-    public void RestoreBackup_ZeroSeerrCleanupAgeDays_IsApplied()
+    public static IEnumerable<object[]> SeerrCleanupAgeDaysApplyClampCases()
     {
-        // With int?, null means "absent" and 0 is a valid "immediate cleanup" value that MUST be applied.
+        yield return [0, 0];
+        yield return [99999, BackupValidator.MaxRetentionDays];
+    }
+
+    [Theory]
+    [MemberData(nameof(SeerrCleanupAgeDaysApplyClampCases))]
+    public void RestoreBackup_SeerrCleanupAgeDays_AppliesOrClamps(int backupValue, int expected)
+    {
+        // Zero is a valid "immediate cleanup" value that must be applied; a value beyond
+        // MaxRetentionDays must be clamped rather than silently accepted.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrCleanupAgeDays = 45;
         var backup = MakeMinimalValidBackup();
-        backup.SeerrCleanupAgeDays = 0; // explicit zero - must be applied, not skipped
+        backup.SeerrCleanupAgeDays = backupValue;
 
         service.RestoreBackup(backup);
 
-        Assert.Equal(0, liveConfig.SeerrCleanupAgeDays);
+        Assert.Equal(expected, liveConfig.SeerrCleanupAgeDays);
     }
 
     [Fact]
-    public void RestoreBackup_NullSeerrCleanupAgeDays_LeavesConfigUnchanged()
+    public void RestoreBackup_NullSeerrCleanupAgeDays_PreservesLiveValue()
     {
         // null in the backup payload means "field absent" (e.g. exported by an older
         // plugin version). The live value must be left untouched.
@@ -458,18 +446,6 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.Equal(45, liveConfig.SeerrCleanupAgeDays);
-    }
-
-    [Fact]
-    public void RestoreBackup_ExcessiveSeerrCleanupAgeDays_IsClampedToMax()
-    {
-        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
-        var backup = MakeMinimalValidBackup();
-        backup.SeerrCleanupAgeDays = 99999;
-
-        service.RestoreBackup(backup);
-
-        Assert.Equal(BackupValidator.MaxRetentionDays, liveConfig.SeerrCleanupAgeDays);
     }
 
     [Fact]
@@ -550,29 +526,17 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal(BackupValidator.MaxApiKeyLength, liveConfig.SeerrApiKey.Length);
     }
 
-    [Fact]
-    public void RestoreBackup_InvalidSchemeSeerrUrl_IsSkipped()
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://attacker.example.com")]
+    public void RestoreBackup_InvalidSchemeSeerrUrl_IsSkipped(string badUrl)
     {
         // SEC-3: a non-http(s) URL in the backup (e.g. crafted file:// or ftp://)
         // must NOT be written to config. The live value must remain unchanged.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrUrl = "https://live.example.com";
         var backup = MakeMinimalValidBackup();
-        backup.SeerrUrl = "file:///etc/passwd";
-
-        service.RestoreBackup(backup);
-
-        Assert.Equal("https://live.example.com", liveConfig.SeerrUrl);
-    }
-
-    [Fact]
-    public void RestoreBackup_FtpSchemeSeerrUrl_IsSkipped()
-    {
-        // SEC-3: ftp:// must also be rejected.
-        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
-        liveConfig.SeerrUrl = "https://live.example.com";
-        var backup = MakeMinimalValidBackup();
-        backup.SeerrUrl = "ftp://attacker.example.com";
+        backup.SeerrUrl = badUrl;
 
         service.RestoreBackup(backup);
 
@@ -803,49 +767,6 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.Equal(77, liveConfig.SeerrCleanupAgeDays);
-    }
-
-    [Fact]
-    public void RestoreConfiguration_SeerrCleanupAgeDays_WhenZero_AppliesZero()
-    {
-        // Zero is a legitimate "immediate cleanup" value that MUST be applied.
-        // With int?, null is the only sentinel for "absent"; 0 carries real meaning.
-        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
-        liveConfig.SeerrCleanupAgeDays = 30;
-        var backup = MakeMinimalValidBackup();
-        backup.SeerrCleanupAgeDays = 0;
-
-        service.RestoreBackup(backup);
-
-        Assert.Equal(0, liveConfig.SeerrCleanupAgeDays);
-    }
-
-    [Fact]
-    public void RestoreConfiguration_SeerrCleanupAgeDays_WhenPositive_Clamps()
-    {
-        // A value beyond MaxRetentionDays must be clamped, not silently accepted.
-        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
-        var backup = MakeMinimalValidBackup();
-        backup.SeerrCleanupAgeDays = BackupValidator.MaxRetentionDays + 1;
-
-        service.RestoreBackup(backup);
-
-        Assert.Equal(BackupValidator.MaxRetentionDays, liveConfig.SeerrCleanupAgeDays);
-    }
-
-    [Fact]
-    public void RestoreConfiguration_SeerrUrl_FileScheme_IsRejected()
-    {
-        // A file:// URL in the backup must NOT be written to config.
-        // The live value must remain unchanged.
-        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
-        liveConfig.SeerrUrl = "https://live.seerr.example.com";
-        var backup = MakeMinimalValidBackup();
-        backup.SeerrUrl = "file:///etc/passwd";
-
-        service.RestoreBackup(backup);
-
-        Assert.Equal("https://live.seerr.example.com", liveConfig.SeerrUrl);
     }
 
     [Fact]

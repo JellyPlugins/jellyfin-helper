@@ -331,6 +331,88 @@ public class TrainingServiceTests
     /// <summary>
     ///     Builds a large watch profile with N distinct watched items across several genres, which - combined with N recommendations per user - produces enough training examples to trigger the held-out validation split path (>= 20 examples).
     /// </summary>
+    [Fact]
+    public void TrainPerUser_ModelIdleBeyondWindow_RetiredWithInfoLog()
+    {
+        // A user builds a per-user model, then goes quiet for longer than the idle window. A later run for a
+        // different user never revisits the quiet user, so the age sweep must retire the stale model and log the
+        // retirement. This drives the staleEvicted > 0 branch that the happy-path per-user tests never reach.
+        var activeUser = Guid.NewGuid();
+        var idleUser = Guid.NewGuid();
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var dataPath = Path.Combine(Path.GetTempPath(), "jfh-trainperuser-idle-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            using var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Combine(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Combine(dataPath, "ensemble_state.json"));
+            using var registry = new PerUserEnsembleRegistry(
+                global,
+                neural,
+                dataPath,
+                new EnsembleBlendBounds(
+                    EnsembleScoringStrategy.DefaultAlphaMin,
+                    EnsembleScoringStrategy.DefaultAlphaMax,
+                    EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+                _pluginLogMock.Object);
+            using var sut = CreateSut();
+
+            // Data-rich run for the idle user creates their per-user model.
+            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(idleUser, watchedCount: 30) });
+            sut.TrainPerUser(
+                registry,
+                new[] { CreateLargeResult(idleUser, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) });
+            Assert.True(registry.HasPerUserModel(idleUser));
+
+            // Rewind the idle user's persisted last-trained time to well beyond the idle window so the next run's
+            // age sweep sees it as stale. The active user's run below never touches the idle user's stamp.
+            var idleStatePath = Path.Combine(dataPath, $"ensemble_state_{idleUser:N}.json");
+            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(idleStatePath))!;
+            node["UpdatedAt"] = DateTime.UtcNow
+                .AddDays(-(EngineConstants.PerUserModelMaxIdleDays + 5))
+                .ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+            File.WriteAllText(idleStatePath, node.ToJsonString());
+
+            // A later run only for a different, active user. The idle user is not in these results, so the
+            // per-user pass never revisits them and only the age sweep can retire the stale model.
+            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(activeUser, watchedCount: 30) });
+            sut.TrainPerUser(
+                registry,
+                new[] { CreateLargeResult(activeUser, recommendationCount: 30, new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc)) });
+
+            Assert.False(registry.HasPerUserModel(idleUser));
+            Assert.False(File.Exists(Path.Combine(dataPath, $"ml_weights_{idleUser:N}.json")));
+            _pluginLogMock.Verify(
+                l => l.LogInfo(
+                    It.IsAny<string>(),
+                    It.Is<string>(m => m.Contains("Retired") && m.Contains("per-user model")),
+                    It.IsAny<ILogger>()),
+                Times.Once);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
+
     private static UserWatchProfile CreateLargeProfile(Guid userId, int watchedCount)
     {
         var profile = new UserWatchProfile

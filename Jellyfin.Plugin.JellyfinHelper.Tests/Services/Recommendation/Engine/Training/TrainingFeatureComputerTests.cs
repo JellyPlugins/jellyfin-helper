@@ -196,45 +196,21 @@ public class TrainingFeatureComputerTests
 
     // ComputeTagSimilarityFromCache
 
-    [Fact]
-    public void ComputeTagSimilarityFromCache_EmptyCandidate_ReturnsZero()
+    public static TheoryData<string[], string[], double> TagSimilarityFromCacheCases() => new()
     {
-        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A" };
-        Assert.Equal(0.0, TrainingFeatureComputer.ComputeTagSimilarityFromCache(Array.Empty<string>(), preferred));
-    }
+        { [], ["A"], 0.0 },
+        { ["A"], [], 0.0 },
+        { ["A", "B"], ["A", "B"], 1.0 },
+        { ["action", "DRAMA"], ["Action", "drama"], 1.0 },
+        { ["A", "B"], ["A", "C"], 1.0 / 3.0 },
+    };
 
-    [Fact]
-    public void ComputeTagSimilarityFromCache_EmptyPreferred_ReturnsZero()
+    [Theory]
+    [MemberData(nameof(TagSimilarityFromCacheCases))]
+    public void ComputeTagSimilarityFromCache_Value(string[] candidate, string[] preferred, double expected)
     {
-        var candidate = new[] { "A" };
-        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        Assert.Equal(0.0, TrainingFeatureComputer.ComputeTagSimilarityFromCache(candidate, preferred));
-    }
-
-    [Fact]
-    public void ComputeTagSimilarityFromCache_FullOverlap_ReturnsOne()
-    {
-        var candidate = new[] { "A", "B" };
-        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "B" };
-        Assert.Equal(1.0, TrainingFeatureComputer.ComputeTagSimilarityFromCache(candidate, preferred));
-    }
-
-    [Fact]
-    public void ComputeTagSimilarityFromCache_CaseInsensitive()
-    {
-        var candidate = new[] { "action", "DRAMA" };
-        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action", "drama" };
-        Assert.Equal(1.0, TrainingFeatureComputer.ComputeTagSimilarityFromCache(candidate, preferred));
-    }
-
-    [Fact]
-    public void ComputeTagSimilarityFromCache_PartialOverlap_ReturnsJaccard()
-    {
-        // Intersection = 1 ("A"), Union = 3 (A, B, C) -> 1/3.
-        var candidate = new[] { "A", "B" };
-        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "C" };
-        var result = TrainingFeatureComputer.ComputeTagSimilarityFromCache(candidate, preferred);
-        Assert.Equal(1.0 / 3.0, result, precision: 5);
+        var preferredSet = new HashSet<string>(preferred, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(expected, TrainingFeatureComputer.ComputeTagSimilarityFromCache(candidate, preferredSet), precision: 5);
     }
 
     // ComputeContentNearestNeighborFromCache
@@ -334,103 +310,35 @@ public class TrainingFeatureComputerTests
 
     // ComputeBestLanguageAffinity
 
-    [Fact]
-    public void ComputeBestLanguageAffinity_NoLanguages_ReturnsUnknownFloor()
+    public static TheoryData<string[], string?, string[], string[], string[], double> BestLanguageAffinityCases() => new()
     {
-        var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(
-            candidateLanguages: Array.Empty<string>(),
-            primaryLang: null,
-            preferredLangs: new HashSet<string>(),
-            toleratedLangs: new HashSet<string>(),
-            languageProfile: new Dictionary<string, LanguageProfileEntry>());
-        Assert.Equal(0.1, result);
-    }
+        { [], null, [], [], [], 0.1 },
+        { ["en"], "en", [], [], [], 1.0 },
+        { ["EN"], "en", [], [], [], 1.0 },
+        { ["de"], "en", ["de"], [], [], 0.85 },
+        { ["fr"], "en", [], ["fr"], [], 0.5 },
+        { ["it"], "en", [], [], ["it"], 0.3 },
+        { ["zh"], "en", [], [], ["it"], 0.1 },
+    };
 
-    [Fact]
-    public void ComputeBestLanguageAffinity_PrimaryMatch_ReturnsOne()
+    [Theory]
+    [MemberData(nameof(BestLanguageAffinityCases))]
+    public void ComputeBestLanguageAffinity_Tier(string[] candidate, string? primaryLang, string[] preferred, string[] tolerated, string[] profileKeys, double expected)
     {
-        var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(
-            new[] { "en" },
-            primaryLang: "en",
-            preferredLangs: new HashSet<string>(),
-            toleratedLangs: new HashSet<string>(),
-            languageProfile: new Dictionary<string, LanguageProfileEntry>());
-        Assert.Equal(1.0, result);
-    }
-
-    [Fact]
-    public void ComputeBestLanguageAffinity_PrimaryComparisonIsCaseInsensitive()
-    {
-        var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(
-            new[] { "EN" },
-            primaryLang: "en",
-            preferredLangs: new HashSet<string>(),
-            toleratedLangs: new HashSet<string>(),
-            languageProfile: new Dictionary<string, LanguageProfileEntry>());
-        Assert.Equal(1.0, result);
-    }
-
-    [Fact]
-    public void ComputeBestLanguageAffinity_PreferredMatch_Returns085()
-    {
-        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "de" };
-        var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(
-            new[] { "de" },
-            primaryLang: "en",
-            preferred,
-            toleratedLangs: new HashSet<string>(),
-            languageProfile: new Dictionary<string, LanguageProfileEntry>());
-        Assert.Equal(0.85, result);
-    }
-
-    [Fact]
-    public void ComputeBestLanguageAffinity_ToleratedMatch_Returns05()
-    {
-        var tolerated = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "fr" };
-        var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(
-            new[] { "fr" },
-            primaryLang: "en",
-            preferredLangs: new HashSet<string>(),
-            tolerated,
-            languageProfile: new Dictionary<string, LanguageProfileEntry>());
-        Assert.Equal(0.5, result);
-    }
-
-    [Fact]
-    public void ComputeBestLanguageAffinity_KnownButNotClassified_Returns03()
-    {
-        // Language exists in profile but is neither primary, preferred nor tolerated -> 0.3.
-        var profile = new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
+        var preferredLangs = new HashSet<string>(preferred, StringComparer.OrdinalIgnoreCase);
+        var toleratedLangs = new HashSet<string>(tolerated, StringComparer.OrdinalIgnoreCase);
+        var profile = new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in profileKeys)
         {
-            ["it"] = new LanguageProfileEntry()
-        };
-        var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(
-            new[] { "it" },
-            primaryLang: "en",
-            preferredLangs: new HashSet<string>(),
-            toleratedLangs: new HashSet<string>(),
-            profile);
-        Assert.Equal(0.3, result);
+            profile[key] = new LanguageProfileEntry();
+        }
+
+        var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(candidate, primaryLang, preferredLangs, toleratedLangs, profile);
+        Assert.Equal(expected, result);
     }
 
     [Fact]
-    public void ComputeBestLanguageAffinity_UnknownOnly_ReturnsFloor()
-    {
-        var profile = new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["it"] = new LanguageProfileEntry()
-        };
-        var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(
-            new[] { "zh" }, // not in profile
-            primaryLang: "en",
-            preferredLangs: new HashSet<string>(),
-            toleratedLangs: new HashSet<string>(),
-            profile);
-        Assert.Equal(0.1, result);
-    }
-
-    [Fact]
-    public void ComputeBestLanguageAffinity_MultipleCandidates_PicksBestMatch()
+    public void ComputeBestLanguageAffinity_PrimaryTrumpsEarlierPreferred()
     {
         // Reveals: the "best of" reduction must not stop at the first hit; primary=1.0
         // must trump earlier preferred=0.85 entries even when the primary comes later.
