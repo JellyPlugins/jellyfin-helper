@@ -256,7 +256,12 @@ function drawTrendWindow(state) {
 
     var spanDays = (state.endTime - state.startTime) / TREND_DAY_MS;
     var level = pickLevelForSpan(spanDays);
-    var projected = projectToGranularity(state.fullDaily, level);
+    if (!state.projectionCache) state.projectionCache = Object.create(null);
+    var projected = state.projectionCache[level];
+    if (!projected) {
+        projected = projectToGranularity(state.fullDaily, level);
+        state.projectionCache[level] = projected;
+    }
 
     var render = collectVisiblePoints(projected, state.startTime, state.endTime);
 
@@ -370,7 +375,8 @@ function renderTrendChart(timeline) {
         minTime: minTime,
         maxTime: maxTime,
         startTime: minTime,
-        endTime: maxTime
+        endTime: maxTime,
+        projectionCache: Object.create(null)
     };
 
     var drawn = drawTrendWindow(chartState);
@@ -554,7 +560,7 @@ function attachTrendInteraction(container, chartState) {
 
         var sSign;
         if (deltaSize > 0) sSign = '+';
-        else if (deltaSize < 0) sSign = '';
+        else if (deltaSize < 0) sSign = '-';
         else sSign = '\u00B1';
         var pctLabel = '';
         if (deltaSize !== 0 && pctRaw !== 0) {
@@ -562,7 +568,7 @@ function attachTrendInteraction(container, chartState) {
             var pctSign = pctDisplay > 0 ? '+' : '';
             pctLabel = ' (' + pctSign + pctDisplay + '%)';
         }
-        diffSize.textContent = sSign + formatBytes(deltaSize) + pctLabel;
+        diffSize.textContent = sSign + formatBytes(Math.abs(deltaSize)) + pctLabel;
         var deltaSizeClass;
         if (deltaSize > 0) deltaSizeClass = 'diff-up';
         else if (deltaSize < 0) deltaSizeClass = 'diff-down';
