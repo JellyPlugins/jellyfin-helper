@@ -141,46 +141,19 @@ public class SeerrIntegrationServiceTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task TestConnection_Success_ReturnsTrueWithTitle()
+    [Theory]
+    [InlineData("{\"applicationTitle\":\"My Jellyseerr\"}", "My Jellyseerr")]
+    [InlineData("{\"applicationTitle\":\"\"}", "Seerr")]
+    [InlineData("{}", "Seerr")]
+    public async Task TestConnection_Success_ReturnsTrueWithExpectedTitle(string body, string expectedSubstring)
     {
-        var handler = CreateMockHandler(
-            HttpStatusCode.OK,
-            "{\"applicationTitle\":\"My Jellyseerr\"}");
+        var handler = CreateMockHandler(HttpStatusCode.OK, body);
 
         var service = CreateService(handler.Object, out _, out _);
         var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
 
         Assert.True(success);
-        Assert.Contains("My Jellyseerr", message);
-    }
-
-    [Fact]
-    public async Task TestConnection_EmptyTitle_ReturnsSeerrFallback()
-    {
-        var handler = CreateMockHandler(
-            HttpStatusCode.OK,
-            "{\"applicationTitle\":\"\"}");
-
-        var service = CreateService(handler.Object, out _, out _);
-        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
-
-        Assert.True(success);
-        Assert.Contains("Seerr", message);
-    }
-
-    [Fact]
-    public async Task TestConnection_NullTitle_ReturnsSeerrFallback()
-    {
-        var handler = CreateMockHandler(
-            HttpStatusCode.OK,
-            "{}");
-
-        var service = CreateService(handler.Object, out _, out _);
-        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
-
-        Assert.True(success);
-        Assert.Contains("Seerr", message);
+        Assert.Contains(expectedSubstring, message);
     }
 
     [Fact]
@@ -517,11 +490,21 @@ public class SeerrIntegrationServiceTests : IDisposable
         "{\"pageInfo\":{\"page\":1,\"pages\":1,\"results\":" + totalResults
         + ",\"pageSize\":50},\"results\":[" + requestObjectJson + "]}";
 
-    [Fact]
-    public async Task Cleanup_MissingCreatedAt_PendingStatus_IsNotDeleted()
+    public static IEnumerable<object[]> FailClosedCreatedAtCases()
     {
-        // No createdAt key at all -> previously deserialized to MinValue -> wrongly deleted. Must be kept.
-        var page = MakeRawRequestPage("{\"id\":1,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}");
+        yield return ["{\"id\":1,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}"];
+        yield return ["{\"id\":1,\"createdAt\":null,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}"];
+        yield return ["{\"id\":1,\"createdAt\":\"0001-01-01T00:00:00+00:00\",\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}"];
+
+        var future = DateTimeOffset.UtcNow.AddDays(5).ToString("O");
+        yield return [$"{{\"id\":1,\"createdAt\":\"{future}\",\"status\":1,\"media\":{{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}}}"];
+    }
+
+    [Theory]
+    [MemberData(nameof(FailClosedCreatedAtCases))]
+    public async Task Cleanup_UnknownOrFutureCreatedAt_IsNotDeleted(string requestObjectJson)
+    {
+        var page = MakeRawRequestPage(requestObjectJson);
         var handler = CreateMockHandler(HttpStatusCode.OK, page);
         var service = CreateService(handler.Object, out _, out _);
 
@@ -534,46 +517,6 @@ public class SeerrIntegrationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Cleanup_NullCreatedAt_IsNotDeleted()
-    {
-        var page = MakeRawRequestPage("{\"id\":1,\"createdAt\":null,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}");
-        var handler = CreateMockHandler(HttpStatusCode.OK, page);
-        var service = CreateService(handler.Object, out _, out _);
-
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 90, false, CancellationToken.None);
-
-        Assert.Equal(0, result.Deleted);
-    }
-
-    [Fact]
-    public async Task Cleanup_DefaultMinValueCreatedAt_IsNotDeleted()
-    {
-        var page = MakeRawRequestPage("{\"id\":1,\"createdAt\":\"0001-01-01T00:00:00+00:00\",\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}");
-        var handler = CreateMockHandler(HttpStatusCode.OK, page);
-        var service = CreateService(handler.Object, out _, out _);
-
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 90, false, CancellationToken.None);
-
-        Assert.Equal(0, result.Deleted);
-    }
-
-    [Fact]
-    public async Task Cleanup_FutureCreatedAt_IsNotDeleted()
-    {
-        var future = DateTimeOffset.UtcNow.AddDays(5).ToString("O");
-        var page = MakeRawRequestPage($"{{\"id\":1,\"createdAt\":\"{future}\",\"status\":1,\"media\":{{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}}}");
-        var handler = CreateMockHandler(HttpStatusCode.OK, page);
-        var service = CreateService(handler.Object, out _, out _);
-
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 90, false, CancellationToken.None);
-
-        Assert.Equal(0, result.Deleted);
-    }
-
-    [Fact]
     public void SeerrRequest_MissingCreatedAt_DeserializesToNull()
     {
         var request = JsonSerializer.Deserialize<SeerrRequest>("{\"id\":1,\"status\":1}");
@@ -581,26 +524,17 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Null(request!.CreatedAt);
     }
 
-    [Fact]
-    public async Task Cleanup_MaxAgeDaysZero_ThrowsArgumentOutOfRange()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Cleanup_MaxAgeDaysNonPositive_ThrowsArgumentOutOfRange(int maxAgeDays)
     {
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object, out _, out _);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => service.CleanupExpiredRequestsAsync(
-                BaseUrl, ApiKey, 0, false, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task Cleanup_MaxAgeDaysNegative_ThrowsArgumentOutOfRange()
-    {
-        var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
-        var service = CreateService(handler.Object, out _, out _);
-
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => service.CleanupExpiredRequestsAsync(
-                BaseUrl, ApiKey, -1, false, CancellationToken.None));
+                BaseUrl, ApiKey, maxAgeDays, false, CancellationToken.None));
     }
 
     [Fact]
@@ -899,34 +833,22 @@ public class SeerrIntegrationServiceTests : IDisposable
 
     // Error-path & bug-surface coverage
 
-    [Fact]
-    public async Task Cleanup_InvalidBaseUrl_MarksFailure_DoesNotThrow()
+    [Theory]
+    [InlineData("not-a-url", ApiKey)]
+    [InlineData(BaseUrl, "   ")]
+    public async Task Cleanup_InvalidConfig_MarksFailure_DoesNotThrow(string baseUrl, string apiKey)
     {
-        // BUG SURFACE: an invalid base URL used to throw straight to the caller,
-        // producing a stack trace instead of a graceful Failed=1 result the scheduler can log.
+        // Invalid base URL or empty/whitespace API key must be caught inside CreateClient
+        // and mapped to Failed=1 instead of throwing to the caller.
         var handler = new Mock<HttpMessageHandler>();
         var service = CreateService(handler.Object, out _, out _);
 
         var result = await service.CleanupExpiredRequestsAsync(
-            "not-a-url", ApiKey, 365, false, CancellationToken.None);
+            baseUrl, apiKey, 365, false, CancellationToken.None);
 
         Assert.Equal(1, result.Failed);
         Assert.Equal(0, result.TotalChecked);
         Assert.Equal(0, result.Deleted);
-    }
-
-    [Fact]
-    public async Task Cleanup_EmptyApiKey_MarksFailure_DoesNotThrow()
-    {
-        // Empty/whitespace API key must be caught inside CreateClient and mapped to Failed=1.
-        var handler = new Mock<HttpMessageHandler>();
-        var service = CreateService(handler.Object, out _, out _);
-
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, "   ", 365, false, CancellationToken.None);
-
-        Assert.Equal(1, result.Failed);
-        Assert.Equal(0, result.TotalChecked);
     }
 
     [Fact]
@@ -990,38 +912,18 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(1, result.Failed);
     }
 
-    [Fact]
-    public async Task ResolveMediaTitleAsync_MediaNull_ReturnsUnknown_NoHttpCall()
+    public static IEnumerable<object?[]> ResolveMediaShortCircuitCases()
     {
-        // Direct-invocation test of the internal helper - the null-guard branch must
-        // short-circuit BEFORE any HTTP call.
-        var mock = new Mock<HttpMessageHandler>();
-        mock.Protected()
-            .Setup<Task<HttpResponseMessage>>(
-                "SendAsync",
-                ItExpr.IsAny<HttpRequestMessage>(),
-                ItExpr.IsAny<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("Should not be called"));
-
-        var service = CreateService(mock.Object, out _, out _);
-        using var httpClient = new HttpClient(mock.Object);
-        var baseUri = new Uri(BaseUrl + "/");
-
-        var title = await service.ResolveMediaTitleAsync(httpClient, baseUri, ApiKey, null, CancellationToken.None);
-        Assert.Equal("Unknown", title);
-        // Sentinel-exception observation alone is insufficient: a future broad catch could swallow it and still return "Unknown".
-        mock.Protected().Verify(
-            "SendAsync",
-            Times.Never(),
-            ItExpr.IsAny<HttpRequestMessage>(),
-            ItExpr.IsAny<CancellationToken>());
+        yield return [null];
+        yield return [new SeerrMedia { MediaType = "movie", TmdbId = 0 }];
     }
 
-    [Fact]
-    public async Task ResolveMediaTitleAsync_ZeroTmdbId_ReturnsUnknown_NoHttpCall()
+    [Theory]
+    [MemberData(nameof(ResolveMediaShortCircuitCases))]
+    internal async Task ResolveMediaTitleAsync_NoResolvableMedia_ReturnsUnknown_NoHttpCall(SeerrMedia? media)
     {
-        // TMDB ids <= 0 must short-circuit - an HTTP call would waste Seerr API quota
-        // on a request that cannot possibly resolve.
+        // Null media and TMDB ids <= 0 must short-circuit BEFORE any HTTP call so no
+        // Seerr API quota is spent on a request that cannot possibly resolve.
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
             .Setup<Task<HttpResponseMessage>>(
@@ -1034,16 +936,10 @@ public class SeerrIntegrationServiceTests : IDisposable
         using var httpClient = new HttpClient(mock.Object);
         var baseUri = new Uri(BaseUrl + "/");
 
-        var title = await service.ResolveMediaTitleAsync(
-            httpClient,
-            baseUri,
-            ApiKey,
-            new SeerrMedia { MediaType = "movie", TmdbId = 0 },
-            CancellationToken.None);
+        var title = await service.ResolveMediaTitleAsync(httpClient, baseUri, ApiKey, media, CancellationToken.None);
 
         Assert.Equal("Unknown", title);
-        // Same defence-in-depth as the null-media case: the short-circuit must be
-        // observable at the handler level, not just via the sentinel exception.
+        // Sentinel-exception observation alone is insufficient: a future broad catch could swallow it and still return "Unknown".
         mock.Protected().Verify(
             "SendAsync",
             Times.Never(),

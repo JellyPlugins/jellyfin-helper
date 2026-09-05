@@ -12,54 +12,23 @@ public class LibraryInsightsServiceTests
 {
     // -- DetermineChangeType ----------------------------------------
 
-    [Fact]
-    public void DetermineChangeType_SameTimestamps_ReturnsAdded()
-    {
-        var ts = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
-        Assert.Equal("added", LibraryInsightsService.DetermineChangeType(ts, ts));
-    }
-
-    [Fact]
-    public void DetermineChangeType_DiffLessThanThreshold_ReturnsAdded()
+    public static TheoryData<DateTime, DateTime, string> ChangeTypeCases()
     {
         var created = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
-        var modified = created.AddMinutes(30);
-        Assert.Equal("added", LibraryInsightsService.DetermineChangeType(created, modified));
+        return new TheoryData<DateTime, DateTime, string>
+        {
+            { created, created, "added" },
+            { created, created.AddMinutes(30), "added" },
+            { created, created.AddHours(LibraryInsightsService.AddedVsChangedThresholdHours), "changed" },
+            { created, created.AddDays(5), "changed" },
+            { new DateTime(2025, 6, 5, 12, 0, 0, DateTimeKind.Utc), new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc), "added" },
+        };
     }
 
-    [Fact]
-    public void DetermineChangeType_DiffExactlyAtThreshold_ReturnsChanged()
-    {
-        var created = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
-        var modified = created.AddHours(LibraryInsightsService.AddedVsChangedThresholdHours);
-        Assert.Equal("changed", LibraryInsightsService.DetermineChangeType(created, modified));
-    }
-
-    [Fact]
-    public void DetermineChangeType_DiffAboveThreshold_ReturnsChanged()
-    {
-        var created = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
-        var modified = created.AddDays(5);
-        Assert.Equal("changed", LibraryInsightsService.DetermineChangeType(created, modified));
-    }
-
-    [Fact]
-    public void DetermineChangeType_ModifiedBeforeCreated_IsAdded()
-    {
-        // A modified time EARLIER than created is a stale/preserved mtime (e.g. media copied with -p, or restored from backup), NOT a real change.
-        var created = new DateTime(2025, 6, 5, 12, 0, 0, DateTimeKind.Utc);
-        var modified = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
-        Assert.Equal("added", LibraryInsightsService.DetermineChangeType(created, modified));
-    }
-
-    [Fact]
-    public void DetermineChangeType_ModifiedWellAfterCreated_IsChanged()
-    {
-        // A modified time meaningfully AFTER created is a genuine change.
-        var created = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
-        var modified = new DateTime(2025, 6, 5, 12, 0, 0, DateTimeKind.Utc);
-        Assert.Equal("changed", LibraryInsightsService.DetermineChangeType(created, modified));
-    }
+    [Theory]
+    [MemberData(nameof(ChangeTypeCases))]
+    public void DetermineChangeType_Value(DateTime created, DateTime modified, string expected)
+        => Assert.Equal(expected, LibraryInsightsService.DetermineChangeType(created, modified));
 
     // -- BuildResult: Empty input -----------------------------------
 
@@ -278,23 +247,17 @@ public class LibraryInsightsServiceTests
 
     // -- Constants --------------------------------------------------
 
-    [Fact]
-    public void Constants_RecentDaysWindow_IsPositive()
+    public static TheoryData<double, string> PositiveConstantCases() => new()
     {
-        Assert.True(LibraryInsightsService.RecentDaysWindow > 0);
-    }
+        { LibraryInsightsService.RecentDaysWindow, nameof(LibraryInsightsService.RecentDaysWindow) },
+        { LibraryInsightsService.TopLargestPerType, nameof(LibraryInsightsService.TopLargestPerType) },
+        { LibraryInsightsService.AddedVsChangedThresholdHours, nameof(LibraryInsightsService.AddedVsChangedThresholdHours) },
+    };
 
-    [Fact]
-    public void Constants_TopLargestPerType_IsPositive()
-    {
-        Assert.True(LibraryInsightsService.TopLargestPerType > 0);
-    }
-
-    [Fact]
-    public void Constants_AddedVsChangedThresholdHours_IsPositive()
-    {
-        Assert.True(LibraryInsightsService.AddedVsChangedThresholdHours > 0);
-    }
+    [Theory]
+    [MemberData(nameof(PositiveConstantCases))]
+    public void Constants_ArePositive(double value, string name)
+        => Assert.True(value > 0, name);
 
     // -- ComputeInsightsAsync integration tests ---------------------
 

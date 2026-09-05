@@ -32,25 +32,17 @@ public sealed class TrainingExampleTests
         Assert.Equal(0.0, example.Label);
     }
 
-    [Fact]
-    public void Label_ClampsToZero_WhenNegative()
+    [Theory]
+    [InlineData(-0.5, 0.0)]
+    [InlineData(1.5, 1.0)]
+    [InlineData(0.75, 0.75)]
+    [InlineData(double.NaN, 0.0)]
+    [InlineData(double.PositiveInfinity, 0.0)]
+    [InlineData(double.NegativeInfinity, 0.0)]
+    public void Label_Clamps(double input, double expected)
     {
-        var example = new TrainingExample { Features = new CandidateFeatures(), Label = -0.5 };
-        Assert.Equal(0.0, example.Label);
-    }
-
-    [Fact]
-    public void Label_ClampsToOne_WhenAboveOne()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), Label = 1.5 };
-        Assert.Equal(1.0, example.Label);
-    }
-
-    [Fact]
-    public void Label_AcceptsValidRange()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), Label = 0.75 };
-        Assert.Equal(0.75, example.Label);
+        var example = new TrainingExample { Features = new CandidateFeatures(), Label = input };
+        Assert.Equal(expected, example.Label);
     }
 
     // SampleWeight Clamping Tests
@@ -62,69 +54,17 @@ public sealed class TrainingExampleTests
         Assert.Equal(1.0, example.SampleWeight);
     }
 
-    [Fact]
-    public void SampleWeight_ClampsToZero_WhenNegative()
+    [Theory]
+    [InlineData(-0.5, 0.0)]
+    [InlineData(2.0, 1.0)]
+    [InlineData(0.6, 0.6)]
+    [InlineData(double.NaN, 0.0)]
+    [InlineData(double.PositiveInfinity, 0.0)]
+    [InlineData(double.NegativeInfinity, 0.0)]
+    public void SampleWeight_Clamps(double input, double expected)
     {
-        var example = new TrainingExample { Features = new CandidateFeatures(), SampleWeight = -0.5 };
-        Assert.Equal(0.0, example.SampleWeight);
-    }
-
-    [Fact]
-    public void SampleWeight_ClampsToOne_WhenAboveOne()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), SampleWeight = 2.0 };
-        Assert.Equal(1.0, example.SampleWeight);
-    }
-
-    [Fact]
-    public void SampleWeight_AcceptsValidRange()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), SampleWeight = 0.6 };
-        Assert.Equal(0.6, example.SampleWeight);
-    }
-
-    // Non-Finite Input Tests (NaN, Infinity)
-
-    [Fact]
-    public void Label_NaN_ClampsToZero()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), Label = double.NaN };
-        Assert.Equal(0.0, example.Label);
-    }
-
-    [Fact]
-    public void Label_PositiveInfinity_ClampsToZero()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), Label = double.PositiveInfinity };
-        Assert.Equal(0.0, example.Label);
-    }
-
-    [Fact]
-    public void Label_NegativeInfinity_ClampsToZero()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), Label = double.NegativeInfinity };
-        Assert.Equal(0.0, example.Label);
-    }
-
-    [Fact]
-    public void SampleWeight_NaN_ClampsToZero()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), SampleWeight = double.NaN };
-        Assert.Equal(0.0, example.SampleWeight);
-    }
-
-    [Fact]
-    public void SampleWeight_PositiveInfinity_ClampsToZero()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), SampleWeight = double.PositiveInfinity };
-        Assert.Equal(0.0, example.SampleWeight);
-    }
-
-    [Fact]
-    public void SampleWeight_NegativeInfinity_ClampsToZero()
-    {
-        var example = new TrainingExample { Features = new CandidateFeatures(), SampleWeight = double.NegativeInfinity };
-        Assert.Equal(0.0, example.SampleWeight);
+        var example = new TrainingExample { Features = new CandidateFeatures(), SampleWeight = input };
+        Assert.Equal(expected, example.SampleWeight);
     }
 
     // ComputeTemporalWeight Tests

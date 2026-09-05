@@ -154,24 +154,16 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.DoesNotContain("duplicate", message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task SubmitRequestAsync_NegativeServerId_ReturnsFailure()
+    [Theory]
+    [InlineData(-1, null, "serverId")]
+    [InlineData(null, -5, "profileId")]
+    public async Task SubmitRequestAsync_NegativeId_ReturnsFailure(int? serverId, int? profileId, string expectedToken)
     {
         var (success, message) = await _sut.SubmitRequestAsync(
-            1234, "movie", null, -1, null, null, CancellationToken.None);
+            1234, "movie", null, serverId, profileId, null, CancellationToken.None);
 
         Assert.False(success);
-        Assert.Contains("serverId", message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task SubmitRequestAsync_NegativeProfileId_ReturnsFailure()
-    {
-        var (success, message) = await _sut.SubmitRequestAsync(
-            1234, "movie", null, null, -5, null, CancellationToken.None);
-
-        Assert.False(success);
-        Assert.Contains("profileId", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(expectedToken, message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -364,39 +356,24 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Null(result);
     }
 
-    [Fact]
-    public async Task ResolveSeerrUserIdAsync_MatchByHyphenatedGuid_ReturnsUserId()
+    [Theory]
+    [InlineData("D", 77)]
+    [InlineData("N", 88)]
+    public async Task ResolveSeerrUserIdAsync_MatchByGuidFormat_ReturnsUserId(string format, int expectedId)
     {
         // BUG GUARD: Seerr may store the Jellyfin ID with OR without hyphens. The service must normalise both sides before comparing.
         var jf = Guid.NewGuid();
-        var stored = jf.ToString("D"); // With hyphens
+        var stored = jf.ToString(format);
         var json = $$"""
         {
           "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
-          "results": [ { "id": 77, "displayName": "match", "jellyfinUserId": "{{stored}}" } ]
+          "results": [ { "id": {{expectedId}}, "displayName": "match", "jellyfinUserId": "{{stored}}" } ]
         }
         """;
         _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, json);
 
         var result = await _sut.ResolveSeerrUserIdAsync(jf, CancellationToken.None);
-        Assert.Equal(77, result);
-    }
-
-    [Fact]
-    public async Task ResolveSeerrUserIdAsync_MatchByHyphenlessGuid_ReturnsUserId()
-    {
-        var jf = Guid.NewGuid();
-        var stored = jf.ToString("N"); // Without hyphens
-        var json = $$"""
-        {
-          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
-          "results": [ { "id": 88, "displayName": "match", "jellyfinUserId": "{{stored}}" } ]
-        }
-        """;
-        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, json);
-
-        var result = await _sut.ResolveSeerrUserIdAsync(jf, CancellationToken.None);
-        Assert.Equal(88, result);
+        Assert.Equal(expectedId, result);
     }
 
     [Fact]
@@ -492,22 +469,15 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
 
     // GetUserRequestPermissionsAsync
 
-    [Fact]
-    public async Task GetUserRequestPermissionsAsync_InvalidMediaType_ReturnsCannotRequest()
+    [Theory]
+    [InlineData("music", "radarr", "media")]
+    [InlineData("movie", "plex", "service")]
+    public async Task GetUserRequestPermissionsAsync_InvalidType_ReturnsCannotRequest(string mediaType, string serviceType, string expectedToken)
     {
         var result = await _sut.GetUserRequestPermissionsAsync(
-            Guid.NewGuid(), "music", "radarr", CancellationToken.None);
+            Guid.NewGuid(), mediaType, serviceType, CancellationToken.None);
         Assert.False(result.CanRequest);
-        Assert.Contains("media", result.DeniedReason ?? "", StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task GetUserRequestPermissionsAsync_InvalidServiceType_ReturnsCannotRequest()
-    {
-        var result = await _sut.GetUserRequestPermissionsAsync(
-            Guid.NewGuid(), "movie", "plex", CancellationToken.None);
-        Assert.False(result.CanRequest);
-        Assert.Contains("service", result.DeniedReason ?? "", StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(expectedToken, result.DeniedReason ?? "", StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

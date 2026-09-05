@@ -95,6 +95,17 @@ public interface IPerUserEnsembleRegistry : IDisposable
     bool EvictPerUserModel(Guid userId);
 
     /// <summary>
+    ///     Evicts per-user models that have not been retrained since <paramref name="cutoffUtc"/>, using each
+    ///     model's persisted last-trained time (falling back to the weights file's write time). This is what
+    ///     retires a model for a user who once had enough data but has since gone quiet and so is never revisited
+    ///     by the per-user training pass. A user active within the window refreshes their model and is left
+    ///     alone, so a single quiet cycle never evicts a live user. Best-effort: it never throws.
+    /// </summary>
+    /// <param name="cutoffUtc">Models last trained before this instant are evicted.</param>
+    /// <returns>The number of per-user models evicted.</returns>
+    int EvictStaleModels(DateTime cutoffUtc);
+
+    /// <summary>
     ///     Applies new blend bounds (alpha min/max and genre-penalty floor) to future per-user models and to
     ///     every per-user ensemble already materialized this session. Called when the configuration changes so
     ///     per-user models track the same bounds as the global ensemble instead of keeping stale ones until a

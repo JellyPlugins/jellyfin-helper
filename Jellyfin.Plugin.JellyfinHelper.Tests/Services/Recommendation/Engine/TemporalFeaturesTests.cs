@@ -19,35 +19,34 @@ public class TemporalFeaturesTests
     public void ResolveIsWeekend_UserProfileNull_Throws()
         => Assert.Throws<ArgumentNullException>(() => TemporalFeatures.ResolveIsWeekend(null!));
 
-    [Fact]
-    public void ResolveIsWeekend_LastActivityFriday_ReturnsFalse()
+    public static TheoryData<DateTime, bool> DayMappingCases() => new()
     {
-        var profile = new UserWatchProfile { LastActivityDate = FridayNoonUtc };
-        Assert.False(TemporalFeatures.ResolveIsWeekend(profile));
+        { FridayNoonUtc, false },
+        { SaturdayNoonUtc, true },
+        { new DateTime(2026, 1, 4, 12, 0, 0, DateTimeKind.Utc), true },
+    };
+
+    [Theory]
+    [MemberData(nameof(DayMappingCases))]
+    public void ResolveIsWeekend_DayMapping(DateTime lastActivity, bool expected)
+    {
+        var profile = new UserWatchProfile { LastActivityDate = lastActivity };
+        Assert.Equal(expected, TemporalFeatures.ResolveIsWeekend(profile));
     }
 
-    [Fact]
-    public void ResolveIsWeekend_LastActivitySaturday_ReturnsTrue()
+    public static TheoryData<DateTime, DateTime, bool> AnchorWinsCases() => new()
     {
-        var profile = new UserWatchProfile { LastActivityDate = SaturdayNoonUtc };
-        Assert.True(TemporalFeatures.ResolveIsWeekend(profile));
-    }
+        { FridayNoonUtc, SaturdayNoonUtc, false },
+        { SaturdayNoonUtc, FridayNoonUtc, true },
+    };
 
-    [Fact]
-    public void ResolveIsWeekend_LastActivitySunday_ReturnsTrue()
+    [Theory]
+    [MemberData(nameof(AnchorWinsCases))]
+    public void ResolveIsWeekend_LastActivityWinsOverOverride(DateTime anchor, DateTime overrideDate, bool expected)
     {
-        var profile = new UserWatchProfile
-        {
-            LastActivityDate = new DateTime(2026, 1, 4, 12, 0, 0, DateTimeKind.Utc)
-        };
-        Assert.True(TemporalFeatures.ResolveIsWeekend(profile));
-    }
-
-    [Fact]
-    public void ResolveIsWeekend_LastActivityWinsOverOverride()
-    {
-        var profile = new UserWatchProfile { LastActivityDate = FridayNoonUtc };
-        Assert.False(TemporalFeatures.ResolveIsWeekend(profile, SaturdayNoonUtc));
+        var profile = new UserWatchProfile { LastActivityDate = anchor };
+        Assert.Equal(expected, TemporalFeatures.ResolveIsWeekend(profile));
+        Assert.Equal(expected, TemporalFeatures.ResolveIsWeekend(profile, overrideDate));
     }
 
     [Fact]
@@ -63,22 +62,6 @@ public class TemporalFeaturesTests
     {
         var profile = new UserWatchProfile { LastActivityDate = null };
         Assert.False(TemporalFeatures.ResolveIsWeekend(profile));
-    }
-
-    [Fact]
-    public void ResolveIsWeekend_ConsistencyAcrossAllCallSites_UserAnchoredFriday()
-    {
-        var profile = new UserWatchProfile { LastActivityDate = FridayNoonUtc };
-        Assert.False(TemporalFeatures.ResolveIsWeekend(profile));
-        Assert.False(TemporalFeatures.ResolveIsWeekend(profile, SaturdayNoonUtc));
-    }
-
-    [Fact]
-    public void ResolveIsWeekend_ConsistencyAcrossAllCallSites_UserAnchoredSaturday()
-    {
-        var profile = new UserWatchProfile { LastActivityDate = SaturdayNoonUtc };
-        Assert.True(TemporalFeatures.ResolveIsWeekend(profile));
-        Assert.True(TemporalFeatures.ResolveIsWeekend(profile, FridayNoonUtc));
     }
 
     // GetTimeBucket

@@ -9,34 +9,62 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// </summary>
 public class LogsHtmlTests : ConfigPageTestBase
 {
-    [Fact]
-    public void Html_ContainsLogsTabButton()
+    /// <summary>
+    ///     Verifies the Logs tab DOM element ids and classes are present in the composed HTML.
+    /// </summary>
+    /// <param name="marker">The element id or class marker expected in the HTML.</param>
+    [Theory]
+    [InlineData("data-tab=\"logs\"")]
+    [InlineData("id=\"logsLevelFilter\"")]
+    [InlineData("id=\"logsSourceFilter\"")]
+    [InlineData("id=\"logsCount\"")]
+    [InlineData("id=\"logsAutoRefreshIndicator\"")]
+    [InlineData("id=\"btnLogsDownload\"")]
+    [InlineData("id=\"btnLogsClear\"")]
+    [InlineData("id=\"logsTableWrapper\"")]
+    [InlineData("logs-table")]
+    public void Html_ContainsLogsElement(string marker)
     {
-        Assert.Contains("data-tab=\"logs\"", HtmlContent);
+        Assert.Contains(marker, HtmlContent);
     }
 
-    [Fact]
-    public void Html_ContainsRenderLogsTabFunction()
+    /// <summary>
+    ///     Verifies the Logs tab function declarations are present in the composed HTML.
+    /// </summary>
+    /// <param name="signature">The function signature marker expected in the HTML.</param>
+    [Theory]
+    [InlineData("function renderLogsTab()")]
+    [InlineData("function initLogsTab()")]
+    [InlineData("function destroyLogsTab()")]
+    [InlineData("function loadLogs()")]
+    [InlineData("function downloadLogs()")]
+    [InlineData("function clearLogs()")]
+    [InlineData("function formatLogTimestamp(")]
+    [InlineData("function loadLogLevelFromConfig(")]
+    [InlineData("function saveLogLevelToConfig(")]
+    public void Html_ContainsLogsFunction(string signature)
     {
-        Assert.Contains("function renderLogsTab()", HtmlContent);
+        Assert.Contains(signature, HtmlContent);
     }
 
-    [Fact]
-    public void Html_ContainsInitLogsTabFunction()
+    /// <summary>
+    ///     Verifies the Logs tab endpoints, timers, and constants are present in the composed HTML.
+    /// </summary>
+    /// <param name="marker">The endpoint, timer, or constant marker expected in the HTML.</param>
+    [Theory]
+    [InlineData("JellyfinHelper/Logs")]
+    [InlineData("JellyfinHelper/Logs/Download")]
+    [InlineData("_logsAutoRefreshTimer")]
+    [InlineData("function startLogsAutoRefresh()")]
+    [InlineData("function stopLogsAutoRefresh()")]
+    [InlineData("10000")]
+    [InlineData("URL.createObjectURL")]
+    [InlineData("URL.revokeObjectURL")]
+    [InlineData("jellyfin-helper-logs.txt")]
+    [InlineData("_logsSourceDebounceTimer")]
+    public void Html_ContainsLogsEndpointOrConstant(string marker)
     {
-        Assert.Contains("function initLogsTab()", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsDestroyLogsTabFunction()
-    {
-        Assert.Contains("function destroyLogsTab()", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsLogLevelFilterSelect()
-    {
-        Assert.Contains("id=\"logsLevelFilter\"", HtmlContent);
+        Assert.Contains(marker, HtmlContent);
     }
 
     [Theory]
@@ -49,48 +77,6 @@ public class LogsHtmlTests : ConfigPageTestBase
         Assert.Contains("<option value=\"" + level + "\">" + level + "</option>", HtmlContent);
     }
 
-    [Fact]
-    public void Html_ContainsSourceFilterInput()
-    {
-        Assert.Contains("id=\"logsSourceFilter\"", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsLogsCountElement()
-    {
-        Assert.Contains("id=\"logsCount\"", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsAutoRefreshIndicator()
-    {
-        Assert.Contains("id=\"logsAutoRefreshIndicator\"", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsDownloadButton()
-    {
-        Assert.Contains("id=\"btnLogsDownload\"", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsClearButton()
-    {
-        Assert.Contains("id=\"btnLogsClear\"", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsLogsTableWrapper()
-    {
-        Assert.Contains("id=\"logsTableWrapper\"", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsLogsTableClass()
-    {
-        Assert.Contains("logs-table", HtmlContent);
-    }
-
     [Theory]
     [InlineData("col-time")]
     [InlineData("col-level")]
@@ -99,42 +85,6 @@ public class LogsHtmlTests : ConfigPageTestBase
     public void Html_ContainsTableColumnClass(string cssClass)
     {
         Assert.Contains(cssClass, HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsLoadLogsFunction()
-    {
-        Assert.Contains("function loadLogs()", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsDownloadLogsFunction()
-    {
-        Assert.Contains("function downloadLogs()", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsClearLogsFunction()
-    {
-        Assert.Contains("function clearLogs()", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsFormatLogTimestampFunction()
-    {
-        Assert.Contains("function formatLogTimestamp(", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsLoadLogLevelFromConfigFunction()
-    {
-        Assert.Contains("function loadLogLevelFromConfig(", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsSaveLogLevelToConfigFunction()
-    {
-        Assert.Contains("function saveLogLevelToConfig(", HtmlContent);
     }
 
     [Fact]
@@ -158,47 +108,11 @@ public class LogsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_CallsLogsEndpoint()
-    {
-        Assert.Contains("JellyfinHelper/Logs", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_CallsLogsDownloadEndpoint()
-    {
-        Assert.Contains("JellyfinHelper/Logs/Download", HtmlContent);
-    }
-
-    [Fact]
     public void Html_CallsDeleteLogsEndpoint()
     {
         Assert.Matches(
             new Regex(@"type\s*:\s*['""]DELETE['""].*JellyfinHelper/Logs", RegexOptions.Singleline),
             HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsAutoRefreshTimer()
-    {
-        Assert.Contains("_logsAutoRefreshTimer", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsStartAutoRefreshFunction()
-    {
-        Assert.Contains("function startLogsAutoRefresh()", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_ContainsStopAutoRefreshFunction()
-    {
-        Assert.Contains("function stopLogsAutoRefresh()", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_AutoRefreshInterval_Is10Seconds()
-    {
-        Assert.Contains("10000", HtmlContent);
     }
 
     [Fact]
@@ -222,24 +136,6 @@ public class LogsHtmlTests : ConfigPageTestBase
                 @"function\s+apiFetchBlob\s*\([^)]*\)\s*\{[\s\S]*?Authorization[\s\S]*?accessToken\(\)",
                 RegexOptions.Multiline),
             HtmlContent);
-    }
-
-    [Fact]
-    public void Html_DownloadCreatesTemporaryLink()
-    {
-        Assert.Contains("URL.createObjectURL", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_DownloadCleansUpObjectUrl()
-    {
-        Assert.Contains("URL.revokeObjectURL", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_DownloadFilename()
-    {
-        Assert.Contains("jellyfin-helper-logs.txt", HtmlContent);
     }
 
     [Fact]
@@ -300,11 +196,5 @@ public class LogsHtmlTests : ConfigPageTestBase
     public void Html_ContainsI18nKey(string key)
     {
         Assert.Contains("'" + key + "'", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_SourceFilter_HasDebounce()
-    {
-        Assert.Contains("_logsSourceDebounceTimer", HtmlContent);
     }
 }

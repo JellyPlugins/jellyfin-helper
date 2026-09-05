@@ -37,28 +37,37 @@ public class MainHtmlTests : ConfigPageTestBase
         Assert.Contains("currentTab === 'settings'", HtmlContent);
     }
 
-    [Fact]
-    public void Html_DoTabSwitch_DestroysLogsTabWhenLeaving()
+    /// <summary>
+    ///     Verifies the page lifecycle and tab-init markers are present in the composed Main.js.
+    /// </summary>
+    /// <param name="marker">The lifecycle marker expected in the HTML.</param>
+    [Theory]
+    [InlineData("destroyLogsTab")]
+    [InlineData("initRecommendationsTab")]
+    [InlineData("initLogsTab")]
+    [InlineData("_pageInitialized")]
+    [InlineData("_handlersBound")]
+    [InlineData("_pageLifecycleBound")]
+    [InlineData("DOMContentLoaded")]
+    public void Html_ContainsLifecycleMarker(string marker)
     {
-        Assert.Contains("destroyLogsTab", HtmlContent);
+        Assert.Contains(marker, HtmlContent);
     }
 
-    [Fact]
-    public void Html_DoTabSwitch_InitializesRecommendationsTab()
+    /// <summary>
+    ///     Verifies the shell, scan, and stats markers are present in the composed Main.js.
+    /// </summary>
+    /// <param name="marker">The shell or scan marker expected in the HTML.</param>
+    [Theory]
+    [InlineData("renderShell()")]
+    [InlineData("#JellyfinHelperConfigPage")]
+    [InlineData("lastScanBadge")]
+    [InlineData("initializingScan")]
+    [InlineData("JellyfinHelper/MediaStatistics/ScanLibraries")]
+    [InlineData("statsLoadError")]
+    public void Html_ContainsShellMarker(string marker)
     {
-        Assert.Contains("initRecommendationsTab", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_DoTabSwitch_InitializesLogsTab()
-    {
-        Assert.Contains("initLogsTab", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_UpdateLastScanBadge_UsesLastScanBadgeId()
-    {
-        Assert.Contains("lastScanBadge", HtmlContent);
+        Assert.Contains(marker, HtmlContent);
     }
 
     [Fact]
@@ -134,12 +143,6 @@ public class MainHtmlTests : ConfigPageTestBase
         Assert.Contains("'" + key + "'", HtmlContent);
     }
 
-    [Fact]
-    public void Html_RenderShell_ExposesInitialScanPlaceholderKey()
-    {
-        Assert.Contains("initializingScan", HtmlContent);
-    }
-
     [Theory]
     [InlineData("fillOverviewData")]
     [InlineData("fillCodecsData")]
@@ -150,12 +153,6 @@ public class MainHtmlTests : ConfigPageTestBase
         Assert.Matches(
             new Regex(@"function\s+fillScanData[\s\S]*?" + Regex.Escape(callee) + @"\s*\("),
             HtmlContent);
-    }
-
-    [Fact]
-    public void Html_LoadStatistics_ScansViaScanLibrariesEndpoint()
-    {
-        Assert.Contains("JellyfinHelper/MediaStatistics/ScanLibraries", HtmlContent);
     }
 
     [Fact]
@@ -175,12 +172,6 @@ public class MainHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_LoadStatistics_ShowsErrorOnFailure()
-    {
-        Assert.Contains("statsLoadError", HtmlContent);
-    }
-
-    [Fact]
     public void Html_InitPage_HasRetryCounter()
     {
         Assert.Contains("_initRetries", HtmlContent);
@@ -194,35 +185,11 @@ public class MainHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_InitPage_GuardsAgainstDuplicateInit()
-    {
-        Assert.Contains("_pageInitialized", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_InitPage_GuardsAgainstDuplicateHandlerBinding()
-    {
-        Assert.Contains("_handlersBound", HtmlContent);
-    }
-
-    [Fact]
     public void Html_InitPage_LoadsTranslationsBeforeRendering()
     {
         Assert.Matches(
             new Regex(@"loadTranslations\s*\(\s*function\s*\(\s*\)\s*\{[\s\S]*?applyStaticTranslations"),
             HtmlContent);
-    }
-
-    [Fact]
-    public void Html_InitPage_CallsRenderShell()
-    {
-        Assert.Contains("renderShell()", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_BindPageLifecycle_UsesConfigPageElement()
-    {
-        Assert.Contains("#JellyfinHelperConfigPage", HtmlContent);
     }
 
     [Theory]
@@ -233,12 +200,6 @@ public class MainHtmlTests : ConfigPageTestBase
     public void Html_BindPageLifecycle_RegistersEvent(string eventName)
     {
         Assert.Contains("'" + eventName + "'", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_BindPageLifecycle_GuardsAgainstDoubleBinding()
-    {
-        Assert.Contains("_pageLifecycleBound", HtmlContent);
     }
 
     [Fact]
@@ -256,12 +217,6 @@ public class MainHtmlTests : ConfigPageTestBase
         Assert.Matches(
             new Regex(@"pagehide[\s\S]*?destroyLogsTab"),
             HtmlContent);
-    }
-
-    [Fact]
-    public void Html_HasDomContentLoadedFallback()
-    {
-        Assert.Contains("DOMContentLoaded", HtmlContent);
     }
 
     [Fact]
