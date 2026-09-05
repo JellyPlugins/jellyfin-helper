@@ -69,10 +69,10 @@ public class GrowthTimelineModelTests
     // GrowthTimelineResult
 
     [Fact]
-    public void GrowthTimelineResult_DefaultGranularity_IsMonthly()
+    public void GrowthTimelineResult_DefaultGranularity_IsDaily()
     {
         var result = new GrowthTimelineResult();
-        Assert.Equal("monthly", result.Granularity);
+        Assert.Equal("daily", result.Granularity);
     }
 
     [Fact]

@@ -75,15 +75,15 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ComputeTimelineAsync_NoLibraries_ReturnsEmptyMonthlyResult()
+    public async Task ComputeTimelineAsync_NoLibraries_ReturnsEmptyDailyResult()
     {
         // No libraries configured -> the service must short-circuit with an empty result
-        // and default monthly granularity. Must also not touch the persistence layer.
+        // and the daily storage marker. Must also not touch the persistence layer.
         var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Empty(result.DataPoints);
-        Assert.Equal("monthly", result.Granularity);
+        Assert.Equal("daily", result.Granularity);
         Assert.False(File.Exists(Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json")));
     }
 
@@ -379,7 +379,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
         await File.WriteAllTextAsync(
             timelinePath,
-            "{\"granularity\":\"monthly\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
+            "{\"granularity\":\"daily\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
             "\"dataPoints\":[{\"date\":\"2020-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}");
 
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
@@ -805,5 +805,89 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         Assert.Equal(0, result.TotalDirectoriesScanned);
         _fileSystemMock.Verify(f => f.GetFiles(subDir), Times.Never);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_FirstScan_EmitsDailyGranularity()
+    {
+        // Storage is always daily and lossless; the stored marker must be "daily" and every
+        // point must be midnight-UTC aligned regardless of how old the earliest file is.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = new DateTime(2019, 6, 15, 0, 0, 0, DateTimeKind.Utc) }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal("daily", result.Granularity);
+        Assert.All(result.DataPoints, p => Assert.Equal(TimeSpan.Zero, p.Date.TimeOfDay));
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_LegacyCoarseTimelineOnDisk_IsDiscardedAndRebuiltDaily()
+    {
+        // A pre-upgrade monthly timeline on disk must be discarded once and rebuilt daily from
+        // the baseline, never merged into a mixed coarse+daily series.
+        var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
+        await File.WriteAllTextAsync(
+            timelinePath,
+            "{\"granularity\":\"monthly\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
+            "\"dataPoints\":[{\"date\":\"2020-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}");
+
+        var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
+        await File.WriteAllTextAsync(
+            baselinePath,
+            "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{}}");
+
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true, CreationTimeUtc = new DateTime(2023, 3, 3, 0, 0, 0, DateTimeKind.Utc) }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 2000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        // The stale 2020 coarse point is gone; the series is daily and aligned.
+        Assert.Equal("daily", result.Granularity);
+        Assert.DoesNotContain(result.DataPoints, p => p.CumulativeSize == 9999);
+        Assert.All(result.DataPoints, p => Assert.Equal(TimeSpan.Zero, p.Date.TimeOfDay));
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_EmptyStateWithDayBasedHistory_WritesDailyGranularity()
+    {
+        // A day-based prior timeline plus zero libraries: the empty-state branch keeps the daily
+        // marker and preserves the surviving history while appending a zero snapshot.
+        var oldDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
+        await File.WriteAllTextAsync(
+            timelinePath,
+            "{\"granularity\":\"daily\",\"firstScanTimestamp\":\"2024-01-01T00:00:00Z\"," +
+            "\"dataPoints\":[{\"date\":\"2024-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}");
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.Equal("daily", result.Granularity);
+        Assert.Contains(result.DataPoints, p => p.Date == oldDate && p.CumulativeSize == 9999);
+        Assert.Equal(0, result.DataPoints[^1].CumulativeSize);
     }
 }
