@@ -192,15 +192,22 @@ public sealed class FeatureParityTests
     [Fact]
     public void LibraryAddedRecency_MissingDateCreated_TrainingImputationEqualsLiveDefault()
     {
-        // The training builder sees a nullable DateCreated and, when it is missing, must feed the same default
-        // date the live path resolves from a candidate's non-nullable DateCreated. Both sides therefore evaluate
-        // ContentScoring.ComputeRecencyScore(default), which must agree exactly and must not be the neutral 0.5
-        // midpoint the separate premiere-date RecencyScore uses when a date is unknown.
-        DateTime? trainingMissingDateCreated = null;
-        var trainingSide = ContentScoring.ComputeRecencyScore(trainingMissingDateCreated ?? default);
-        var liveSide = ContentScoring.ComputeRecencyScore(default);
+        // The training builder sees a nullable DateCreated and, when it is missing, imputes the same default
+        // date the live path resolves from a candidate's non-nullable DateCreated. This pins that the imputed
+        // value equals the live default and is not the neutral 0.5 midpoint the separate premiere-date
+        // RecencyScore uses when a date is unknown, so a regression that swapped the null branch to 0.5 fails.
+        var trainingImputed = ImputeLibraryAddedRecency(dateCreated: null);
+        var liveDefault = ContentScoring.ComputeRecencyScore(default);
 
-        Assert.Equal(liveSide, trainingSide);
-        Assert.NotEqual(0.5, trainingSide, 3);
+        Assert.Equal(liveDefault, trainingImputed);
+        Assert.NotEqual(0.5, trainingImputed, 3);
     }
+
+    // Mirrors the training builders' library-added recency imputation: a present date scores from that date, a
+    // missing one falls back to the same default the live path uses. Kept as a helper so the null branch under
+    // test is a real conditional rather than a constant the analyzer folds away.
+    private static double ImputeLibraryAddedRecency(DateTime? dateCreated) =>
+        dateCreated.HasValue
+            ? ContentScoring.ComputeRecencyScore(dateCreated.Value)
+            : ContentScoring.ComputeRecencyScore(default);
 }

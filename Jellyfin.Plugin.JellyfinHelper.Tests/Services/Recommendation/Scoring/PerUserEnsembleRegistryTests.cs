@@ -45,7 +45,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void GetScoringStrategyForUser_ColdStartUser_ReturnsExactGlobalInstance()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
@@ -59,7 +59,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void GetScoringStrategyForUser_EmptyUserId_ReturnsGlobal()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
@@ -69,7 +69,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void GetOrCreateTrainableEnsembleForUser_CreatesDistinctPerUserInstance()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
@@ -86,7 +86,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void GetOrCreateTrainableEnsembleForUser_WarmStartsFromGlobalWeights()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         // Train the global learned model so it has non-default weights + standardization stats to seed from.
         using var global = BuildGlobal(neural);
         Assert.True(global.LearnedStrategy.Train(GenerateExamples(60)));
@@ -102,7 +102,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void PerUserEnsemble_SharesGlobalNeuralByReference()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
@@ -114,7 +114,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void Dispose_DoesNotDisposeSharedNeural()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         var registry = BuildRegistry(global, neural);
         registry.GetOrCreateTrainableEnsembleForUser(Guid.NewGuid());
@@ -130,7 +130,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void HasPerUserModel_TrueOnlyAfterFileExists()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
@@ -148,7 +148,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void PruneOrphans_DeletesFilesForRemovedUsersOnly()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
@@ -172,7 +172,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void PruneOrphans_LeavesGlobalFilesUntouched()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
@@ -191,7 +191,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void PruneOrphans_MalformedPerUserFilename_LeftUntouched()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
@@ -209,7 +209,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void GetScoringStrategyForUser_WeightsFileDeletedAfterExistsCheck_FallsBackToGlobalAndDoesNotCache()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
@@ -237,7 +237,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void GetDiagnostics_ColdStartUser_ReturnsGlobalSnapshot()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
@@ -251,7 +251,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void GetOrCreateTrainableEnsembleForUser_ConcurrentSameUser_BuildsExactlyOneInstance()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
@@ -274,7 +274,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void PerUserEnsembles_ShareSingleHeuristicInstance()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 
@@ -289,7 +289,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void GetUserModelDiagnostics_ColdStartThenTrained_FlipsIsPerUserAtomically()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var userId = Guid.NewGuid();
@@ -312,7 +312,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [Fact]
     public void Reconfigure_UpdatesAlreadyMaterializedPerUserEnsembleBounds()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
 

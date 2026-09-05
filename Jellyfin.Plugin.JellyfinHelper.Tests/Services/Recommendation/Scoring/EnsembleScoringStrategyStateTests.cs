@@ -247,7 +247,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         }));
 
         using var neural = new NeuralScoringStrategy();
-        var sut = BuildPerUserSut(neural);
+        using var sut = BuildPerUserSut(neural);
 
         Assert.Equal(beta, sut.CurrentNeuralBeta, 6);
     }
@@ -270,7 +270,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         }));
 
         using var neural = new NeuralScoringStrategy();
-        var sut = BuildPerUserSut(neural);
+        using var sut = BuildPerUserSut(neural);
 
         Assert.Equal(0.0, sut.CurrentNeuralBeta);
     }

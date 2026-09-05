@@ -1675,6 +1675,7 @@ public class ConfigurationControllerTests
         var registryMock = new Mock<IPerUserEnsembleRegistry>();
         var configHelperMock = new Mock<ICleanupConfigHelper>();
         configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
+        using var ensemble = new EnsembleScoringStrategy();
         var controller = new ConfigurationController(
             _arrServiceMock.Object,
             _pluginLogMock.Object,
@@ -1683,7 +1684,7 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             new Mock<MediaBrowser.Controller.Library.ILibraryManager>().Object,
-            new EnsembleScoringStrategy(),
+            ensemble,
             registryMock.Object);
 
         var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.3, EnsembleAlphaMax = 0.7 };

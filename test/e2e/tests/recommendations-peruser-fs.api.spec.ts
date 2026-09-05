@@ -66,6 +66,10 @@ const CONFIG_DEFAULTS = {
 let ctx: APIRequestContext;
 let auth: ReturnType<typeof loadAuth>;
 
+/** Item ids this suite marked played or favorite, so the teardown can undo that user-data change. */
+const seededPlayedIds: string[] = [];
+const seededFavoriteIds: string[] = [];
+
 test.beforeAll(async () => {
   auth = loadAuth();
   ctx = await apiContext(auth);
@@ -76,6 +80,16 @@ test.afterAll(async () => {
     headers: { 'Content-Type': 'application/json' },
     data: CONFIG_DEFAULTS,
   }).catch(() => undefined);
+
+  // Undo the watched and favorite state seeded in beforeAll. This state lives on the shared server and would
+  // otherwise change the watch profile and recommendation pool a later or concurrent spec sees.
+  for (const id of seededPlayedIds) {
+    await ctx.delete(`/UserPlayedItems/${id}?userId=${auth.userId}`).catch(() => undefined);
+  }
+  for (const id of seededFavoriteIds) {
+    await ctx.delete(`/UserFavoriteItems/${id}?userId=${auth.userId}`).catch(() => undefined);
+  }
+
   await ctx.dispose();
 });
 
@@ -126,17 +140,21 @@ test.describe.serial('per-user recommendation model files', () => {
       return;
     }
 
-    // The engine trains from a real watch profile, and cold-start users alone do not drive training. Mark a
-    // few movies played (and favorite one) so the admin has genuine history, which is what makes the results
-    // cache non-empty and the training pass, and thus the global ensemble state, deterministic on this fixture.
+    // The engine trains from a real watch profile, and cold-start users alone do not drive training. The
+    // per-user example threshold is twelve pooled examples per user; marking six movies played gives six
+    // organic examples on their own, and the second training run adds one exposure example per remaining
+    // recommended-but-unwatched candidate, so a single user reliably clears the threshold and gets a per-user
+    // model. Favoriting one of them adds a positive-engagement signal.
     const movies = await movieItems();
-    expect(movies.length, 'need several movies to build a watch profile').toBeGreaterThan(3);
-    for (const m of movies.slice(0, 3)) {
+    expect(movies.length, 'need enough movies for a user to clear the per-user example threshold').toBeGreaterThan(11);
+    for (const m of movies.slice(0, 6)) {
       const mark = await ctx.post(`/UserPlayedItems/${m.id}?userId=${auth.userId}`);
       expect(mark.ok(), `mark-played ${m.name}: ${mark.status()}`).toBeTruthy();
+      seededPlayedIds.push(m.id);
     }
     const fav = await ctx.post(`/UserFavoriteItems/${movies[0].id}?userId=${auth.userId}`);
     expect([200, 204]).toContain(fav.status());
+    seededFavoriteIds.push(movies[0].id);
   });
 
   test.afterEach(() => {
@@ -195,13 +213,13 @@ test.describe.serial('per-user recommendation model files', () => {
     await sleep(1000);
 
     const weightFiles = perUserWeightFiles();
-    // On a minimal single-user fixture library a user may not reach the >=12 example threshold. That is a
-    // valid state (they keep scoring on the global model), so skip rather than fail. The global-file test
-    // above already proves training ran.
-    test.skip(
-      weightFiles.length === 0,
-      'no user reached the per-user example threshold on this library - per-user shape assertion would be vacuous',
-    );
+    // The seeded six-movie watch profile clears the per-user example threshold, so at least one per-user model
+    // must exist. A hard assertion here (rather than a skip) keeps the per-user shape checks from silently
+    // passing vacuously if the fixture ever stops driving training past the threshold.
+    expect(
+      weightFiles.length,
+      'expected at least one per-user model file after training on the seeded watch profile',
+    ).toBeGreaterThan(0);
 
     // Every per-user weight file must pair with an ensemble-state file for the same id.
     const dir = resolveDataDir();
@@ -237,7 +255,7 @@ test.describe.serial('per-user recommendation model files', () => {
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
     const before = perUserStateFiles();
-    test.skip(before.length === 0, 'no per-user model on this library - two-run evolution assertion would be vacuous');
+    expect(before.length, 'expected a per-user model to evolve across runs').toBeGreaterThan(0);
 
     const dir = resolveDataDir();
     const firstId = before[0].slice('ensemble_state_'.length, -'.json'.length);
@@ -263,7 +281,7 @@ test.describe.serial('per-user recommendation model files', () => {
     await sleep(1000);
 
     const existing = perUserWeightFiles();
-    test.skip(existing.length === 0, 'no per-user model on this library - prune assertion would be vacuous');
+    expect(existing.length, 'expected a per-user model to exist before planting an orphan').toBeGreaterThan(0);
 
     const dir = resolveDataDir();
     // Plant a per-user file for a synthetic user id that is NOT in the live user list. Copying an existing

@@ -159,7 +159,7 @@ public sealed class EngineInstanceTests
     {
         // With an ensemble-backed engine the guard passes and the call delegates to the registry, forwarding
         // whatever (snapshot, isPerUser) tuple the registry resolves for that user.
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var harness = EngineTestFactory.Create(ensemble);
         var userId = Guid.NewGuid();
         var expected = ensemble.GetDiagnosticsSnapshot();

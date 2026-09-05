@@ -1580,21 +1580,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         (IReadOnlyList<SeerrUser> freshUsers, bool complete) = await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        // Only cache complete, non-empty results to allow retry on next call when Seerr is temporarily unavailable or returns partial data.
+        // The shared fetch has already written a successful, complete result to the cache before completing
+        // (see StartSeerrUserFetchAsync), so once it settles the cache is warm and the fast path above catches
+        // any later caller in this burst. Read the cached copy here so every caller returns the same instance.
         if (freshUsers.Count > 0 && complete)
         {
             lock (_userCacheLock)
             {
-                // Double-checked: another concurrent caller may have already populated
-                // the cache while we were fetching outside the lock.
-                if (_cachedSeerrUsers == null || DateTime.UtcNow >= _cachedSeerrUsersExpiry)
+                if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
                 {
-                    _cachedSeerrUsers = freshUsers;
-                    _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
-                }
-                else
-                {
-                    // Another thread already populated the cache; return its copy
                     return _cachedSeerrUsers;
                 }
             }
@@ -1612,12 +1606,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    // Starts a single shared roster fetch and clears the in-flight slot once it settles, so the next
-    // cache miss starts a fresh fetch rather than awaiting a stale completed task. Runs on its own
-    // token so it is not cancelled by any one caller's token.
+    // Starts a single shared roster fetch, publishes a successful complete result to the cache before the
+    // task completes, and clears the in-flight slot once it settles. Publishing inside the task closes the
+    // window where a caller arriving after the fetch settled but before the cache was written would start a
+    // second fetch: by the time the task is observably complete the cache is already warm. An incomplete or
+    // failed fetch writes nothing, so it stays on the retriable path and is never replayed from a settled task.
+    // Runs on its own token so it is not cancelled by any one caller's token.
     private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> StartSeerrUserFetchAsync()
     {
-        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch = FetchSeerrUsersInternalAsync(CancellationToken.None);
+        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch = FetchAndCacheSeerrUsersAsync();
         _ = fetch.ContinueWith(
             _ =>
             {
@@ -1636,6 +1633,29 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
         return fetch;
+    }
+
+    // Fetches the roster and, on a successful complete read, writes it to the cache before returning, so the
+    // cache is warm the instant the shared task is observably complete.
+    private async Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> FetchAndCacheSeerrUsersAsync()
+    {
+        (IReadOnlyList<SeerrUser> users, bool complete) = await FetchSeerrUsersInternalAsync(CancellationToken.None).ConfigureAwait(false);
+
+        // Only cache complete, non-empty results to allow retry on the next call when Seerr is temporarily
+        // unavailable or returns partial data.
+        if (users.Count > 0 && complete)
+        {
+            lock (_userCacheLock)
+            {
+                if (_cachedSeerrUsers == null || DateTime.UtcNow >= _cachedSeerrUsersExpiry)
+                {
+                    _cachedSeerrUsers = users;
+                    _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
+                }
+            }
+        }
+
+        return (users, complete);
     }
 
     private async Task<DiscoveryResult?> GenerateForUserAsync(
