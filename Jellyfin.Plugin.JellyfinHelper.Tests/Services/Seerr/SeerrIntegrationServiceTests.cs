@@ -490,14 +490,16 @@ public class SeerrIntegrationServiceTests : IDisposable
         "{\"pageInfo\":{\"page\":1,\"pages\":1,\"results\":" + totalResults
         + ",\"pageSize\":50},\"results\":[" + requestObjectJson + "]}";
 
-    public static IEnumerable<object[]> FailClosedCreatedAtCases()
+    public static TheoryData<string> FailClosedCreatedAtCases()
     {
-        yield return ["{\"id\":1,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}"];
-        yield return ["{\"id\":1,\"createdAt\":null,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}"];
-        yield return ["{\"id\":1,\"createdAt\":\"0001-01-01T00:00:00+00:00\",\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}"];
-
         var future = DateTimeOffset.UtcNow.AddDays(5).ToString("O");
-        yield return [$"{{\"id\":1,\"createdAt\":\"{future}\",\"status\":1,\"media\":{{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}}}"];
+        return new TheoryData<string>
+        {
+            "{\"id\":1,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}",
+            "{\"id\":1,\"createdAt\":null,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}",
+            "{\"id\":1,\"createdAt\":\"0001-01-01T00:00:00+00:00\",\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}",
+            $"{{\"id\":1,\"createdAt\":\"{future}\",\"status\":1,\"media\":{{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}}}",
+        };
     }
 
     [Theory]

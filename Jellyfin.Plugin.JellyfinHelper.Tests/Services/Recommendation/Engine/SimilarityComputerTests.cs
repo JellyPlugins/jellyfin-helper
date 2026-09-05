@@ -343,23 +343,19 @@ public sealed class SimilarityComputerTests
 
     // Weighted ComputePeopleSimilarity overload === These tests exercise the weighted-budget denominator: matched-weight / max(|candidate| × avg(preferredWeight), MinDenominatorFloor).
 
-    public static TheoryData<string[], (string, double)[]> PeopleSimilarityZeroCases() => new()
+    public static TheoryData<string[], Dictionary<string, double>> PeopleSimilarityZeroCases() => new()
     {
-        { [], [("Nolan", 8.0)] },
-        { ["Nolan"], [] },
-        { ["Alice", "Bob"], [("Carol", 5.0), ("Dave", 3.0)] },
+        { [], new Dictionary<string, double> { { "Nolan", 8.0 } } },
+        { ["Nolan"], new Dictionary<string, double>() },
+        { ["Alice", "Bob"], new Dictionary<string, double> { { "Carol", 5.0 }, { "Dave", 3.0 } } },
     };
 
     [Theory]
     [MemberData(nameof(PeopleSimilarityZeroCases))]
-    public void ComputePeopleSimilarityWeighted_ReturnsZero(string[] candidate, (string, double)[] weightPairs)
+    public void ComputePeopleSimilarityWeighted_ReturnsZero(string[] candidate, Dictionary<string, double> weightPairs)
     {
         var candidateSet = new HashSet<string>(candidate, StringComparer.OrdinalIgnoreCase);
-        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, weight) in weightPairs)
-        {
-            weights[name] = weight;
-        }
+        var weights = new Dictionary<string, double>(weightPairs, StringComparer.OrdinalIgnoreCase);
 
         Assert.Equal(0.0, SimilarityComputer.ComputePeopleSimilarity(candidateSet, weights));
     }

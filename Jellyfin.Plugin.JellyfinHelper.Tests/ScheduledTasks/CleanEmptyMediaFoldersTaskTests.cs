@@ -459,12 +459,12 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
-    public static IEnumerable<object[]> ExcludedLibraryTypeCases()
+    public static TheoryData<CollectionTypeOptions, string> ExcludedLibraryTypeCases() => new()
     {
-        yield return [CollectionTypeOptions.music, "/media/music"];
-        yield return [CollectionTypeOptions.boxsets, "/media/boxsets"];
-        yield return [CollectionTypeOptions.books, "/media/books"];
-    }
+        { CollectionTypeOptions.music, "/media/music" },
+        { CollectionTypeOptions.boxsets, "/media/boxsets" },
+        { CollectionTypeOptions.books, "/media/books" },
+    };
 
     [Theory]
     [MemberData(nameof(ExcludedLibraryTypeCases))]

@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.IO.Abstractions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -33,6 +34,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private readonly string? _dataPath;
     private readonly Lock _blendBoundsLock = new();
     private readonly IPluginLogService _pluginLog;
+    private readonly IFileSystem _fileSystem;
     private readonly ILogger? _logger;
 
     // The heuristic is stateless (fixed weights, no training state, no mutation), so one instance is shared
@@ -61,6 +63,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <param name="dataPath">The plugin data folder for per-user files. Null keeps per-user models in memory only.</param>
     /// <param name="blendBounds">The alpha bounds and genre-penalty floor for per-user ensembles.</param>
     /// <param name="pluginLog">The plugin log service.</param>
+    /// <param name="fileSystem">Abstracts file access so persistence failures can be exercised in tests. Defaults to the real file system.</param>
     /// <param name="logger">Optional logger forwarded to each per-user ensemble.</param>
     public PerUserEnsembleRegistry(
         EnsembleScoringStrategy globalEnsemble,
@@ -68,6 +71,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         string? dataPath,
         EnsembleBlendBounds blendBounds,
         IPluginLogService pluginLog,
+        IFileSystem? fileSystem = null,
         ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(globalEnsemble);
@@ -78,6 +82,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         _dataPath = dataPath;
         _blendBounds = blendBounds;
         _pluginLog = pluginLog;
+        _fileSystem = fileSystem ?? new FileSystem();
         _logger = logger;
     }
 
@@ -105,7 +110,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // below the training threshold has no file and must score with the global model (byte-identical to
         // the previous global-only behaviour), so the read path never creates an empty per-user model.
         var weightsPath = GetLearnedWeightsPath(userId);
-        if (_dataPath is null || weightsPath is null || !File.Exists(weightsPath))
+        if (_dataPath is null || weightsPath is null || !_fileSystem.File.Exists(weightsPath))
         {
             return _globalEnsemble;
         }
@@ -116,7 +121,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // between the check above and the build here, leaving a freshly warm-started ensemble cached for a user
         // who should be back on the global model. If the file has since gone, discard that entry so eviction
         // wins and the user falls back to the global model rather than lingering on a stray per-user instance.
-        if (!File.Exists(weightsPath) && _perUser.TryRemove(userId, out var stray))
+        if (!_fileSystem.File.Exists(weightsPath) && _perUser.TryRemove(userId, out var stray))
         {
             if (stray.IsValueCreated)
             {
@@ -197,7 +202,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         }
 
         return _perUser.ContainsKey(userId)
-            || (_dataPath is not null && File.Exists(GetLearnedWeightsPath(userId)));
+            || (_dataPath is not null && _fileSystem.File.Exists(GetLearnedWeightsPath(userId)));
     }
 
     /// <inheritdoc />
@@ -205,7 +210,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     {
         ArgumentNullException.ThrowIfNull(liveUserIds);
 
-        if (_dataPath is null || !Directory.Exists(_dataPath))
+        if (_dataPath is null || !_fileSystem.Directory.Exists(_dataPath))
         {
             return;
         }
@@ -214,12 +219,12 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
         try
         {
-            foreach (var file in Directory.EnumerateFiles(_dataPath, "ml_weights_*.json"))
+            foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ml_weights_*.json"))
             {
                 PruneIfOrphan(file, live);
             }
 
-            foreach (var file in Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json"))
+            foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json"))
             {
                 PruneIfOrphan(file, live);
             }
@@ -241,8 +246,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         var hadCached = _perUser.ContainsKey(userId);
         var learnedPath = GetLearnedWeightsPath(userId);
         var statePath = GetEnsembleStatePath(userId);
-        var hadFiles = (learnedPath is not null && File.Exists(learnedPath))
-                       || (statePath is not null && File.Exists(statePath));
+        var hadFiles = (learnedPath is not null && _fileSystem.File.Exists(learnedPath))
+                       || (statePath is not null && _fileSystem.File.Exists(statePath));
 
         if (!hadCached && !hadFiles)
         {
@@ -257,7 +262,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <inheritdoc />
     public int EvictStaleModels(DateTime cutoffUtc)
     {
-        if (_dataPath is null || !Directory.Exists(_dataPath))
+        if (_dataPath is null || !_fileSystem.Directory.Exists(_dataPath))
         {
             return 0;
         }
@@ -270,7 +275,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             // training pass never revisits, so they are usually not materialized this session and only exist
             // on disk. The state file's last-trained time drives the decision, so a user retrained within the
             // window (which rewrites that time) is never seen as stale here.
-            foreach (var file in Directory.EnumerateFiles(_dataPath, "ml_weights_*.json"))
+            foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ml_weights_*.json"))
             {
                 var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
                 if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
@@ -326,7 +331,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         var statePath = GetEnsembleStatePath(userId);
 
         var learned = new LearnedScoringStrategy(learnedPath, _logger);
-        if (learnedPath is null || !File.Exists(learnedPath))
+        if (learnedPath is null || !_fileSystem.File.Exists(learnedPath))
         {
             // No persisted per-user weights: start from the global fit rather than cold defaults.
             learned.SeedFrom(_globalEnsemble.LearnedStrategy);
@@ -375,7 +380,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
         try
         {
-            File.Delete(file);
+            _fileSystem.File.Delete(file);
             if (_perUser.TryRemove(id, out var evicted) && evicted.IsValueCreated)
             {
                 evicted.Value.Dispose();
@@ -411,9 +416,9 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
             try
             {
-                if (File.Exists(path))
+                if (_fileSystem.File.Exists(path))
                 {
-                    File.Delete(path);
+                    _fileSystem.File.Delete(path);
                 }
             }
             catch (Exception ex) when (!ex.IsFatal())
@@ -440,11 +445,11 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private DateTime ResolveLastTrainedUtc(Guid userId, string weightsFile)
     {
         var statePath = GetEnsembleStatePath(userId);
-        if (statePath is not null && File.Exists(statePath))
+        if (statePath is not null && _fileSystem.File.Exists(statePath))
         {
             try
             {
-                var json = File.ReadAllText(statePath);
+                var json = _fileSystem.File.ReadAllText(statePath);
                 var stamp = JsonSerializer.Deserialize<LastTrainedProjection>(json)?.UpdatedAt;
                 if (!string.IsNullOrEmpty(stamp)
                     && DateTime.TryParse(stamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
@@ -460,7 +465,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
         try
         {
-            return File.GetLastWriteTimeUtc(weightsFile);
+            return _fileSystem.File.GetLastWriteTimeUtc(weightsFile);
         }
         catch (Exception ex) when (!ex.IsFatal())
         {

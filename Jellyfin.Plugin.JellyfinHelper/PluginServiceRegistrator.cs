@@ -139,6 +139,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             var globalEnsemble = sp.GetRequiredService<EnsembleScoringStrategy>();
             var sharedNeural = sp.GetRequiredService<NeuralScoringStrategy>();
             var pluginLog = sp.GetRequiredService<IPluginLogService>();
+            var fileSystem = sp.GetRequiredService<IFileSystem>();
             var logger = sp.GetRequiredService<ILogger<PerUserEnsembleRegistry>>();
 
             return new PerUserEnsembleRegistry(
@@ -147,6 +148,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 string.IsNullOrEmpty(dataPath) ? null : dataPath,
                 blendBounds,
                 pluginLog,
+                fileSystem,
                 logger);
         });
         serviceCollection.AddSingleton<IRecommendationEngine, Engine>();

@@ -411,11 +411,11 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal("sonarr-live-key", liveConfig.SonarrInstances[0].ApiKey);
     }
 
-    public static IEnumerable<object[]> SeerrCleanupAgeDaysApplyClampCases()
+    public static TheoryData<int, int> SeerrCleanupAgeDaysApplyClampCases() => new()
     {
-        yield return [0, 0];
-        yield return [99999, BackupValidator.MaxRetentionDays];
-    }
+        { 0, 0 },
+        { 99999, BackupValidator.MaxRetentionDays },
+    };
 
     [Theory]
     [MemberData(nameof(SeerrCleanupAgeDaysApplyClampCases))]

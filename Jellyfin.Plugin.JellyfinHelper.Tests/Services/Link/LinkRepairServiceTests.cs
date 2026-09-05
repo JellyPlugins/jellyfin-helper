@@ -646,11 +646,11 @@ public class LinkRepairServiceTests
         Assert.Equal(LinkFileStatus.Valid, result.Status);
     }
 
-    public static IEnumerable<object[]> ReadTargetExceptionVariants()
+    public static TheoryData<Exception> ReadTargetExceptionVariants() => new()
     {
-        yield return [new IOException("read failed")];
-        yield return [new UnauthorizedAccessException("denied")];
-    }
+        new IOException("read failed"),
+        new UnauthorizedAccessException("denied"),
+    };
 
     [Theory]
     [MemberData(nameof(ReadTargetExceptionVariants))]
@@ -1021,13 +1021,13 @@ public class LinkRepairServiceTests
 
     // ProcessLinkFile: strm WriteTarget exception variants
 
-    public static IEnumerable<object[]> WriteTargetExceptionVariants()
+    public static TheoryData<Exception> WriteTargetExceptionVariants() => new()
     {
-        yield return [new NotSupportedException("read-only fs")];
-        yield return [new ArgumentException("invalid path chars")];
-        yield return [new IOException("disk full")];
-        yield return [new UnauthorizedAccessException("denied")];
-    }
+        new NotSupportedException("read-only fs"),
+        new ArgumentException("invalid path chars"),
+        new IOException("disk full"),
+        new UnauthorizedAccessException("denied"),
+    };
 
     [Theory]
     [MemberData(nameof(WriteTargetExceptionVariants))]
