@@ -7,7 +7,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// Tests that the composed configPage.html contains all expected Logs tab elements,
 /// API calls, functions, and i18n keys.
 /// </summary>
-public class LogsHtmlTests : ConfigPageTestBase
+public partial class LogsHtmlTests : ConfigPageTestBase
 {
     /// <summary>
     ///     Verifies the Logs tab DOM element ids and classes are present in the composed HTML.
@@ -160,23 +160,21 @@ public class LogsHtmlTests : ConfigPageTestBase
     {
         // A genuine clear failure must not be silent: the error callback describes the
         // error and writes a structured console.error before showing button feedback.
-        Assert.Matches(
-            new Regex(
-                @"function\s+clearLogs\s*\([^)]*\)\s*\{[\s\S]*?describeApiError\s*\([\s\S]*?console\.error\s*\(",
-                RegexOptions.Multiline),
-            HtmlContent);
+        Assert.Matches(ClearLogsDiagnosticRegex(), HtmlContent);
     }
 
     [Fact]
     public void Html_ClearLogs_ShowsButtonFeedbackOnError()
     {
         // The red button feedback with the logsClearError message stays as the visible signal.
-        Assert.Matches(
-            new Regex(
-                @"function\s+clearLogs\s*\([^)]*\)\s*\{[\s\S]*?showButtonFeedback\s*\([\s\S]*?logsClearError",
-                RegexOptions.Multiline),
-            HtmlContent);
+        Assert.Matches(ClearLogsButtonFeedbackRegex(), HtmlContent);
     }
+
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{[\s\S]*?describeApiError\s*\([\s\S]*?console\.error\s*\(")]
+    private static partial Regex ClearLogsDiagnosticRegex();
+
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{[\s\S]*?showButtonFeedback\s*\([\s\S]*?logsClearError")]
+    private static partial Regex ClearLogsButtonFeedbackRegex();
 
     [Theory]
     [InlineData("logs-toolbar")]

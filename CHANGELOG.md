@@ -8,13 +8,16 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ## [3.0.0.2] - 2026-09-11
 
 ### Fixed
+
 - **Clearing the plugin log no longer flashes a false error.** The Clear button in the Log tab briefly turned red with "Failed to clear logs." even though the logs were cleared correctly; the buffer then emptied a moment later, which looked like a glitch. The button now confirms success immediately and refreshes the log view right away.
 
 ### Improved
+
 - **Genuine clear-log failures are now diagnosable.** If clearing really fails (for example an expired session or a server error), the Log tab writes a structured diagnostic to the browser console with the HTTP status and error kind, alongside the visible red button feedback, so a real problem is never silent.
 
 ### Tests
-- **Unit: 5501 total.**
+
+- **Unit: 5398 total.**
 
 ## [3.0.0.1] - 2026-09-09
 

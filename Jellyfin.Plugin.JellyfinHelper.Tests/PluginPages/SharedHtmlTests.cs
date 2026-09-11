@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// <summary>
 ///     Tests for Shared.js - the central utility library used by every plugin page module.
 /// </summary>
-public class SharedHtmlTests : ConfigPageTestBase
+public partial class SharedHtmlTests : ConfigPageTestBase
 {
     /// <summary>
     ///     Verifies the core utility functions are declared in the composed Shared.js.
@@ -332,17 +332,23 @@ public class SharedHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_ApiDelete_DoesNotForceJsonParsing()
     {
-        // Regression guard: DELETE endpoints return 204 No Content with an empty body.
-        // Forcing dataType:'json' rejects the promise on that empty body even though the
-        // server succeeded, producing a false failure. apiDelete must not set dataType:'json'.
-        var apiDeleteBody = new Regex(
-            @"function\s+apiDelete\s*\([^)]*\)\s*\{[\s\S]*?(?=\n\s*function\s)",
-            RegexOptions.Multiline).Match(HtmlContent);
+        // A DELETE endpoint answers 204 No Content with an empty body, so forcing a JSON
+        // parse on that body would reject the promise and surface a failure the user never had.
+        var apiDeleteBody = ApiDeleteBodyRegex().Match(HtmlContent);
         Assert.True(apiDeleteBody.Success, "apiDelete function body not found in composed HTML.");
-        // Strip comments to avoid matching dataType in comment text like "// No dataType:'json'"
-        var bodyWithoutComments = Regex.Replace(apiDeleteBody.Value, @"//.*", "");
-        Assert.DoesNotMatch(new Regex(@"dataType\s*:\s*['""]json['""]"), bodyWithoutComments);
+        // The guard reads the code, not the comments, so a mention of dataType in a comment cannot mask a real one.
+        var bodyWithoutComments = LineCommentRegex().Replace(apiDeleteBody.Value, "");
+        Assert.DoesNotMatch(JsonDataTypeRegex(), bodyWithoutComments);
     }
+
+    [GeneratedRegex(@"function\s+apiDelete\s*\([^)]*\)\s*\{[\s\S]*?(?=\n\s*function\s)")]
+    private static partial Regex ApiDeleteBodyRegex();
+
+    [GeneratedRegex(@"//.*")]
+    private static partial Regex LineCommentRegex();
+
+    [GeneratedRegex(@"dataType\s*:\s*['""]json['""]")]
+    private static partial Regex JsonDataTypeRegex();
 
     [Fact]
     public void Html_ApiWrapper_HasDefaultErrorHandler()

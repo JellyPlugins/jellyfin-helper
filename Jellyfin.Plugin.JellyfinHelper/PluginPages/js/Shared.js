@@ -595,9 +595,9 @@ function apiPut(path, payload, onSuccess, onError) {
  */
 function apiDelete(path, onSuccess, onError) {
     var c = ApiClient;
-    // No dataType:'json' DELETE endpoints return 204 No Content with an empty
-    // body, and forcing a JSON parse on that empty body rejects the promise even
-    // though the server succeeded (false "failed" feedback on the caller's button).
+    // A DELETE endpoint answers 204 No Content with an empty body. We deliberately do not
+    // ask for JSON here, because parsing that empty body would reject the promise and show
+    // the caller a failure even though the server succeeded.
     c.ajax({type: 'DELETE', url: c.getUrl(path)}).then(
         onSuccess || function () {
         },
