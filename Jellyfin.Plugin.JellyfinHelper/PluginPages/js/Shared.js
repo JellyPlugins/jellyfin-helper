@@ -170,39 +170,44 @@ function countTreeItems(node) {
     return count;
 }
 
+function renderTreeFolder(childNode, level, icon) {
+    var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
+
+    var html = '<div class="tree-node">';
+    html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" data-tree-toggle="1"' : '"') + '>';
+    html += '<span class="tree-icon tree-icon-closed">' + mi('folder') + '</span>';
+    html += '<span class="tree-icon tree-icon-open">' + mi('folder_open') + '</span>';
+    html += '<span class="tree-name">' + escHtml(childNode.name) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
+    html += '</div>';
+
+    if (hasContent) {
+        html += '<div class="tree-children">' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function renderTreeLeaf(item, icon) {
+    var html = '<div class="tree-leaf" title="' + escAttr(item.fullPath) + '">'
+        + '<span class="tree-leaf-icon">' + icon + '</span>'
+        + '<span class="tree-leaf-file-name">' + escHtml(item.name) + '</span>';
+    if (item.meta) {
+        html += '<span class="tree-leaf-meta">' + escHtml(item.meta) + '</span>';
+    }
+    html += '</div>';
+    return html;
+}
+
 function renderTreeLevel(node, level, icon) {
     var html = '';
     var sortedChildren = Object.keys(node.children).sort(function (a, b) { return a.localeCompare(b); });
 
-    for (var i = 0; i < sortedChildren.length; i++) {
-        var childName = sortedChildren[i];
-        var childNode = node.children[childName];
-        var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
-
-        html += '<div class="tree-node">';
-        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" data-tree-toggle="1"' : '"') + '>';
-        html += '<span class="tree-icon tree-icon-closed">' + mi('folder') + '</span>';
-        html += '<span class="tree-icon tree-icon-open">' + mi('folder_open') + '</span>';
-        html += '<span class="tree-name">' + escHtml(childName) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
-        html += '</div>';
-
-        if (hasContent) {
-            html += '<div class="tree-children">';
-            html += renderTreeLevel(childNode, level + 1, icon);
-            html += '</div>';
-        }
-        html += '</div>';
+    for (var childName of sortedChildren) {
+        html += renderTreeFolder(node.children[childName], level, icon);
     }
 
-    for (var j = 0; j < node.items.length; j++) {
-        var item = node.items[j];
-        html += '<div class="tree-leaf" title="' + escAttr(item.fullPath) + '">';
-        html += '<span class="tree-leaf-icon">' + icon + '</span>';
-        html += '<span class="tree-leaf-file-name">' + escHtml(item.name) + '</span>';
-        if (item.meta) {
-            html += '<span class="tree-leaf-meta">' + escHtml(item.meta) + '</span>';
-        }
-        html += '</div>';
+    for (var item of node.items) {
+        html += renderTreeLeaf(item, icon);
     }
 
     return html;

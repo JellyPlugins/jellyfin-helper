@@ -654,7 +654,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         // Keep the exact pixel dimensions so the drill-down can show the real source size
         // (e.g. 1920x800) behind the tier label. Only recorded when both axes are known.
-        if (videoStream?.Width > 0 && videoStream?.Height > 0)
+        if (videoStream is { Width: > 0, Height: > 0 })
         {
             stats.ResolutionDimensions[filePath] =
                 videoStream.Width.Value + "x" + videoStream.Height.Value;

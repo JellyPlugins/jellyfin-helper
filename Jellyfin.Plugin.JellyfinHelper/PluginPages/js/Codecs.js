@@ -307,10 +307,10 @@ function collectCodecPaths(data, pathsProp, codecName, categories) {
 function collectResolutionDimensions(data) {
     var merged = {};
     var groups = [data.Movies, data.TvShows, data.Other];
-    for (var g = 0; g < groups.length; g++) {
-        var libs = groups[g] || [];
-        for (var i = 0; i < libs.length; i++) {
-            var dims = libs[i] && libs[i].ResolutionDimensions;
+    for (var group of groups) {
+        var libs = group || [];
+        for (var lib of libs) {
+            var dims = lib?.ResolutionDimensions;
             if (!dims) continue;
             for (var path in dims) {
                 if (Object.hasOwn(dims, path)) {

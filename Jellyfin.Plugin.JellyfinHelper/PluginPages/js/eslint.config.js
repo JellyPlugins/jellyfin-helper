@@ -60,6 +60,8 @@ const sharedModuleGlobals = {
     buildPathTree: 'writable',
     countTreeItems: 'writable',
     renderTreeLevel: 'writable',
+    renderTreeFolder: 'writable',
+    renderTreeLeaf: 'writable',
     renderFileTree: 'writable',
     bindFileTreeHandlers: 'writable',
     aggregateDict: 'writable',

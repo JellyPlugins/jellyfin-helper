@@ -2679,6 +2679,8 @@ public class MetadataExtractionTests
         Assert.Contains("Unknown", stats.VideoCodecs.Keys);
         Assert.Contains("Unknown", stats.Resolutions.Keys);
         Assert.Contains("Unknown", stats.DynamicRanges.Keys);
+        // With no video stream there are no real dimensions to record.
+        Assert.Empty(stats.ResolutionDimensions);
         // Audio codec "Unknown" is filtered out
         Assert.Empty(stats.VideoAudioCodecs);
     }
@@ -2888,6 +2890,40 @@ public class MetadataExtractionTests
         Assert.False(stats.Resolutions.ContainsKey("720p"));
         Assert.Contains(scopePath, stats.ResolutionPaths["1080p"]);
         Assert.Equal("1920x800", stats.ResolutionDimensions[scopePath]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_VideoStreamMissingHeight_RecordsNoDimensions()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var partialPath = TestPath("media", "movies", "Partial.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(
+        [
+            new FileSystemMetadata { FullName = partialPath, Name = "Partial.mkv", Length = 1_000_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = partialPath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 1920 }
+        ]);
+        _service.SetItemLookup(partialPath, mockItem.Object);
+
+        var stats = _service.CalculateStatistics().Libraries[0];
+
+        // Only one axis is known, so there is no complete dimension pair to record.
+        Assert.Empty(stats.ResolutionDimensions);
     }
 
     [Fact]
