@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
-public class SettingsHtmlTests : ConfigPageTestBase
+public partial class SettingsHtmlTests : ConfigPageTestBase
 {
     [Theory]
     [InlineData("cfgTrickplayMode", "TrickplayTaskMode")]
@@ -338,4 +338,19 @@ public class SettingsHtmlTests : ConfigPageTestBase
         Assert.Contains("entry.Name || entry.name", HtmlContent);
         Assert.Contains("entry.CollectionType || entry.collectionType", HtmlContent);
     }
+
+    [Fact]
+    public void Html_SaveBand_StacksVerticallyOnNarrowScreens()
+    {
+        // On phones the status label and Save button no longer fit on one line, and long
+        // translations such as the German "Nicht gespeichert" were being truncated. The
+        // narrow-screen rules turn the band into a column and let the status wrap fully.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".settings-save-band { flex-direction: column;", css);
+        Assert.Contains("white-space: normal;", css);
+        Assert.Contains(".settings-save-band-btn { width: 100%;", css);
+    }
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
 }

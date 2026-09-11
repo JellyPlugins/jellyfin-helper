@@ -506,6 +506,30 @@
     .settings-card {
         padding: 0.6em 0.8em 0.9em 0.8em;
     }
+
+    /* On narrow screens the status label and button no longer fit side by side, so
+       long translations like the German "Nicht gespeichert" get cut off. Stack them
+       instead: full status text on top, full-width button below. */
+    /* noinspection CssUnusedSymbol */
+    .settings-save-band {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5em;
+        width: calc(100vw - 1.5em);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .settings-save-band-text {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .settings-save-band-btn {
+        width: 100%;
+        justify-content: center;
+    }
 }
 
 /* -- Responsive 2-column grid for cleanup task selects -- */

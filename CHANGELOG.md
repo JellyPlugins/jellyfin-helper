@@ -10,6 +10,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Fixed
 
 - **Clearing the plugin log no longer flashes a false error.** The Clear button in the Log tab briefly turned red with "Failed to clear logs." even though the logs were cleared correctly; the buffer then emptied a moment later, which looked like a glitch. The button now confirms success immediately and refreshes the log view right away.
+- **Save bar no longer crowds on small screens.** On phones the unsaved-changes label and the Save button shared one line, so longer translations such as the German "Nicht gespeichert" were cut off. On narrow screens the bar now stacks the full status text above a full-width Save button.
 
 ### Improved
 
@@ -17,7 +18,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 5501 total.**
+- **Unit: 5502 total.**
 
 ## [3.0.0.1] - 2026-09-09
 
