@@ -167,14 +167,17 @@ public partial class SharedHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
+    // renderFileTree drives each media category through the shared section list, so the
+    // assertion is per-category: the badge class and the result.<category> field that feeds it.
     [Theory]
-    [InlineData("hasMovies")]
-    [InlineData("hasTvShows")]
-    [InlineData("hasMusic")]
-    [InlineData("hasOther")]
-    public void Html_RenderFileTree_HasCategoryVariable(string varName)
+    [InlineData("badge-movies", "result.movies")]
+    [InlineData("badge-tvshows", "result.tvShows")]
+    [InlineData("badge-music", "result.music")]
+    [InlineData("badge-other", "result.other")]
+    public void Html_RenderFileTree_HasCategorySection(string badgeClass, string sourceField)
     {
-        Assert.Contains(varName, HtmlContent);
+        Assert.Contains(badgeClass, HtmlContent);
+        Assert.Contains(sourceField, HtmlContent);
     }
 
     [Fact]
@@ -426,9 +429,20 @@ public partial class SharedHtmlTests : ConfigPageTestBase
     {
         // renderFileTree must render a Books section (badge-books) fed by result.books.
         // Without it, a book-only drill-down showed "No files found" because totalFiles
-        // excluded books. Guards the books branch inside renderFileTree.
+        // excluded books. Guards the books section entry in the section list.
         Assert.Contains("badge-books", HtmlContent);
-        Assert.Contains("buildPathTree(result.books, roots.books, meta)", HtmlContent);
+        Assert.Contains("result.books", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_RenderFileTree_SectionHelperFeedsBuildPathTree()
+    {
+        // The shared section renderer drives every media type through buildPathTree with the
+        // optional per-file meta map, so resolution dimensions reach the leaves.
+        Assert.Contains("function renderFileTreeSection", HtmlContent);
+        Assert.Matches(
+            @"function\s+renderFileTreeSection[\s\S]*?buildPathTree\(files, rootPaths, meta\)",
+            HtmlContent);
     }
 
     [Fact]

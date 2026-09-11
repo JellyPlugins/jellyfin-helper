@@ -778,36 +778,46 @@ public class MediaStatisticsService : IMediaStatisticsService
         var h = height.Value;
 
         // A resolution class is a master format, and cropping only ever removes pixels from one
-        // axis. Cinemascope keeps the full 1920 width of a 1080p master while losing height (1920x800),
-        // and anamorphic or 4:3 material keeps the full height while losing width (1440x1080). So a
-        // file belongs to the highest class whose reference width OR reference height it still reaches.
-        // Classifying by the smaller axis alone would demote every widescreen master by one tier.
-        if (w >= 7680 || h >= 4320)
+        // axis. Cinemascope keeps the full 1920 long edge of a 1080p master while losing the short
+        // edge (1920x800), and anamorphic or 4:3 material keeps the full short edge while losing the
+        // long one (1440x1080). Orientation must not matter: 1920x1080 and a 1080x1920 phone clip are
+        // both 1080p. So we compare the frame's long and short edges against each class, and it
+        // belongs to the highest class whose long-edge OR short-edge reference it reaches.
+        //
+        // The thresholds sit a little below each nominal size rather than on it. Real encodes are
+        // routinely a few pixels short of the round number (1916x1076, 1912x1072) because encoders
+        // round to mod-8/16 or crop slightly, yet they are plainly 1080p. Each threshold is set near
+        // the midpoint to the next lower class, so a slightly-under encode is caught while genuine
+        // lower-class material can never be promoted.
+        var longEdge = Math.Max(w, h);
+        var shortEdge = Math.Min(w, h);
+
+        if (longEdge >= 6000 || shortEdge >= 3200)
         {
             return "8K";
         }
 
-        if (w >= 3840 || h >= 2160)
+        if (longEdge >= 3200 || shortEdge >= 1700)
         {
             return "4K";
         }
 
-        if (w >= 1920 || h >= 1080)
+        if (longEdge >= 1600 || shortEdge >= 900)
         {
             return "1080p";
         }
 
-        if (w >= 1280 || h >= 720)
+        if (longEdge >= 1120 || shortEdge >= 620)
         {
             return "720p";
         }
 
-        if (w >= 1024 || h >= 576)
+        if (longEdge >= 940 || shortEdge >= 528)
         {
             return "576p";
         }
 
-        if (w >= 854 || h >= 480)
+        if (longEdge >= 720 || shortEdge >= 400)
         {
             return "480p";
         }

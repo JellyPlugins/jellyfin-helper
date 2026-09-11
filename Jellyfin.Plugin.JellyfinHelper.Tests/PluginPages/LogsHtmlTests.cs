@@ -170,10 +170,13 @@ public partial class LogsHtmlTests : ConfigPageTestBase
         Assert.Matches(ClearLogsButtonFeedbackRegex(), HtmlContent);
     }
 
-    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{[\s\S]*?describeApiError\s*\([\s\S]*?console\.error\s*\(")]
+    // The [\s\S] runs are guarded against the next NAMED function declaration so a match cannot
+    // cross into a later top-level function; the required error handling must live inside clearLogs
+    // itself. Anonymous "function ()" callbacks inside clearLogs are intentionally allowed through.
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?describeApiError\s*\((?:(?!\bfunction\s+\w)[\s\S])*?console\.error\s*\(")]
     private static partial Regex ClearLogsDiagnosticRegex();
 
-    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{[\s\S]*?showButtonFeedback\s*\([\s\S]*?logsClearError")]
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?showButtonFeedback\s*\((?:(?!\bfunction\s+\w)[\s\S])*?logsClearError")]
     private static partial Regex ClearLogsButtonFeedbackRegex();
 
     [Theory]
