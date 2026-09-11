@@ -137,8 +137,9 @@ function getPathSegments(fullPath, rootPaths) {
     });
 }
 
-// Builds a nested tree structure from a list of paths
-function buildPathTree(paths, rootPaths) {
+// Builds a nested tree structure from a list of paths. The optional meta map
+// (path -> short label such as "1920x800") attaches a per-file detail to each leaf.
+function buildPathTree(paths, rootPaths, meta) {
     var root = {name: 'root', children: {}, items: []};
     for (var i = 0; i < paths.length; i++) {
         var path = paths[i];
@@ -154,7 +155,7 @@ function buildPathTree(paths, rootPaths) {
         }
 
         var leafName = segments.length > 0 ? segments[segments.length - 1] : path;
-        currentNode.items.push({name: leafName, fullPath: path});
+        currentNode.items.push({name: leafName, fullPath: path, meta: meta ? meta[path] : null});
     }
     return root;
 }
@@ -198,14 +199,17 @@ function renderTreeLevel(node, level, icon) {
         html += '<div class="tree-leaf" title="' + escAttr(item.fullPath) + '">';
         html += '<span class="tree-leaf-icon">' + icon + '</span>';
         html += '<span class="tree-leaf-file-name">' + escHtml(item.name) + '</span>';
+        if (item.meta) {
+            html += '<span class="tree-leaf-meta">' + escHtml(item.meta) + '</span>';
+        }
         html += '</div>';
     }
 
     return html;
 }
 
-// Render a file list panel grouped by media type (movies, tvShows, music) result: { movies: string[], tvShows: string[], music: string[], rootPaths: { movies: string[], tvShows: string[], music: string[], other: string[] } } title: string displayed in the header.
-function renderFileTree(result, title) {
+// Render a file list panel grouped by media type (movies, tvShows, music) result: { movies: string[], tvShows: string[], music: string[], rootPaths: { movies: string[], tvShows: string[], music: string[], other: string[] } } title: string displayed in the header. Optional meta maps a file path to a short per-file label (e.g. "1920x800") shown next to the file name.
+function renderFileTree(result, title, meta) {
     var hasMovies = result.movies && result.movies.length > 0;
     var hasTvShows = result.tvShows && result.tvShows.length > 0;
     var hasMusic = result.music && result.music.length > 0;
@@ -234,7 +238,7 @@ function renderFileTree(result, title) {
         html += '<div class="file-tree-section">';
         html += '<div class="file-tree-section-header"><span class="badge badge-movies">' + escHtml(T('movies', 'Movies')) + '</span> <span class="file-tree-section-count">(' + result.movies.length + ')</span></div>';
         html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.movies, roots.movies), 0, mi('movie'));
+        html += renderTreeLevel(buildPathTree(result.movies, roots.movies, meta), 0, mi('movie'));
         html += '</div></div>';
     }
 
@@ -242,7 +246,7 @@ function renderFileTree(result, title) {
         html += '<div class="file-tree-section">';
         html += '<div class="file-tree-section-header"><span class="badge badge-tvshows">' + escHtml(T('tvShows', 'TV Shows')) + '</span> <span class="file-tree-section-count">(' + result.tvShows.length + ')</span></div>';
         html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.tvShows, roots.tvShows), 0, mi('tv'));
+        html += renderTreeLevel(buildPathTree(result.tvShows, roots.tvShows, meta), 0, mi('tv'));
         html += '</div></div>';
     }
 
@@ -250,7 +254,7 @@ function renderFileTree(result, title) {
         html += '<div class="file-tree-section">';
         html += '<div class="file-tree-section-header"><span class="badge badge-music">' + escHtml(T('music', 'Music')) + '</span> <span class="file-tree-section-count">(' + result.music.length + ')</span></div>';
         html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.music, roots.music), 0, mi('music_note'));
+        html += renderTreeLevel(buildPathTree(result.music, roots.music, meta), 0, mi('music_note'));
         html += '</div></div>';
     }
 
@@ -258,7 +262,7 @@ function renderFileTree(result, title) {
         html += '<div class="file-tree-section">';
         html += '<div class="file-tree-section-header"><span class="badge badge-books">' + escHtml(T('books', 'Books')) + '</span> <span class="file-tree-section-count">(' + result.books.length + ')</span></div>';
         html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.books, roots.books), 0, mi('description'));
+        html += renderTreeLevel(buildPathTree(result.books, roots.books, meta), 0, mi('description'));
         html += '</div></div>';
     }
 
@@ -266,7 +270,7 @@ function renderFileTree(result, title) {
         html += '<div class="file-tree-section">';
         html += '<div class="file-tree-section-header"><span class="badge badge-other">' + escHtml(T('other', 'Other')) + '</span> <span class="file-tree-section-count">(' + result.other.length + ')</span></div>';
         html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.other, roots.other), 0, mi('description'));
+        html += renderTreeLevel(buildPathTree(result.other, roots.other, meta), 0, mi('description'));
         html += '</div></div>';
     }
 

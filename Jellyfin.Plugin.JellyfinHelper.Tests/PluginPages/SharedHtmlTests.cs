@@ -428,6 +428,17 @@ public partial class SharedHtmlTests : ConfigPageTestBase
         // Without it, a book-only drill-down showed "No files found" because totalFiles
         // excluded books. Guards the books branch inside renderFileTree.
         Assert.Contains("badge-books", HtmlContent);
-        Assert.Contains("buildPathTree(result.books, roots.books)", HtmlContent);
+        Assert.Contains("buildPathTree(result.books, roots.books, meta)", HtmlContent);
     }
+
+    [Fact]
+    public void Html_RenderTreeLevel_RendersPerFileMetaWhenPresent()
+    {
+        // A tree leaf shows an optional per-file detail (e.g. real pixel dimensions) in a
+        // tree-leaf-meta span, so the resolution drill-down can reveal the true source size.
+        Assert.Matches(TreeLeafMetaRegex(), HtmlContent);
+    }
+
+    [GeneratedRegex(@"if\s*\(\s*item\.meta\s*\)[\s\S]*?tree-leaf-meta[\s\S]*?escHtml\(item\.meta\)")]
+    private static partial Regex TreeLeafMetaRegex();
 }

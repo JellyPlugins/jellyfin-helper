@@ -2376,9 +2376,14 @@ public class ClassifyMethodTests
     [InlineData(8192, 4320, "8K")]
     [InlineData(3840, 2160, "4K")]
     [InlineData(4096, 2160, "4K")]
+    [InlineData(3840, 1600, "4K")]    // 4K cinemascope, full 4K width with cropped height
     [InlineData(1920, 1080, "1080p")]
-    [InlineData(1920, 800, "720p")]   // Cinematic ratio - min dimension is 800
+    [InlineData(1920, 800, "1080p")]  // 2.40:1 cinemascope 1080p master, full 1920 width
+    [InlineData(1920, 1040, "1080p")] // 1.85:1 1080p master, slightly cropped height
+    [InlineData(2560, 1080, "1080p")] // 21:9 ultra-wide FHD, 1080 lines
+    [InlineData(2048, 858, "1080p")]  // DCI 2K, the cinema equivalent of 1080p
     [InlineData(1280, 720, "720p")]
+    [InlineData(1280, 536, "720p")]   // 2.39:1 720p master, full 1280 width
     [InlineData(720, 576, "576p")]
     [InlineData(720, 480, "480p")]
     [InlineData(640, 480, "480p")]
@@ -2400,10 +2405,10 @@ public class ClassifyMethodTests
     }
 
     [Theory]
-    [InlineData(1080, 1920, "1080p")] // Portrait order still resolves to 1080p
-    [InlineData(1440, 1080, "1080p")] // Anamorphic, classified by min dimension not max
-    [InlineData(960, 720, "720p")] // 4:3 at 720p, max dimension below 1280
-    [InlineData(576, 720, "576p")] // Standard PAL
+    [InlineData(1080, 1920, "1080p")] // Portrait order still resolves to 1080p via its long axis
+    [InlineData(1440, 1080, "1080p")] // Anamorphic, classified by the full 1080 height
+    [InlineData(960, 720, "720p")]    // 4:3 at 720p, full 720 height
+    [InlineData(576, 720, "720p")]    // Portrait, long axis 720 reaches the 720p height
     public void ClassifyResolution_OrientationAndAnamorphic(int width, int height, string expected)
     {
         Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
@@ -2824,6 +2829,11 @@ public class MetadataExtractionTests
         Assert.Equal(2, stats.Resolutions["4K"]);
         Assert.Equal(1, stats.Resolutions["1080p"]);
 
+        // Real pixel dimensions recorded per file for the resolution drill-down
+        Assert.Equal("3840x2160", stats.ResolutionDimensions[hevcPath]);
+        Assert.Equal("1920x1080", stats.ResolutionDimensions[h264Path]);
+        Assert.Equal("3840x2160", stats.ResolutionDimensions[av1Path]);
+
         // Dynamic ranges , VideoRangeType is read-only on MediaStream, so all default to SDR
         // (specific DynamicRange classification is covered by ClassifyDynamicRange unit tests)
         Assert.Equal(3, stats.DynamicRanges["SDR"]);
@@ -2841,6 +2851,43 @@ public class MetadataExtractionTests
         Assert.Equal(5_000_000_000, stats.VideoCodecSizes["HEVC"]);
         Assert.Equal(2_000_000_000, stats.VideoCodecSizes["H.264"]);
         Assert.Equal(3_000_000_000, stats.VideoCodecSizes["AV1"]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_CinemascopeFile_ClassifiesAs1080pAndKeepsRealDimensions()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var scopePath = TestPath("media", "movies", "Scope.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(
+        [
+            new FileSystemMetadata { FullName = scopePath, Name = "Scope.mkv", Length = 4_000_000_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = scopePath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 1920, Height = 800 }
+        ]);
+        _service.SetItemLookup(scopePath, mockItem.Object);
+
+        var stats = _service.CalculateStatistics().Libraries[0];
+
+        // A 2.40:1 cinemascope frame is a cropped 1080p master, not 720p.
+        Assert.Equal(1, stats.Resolutions["1080p"]);
+        Assert.False(stats.Resolutions.ContainsKey("720p"));
+        Assert.Contains(scopePath, stats.ResolutionPaths["1080p"]);
+        Assert.Equal("1920x800", stats.ResolutionDimensions[scopePath]);
     }
 
     [Fact]

@@ -117,8 +117,9 @@ public class HealthHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_HealthClickHandler_UsesSharedRenderFileTree()
     {
-        // The health click handler should use the shared renderFileTree function
-        Assert.Contains("renderFileTree(result, title)", HtmlContent);
+        // The health click handler should use the shared renderFileTree function. It passes
+        // only result + title (no per-file meta), which is the two-argument form.
+        Assert.Contains("renderFileTree(result, T(", HtmlContent);
     }
 
     [Fact]

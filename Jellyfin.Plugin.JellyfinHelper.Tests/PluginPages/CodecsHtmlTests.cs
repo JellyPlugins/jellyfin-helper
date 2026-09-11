@@ -177,4 +177,16 @@ public class CodecsHtmlTests : ConfigPageTestBase
         // dropped from collectCodecPaths.rootPaths.
         Assert.Contains("books: data.BookRootPaths || []", HtmlContent);
     }
+
+    [Fact]
+    public void Html_ResolutionDrilldown_ShowsRealPixelDimensions()
+    {
+        // The resolution drill-down must feed renderFileTree a per-file dimensions map so
+        // each file shows its true pixel size (e.g. 1920x800) behind the tier label.
+        Assert.Contains("function collectResolutionDimensions", HtmlContent);
+        Assert.Contains("ResolutionDimensions", HtmlContent);
+        Assert.Matches(
+            @"chartId\s*===\s*'resolutions'\s*\?\s*collectResolutionDimensions\(_lastCodecData\)",
+            HtmlContent);
+    }
 }

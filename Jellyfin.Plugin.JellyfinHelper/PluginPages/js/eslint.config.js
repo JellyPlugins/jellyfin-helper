@@ -110,6 +110,7 @@ const sharedModuleGlobals = {
     renderCodecBreakdown: 'writable',
     renderDonutChart: 'writable',
     collectCodecPaths: 'writable',
+    collectResolutionDimensions: 'writable',
     CODEC_PATH_MAP: 'writable',
     CODEC_CATEGORY_MAP: 'writable',
     attachCodecClickHandlers: 'writable',

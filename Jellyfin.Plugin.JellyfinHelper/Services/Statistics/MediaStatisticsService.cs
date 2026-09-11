@@ -652,6 +652,14 @@ public class MediaStatisticsService : IMediaStatisticsService
         FileSystemHelper.AccumulateValue(stats.ResolutionSizes, resolution, fileSize);
         FileSystemHelper.AddPath(stats.ResolutionPaths, resolution, filePath);
 
+        // Keep the exact pixel dimensions so the drill-down can show the real source size
+        // (e.g. 1920x800) behind the tier label. Only recorded when both axes are known.
+        if (videoStream?.Width > 0 && videoStream?.Height > 0)
+        {
+            stats.ResolutionDimensions[filePath] =
+                videoStream.Width.Value + "x" + videoStream.Height.Value;
+        }
+
         // Dynamic range from video stream metadata
         var dynamicRange = ClassifyDynamicRange(videoStream);
         FileSystemHelper.IncrementCount(stats.DynamicRanges, dynamicRange);
@@ -769,20 +777,42 @@ public class MediaStatisticsService : IMediaStatisticsService
         var w = width.Value;
         var h = height.Value;
 
-        // Classify by the shorter (vertical for landscape, horizontal for portrait) dimension, matching the industry convention where resolution labels (1080p, 4K, etc.) refer to the vertical pixel count for standard aspect ratios.
-        var shortDimension = Math.Min(w, h);
-
-        return shortDimension switch
+        // A resolution class is a master format, and cropping only ever removes pixels from one
+        // axis. Cinemascope keeps the full 1920 width of a 1080p master while losing height (1920x800),
+        // and anamorphic or 4:3 material keeps the full height while losing width (1440x1080). So a
+        // file belongs to the highest class whose reference width OR reference height it still reaches.
+        // Classifying by the smaller axis alone would demote every widescreen master by one tier.
+        if (w >= 7680 || h >= 4320)
         {
-            >= 4320 => "8K", // 7680×4320 or higher (any orientation)
-            >= 2160 => "4K", // 3840×2160 (any orientation)
-            >= 1080 => "1080p", // any 1080-line source, including anamorphic/panoramic variants
-            >= 720 => "720p", // 720p even with narrow width
-            >= 576 => "576p",
-            >= 480 => "480p",
-            > 0 => "SD",
-            _ => UnknownLabel
-        };
+            return "8K";
+        }
+
+        if (w >= 3840 || h >= 2160)
+        {
+            return "4K";
+        }
+
+        if (w >= 1920 || h >= 1080)
+        {
+            return "1080p";
+        }
+
+        if (w >= 1280 || h >= 720)
+        {
+            return "720p";
+        }
+
+        if (w >= 1024 || h >= 576)
+        {
+            return "576p";
+        }
+
+        if (w >= 854 || h >= 480)
+        {
+            return "480p";
+        }
+
+        return "SD";
     }
 
     /// <summary>
