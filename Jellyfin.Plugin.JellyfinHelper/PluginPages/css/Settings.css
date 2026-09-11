@@ -525,6 +525,14 @@
         white-space: normal;
     }
 
+    /* Center the indicator dot and label so the stacked bar reads as one balanced block
+       above the full-width button rather than a left-aligned line. */
+    /* noinspection CssUnusedSymbol */
+    .settings-save-band-status {
+        justify-content: center;
+        text-align: center;
+    }
+
     /* noinspection CssUnusedSymbol */
     .settings-save-band-btn {
         width: 100%;

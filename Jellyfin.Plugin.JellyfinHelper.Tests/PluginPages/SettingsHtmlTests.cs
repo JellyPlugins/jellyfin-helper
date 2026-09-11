@@ -344,10 +344,11 @@ public partial class SettingsHtmlTests : ConfigPageTestBase
     {
         // On phones the status label and Save button no longer fit on one line, and long
         // translations such as the German "Nicht gespeichert" were being truncated. The
-        // narrow-screen rules turn the band into a column and let the status wrap fully.
+        // narrow-screen rules turn the band into a column, center the status, and let it wrap.
         var css = WhitespaceRegex().Replace(HtmlContent, " ");
         Assert.Contains(".settings-save-band { flex-direction: column;", css);
         Assert.Contains("white-space: normal;", css);
+        Assert.Contains(".settings-save-band-status { justify-content: center;", css);
         Assert.Contains(".settings-save-band-btn { width: 100%;", css);
     }
 
