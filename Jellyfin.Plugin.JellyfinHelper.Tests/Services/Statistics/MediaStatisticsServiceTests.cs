@@ -2347,9 +2347,11 @@ public class ClassifyMethodTests
     [InlineData("mpeg2", "MPEG-2")]
     [InlineData("mp2v", "MPEG-2")]
     [InlineData("mpeg4", "MPEG-4")]
+    [InlineData("mpeg-4", "MPEG-4")]
     [InlineData("xvid", "XviD")]
     [InlineData("divx", "DivX")]
     [InlineData("vc1", "VC-1")]
+    [InlineData("vc-1", "VC-1")]
     [InlineData("wmv3", "VC-1")]
     [InlineData("theora", "Theora")]
     public void ClassifyVideoCodec_KnownCodecs(string input, string expected)
@@ -2376,9 +2378,17 @@ public class ClassifyMethodTests
     [InlineData(8192, 4320, "8K")]
     [InlineData(3840, 2160, "4K")]
     [InlineData(4096, 2160, "4K")]
+    [InlineData(3840, 1600, "4K")]    // 4K cinemascope, full 4K width with cropped height
     [InlineData(1920, 1080, "1080p")]
-    [InlineData(1920, 800, "720p")]   // Cinematic ratio - min dimension is 800
+    [InlineData(1916, 1076, "1080p")] // Real encode a few pixels under nominal (mod-16 crop)
+    [InlineData(1912, 1072, "1080p")] // Another common slightly-under 1080p encode
+    [InlineData(1920, 800, "1080p")]  // 2.40:1 cinemascope 1080p master, full 1920 width
+    [InlineData(1920, 1040, "1080p")] // 1.85:1 1080p master, slightly cropped height
+    [InlineData(2560, 1080, "1080p")] // 21:9 ultra-wide FHD, 1080 lines
+    [InlineData(2048, 858, "1080p")]  // DCI 2K, the cinema equivalent of 1080p
     [InlineData(1280, 720, "720p")]
+    [InlineData(1276, 716, "720p")]   // Real 720p encode a few pixels under nominal
+    [InlineData(1280, 536, "720p")]   // 2.39:1 720p master, full 1280 width
     [InlineData(720, 576, "576p")]
     [InlineData(720, 480, "480p")]
     [InlineData(640, 480, "480p")]
@@ -2400,13 +2410,79 @@ public class ClassifyMethodTests
     }
 
     [Theory]
-    [InlineData(1080, 1920, "1080p")] // Portrait order still resolves to 1080p
-    [InlineData(1440, 1080, "1080p")] // Anamorphic, classified by min dimension not max
-    [InlineData(960, 720, "720p")] // 4:3 at 720p, max dimension below 1280
-    [InlineData(576, 720, "576p")] // Standard PAL
+    [InlineData(1080, 1920, "1080p")] // Portrait phone clip, short axis 1080 makes it 1080p
+    [InlineData(1440, 1080, "1080p")] // Anamorphic, classified by the full 1080 short axis
+    [InlineData(960, 720, "720p")]    // 4:3 at 720p, short axis 720
+    [InlineData(576, 720, "576p")]    // Narrow portrait, short axis 576 is the class-defining edge
     public void ClassifyResolution_OrientationAndAnamorphic(int width, int height, string expected)
     {
         Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
+    }
+
+    // Values sitting right on each class boundary, checked just above and just below, prove the
+    // tiers partition every resolution with no gap and no overlap. The long-edge thresholds are
+    // 6000 (8K), 3200 (4K), 1600 (1080p), 1120 (720p), 940 (576p), 720 (480p).
+    [Theory]
+    [InlineData(6000, 100, "8K")]     // Exactly on the 8K long-edge threshold
+    [InlineData(5999, 100, "4K")]     // One below stays 4K
+    [InlineData(3200, 100, "4K")]     // Exactly on the 4K long-edge threshold
+    [InlineData(3199, 100, "1080p")]  // One below drops to 1080p
+    [InlineData(1600, 100, "1080p")]  // Exactly on the 1080p long-edge threshold
+    [InlineData(1599, 100, "720p")]   // One below drops to 720p
+    [InlineData(1120, 100, "720p")]   // Exactly on the 720p long-edge threshold
+    [InlineData(1119, 100, "576p")]   // One below drops to 576p
+    [InlineData(940, 100, "576p")]    // Exactly on the 576p long-edge threshold
+    [InlineData(939, 100, "480p")]    // One below drops to 480p
+    [InlineData(720, 100, "480p")]    // Exactly on the 480p long-edge threshold
+    [InlineData(719, 100, "SD")]      // One below is SD
+    [InlineData(100, 100, "SD")]      // Tiny frame is SD
+    public void ClassifyResolution_TierBoundaries_ArePartitionedWithoutGaps(int width, int height, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
+    }
+
+    [Fact]
+    public void ClassifyResolution_AnyResolution_AlwaysYieldsAValidTier()
+    {
+        // No matter how exotic the resolution, classification must return one of the known tiers
+        // and never an empty or null label. Sweep a dense grid of widths and heights, including
+        // extreme aspect ratios and odd sizes, and assert every result is a real tier.
+        var validTiers = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "8K", "4K", "1080p", "720p", "576p", "480p", "SD"
+        };
+
+        for (var w = 16; w <= 8200; w += 37)
+        {
+            for (var h = 16; h <= 8200; h += 53)
+            {
+                var tier = MediaStatisticsService.ClassifyResolution(w, h);
+                Assert.Contains(tier, validTiers);
+            }
+        }
+    }
+
+    [Fact]
+    public void ClassifyResolution_IsMonotonic_ScalingUpNeverLowersTheTier()
+    {
+        // Correctness invariant: enlarging a frame on both axes can only keep or raise its tier,
+        // never lower it. This guarantees the boundaries are ordered consistently for every input,
+        // so an exotic resolution can never be ranked below a strictly smaller one.
+        var order = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["SD"] = 0, ["480p"] = 1, ["576p"] = 2, ["720p"] = 3, ["1080p"] = 4, ["4K"] = 5, ["8K"] = 6
+        };
+
+        for (var w = 32; w <= 7800; w += 91)
+        {
+            for (var h = 32; h <= 7800; h += 97)
+            {
+                var baseRank = order[MediaStatisticsService.ClassifyResolution(w, h)];
+                var scaledRank = order[MediaStatisticsService.ClassifyResolution(w + 200, h + 200)];
+                Assert.True(scaledRank >= baseRank,
+                    $"Scaling {w}x{h} up lowered the tier from rank {baseRank} to {scaledRank}.");
+            }
+        }
     }
 
     [Theory]
@@ -2448,6 +2524,7 @@ public class ClassifyMethodTests
     [InlineData("eac3", "Atmos", "EAC3 Atmos")]
     [InlineData("eac3", "JOC", "EAC3 Atmos")]
     [InlineData("e-ac-3", null, "EAC3")]
+    [InlineData("e-ac-3", "Atmos", "EAC3 Atmos")]
     [InlineData("ac3", null, "AC3")]
     [InlineData("a_ac3", null, "AC3")]
     [InlineData("dts", null, "DTS")]
@@ -2674,6 +2751,8 @@ public class MetadataExtractionTests
         Assert.Contains("Unknown", stats.VideoCodecs.Keys);
         Assert.Contains("Unknown", stats.Resolutions.Keys);
         Assert.Contains("Unknown", stats.DynamicRanges.Keys);
+        // With no video stream there are no real dimensions to record.
+        Assert.Empty(stats.ResolutionDimensions);
         // Audio codec "Unknown" is filtered out
         Assert.Empty(stats.VideoAudioCodecs);
     }
@@ -2824,6 +2903,11 @@ public class MetadataExtractionTests
         Assert.Equal(2, stats.Resolutions["4K"]);
         Assert.Equal(1, stats.Resolutions["1080p"]);
 
+        // Real pixel dimensions recorded per file for the resolution drill-down
+        Assert.Equal("3840x2160", stats.ResolutionDimensions[hevcPath]);
+        Assert.Equal("1920x1080", stats.ResolutionDimensions[h264Path]);
+        Assert.Equal("3840x2160", stats.ResolutionDimensions[av1Path]);
+
         // Dynamic ranges , VideoRangeType is read-only on MediaStream, so all default to SDR
         // (specific DynamicRange classification is covered by ClassifyDynamicRange unit tests)
         Assert.Equal(3, stats.DynamicRanges["SDR"]);
@@ -2841,6 +2925,77 @@ public class MetadataExtractionTests
         Assert.Equal(5_000_000_000, stats.VideoCodecSizes["HEVC"]);
         Assert.Equal(2_000_000_000, stats.VideoCodecSizes["H.264"]);
         Assert.Equal(3_000_000_000, stats.VideoCodecSizes["AV1"]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_CinemascopeFile_ClassifiesAs1080pAndKeepsRealDimensions()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var scopePath = TestPath("media", "movies", "Scope.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(
+        [
+            new FileSystemMetadata { FullName = scopePath, Name = "Scope.mkv", Length = 4_000_000_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = scopePath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 1920, Height = 800 }
+        ]);
+        _service.SetItemLookup(scopePath, mockItem.Object);
+
+        var stats = _service.CalculateStatistics().Libraries[0];
+
+        // A 2.40:1 cinemascope frame is a cropped 1080p master, not 720p.
+        Assert.Equal(1, stats.Resolutions["1080p"]);
+        Assert.False(stats.Resolutions.ContainsKey("720p"));
+        Assert.Contains(scopePath, stats.ResolutionPaths["1080p"]);
+        Assert.Equal("1920x800", stats.ResolutionDimensions[scopePath]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_VideoStreamMissingHeight_RecordsNoDimensions()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var partialPath = TestPath("media", "movies", "Partial.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(
+        [
+            new FileSystemMetadata { FullName = partialPath, Name = "Partial.mkv", Length = 1_000_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = partialPath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 1920 }
+        ]);
+        _service.SetItemLookup(partialPath, mockItem.Object);
+
+        var stats = _service.CalculateStatistics().Libraries[0];
+
+        // Only one axis is known, so there is no complete dimension pair to record.
+        Assert.Empty(stats.ResolutionDimensions);
     }
 
     [Fact]

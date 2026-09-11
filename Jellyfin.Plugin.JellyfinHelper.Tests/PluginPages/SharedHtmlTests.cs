@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// <summary>
 ///     Tests for Shared.js - the central utility library used by every plugin page module.
 /// </summary>
-public class SharedHtmlTests : ConfigPageTestBase
+public partial class SharedHtmlTests : ConfigPageTestBase
 {
     /// <summary>
     ///     Verifies the core utility functions are declared in the composed Shared.js.
@@ -167,14 +167,17 @@ public class SharedHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
+    // renderFileTree drives each media category through the shared section list, so the
+    // assertion is per-category: the badge class and the result.<category> field that feeds it.
     [Theory]
-    [InlineData("hasMovies")]
-    [InlineData("hasTvShows")]
-    [InlineData("hasMusic")]
-    [InlineData("hasOther")]
-    public void Html_RenderFileTree_HasCategoryVariable(string varName)
+    [InlineData("badge-movies", "result.movies")]
+    [InlineData("badge-tvshows", "result.tvShows")]
+    [InlineData("badge-music", "result.music")]
+    [InlineData("badge-other", "result.other")]
+    public void Html_RenderFileTree_HasCategorySection(string badgeClass, string sourceField)
     {
-        Assert.Contains(varName, HtmlContent);
+        Assert.Contains(badgeClass, HtmlContent);
+        Assert.Contains(sourceField, HtmlContent);
     }
 
     [Fact]
@@ -330,6 +333,27 @@ public class SharedHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_ApiDelete_DoesNotForceJsonParsing()
+    {
+        // A DELETE endpoint answers 204 No Content with an empty body, so forcing a JSON
+        // parse on that body would reject the promise and surface a failure the user never had.
+        var apiDeleteBody = ApiDeleteBodyRegex().Match(HtmlContent);
+        Assert.True(apiDeleteBody.Success, "apiDelete function body not found in composed HTML.");
+        // The guard reads the code, not the comments, so a mention of dataType in a comment cannot mask a real one.
+        var bodyWithoutComments = LineCommentRegex().Replace(apiDeleteBody.Value, "");
+        Assert.DoesNotMatch(JsonDataTypeRegex(), bodyWithoutComments);
+    }
+
+    [GeneratedRegex(@"function\s+apiDelete\s*\([^)]*\)\s*\{[\s\S]*?(?=\n\s*function\s)")]
+    private static partial Regex ApiDeleteBodyRegex();
+
+    [GeneratedRegex(@"//.*")]
+    private static partial Regex LineCommentRegex();
+
+    [GeneratedRegex(@"dataType\s*:\s*['""]json['""]")]
+    private static partial Regex JsonDataTypeRegex();
+
+    [Fact]
     public void Html_ApiWrapper_HasDefaultErrorHandler()
     {
         Assert.Contains("function _apiDefaultError", HtmlContent);
@@ -405,8 +429,30 @@ public class SharedHtmlTests : ConfigPageTestBase
     {
         // renderFileTree must render a Books section (badge-books) fed by result.books.
         // Without it, a book-only drill-down showed "No files found" because totalFiles
-        // excluded books. Guards the books branch inside renderFileTree.
+        // excluded books. Guards the books section entry in the section list.
         Assert.Contains("badge-books", HtmlContent);
-        Assert.Contains("buildPathTree(result.books, roots.books)", HtmlContent);
+        Assert.Contains("result.books", HtmlContent);
     }
+
+    [Fact]
+    public void Html_RenderFileTree_SectionHelperFeedsBuildPathTree()
+    {
+        // The shared section renderer drives every media type through buildPathTree with the
+        // optional per-file meta map, so resolution dimensions reach the leaves.
+        Assert.Contains("function renderFileTreeSection", HtmlContent);
+        Assert.Matches(
+            @"function\s+renderFileTreeSection[\s\S]*?buildPathTree\(files, rootPaths, meta\)",
+            HtmlContent);
+    }
+
+    [Fact]
+    public void Html_RenderTreeLevel_RendersPerFileMetaWhenPresent()
+    {
+        // A tree leaf shows an optional per-file detail (e.g. real pixel dimensions) in a
+        // tree-leaf-meta span, so the resolution drill-down can reveal the true source size.
+        Assert.Matches(TreeLeafMetaRegex(), HtmlContent);
+    }
+
+    [GeneratedRegex(@"if\s*\(\s*item\.meta\s*\)[\s\S]*?tree-leaf-meta[\s\S]*?escHtml\(item\.meta\)")]
+    private static partial Regex TreeLeafMetaRegex();
 }

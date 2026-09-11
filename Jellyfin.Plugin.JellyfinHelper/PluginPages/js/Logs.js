@@ -333,7 +333,15 @@ function clearLogs() {
             removeDialogById('logsClearDialogOverlay');
             apiDelete('JellyfinHelper/Logs', function () {
                 loadLogs();
-            }, function () {
+            }, function (err) {
+                // Structured console diagnostic so a genuine failure is never silent
+                // and support can copy the concrete status/kind.
+                var diag = describeApiError(err);
+                console.error(
+                    'JellyfinHelper DELETE failed: JellyfinHelper/Logs'
+                        + ' (status=' + diag.status + ' ' + diag.statusText
+                        + ', kind=' + diag.kind + ')',
+                    diag.snippet || err);
                 // Button feedback instead of alert() for consistent UI
                 var clearBtn = document.getElementById('btnLogsClear');
                 if (clearBtn) {

@@ -7,7 +7,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// Tests that the composed configPage.html contains all expected Logs tab elements,
 /// API calls, functions, and i18n keys.
 /// </summary>
-public class LogsHtmlTests : ConfigPageTestBase
+public partial class LogsHtmlTests : ConfigPageTestBase
 {
     /// <summary>
     ///     Verifies the Logs tab DOM element ids and classes are present in the composed HTML.
@@ -155,8 +155,31 @@ public class LogsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
+    [Fact]
+    public void Html_ClearLogs_LogsStructuredDiagnosticOnError()
+    {
+        // A genuine clear failure must not be silent: the error callback describes the
+        // error and writes a structured console.error before showing button feedback.
+        Assert.Matches(ClearLogsDiagnosticRegex(), HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ClearLogs_ShowsButtonFeedbackOnError()
+    {
+        // The red button feedback with the logsClearError message stays as the visible signal.
+        Assert.Matches(ClearLogsButtonFeedbackRegex(), HtmlContent);
+    }
+
+    // The [\s\S] runs are guarded against the next NAMED function declaration so a match cannot
+    // cross into a later top-level function; the required error handling must live inside clearLogs
+    // itself. Anonymous "function ()" callbacks inside clearLogs are intentionally allowed through.
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?describeApiError\s*\((?:(?!\bfunction\s+\w)[\s\S])*?console\.error\s*\(")]
+    private static partial Regex ClearLogsDiagnosticRegex();
+
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?showButtonFeedback\s*\((?:(?!\bfunction\s+\w)[\s\S])*?logsClearError")]
+    private static partial Regex ClearLogsButtonFeedbackRegex();
+
     [Theory]
-    [InlineData("logs-container")]
     [InlineData("logs-toolbar")]
     [InlineData("logs-table-wrapper")]
     [InlineData("logs-empty")]

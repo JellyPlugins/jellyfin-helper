@@ -137,8 +137,9 @@ function getPathSegments(fullPath, rootPaths) {
     });
 }
 
-// Builds a nested tree structure from a list of paths
-function buildPathTree(paths, rootPaths) {
+// Builds a nested tree structure from a list of paths. The optional meta map
+// (path -> short label such as "1920x800") attaches a per-file detail to each leaf.
+function buildPathTree(paths, rootPaths, meta) {
     var root = {name: 'root', children: {}, items: []};
     for (var i = 0; i < paths.length; i++) {
         var path = paths[i];
@@ -154,7 +155,7 @@ function buildPathTree(paths, rootPaths) {
         }
 
         var leafName = segments.length > 0 ? segments[segments.length - 1] : path;
-        currentNode.items.push({name: leafName, fullPath: path});
+        currentNode.items.push({name: leafName, fullPath: path, meta: meta ? meta[path] : null});
     }
     return root;
 }
@@ -169,55 +170,84 @@ function countTreeItems(node) {
     return count;
 }
 
+function renderTreeFolder(childNode, level, icon) {
+    var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
+
+    var html = '<div class="tree-node">';
+    html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" data-tree-toggle="1"' : '"') + '>';
+    html += '<span class="tree-icon tree-icon-closed">' + mi('folder') + '</span>';
+    html += '<span class="tree-icon tree-icon-open">' + mi('folder_open') + '</span>';
+    html += '<span class="tree-name">' + escHtml(childNode.name) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
+    html += '</div>';
+
+    if (hasContent) {
+        html += '<div class="tree-children">' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function renderTreeLeaf(item, icon) {
+    var html = '<div class="tree-leaf" title="' + escAttr(item.fullPath) + '">'
+        + '<span class="tree-leaf-icon">' + icon + '</span>'
+        + '<span class="tree-leaf-file-name">' + escHtml(item.name) + '</span>';
+    if (item.meta) {
+        html += '<span class="tree-leaf-meta">' + escHtml(item.meta) + '</span>';
+    }
+    html += '</div>';
+    return html;
+}
+
 function renderTreeLevel(node, level, icon) {
     var html = '';
     var sortedChildren = Object.keys(node.children).sort(function (a, b) { return a.localeCompare(b); });
 
-    for (var i = 0; i < sortedChildren.length; i++) {
-        var childName = sortedChildren[i];
-        var childNode = node.children[childName];
-        var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
-
-        html += '<div class="tree-node">';
-        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" data-tree-toggle="1"' : '"') + '>';
-        html += '<span class="tree-icon tree-icon-closed">' + mi('folder') + '</span>';
-        html += '<span class="tree-icon tree-icon-open">' + mi('folder_open') + '</span>';
-        html += '<span class="tree-name">' + escHtml(childName) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
-        html += '</div>';
-
-        if (hasContent) {
-            html += '<div class="tree-children">';
-            html += renderTreeLevel(childNode, level + 1, icon);
-            html += '</div>';
-        }
-        html += '</div>';
+    for (var childName of sortedChildren) {
+        html += renderTreeFolder(node.children[childName], level, icon);
     }
 
-    for (var j = 0; j < node.items.length; j++) {
-        var item = node.items[j];
-        html += '<div class="tree-leaf" title="' + escAttr(item.fullPath) + '">';
-        html += '<span class="tree-leaf-icon">' + icon + '</span>';
-        html += '<span class="tree-leaf-file-name">' + escHtml(item.name) + '</span>';
-        html += '</div>';
+    for (var item of node.items) {
+        html += renderTreeLeaf(item, icon);
     }
 
     return html;
 }
 
-// Render a file list panel grouped by media type (movies, tvShows, music) result: { movies: string[], tvShows: string[], music: string[], rootPaths: { movies: string[], tvShows: string[], music: string[], other: string[] } } title: string displayed in the header.
-function renderFileTree(result, title) {
-    var hasMovies = result.movies && result.movies.length > 0;
-    var hasTvShows = result.tvShows && result.tvShows.length > 0;
-    var hasMusic = result.music && result.music.length > 0;
-    var hasBooks = result.books && result.books.length > 0;
-    var hasOther = result.other && result.other.length > 0;
-    var totalFiles = (result.movies ? result.movies.length : 0) + (result.tvShows ? result.tvShows.length : 0) + (result.music ? result.music.length : 0) + (result.books ? result.books.length : 0) + (result.other ? result.other.length : 0);
+// Render one media-type section of the file tree, or '' when it has no files.
+function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon) {
+    if (!files || files.length === 0) {
+        return '';
+    }
+    return '<div class="file-tree-section">'
+        + '<div class="file-tree-section-header"><span class="badge ' + badgeClass + '">' + escHtml(label) + '</span> <span class="file-tree-section-count">(' + files.length + ')</span></div>'
+        + '<div class="tree-view">'
+        + renderTreeLevel(buildPathTree(files, rootPaths, meta), 0, icon)
+        + '</div></div>';
+}
+
+// Render a file list panel grouped by media type (movies, tvShows, music, books, other). result: { movies: string[], tvShows: string[], music: string[], books: string[], other: string[], rootPaths: {...} } title: string displayed in the header. Optional meta maps a file path to a short per-file label (e.g. "1920x800") shown next to the file name.
+function renderFileTree(result, title, meta) {
+    var roots = result.rootPaths || {};
+    var sections = [
+        {files: result.movies, roots: roots.movies, badge: 'badge-movies', label: T('movies', 'Movies'), icon: mi('movie')},
+        {files: result.tvShows, roots: roots.tvShows, badge: 'badge-tvshows', label: T('tvShows', 'TV Shows'), icon: mi('tv')},
+        {files: result.music, roots: roots.music, badge: 'badge-music', label: T('music', 'Music'), icon: mi('music_note')},
+        {files: result.books, roots: roots.books, badge: 'badge-books', label: T('books', 'Books'), icon: mi('description')},
+        {files: result.other, roots: roots.other, badge: 'badge-other', label: T('other', 'Other'), icon: mi('description')}
+    ];
+
+    var totalFiles = 0;
+    var sectionCount = 0;
+    for (var s of sections) {
+        var count = s.files ? s.files.length : 0;
+        totalFiles += count;
+        if (count > 0) sectionCount++;
+    }
 
     if (totalFiles === 0) {
         return '<div class="file-tree-empty">' + escHtml(T('noFilesFound', 'No files found.')) + '</div>';
     }
 
-    var sectionCount = (hasMovies ? 1 : 0) + (hasTvShows ? 1 : 0) + (hasMusic ? 1 : 0) + (hasBooks ? 1 : 0) + (hasOther ? 1 : 0);
     var html = '<div class="file-tree-header">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
@@ -227,49 +257,9 @@ function renderFileTree(result, title) {
     html += '</div></div>';
 
     html += '<div class="file-tree-columns' + (sectionCount > 1 ? ' file-tree-multi' : '') + '">';
-
-    var roots = result.rootPaths || {};
-
-    if (hasMovies) {
-        html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-movies">' + escHtml(T('movies', 'Movies')) + '</span> <span class="file-tree-section-count">(' + result.movies.length + ')</span></div>';
-        html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.movies, roots.movies), 0, mi('movie'));
-        html += '</div></div>';
+    for (var sec of sections) {
+        html += renderFileTreeSection(sec.files, sec.roots, meta, sec.badge, sec.label, sec.icon);
     }
-
-    if (hasTvShows) {
-        html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-tvshows">' + escHtml(T('tvShows', 'TV Shows')) + '</span> <span class="file-tree-section-count">(' + result.tvShows.length + ')</span></div>';
-        html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.tvShows, roots.tvShows), 0, mi('tv'));
-        html += '</div></div>';
-    }
-
-    if (hasMusic) {
-        html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-music">' + escHtml(T('music', 'Music')) + '</span> <span class="file-tree-section-count">(' + result.music.length + ')</span></div>';
-        html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.music, roots.music), 0, mi('music_note'));
-        html += '</div></div>';
-    }
-
-    if (hasBooks) {
-        html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-books">' + escHtml(T('books', 'Books')) + '</span> <span class="file-tree-section-count">(' + result.books.length + ')</span></div>';
-        html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.books, roots.books), 0, mi('description'));
-        html += '</div></div>';
-    }
-
-    if (hasOther) {
-        html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-other">' + escHtml(T('other', 'Other')) + '</span> <span class="file-tree-section-count">(' + result.other.length + ')</span></div>';
-        html += '<div class="tree-view">';
-        html += renderTreeLevel(buildPathTree(result.other, roots.other), 0, mi('description'));
-        html += '</div></div>';
-    }
-
     html += '</div>';
     return html;
 }
@@ -595,7 +585,10 @@ function apiPut(path, payload, onSuccess, onError) {
  */
 function apiDelete(path, onSuccess, onError) {
     var c = ApiClient;
-    c.ajax({type: 'DELETE', url: c.getUrl(path), dataType: 'json'}).then(
+    // A DELETE endpoint answers 204 No Content with an empty body. We deliberately do not
+    // ask for JSON here, because parsing that empty body would reject the promise and show
+    // the caller a failure even though the server succeeded.
+    c.ajax({type: 'DELETE', url: c.getUrl(path)}).then(
         onSuccess || function () {
         },
         onError || _apiDefaultError('DELETE', path)
