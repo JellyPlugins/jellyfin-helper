@@ -691,6 +691,19 @@
     text-overflow: ellipsis;
 }
 
+/* Per-file detail (e.g. real pixel dimensions) shown at the end of a tree leaf. Sits to
+   the right, keeps its full value while the file name truncates, so the dimensions never
+   get clipped even on narrow screens. */
+.tree-leaf-meta {
+    margin-left: auto;
+    padding-left: 0.6em;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85em;
+    opacity: 0.7;
+    white-space: nowrap;
+}
+
 .tree-action-btn {
     font-size: 0.7em;
     padding: 0.2em 0.6em;

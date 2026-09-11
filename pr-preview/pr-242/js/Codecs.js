@@ -301,6 +301,27 @@ function collectCodecPaths(data, pathsProp, codecName, categories) {
     };
 }
 
+// Merge the per-library ResolutionDimensions maps (file path -> "1920x800") from every
+// video library into one lookup, so the resolution drill-down can label each file with
+// its true pixel size regardless of which library it came from.
+function collectResolutionDimensions(data) {
+    var merged = {};
+    var groups = [data.Movies, data.TvShows, data.Other];
+    for (var g = 0; g < groups.length; g++) {
+        var libs = groups[g] || [];
+        for (var i = 0; i < libs.length; i++) {
+            var dims = libs[i] && libs[i].ResolutionDimensions;
+            if (!dims) continue;
+            for (var path in dims) {
+                if (Object.hasOwn(dims, path)) {
+                    merged[path] = dims[path];
+                }
+            }
+        }
+    }
+    return merged;
+}
+
 // Map chart IDs to their corresponding path property names
 var CODEC_PATH_MAP = {
     'videoCodecs': 'VideoCodecPaths',
@@ -343,7 +364,12 @@ function attachCodecClickHandlers() {
             var categories = CODEC_CATEGORY_MAP[chartId];
             var result = collectCodecPaths(_lastCodecData, pathsProp, codecName,
                 categories);
-            return renderFileTree(result, codecName);
+            // The resolution drill-down shows the true pixel size behind each tier label,
+            // so a 1920x800 cinemascope file explains why it sits under 1080p.
+            var meta = chartId === 'resolutions'
+                ? collectResolutionDimensions(_lastCodecData)
+                : null;
+            return renderFileTree(result, codecName, meta);
         }
     });
 }
