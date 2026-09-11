@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/media/logo.png",
     "versions": [
       {
+        "version": "3.0.0.2",
+        "changelog": "v3.0.0.2 - Log tab fix\n\n- Clearing the plugin log no longer briefly shows a false \"Failed to clear logs.\" error: the Clear button now confirms success immediately and refreshes the view right away\n- Genuine clear failures (e.g. expired session or server error) now write a structured diagnostic to the browser console with the HTTP status and error kind, alongside the visible red button feedback, so a real problem is never silent\n- Tested by 5501 unit tests\n- Requires Jellyfin 12.0 - if you are on Jellyfin 10.x, stay on v2.1.0.6",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/3.0.0.2/JellyfinHelper_3.0.0.2.zip",
+        "checksum": "",
+        "timestamp": "2026-09-11T00:00:00Z"
+      },
+      {
         "version": "3.0.0.1",
         "changelog": "v3.0.0.1 - Per-instance library allocation for Arr\n\n- Assign specific Jellyfin libraries to each Radarr/Sonarr instance, so the Arr tab compares an instance only against the libraries it manages\n- With two or more instances of a type, each gets a picker in Settings listing only the matching kind of library (movies for Radarr, TV for Sonarr)\n- Leave a picker empty to keep it automatic: instances are matched to libraries from their root folders\n- Assignments are kept across backup and restore\n- Fixes a 4K instance flagging every 1080p film as \"not in Radarr\"\n- Tested by 5499 unit tests and 318 end-to-end tests\n- Requires Jellyfin 12.0 - if you are on Jellyfin 10.x, stay on v2.1.0.6",
         "targetAbi": "12.0.0.0",

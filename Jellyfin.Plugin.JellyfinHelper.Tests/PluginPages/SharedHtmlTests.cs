@@ -330,6 +330,21 @@ public class SharedHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_ApiDelete_DoesNotForceJsonParsing()
+    {
+        // Regression guard: DELETE endpoints return 204 No Content with an empty body.
+        // Forcing dataType:'json' rejects the promise on that empty body even though the
+        // server succeeded, producing a false failure. apiDelete must not set dataType:'json'.
+        var apiDeleteBody = new Regex(
+            @"function\s+apiDelete\s*\([^)]*\)\s*\{[\s\S]*?(?=\n\s*function\s)",
+            RegexOptions.Multiline).Match(HtmlContent);
+        Assert.True(apiDeleteBody.Success, "apiDelete function body not found in composed HTML.");
+        // Strip comments to avoid matching dataType in comment text like "// No dataType:'json'"
+        var bodyWithoutComments = Regex.Replace(apiDeleteBody.Value, @"//.*", "");
+        Assert.DoesNotMatch(new Regex(@"dataType\s*:\s*['""]json['""]"), bodyWithoutComments);
+    }
+
+    [Fact]
     public void Html_ApiWrapper_HasDefaultErrorHandler()
     {
         Assert.Contains("function _apiDefaultError", HtmlContent);

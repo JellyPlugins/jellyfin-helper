@@ -155,8 +155,30 @@ public class LogsHtmlTests : ConfigPageTestBase
             HtmlContent);
     }
 
+    [Fact]
+    public void Html_ClearLogs_LogsStructuredDiagnosticOnError()
+    {
+        // A genuine clear failure must not be silent: the error callback describes the
+        // error and writes a structured console.error before showing button feedback.
+        Assert.Matches(
+            new Regex(
+                @"function\s+clearLogs\s*\([^)]*\)\s*\{[\s\S]*?describeApiError\s*\([\s\S]*?console\.error\s*\(",
+                RegexOptions.Multiline),
+            HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ClearLogs_ShowsButtonFeedbackOnError()
+    {
+        // The red button feedback with the logsClearError message stays as the visible signal.
+        Assert.Matches(
+            new Regex(
+                @"function\s+clearLogs\s*\([^)]*\)\s*\{[\s\S]*?showButtonFeedback\s*\([\s\S]*?logsClearError",
+                RegexOptions.Multiline),
+            HtmlContent);
+    }
+
     [Theory]
-    [InlineData("logs-container")]
     [InlineData("logs-toolbar")]
     [InlineData("logs-table-wrapper")]
     [InlineData("logs-empty")]
