@@ -184,6 +184,7 @@
   "logsDownloadError": "Failed to download logs.",
   "logsClearConfirm": "Are you sure you want to clear all plugin logs?",
   "logsClearError": "Failed to clear logs.",
+  "logsClearSuccess": "Logs cleared.",
   "settingsBackupTitle": "Backup & Restore",
   "settingsBackupHelp": "Export your settings, Arr integrations, and trend data for backup. Import to restore on a fresh installation.",
   "backupExport": "Export Backup",

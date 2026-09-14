@@ -134,10 +134,9 @@ test.describe('trend chart touch gestures', () => {
     const cy = box.y + box.height / 2;
 
     // A single-finger touchStart+touchEnd at the same point is a tap. Dispatched via CDP for a
-    // deterministic touch sequence (the same mechanism the pinch test uses).
-    // The touchEnd MUST carry the released point so the browser populates
-    // event.changedTouches with a single entry - the chart's tap handler bails when
-    // changedTouches.length !== 1, and an empty touchPoints made this flaky.
+    // deterministic touch sequence (the same mechanism the pinch test uses). The touchEnd MUST
+    // carry the released point so the browser populates event.changedTouches with a single entry -
+    // the chart's tap handler bails when changedTouches.length !== 1.
     const client = await page.context().newCDPSession(page);
     await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx, y: cy }] });
     await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ x: cx, y: cy }] });

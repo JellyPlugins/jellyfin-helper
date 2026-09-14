@@ -184,6 +184,7 @@
   "logsDownloadError": "Logs konnten nicht heruntergeladen werden.",
   "logsClearConfirm": "Möchten Sie wirklich alle Plugin-Logs löschen?",
   "logsClearError": "Logs konnten nicht gelöscht werden.",
+  "logsClearSuccess": "Logs gelöscht.",
   "settingsBackupTitle": "Backup & Wiederherstellung",
   "settingsBackupHelp": "Exportiere deine Einstellungen, Arr-Integrationen und Trenddaten als Backup. Importiere sie zur Wiederherstellung bei einer Neuinstallation.",
   "backupExport": "Backup exportieren",

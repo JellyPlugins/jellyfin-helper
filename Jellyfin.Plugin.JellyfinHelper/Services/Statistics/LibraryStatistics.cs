@@ -214,6 +214,13 @@ public class LibraryStatistics
     public Dictionary<string, Collection<string>> ResolutionPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Gets the real pixel dimensions per file (file path -> "widthxheight", e.g. "1920x800").
+    /// Lets the resolution drill-down show the exact source dimensions behind a tier label,
+    /// so a cinemascope 1920x800 file listed under 1080p reveals why it was classified there.
+    /// </summary>
+    public Dictionary<string, string> ResolutionDimensions { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Gets the dynamic range file paths (range type -> list of file paths).
     /// </summary>
     public Dictionary<string, Collection<string>> DynamicRangePaths { get; } = new(StringComparer.OrdinalIgnoreCase);

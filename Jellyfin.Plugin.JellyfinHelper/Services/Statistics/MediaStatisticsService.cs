@@ -652,6 +652,14 @@ public class MediaStatisticsService : IMediaStatisticsService
         FileSystemHelper.AccumulateValue(stats.ResolutionSizes, resolution, fileSize);
         FileSystemHelper.AddPath(stats.ResolutionPaths, resolution, filePath);
 
+        // Keep the exact pixel dimensions so the drill-down can show the real source size
+        // (e.g. 1920x800) behind the tier label. Only recorded when both axes are known.
+        if (videoStream is { Width: > 0, Height: > 0 })
+        {
+            stats.ResolutionDimensions[filePath] =
+                videoStream.Width.Value + "x" + videoStream.Height.Value;
+        }
+
         // Dynamic range from video stream metadata
         var dynamicRange = ClassifyDynamicRange(videoStream);
         FileSystemHelper.IncrementCount(stats.DynamicRanges, dynamicRange);
@@ -769,20 +777,52 @@ public class MediaStatisticsService : IMediaStatisticsService
         var w = width.Value;
         var h = height.Value;
 
-        // Classify by the shorter (vertical for landscape, horizontal for portrait) dimension, matching the industry convention where resolution labels (1080p, 4K, etc.) refer to the vertical pixel count for standard aspect ratios.
-        var shortDimension = Math.Min(w, h);
+        // A resolution class is a master format, and cropping only ever removes pixels from one
+        // axis. Cinemascope keeps the full 1920 long edge of a 1080p master while losing the short
+        // edge (1920x800), and anamorphic or 4:3 material keeps the full short edge while losing the
+        // long one (1440x1080). Orientation must not matter: 1920x1080 and a 1080x1920 phone clip are
+        // both 1080p. So we compare the frame's long and short edges against each class, and it
+        // belongs to the highest class whose long-edge OR short-edge reference it reaches.
+        //
+        // The thresholds sit a little below each nominal size rather than on it. Real encodes are
+        // routinely a few pixels short of the round number (1916x1076, 1912x1072) because encoders
+        // round to mod-8/16 or crop slightly, yet they are plainly 1080p. Each threshold is set near
+        // the midpoint to the next lower class, so a slightly-under encode is caught while genuine
+        // lower-class material can never be promoted.
+        var longEdge = Math.Max(w, h);
+        var shortEdge = Math.Min(w, h);
 
-        return shortDimension switch
+        if (longEdge >= 6000 || shortEdge >= 3200)
         {
-            >= 4320 => "8K", // 7680×4320 or higher (any orientation)
-            >= 2160 => "4K", // 3840×2160 (any orientation)
-            >= 1080 => "1080p", // any 1080-line source, including anamorphic/panoramic variants
-            >= 720 => "720p", // 720p even with narrow width
-            >= 576 => "576p",
-            >= 480 => "480p",
-            > 0 => "SD",
-            _ => UnknownLabel
-        };
+            return "8K";
+        }
+
+        if (longEdge >= 3200 || shortEdge >= 1700)
+        {
+            return "4K";
+        }
+
+        if (longEdge >= 1600 || shortEdge >= 900)
+        {
+            return "1080p";
+        }
+
+        if (longEdge >= 1120 || shortEdge >= 620)
+        {
+            return "720p";
+        }
+
+        if (longEdge >= 940 || shortEdge >= 528)
+        {
+            return "576p";
+        }
+
+        if (longEdge >= 720 || shortEdge >= 400)
+        {
+            return "480p";
+        }
+
+        return "SD";
     }
 
     /// <summary>

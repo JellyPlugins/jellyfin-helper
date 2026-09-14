@@ -301,6 +301,27 @@ function collectCodecPaths(data, pathsProp, codecName, categories) {
     };
 }
 
+// Merge the per-library ResolutionDimensions maps (file path -> "1920x800") from every
+// video library into one lookup, so the resolution drill-down can label each file with
+// its true pixel size regardless of which library it came from.
+function collectResolutionDimensions(data) {
+    var merged = {};
+    var groups = [data.Movies, data.TvShows, data.Other];
+    for (var group of groups) {
+        var libs = group || [];
+        for (var lib of libs) {
+            var dims = lib?.ResolutionDimensions;
+            if (!dims) continue;
+            for (var path in dims) {
+                if (Object.hasOwn(dims, path)) {
+                    merged[path] = dims[path];
+                }
+            }
+        }
+    }
+    return merged;
+}
+
 // Map chart IDs to their corresponding path property names
 var CODEC_PATH_MAP = {
     'videoCodecs': 'VideoCodecPaths',
@@ -343,7 +364,12 @@ function attachCodecClickHandlers() {
             var categories = CODEC_CATEGORY_MAP[chartId];
             var result = collectCodecPaths(_lastCodecData, pathsProp, codecName,
                 categories);
-            return renderFileTree(result, codecName);
+            // The resolution drill-down shows the true pixel size behind each tier label,
+            // so a 1920x800 cinemascope file explains why it sits under 1080p.
+            var meta = chartId === 'resolutions'
+                ? collectResolutionDimensions(_lastCodecData)
+                : null;
+            return renderFileTree(result, codecName, meta);
         }
     });
 }
@@ -356,8 +382,13 @@ function attachDonutHoverTooltips() {
             var paths = container.querySelectorAll('.donut-segment path');
 
             for (var i = 0; i < paths.length; i++) {
-                // Desktop: mouse hover shows tooltip + highlight
+                // Desktop: mouse hover shows tooltip + highlight. A touch emits a trailing synthetic
+                // mouse sequence for click-compat; ignore it here (same guard as the click handler)
+                // so the tap's tooltip is not immediately hidden and the tap-again state is not lost.
                 paths[i].addEventListener('mouseenter', function (evt) {
+                    if (Date.now() - _lastTouchEndTime < 800) {
+                        return;
+                    }
                     var seg = this.closest('.donut-segment');
                     seg.classList.add('donut-segment-hover');
                     showDonutTooltip(container, evt, seg);
@@ -365,11 +396,17 @@ function attachDonutHoverTooltips() {
                 });
 
                 paths[i].addEventListener('mousemove', function (evt) {
+                    if (Date.now() - _lastTouchEndTime < 800) {
+                        return;
+                    }
                     var seg = this.closest('.donut-segment');
                     showDonutTooltip(container, evt, seg);
                 });
 
                 paths[i].addEventListener('mouseleave', function () {
+                    if (Date.now() - _lastTouchEndTime < 800) {
+                        return;
+                    }
                     var seg = this.closest('.donut-segment');
                     seg.classList.remove('donut-segment-hover');
                     hideDonutTooltip(container);

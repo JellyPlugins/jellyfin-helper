@@ -99,6 +99,9 @@ var _settingsInteracted = false;
 var _settingsSavedHideTimer = null; // delayed fade-out of the "saved" confirmation
 var _saveBandRevealTimer = null;    // debounced reveal of the "unsaved" prompt
 var _saveBandSaving = false;        // true while a manual save is in flight
+// True briefly after a successful save. Distinguishes "just saved" (show success message)
+// from "manually reverted" (hide band). _settingsInteracted can't tell these clean states apart.
+var _settingsJustSaved = false;
 
 function takeSettingsSnapshot() {
     try {
@@ -238,10 +241,14 @@ function refreshSaveBand() {
 
     // Clean.
     cancelSaveBandReveal();
-    if (!_settingsInteracted) {
+    // A hand-revert back to the loaded values leaves the form clean without ever saving. Only the
+    // confirmation after a real save should read "All changes saved"; otherwise just hide the band.
+    if (!_settingsInteracted || !_settingsJustSaved) {
+        _settingsJustSaved = false;
         renderSaveBand('hidden');
         return;
     }
+    _settingsJustSaved = false;
     // Show the confirmation, then fade it out after a short delay.
     renderSaveBand('saved');
     if (_settingsSavedHideTimer) clearTimeout(_settingsSavedHideTimer);
@@ -383,6 +390,7 @@ function loadSettings() {
     // user makes the first change on the fresh form.
     _settingsInteracted = false;
     _saveBandSaving = false;
+    _settingsJustSaved = false;
     if (_settingsSavedHideTimer) {
         clearTimeout(_settingsSavedHideTimer);
         _settingsSavedHideTimer = null;
@@ -748,6 +756,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             // Clear the in-flight guard first, then let the band reflect the now
             // clean state ("All changes saved", which auto-fades).
             _saveBandSaving = false;
+            _settingsJustSaved = true;
             if (btn) btn.disabled = false;
             refreshSaveBand();
         }
@@ -947,7 +956,7 @@ function showTrashDeleteConfirmation(payload, paths) {
         }, function () {
             msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.')) + '</div>';
             if (saveBtn) saveBtn.disabled = false;
-        });
+        }, true);
     }));
 
     document.body.appendChild(d.overlay);

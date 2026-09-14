@@ -184,6 +184,7 @@
   "logsDownloadError": "Günlükler indirilemedi.",
   "logsClearConfirm": "Tüm eklenti günlüklerini silmek istediğinizden emin misiniz?",
   "logsClearError": "Günlükler temizlenemedi.",
+  "logsClearSuccess": "Günlükler temizlendi.",
   "settingsBackupTitle": "Yedekleme ve Geri Yükleme",
   "settingsBackupHelp": "Ayarlarınızı, Arr entegrasyonlarınızı ve trend verilerinizi yedekleyin. Yeni kurulumda geri yükleyin.",
   "backupExport": "Yedeği dışa aktar",
