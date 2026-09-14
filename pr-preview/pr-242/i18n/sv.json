@@ -184,6 +184,7 @@
   "logsDownloadError": "Kunde inte ladda ner loggar.",
   "logsClearConfirm": "Är du säker på att du vill rensa alla plugin-loggar?",
   "logsClearError": "Kunde inte rensa loggar.",
+  "logsClearSuccess": "Loggar rensade.",
   "settingsBackupTitle": "Säkerhetskopiering & Återställning",
   "settingsBackupHelp": "Exportera dina inställningar, Arr-integrationer och trenddata som säkerhetskopia. Importera för att återställa vid en nyinstallation.",
   "backupExport": "Exportera säkerhetskopia",
