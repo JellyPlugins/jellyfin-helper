@@ -333,25 +333,31 @@ public partial class SharedHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_ApiDelete_DoesNotForceJsonParsing()
+    public void Html_ApiDelete_OnlyForcesJsonWhenRequested()
     {
-        // A DELETE endpoint answers 204 No Content with an empty body, so forcing a JSON
-        // parse on that body would reject the promise and surface a failure the user never had.
+        // A 204 No Content DELETE has an empty body, so JSON parsing must stay off by default (it
+        // would reject the promise and surface a failure the user never had). Endpoints that return
+        // a body (Trash/Folders reports Deleted/Failed) opt in via the parseJson flag. Verify the
+        // flag exists and that dataType json is applied only behind that flag, never unconditionally.
         var apiDeleteBody = ApiDeleteBodyRegex().Match(HtmlContent);
         Assert.True(apiDeleteBody.Success, "apiDelete function body not found in composed HTML.");
-        // The guard reads the code, not the comments, so a mention of dataType in a comment cannot mask a real one.
         var bodyWithoutComments = LineCommentRegex().Replace(apiDeleteBody.Value, "");
-        Assert.DoesNotMatch(JsonDataTypeRegex(), bodyWithoutComments);
+        Assert.Matches(ApiDeleteParseJsonParamRegex(), bodyWithoutComments);
+        Assert.Matches(ConditionalJsonDataTypeRegex(), bodyWithoutComments);
     }
+
+    [GeneratedRegex(@"function\s+apiDelete\s*\([^)]*\bparseJson\b[^)]*\)")]
+    private static partial Regex ApiDeleteParseJsonParamRegex();
+
+    // dataType json must be gated on parseJson, not set on the base request object.
+    [GeneratedRegex(@"if\s*\(\s*parseJson\s*\)[\s\S]*?dataType\s*=\s*['""]json['""]")]
+    private static partial Regex ConditionalJsonDataTypeRegex();
 
     [GeneratedRegex(@"function\s+apiDelete\s*\([^)]*\)\s*\{[\s\S]*?(?=\n\s*function\s)")]
     private static partial Regex ApiDeleteBodyRegex();
 
     [GeneratedRegex(@"//.*")]
     private static partial Regex LineCommentRegex();
-
-    [GeneratedRegex(@"dataType\s*:\s*['""]json['""]")]
-    private static partial Regex JsonDataTypeRegex();
 
     [Fact]
     public void Html_ApiWrapper_HasDefaultErrorHandler()

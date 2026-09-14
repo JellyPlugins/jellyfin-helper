@@ -128,6 +128,13 @@
     color: var(--color-success);
 }
 
+/* Beat .logs-btn.danger:hover, which is more specific than the plain .success rule and would
+   otherwise keep the button red while the pointer rests on it during the success message. */
+.logs-btn.success:hover {
+    border-color: rgba(46, 204, 113, 0.5);
+    background: rgba(46, 204, 113, 0.15);
+}
+
 .logs-btn.error {
     border-color: rgba(231, 76, 60, 0.5);
     background: rgba(231, 76, 60, 0.15);

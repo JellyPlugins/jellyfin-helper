@@ -956,7 +956,7 @@ function showTrashDeleteConfirmation(payload, paths) {
         }, function () {
             msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.')) + '</div>';
             if (saveBtn) saveBtn.disabled = false;
-        });
+        }, true);
     }));
 
     document.body.appendChild(d.overlay);
