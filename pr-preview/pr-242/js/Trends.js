@@ -944,7 +944,7 @@ function attachTrendInteraction(container, chartState) {
         chartState: chartState,
         minSpanMs: win.MIN_SPAN_MS
     });
-    setupDragPan(chart, win.panByPixels, hideTooltip)
+    setupDragPan(chart, win.panByPixels, hideTooltip);
 
     // Touch interaction emits fake mouse events for backwards compatibility.
     // On touch devices, the synthetic mouseleave fires right after a tap makes the tooltip visible, which would hide it immediately.
