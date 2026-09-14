@@ -184,6 +184,7 @@
   "logsDownloadError": "Impossible de télécharger les logs.",
   "logsClearConfirm": "Êtes-vous sûr de vouloir effacer tous les logs du plugin ?",
   "logsClearError": "Impossible d'effacer les logs.",
+  "logsClearSuccess": "Logs effacés.",
   "settingsBackupTitle": "Sauvegarde & Restauration",
   "settingsBackupHelp": "Exportez vos paramètres, intégrations Arr et données de tendances. Importez pour restaurer sur une nouvelle installation.",
   "backupExport": "Exporter la sauvegarde",

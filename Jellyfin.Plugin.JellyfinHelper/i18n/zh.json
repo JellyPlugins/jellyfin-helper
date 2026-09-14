@@ -184,6 +184,7 @@
   "logsDownloadError": "无法下载日志。",
   "logsClearConfirm": "确定要清除所有插件日志吗？",
   "logsClearError": "无法清除日志。",
+  "logsClearSuccess": "日志已清除。",
   "settingsBackupTitle": "备份与恢复",
   "settingsBackupHelp": "导出您的设置、Arr 集成和趋势数据进行备份。在全新安装时导入以恢复。",
   "backupExport": "导出备份",
