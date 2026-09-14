@@ -133,27 +133,13 @@ test.describe('trend chart touch gestures', () => {
     const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
 
-    // Touch taps use CDP to ensure deterministic event sequences.
-    // Including points in touchEnd prevents chart tap handlers from bailing due to missing changedTouches.
-    // Freezing Date.now during tap dispatch prevents CI latency from pushing press duration past the 500ms threshold, which previously caused silent test drops.
-    await page.evaluate(() => {
-      const w = window as unknown as { __realDateNow?: () => number };
-      w.__realDateNow = Date.now;
-      const frozen = Date.now();
-      Date.now = () => frozen;
-    });
-
-    try {
-      const client = await page.context().newCDPSession(page);
-      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx, y: cy }] });
-      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ x: cx, y: cy }] });
-    } finally {
-      // Restore even if a CDP call throws, so a retry on this page never inherits the frozen clock.
-      await page.evaluate(() => {
-        const w = window as unknown as { __realDateNow?: () => number };
-        if (w.__realDateNow) Date.now = w.__realDateNow;
-      });
-    }
+    // A single-finger touchStart+touchEnd at the same point is a tap. Dispatched via CDP for a
+    // deterministic touch sequence (the same mechanism the pinch test uses). The touchEnd MUST
+    // carry the released point so the browser populates event.changedTouches with a single entry -
+    // the chart's tap handler bails when changedTouches.length !== 1.
+    const client = await page.context().newCDPSession(page);
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx, y: cy }] });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ x: cx, y: cy }] });
 
     // Synchronize on the observable outcome (tooltip becomes visible), not a fixed wait.
     await expect(page.locator('.trend-tooltip')).toHaveClass(/visible/, { timeout: 5_000 });

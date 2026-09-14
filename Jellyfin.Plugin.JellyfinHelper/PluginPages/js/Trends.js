@@ -944,17 +944,23 @@ function attachTrendInteraction(container, chartState) {
         chartState: chartState,
         minSpanMs: win.MIN_SPAN_MS
     });
-    setupDragPan(chart, win.panByPixels, hideTooltip);
-    setupTouchGestures(chart, win.clientXToTime, win.zoomAbout, win.panByPixels, hideTooltip, onHover);
+    setupDragPan(chart, win.panByPixels, hideTooltip)
+
+    // Touch interaction emits fake mouse events for backwards compatibility.
+    // On touch devices, the synthetic mouseleave fires right after a tap makes the tooltip visible, which would hide it immediately.
+    // We track recent touch events so mouse hover handlers ignore this compat burst.
+    var touch = setupTouchGestures(chart, win.clientXToTime, win.zoomAbout, win.panByPixels, hideTooltip, onHover);
 
     // Hover listeners are attached once to the stable <svg>. The SVG element is never replaced
     // (redraw mutates it in place), so these never need rebinding across gestures or redraws.
     if (svgEl) {
         svgEl.addEventListener('mousemove', function (e) {
+            if (touch.recentlyTouched()) return; // synthetic compat-mouse after a tap
             if (e.buttons !== 0) return; // dragging pans, not hovers
             onHover(e.clientX);
         });
         svgEl.addEventListener('mouseleave', function () {
+            if (touch.recentlyTouched()) return; // synthetic compat-mouse after a tap
             hideTooltip();
         });
     }
@@ -1046,8 +1052,15 @@ function setupTouchGestures(chart, clientXToTime, zoomAbout, panByPixels, hideTo
     var touchStartT = 0;
     var lastTouchX = 0;
     var pinchStartDist = 0;
+    // Timestamp of the most recent touch event. The browser fires a synthetic mouse sequence after a
+    // touch for click-compat; the hover handlers consult this to ignore that burst so a tap's tooltip
+    // is not immediately hidden by the trailing synthetic mouseleave. 700ms comfortably spans the gap.
+    var lastTouchTime = 0;
+    function markTouch() { lastTouchTime = Date.now(); }
+    function recentlyTouched() { return Date.now() - lastTouchTime < 700; }
 
     chart.addEventListener('touchstart', function (e) {
+        markTouch();
         if (e.touches.length === 2) {
             touchMode = 'pinch';
             pinchStartDist = touchDistance(e.touches);
@@ -1063,6 +1076,7 @@ function setupTouchGestures(chart, clientXToTime, zoomAbout, panByPixels, hideTo
     }, {passive: false});
 
     chart.addEventListener('touchmove', function (e) {
+        markTouch();
         if (e.touches.length === 2 && touchMode === 'pinch') {
             e.preventDefault();
             var dist = touchDistance(e.touches);
@@ -1098,6 +1112,7 @@ function setupTouchGestures(chart, clientXToTime, zoomAbout, panByPixels, hideTo
     }, {passive: false});
 
     chart.addEventListener('touchend', function (e) {
+        markTouch();
         // A short, near-stationary single-finger touch is a tap: show the tooltip at that point.
         if (touchMode === null && e.changedTouches.length === 1) {
             var dt = Date.now() - touchStartT;
@@ -1121,10 +1136,13 @@ function setupTouchGestures(chart, clientXToTime, zoomAbout, panByPixels, hideTo
     });
 
     chart.addEventListener('touchcancel', function () {
+        markTouch();
         touchMode = null;
         pinchStartDist = 0;
         hideTooltip();
     });
+
+    return { recentlyTouched: recentlyTouched };
 }
 
 
