@@ -284,6 +284,7 @@ plugin stays Active after every call).
 | Settings **Export Backup** → file download | `interactions.ui.spec.ts` |
 | Settings **folder-browser** → opens overlay (enables UseTrash fieldset first) | `interactions.ui.spec.ts` |
 | Trends **growth chart** → wheel zoom refines level, drag pan moves window, pinch zoom, tap tooltip, no label overlap | `trends-chart.ui.spec.ts` |
+| Codec **donut** (touch) → first tap shows the segment tooltip, second tap on the same segment hides it (compat-mouse guard) | `codecs-donut.ui.spec.ts` |
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
 Endpoints that smoke only *routed* or hardening only *tolerated a status class*
