@@ -184,6 +184,7 @@
   "logsDownloadError": "No se pudieron descargar los logs.",
   "logsClearConfirm": "¿Estás seguro de que quieres borrar todos los logs del plugin?",
   "logsClearError": "No se pudieron borrar los logs.",
+  "logsClearSuccess": "Logs borrados.",
   "settingsBackupTitle": "Copia de seguridad y restauración",
   "settingsBackupHelp": "Exporta tus ajustes, integraciones Arr y datos de tendencias. Importa para restaurar en una instalación nueva.",
   "backupExport": "Exportar copia",
