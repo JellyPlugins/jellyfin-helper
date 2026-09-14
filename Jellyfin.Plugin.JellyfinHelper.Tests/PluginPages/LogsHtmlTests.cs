@@ -170,14 +170,26 @@ public partial class LogsHtmlTests : ConfigPageTestBase
         Assert.Matches(ClearLogsButtonFeedbackRegex(), HtmlContent);
     }
 
+    [Fact]
+    public void Html_ClearLogs_ShowsSuccessFeedbackOnClear()
+    {
+        // A successful clear must confirm on the button (green success feedback), not just reload
+        // the empty list, so the user gets a visible signal that the clear worked.
+        Assert.Matches(ClearLogsSuccessFeedbackRegex(), HtmlContent);
+    }
+
     // The [\s\S] runs are guarded against the next NAMED function declaration so a match cannot
     // cross into a later top-level function; the required error handling must live inside clearLogs
-    // itself. Anonymous "function ()" callbacks inside clearLogs are intentionally allowed through.
-    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?describeApiError\s*\((?:(?!\bfunction\s+\w)[\s\S])*?console\.error\s*\(")]
+    // itself. Both assertions require the function (err) error callback first, so the success branch
+    // (which now also calls showButtonFeedback) cannot satisfy them.
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?function\s*\(\s*err\s*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?describeApiError\s*\((?:(?!\bfunction\s+\w)[\s\S])*?console\.error\s*\(")]
     private static partial Regex ClearLogsDiagnosticRegex();
 
-    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?showButtonFeedback\s*\((?:(?!\bfunction\s+\w)[\s\S])*?logsClearError")]
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?function\s*\(\s*err\s*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?showButtonFeedback\s*\(\s*clearBtn\s*,\s*false\s*,\s*T\s*\(\s*['""]logsClearError")]
     private static partial Regex ClearLogsButtonFeedbackRegex();
+
+    [GeneratedRegex(@"function\s+clearLogs\s*\([^)]*\)\s*\{(?:(?!\bfunction\s+\w)[\s\S])*?showButtonFeedback\s*\(\s*clearBtn\s*,\s*true\s*,\s*T\s*\(\s*['""]logsClearSuccess")]
+    private static partial Regex ClearLogsSuccessFeedbackRegex();
 
     [Theory]
     [InlineData("logs-toolbar")]
@@ -211,6 +223,7 @@ public partial class LogsHtmlTests : ConfigPageTestBase
     [InlineData("logsDownloadError")]
     [InlineData("logsClearConfirm")]
     [InlineData("logsClearError")]
+    [InlineData("logsClearSuccess")]
     [InlineData("logsCountLabel")]
     [InlineData("logsTime")]
     [InlineData("logsLevelCol")]

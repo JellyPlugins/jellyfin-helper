@@ -7,10 +7,13 @@ import { openDashboard, switchTab, trackConsoleErrors } from './_ui-helpers.ts';
 async function openSegments(page: Page) {
   await openDashboard(page);
   await switchTab(page, 'codecs');
-  const segments = page.locator('#codecsContent .donut-segment path');
-  // Do not fail if this server produced no codec data.
-  await segments.first().waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
-  return segments;
+  // Wait for the codecs render to settle: either the donut appears (has data) or the no-data box
+  // does. Both replace the initial placeholder, so a render that never settles fails the test here
+  // instead of being swallowed into a false skip. The no-data box has no .donut-container inside it.
+  const donut = page.locator('#codecsContent .donut-container');
+  const noData = page.locator('#codecsContent .chart-box:not(:has(.donut-container))');
+  await expect(donut.first().or(noData.first())).toBeVisible({ timeout: 15_000 });
+  return page.locator('#codecsContent .donut-segment path');
 }
 
 // The touchend handler is bound per <path>, and a coordinate tap resolves to the <svg> ancestor, so
