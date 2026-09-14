@@ -22,8 +22,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 5533 total.**
-- **End-to-end: 320 tests across 50 files.**
+- **Unit: 5535 total.**
+- **End-to-end: 320 tests across 51 files.**
 
 ## [3.0.0.1] - 2026-09-09
 
@@ -37,7 +37,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **No more false "not in Radarr".** A 4K instance no longer flags every 1080p film as missing when several instances manage different libraries.
 
 ### Tests
-- **End-to-end: 320 tests across 50 files.**
+- **End-to-end: 318 tests across 50 files.**
 - **Unit: 5499 total.**
 
 ## [3.0.0.0] - 2026-09-08
