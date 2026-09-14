@@ -120,6 +120,20 @@
     border-color: rgba(46, 204, 113, 0.5);
 }
 
+/* Transient feedback after clearing. Placed after .danger so the success/error tint wins over the
+   permanently-red Clear button while showButtonFeedback holds the class. */
+.logs-btn.success {
+    border-color: rgba(46, 204, 113, 0.5);
+    background: rgba(46, 204, 113, 0.15);
+    color: var(--color-success);
+}
+
+.logs-btn.error {
+    border-color: rgba(231, 76, 60, 0.5);
+    background: rgba(231, 76, 60, 0.15);
+    color: var(--color-danger);
+}
+
 /* Log entries table */
 .logs-table-wrapper {
     max-height: 520px;
