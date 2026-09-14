@@ -1,0 +1,195 @@
+/* Health check styles */
+.health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1em;
+    margin: 1em 0;
+}
+
+.health-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md) 1em;
+    text-align: center;
+}
+
+.health-item .health-value {
+    font-size: 1.5em;
+    font-weight: 700;
+}
+
+/* noinspection CssUnusedSymbol */
+.health-ok {
+    color: var(--color-success);
+}
+
+/* noinspection CssUnusedSymbol */
+.health-warn {
+    color: var(--color-warning);
+}
+
+/* noinspection CssUnusedSymbol */
+.health-bad {
+    color: var(--color-danger);
+}
+
+/* noinspection CssUnusedSymbol */
+.health-item .health-label {
+    font-size: 0.8em;
+    opacity: 0.6;
+    margin-top: 0.2em;
+}
+
+/* Health clickable items */
+.health-clickable {
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, transform 0.1s;
+}
+
+.health-clickable:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+}
+
+.health-clickable:active {
+    transform: scale(0.97);
+}
+
+.health-clickable:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+}
+
+/* noinspection CssUnusedSymbol */
+.health-clickable.health-active {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+    box-shadow: 0 0 0 2px var(--color-primary-scrollbar);
+}
+
+/* Health detail list */
+.health-detail-list {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md) 1em;
+    margin-top: 0.5em;
+    max-height: 400px;
+    overflow-y: auto;
+    font-size: 0.85em;
+}
+
+.health-detail-list ul {
+    margin: 0;
+    padding-left: 1.5em;
+}
+
+.health-detail-list li {
+    padding: 0.15em 0;
+    word-break: break-all;
+}
+
+
+/* noinspection CssUnusedSymbol */
+.health-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 0.8em 1.1em 1.1em 1.1em;
+    margin-top: 1.2em;
+    box-sizing: border-box;
+}
+
+/* First card in the health tab hugs the top of the tab-content area. */
+/* noinspection CssUnusedSymbol */
+#healthContent > .health-card:first-child {
+    margin-top: 0.4em;
+}
+
+/* Card header: remove default top margin. */
+/* noinspection CssUnusedSymbol */
+.health-card > .section-title:first-child {
+    margin-top: 0;
+    margin-bottom: 0.6em;
+}
+
+/* Per-library trash sub-block. Replaces the previous ad-hoc
+   <div style="margin-top:1em;">...<h4 style="margin:0 0 0.3em 0;opacity:0.8;">
+   layout with a class-driven equivalent. */
+/* noinspection CssUnusedSymbol */
+.trash-library-block {
+    margin-top: 1em;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-library-block:first-child {
+    margin-top: 0.5em;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-library-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.3em;
+    margin: 0 0 0.3em 0;
+    font-size: 1em;
+    font-weight: 600;
+    opacity: 0.8;
+    flex-wrap: wrap;
+    /* overflow-wrap is the modern standard replacement for the legacy
+       word-break: break-word value which is spec-inconsistent. */
+    overflow-wrap: break-word;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-library-count {
+    opacity: 0.5;
+    font-weight: 400;
+    font-size: 0.9em;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-item-meta {
+    opacity: 0.5;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-empty-hint {
+    opacity: 0.5;
+    padding: 0.5em;
+    margin: 0;
+    text-align: center;
+    font-size: 0.9em;
+}
+
+/* Mobile: use same breakpoint as Settings tab. */
+@media (max-width: 500px) {
+    /* noinspection CssUnusedSymbol */
+    .health-card {
+        padding: 0.6em 0.8em 0.9em 0.8em;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .trash-library-heading {
+        font-size: 0.95em;
+    }
+}
+
+/* Extra-narrow phones: shrink health-grid tiles to avoid horizontal scrolling. */
+@media (max-width: 400px) {
+    .health-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.6em;
+    }
+
+    .health-item {
+        padding: 0.6em 0.7em;
+    }
+
+    .health-item .health-value {
+        font-size: 1.3em;
+    }
+}
