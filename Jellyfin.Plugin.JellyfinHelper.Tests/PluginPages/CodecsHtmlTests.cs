@@ -43,6 +43,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("ContainerFormatPaths", HtmlContent);
         Assert.Contains("ResolutionPaths", HtmlContent);
         Assert.Contains("DynamicRangePaths", HtmlContent);
+        Assert.Contains("VideoBitrateTierPaths", HtmlContent);
     }
 
     [Fact]
@@ -62,6 +63,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
     [InlineData(@"'containers':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*true,\s*other:\s*true\s*\}")]
     [InlineData(@"'resolutions':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
     [InlineData(@"'dynamicRanges':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    [InlineData(@"'videoBitrate':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
     public void Html_CodecCategoryMap_HasExpectedLibraryFlags(string pattern)
     {
         Assert.Matches(pattern, HtmlContent);
@@ -100,6 +102,12 @@ public class CodecsHtmlTests : ConfigPageTestBase
     public void Html_FillCodecsData_UsesVideoLibrariesForDynamicRanges()
     {
         Assert.Contains("aggregateDict(videoLibraries, 'DynamicRanges')", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_FillCodecsData_UsesVideoLibrariesForBitrateTiers()
+    {
+        Assert.Contains("aggregateDict(videoLibraries, 'VideoBitrateTiers')", HtmlContent);
     }
 
     [Fact]

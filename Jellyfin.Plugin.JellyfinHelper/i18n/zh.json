@@ -66,6 +66,7 @@
   "containerFormats": "容器格式",
   "resolutions": "分辨率",
   "dynamicRange": "动态范围",
+  "videoBitrate": "视频码率",
   "noData": "无数据",
   "healthChecks": "媒体库健康检查",
   "noSubtitles": "无字幕的视频",

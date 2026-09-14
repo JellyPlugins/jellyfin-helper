@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.0.3] - 2026-09-14
+
+### Added
+
+- **Video bitrate breakdown in the Codecs tab.** A new Video Bitrate donut groups your movies and shows into bitrate tiers (`< 2`, `2-5`, `5-10`, `10-20`, `20-40`, `> 40 Mbps`), so you can see at a glance how much of your library is heavily compressed versus close to source quality. Like the codec and resolution breakdowns, clicking a tier drills down to the exact files in it.
+
+### Details
+
+- **Measured first, estimated as a fallback.** Each file is placed by the bitrate Jellyfin measured for its video stream. When a file has no per-stream bitrate, the average is estimated from its size and runtime, so almost every file lands in a real tier instead of Unknown; nothing is invented, and Unknown is used only when neither is available.
+- **Video libraries only.** Movies, TV Shows and Other are included; music is left out, matching the other video-only breakdowns.
+
+### Tests
+
+- **Unit: 5561 total.**
+- **End-to-end: 320 tests across 51 files.**
+
 ## [3.0.0.2] - 2026-09-14
 
 ### Fixed

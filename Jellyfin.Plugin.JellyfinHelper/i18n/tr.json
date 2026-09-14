@@ -66,6 +66,7 @@
   "containerFormats": "Konteyner Formatları",
   "resolutions": "Çözünürlükler",
   "dynamicRange": "Dinamik Aralık",
+  "videoBitrate": "Video Bit Hızı",
   "noData": "Veri yok",
   "healthChecks": "Kütüphane Sağlık Kontrolleri",
   "noSubtitles": "Altyazısız videolar",

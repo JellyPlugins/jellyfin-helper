@@ -1,6 +1,6 @@
 ﻿// Mock data for demo. ~9.2TB total.
 var MOCK_TRANSLATIONS = null;
-function _lib(n,t,o){var s=(o.VideoSize||0)+(o.AudioSize||0)+(o.SubtitleSize||0)+(o.ImageSize||0)+(o.NfoSize||0)+(o.TrickplaySize||0)+(o.BookSize||0)+(o.OtherSize||0);return {LibraryName:n,CollectionType:t,RootPaths:o.RootPaths||[],VideoSize:0,AudioSize:0,SubtitleSize:0,ImageSize:0,NfoSize:0,TrickplaySize:0,BookSize:0,OtherSize:0,VideoFileCount:0,AudioFileCount:0,SubtitleFileCount:0,ImageFileCount:0,NfoFileCount:0,TrickplayFileCount:0,TrickplayFolderCount:o.TrickplayFolderCount||0,BookFileCount:0,OtherFileCount:0,TotalSize:s,VideoCodecs:{},VideoAudioCodecs:{},MusicAudioCodecs:{},BookFormats:{},BookFormatSizes:{},ContainerFormats:{},Resolutions:{},VideoCodecPaths:{},VideoAudioCodecPaths:{},MusicAudioCodecPaths:{},BookFormatPaths:{},ContainerFormatPaths:{},ResolutionPaths:{},VideoCodecSizes:{},VideoAudioCodecSizes:{},MusicAudioCodecSizes:{},ContainerSizes:{},ResolutionSizes:{},VideosWithoutSubtitles:0,VideosWithoutImages:0,VideosWithoutNfo:0,OrphanedMetadataDirectories:0,VideosWithoutSubtitlesPaths:[],VideosWithoutImagesPaths:[],VideosWithoutNfoPaths:[],OrphanedMetadataDirectoriesPaths:[],...o};}
+function _lib(n,t,o){var s=(o.VideoSize||0)+(o.AudioSize||0)+(o.SubtitleSize||0)+(o.ImageSize||0)+(o.NfoSize||0)+(o.TrickplaySize||0)+(o.BookSize||0)+(o.OtherSize||0);return {LibraryName:n,CollectionType:t,RootPaths:o.RootPaths||[],VideoSize:0,AudioSize:0,SubtitleSize:0,ImageSize:0,NfoSize:0,TrickplaySize:0,BookSize:0,OtherSize:0,VideoFileCount:0,AudioFileCount:0,SubtitleFileCount:0,ImageFileCount:0,NfoFileCount:0,TrickplayFileCount:0,TrickplayFolderCount:o.TrickplayFolderCount||0,BookFileCount:0,OtherFileCount:0,TotalSize:s,VideoCodecs:{},VideoAudioCodecs:{},MusicAudioCodecs:{},BookFormats:{},BookFormatSizes:{},ContainerFormats:{},Resolutions:{},VideoCodecPaths:{},VideoAudioCodecPaths:{},MusicAudioCodecPaths:{},BookFormatPaths:{},ContainerFormatPaths:{},ResolutionPaths:{},VideoCodecSizes:{},VideoAudioCodecSizes:{},MusicAudioCodecSizes:{},ContainerSizes:{},ResolutionSizes:{},VideoBitrateTiers:{},VideoBitrateTierSizes:{},VideoBitrateTierPaths:{},VideosWithoutSubtitles:0,VideosWithoutImages:0,VideosWithoutNfo:0,OrphanedMetadataDirectories:0,VideosWithoutSubtitlesPaths:[],VideosWithoutImagesPaths:[],VideosWithoutNfoPaths:[],OrphanedMetadataDirectoriesPaths:[],...o};}
 
 var _moviesLib=_lib("Movies","movies",{
 RootPaths:["/data/movies"],
@@ -22,6 +22,9 @@ ResolutionDimensions:{"/data/movies/Dune Part Two (2024)/Dune Part Two.mkv":"384
 DynamicRanges:{"SDR":780,"HDR10":280,"Dolby Vision":130,"HLG":37,"HDR10+":20},
 DynamicRangeSizes:{"SDR":2000000000000,"HDR10":1800000000000,"Dolby Vision":1000000000000,"HLG":300000000000,"HDR10+":183942948864},
 DynamicRangePaths:{"HDR10":["/data/movies/Inception (2010)/Inception.mkv"],"Dolby Vision":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"HDR10+":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"]},
+VideoBitrateTiers:{"20-40 Mbps":420,"10-20 Mbps":510,"5-10 Mbps":210,"> 40 Mbps":72,"2-5 Mbps":35},
+VideoBitrateTierSizes:{"20-40 Mbps":2900000000000,"10-20 Mbps":1600000000000,"5-10 Mbps":520000000000,"> 40 Mbps":230000000000,"2-5 Mbps":33942948864},
+VideoBitrateTierPaths:{"> 40 Mbps":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"20-40 Mbps":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"],"10-20 Mbps":["/data/movies/Inception (2010)/Inception.mkv"],"5-10 Mbps":["/data/movies/The Matrix (1999)/The Matrix.mp4"],"2-5 Mbps":["/data/movies/Old Movie (1992)/Old Movie.avi"]},
 VideosWithoutSubtitles:8,VideosWithoutImages:2,VideosWithoutNfo:1,
 VideosWithoutSubtitlesPaths:["/data/movies/Home Video (2023)/Home Video.mp4","/data/movies/Old Movie (1992)/Old Movie.avi"],
 VideosWithoutImagesPaths:["/data/movies/Home Video (2023)/Home Video.mp4"],
@@ -48,6 +51,9 @@ ResolutionDimensions:{"/data/tv/Planet Earth III/Season 01/S01E01.mkv":"3840x216
 DynamicRanges:{"SDR":3100,"HDR10":450,"Dolby Vision":200,"HLG":62,"HDR10+":30},
 DynamicRangeSizes:{"SDR":2200000000000,"HDR10":650000000000,"Dolby Vision":380000000000,"HLG":130000000000,"HDR10+":75973836800},
 DynamicRangePaths:{"HDR10":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"Dolby Vision":["/data/tv/The Expanse/Season 01/S01E01.mkv"]},
+VideoBitrateTiers:{"5-10 Mbps":1680,"10-20 Mbps":1120,"2-5 Mbps":620,"20-40 Mbps":340,"< 2 Mbps":82},
+VideoBitrateTierSizes:{"5-10 Mbps":1500000000000,"10-20 Mbps":1200000000000,"2-5 Mbps":450000000000,"20-40 Mbps":250000000000,"< 2 Mbps":35973836800},
+VideoBitrateTierPaths:{"20-40 Mbps":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"10-20 Mbps":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"5-10 Mbps":["/data/tv/The Office/Season 01/S01E01.mp4"],"2-5 Mbps":["/data/tv/Friends/Season 01/S01E01.mp4"],"< 2 Mbps":["/data/tv/Old Show (1995)/S01E01.avi"]},
 VideosWithoutSubtitles:45,VideosWithoutImages:8,OrphanedMetadataDirectories:2,
 VideosWithoutSubtitlesPaths:["/data/tv/New Show/Season 01/S01E01.mkv","/data/tv/New Show/Season 01/S01E02.mkv"],
 VideosWithoutImagesPaths:["/data/tv/New Show/Season 01/S01E01.mkv"],

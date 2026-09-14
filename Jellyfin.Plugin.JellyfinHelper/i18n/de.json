@@ -66,6 +66,7 @@
   "containerFormats": "Container-Formate",
   "resolutions": "Auflösungen",
   "dynamicRange": "Dynamikumfang",
+  "videoBitrate": "Video-Bitrate",
   "noData": "Keine Daten",
   "healthChecks": "Bibliothek-Gesundheitschecks",
   "noSubtitles": "Videos ohne Untertitel",

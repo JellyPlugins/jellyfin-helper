@@ -54,7 +54,7 @@ public partial class SharedHtmlTests : ConfigPageTestBase
             "assignment", "trending_up", "health_and_safety", "folder", "folder_open",
             "check_circle", "error", "warning", "schedule", "tv", "music_note",
             "expand_more", "expand_less", "delete", "download", "upload", "search",
-            "cleaning_services"
+            "cleaning_services", "speed"
         };
         foreach (var icon in requiredIcons)
         {

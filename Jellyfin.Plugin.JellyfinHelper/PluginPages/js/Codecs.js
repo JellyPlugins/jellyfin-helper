@@ -330,7 +330,8 @@ var CODEC_PATH_MAP = {
     'bookFormats': 'BookFormatPaths',
     'containers': 'ContainerFormatPaths',
     'resolutions': 'ResolutionPaths',
-    'dynamicRanges': 'DynamicRangePaths'
+    'dynamicRanges': 'DynamicRangePaths',
+    'videoBitrate': 'VideoBitrateTierPaths'
 };
 
 // Map chart IDs to which media categories should be included Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges -> only Movies + TV Shows + Other Music Audio Codecs -> only Music Book Formats -> only Books Container Formats -> all libraries (Movies + TV Shows + Music +.
@@ -341,7 +342,8 @@ var CODEC_CATEGORY_MAP = {
     'bookFormats': {movies: false, tvShows: false, music: false, other: false, books: true},
     'containers': {movies: true, tvShows: true, music: true, other: true},
     'resolutions': {movies: true, tvShows: true, music: false, other: true},
-    'dynamicRanges': {movies: true, tvShows: true, music: false, other: true}
+    'dynamicRanges': {movies: true, tvShows: true, music: false, other: true},
+    'videoBitrate': {movies: true, tvShows: true, music: false, other: true}
 };
 
 // Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers
@@ -495,6 +497,7 @@ function fillCodecsData(data) {
     var containers = aggregateDict(data.Libraries, 'ContainerFormats');
     var resolutions = aggregateDict(videoLibraries, 'Resolutions');
     var dynamicRanges = aggregateDict(videoLibraries, 'DynamicRanges');
+    var videoBitrate = aggregateDict(videoLibraries, 'VideoBitrateTiers');
 
     var videoCodecSizes = aggregateDict(videoLibraries, 'VideoCodecSizes');
     var videoAudioCodecSizes = aggregateDict(videoLibraries, 'VideoAudioCodecSizes');
@@ -503,16 +506,19 @@ function fillCodecsData(data) {
     var containerSizes = aggregateDict(data.Libraries, 'ContainerSizes');
     var resolutionSizes = aggregateDict(videoLibraries, 'ResolutionSizes');
     var dynamicRangeSizes = aggregateDict(videoLibraries, 'DynamicRangeSizes');
+    var videoBitrateSizes = aggregateDict(videoLibraries, 'VideoBitrateTierSizes');
 
     var hasContainers = Object.keys(containers).length > 0;
     var hasResolutions = Object.keys(resolutions).length > 0;
     var hasDynamicRanges = Object.keys(dynamicRanges).length > 0;
+    var hasVideoBitrate = Object.keys(videoBitrate).length > 0;
     var hasVideoCodecs = Object.keys(videoCodecs).length > 0;
     var hasVideoAudio = Object.keys(videoAudioCodecs).length > 0;
     var hasMusicAudio = Object.keys(musicAudioCodecs).length > 0;
     var hasBookFormats = Object.keys(bookFormats).length > 0;
     var hasAnyCharts = hasContainers || hasResolutions || hasDynamicRanges
-        || hasVideoCodecs || hasVideoAudio || hasMusicAudio || hasBookFormats;
+        || hasVideoCodecs || hasVideoAudio || hasMusicAudio || hasBookFormats
+        || hasVideoBitrate;
 
     var codecsHtml = '<div class="charts-row">';
     if (hasContainers) {
@@ -528,6 +534,11 @@ function fillCodecsData(data) {
     if (hasDynamicRanges) {
         codecsHtml += '<div class="chart-box"><h4>' + mi('palette') + T('dynamicRange', 'Dynamic Range') + '</h4>';
         codecsHtml += renderDonutChart(dynamicRanges, dynamicRangeSizes, 'dynamicRanges', videoLibraries, 'DynamicRanges');
+        codecsHtml += '</div>';
+    }
+    if (hasVideoBitrate) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('speed') + T('videoBitrate', 'Video Bitrate') + '</h4>';
+        codecsHtml += renderDonutChart(videoBitrate, videoBitrateSizes, 'videoBitrate', videoLibraries, 'VideoBitrateTiers');
         codecsHtml += '</div>';
     }
     if (hasVideoCodecs) {

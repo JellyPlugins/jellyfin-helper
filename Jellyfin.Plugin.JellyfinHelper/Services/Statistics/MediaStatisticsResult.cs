@@ -174,6 +174,16 @@ public class MediaStatisticsResult
     public Dictionary<string, long> TotalDynamicRangeSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.DynamicRangeSizes));
 
     /// <summary>
+    /// Gets the aggregated video bitrate tier breakdown across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, int> TotalVideoBitrateTiers => AggregateDictionaries(VideoLibraries.Select(l => l.VideoBitrateTiers));
+
+    /// <summary>
+    /// Gets the aggregated video bitrate tier sizes across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, long> TotalVideoBitrateTierSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.VideoBitrateTierSizes));
+
+    /// <summary>
     /// Gets the total number of video files without subtitles.
     /// </summary>
     public int TotalVideosWithoutSubtitles => Libraries.Sum(l => l.VideosWithoutSubtitles);

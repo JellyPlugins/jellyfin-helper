@@ -2419,6 +2419,58 @@ public class ClassifyMethodTests
         Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
     }
 
+    // Stream bitrate (bps) is authoritative when present; file size and runtime are ignored.
+    [Theory]
+    [InlineData(1_500_000, "< 2 Mbps")]
+    [InlineData(1_999_999, "< 2 Mbps")]
+    [InlineData(2_000_000, "2-5 Mbps")]
+    [InlineData(4_999_999, "2-5 Mbps")]
+    [InlineData(5_000_000, "5-10 Mbps")]
+    [InlineData(9_999_999, "5-10 Mbps")]
+    [InlineData(10_000_000, "10-20 Mbps")]
+    [InlineData(19_999_999, "10-20 Mbps")]
+    [InlineData(20_000_000, "20-40 Mbps")]
+    [InlineData(39_999_999, "20-40 Mbps")]
+    [InlineData(40_000_000, "> 40 Mbps")]
+    [InlineData(80_000_000, "> 40 Mbps")]
+    public void ClassifyBitrateTier_StreamBitrate_MapsToTier(int streamBitrate, string expected)
+    {
+        // File size and runtime must be ignored while a positive stream bitrate is present.
+        Assert.Equal(expected, MediaStatisticsService.ClassifyBitrateTier(streamBitrate, 999_999_999L, 1L));
+    }
+
+    // When the stream bitrate is missing, the tier is estimated from size over runtime.
+    // TimeSpan.TicksPerSecond is 10,000,000, so an 8s clip uses 80,000,000 ticks.
+    [Theory]
+    [InlineData(1_000_000L, 100_000_000L, "< 2 Mbps")]  // 1 MB over 10s = 0.8 Mbps
+    [InlineData(5_000_000L, 80_000_000L, "5-10 Mbps")]  // 5 MB over 8s = 5 Mbps
+    [InlineData(25_000_000L, 80_000_000L, "20-40 Mbps")] // 25 MB over 8s = 25 Mbps
+    public void ClassifyBitrateTier_NullStream_EstimatesFromSizeAndRuntime(long fileSize, long runTimeTicks, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyBitrateTier(null, fileSize, runTimeTicks));
+    }
+
+    // A zero or negative stream bitrate is not usable and must defer to the size/runtime estimate.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(-5_000_000)]
+    public void ClassifyBitrateTier_NonPositiveStream_FallsBackToEstimate(int streamBitrate)
+    {
+        // 5 MB over 8s = 5 Mbps, proving the estimate ran instead of using the invalid stream value.
+        Assert.Equal("5-10 Mbps", MediaStatisticsService.ClassifyBitrateTier(streamBitrate, 5_000_000L, 80_000_000L));
+    }
+
+    [Theory]
+    [InlineData(null, 0L, null)]        // No stream bitrate, no size, no runtime
+    [InlineData(0, 1_000_000L, 0L)]     // Zero stream bitrate and zero runtime cannot be estimated
+    [InlineData(null, 0L, 80_000_000L)] // Runtime known but zero size yields no estimate
+    [InlineData(null, 1_000_000L, null)] // Size known but no runtime yields no estimate
+    public void ClassifyBitrateTier_NoUsableData_ReturnsUnknown(int? streamBitrate, long fileSize, long? runTimeTicks)
+    {
+        Assert.Equal("Unknown", MediaStatisticsService.ClassifyBitrateTier(streamBitrate, fileSize, runTimeTicks));
+    }
+
     // Values sitting right on each class boundary, checked just above and just below, prove the
     // tiers partition every resolution with no gap and no overlap. The long-edge thresholds are
     // 6000 (8K), 3200 (4K), 1600 (1080p), 1120 (720p), 940 (576p), 720 (480p).
@@ -2865,7 +2917,7 @@ public class MetadataExtractionTests
         mockItem1.Object.Path = hevcPath;
         mockItem1.Setup(i => i.GetMediaStreams()).Returns(
         [
-            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160 },
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160, BitRate = 25_000_000 },
             new MediaStream { Type = MediaStreamType.Audio, Codec = "dts", Profile = "DTS-HD MA" }
         ]);
 
@@ -2874,7 +2926,7 @@ public class MetadataExtractionTests
         mockItem2.Object.Path = h264Path;
         mockItem2.Setup(i => i.GetMediaStreams()).Returns(
         [
-            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080 },
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 8_000_000 },
             new MediaStream { Type = MediaStreamType.Audio, Codec = "aac", Profile = "LC" }
         ]);
 
@@ -2883,7 +2935,7 @@ public class MetadataExtractionTests
         mockItem3.Object.Path = av1Path;
         mockItem3.Setup(i => i.GetMediaStreams()).Returns(
         [
-            new MediaStream { Type = MediaStreamType.Video, Codec = "av1", Width = 3840, Height = 2160 },
+            new MediaStream { Type = MediaStreamType.Video, Codec = "av1", Width = 3840, Height = 2160, BitRate = 15_000_000 },
             new MediaStream { Type = MediaStreamType.Audio, Codec = "truehd", Profile = "Atmos" }
         ]);
 
@@ -2925,6 +2977,12 @@ public class MetadataExtractionTests
         Assert.Equal(5_000_000_000, stats.VideoCodecSizes["HEVC"]);
         Assert.Equal(2_000_000_000, stats.VideoCodecSizes["H.264"]);
         Assert.Equal(3_000_000_000, stats.VideoCodecSizes["AV1"]);
+
+        // Bitrate tiers from the measured video-stream bitrate (25 / 8 / 15 Mbps)
+        Assert.Equal(1, stats.VideoBitrateTiers["20-40 Mbps"]);
+        Assert.Equal(1, stats.VideoBitrateTiers["5-10 Mbps"]);
+        Assert.Equal(1, stats.VideoBitrateTiers["10-20 Mbps"]);
+        Assert.Equal(5_000_000_000, stats.VideoBitrateTierSizes["20-40 Mbps"]);
     }
 
     [Fact]
@@ -3110,6 +3168,8 @@ public class MetadataExtractionTests
         Assert.Equal(1, stats.VideoCodecs["Unknown"]);
         Assert.Equal(1, stats.Resolutions["Unknown"]);
         Assert.Equal(1, stats.DynamicRanges["Unknown"]);
+        // No stream bitrate and no mocked runtime -> the bitrate tier is also Unknown
+        Assert.Equal(1, stats.VideoBitrateTiers["Unknown"]);
         // Audio codec "Unknown" is NOT tracked in VideoAudioCodecs (by design)
         Assert.Empty(stats.VideoAudioCodecs);
 

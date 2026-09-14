@@ -66,6 +66,7 @@
   "containerFormats": "Containerformat",
   "resolutions": "Upplösningar",
   "dynamicRange": "Dynamiskt omfång",
+  "videoBitrate": "Videobithastighet",
   "noData": "Inga data",
   "healthChecks": "Bibliotekshälsokontroller",
   "noSubtitles": "Videor utan undertexter",

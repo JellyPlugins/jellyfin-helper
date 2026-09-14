@@ -226,6 +226,21 @@ public class LibraryStatistics
     public Dictionary<string, Collection<string>> DynamicRangePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Gets the video bitrate tier breakdown (tier -> count), e.g. "10-20 Mbps" -> 40.
+    /// </summary>
+    public Dictionary<string, int> VideoBitrateTiers { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the video bitrate tier size breakdown (tier -> total bytes).
+    /// </summary>
+    public Dictionary<string, long> VideoBitrateTierSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the video bitrate tier file paths (tier -> list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> VideoBitrateTierPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Gets or sets the number of video files without any subtitle file in the same directory.
     /// </summary>
     public int VideosWithoutSubtitles { get; set; }

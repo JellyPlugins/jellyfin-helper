@@ -675,6 +675,14 @@ public class MediaStatisticsService : IMediaStatisticsService
             FileSystemHelper.AddPath(stats.VideoAudioCodecPaths, audioCodec, filePath);
         }
 
+        // Bitrate tier: prefer the measured video-stream bitrate; fall back to the container's
+        // average bitrate (size over duration) so files without a per-stream value still land in a
+        // real tier instead of Unknown. Nothing is invented — Unknown is used only when both fail.
+        var bitrateTier = ClassifyBitrateTier(videoStream?.BitRate, fileSize, item?.RunTimeTicks);
+        FileSystemHelper.IncrementCount(stats.VideoBitrateTiers, bitrateTier);
+        FileSystemHelper.AccumulateValue(stats.VideoBitrateTierSizes, bitrateTier, fileSize);
+        FileSystemHelper.AddPath(stats.VideoBitrateTierPaths, bitrateTier, filePath);
+
         return streams;
     }
 
@@ -823,6 +831,63 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
 
         return "SD";
+    }
+
+    /// <summary>
+    ///     Classifies a video file into a bitrate tier. Uses the measured video-stream bitrate when
+    ///     available, otherwise estimates the container's average bitrate from file size and runtime.
+    /// </summary>
+    /// <param name="streamBitrate">The video stream bitrate in bits per second, or <c>null</c> if unknown.</param>
+    /// <param name="fileSize">The file size in bytes (used for the size-over-duration fallback).</param>
+    /// <param name="runTimeTicks">The item runtime in 100ns ticks, or <c>null</c> if unknown.</param>
+    /// <returns>A tier label such as "5-10 Mbps", or "Unknown" when no bitrate can be determined.</returns>
+    internal static string ClassifyBitrateTier(int? streamBitrate, long fileSize, long? runTimeTicks)
+    {
+        double bitsPerSecond;
+
+        if (streamBitrate is > 0)
+        {
+            bitsPerSecond = streamBitrate.Value;
+        }
+        else if (runTimeTicks is > 0 && fileSize > 0)
+        {
+            // TimeSpan ticks are 100ns units; 10,000,000 per second. Average container bitrate.
+            var seconds = runTimeTicks.Value / (double)TimeSpan.TicksPerSecond;
+            bitsPerSecond = fileSize * 8d / seconds;
+        }
+        else
+        {
+            return UnknownLabel;
+        }
+
+        var mbps = bitsPerSecond / 1_000_000d;
+
+        if (mbps < 2)
+        {
+            return "< 2 Mbps";
+        }
+
+        if (mbps < 5)
+        {
+            return "2-5 Mbps";
+        }
+
+        if (mbps < 10)
+        {
+            return "5-10 Mbps";
+        }
+
+        if (mbps < 20)
+        {
+            return "10-20 Mbps";
+        }
+
+        if (mbps < 40)
+        {
+            return "20-40 Mbps";
+        }
+
+        return "> 40 Mbps";
     }
 
     /// <summary>

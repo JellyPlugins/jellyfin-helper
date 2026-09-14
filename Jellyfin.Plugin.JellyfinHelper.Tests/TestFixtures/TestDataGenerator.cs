@@ -134,6 +134,8 @@ public static class TestDataGenerator
         lib.VideoAudioCodecs["DTS"] = 100;
         lib.VideoAudioCodecs["AAC"] = 200;
         lib.MusicAudioCodecs["FLAC"] = 10;
+        lib.VideoBitrateTiers["10-20 Mbps"] = 200;
+        lib.VideoBitrateTiers["20-40 Mbps"] = 100;
 
         // Codec sizes
         lib.ContainerSizes["MKV"] = 700_000_000_000L;
@@ -146,6 +148,8 @@ public static class TestDataGenerator
         lib.VideoAudioCodecSizes["DTS"] = 400_000_000_000L;
         lib.VideoAudioCodecSizes["AAC"] = 600_000_000_000L;
         lib.MusicAudioCodecSizes["FLAC"] = 5_000_000_000L;
+        lib.VideoBitrateTierSizes["10-20 Mbps"] = 500_000_000_000L;
+        lib.VideoBitrateTierSizes["20-40 Mbps"] = 500_000_000_000L;
 
         // Health check paths
         lib.VideosWithoutSubtitlesPaths.Add(TestPath("media", "movies", "NoSub1.mkv"));
