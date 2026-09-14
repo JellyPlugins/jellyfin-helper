@@ -582,13 +582,15 @@ function apiPut(path, payload, onSuccess, onError) {
  * @param {string} path - Relative API path.
  * @param {function} onSuccess - Callback with response data.
  * @param {function} [onError] - Optional error callback (defaults to console.error).
+ * @param {boolean} [parseJson] - Request a JSON body. Only for endpoints that return 200 with a
+ *   body (e.g. Trash/Folders reports Deleted/Failed counts). Leave off for 204 No Content
+ *   endpoints, where asking for JSON would reject the promise on the empty body.
  */
-function apiDelete(path, onSuccess, onError) {
+function apiDelete(path, onSuccess, onError, parseJson) {
     var c = ApiClient;
-    // A DELETE endpoint answers 204 No Content with an empty body. We deliberately do not
-    // ask for JSON here, because parsing that empty body would reject the promise and show
-    // the caller a failure even though the server succeeded.
-    c.ajax({type: 'DELETE', url: c.getUrl(path)}).then(
+    var opts = {type: 'DELETE', url: c.getUrl(path)};
+    if (parseJson) opts.dataType = 'json';
+    c.ajax(opts).then(
         onSuccess || function () {
         },
         onError || _apiDefaultError('DELETE', path)
