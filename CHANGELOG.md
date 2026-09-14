@@ -12,6 +12,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Clearing the plugin log no longer flashes a false error.** The Clear button in the Log tab briefly turned red with "Failed to clear logs." even though the logs were cleared correctly; the buffer then emptied a moment later, which looked like a glitch. The button now confirms success immediately and refreshes the log view right away.
 - **Save bar no longer crowds on small screens.** On phones the unsaved-changes label and the Save button shared one line, so longer translations such as the German "Nicht gespeichert" were cut off. On narrow screens the bar now stacks the centered status text above a full-width Save button.
 - **Widescreen films are counted at their real resolution.** Cinemascope and other cropped-height masters (for example 1920x800 or 1920x1040) were listed one tier too low in the Codecs tab, showing up under 720p instead of 1080p. Resolution is now decided by whichever axis reaches a class, so a 1920-wide film counts as 1080p and a 3840-wide film as 4K, matching what these titles actually are.
+- **Chart tooltips work reliably on touch.** On a phone or tablet, the first tap on the Trends growth chart or a Codecs breakdown ring could flash the tooltip and hide it again straight away. Tapping now shows and keeps the tooltip, and a second tap on the same Codecs ring segment closes it as before.
+- **The save confirmation only appears after a real save.** Changing a setting and then setting it back to its original value briefly showed "All changes saved" even though nothing was saved. The confirmation now shows only after an actual save; reverting an edit simply clears the unsaved prompt.
 
 ### Improved
 
@@ -21,6 +23,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Tests
 
 - **Unit: 5533 total.**
+- **End-to-end: 320 tests across 50 files.**
 
 ## [3.0.0.1] - 2026-09-09
 
@@ -34,7 +37,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **No more false "not in Radarr".** A 4K instance no longer flags every 1080p film as missing when several instances manage different libraries.
 
 ### Tests
-- **End-to-end: 318 tests across 50 files.**
+- **End-to-end: 320 tests across 50 files.**
 - **Unit: 5499 total.**
 
 ## [3.0.0.0] - 2026-09-08
