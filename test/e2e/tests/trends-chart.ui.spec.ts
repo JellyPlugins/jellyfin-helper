@@ -143,14 +143,17 @@ test.describe('trend chart touch gestures', () => {
       Date.now = () => frozen;
     });
 
-    const client = await page.context().newCDPSession(page);
-    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx, y: cy }] });
-    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ x: cx, y: cy }] });
-
-    await page.evaluate(() => {
-      const w = window as unknown as { __realDateNow?: () => number };
-      if (w.__realDateNow) Date.now = w.__realDateNow;
-    });
+    try {
+      const client = await page.context().newCDPSession(page);
+      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx, y: cy }] });
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ x: cx, y: cy }] });
+    } finally {
+      // Restore even if a CDP call throws, so a retry on this page never inherits the frozen clock.
+      await page.evaluate(() => {
+        const w = window as unknown as { __realDateNow?: () => number };
+        if (w.__realDateNow) Date.now = w.__realDateNow;
+      });
+    }
 
     // Synchronize on the observable outcome (tooltip becomes visible), not a fixed wait.
     await expect(page.locator('.trend-tooltip')).toHaveClass(/visible/, { timeout: 5_000 });

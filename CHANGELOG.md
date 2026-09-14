@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
-## [3.0.0.2] - 2026-09-11
+## [3.0.0.2] - 2026-09-14
 
 ### Fixed
 
@@ -15,8 +15,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Improved
 
-- **Genuine clear-log failures are now diagnosable.** If clearing really fails (for example an expired session or a server error), the Log tab writes a structured diagnostic to the browser console with the HTTP status and error kind, alongside the visible red button feedback, so a real problem is never silent.
-- **Resolution drill-down shows the real pixel size.** Opening a resolution in the Codecs tab now lists each file's exact dimensions (for example 1920x800) next to its name, so you can see why a widescreen title sits in a given tier. The dimensions stay readable on both desktop and phones.
+- **Genuine clear-log failures are now diagnosable.** If clearing really fails, the Log tab writes a structured diagnostic to the browser console with the HTTP status and error kind, alongside the visible red button feedback, so a real problem is never silent.
+- **Resolution drill-down shows the real pixel size.** Opening a resolution in the Codecs tab now lists each file's exact dimensions next to its name, so you can see why a widescreen title sits in a given tier. The dimensions stay readable on both desktop and phones.
 
 ### Tests
 
