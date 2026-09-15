@@ -1,20 +1,76 @@
 'use strict';
 
 var _lastStatisticsData = null;
-var _filterState = { activeFilters: {}, libraryType: 'all', resultOffset: 0, innerTab: 'filters' };
 var _statsCleanupCache = null;
 
-// Expand/collapse state per donut dimension, persisted across renderStatisticsChrome() re-renders
-// so selecting a filter never visually collapses the section the user is looking at.
-var _expandedDonutDims = {};
-// Which breakdown value currently has its inline file-tree open, per dimension (like the old
-// per-donut "codec tree", restored so drill-down is visible immediately without navigating to a
-// separate results panel or scrolling past the other donut sections).
-var _activeDonutTreeValue = {};
-
-
+var SCOPE_ALL = 'all';
 var STATISTICS_PAGE_SIZE = 50;
-var STATISTICS_MOBILE_BREAKPOINT = 640;
+
+// Every donut/filter/tree explorer instance (the aggregate "All Libraries" view, plus one per
+// expanded per-library row) keeps its own independent state so combining filters in one library
+// never affects another. Keyed by scope key: SCOPE_ALL or libScopeKey(index).
+var _explorerStates = {};
+
+// Which library rows are expanded in the Per-Library Breakdown list, and whether the aggregate
+// "All Libraries" explorer itself is expanded. Content for a collapsed scope is not rendered at
+// all (lazy), keeping the default view light.
+var _expandedLibraryRows = {};
+var _allExplorerExpanded = false;
+
+function libScopeKey(index) {
+    return 'lib' + index;
+}
+
+function scopeLibraryIndex(scopeKey) {
+    return scopeKey === SCOPE_ALL ? null : parseInt(scopeKey.slice(3), 10);
+}
+
+function getExplorerState(scopeKey) {
+    if (!_explorerStates[scopeKey]) {
+        _explorerStates[scopeKey] = { activeFilters: {}, activeTreeSelection: null, expandedDonutDims: {}, resultOffset: 0 };
+    }
+    return _explorerStates[scopeKey];
+}
+
+function classifyCollectionType(collectionType) {
+    var t = (collectionType || '').toLowerCase();
+    if (t === 'movies' || t === 'homevideos' || t === 'musicvideos') return 'movies';
+    if (t === 'tvshows') return 'tvShows';
+    if (t === 'music') return 'music';
+    if (t === 'books') return 'books';
+    return 'other';
+}
+
+function getScopedLib(scopeKey) {
+    if (scopeKey === SCOPE_ALL || !_lastStatisticsData) return null;
+    var idx = scopeLibraryIndex(scopeKey);
+    return (_lastStatisticsData.Libraries || [])[idx] || null;
+}
+
+// Wraps a single library into the { Libraries, Movies, TvShows, Music, Books, Other, *RootPaths }
+// shape the rest of this file already expects, so every rendering/filtering helper below works
+// identically whether it is scoped to the whole server or to exactly one library.
+function getScopedData(scopeKey) {
+    if (!_lastStatisticsData) return null;
+    if (scopeKey === SCOPE_ALL) return _lastStatisticsData;
+    var lib = getScopedLib(scopeKey);
+    if (!lib) return null;
+    var cls = classifyCollectionType(lib.CollectionType);
+    var roots = lib.RootPaths || [];
+    return {
+        Libraries: [lib],
+        Movies: cls === 'movies' ? [lib] : [],
+        TvShows: cls === 'tvShows' ? [lib] : [],
+        Music: cls === 'music' ? [lib] : [],
+        Books: cls === 'books' ? [lib] : [],
+        Other: cls === 'other' ? [lib] : [],
+        MovieRootPaths: cls === 'movies' ? roots : [],
+        TvShowRootPaths: cls === 'tvShows' ? roots : [],
+        MusicRootPaths: cls === 'music' ? roots : [],
+        BookRootPaths: cls === 'books' ? roots : [],
+        OtherRootPaths: cls === 'other' ? roots : []
+    };
+}
 
 var STATISTICS_PATH_MAP = {
     'resolutions': 'ResolutionPaths',
@@ -29,6 +85,35 @@ var STATISTICS_PATH_MAP = {
     'subtitleLanguages': 'SubtitleLanguagePaths',
     'watched': 'WatchedTierPaths',
     'watchedByUser': 'WatchedByUserPaths'
+};
+
+var STATISTICS_COUNT_PROP_MAP = {
+    'resolutions': 'Resolutions',
+    'videoCodecs': 'VideoCodecs',
+    'videoAudioCodecs': 'VideoAudioCodecs',
+    'musicAudioCodecs': 'MusicAudioCodecs',
+    'bookFormats': 'BookFormats',
+    'containers': 'ContainerFormats',
+    'dynamicRanges': 'DynamicRanges',
+    'videoBitrate': 'VideoBitrateTiers',
+    'audioLanguages': 'AudioLanguages',
+    'subtitleLanguages': 'SubtitleLanguages',
+    'watched': 'WatchedTiers'
+};
+
+var STATISTICS_SIZE_PROP_MAP = {
+    'resolutions': 'ResolutionSizes',
+    'videoCodecs': 'VideoCodecSizes',
+    'videoAudioCodecs': 'VideoAudioCodecSizes',
+    'musicAudioCodecs': 'MusicAudioCodecSizes',
+    'bookFormats': 'BookFormatSizes',
+    'containers': 'ContainerSizes',
+    'dynamicRanges': 'DynamicRangeSizes',
+    'videoBitrate': 'VideoBitrateTierSizes',
+    'audioLanguages': 'AudioLanguageSizes',
+    'subtitleLanguages': 'SubtitleLanguageSizes',
+    'watched': 'WatchedTierSizes',
+    'watchedByUser': 'WatchedByUserSizes'
 };
 
 var STATISTICS_CATEGORY_MAP = {
@@ -131,14 +216,6 @@ function getCollectionBadgeStat(type) {
     return '<span class="badge badge-other">' + escHtml(type || T('mixed', 'Mixed')) + '</span>';
 }
 
-function getCollectionBadge(type) {
-    return getCollectionBadgeStat(type);
-}
-
-function buildBarSegments(data) {
-    return buildBarSegmentsStat(data);
-}
-
 function buildBarSegmentsStat(data) {
     var total = (data.TotalMovieVideoSize || 0) + (data.TotalTvShowVideoSize || 0) +
         (data.TotalSubtitleSize || 0) + (data.TotalImageSize || 0) + (data.TotalTrickplaySize || 0) +
@@ -181,72 +258,30 @@ function buildBarSegmentsStat(data) {
     return html;
 }
 
-function getLibraryFilteredData() {
-    if (!_lastStatisticsData) return null;
-    var d = _lastStatisticsData;
-    var t = _filterState.libraryType;
-    if (t === 'all') return d;
-    if (t === 'movies') return { Libraries: d.Movies || [], Movies: d.Movies || [], TvShows: [], Music: [], Books: [], Other: [], MovieRootPaths: d.MovieRootPaths || [], TvShowRootPaths: [], MusicRootPaths: [], BookRootPaths: [], OtherRootPaths: [] };
-    if (t === 'tvshows') return { Libraries: d.TvShows || [], Movies: [], TvShows: d.TvShows || [], Music: [], Books: [], Other: [], MovieRootPaths: [], TvShowRootPaths: d.TvShowRootPaths || [], MusicRootPaths: [], BookRootPaths: [], OtherRootPaths: [] };
-    if (t === 'music') return { Libraries: d.Music || [], Movies: [], TvShows: [], Music: d.Music || [], Books: [], Other: [], MovieRootPaths: [], TvShowRootPaths: [], MusicRootPaths: d.MusicRootPaths || [], BookRootPaths: [], OtherRootPaths: [] };
-    if (t === 'books') return { Libraries: d.Books || [], Movies: [], TvShows: [], Music: [], Books: d.Books || [], Other: [], MovieRootPaths: [], TvShowRootPaths: [], MusicRootPaths: [], BookRootPaths: d.BookRootPaths || [], OtherRootPaths: [] };
-    if (t === 'other') return { Libraries: d.Other || [], Movies: [], TvShows: [], Music: [], Books: [], Other: d.Other || [], MovieRootPaths: [], TvShowRootPaths: [], MusicRootPaths: [], BookRootPaths: [], OtherRootPaths: d.OtherRootPaths || [] };
-    return d;
-}
-
-function buildLibrarySelectorHtml() {
-    var hasOther = _lastStatisticsData && _lastStatisticsData.Other && _lastStatisticsData.Other.length > 0;
-    var items = [
-        { id: 'all', key: 'statLibraryAll', fallback: 'All', icon: 'dashboard' },
-        { id: 'movies', key: 'movies', fallback: 'Movies', icon: 'movie' },
-        { id: 'tvshows', key: 'tvShows', fallback: 'Series', icon: 'tv' },
-        { id: 'music', key: 'music', fallback: 'Music', icon: 'music_note' },
-        { id: 'books', key: 'books', fallback: 'Books', icon: 'library_books' }
-    ];
-    if (hasOther) items.push({ id: 'other', key: 'other', fallback: 'Other', icon: 'folder' });
-    var html = '<div class="stat-lib-selector" role="tablist" aria-label="' + escAttr(T('statLibraryAll', 'Libraries')) + '">';
-    for (var i = 0; i < items.length; i++) {
-        var it = items[i];
-        var active = _filterState.libraryType === it.id ? ' active' : '';
-        html += '<button class="stat-lib-btn' + active + '" data-lib="' + escAttr(it.id) + '" role="tab" aria-selected="' + (active ? 'true' : 'false') + '">' + mi(it.icon) + escHtml(T(it.key, it.fallback)) + '</button>';
-    }
-    html += '</div>';
-    return html;
-}
-
-function attachLibrarySelectorHandlers() {
-    var btns = document.querySelectorAll('.stat-lib-btn');
-    for (var i = 0; i < btns.length; i++) {
-        btns[i].addEventListener('click', function () {
-            var lib = this.dataset.lib;
-            _filterState.libraryType = lib;
-            // Library switch resets dimension filters because file sets are disjoint.
-            _filterState.activeFilters = {};
-            _filterState.resultOffset = 0;
-            renderStatisticsChrome();
-        });
-    }
-}
-
 function buildStatKpiCard(icon, labelKey, labelFallback, value, detail, extraClass) {
     var cls = 'stat-kpi-card' + (extraClass ? ' ' + extraClass : '');
     return '<div class="' + cls + '"><h3>' + mi(icon) + escHtml(T(labelKey, labelFallback)) + '</h3><p class="stat-kpi-value">' + escHtml(value) + '</p><p class="stat-kpi-detail">' + escHtml(detail) + '</p></div>';
 }
 
+function buildFreedKpiCardsHtml() {
+    if (!_statsCleanupCache) {
+        return buildStatKpiCard('cleaning_services', 'totalBytesFreed', 'Total Space Freed', '—', T('loadingInsights', 'Loading…'), 'stat-kpi-freed')
+            + buildStatKpiCard('delete', 'totalItemsDeleted', 'Total Items Deleted', '—', T('loadingInsights', 'Loading…'), 'stat-kpi-freed');
+    }
+    var freed = formatBytes(_statsCleanupCache.TotalBytesFreed || 0);
+    var count = _statsCleanupCache.TotalItemsDeleted || 0;
+    var tsRaw = _statsCleanupCache.LastCleanupTimestamp;
+    var parsed = tsRaw ? new Date(tsRaw) : null;
+    var valid = parsed && tsRaw !== '0001-01-01T00:00:00' && !isNaN(parsed.getTime());
+    var last = valid ? parsed.toLocaleString() : T('never', 'Never');
+    return buildStatKpiCard('cleaning_services', 'totalBytesFreed', 'Total Space Freed', freed, T('lastCleanup', 'Last cleanup') + ': ' + last, 'stat-kpi-freed')
+        + buildStatKpiCard('delete', 'totalItemsDeleted', 'Total Items Deleted', String(count), T('lastCleanup', 'Last cleanup') + ': ' + last, 'stat-kpi-freed');
+}
+
 function buildKpiStripHtml() {
-    var d = getLibraryFilteredData();
-    if (!d) return '';
-    var libs = d.Libraries || [];
-    var libType = _filterState.libraryType;
-    // Aggregate per-library file counts for the selected scope
-    var videoFiles = 0;
-    var audioFiles = 0;
-    var bookFiles = 0;
-    var trickplayFolders = 0;
-    var totalVideoSize = 0;
-    var totalAudioSize = 0;
-    var totalBookSize = 0;
-    var totalTrickplaySize = 0;
+    var libs = (_lastStatisticsData && _lastStatisticsData.Libraries) || [];
+    var videoFiles = 0, audioFiles = 0, bookFiles = 0, trickplayFolders = 0;
+    var totalVideoSize = 0, totalAudioSize = 0, totalBookSize = 0, totalTrickplaySize = 0;
     for (var i = 0; i < libs.length; i++) {
         videoFiles += libs[i].VideoFileCount || 0;
         audioFiles += libs[i].AudioFileCount || 0;
@@ -257,86 +292,58 @@ function buildKpiStripHtml() {
         totalBookSize += libs[i].BookSize || 0;
         totalTrickplaySize += libs[i].TrickplaySize || 0;
     }
-
-    // Which categories exist at all for the current library-type scope. A category is only ever
-    // eligible for a scope that can contain it (e.g. Audio never shows for Movies/TV/Books) AND
-    // must actually have files (0 files -> no card, never an empty/misleading 0-value card).
-    var videoEligible = libType === 'all' || libType === 'movies' || libType === 'tvshows' || libType === 'other';
-    var audioEligible = libType === 'all' || libType === 'music';
-    var bookEligible = libType === 'all' || libType === 'books';
-    var trickplayEligible = videoEligible; // trickplay images only exist for video libraries
-
-    var showVideo = videoEligible && totalVideoSize > 0;
-    var showAudio = audioEligible && totalAudioSize > 0;
-    var showBooks = bookEligible && totalBookSize > 0;
-    var showTrickplay = trickplayEligible && totalTrickplaySize > 0;
-    var categoriesShown = (showVideo ? 1 : 0) + (showAudio ? 1 : 0) + (showBooks ? 1 : 0);
+    var totalFiles = videoFiles + audioFiles + bookFiles;
 
     var cards = [];
-    // A "Total" card is only meaningful when more than one category is on screen — for a single
-    // category (e.g. Movies-only, or an "All" server that only has a Music library) it would be a
-    // literal duplicate of that one category's card.
-    if (categoriesShown > 1) {
-        var grandTotal = totalVideoSize + totalAudioSize + totalBookSize;
-        var totalFiles = videoFiles + audioFiles + bookFiles;
-        cards.push(buildStatKpiCard('storage', 'total', 'Total', formatBytes(grandTotal), totalFiles + ' ' + T('files', 'files')));
-    }
-    if (showVideo) cards.push(buildStatKpiCard('movie', 'video', 'Video', formatBytes(totalVideoSize), videoFiles + ' ' + T('files', 'files')));
-    if (showAudio) cards.push(buildStatKpiCard('music_note', 'audio', 'Audio', formatBytes(totalAudioSize), audioFiles + ' ' + T('files', 'files')));
-    if (showBooks) cards.push(buildStatKpiCard('library_books', 'books', 'Books', formatBytes(totalBookSize), bookFiles + ' ' + T('files', 'files')));
-    if (showTrickplay) cards.push(buildStatKpiCard('image', 'trickplay', 'Trickplay', formatBytes(totalTrickplaySize), trickplayFolders + ' ' + T('folders', 'folders')));
-
-    // Freed card is intentionally global (not library-scoped) — cleanup targets trickplay/subs/orphans across the whole server, always shown regardless of the library selector.
-    if (_statsCleanupCache) {
-        var freed = formatBytes(_statsCleanupCache.TotalBytesFreed || 0);
-        var count = _statsCleanupCache.TotalItemsDeleted || 0;
-        var tsRaw = _statsCleanupCache.LastCleanupTimestamp;
-        var parsed = tsRaw ? new Date(tsRaw) : null;
-        var valid = parsed && tsRaw !== '0001-01-01T00:00:00' && !isNaN(parsed.getTime());
-        var last = valid ? parsed.toLocaleString() : T('never', 'Never');
-        cards.push('<div class="stat-kpi-card stat-kpi-freed" title="' + escAttr(count + ' ' + T('totalItemsDeleted', 'items') + ' · ' + T('lastCleanup', 'Last cleanup') + ': ' + last) + '"><h3>' + mi('cleaning_services') + escHtml(T('totalBytesFreed', 'Freed')) + '</h3><p class="stat-kpi-value">' + escHtml(freed) + '</p><p class="stat-kpi-detail">' + escHtml(count + ' ' + T('items', 'items')) + '</p></div>');
-    } else {
-        cards.push('<div class="stat-kpi-card stat-kpi-freed"><h3>' + mi('cleaning_services') + escHtml(T('totalBytesFreed', 'Freed')) + '</h3><p class="stat-kpi-value">—</p><p class="stat-kpi-detail">' + escHtml(T('loadingInsights', 'Loading…')) + '</p></div>');
-    }
+    cards.push(buildStatKpiCard('description', 'totalFiles', 'Total Files', String(totalFiles), videoFiles + ' ' + T('video', 'video') + ', ' + audioFiles + ' ' + T('audio', 'audio') + (bookFiles > 0 ? ', ' + bookFiles + ' ' + T('books', 'books') : '')));
+    if (totalVideoSize > 0) cards.push(buildStatKpiCard('movie', 'video', 'Video', formatBytes(totalVideoSize), videoFiles + ' ' + T('files', 'files')));
+    if (totalAudioSize > 0) cards.push(buildStatKpiCard('music_note', 'audio', 'Audio', formatBytes(totalAudioSize), audioFiles + ' ' + T('files', 'files')));
+    if (totalBookSize > 0) cards.push(buildStatKpiCard('library_books', 'books', 'Books', formatBytes(totalBookSize), bookFiles + ' ' + T('files', 'files')));
+    if (totalTrickplaySize > 0) cards.push(buildStatKpiCard('image', 'trickplay', 'Trickplay', formatBytes(totalTrickplaySize), trickplayFolders + ' ' + T('folders', 'folders')));
+    cards.push(buildFreedKpiCardsHtml());
 
     return '<div class="stat-kpi-strip">' + cards.join('') + '</div>';
 }
 
-function refreshCleanupKpi() {
+function refreshFreedSummary() {
     apiGet('JellyfinHelper/CleanupStatistics', function (stats) {
         _statsCleanupCache = stats;
-        var strip = document.getElementById('statKpiStrip');
-        if (strip) strip.innerHTML = buildKpiStripHtml().replace('<div class="stat-kpi-strip">', '').replace('</div>', '');
-        // Re-render whole chrome to update tooltip and counts consistently
-        var kpiWrap = document.getElementById('statKpiWrap');
-        if (kpiWrap) kpiWrap.innerHTML = buildKpiStripHtml();
+        var strip = document.getElementById('statKpiWrap');
+        if (strip) strip.innerHTML = buildKpiStripHtml();
     }, function () {
-        // Keep placeholder; do not error out the whole tab
+        // Keep the "Loading…" placeholder; a failed fetch should not error out the whole tab.
     });
 }
 
-function toggleFilter(dimension, value) {
-    if (!_filterState.activeFilters[dimension]) _filterState.activeFilters[dimension] = {};
-    var wasActive = !!_filterState.activeFilters[dimension][value];
+function toggleFilter(scopeKey, dimension, value) {
+    var state = getExplorerState(scopeKey);
+    if (!state.activeFilters[dimension]) state.activeFilters[dimension] = {};
+    var wasActive = !!state.activeFilters[dimension][value];
     if (wasActive) {
-        delete _filterState.activeFilters[dimension][value];
-        if (Object.keys(_filterState.activeFilters[dimension]).length === 0) delete _filterState.activeFilters[dimension];
+        delete state.activeFilters[dimension][value];
+        if (Object.keys(state.activeFilters[dimension]).length === 0) delete state.activeFilters[dimension];
     } else {
-        _filterState.activeFilters[dimension][value] = true;
+        state.activeFilters[dimension][value] = true;
     }
-    // Selecting a value keeps its donut section open and previews its files inline (the old
-    // "codec tree" behaviour) instead of collapsing the section or hiding results elsewhere.
-    _expandedDonutDims[dimension] = true;
-    _activeDonutTreeValue[dimension] = wasActive
-        ? (_activeDonutTreeValue[dimension] === value ? null : _activeDonutTreeValue[dimension])
-        : value;
-    _filterState.resultOffset = 0;
+    // Selecting a value keeps its donut section open and focuses the results panel on that
+    // single value's file tree, scoped to this explorer instance only.
+    state.expandedDonutDims[dimension] = true;
+    if (wasActive) {
+        if (state.activeTreeSelection && state.activeTreeSelection.dimension === dimension && state.activeTreeSelection.value === value) {
+            state.activeTreeSelection = null;
+        }
+    } else {
+        state.activeTreeSelection = { dimension: dimension, value: value };
+    }
+    state.resultOffset = 0;
     renderStatisticsChrome();
 }
 
-function clearAllFilters() {
-    _filterState.activeFilters = {};
-    _filterState.resultOffset = 0;
+function clearAllFilters(scopeKey) {
+    var state = getExplorerState(scopeKey);
+    state.activeFilters = {};
+    state.activeTreeSelection = null;
+    state.resultOffset = 0;
     renderStatisticsChrome();
 }
 
@@ -354,21 +361,19 @@ function collectPathsFromLibsDict(libs, dictName, seen, result) {
     }
 }
 
-function computeFilteredPaths() {
-    var data = getLibraryFilteredData();
+function computeFilteredPaths(scopeKey) {
+    var data = getScopedData(scopeKey);
     if (!data) return [];
-    var dims = Object.keys(_filterState.activeFilters);
+    var state = getExplorerState(scopeKey);
+    var dims = Object.keys(state.activeFilters);
+    var libs = data.Libraries || [];
     if (dims.length === 0) {
-        // Collect unique file paths across the current library scope. Different library types
-        // populate different "primary" dictionaries, so try them in relevance order and iterate
-        // *every* library in scope (not just the first) so no library is silently skipped.
-        var libs = data.Libraries || [];
+        // Different library types populate different "primary" dictionaries, so try them in
+        // relevance order and iterate every library in scope, not just the first.
         var seen = {};
         var result = [];
         collectPathsFromLibsDict(libs, 'WatchedTierPaths', seen, result);
-        // Fallback if Watched not populated (old cache or no watched data yet) — Container covers all library types.
         if (result.length === 0) collectPathsFromLibsDict(libs, 'ContainerFormatPaths', seen, result);
-        // Music/Books scopes may predate ContainerFormatPaths in very old cached scans — fall back to their own dimension.
         if (result.length === 0) collectPathsFromLibsDict(libs, 'MusicAudioCodecPaths', seen, result);
         if (result.length === 0) collectPathsFromLibsDict(libs, 'BookFormatPaths', seen, result);
         return result.sort();
@@ -376,19 +381,15 @@ function computeFilteredPaths() {
     var sets = [];
     for (var d2 = 0; d2 < dims.length; d2++) {
         var dimension = dims[d2];
-        var values = Object.keys(_filterState.activeFilters[dimension]);
+        var values = Object.keys(state.activeFilters[dimension]);
         var pathsProp = STATISTICS_PATH_MAP[dimension];
         var union = {};
         for (var v = 0; v < values.length; v++) {
-            var val = values[v];
-            var direct = collectDictPaths(data.Libraries || [], pathsProp, val);
+            var direct = collectDictPaths(libs, pathsProp, values[v]);
             for (var pp = 0; pp < direct.length; pp++) union[direct[pp]] = true;
         }
-        var set = new Set(Object.keys(union));
-        sets.push(set);
+        sets.push(new Set(Object.keys(union)));
     }
-    if (sets.length === 0) return [];
-    // Intersect starting with smallest set
     sets.sort(function (a, b) { return a.size - b.size; });
     var smallest = sets[0];
     var result2 = [];
@@ -401,62 +402,53 @@ function computeFilteredPaths() {
     return result2.sort();
 }
 
-function isDimensionRelevant(categoryMap) {
-    var t = _filterState.libraryType;
-    if (t === 'all') return true;
-    if (t === 'movies') return !!categoryMap.movies;
-    if (t === 'tvshows') return !!categoryMap.tvShows;
-    if (t === 'music') return !!categoryMap.music;
-    if (t === 'books') return !!categoryMap.books;
-    if (t === 'other') return !!categoryMap.other;
-    return true;
+function computeScopeTotalFileCount(scopeKey) {
+    var state = getExplorerState(scopeKey);
+    var saved = state.activeFilters;
+    state.activeFilters = {};
+    var total = computeFilteredPaths(scopeKey).length;
+    state.activeFilters = saved;
+    return total;
 }
 
-function computeCountsWithinSelection(dimension) {
-    var filtered = computeFilteredPaths();
-    if (filtered.length === 0 && Object.keys(_filterState.activeFilters).length === 0) {
-        // No filter active — return full counts for current library scope
-        var d = getLibraryFilteredData();
-        if (!d) return {};
-        var libs = d.Libraries || [];
-        var prop = dimension === 'watched' ? 'WatchedTiers' : dimension === 'audioLanguages' ? 'AudioLanguages' : dimension === 'subtitleLanguages' ? 'SubtitleLanguages' : dimension === 'watchedByUser' ? 'WatchedByUserPaths' : null;
-        if (prop) {
-            var agg = {};
-            for (var i = 0; i < libs.length; i++) {
-                var dict = libs[i][prop];
-                if (!dict) continue;
-                for (var k in dict) {
-                    if (!Object.hasOwn(dict, k)) continue;
-                    var raw = dict[k];
-                    var cnt = (prop === 'WatchedByUserPaths' && raw) ? raw.length : raw;
-                    agg[k] = (agg[k] || 0) + cnt;
-                }
-            }
-            return agg;
-        }
-        // For codec-like dimensions use generic aggregate via lib property name map
-        var countPropMap = { 'resolutions': 'Resolutions', 'videoCodecs': 'VideoCodecs', 'videoAudioCodecs': 'VideoAudioCodecs', 'musicAudioCodecs': 'MusicAudioCodecs', 'bookFormats': 'BookFormats', 'containers': 'ContainerFormats', 'dynamicRanges': 'DynamicRanges', 'videoBitrate': 'VideoBitrateTiers' };
-        var cp = countPropMap[dimension];
-        if (cp) {
-            var ac = {};
-            for (var j = 0; j < libs.length; j++) {
-                var dd = libs[j][cp];
-                if (!dd) continue;
-                for (var kk in dd) if (Object.hasOwn(dd, kk)) ac[kk] = (ac[kk] || 0) + dd[kk];
-            }
-            return ac;
-        }
-        return {};
-    }
-    // Filtered: count occurrences of each value that appears in filtered set
-    var data = getLibraryFilteredData();
+function isDimensionRelevant(scopeKey, categoryMap) {
+    if (scopeKey === SCOPE_ALL) return true;
+    var lib = getScopedLib(scopeKey);
+    if (!lib) return true;
+    return !!categoryMap[classifyCollectionType(lib.CollectionType)];
+}
+
+function computeCountsWithinSelection(scopeKey, dimension) {
+    var state = getExplorerState(scopeKey);
+    var filtered = computeFilteredPaths(scopeKey);
+    var data = getScopedData(scopeKey);
     if (!data) return {};
-    var libs2 = data.Libraries || [];
+    var libs = data.Libraries || [];
+    if (filtered.length === 0 && Object.keys(state.activeFilters).length === 0) {
+        var prop = dimension === 'watched' ? 'WatchedTiers'
+            : dimension === 'audioLanguages' ? 'AudioLanguages'
+                : dimension === 'subtitleLanguages' ? 'SubtitleLanguages'
+                    : dimension === 'watchedByUser' ? 'WatchedByUserPaths'
+                        : STATISTICS_COUNT_PROP_MAP[dimension];
+        if (!prop) return {};
+        var agg = {};
+        for (var i = 0; i < libs.length; i++) {
+            var dict = libs[i][prop];
+            if (!dict) continue;
+            for (var k in dict) {
+                if (!Object.hasOwn(dict, k)) continue;
+                var raw = dict[k];
+                var cnt = (prop === 'WatchedByUserPaths' && raw) ? raw.length : raw;
+                agg[k] = (agg[k] || 0) + cnt;
+            }
+        }
+        return agg;
+    }
+    // Filtered: count occurrences of each value that appears in the filtered set.
     var pathsProp = STATISTICS_PATH_MAP[dimension];
-    // Build reverse map value -> set of paths for this dimension in current scope
     var reverse = {};
-    for (var li = 0; li < libs2.length; li++) {
-        var pDict = libs2[li][pathsProp];
+    for (var li = 0; li < libs.length; li++) {
+        var pDict = libs[li][pathsProp];
         if (!pDict) continue;
         for (var val in pDict) {
             if (!Object.hasOwn(pDict, val)) continue;
@@ -470,26 +462,20 @@ function computeCountsWithinSelection(dimension) {
     var counts = {};
     for (var vv in reverse) {
         if (!Object.hasOwn(reverse, vv)) continue;
-        var cnt = 0;
+        var cnt2 = 0;
         var map = reverse[vv];
-        for (var fp in map) if (filteredSet[fp]) cnt++;
-        if (cnt > 0) counts[vv] = cnt;
+        for (var fp in map) if (filteredSet[fp]) cnt2++;
+        if (cnt2 > 0) counts[vv] = cnt2;
     }
     return counts;
 }
 
-function getSizeMapForDimension(dimension) {
-    var d = getLibraryFilteredData();
-    if (!d) return {};
-    var libs = d.Libraries || [];
-    var sizePropMap = {
-        'resolutions': 'ResolutionSizes', 'videoCodecs': 'VideoCodecSizes', 'videoAudioCodecs': 'VideoAudioCodecSizes',
-        'musicAudioCodecs': 'MusicAudioCodecSizes', 'bookFormats': 'BookFormatSizes', 'containers': 'ContainerSizes',
-        'dynamicRanges': 'DynamicRangeSizes', 'videoBitrate': 'VideoBitrateTierSizes',
-        'audioLanguages': 'AudioLanguageSizes', 'subtitleLanguages': 'SubtitleLanguageSizes', 'watched': 'WatchedTierSizes', 'watchedByUser': 'WatchedByUserSizes'
-    };
-    var sp = sizePropMap[dimension];
+function getSizeMapForDimension(scopeKey, dimension) {
+    var data = getScopedData(scopeKey);
+    if (!data) return {};
+    var sp = STATISTICS_SIZE_PROP_MAP[dimension];
     if (!sp) return {};
+    var libs = data.Libraries || [];
     var agg = {};
     for (var i = 0; i < libs.length; i++) {
         var dict = libs[i][sp];
@@ -499,31 +485,16 @@ function getSizeMapForDimension(dimension) {
     return agg;
 }
 
-function buildFilterStripHtml() {
-    var active = _filterState.activeFilters;
-    var keys = Object.keys(active);
+function buildFilterStripHtml(scopeKey) {
+    var state = getExplorerState(scopeKey);
+    var keys = Object.keys(state.activeFilters);
     if (keys.length === 0) return '';
-    var filteredCount = computeFilteredPaths().length;
-    var totalCount = (function () {
-        var d = getLibraryFilteredData();
-        if (!d) return 0;
-        var c = 0;
-        for (var i = 0; i < d.Libraries.length; i++) c += d.Libraries[i].VideoFileCount || 0;
-        // For music/books scope, count audio/book files
-        if (_filterState.libraryType === 'music') { c = 0; for (var j = 0; j < d.Libraries.length; j++) c += d.Libraries[j].AudioFileCount || 0; }
-        if (_filterState.libraryType === 'books') { c = 0; for (var k = 0; k < d.Libraries.length; k++) c += d.Libraries[k].BookFileCount || 0; }
-        if (c === 0) {
-            // fallback via watched tier total
-            var tmp = computeFilteredPaths();
-            // When no filter, computeFilteredPaths returns all; reuse
-            if (keys.length === 0) return tmp.length;
-        }
-        return c || filteredCount;
-    })();
+    var filteredCount = computeFilteredPaths(scopeKey).length;
+    var totalCount = computeScopeTotalFileCount(scopeKey);
     var html = '<div class="stat-filter-strip"><span class="stat-filter-label">' + escHtml(T('statFilterStripLabel', 'Active')) + ':</span>';
     for (var di = 0; di < keys.length; di++) {
         var dim = keys[di];
-        var vals = Object.keys(active[dim]);
+        var vals = Object.keys(state.activeFilters[dim]);
         for (var vi = 0; vi < vals.length; vi++) {
             var v = vals[vi];
             html += '<button class="stat-filter-pill" data-dimension="' + escAttr(dim) + '" data-value="' + escAttr(v) + '" aria-label="' + escAttr(T('remove', 'Remove') + ' ' + v) + '">' + escHtml(v) + ' ✕</button>';
@@ -535,23 +506,9 @@ function buildFilterStripHtml() {
     return html;
 }
 
-function renderFilterStrip() {
-    var el = document.getElementById('statFilterStrip');
-    if (!el) return;
-    el.innerHTML = buildFilterStripHtml();
-    var pills = el.querySelectorAll('.stat-filter-pill');
-    for (var i = 0; i < pills.length; i++) {
-        pills[i].addEventListener('click', function () {
-            toggleFilter(this.dataset.dimension, this.dataset.value);
-        });
-    }
-    var clear = el.querySelector('[data-action="clearAll"]');
-    if (clear) clear.addEventListener('click', function () { clearAllFilters(); });
-}
-
 // Builds the { movies, tvShows, music, books, other, rootPaths } shape expected by the shared
 // renderFileTree() from a keyed paths-dictionary property (e.g. "VideoCodecPaths") + a value
-// (e.g. "HEVC"), scoped to whatever library-type view is currently selected.
+// (e.g. "HEVC"), scoped to whatever explorer instance requested it.
 function collectStatCodecPaths(data, pathsProp, value) {
     var d = data || {};
     return {
@@ -570,46 +527,36 @@ function collectStatCodecPaths(data, pathsProp, value) {
     };
 }
 
-function buildDonutSectionHtml(dimension) {
+function buildDonutSectionHtml(scopeKey, dimension) {
     var meta = STATISTICS_DIMENSIONS.find(function (d) { return d.id === dimension; });
     if (!meta) return '';
+    var state = getExplorerState(scopeKey);
     var categoryMap = STATISTICS_CATEGORY_MAP[dimension];
-    var relevant = isDimensionRelevant(categoryMap);
-    var counts = relevant ? computeCountsWithinSelection(dimension) : {};
-    var sizes = relevant ? getSizeMapForDimension(dimension) : {};
+    var relevant = isDimensionRelevant(scopeKey, categoryMap);
+    var counts = relevant ? computeCountsWithinSelection(scopeKey, dimension) : {};
+    var sizes = relevant ? getSizeMapForDimension(scopeKey, dimension) : {};
     var total = 0;
     for (var k in counts) if (Object.hasOwn(counts, k)) total += counts[k];
     var dimmed = !relevant ? ' stat-donut-dimmed' : '';
     var hint = !relevant ? '<span class="stat-donut-hint">' + escHtml(T('noData', 'No data in this view')) + '</span>' : '';
-    var headerCount = total;
-    // Expand state persists across every re-render (toggleFilter no longer collapses sections).
-    var isExpanded = !!_expandedDonutDims[dimension];
-    var treeValue = _activeDonutTreeValue[dimension];
-    var hasTree = !!(treeValue && Object.hasOwn(counts, treeValue));
+    var isExpanded = !!state.expandedDonutDims[dimension];
+    var treeValue = state.activeTreeSelection && state.activeTreeSelection.dimension === dimension ? state.activeTreeSelection.value : null;
+    var bodyId = 'stat-donut-body-' + escAttr(scopeKey) + '-' + escAttr(dimension);
     var html = '<div class="stat-donut-section' + dimmed + '" data-dimension="' + escAttr(dimension) + '">';
-    html += '<button class="stat-donut-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="stat-donut-body-' + escAttr(dimension) + '"><span class="stat-donut-title">' + mi(meta.icon) + escHtml(T(meta.labelKey, meta.fallback)) + '</span><span class="stat-donut-count">' + escHtml(String(headerCount)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span>' + hint + '</button>';
-    html += '<div class="stat-donut-body' + (hasTree ? ' stat-donut-body-with-tree' : '') + '" id="stat-donut-body-' + escAttr(dimension) + '"' + (isExpanded ? '' : ' hidden') + '>';
+    html += '<button class="stat-donut-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="' + bodyId + '"><span class="stat-donut-title">' + mi(meta.icon) + escHtml(T(meta.labelKey, meta.fallback)) + '</span><span class="stat-donut-count">' + escHtml(String(total)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span>' + hint + '</button>';
+    html += '<div class="stat-donut-body" id="' + bodyId + '"' + (isExpanded ? '' : ' hidden') + '>';
     if (!relevant) {
         html += '<p class="stat-donut-empty">' + escHtml(T('noData', 'No data in this view')) + '</p>';
     } else if (total === 0) {
         html += '<p class="stat-donut-empty">' + escHtml(T('noData', 'No data')) + '</p>';
     } else {
-        html += '<div class="stat-donut-main">';
-        // Render donut SVG + breakdown
-        var chartId = 'stat_' + dimension;
-        var libs = (getLibraryFilteredData() || {}).Libraries || [];
-        // For tooltip library breakdown, we need the count dict and library property name
-        var countPropMap = { 'resolutions': 'Resolutions', 'videoCodecs': 'VideoCodecs', 'videoAudioCodecs': 'VideoAudioCodecs', 'musicAudioCodecs': 'MusicAudioCodecs', 'bookFormats': 'BookFormats', 'containers': 'ContainerFormats', 'dynamicRanges': 'DynamicRanges', 'videoBitrate': 'VideoBitrateTiers', 'audioLanguages': 'AudioLanguages', 'subtitleLanguages': 'SubtitleLanguages', 'watched': 'WatchedTiers' };
-        var countProp = countPropMap[dimension];
-        // Build SVG via shared renderDonutSvg if available, else fallback
-        var svg = '';
-        if (typeof renderDonutSvg === 'function') {
-            svg = renderDonutSvg(counts, libs, countProp, chartId);
-        } else {
-            svg = '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
-        }
+        var chartId = 'stat_' + scopeKey + '_' + dimension;
+        var libs = (getScopedData(scopeKey) || {}).Libraries || [];
+        var countProp = STATISTICS_COUNT_PROP_MAP[dimension];
+        var svg = typeof renderDonutSvg === 'function'
+            ? renderDonutSvg(counts, libs, countProp, chartId)
+            : '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
         html += svg;
-        // Breakdown rows
         var entries = [];
         for (var kk in counts) if (Object.hasOwn(counts, kk)) entries.push({ label: kk, count: counts[kk], size: sizes[kk] || 0 });
         entries.sort(function (a, b) { return b.count - a.count; });
@@ -617,7 +564,7 @@ function buildDonutSectionHtml(dimension) {
         for (var e = 0; e < entries.length; e++) {
             var ent = entries[e];
             var pct = total > 0 ? (ent.count / total * 100).toFixed(1) : '0';
-            var isActive = _filterState.activeFilters[dimension] && _filterState.activeFilters[dimension][ent.label];
+            var isActive = state.activeFilters[dimension] && state.activeFilters[dimension][ent.label];
             var isTreeOpen = treeValue === ent.label;
             var color = (typeof DONUT_COLORS !== 'undefined' ? DONUT_COLORS[e % DONUT_COLORS.length] : '#00a4dc');
             html += '<button class="stat-breakdown-row' + (isActive ? ' stat-breakdown-active' : '') + (isTreeOpen ? ' stat-breakdown-tree-open' : '') + '" data-dimension="' + escAttr(dimension) + '" data-value="' + escAttr(ent.label) + '" role="button" aria-pressed="' + (isActive ? 'true' : 'false') + '">';
@@ -627,58 +574,42 @@ function buildDonutSectionHtml(dimension) {
             html += '</button>';
         }
         html += '</div>';
-        html += '</div>'; // .stat-donut-main
-        // Inline file-tree for the currently focused breakdown value — shown immediately next to
-        // (desktop) or below (mobile) the donut it belongs to, never in a separate panel that
-        // requires scrolling or switching tabs to discover.
-        if (hasTree) {
-            var pathsProp = STATISTICS_PATH_MAP[dimension];
-            var treeData = collectStatCodecPaths(getLibraryFilteredData(), pathsProp, treeValue);
-            var treeMeta = dimension === 'resolutions' ? collectResolutionDimensionsMap() : null;
-            html += '<div class="file-tree-panel file-tree-panel-visible" id="statDetail_' + escAttr(dimension) + '">' + renderFileTree(treeData, treeValue, treeMeta) + '</div>';
-        } else {
-            html += '<div class="file-tree-panel" id="statDetail_' + escAttr(dimension) + '"></div>';
-        }
     }
     html += '</div></div>';
     return html;
 }
 
-function buildDonutPanelHtml() {
+function buildDonutPanelHtml(scopeKey) {
     var html = '<div class="stat-donut-panel">';
+    var data = getScopedData(scopeKey);
+    var libs = (data && data.Libraries) || [];
     for (var i = 0; i < STATISTICS_DIMENSIONS.length; i++) {
         var dim = STATISTICS_DIMENSIONS[i].id;
-        // Hide Music/Book sections entirely when irrelevant and empty in All view to avoid clutter
+        // Hide Music/Book sections entirely when the whole scope has no such files, rather than
+        // showing an always-empty donut.
         if (dim === 'musicAudioCodecs' || dim === 'bookFormats') {
-            var d = getLibraryFilteredData();
-            var libs = (d && d.Libraries) || [];
-            var hasData = false;
             var propCheck = dim === 'musicAudioCodecs' ? 'MusicAudioCodecs' : 'BookFormats';
-            for (var li = 0; li < libs.length; li++) { if (libs[li][propCheck] && Object.keys(libs[li][propCheck]).length > 0) { hasData = true; break; } }
-            if (!hasData && _filterState.libraryType === 'all') {
-                // Check real total
-                var totalCheck = d && d.Libraries ? d.Libraries : [];
-                var any = false;
-                for (var q = 0; q < totalCheck.length; q++) { if (totalCheck[q][propCheck] && Object.keys(totalCheck[q][propCheck]).length > 0) any = true; }
-                if (!any) continue;
+            var hasData = false;
+            for (var li = 0; li < libs.length; li++) {
+                if (libs[li][propCheck] && Object.keys(libs[li][propCheck]).length > 0) { hasData = true; break; }
             }
+            if (!hasData) continue;
         }
-        html += buildDonutSectionHtml(dim);
+        html += buildDonutSectionHtml(scopeKey, dim);
     }
     html += '</div>';
     return html;
 }
 
-function buildWatchedByUserFilterHtml() {
-    var d = getLibraryFilteredData();
-    if (!d) return '';
-    var libs = d.Libraries || [];
-    if (!isDimensionRelevant(STATISTICS_CATEGORY_MAP['watchedByUser'])) return '';
-    // Aggregate per-user counts within current filtered set (like donuts)
+function buildWatchedByUserFilterHtml(scopeKey) {
+    var data = getScopedData(scopeKey);
+    if (!data) return '';
+    var libs = data.Libraries || [];
+    if (!isDimensionRelevant(scopeKey, STATISTICS_CATEGORY_MAP.watchedByUser)) return '';
+    var state = getExplorerState(scopeKey);
+    var hasAnyFilter = Object.keys(state.activeFilters).length > 0;
+    var filteredPaths = hasAnyFilter ? computeFilteredPaths(scopeKey) : null;
     var filteredSet = null;
-    var activeFilters = _filterState.activeFilters;
-    var hasAnyFilter = Object.keys(activeFilters).length > 0;
-    var filteredPaths = hasAnyFilter ? computeFilteredPaths() : null;
     if (filteredPaths) {
         filteredSet = {};
         for (var fi = 0; fi < filteredPaths.length; fi++) filteredSet[filteredPaths[fi]] = true;
@@ -686,8 +617,8 @@ function buildWatchedByUserFilterHtml() {
     var userCounts = {};
     var userSizes = {};
     for (var li2 = 0; li2 < libs.length; li2++) {
-        var dict2 = libs[li2].WatchedByUserPaths || libs[li2].watchedByUserPaths;
-        var sizes2 = libs[li2].WatchedByUserSizes || libs[li2].watchedByUserSizes;
+        var dict2 = libs[li2].WatchedByUserPaths;
+        var sizes2 = libs[li2].WatchedByUserSizes;
         if (!dict2) continue;
         for (var user2 in dict2) {
             if (!Object.hasOwn(dict2, user2)) continue;
@@ -699,63 +630,52 @@ function buildWatchedByUserFilterHtml() {
             if (cnt > 0) {
                 userCounts[user2] = (userCounts[user2] || 0) + cnt;
                 if (sizes2 && sizes2[user2] != null) {
-                    // Proportional size when filtered
-                    var totalForUser = dict2[user2].length;
-                    var ratio = totalForUser ? cnt / totalForUser : 1;
+                    var ratio = arr2.length ? cnt / arr2.length : 1;
                     userSizes[user2] = (userSizes[user2] || 0) + Math.round(sizes2[user2] * ratio);
                 }
             }
         }
     }
-    // Fallback when no per-user data but filteredSet exists: show nothing (handled below)
-    var users = Object.keys(userCounts).sort(function(a,b){ return userCounts[b]-userCounts[a]; });
+    var users = Object.keys(userCounts).sort(function (a, b) { return userCounts[b] - userCounts[a]; });
     if (users.length === 0) return '';
-    var isExpanded = !!_expandedDonutDims['watchedByUser'];
-    var treeValue = _activeDonutTreeValue['watchedByUser'];
-    var hasTree = !!(treeValue && Object.hasOwn(userCounts, treeValue));
+    var isExpanded = !!state.expandedDonutDims.watchedByUser;
+    var treeValue = state.activeTreeSelection && state.activeTreeSelection.dimension === 'watchedByUser' ? state.activeTreeSelection.value : null;
+    var bodyId = 'stat-watchedByUser-body-' + escAttr(scopeKey);
     var html = '<div class="stat-donut-section" data-dimension="watchedByUser">';
-    html += '<button class="stat-donut-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="stat-watchedByUser-body"><span class="stat-donut-title">' + mi('group') + escHtml(T('watchedBy', 'Watched by')) + '</span><span class="stat-donut-count">' + escHtml(String(users.length)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span></button>';
-    html += '<div class="stat-donut-body' + (hasTree ? ' stat-donut-body-with-tree' : '') + '" id="stat-watchedByUser-body"' + (isExpanded ? '' : ' hidden') + '>';
-    html += '<div class="stat-donut-main"><div class="stat-breakdown">';
+    html += '<button class="stat-donut-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="' + bodyId + '"><span class="stat-donut-title">' + mi('group') + escHtml(T('watchedBy', 'Watched by')) + '</span><span class="stat-donut-count">' + escHtml(String(users.length)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span></button>';
+    html += '<div class="stat-donut-body" id="' + bodyId + '"' + (isExpanded ? '' : ' hidden') + '>';
+    html += '<div class="stat-breakdown">';
     for (var i = 0; i < users.length; i++) {
         var u = users[i];
-        var cnt = userCounts[u];
+        var cnt2 = userCounts[u];
         var size = userSizes[u] || 0;
-        var isActive = _filterState.activeFilters['watchedByUser'] && _filterState.activeFilters['watchedByUser'][u];
+        var isActive = state.activeFilters.watchedByUser && state.activeFilters.watchedByUser[u];
         var isTreeOpen = treeValue === u;
         var color = (typeof DONUT_COLORS !== 'undefined' ? DONUT_COLORS[i % DONUT_COLORS.length] : '#00a4dc');
         html += '<button class="stat-breakdown-row' + (isActive ? ' stat-breakdown-active' : '') + (isTreeOpen ? ' stat-breakdown-tree-open' : '') + '" data-dimension="watchedByUser" data-value="' + escAttr(u) + '" role="button" aria-pressed="' + (isActive ? 'true' : 'false') + '">';
         html += '<span class="stat-breakdown-color" style="background:' + escAttr(color) + '"></span>';
-        html += '<span class="stat-breakdown-info"><span class="stat-breakdown-name">' + escHtml(u) + '</span><span class="stat-breakdown-stats">' + escHtml(String(cnt)) + ' ' + escHtml(T('files', 'files')) + (size ? ' \u00b7 ' + escHtml(formatBytes(size)) : '') + '</span></span>';
+        html += '<span class="stat-breakdown-info"><span class="stat-breakdown-name">' + escHtml(u) + '</span><span class="stat-breakdown-stats">' + escHtml(String(cnt2)) + ' ' + escHtml(T('files', 'files')) + (size ? ' \u00b7 ' + escHtml(formatBytes(size)) : '') + '</span></span>';
         html += '</button>';
     }
-    html += '</div></div>';
-    if (hasTree) {
-        var treeData = collectStatCodecPaths(d, STATISTICS_PATH_MAP['watchedByUser'], treeValue);
-        html += '<div class="file-tree-panel file-tree-panel-visible" id="statDetail_watchedByUser">' + renderFileTree(treeData, treeValue) + '</div>';
-    } else {
-        html += '<div class="file-tree-panel" id="statDetail_watchedByUser"></div>';
-    }
-    html += '</div></div>';
+    html += '</div></div></div>';
     return html;
 }
-
 
 function attachDonutHoverTooltips() {
     var containers = document.querySelectorAll('.donut-container');
     for (var ci = 0; ci < containers.length; ci++) {
-        (function(container) {
+        (function (container) {
             var paths = container.querySelectorAll('.donut-segment path');
             var tooltip = container.querySelector('.donut-tooltip');
             if (!tooltip) return;
             for (var pi = 0; pi < paths.length; pi++) {
-                (function(path) {
+                (function (path) {
                     var seg = path.closest('.donut-segment');
                     if (!seg) return;
                     var segId = seg.getAttribute('data-segment-id');
                     var data = _statDonutTooltipData[segId];
                     if (!data) return;
-                    path.addEventListener('mouseenter', function(e) {
+                    path.addEventListener('mouseenter', function (e) {
                         var html = '<div class="donut-tooltip-header"><span class="donut-tooltip-codec">' + escHtml(data.codec) + '</span><span class="donut-tooltip-total">' + escHtml(String(data.totalCount)) + ' ' + escHtml(T('files', 'files')) + '</span></div><div class="donut-tooltip-pct">' + escHtml(data.totalPct) + '%</div>';
                         if (data.libraries && data.libraries.length) {
                             html += '<div class="donut-tooltip-divider"></div><table class="donut-tooltip-table"><tbody>';
@@ -770,78 +690,22 @@ function attachDonutHoverTooltips() {
                         tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
                         tooltip.style.top = (e.clientY - rect.top + 12) + 'px';
                     });
-                    path.addEventListener('mouseleave', function() { tooltip.classList.remove('visible'); });
+                    path.addEventListener('mouseleave', function () { tooltip.classList.remove('visible'); });
                 })(paths[pi]);
             }
         })(containers[ci]);
     }
 }
 
-function attachDonutPanelHandlers() {
-    var headers = document.querySelectorAll('.stat-donut-header');
-    for (var i = 0; i < headers.length; i++) {
-        headers[i].addEventListener('click', function () {
-            var expanded = this.getAttribute('aria-expanded') === 'true';
-            this.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-            var body = document.getElementById(this.getAttribute('aria-controls'));
-            if (body) body.hidden = expanded;
-            var section = this.closest('.stat-donut-section');
-            var dim = section ? section.dataset.dimension : null;
-            if (dim) _expandedDonutDims[dim] = !expanded;
-        });
-    }
-    var rows = document.querySelectorAll('.stat-breakdown-row');
-    for (var r = 0; r < rows.length; r++) {
-        rows[r].addEventListener('click', function () {
-            toggleFilter(this.dataset.dimension, this.dataset.value);
-        });
-    }
-    // Donut segment clicks — segments rendered by renderDonutSvg have class donut-segment
-    var segs = document.querySelectorAll('.stat-donut-body .donut-segment');
-    for (var s = 0; s < segs.length; s++) {
-        segs[s].addEventListener('click', function () {
-            var seg = this.closest ? this.closest('.donut-segment') : this;
-            var code = seg ? seg.dataset.codec : null;
-            // Find nearest dimension via parent section
-            var section = this.closest ? this.closest('.stat-donut-section') : null;
-            if (section && code) toggleFilter(section.dataset.dimension, code);
-        });
-    }
-    // Mirror hover tooltips if Codecs tooltip logic exists
-    if (typeof attachDonutHoverTooltips === 'function') {
-        try { attachDonutHoverTooltips(); } catch (e) { }
-    }
-    // Bind folder expand/collapse behaviour for any inline file-trees rendered above. Note:
-    // buildWatchedByUserFilterHtml() renders its section as a sibling of .stat-donut-panel (not
-    // nested inside it), so the selector must cover the whole filter panel, not just the donuts.
-    if (typeof bindFileTreeHandlers === 'function') {
-        var treePanels = document.querySelectorAll('#statFilterPanel .file-tree-panel-visible');
-        for (var tp = 0; tp < treePanels.length; tp++) bindFileTreeHandlers(treePanels[tp]);
-    }
-}
-
-function collectResolutionDimensionsMap() {
-    var d = getLibraryFilteredData();
+function collectResolutionDimensionsMap(scopeKey) {
+    var d = getScopedData(scopeKey);
     if (!d) return {};
     var merged = {};
-    var groups = [d.Movies, d.TvShows, d.Other];
-    // Also include Libraries when All selected and those groups not present
-    if (!d.Movies && !d.TvShows && d.Libraries) groups = [d.Libraries];
-    for (var gi = 0; gi < groups.length; gi++) {
-        var grp = groups[gi] || [];
-        for (var li = 0; li < grp.length; li++) {
-            var dims = grp[li] ? grp[li].ResolutionDimensions : null;
-            if (!dims) continue;
-            for (var p in dims) if (Object.hasOwn(dims, p)) merged[p] = dims[p];
-        }
-    }
-    // Also check Libraries directly for cases where Movies/TvShows not sliced
-    if (d.Libraries) {
-        for (var q = 0; q < d.Libraries.length; q++) {
-            var dd = d.Libraries[q].ResolutionDimensions;
-            if (!dd) continue;
-            for (var pp in dd) if (Object.hasOwn(dd, pp)) merged[pp] = dd[pp];
-        }
+    var libs = d.Libraries || [];
+    for (var i = 0; i < libs.length; i++) {
+        var dims = libs[i].ResolutionDimensions;
+        if (!dims) continue;
+        for (var p in dims) if (Object.hasOwn(dims, p)) merged[p] = dims[p];
     }
     return merged;
 }
@@ -849,9 +713,9 @@ function collectResolutionDimensionsMap() {
 function buildFileDetail(path) {
     var d = _lastStatisticsData;
     if (!d) return '';
-    var libs = (d.Libraries || []);
+    var libs = d.Libraries || [];
     var info = { path: path, videoCodec: null, container: null, resolution: null, resolutionDim: null, bitrate: null, dynamicRange: null, audioCodec: null, audioLangs: [], subtitleLangs: [], watchedBy: [], watchedDetails: [] };
-    var dimMap = collectResolutionDimensionsMap();
+    var dimMap = collectResolutionDimensionsMap(SCOPE_ALL);
     info.resolutionDim = dimMap[path] || null;
     for (var li = 0; li < libs.length; li++) {
         var lib = libs[li];
@@ -863,22 +727,17 @@ function buildFileDetail(path) {
         for (var ak in (lib.VideoAudioCodecPaths || {})) if (Object.hasOwn(lib.VideoAudioCodecPaths, ak) && lib.VideoAudioCodecPaths[ak].indexOf(path) !== -1) info.audioCodec = ak;
         for (var al in (lib.AudioLanguagePaths || {})) if (Object.hasOwn(lib.AudioLanguagePaths, al) && lib.AudioLanguagePaths[al].indexOf(path) !== -1) info.audioLangs.push(al);
         for (var sl in (lib.SubtitleLanguagePaths || {})) if (Object.hasOwn(lib.SubtitleLanguagePaths, sl) && lib.SubtitleLanguagePaths[sl].indexOf(path) !== -1) info.subtitleLangs.push(sl);
-        // New per-file per-user details (preferred) — fallback to legacy string list
-        var details = lib.WatchedDetails ? (lib.WatchedDetails[path] || lib.watchedDetails?.[path]) : null;
+        var details = lib.WatchedDetails ? lib.WatchedDetails[path] : null;
         if (details && details.length) {
             info.watchedDetails = details;
-            // also populate simple list for compatibility
             var names = [];
             for (var di = 0; di < details.length; di++) {
-                var det = details[di];
-                var uname = det.username || det.Username || '';
+                var uname = details[di].username || details[di].Username || '';
                 if (uname) names.push(uname);
             }
             info.watchedBy = names;
         } else if (lib.WatchedByUsers && lib.WatchedByUsers[path]) {
             info.watchedBy = lib.WatchedByUsers[path];
-        } else if (lib.watchedByUsers && lib.watchedByUsers[path]) {
-            info.watchedBy = lib.watchedByUsers[path];
         }
     }
 
@@ -911,13 +770,11 @@ function buildFileDetail(path) {
     } else html += escHtml(T('noData', '\u2014'));
     html += '</span></div>';
 
-    // Watched — collapsible per-file hint: "X Users Watched" → expand to per-user with when/how often
     var watchedCount = info.watchedDetails.length || info.watchedBy.length || 0;
     html += '<div class="stat-detail-row stat-detail-watched"><span class="stat-detail-label">' + escHtml(T('watched', 'Watched')) + '</span><span class="stat-detail-value">';
     if (watchedCount === 0) {
         html += escHtml(T('never', 'Never watched'));
     } else {
-        // Show count as button to expand details
         html += '<button class="stat-watched-toggle" aria-expanded="false">' + mi('visibility') + escHtml(String(watchedCount)) + ' ' + escHtml(T('watched', 'Watched')) + ' \u25be</button>';
         html += '<div class="stat-watched-details" hidden>';
         if (info.watchedDetails.length) {
@@ -927,11 +784,11 @@ function buildFileDetail(path) {
                 var uname = escHtml(unameRaw);
                 var pc = det.playCount != null ? det.playCount : (det.PlayCount != null ? det.PlayCount : 1);
                 var lpdRaw = det.lastPlayedDate || det.LastPlayedDate || det.lastPlayed || null;
-                var when = '';
+                var when;
                 if (lpdRaw) {
-                    try { when = formatTimeAgo(lpdRaw) || new Date(lpdRaw).toLocaleString(); } catch(e) { when = String(lpdRaw); }
+                    try { when = formatTimeAgo(lpdRaw) || new Date(lpdRaw).toLocaleString(); } catch (e) { when = String(lpdRaw); }
                 } else {
-                    when = escHtml(T('statUnknownDate', 'Unknown date'));
+                    when = T('statUnknownDate', 'Unknown date');
                 }
                 var plays = pc === 1 ? '1 ' + escHtml(T('play', 'play')) : escHtml(String(pc)) + ' ' + escHtml(T('plays', 'plays'));
                 html += '<div class="stat-watched-user">' + mi('person') + '<span class="stat-watched-name">' + uname + '</span><span class="stat-watched-meta">' + plays + ' \u00b7 ' + escHtml(when) + '</span><button class="stat-chip stat-chip-small" data-dimension="watchedByUser" data-value="' + escAttr(unameRaw) + '">' + escHtml(T('filterByUser', 'Filter')) + '</button></div>';
@@ -951,112 +808,12 @@ function buildFileDetail(path) {
     return html;
 }
 
-function renderResultsPanel() {
-    var container = document.getElementById('statResultsPanel');
-    if (!container) return;
-    var filtered = computeFilteredPaths();
-    var hasFilters = Object.keys(_filterState.activeFilters).length > 0;
-    var offset = _filterState.resultOffset || 0;
-    var page = filtered.slice(offset, offset + STATISTICS_PAGE_SIZE);
-    var html = '';
-    if (!hasFilters) {
-        // Curated defaults: Top 5 largest files (by FileSizes, across every library in scope) + Top 5 never-watched.
-        var libs = (getLibraryFilteredData() || {}).Libraries || [];
-        var libType = _filterState.libraryType;
-        // Watched status only exists for video libraries — don't show a "never-watched" column for Music/Books.
-        var watchedEligible = libType === 'all' || libType === 'movies' || libType === 'tvshows' || libType === 'other';
-        var neverWatched = [];
-        var largest = [];
-        for (var li = 0; li < libs.length; li++) {
-            if (watchedEligible) {
-                var wt = libs[li].WatchedTierPaths && libs[li].WatchedTierPaths['Never watched'];
-                if (wt) for (var n = 0; n < wt.length; n++) neverWatched.push(wt[n]);
-            }
-            var sizes = libs[li].FileSizes;
-            if (sizes) {
-                for (var sp in sizes) {
-                    if (Object.hasOwn(sizes, sp)) largest.push({ path: sp, size: sizes[sp] });
-                }
-            }
-        }
-        largest.sort(function (a, b) { return b.size - a.size; });
-        html += '<div class="stat-curated">';
-        html += '<p class="stat-curated-hint">' + escHtml(T('statNoFiltersHint', 'Select a filter to explore your library.')) + '</p>';
-        html += '<div class="stat-curated-cols">';
-        html += '<div class="stat-curated-col"><h4>' + escHtml(T('statTopLargest', 'Top 5 largest files')) + '</h4>';
-        if (largest.length === 0) html += '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
-        else {
-            for (var lgi = 0; lgi < Math.min(5, largest.length); lgi++) {
-                var lp = largest[lgi].path;
-                var lnm = lp.split('/').pop().split('\\').pop() || lp;
-                html += '<div class="stat-curated-item" title="' + escAttr(lp) + '"><span class="stat-curated-name">' + escHtml(lnm) + '</span><span class="stat-curated-meta">' + escHtml(formatBytes(largest[lgi].size)) + '</span></div>';
-            }
-        }
-        html += '</div>';
-        if (watchedEligible) {
-            html += '<div class="stat-curated-col"><h4>' + escHtml(T('statTopNeverWatched', 'Top 5 never-watched')) + '</h4>';
-            if (neverWatched.length === 0) html += '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
-            else {
-                for (var b = 0; b < Math.min(5, neverWatched.length); b++) {
-                    var pp = neverWatched[b];
-                    var nm = pp.split('/').pop().split('\\').pop() || pp;
-                    html += '<div class="stat-curated-item" title="' + escAttr(pp) + '"><span class="stat-curated-name">' + escHtml(nm) + '</span></div>';
-                }
-            }
-            html += '</div>';
-        }
-        html += '</div></div>';
-        container.innerHTML = html;
-        return;
-    }
-    if (filtered.length === 0) {
-        container.innerHTML = '<p class="stat-no-results">' + escHtml(T('noFilesFound', 'No files found.')) + ' <button class="stat-link" data-action="clearAll">' + escHtml(T('statResetAll', 'Reset all')) + '</button></p>';
-        var clr = container.querySelector('[data-action="clearAll"]');
-        if (clr) clr.addEventListener('click', function () { clearAllFilters(); });
-        return;
-    }
-    html += '<div class="stat-results-header">' + escHtml(String(filtered.length)) + ' ' + escHtml(T('files', 'files')) + '</div>';
-    html += '<div class="stat-results-list">';
-    for (var i = 0; i < page.length; i++) {
-        var path = page[i];
-        var fileName = path.split('/').pop() || path.split('\\').pop() || path;
-        html += '<div class="stat-file-entry" data-path="' + escAttr(path) + '" role="button" tabindex="0" aria-expanded="false"><div class="stat-file-row"><span class="stat-file-icon">' + mi('description') + '</span><span class="stat-file-name">' + escHtml(fileName) + '</span><span class="stat-file-path-hint" title="' + escAttr(path) + '">' + escHtml(path) + '</span><span class="stat-file-chevron">' + mi('expand_more') + '</span></div><div class="stat-file-detail-wrap" hidden></div></div>';
-    }
-    html += '</div>';
-    if (offset + STATISTICS_PAGE_SIZE < filtered.length) {
-        var remaining = filtered.length - (offset + STATISTICS_PAGE_SIZE);
-        html += '<button class="stat-load-more" data-action="loadMore">' + escHtml(T('loadMore', 'Load more')) + ' (' + escHtml(String(remaining)) + ')</button>';
-    }
-    container.innerHTML = html;
-    // Bind file entry expand
-    var entries = container.querySelectorAll('.stat-file-entry');
-    for (var e = 0; e < entries.length; e++) {
-        entries[e].addEventListener('click', function () {
-            var expanded = this.getAttribute('aria-expanded') === 'true';
-            // Collapse others (accordion)
-            var all = container.querySelectorAll('.stat-file-entry');
-            for (var k = 0; k < all.length; k++) {
-                if (all[k] !== this) {
-                    all[k].setAttribute('aria-expanded', 'false');
-                    var wrap = all[k].querySelector('.stat-file-detail-wrap');
-                    if (wrap) { wrap.hidden = true; wrap.innerHTML = ''; }
-                    var ch = all[k].querySelector('.stat-file-chevron');
-                    if (ch) ch.style.transform = '';
-                }
-            }
-            this.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-            var w = this.querySelector('.stat-file-detail-wrap');
-            var chev = this.querySelector('.stat-file-chevron');
-            if (expanded) {
-                if (w) { w.hidden = true; w.innerHTML = ''; }
-                if (chev) chev.style.transform = '';
-            } else {
-                if (w) { w.innerHTML = buildFileDetail(this.dataset.path); w.hidden = false; }
-                if (chev) chev.style.transform = 'rotate(180deg)';
-                // Bind watched collapsible inside file detail
-    var watchedToggles = w.querySelectorAll('.stat-watched-toggle');
+// Wires the watched-details toggle and the codec/language chips inside a rendered
+// buildFileDetail() block. scopeKey routes chip clicks back to the correct explorer instance.
+function bindFileDetailInteractions(container, scopeKey) {
+    var watchedToggles = container.querySelectorAll('.stat-watched-toggle');
     for (var wt = 0; wt < watchedToggles.length; wt++) {
-        watchedToggles[wt].addEventListener('click', function(ev) {
+        watchedToggles[wt].addEventListener('click', function (ev) {
             ev.stopPropagation();
             var exp = this.getAttribute('aria-expanded') === 'true';
             this.setAttribute('aria-expanded', exp ? 'false' : 'true');
@@ -1065,14 +822,155 @@ function renderResultsPanel() {
             this.innerHTML = this.innerHTML.replace(exp ? '\u25b2' : '\u25be', exp ? '\u25be' : '\u25b2');
         });
     }
-    // Bind chip clicks inside detail to toggleFilter
-                var chips = w.querySelectorAll('.stat-chip');
-                for (var c = 0; c < chips.length; c++) {
-                    chips[c].addEventListener('click', function (ev) {
-                        ev.stopPropagation();
-                        toggleFilter(this.dataset.dimension, this.dataset.value);
-                    });
+    var chips = container.querySelectorAll('.stat-chip');
+    for (var c = 0; c < chips.length; c++) {
+        chips[c].addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            toggleFilter(scopeKey, this.dataset.dimension, this.dataset.value);
+        });
+    }
+}
+
+function renderCuratedDefaults(scopeKey) {
+    var libs = (getScopedData(scopeKey) || {}).Libraries || [];
+    var watchedEligible = isDimensionRelevant(scopeKey, STATISTICS_CATEGORY_MAP.watched);
+    var neverWatched = [];
+    var largest = [];
+    for (var li = 0; li < libs.length; li++) {
+        if (watchedEligible) {
+            var wt = libs[li].WatchedTierPaths && libs[li].WatchedTierPaths['Never watched'];
+            if (wt) for (var n = 0; n < wt.length; n++) neverWatched.push(wt[n]);
+        }
+        var sizes = libs[li].FileSizes;
+        if (sizes) {
+            for (var sp in sizes) if (Object.hasOwn(sizes, sp)) largest.push({ path: sp, size: sizes[sp] });
+        }
+    }
+    largest.sort(function (a, b) { return b.size - a.size; });
+    var html = '<div class="stat-curated">';
+    html += '<p class="stat-curated-hint">' + escHtml(T('statNoFiltersHint', 'Select a filter to explore your library.')) + '</p>';
+    html += '<div class="stat-curated-cols">';
+    html += '<div class="stat-curated-col"><h4>' + escHtml(T('statTopLargest', 'Top 5 largest files')) + '</h4>';
+    if (largest.length === 0) html += '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
+    else {
+        for (var lgi = 0; lgi < Math.min(5, largest.length); lgi++) {
+            var lp = largest[lgi].path;
+            var lnm = lp.split('/').pop().split('\\').pop() || lp;
+            html += '<div class="stat-curated-item" title="' + escAttr(lp) + '"><span class="stat-curated-name">' + escHtml(lnm) + '</span><span class="stat-curated-meta">' + escHtml(formatBytes(largest[lgi].size)) + '</span></div>';
+        }
+    }
+    html += '</div>';
+    if (watchedEligible) {
+        html += '<div class="stat-curated-col"><h4>' + escHtml(T('statTopNeverWatched', 'Top 5 never-watched')) + '</h4>';
+        if (neverWatched.length === 0) html += '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
+        else {
+            for (var b = 0; b < Math.min(5, neverWatched.length); b++) {
+                var pp = neverWatched[b];
+                var nm = pp.split('/').pop().split('\\').pop() || pp;
+                html += '<div class="stat-curated-item" title="' + escAttr(pp) + '"><span class="stat-curated-name">' + escHtml(nm) + '</span></div>';
+            }
+        }
+        html += '</div>';
+    }
+    html += '</div></div>';
+    return html;
+}
+
+function renderTreeResultsView(container, scopeKey) {
+    var state = getExplorerState(scopeKey);
+    var sel = state.activeTreeSelection;
+    var data = getScopedData(scopeKey);
+    var pathsProp = STATISTICS_PATH_MAP[sel.dimension];
+    var treeData = collectStatCodecPaths(data, pathsProp, sel.value);
+    var treeMeta = sel.dimension === 'resolutions' ? collectResolutionDimensionsMap(scopeKey) : null;
+    var totalFiles = treeData.movies.length + treeData.tvShows.length + treeData.music.length + treeData.books.length + treeData.other.length;
+    var html = '<div class="stat-tree-view">';
+    html += '<div class="stat-results-header">' + escHtml(String(totalFiles)) + ' ' + escHtml(T('files', 'files')) + '</div>';
+    if (totalFiles === 0) {
+        html += '<p class="stat-no-results">' + escHtml(T('noFilesFound', 'No files found.')) + '</p>';
+    } else {
+        html += '<div class="file-tree-panel file-tree-panel-visible" id="statTree_' + escAttr(scopeKey) + '">' + renderFileTree(treeData, sel.value, treeMeta) + '</div>';
+    }
+    html += '<div class="stat-file-detail-wrap" id="statTreeDetail_' + escAttr(scopeKey) + '" hidden></div>';
+    html += '</div>';
+    container.innerHTML = html;
+
+    var treeContainer = document.getElementById('statTree_' + scopeKey);
+    if (!treeContainer) return;
+    if (typeof bindFileTreeHandlers === 'function') bindFileTreeHandlers(treeContainer);
+
+    var detailWrap = document.getElementById('statTreeDetail_' + scopeKey);
+    var leaves = treeContainer.querySelectorAll('.tree-leaf');
+    for (var li = 0; li < leaves.length; li++) {
+        leaves[li].setAttribute('tabindex', '0');
+        leaves[li].setAttribute('role', 'button');
+        leaves[li].addEventListener('click', function () {
+            var path = this.getAttribute('title');
+            var allLeaves = treeContainer.querySelectorAll('.tree-leaf');
+            var alreadySelected = this.classList.contains('tree-leaf-selected');
+            for (var k = 0; k < allLeaves.length; k++) allLeaves[k].classList.remove('tree-leaf-selected');
+            if (alreadySelected) {
+                if (detailWrap) { detailWrap.hidden = true; detailWrap.innerHTML = ''; }
+                return;
+            }
+            this.classList.add('tree-leaf-selected');
+            if (detailWrap) {
+                detailWrap.innerHTML = buildFileDetail(path);
+                detailWrap.hidden = false;
+                bindFileDetailInteractions(detailWrap, scopeKey);
+            }
+        });
+        leaves[li].addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); this.click(); }
+        });
+    }
+}
+
+function renderFilteredListView(container, scopeKey) {
+    var state = getExplorerState(scopeKey);
+    var filtered = computeFilteredPaths(scopeKey);
+    var offset = state.resultOffset || 0;
+    var page = filtered.slice(offset, offset + STATISTICS_PAGE_SIZE);
+    if (filtered.length === 0) {
+        container.innerHTML = '<p class="stat-no-results">' + escHtml(T('noFilesFound', 'No files found.')) + ' <button class="stat-link" data-action="clearAll">' + escHtml(T('statResetAll', 'Reset all')) + '</button></p>';
+        var clr = container.querySelector('[data-action="clearAll"]');
+        if (clr) clr.addEventListener('click', function () { clearAllFilters(scopeKey); });
+        return;
+    }
+    var html = '<div class="stat-results-header">' + escHtml(String(filtered.length)) + ' ' + escHtml(T('files', 'files')) + '</div>';
+    html += '<div class="stat-results-list">';
+    for (var i = 0; i < page.length; i++) {
+        var path = page[i];
+        var fileName = path.split('/').pop().split('\\').pop() || path;
+        html += '<div class="stat-file-entry" data-path="' + escAttr(path) + '" role="button" tabindex="0" aria-expanded="false"><div class="stat-file-row"><span class="stat-file-icon">' + mi('description') + '</span><span class="stat-file-name">' + escHtml(fileName) + '</span><span class="stat-file-path-hint" title="' + escAttr(path) + '">' + escHtml(path) + '</span><span class="stat-file-chevron">' + mi('expand_more') + '</span></div><div class="stat-file-detail-wrap" hidden></div></div>';
+    }
+    html += '</div>';
+    if (offset + STATISTICS_PAGE_SIZE < filtered.length) {
+        var remaining = filtered.length - (offset + STATISTICS_PAGE_SIZE);
+        html += '<button class="stat-load-more" data-action="loadMore">' + escHtml(T('loadMore', 'Load more')) + ' (' + escHtml(String(remaining)) + ')</button>';
+    }
+    container.innerHTML = html;
+
+    var entries = container.querySelectorAll('.stat-file-entry');
+    for (var e = 0; e < entries.length; e++) {
+        entries[e].addEventListener('click', function () {
+            var expanded = this.getAttribute('aria-expanded') === 'true';
+            var all = container.querySelectorAll('.stat-file-entry');
+            for (var k = 0; k < all.length; k++) {
+                if (all[k] !== this) {
+                    all[k].setAttribute('aria-expanded', 'false');
+                    var wrap2 = all[k].querySelector('.stat-file-detail-wrap');
+                    if (wrap2) { wrap2.hidden = true; wrap2.innerHTML = ''; }
                 }
+            }
+            this.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            var w = this.querySelector('.stat-file-detail-wrap');
+            if (expanded) {
+                if (w) { w.hidden = true; w.innerHTML = ''; }
+            } else if (w) {
+                w.innerHTML = buildFileDetail(this.dataset.path);
+                w.hidden = false;
+                bindFileDetailInteractions(w, scopeKey);
             }
         });
         entries[e].addEventListener('keydown', function (ev) {
@@ -1080,85 +978,208 @@ function renderResultsPanel() {
         });
     }
     var more = container.querySelector('[data-action="loadMore"]');
-    if (more) more.addEventListener('click', function () { _filterState.resultOffset += STATISTICS_PAGE_SIZE; renderResultsPanel(); });
+    if (more) more.addEventListener('click', function () { state.resultOffset += STATISTICS_PAGE_SIZE; renderResultsPanel(scopeKey); });
     var clearBtn = container.querySelectorAll('[data-action="clearAll"]');
-    for (var cb = 0; cb < clearBtn.length; cb++) clearBtn[cb].addEventListener('click', function () { clearAllFilters(); });
+    for (var cb = 0; cb < clearBtn.length; cb++) clearBtn[cb].addEventListener('click', function () { clearAllFilters(scopeKey); });
+}
+
+function renderResultsPanel(scopeKey) {
+    var container = document.getElementById('statResultsPanel_' + scopeKey);
+    if (!container) return;
+    var state = getExplorerState(scopeKey);
+
+    if (state.activeTreeSelection) {
+        var counts = computeCountsWithinSelection(scopeKey, state.activeTreeSelection.dimension);
+        if (Object.hasOwn(counts, state.activeTreeSelection.value)) {
+            renderTreeResultsView(container, scopeKey);
+            return;
+        }
+        state.activeTreeSelection = null;
+    }
+
+    if (Object.keys(state.activeFilters).length === 0) {
+        container.innerHTML = renderCuratedDefaults(scopeKey);
+        return;
+    }
+    renderFilteredListView(container, scopeKey);
+}
+
+function buildExplorerHtml(scopeKey) {
+    var html = '<div class="stat-explorer" data-scope="' + escAttr(scopeKey) + '">';
+    html += '<div id="statFilterStrip_' + escAttr(scopeKey) + '">' + buildFilterStripHtml(scopeKey) + '</div>';
+    html += '<div class="stat-panel-layout">';
+    html += '<div class="stat-filter-panel">' + buildDonutPanelHtml(scopeKey) + buildWatchedByUserFilterHtml(scopeKey) + '</div>';
+    html += '<div class="stat-results-panel" id="statResultsPanel_' + escAttr(scopeKey) + '"></div>';
+    html += '</div></div>';
+    return html;
+}
+
+function buildAllExplorerSectionHtml() {
+    var html = '<div class="stat-explorer-section">';
+    html += '<button class="stat-explorer-header" aria-expanded="' + (_allExplorerExpanded ? 'true' : 'false') + '" aria-controls="statAllExplorerBody"><span class="stat-explorer-title">' + mi('explore') + escHtml(T('statExploreAll', 'All Libraries — Explore & Filter')) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span></button>';
+    html += '<div class="stat-explorer-body" id="statAllExplorerBody"' + (_allExplorerExpanded ? '' : ' hidden') + '>';
+    if (_allExplorerExpanded) html += buildExplorerHtml(SCOPE_ALL);
+    html += '</div></div>';
+    return html;
+}
+
+function buildLibraryRowHtml(lib, index) {
+    var scopeKey = libScopeKey(index);
+    var isExpanded = !!_expandedLibraryRows[index];
+    var bodyId = 'statLibRowBody_' + index;
+    var fileCount = (lib.VideoFileCount || 0) + (lib.AudioFileCount || 0) + (lib.BookFileCount || 0);
+    var html = '<div class="stat-lib-row">';
+    html += '<button class="stat-lib-row-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="' + bodyId + '" data-lib-index="' + index + '">';
+    html += '<span class="stat-lib-row-name">' + escHtml(lib.LibraryName) + '<span class="stat-lib-row-count">' + escHtml(String(fileCount)) + ' ' + escHtml(T('files', 'files')) + '</span></span>';
+    html += getCollectionBadgeStat(lib.CollectionType);
+    html += '<span class="stat-lib-row-stats">';
+    html += '<span>' + escHtml(T('video', 'Video')) + ': ' + escHtml(formatBytes(lib.VideoSize || 0)) + '</span>';
+    html += '<span>' + escHtml(T('audio', 'Audio')) + ': ' + escHtml(formatBytes(lib.AudioSize || 0)) + '</span>';
+    html += '<span>' + escHtml(T('subtitles', 'Subtitles')) + ': ' + escHtml(formatBytes(lib.SubtitleSize || 0)) + '</span>';
+    html += '<span>' + escHtml(T('images', 'Images')) + ': ' + escHtml(formatBytes(lib.ImageSize || 0)) + '</span>';
+    html += '<span>' + escHtml(T('trickplay', 'Trickplay')) + ': ' + escHtml(formatBytes(lib.TrickplaySize || 0)) + '</span>';
+    html += '<span class="stat-lib-row-total"><strong>' + escHtml(formatBytes(lib.TotalSize || 0)) + '</strong></span>';
+    html += '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span></button>';
+    html += '<div class="stat-lib-row-body" id="' + bodyId + '"' + (isExpanded ? '' : ' hidden') + '>';
+    if (isExpanded) html += buildExplorerHtml(scopeKey);
+    html += '</div></div>';
+    return html;
 }
 
 function buildStorageOverviewHtml() {
     var data = _lastStatisticsData;
     if (!data) return '';
-    var grandTotal = 0;
     var libs = data.Libraries || [];
+    var grandTotal = 0;
     for (var i = 0; i < libs.length; i++) grandTotal += libs[i].TotalSize || 0;
     var html = '<div class="stat-storage-section">';
     html += '<button class="stat-storage-header" aria-expanded="false" aria-controls="statStorageBody"><span class="stat-storage-title">' + mi('storage') + escHtml(T('storageDistribution', 'Storage Overview')) + ' · ' + escHtml(formatBytes(grandTotal)) + '</span><span class="stat-storage-chevron">' + mi('expand_more') + '</span></button>';
     html += '<div class="stat-storage-body" id="statStorageBody" hidden>';
     html += buildBarSegmentsStat(data);
     html += '<div class="section-title">' + mi('library_books') + escHtml(T('perLibraryBreakdown', 'Per-Library Breakdown')) + '</div>';
-    html += '<div class="library-table-wrapper"><table class="library-table"><thead><tr>';
-    html += '<th>' + escHtml(T('library', 'Library')) + '</th><th>' + escHtml(T('type', 'Type')) + '</th><th>' + escHtml(T('video', 'Video')) + '</th><th>' + escHtml(T('audio', 'Audio')) + '</th><th>' + escHtml(T('subtitles', 'Subtitles')) + '</th><th>' + escHtml(T('images', 'Images')) + '</th><th>' + escHtml(T('trickplay', 'Trickplay')) + '</th><th>' + escHtml(T('total', 'Total')) + '</th>';
-    html += '</tr></thead><tbody>';
-    for (var j = 0; j < libs.length; j++) {
-        var lib = libs[j];
-        html += '<tr><td>' + escHtml(lib.LibraryName) + '</td><td>' + getCollectionBadgeStat(lib.CollectionType) + '</td><td>' + escHtml(formatBytes(lib.VideoSize || 0)) + '</td><td>' + escHtml(formatBytes(lib.AudioSize || 0)) + '</td><td>' + escHtml(formatBytes(lib.SubtitleSize || 0)) + '</td><td>' + escHtml(formatBytes(lib.ImageSize || 0)) + '</td><td>' + escHtml(formatBytes(lib.TrickplaySize || 0)) + '</td><td><strong>' + escHtml(formatBytes(lib.TotalSize || 0)) + '</strong></td></tr>';
-    }
-    html += '</tbody></table></div>';
+    html += '<div class="stat-lib-row-list">';
+    for (var j = 0; j < libs.length; j++) html += buildLibraryRowHtml(libs[j], j);
+    html += '</div>';
     html += '</div></div>';
     return html;
+}
+
+// One event-delegation pass handles every explorer instance currently in the DOM (the "All
+// Libraries" section plus any expanded per-library rows): each interactive element resolves its
+// own scope via the nearest [data-scope] ancestor, so no per-instance rebinding is needed.
+function attachExplorerHandlers() {
+    var headers = document.querySelectorAll('.stat-donut-header');
+    for (var i = 0; i < headers.length; i++) {
+        headers[i].addEventListener('click', function () {
+            var expanded = this.getAttribute('aria-expanded') === 'true';
+            this.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            var body = document.getElementById(this.getAttribute('aria-controls'));
+            if (body) body.hidden = expanded;
+            var scopeEl = this.closest('[data-scope]');
+            var section = this.closest('.stat-donut-section');
+            var dim = section ? section.dataset.dimension : null;
+            if (scopeEl && dim) getExplorerState(scopeEl.dataset.scope).expandedDonutDims[dim] = !expanded;
+        });
+    }
+    var rows = document.querySelectorAll('.stat-breakdown-row');
+    for (var r = 0; r < rows.length; r++) {
+        rows[r].addEventListener('click', function () {
+            var scopeEl = this.closest('[data-scope]');
+            if (scopeEl) toggleFilter(scopeEl.dataset.scope, this.dataset.dimension, this.dataset.value);
+        });
+    }
+    var segs = document.querySelectorAll('.stat-donut-body .donut-segment');
+    for (var s = 0; s < segs.length; s++) {
+        segs[s].addEventListener('click', function () {
+            var seg = this.closest('.donut-segment');
+            var code = seg ? seg.dataset.codec : null;
+            var section = this.closest('.stat-donut-section');
+            var scopeEl = this.closest('[data-scope]');
+            if (section && code && scopeEl) toggleFilter(scopeEl.dataset.scope, section.dataset.dimension, code);
+        });
+    }
+    var pills = document.querySelectorAll('.stat-filter-pill');
+    for (var p = 0; p < pills.length; p++) {
+        pills[p].addEventListener('click', function () {
+            var scopeEl = this.closest('[data-scope]');
+            if (scopeEl) toggleFilter(scopeEl.dataset.scope, this.dataset.dimension, this.dataset.value);
+        });
+    }
+    var clears = document.querySelectorAll('.stat-filter-clear');
+    for (var cl = 0; cl < clears.length; cl++) {
+        clears[cl].addEventListener('click', function () {
+            var scopeEl = this.closest('[data-scope]');
+            if (scopeEl) clearAllFilters(scopeEl.dataset.scope);
+        });
+    }
+    if (typeof attachDonutHoverTooltips === 'function') {
+        try { attachDonutHoverTooltips(); } catch (e) { /* tooltips are a progressive enhancement */ }
+    }
+}
+
+function collectExpandedResultScopes() {
+    var scopes = [];
+    if (_allExplorerExpanded) scopes.push(SCOPE_ALL);
+    for (var idx in _expandedLibraryRows) {
+        if (Object.hasOwn(_expandedLibraryRows, idx) && _expandedLibraryRows[idx]) scopes.push(libScopeKey(idx));
+    }
+    return scopes;
+}
+
+function attachAllExplorerToggle(container) {
+    var header = container.querySelector('.stat-explorer-header');
+    if (!header) return;
+    header.addEventListener('click', function () {
+        _allExplorerExpanded = !_allExplorerExpanded;
+        renderStatisticsChrome();
+    });
+}
+
+function attachLibraryRowToggles(container) {
+    var headers = container.querySelectorAll('.stat-lib-row-header');
+    for (var i = 0; i < headers.length; i++) {
+        headers[i].addEventListener('click', function () {
+            var idx = this.dataset.libIndex;
+            _expandedLibraryRows[idx] = !_expandedLibraryRows[idx];
+            renderStatisticsChrome();
+        });
+    }
+}
+
+function attachStorageToggle(container) {
+    var storHeader = container.querySelector('.stat-storage-header');
+    if (!storHeader) return;
+    storHeader.addEventListener('click', function () {
+        var exp = this.getAttribute('aria-expanded') === 'true';
+        this.setAttribute('aria-expanded', exp ? 'false' : 'true');
+        var body = document.getElementById(this.getAttribute('aria-controls'));
+        if (body) body.hidden = exp;
+    });
 }
 
 function renderStatisticsChrome() {
     var container = document.getElementById('statisticsContent');
     if (!container) return;
     var html = '';
-    html += buildLibrarySelectorHtml();
     html += '<div id="statKpiWrap">' + buildKpiStripHtml() + '</div>';
-    html += '<div id="statFilterStrip">' + buildFilterStripHtml() + '</div>';
-    // Inner tab switcher for mobile
-    var isMobile = window.innerWidth <= STATISTICS_MOBILE_BREAKPOINT;
-    var filteredCount = computeFilteredPaths().length;
-    if (isMobile) {
-        var activeFiltersTab = _filterState.innerTab === 'filters';
-        html += '<div class="stat-inner-tabs" role="tablist"><button class="stat-inner-tab' + (activeFiltersTab ? ' active' : '') + '" data-inner="filters" role="tab" aria-selected="' + (activeFiltersTab ? 'true' : 'false') + '">' + mi('filter_list') + escHtml(T('statFilters', 'Filters')) + '</button><button class="stat-inner-tab' + (!activeFiltersTab ? ' active' : '') + '" data-inner="results" role="tab" aria-selected="' + (!activeFiltersTab ? 'true' : 'false') + '">' + mi('list') + escHtml(T('statResults', 'Results')) + ' (' + escHtml(String(filteredCount)) + ')</button></div>';
-    }
-    html += '<div class="stat-panel-layout">';
-    var filtersHidden = isMobile && _filterState.innerTab !== 'filters' ? ' hidden' : '';
-    var resultsHidden = isMobile && _filterState.innerTab !== 'results' ? ' hidden' : '';
-    html += '<div class="stat-filter-panel' + filtersHidden + '" id="statFilterPanel">' + buildDonutPanelHtml() + buildWatchedByUserFilterHtml() + '</div>';
-    html += '<div class="stat-results-panel' + resultsHidden + '" id="statResultsPanel"></div>';
-    html += '</div>';
+    html += buildAllExplorerSectionHtml();
     html += buildStorageOverviewHtml();
     container.innerHTML = html;
-    attachLibrarySelectorHandlers();
-    renderFilterStrip();
-    attachDonutPanelHandlers();
-    renderResultsPanel();
-    // Storage collapsible
-    var storHeader = container.querySelector('.stat-storage-header');
-    if (storHeader) storHeader.addEventListener('click', function () {
-        var exp = this.getAttribute('aria-expanded') === 'true';
-        this.setAttribute('aria-expanded', exp ? 'false' : 'true');
-        var body = document.getElementById(this.getAttribute('aria-controls'));
-        if (body) body.hidden = exp;
-        var chev = this.querySelector('.stat-storage-chevron');
-        if (chev) chev.style.transform = exp ? '' : 'rotate(180deg)';
-    });
-    // Mobile inner tabs
-    var innerTabs = container.querySelectorAll('.stat-inner-tab');
-    for (var t = 0; t < innerTabs.length; t++) {
-        innerTabs[t].addEventListener('click', function () {
-            _filterState.innerTab = this.dataset.inner;
-            renderStatisticsChrome();
-        });
-    }
+
+    attachAllExplorerToggle(container);
+    attachLibraryRowToggles(container);
+    attachStorageToggle(container);
+    attachExplorerHandlers();
+
+    var scopes = collectExpandedResultScopes();
+    for (var i = 0; i < scopes.length; i++) renderResultsPanel(scopes[i]);
 }
 
 function fillStatisticsData(data) {
     _lastStatisticsData = data;
-    _filterState.activeFilters = {};
-    _filterState.resultOffset = 0;
-    if (!_filterState.libraryType) _filterState.libraryType = 'all';
+    _explorerStates = {};
+    _expandedLibraryRows = {};
+    _allExplorerExpanded = false;
     renderStatisticsChrome();
-    refreshCleanupKpi();
+    refreshFreedSummary();
 }

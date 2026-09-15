@@ -415,6 +415,7 @@
   "statNoFiltersHint": "Select a filter to explore your library.",
   "statTopLargest": "Top 5 largest files",
   "statTopNeverWatched": "Top 5 never-watched",
+  "statExploreAll": "All Libraries · Explore & Filter",
   "statDonutAudioLanguage": "Audio Languages",
   "statDonutSubtitleLanguage": "Subtitle Languages",
   "statWatchedNever": "Never watched",

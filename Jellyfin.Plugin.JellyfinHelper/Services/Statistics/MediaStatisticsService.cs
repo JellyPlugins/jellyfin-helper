@@ -747,7 +747,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         // Bitrate tier: prefer the measured video-stream bitrate; fall back to the container's
         // average bitrate (size over duration) so files without a per-stream value still land in a
-        // real tier instead of Unknown. Nothing is invented — Unknown is used only when both fail.
+        // real tier instead of Unknown. Nothing is invented. Unknown is used only when both fail.
         var bitrateTier = ClassifyBitrateTier(videoStream?.BitRate, fileSize, item?.RunTimeTicks);
         FileSystemHelper.IncrementCount(stats.VideoBitrateTiers, bitrateTier);
         FileSystemHelper.AccumulateValue(stats.VideoBitrateTierSizes, bitrateTier, fileSize);

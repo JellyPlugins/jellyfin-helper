@@ -1426,7 +1426,7 @@ The `ComposeConfigPage` MSBuild task (`BuildTasks/ComposeConfigPage.cs`) runs du
 
 ### File Ordering
 
-`ComposeConfigPage` has no ordering arrays of its own — it concatenates whatever
+`ComposeConfigPage` has no ordering arrays of its own. It concatenates whatever
 list of files MSBuild passes in. The canonical order is defined by the `CssModule`
 and `JsModule` `ItemGroup`s in `Jellyfin.Plugin.JellyfinHelper.csproj`:
 
@@ -1442,7 +1442,7 @@ Trends.js, Settings.js, ArrIntegration.js,
 Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```
 
-`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` — the module files themselves are unwrapped.
+`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` the module files themselves are unwrapped.
 
 ### Adding a New Tab
 

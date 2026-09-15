@@ -93,15 +93,13 @@ const sharedModuleGlobals = {
     resolveArrInstances: 'writable',
 
     // Statistics.js (replaces former Overview.js + Codecs.js)
-    getCollectionBadge: 'writable',
-    buildBarSegments: 'writable',
-    loadCleanupStats: 'writable',
     fillStatisticsData: 'writable',
     _lastStatisticsData: 'writable',
     _statDonutTooltipData: 'writable',
     renderDonutSvg: 'writable',
     renderStatisticsChrome: 'writable',
-    refreshCleanupKpi: 'writable',
+    refreshFreedSummary: 'writable',
+    toggleFilter: 'writable',
     STATISTICS_PATH_MAP: 'writable',
     STATISTICS_CATEGORY_MAP: 'writable',
     STATISTICS_DIMENSIONS: 'writable',

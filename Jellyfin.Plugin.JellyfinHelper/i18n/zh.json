@@ -415,6 +415,7 @@
   "statNoFiltersHint": "选择一个过滤器来探索您的媒体库。",
   "statTopLargest": "最大的5个文件",
   "statTopNeverWatched": "从未观看的前5",
+  "statExploreAll": "所有媒体库 · 浏览与筛选",
   "statDonutAudioLanguage": "音频语言",
   "statDonutSubtitleLanguage": "字幕语言",
   "statWatchedNever": "从未观看",

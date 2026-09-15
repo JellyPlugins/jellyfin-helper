@@ -38,13 +38,12 @@ public class StatisticsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_ContainsLibrarySelector()
+    public void Html_ContainsPerLibraryExplorer()
     {
-        Assert.Contains("stat-lib-selector", HtmlContent);
-        Assert.Contains("stat-lib-btn", HtmlContent);
-        Assert.Contains("statLibraryAll", HtmlContent);
-        Assert.Contains("movies", HtmlContent);
-        Assert.Contains("data-lib", HtmlContent);
+        Assert.Contains("stat-lib-row", HtmlContent);
+        Assert.Contains("stat-lib-row-header", HtmlContent);
+        Assert.Contains("data-lib-index", HtmlContent);
+        Assert.Contains("stat-explorer-section", HtmlContent);
     }
 
     [Fact]
@@ -69,7 +68,7 @@ public class StatisticsHtmlTests : ConfigPageTestBase
         Assert.Contains("stat-panel-layout", HtmlContent);
         Assert.Contains("stat-filter-panel", HtmlContent);
         Assert.Contains("stat-results-panel", HtmlContent);
-        Assert.Contains("stat-inner-tabs", HtmlContent);
+        Assert.Contains("data-scope", HtmlContent);
     }
 
     [Fact]
@@ -106,7 +105,7 @@ public class StatisticsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("stat-storage-section", HtmlContent);
         Assert.Contains("stat-storage-header", HtmlContent);
-        Assert.Contains("library-table", HtmlContent);
+        Assert.Contains("stat-lib-row-list", HtmlContent);
         Assert.Contains("buildBarSegments", HtmlContent);
     }
 
@@ -123,7 +122,7 @@ public class StatisticsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("@media", HtmlContent);
         Assert.Contains("640px", HtmlContent);
-        Assert.Contains("stat-inner-tab", HtmlContent);
+        Assert.Contains("stat-lib-row-header", HtmlContent);
     }
 
     [Fact]
@@ -158,7 +157,7 @@ public class StatisticsHtmlTests : ConfigPageTestBase
         Assert.Contains("stat-file-entry", HtmlContent);
         Assert.Contains("stat-file-detail", HtmlContent);
         Assert.Contains("stat-chip", HtmlContent);
-        Assert.Contains("stat-lib-selector", HtmlContent);
+        Assert.Contains("stat-lib-row", HtmlContent);
     }
 
     [Fact]
@@ -174,7 +173,7 @@ public class StatisticsHtmlTests : ConfigPageTestBase
         Assert.Contains("function toggleFilter", HtmlContent);
         Assert.Contains("function clearAllFilters", HtmlContent);
         Assert.Contains("function computeFilteredPaths", HtmlContent);
-        Assert.Contains("function getLibraryFilteredData", HtmlContent);
+        Assert.Contains("function getScopedData", HtmlContent);
     }
 
     [Fact]
@@ -196,6 +195,26 @@ public class StatisticsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("escHtml", HtmlContent);
         Assert.Contains("escAttr", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsScopedExplorerEngine()
+    {
+        // Each library row and the aggregate "All Libraries" view get their own independent
+        // filter/tree state so combining filters in one library never leaks into another.
+        Assert.Contains("function getExplorerState", HtmlContent);
+        Assert.Contains("function getScopedLib", HtmlContent);
+        Assert.Contains("function libScopeKey", HtmlContent);
+        Assert.Contains("function buildLibraryRowHtml", HtmlContent);
+        Assert.Contains("function buildExplorerHtml", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsRestoredCleanupAndFileCountCards()
+    {
+        Assert.Contains("totalFiles", HtmlContent);
+        Assert.Contains("totalBytesFreed", HtmlContent);
+        Assert.Contains("totalItemsDeleted", HtmlContent);
     }
 
     [Fact]

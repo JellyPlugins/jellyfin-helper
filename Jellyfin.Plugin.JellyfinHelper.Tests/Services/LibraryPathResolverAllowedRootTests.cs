@@ -34,7 +34,7 @@ public sealed class LibraryPathResolverAllowedRootTests
     [Fact]
     public void IsAllowed_SiblingPrefix_ReturnsFalse()
     {
-        // /media/movies must not match /media/movies2 — the directory boundary guards this.
+        // /media/movies must not match /media/movies2 the directory boundary guards this.
         Assert.False(LibraryPathResolver.IsAllowed("/media/movies2/film.mkv", Allow("/media/movies")));
     }
 

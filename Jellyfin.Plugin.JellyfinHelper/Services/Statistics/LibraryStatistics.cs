@@ -355,7 +355,7 @@ public class LibraryStatistics
 
     /// <summary>
     /// Gets the per-file per-user watch details (file path -> list of user details).
-    /// Each entry records play count and last played date so the file drawer can show "Alice — 3 Plays, zuletzt 2024-03-01".
+    /// Each entry records play count and last played date so the file drawer can show "Alice - 3 Plays, zuletzt 2024-03-01".
     /// </summary>
     public Dictionary<string, Collection<WatchedUserDetail>> WatchedDetails { get; } = new(StringComparer.Ordinal);
 }
