@@ -30,7 +30,7 @@ test('leaving the settings tab while dirty shows the unsaved-changes dialog', as
   await makeDirty(page);
 
   // Try to switch to another tab - the guard should intercept.
-  await page.locator('.tab-btn[data-tab="overview"]').click();
+  await page.locator('.tab-btn[data-tab="statistics"]').click();
 
   const dialog = page.locator('#unsavedDialogOverlay');
   await expect(dialog, 'unsaved-changes dialog must appear').toBeVisible({ timeout: 5000 });
@@ -63,8 +63,8 @@ test('after saving, leaving the tab does NOT show the dialog', async ({ page }) 
   await expect(page.locator('#settingsSaveBand')).not.toHaveClass(/is-unsaved/, { timeout: 10_000 });
 
   // Now switching tabs should be clean - no dialog.
-  await page.locator('.tab-btn[data-tab="overview"]').click();
-  await expect(page.locator('#tab-overview')).toHaveClass(/active/, { timeout: 10_000 });
+  await page.locator('.tab-btn[data-tab="statistics"]').click();
+  await expect(page.locator('#tab-statistics')).toHaveClass(/active/, { timeout: 10_000 });
   await expect(page.locator('#unsavedDialogOverlay')).toBeHidden();
 });
 
@@ -74,7 +74,7 @@ test('Discard Changes leaves the tab and drops the edit', async ({ page }) => {
   const original = await field.inputValue();
   await makeDirty(page);
 
-  await page.locator('.tab-btn[data-tab="overview"]').click();
+  await page.locator('.tab-btn[data-tab="statistics"]').click();
   const dialog = page.locator('#unsavedDialogOverlay');
   await expect(dialog).toBeVisible();
 

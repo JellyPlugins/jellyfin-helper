@@ -6,19 +6,19 @@
 import { test, expect } from '@playwright/test';
 import { openDashboard, switchTab } from './_ui-helpers.ts';
 
-test('Codecs tab: clicking a breakdown row opens a file tree that expands/collapses', async ({ page }) => {
+test('Statistics tab: clicking a breakdown row opens a file tree that expands/collapses', async ({ page }) => {
   await openDashboard(page);
-  await switchTab(page, 'codecs');
+  await switchTab(page, 'statistics');
 
-  // Requires scan data; wait for at least one clickable codec row.
-  const row = page.locator('.codec-row.codec-clickable').first();
+  // Requires scan data; wait for at least one clickable breakdown row.
+  const row = page.locator('.stat-breakdown-row').first();
   await expect(row).toBeVisible({ timeout: 20_000 });
 
-  const chart = await row.getAttribute('data-chart');
+  const chart = await row.getAttribute('data-dimension');
   await row.click();
 
   // The matching detail panel becomes visible with a rendered tree.
-  const panel = page.locator(`#codecDetail_${chart}`);
+  const panel = page.locator(`#statDetail_${chart}`);
   await expect(panel).toHaveClass(/file-tree-panel-visible/);
   await expect(panel.locator('.tree-view, .file-tree-section').first()).toBeVisible();
 
@@ -56,23 +56,23 @@ test('Health tab: clicking a health item opens its detail tree', async ({ page }
   await expect(panel).toHaveClass(/file-tree-panel-visible/);
 });
 
-test('Codecs tab: clicking a book format shows the book file tree, not an empty state', async ({ page }) => {
+test('Statistics tab: clicking a book format shows the book file tree, not an empty state', async ({ page }) => {
   // Regression guard for the book-format drill-down: under Jellyfin 12 the file
   // tree renderer had no "books" section and excluded books from its file total,
   // so clicking a book format (CBZ/EPUB/PDF) rendered "No files found." even
   // though the chart above listed those formats. This clicks the bookFormats row
   // and asserts a real books section with at least one file node appears.
   await openDashboard(page);
-  await switchTab(page, 'codecs');
+  await switchTab(page, 'statistics');
 
   // The e2e fixture always provisions a Books library (EPUB+PDF), so the
   // bookFormats breakdown must render. Do not skip on absence, or this regression
   // guard would pass without ever exercising the book file-tree path.
-  const bookRow = page.locator('.codec-row.codec-clickable[data-chart="bookFormats"]').first();
+  const bookRow = page.locator('.stat-breakdown-row[data-dimension="bookFormats"]').first();
   await expect(bookRow, 'bookFormats breakdown row must render from the Books fixture').toBeVisible({ timeout: 20_000 });
   await bookRow.click();
 
-  const panel = page.locator('#codecDetail_bookFormats');
+  const panel = page.locator('#statDetail_bookFormats');
   await expect(panel).toHaveClass(/file-tree-panel-visible/);
   // The books section must render (badge-books) and must NOT be the empty state.
   await expect(panel.locator('.file-tree-section .badge-books')).toBeVisible();

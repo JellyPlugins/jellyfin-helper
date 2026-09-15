@@ -233,6 +233,12 @@ public static class TestDataGenerator
         musicLib.ResolutionSizes.Clear();
         musicLib.VideoCodecSizes.Clear();
         musicLib.VideoAudioCodecSizes.Clear();
+        musicLib.VideoBitrateTiers.Clear();
+        musicLib.VideoBitrateTierSizes.Clear();
+        musicLib.VideoBitrateTierPaths.Clear();
+        musicLib.DynamicRanges.Clear();
+        musicLib.DynamicRangeSizes.Clear();
+        musicLib.DynamicRangePaths.Clear();
         musicLib.VideosWithoutSubtitles = 0;
         musicLib.VideosWithoutImages = 0;
         musicLib.VideosWithoutNfo = 0;

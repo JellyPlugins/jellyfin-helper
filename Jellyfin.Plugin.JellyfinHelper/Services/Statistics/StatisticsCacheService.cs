@@ -159,14 +159,7 @@ public class StatisticsCacheService : IStatisticsCacheService
 
             dict.Remove(old);
             var migrated = MediaStatisticsService.MapLegacyBitrateTier(old);
-            if (dict.TryGetValue(migrated, out var existing))
-            {
-                dict[migrated] = existing + value;
-            }
-            else
-            {
-                dict[migrated] = value;
-            }
+            dict[migrated] = dict.TryGetValue(migrated, out var existing) ? existing + value : value;
         }
     }
 
@@ -190,14 +183,7 @@ public class StatisticsCacheService : IStatisticsCacheService
 
             dict.Remove(old);
             var migrated = MediaStatisticsService.MapLegacyBitrateTier(old);
-            if (dict.TryGetValue(migrated, out var existing))
-            {
-                dict[migrated] = existing + value;
-            }
-            else
-            {
-                dict[migrated] = value;
-            }
+            dict[migrated] = dict.TryGetValue(migrated, out var existing) ? existing + value : value;
         }
     }
 
