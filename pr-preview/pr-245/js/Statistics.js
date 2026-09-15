@@ -295,22 +295,36 @@ function buildKpiStripHtml() {
     }
     var totalFiles = videoFiles + audioFiles + bookFiles;
 
-    var cards = [];
-    cards.push(buildStatKpiCard('description', 'totalFiles', 'Total Files', String(totalFiles), videoFiles + ' ' + T('video', 'video') + ', ' + audioFiles + ' ' + T('audio', 'audio') + (bookFiles > 0 ? ', ' + bookFiles + ' ' + T('books', 'books') : '')));
-    if (totalVideoSize > 0) cards.push(buildStatKpiCard('movie', 'video', 'Video', formatBytes(totalVideoSize), videoFiles + ' ' + T('files', 'files'), null, 'video'));
-    if (totalAudioSize > 0) cards.push(buildStatKpiCard('music_note', 'audio', 'Audio', formatBytes(totalAudioSize), audioFiles + ' ' + T('files', 'files'), null, 'audio'));
-    if (totalBookSize > 0) cards.push(buildStatKpiCard('library_books', 'books', 'Books', formatBytes(totalBookSize), bookFiles + ' ' + T('files', 'files'), null, 'books'));
-    if (totalTrickplaySize > 0) cards.push(buildStatKpiCard('image', 'trickplay', 'Trickplay', formatBytes(totalTrickplaySize), trickplayFolders + ' ' + T('folders', 'folders')));
-    cards.push(buildFreedKpiCardsHtml());
+    // Category cards (Video/Audio/Books/Trickplay) sit in their own 2-column grid, each shown only
+    // if the server actually has that content. Total Files and the cleanup (Freed/Deleted) pair get
+    // their own rows below so the grid math for the variable-length category list never has to
+    // account for them.
+    var categoryCards = [];
+    if (totalVideoSize > 0) categoryCards.push(buildStatKpiCard('movie', 'video', 'Video', formatBytes(totalVideoSize), videoFiles + ' ' + T('files', 'files'), null, 'video'));
+    if (totalAudioSize > 0) categoryCards.push(buildStatKpiCard('music_note', 'audio', 'Audio', formatBytes(totalAudioSize), audioFiles + ' ' + T('files', 'files'), null, 'audio'));
+    if (totalBookSize > 0) categoryCards.push(buildStatKpiCard('library_books', 'books', 'Books', formatBytes(totalBookSize), bookFiles + ' ' + T('files', 'files'), null, 'books'));
+    if (totalTrickplaySize > 0) categoryCards.push(buildStatKpiCard('image', 'trickplay', 'Trickplay', formatBytes(totalTrickplaySize), trickplayFolders + ' ' + T('folders', 'folders')));
 
-    return '<div class="stat-kpi-strip">' + cards.join('') + '</div>';
+    var totalFilesDetail = videoFiles + ' ' + T('video', 'video') + ', ' + audioFiles + ' ' + T('audio', 'audio') + (bookFiles > 0 ? ', ' + bookFiles + ' ' + T('books', 'books') : '');
+
+    var html = '<div class="stat-kpi-strip">';
+    if (categoryCards.length) html += '<div class="stat-kpi-grid">' + categoryCards.join('') + '</div>';
+    html += '<div class="stat-kpi-grid">' + buildStatKpiCard('description', 'totalFiles', 'Total Files', String(totalFiles), totalFilesDetail) + '</div>';
+    html += '<div class="stat-kpi-grid">' + buildFreedKpiCardsHtml() + '</div>';
+    html += '</div>';
+    return html;
 }
 
 function refreshFreedSummary() {
     apiGet('JellyfinHelper/CleanupStatistics', function (stats) {
         _statsCleanupCache = stats;
         var strip = document.getElementById('statKpiWrap');
-        if (strip) strip.innerHTML = buildKpiStripHtml();
+        if (strip) {
+            strip.innerHTML = buildKpiStripHtml();
+            // Rebuilding the strip replaces every KPI card node, so the click-to-library-row
+            // links bound in renderStatisticsChrome() must be re-attached to the new nodes.
+            attachKpiCardLinks(strip);
+        }
     }, function () {
         // Keep the "Loading…" placeholder; a failed fetch should not error out the whole tab.
     });
@@ -538,19 +552,17 @@ function buildDonutSectionHtml(scopeKey, dimension) {
     var sizes = relevant ? getSizeMapForDimension(scopeKey, dimension) : {};
     var total = 0;
     for (var k in counts) if (Object.hasOwn(counts, k)) total += counts[k];
-    var dimmed = !relevant ? ' stat-donut-dimmed' : '';
-    var hint = !relevant ? '<span class="stat-donut-hint">' + escHtml(T('noData', 'No data in this view')) + '</span>' : '';
+    // A dimension that cannot apply to this scope (e.g. Dynamic Range for a Books library) or that
+    // currently matches zero files is dropped entirely rather than shown dimmed/empty - a header
+    // promising data that never appears is clutter, not information.
+    if (!relevant || total === 0) return '';
     var isExpanded = !!state.expandedDonutDims[dimension];
     var treeValue = state.activeTreeSelection && state.activeTreeSelection.dimension === dimension ? state.activeTreeSelection.value : null;
     var bodyId = 'stat-donut-body-' + escAttr(scopeKey) + '-' + escAttr(dimension);
-    var html = '<div class="stat-donut-section' + dimmed + '" data-dimension="' + escAttr(dimension) + '">';
-    html += '<button class="stat-donut-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="' + bodyId + '"><span class="stat-donut-title">' + mi(meta.icon) + escHtml(T(meta.labelKey, meta.fallback)) + '</span><span class="stat-donut-count">' + escHtml(String(total)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span>' + hint + '</button>';
+    var html = '<div class="stat-donut-section" data-dimension="' + escAttr(dimension) + '">';
+    html += '<button class="stat-donut-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="' + bodyId + '"><span class="stat-donut-title">' + mi(meta.icon) + escHtml(T(meta.labelKey, meta.fallback)) + '</span><span class="stat-donut-count">' + escHtml(String(total)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span></button>';
     html += '<div class="stat-donut-body" id="' + bodyId + '"' + (isExpanded ? '' : ' hidden') + '>';
-    if (!relevant) {
-        html += '<p class="stat-donut-empty">' + escHtml(T('noData', 'No data in this view')) + '</p>';
-    } else if (total === 0) {
-        html += '<p class="stat-donut-empty">' + escHtml(T('noData', 'No data')) + '</p>';
-    } else {
+    {
         var chartId = 'stat_' + scopeKey + '_' + dimension;
         var libs = (getScopedData(scopeKey) || {}).Libraries || [];
         var countProp = STATISTICS_COUNT_PROP_MAP[dimension];
@@ -582,21 +594,9 @@ function buildDonutSectionHtml(scopeKey, dimension) {
 
 function buildDonutPanelHtml(scopeKey) {
     var html = '<div class="stat-donut-panel">';
-    var data = getScopedData(scopeKey);
-    var libs = (data && data.Libraries) || [];
     for (var i = 0; i < STATISTICS_DIMENSIONS.length; i++) {
-        var dim = STATISTICS_DIMENSIONS[i].id;
-        // Hide Music/Book sections entirely when the whole scope has no such files, rather than
-        // showing an always-empty donut.
-        if (dim === 'musicAudioCodecs' || dim === 'bookFormats') {
-            var propCheck = dim === 'musicAudioCodecs' ? 'MusicAudioCodecs' : 'BookFormats';
-            var hasData = false;
-            for (var li = 0; li < libs.length; li++) {
-                if (libs[li][propCheck] && Object.keys(libs[li][propCheck]).length > 0) { hasData = true; break; }
-            }
-            if (!hasData) continue;
-        }
-        html += buildDonutSectionHtml(scopeKey, dim);
+        // buildDonutSectionHtml() already returns '' for irrelevant or zero-count dimensions.
+        html += buildDonutSectionHtml(scopeKey, STATISTICS_DIMENSIONS[i].id);
     }
     html += '</div>';
     return html;
@@ -1040,7 +1040,7 @@ function buildLibraryTableRowHtml(lib, index) {
     html += '<td>' + escHtml(formatBytes(lib.TrickplaySize || 0)) + '</td>';
     html += '<td class="stat-lib-table-total"><strong>' + escHtml(formatBytes(lib.TotalSize || 0)) + '</strong><span class="stat-donut-chevron">' + mi('expand_more') + '</span></td>';
     html += '</tr>';
-    html += '<tr class="stat-lib-table-detail-row" id="' + bodyId + '"' + (isExpanded ? '' : ' hidden') + '><td colspan="7">';
+    html += '<tr class="stat-lib-table-detail-row" id="' + bodyId + '"' + (isExpanded ? '' : ' hidden') + '><td colspan="8">';
     if (isExpanded) html += buildExplorerHtml(scopeKey);
     html += '</td></tr>';
     return html;

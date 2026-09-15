@@ -1,22 +1,32 @@
 /* Statistics tab*/
 
-/* KPI strip: 2-4 columns, horizontal scroll on narrow */
+/* KPI strip: stacked rows - category grid, then Total Files, then the cleanup pair. */
 .stat-kpi-strip {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    display: flex;
+    flex-direction: column;
     gap: 1em;
     margin-bottom: 1.2em;
 }
 
-@media (max-width: 900px) {
-    .stat-kpi-strip {
-        grid-template-columns: repeat(2, 1fr);
-    }
+.stat-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1em;
+}
+
+/* A lone card left over in the last row (odd count) spans the full width instead of
+   sitting awkwardly next to empty space. */
+.stat-kpi-grid > .stat-kpi-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
 }
 
 @media (max-width: 480px) {
-    .stat-kpi-strip {
+    .stat-kpi-grid {
         grid-template-columns: 1fr;
+    }
+
+    .stat-kpi-grid > .stat-kpi-card:last-child:nth-child(odd) {
+        grid-column: auto;
     }
 }
 
@@ -311,10 +321,6 @@
     overflow: hidden;
 }
 
-.stat-donut-section.stat-donut-dimmed {
-    opacity: 0.45;
-}
-
 .stat-donut-header {
     width: 100%;
     display: flex;
@@ -389,22 +395,9 @@
     background: rgba(0, 164, 220, 0.05);
 }
 
-.stat-donut-hint {
-    font-size: 0.75em;
-    font-weight: 400;
-    opacity: 0.6;
-    margin-left: 0.4em;
-}
-
 .stat-donut-body {
     padding: 0 0.9em 0.9em 0.9em;
     text-align: center;
-}
-
-.stat-donut-empty {
-    opacity: 0.5;
-    font-size: 0.9em;
-    padding: 1em 0;
 }
 
 /* Keep existing donut styles from Codecs.css */
