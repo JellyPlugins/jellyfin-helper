@@ -222,6 +222,5 @@ public class StatisticsHtmlTests : ConfigPageTestBase
         // Sections collapsed by default
         Assert.Contains("aria-expanded=\"false\"", HtmlContent);
         Assert.Contains("hidden", HtmlContent);
-        Assert.Contains("stat-donut-dimmed", HtmlContent);
     }
 }

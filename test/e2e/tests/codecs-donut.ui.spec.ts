@@ -11,17 +11,15 @@ async function openSegments(page: Page) {
 
   const scope = page.locator('.stat-explorer[data-scope="all"]');
   const header = scope.locator('.stat-donut-header').first();
+  // A donut section only ever renders when it is relevant to the current scope and has at least
+  // one matching file, so the first header found is guaranteed to expand into a real chart.
   await expect(header).toBeVisible({ timeout: 20_000 });
   if ((await header.getAttribute('aria-expanded')) !== 'true') {
     await header.click();
   }
 
-  // Wait for the statistics render to settle: either the donut appears (has data) or the no-data box
-  // does. Both replace the initial placeholder, so a render that never settles fails the test here
-  // instead of being swallowed into a false skip.
-  const donut = scope.locator('.donut-container');
-  const noData = scope.locator('.stat-donut-empty');
-  await expect(donut.first().or(noData.first())).toBeVisible({ timeout: 15_000 });
+  const donut = scope.locator('.donut-container').first();
+  await expect(donut).toBeVisible({ timeout: 15_000 });
   return scope.locator('.donut-segment path');
 }
 
