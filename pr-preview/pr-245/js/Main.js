@@ -115,12 +115,10 @@ function loadLatestStatistics() {
 function renderShell() {
     var html = '';
 
-    // Tab bar
+    // Tab bar — Statistics replaces Overview + Codecs (collapsed-by-default, progressive disclosure)
     html += '<div class="tab-bar">';
-    html += '<button class="tab-btn active" data-tab="overview">' + mi('dashboard') + escHtml(T(
-        'tabOverview', 'Overview')) + '</button>';
-    html += '<button class="tab-btn" data-tab="codecs">' + mi('movie_filter') + escHtml(T('tabCodecs',
-        'Codecs')) + '</button>';
+    html += '<button class="tab-btn active" data-tab="statistics">' + mi('dashboard') + escHtml(T(
+        'tabStatistics', 'Statistics')) + '</button>';
     html += '<button class="tab-btn" data-tab="health">' + mi('health_and_safety') + escHtml(T('tabHealth',
         'Health')) + '</button>';
     html += '<button class="tab-btn" data-tab="trends">' + mi('trending_up') + escHtml(T('tabTrends',
@@ -135,13 +133,8 @@ function renderShell() {
         + '</button>';
     html += '</div>';
 
-    html += '<div class="tab-content active" id="tab-overview">';
-    html += '<div id="overviewContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
-        + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
-    html += '</div>';
-
-    html += '<div class="tab-content" id="tab-codecs">';
-    html += '<div id="codecsContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
+    html += '<div class="tab-content active" id="tab-statistics">';
+    html += '<div id="statisticsContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
         + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
@@ -189,12 +182,10 @@ function renderShell() {
     return html;
 }
 
-// Fill scan-dependent tabs with data after a successful scan
+// Fill scan-dependent tabs with data after a successful scan — Statistics replaces Overview+Codecs
 function fillScanData(data) {
-    fillOverviewData(data);
-    fillCodecsData(data);
+    fillStatisticsData(data);
     fillHealthData(data);
-    loadCleanupStats();
 }
 
 // Namespace all page-level state to avoid polluting the global scope and
@@ -269,9 +260,9 @@ function loadStatistics() {
         if (loading) {
             loading.style.display = 'none';
         }
-        var overviewContainer = document.getElementById('overviewContent');
-        if (overviewContainer) {
-            overviewContainer.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('statsLoadError',
+        var statisticsContainer = document.getElementById('statisticsContent');
+        if (statisticsContainer) {
+            statisticsContainer.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('statsLoadError',
                     'Failed to load statistics. Make sure you are an administrator.'))
                 + '</div>';
         }

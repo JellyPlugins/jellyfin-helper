@@ -1,6 +1,6 @@
 ﻿// Mock data for demo. ~9.2TB total.
 var MOCK_TRANSLATIONS = null;
-function _lib(n,t,o){var s=(o.VideoSize||0)+(o.AudioSize||0)+(o.SubtitleSize||0)+(o.ImageSize||0)+(o.NfoSize||0)+(o.TrickplaySize||0)+(o.BookSize||0)+(o.OtherSize||0);return {LibraryName:n,CollectionType:t,RootPaths:o.RootPaths||[],VideoSize:0,AudioSize:0,SubtitleSize:0,ImageSize:0,NfoSize:0,TrickplaySize:0,BookSize:0,OtherSize:0,VideoFileCount:0,AudioFileCount:0,SubtitleFileCount:0,ImageFileCount:0,NfoFileCount:0,TrickplayFileCount:0,TrickplayFolderCount:o.TrickplayFolderCount||0,BookFileCount:0,OtherFileCount:0,TotalSize:s,VideoCodecs:{},VideoAudioCodecs:{},MusicAudioCodecs:{},BookFormats:{},BookFormatSizes:{},ContainerFormats:{},Resolutions:{},VideoCodecPaths:{},VideoAudioCodecPaths:{},MusicAudioCodecPaths:{},BookFormatPaths:{},ContainerFormatPaths:{},ResolutionPaths:{},VideoCodecSizes:{},VideoAudioCodecSizes:{},MusicAudioCodecSizes:{},ContainerSizes:{},ResolutionSizes:{},VideoBitrateTiers:{},VideoBitrateTierSizes:{},VideoBitrateTierPaths:{},VideosWithoutSubtitles:0,VideosWithoutImages:0,VideosWithoutNfo:0,OrphanedMetadataDirectories:0,VideosWithoutSubtitlesPaths:[],VideosWithoutImagesPaths:[],VideosWithoutNfoPaths:[],OrphanedMetadataDirectoriesPaths:[],...o};}
+function _lib(n,t,o){var s=(o.VideoSize||0)+(o.AudioSize||0)+(o.SubtitleSize||0)+(o.ImageSize||0)+(o.NfoSize||0)+(o.TrickplaySize||0)+(o.BookSize||0)+(o.OtherSize||0);return {LibraryName:n,CollectionType:t,RootPaths:o.RootPaths||[],VideoSize:0,AudioSize:0,SubtitleSize:0,ImageSize:0,NfoSize:0,TrickplaySize:0,BookSize:0,OtherSize:0,VideoFileCount:0,AudioFileCount:0,SubtitleFileCount:0,ImageFileCount:0,NfoFileCount:0,TrickplayFileCount:0,TrickplayFolderCount:o.TrickplayFolderCount||0,BookFileCount:0,OtherFileCount:0,TotalSize:s,VideoCodecs:{},VideoAudioCodecs:{},MusicAudioCodecs:{},BookFormats:{},BookFormatSizes:{},ContainerFormats:{},Resolutions:{},VideoCodecPaths:{},VideoAudioCodecPaths:{},MusicAudioCodecPaths:{},BookFormatPaths:{},ContainerFormatPaths:{},ResolutionPaths:{},ResolutionDimensions:{},DynamicRanges:{},DynamicRangeSizes:{},DynamicRangePaths:{},VideoCodecSizes:{},VideoAudioCodecSizes:{},MusicAudioCodecSizes:{},ContainerSizes:{},ResolutionSizes:{},VideoBitrateTiers:{},VideoBitrateTierSizes:{},VideoBitrateTierPaths:{},AudioLanguages:{},AudioLanguageSizes:{},AudioLanguagePaths:{},SubtitleLanguages:{},SubtitleLanguageSizes:{},SubtitleLanguagePaths:{},WatchedTiers:{},WatchedTierPaths:{},WatchedTierSizes:{},WatchedByUsers:{},VideosWithoutSubtitles:0,VideosWithoutImages:0,VideosWithoutNfo:0,OrphanedMetadataDirectories:0,VideosWithoutSubtitlesPaths:[],VideosWithoutImagesPaths:[],VideosWithoutNfoPaths:[],OrphanedMetadataDirectoriesPaths:[],...o};}
 
 var _moviesLib=_lib("Movies","movies",{
 RootPaths:["/data/movies"],
@@ -22,9 +22,22 @@ ResolutionDimensions:{"/data/movies/Dune Part Two (2024)/Dune Part Two.mkv":"384
 DynamicRanges:{"SDR":780,"HDR10":280,"Dolby Vision":130,"HLG":37,"HDR10+":20},
 DynamicRangeSizes:{"SDR":2000000000000,"HDR10":1800000000000,"Dolby Vision":1000000000000,"HLG":300000000000,"HDR10+":183942948864},
 DynamicRangePaths:{"HDR10":["/data/movies/Inception (2010)/Inception.mkv"],"Dolby Vision":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"HDR10+":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"]},
-VideoBitrateTiers:{"20-40 Mbps":420,"10-20 Mbps":510,"5-10 Mbps":210,"> 40 Mbps":72,"2-5 Mbps":35},
-VideoBitrateTierSizes:{"20-40 Mbps":2900000000000,"10-20 Mbps":1600000000000,"5-10 Mbps":520000000000,"> 40 Mbps":230000000000,"2-5 Mbps":33942948864},
-VideoBitrateTierPaths:{"> 40 Mbps":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"20-40 Mbps":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"],"10-20 Mbps":["/data/movies/Inception (2010)/Inception.mkv"],"5-10 Mbps":["/data/movies/The Matrix (1999)/The Matrix.mp4"],"2-5 Mbps":["/data/movies/Old Movie (1992)/Old Movie.avi"]},
+VideoBitrateTiers:{"< 2 Mbps":18,"2–4 Mbps":35,"4–8 Mbps":110,"8–16 Mbps":420,"16–32 Mbps":510,"32–60 Mbps":102,"> 60 Mbps":52},
+VideoBitrateTierSizes:{"< 2 Mbps":33942948864,"2–4 Mbps":80000000000,"4–8 Mbps":300000000000,"8–16 Mbps":1600000000000,"16–32 Mbps":2900000000000,"32–60 Mbps":350000000000,"> 60 Mbps":230000000000},
+VideoBitrateTierPaths:{"32–60 Mbps":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"16–32 Mbps":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"],"8–16 Mbps":["/data/movies/Inception (2010)/Inception.mkv"],"4–8 Mbps":["/data/movies/The Matrix (1999)/The Matrix.mp4"],"2–4 Mbps":["/data/movies/Old Movie (1992)/Old Movie.avi"],"< 2 Mbps":["/data/movies/Old Clip (1985)/Old Clip.avi"],"> 60 Mbps":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"]},
+AudioLanguages:{"English":980,"German":420,"French":210,"Japanese":85,"Spanish":42},
+AudioLanguageSizes:{"English":3200000000000,"German":980000000000,"French":410000000000,"Japanese":180000000000,"Spanish":80000000000},
+AudioLanguagePaths:{"English":["/data/movies/Inception (2010)/Inception.mkv"],"German":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"French":["/data/movies/French Film (1998)/French Film.mkv"],"Japanese":["/data/movies/Anime Film (2022)/Anime Film.mkv"],"Spanish":["/data/movies/Spanish Film (2021)/Spanish Film.mkv"]},
+SubtitleLanguages:{"English":820,"German":380,"French":190,"Spanish":72,"Japanese":34},
+SubtitleLanguageSizes:{"English":3100000000000,"German":900000000000,"French":400000000000,"Spanish":70000000000,"Japanese":30000000000},
+SubtitleLanguagePaths:{"English":["/data/movies/Inception (2010)/Inception.mkv"],"German":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"French":["/data/movies/French Film (1998)/French Film.mkv"]},
+WatchedTiers:{"Never watched":210,"Watched":1037},
+WatchedTierSizes:{"Never watched":700000000000,"Watched":3843942948864},
+WatchedTierPaths:{"Never watched":["/data/movies/Old Movie (1992)/Old Movie.avi","/data/movies/Home Video (2023)/Home Video.mp4"],"Watched":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Interstellar (2014)/Interstellar.mkv","/data/movies/The Matrix (1999)/The Matrix.mp4"]},
+WatchedByUsers:{"/data/movies/Inception (2010)/Inception.mkv":["Alice","Bob"],"/data/movies/Interstellar (2014)/Interstellar.mkv":["Alice","Bob","Carol"],"/data/movies/The Matrix (1999)/The Matrix.mp4":["Bob"]},
+WatchedByUserPaths:{"Alice":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Interstellar (2014)/Interstellar.mkv"],"Bob":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Interstellar (2014)/Interstellar.mkv","/data/movies/The Matrix (1999)/The Matrix.mp4"],"Carol":["/data/movies/Interstellar (2014)/Interstellar.mkv"]},
+WatchedByUserSizes:{"Alice":3000000000000,"Bob":4000000000000,"Carol":1500000000000},
+WatchedDetails:{"/data/movies/Inception (2010)/Inception.mkv":[{"Username":"Alice","PlayCount":3,"LastPlayedDate":"2024-03-01T10:00:00Z","Played":true},{"Username":"Bob","PlayCount":1,"LastPlayedDate":"2024-02-15T08:00:00Z","Played":true}],"/data/movies/Interstellar (2014)/Interstellar.mkv":[{"Username":"Alice","PlayCount":2,"LastPlayedDate":"2024-02-20T12:00:00Z","Played":true},{"Username":"Bob","PlayCount":1,"LastPlayedDate":"2024-01-10T09:00:00Z","Played":true},{"Username":"Carol","PlayCount":5,"LastPlayedDate":"2024-03-05T14:00:00Z","Played":true}]},
 VideosWithoutSubtitles:8,VideosWithoutImages:2,VideosWithoutNfo:1,
 VideosWithoutSubtitlesPaths:["/data/movies/Home Video (2023)/Home Video.mp4","/data/movies/Old Movie (1992)/Old Movie.avi"],
 VideosWithoutImagesPaths:["/data/movies/Home Video (2023)/Home Video.mp4"],
@@ -51,9 +64,22 @@ ResolutionDimensions:{"/data/tv/Planet Earth III/Season 01/S01E01.mkv":"3840x216
 DynamicRanges:{"SDR":3100,"HDR10":450,"Dolby Vision":200,"HLG":62,"HDR10+":30},
 DynamicRangeSizes:{"SDR":2200000000000,"HDR10":650000000000,"Dolby Vision":380000000000,"HLG":130000000000,"HDR10+":75973836800},
 DynamicRangePaths:{"HDR10":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"Dolby Vision":["/data/tv/The Expanse/Season 01/S01E01.mkv"]},
-VideoBitrateTiers:{"5-10 Mbps":1680,"10-20 Mbps":1120,"2-5 Mbps":620,"20-40 Mbps":340,"< 2 Mbps":82},
-VideoBitrateTierSizes:{"5-10 Mbps":1500000000000,"10-20 Mbps":1200000000000,"2-5 Mbps":450000000000,"20-40 Mbps":250000000000,"< 2 Mbps":35973836800},
-VideoBitrateTierPaths:{"20-40 Mbps":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"10-20 Mbps":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"5-10 Mbps":["/data/tv/The Office/Season 01/S01E01.mp4"],"2-5 Mbps":["/data/tv/Friends/Season 01/S01E01.mp4"],"< 2 Mbps":["/data/tv/Old Show (1995)/S01E01.avi"]},
+VideoBitrateTiers:{"< 2 Mbps":82,"2–4 Mbps":320,"4–8 Mbps":980,"8–16 Mbps":1120,"16–32 Mbps":680,"32–60 Mbps":380,"> 60 Mbps":280},
+VideoBitrateTierSizes:{"< 2 Mbps":35973836800,"2–4 Mbps":180000000000,"4–8 Mbps":700000000000,"8–16 Mbps":1200000000000,"16–32 Mbps":900000000000,"32–60 Mbps":300000000000,"> 60 Mbps":200000000000},
+VideoBitrateTierPaths:{"32–60 Mbps":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"16–32 Mbps":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"8–16 Mbps":["/data/tv/The Office/Season 01/S01E01.mp4"],"4–8 Mbps":["/data/tv/Friends/Season 01/S01E01.mp4"],"2–4 Mbps":["/data/tv/Old Show (1995)/S01E01.avi"],"< 2 Mbps":["/data/tv/Old Show (1995)/S01E01.avi"],"> 60 Mbps":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"]},
+AudioLanguages:{"English":2400,"German":680,"French":320,"Spanish":140,"Japanese":95},
+AudioLanguageSizes:{"English":2100000000000,"German":600000000000,"French":300000000000,"Spanish":120000000000,"Japanese":9773836800},
+AudioLanguagePaths:{"English":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"German":["/data/tv/Dark/Season 01/S01E01.mkv"],"French":["/data/tv/Lupin/Season 01/S01E01.mkv"]},
+SubtitleLanguages:{"English":1800,"German":520,"French":280,"Spanish":110,"Japanese":72},
+SubtitleLanguageSizes:{"English":2000000000000,"German":580000000000,"French":280000000000,"Spanish":110000000000,"Japanese":70973836800},
+SubtitleLanguagePaths:{"English":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"German":["/data/tv/Dark/Season 01/S01E01.mkv"]},
+WatchedTiers:{"Never watched":520,"Watched":3322},
+WatchedTierSizes:{"Never watched":500000000000,"Watched":2385973836800},
+WatchedTierPaths:{"Never watched":["/data/tv/New Show/Season 01/S01E01.mkv"],"Watched":["/data/tv/Breaking Bad/Season 01/S01E01.mkv","/data/tv/The Office/Season 01/S01E01.mp4","/data/tv/Friends/Season 01/S01E01.mp4"]},
+WatchedByUsers:{"/data/tv/Breaking Bad/Season 01/S01E01.mkv":["Alice"],"/data/tv/The Office/Season 01/S01E01.mp4":["Alice","Bob"],"/data/tv/Friends/Season 01/S01E01.mp4":["Bob"]},
+WatchedByUserPaths:{"Alice":["/data/tv/Breaking Bad/Season 01/S01E01.mkv","/data/tv/The Office/Season 01/S01E01.mp4"],"Bob":["/data/tv/The Office/Season 01/S01E01.mp4","/data/tv/Friends/Season 01/S01E01.mp4"]},
+WatchedByUserSizes:{"Alice":1500000000000,"Bob":1200000000000},
+WatchedDetails:{"/data/tv/Breaking Bad/Season 01/S01E01.mkv":[{"Username":"Alice","PlayCount":4,"LastPlayedDate":"2024-03-02T11:00:00Z","Played":true}],"/data/tv/The Office/Season 01/S01E01.mp4":[{"Username":"Alice","PlayCount":2,"LastPlayedDate":"2024-02-28T10:00:00Z","Played":true},{"Username":"Bob","PlayCount":1,"LastPlayedDate":"2024-02-10T09:00:00Z","Played":true}]},
 VideosWithoutSubtitles:45,VideosWithoutImages:8,OrphanedMetadataDirectories:2,
 VideosWithoutSubtitlesPaths:["/data/tv/New Show/Season 01/S01E01.mkv","/data/tv/New Show/Season 01/S01E02.mkv"],
 VideosWithoutImagesPaths:["/data/tv/New Show/Season 01/S01E01.mkv"],
@@ -92,7 +118,7 @@ TotalImageSize:_moviesLib.ImageSize+_tvLib.ImageSize+_musicLib.ImageSize+_booksL
 TotalNfoSize:_moviesLib.NfoSize+_tvLib.NfoSize,
 TotalVideoFileCount:_moviesLib.VideoFileCount+_tvLib.VideoFileCount,
 TotalAudioFileCount:_musicLib.AudioFileCount,
-MovieRootPaths:["/data/movies"],TvShowRootPaths:["/data/tv"],MusicRootPaths:["/data/music"],OtherRootPaths:[]
+MovieRootPaths:["/data/movies"],TvShowRootPaths:["/data/tv"],MusicRootPaths:["/data/music"],BookRootPaths:["/data/books"],OtherRootPaths:[]
 };
 
 var MOCK_CONFIG={
