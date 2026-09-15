@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import { openDashboard, switchTab, trackConsoleErrors } from './_ui-helpers.ts';
 
 // data-tab values (NOT the same as labels): arr = "ArrIntegration".
-const ALWAYS_TABS = ['overview', 'codecs', 'health', 'trends', 'settings', 'arr', 'logs'];
+const ALWAYS_TABS = ['statistics', 'health', 'trends', 'settings', 'arr', 'logs'];
 
 test('all core tabs switch and activate without JS errors', async ({ page }) => {
   const errors = trackConsoleErrors(page);
@@ -20,13 +20,13 @@ test('all core tabs switch and activate without JS errors', async ({ page }) => 
   expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
 });
 
-test('overview renders stat cards after scan', async ({ page }) => {
+test('statistics renders KPI strip after scan', async ({ page }) => {
   await openDashboard(page);
-  await switchTab(page, 'overview');
-  // After the global-setup scan, the overview should have content (stat cards
+  await switchTab(page, 'statistics');
+  // After the global-setup scan, the statistics tab should have content (KPI strip
   // or a library table). Wait for either to appear.
   await expect(
-    page.locator('#overviewContent .stat-card, #overviewContent .library-table').first(),
+    page.locator('#statisticsContent .stat-kpi-card, #statisticsContent .library-table').first(),
   ).toBeVisible({ timeout: 20_000 });
 });
 
@@ -49,14 +49,14 @@ test('a transient auth failure on refresh is retried, not shown as a stuck admin
 
   await openDashboard(page);
 
-  const errBanner = page.locator('#overviewContent .error-msg', { hasText: /administrator/i });
+  const errBanner = page.locator('#statisticsContent .error-msg', { hasText: /administrator/i });
 
   // The forced 403s must have been consumed (proves the retry actually re-requested).
   await expect.poll(() => latestHits, { timeout: 20_000 }).toBeGreaterThan(2);
   // After the retries resolve, no stuck admin-error banner.
   await expect(errBanner).toBeHidden({ timeout: 20_000 });
-  // And the overview ultimately shows real content, proving stats loaded post-retry.
+  // And the statistics tab ultimately shows real content, proving stats loaded post-retry.
   await expect(
-    page.locator('#overviewContent .stat-card, #overviewContent .library-table').first(),
+    page.locator('#statisticsContent .stat-kpi-card, #statisticsContent .library-table').first(),
   ).toBeVisible({ timeout: 20_000 });
 });

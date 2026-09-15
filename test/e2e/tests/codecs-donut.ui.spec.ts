@@ -2,18 +2,25 @@
  * Donut chart touch handling: first tap shows the tooltip, second tap on the same segment hides it.
  */
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { openDashboard, switchTab, trackConsoleErrors } from './_ui-helpers.ts';
+import { openDashboard, switchTab, trackConsoleErrors, expandAllLibrariesExplorer } from './_ui-helpers.ts';
 
 async function openSegments(page: Page) {
   await openDashboard(page);
-  await switchTab(page, 'codecs');
-  // Wait for the codecs render to settle: either the donut appears (has data) or the no-data box
-  // does. Both replace the initial placeholder, so a render that never settles fails the test here
-  // instead of being swallowed into a false skip. The no-data box has no .donut-container inside it.
-  const donut = page.locator('#codecsContent .donut-container');
-  const noData = page.locator('#codecsContent .chart-box:not(:has(.donut-container))');
-  await expect(donut.first().or(noData.first())).toBeVisible({ timeout: 15_000 });
-  return page.locator('#codecsContent .donut-segment path');
+  await switchTab(page, 'statistics');
+  await expandAllLibrariesExplorer(page);
+
+  const scope = page.locator('.stat-explorer[data-scope="all"]');
+  const header = scope.locator('.stat-donut-header').first();
+  // A donut section only ever renders when it is relevant to the current scope and has at least
+  // one matching file, so the first header found is guaranteed to expand into a real chart.
+  await expect(header).toBeVisible({ timeout: 20_000 });
+  if ((await header.getAttribute('aria-expanded')) !== 'true') {
+    await header.click();
+  }
+
+  const donut = scope.locator('.donut-container').first();
+  await expect(donut).toBeVisible({ timeout: 15_000 });
+  return scope.locator('.donut-segment path');
 }
 
 // The touchend handler is bound per <path>, and a coordinate tap resolves to the <svg> ancestor, so
@@ -65,7 +72,7 @@ test.describe('codec donut touch tap', () => {
     test.skip((await segments.count()) === 0, 'no codec data on this server');
 
     const segment = segments.first();
-    const tooltip = page.locator('#codecsContent .donut-tooltip.visible');
+    const tooltip = page.locator('#statisticsContent .donut-tooltip.visible');
 
     await tapPath(segment);
     await expect(tooltip.first()).toBeVisible({ timeout: 5_000 });

@@ -44,8 +44,7 @@
     <!-- Define CSS and JS module files in concatenation order -->
     <ItemGroup>
         <CssModule Include="PluginPages\css\Shared.css"/>
-        <CssModule Include="PluginPages\css\Overview.css"/>
-        <CssModule Include="PluginPages\css\Codecs.css"/>
+        <CssModule Include="PluginPages\css\Statistics.css"/>
         <CssModule Include="PluginPages\css\Health.css"/>
         <CssModule Include="PluginPages\css\Trends.css"/>
         <CssModule Include="PluginPages\css\Settings.css"/>
@@ -56,8 +55,7 @@
 
     <ItemGroup>
         <JsModule Include="PluginPages\js\Shared.js"/>
-        <JsModule Include="PluginPages\js\Overview.js"/>
-        <JsModule Include="PluginPages\js\Codecs.js"/>
+        <JsModule Include="PluginPages\js\Statistics.js"/>
         <JsModule Include="PluginPages\js\Health.js"/>
         <JsModule Include="PluginPages\js\Trends.js"/>
         <JsModule Include="PluginPages\js\Settings.js"/>

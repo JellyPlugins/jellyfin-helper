@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "3.0.0.2"
+version: "3.0.0.3"
 targetAbi: ""
 framework: "net10.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
@@ -13,14 +13,11 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.0.0.2 - Log tab, save bar, resolution and touch fixes
+  v3.0.0.3 - Video bitrate breakdown in the Codecs tab
 
-  - Clearing the plugin log no longer briefly shows a false "Failed to clear logs." error: the Clear button now confirms success immediately and refreshes the view right away
-  - Genuine clear failures (e.g. expired session or server error) now write a structured diagnostic to the browser console with the HTTP status and error kind, alongside the visible red button feedback, so a real problem is never silent
-  - Save bar no longer crowds on phones: the unsaved-changes label and Save button now stack on narrow screens, so long translations like the German "Nicht gespeichert" are no longer cut off
-  - Widescreen films are counted at their real resolution: cinemascope masters like 1920x800 or 1920x1040 are now correctly shown as 1080p instead of 720p in the Codecs tab, decided by whichever axis reaches a resolution class
-  - The resolution drill-down now lists each file's exact pixel dimensions (e.g. 1920x800) next to its name, readable on desktop and phones
-  - Chart tooltips work reliably on touch: the first tap on the Trends chart or a Codecs ring now shows and keeps the tooltip instead of flashing it away, and a second tap on the same Codecs segment closes it
-  - The save confirmation only appears after a real save: reverting a setting back to its original value no longer briefly shows "All changes saved"
-  - Tested by 5535 unit tests and 320 end-to-end tests
+  - The Codecs tab now shows a Video Bitrate donut: your movies and shows grouped into bitrate tiers (< 2, 2-5, 5-10, 10-20, 20-40, > 40 Mbps), so you can see at a glance how much of your library is heavily compressed versus near-source quality
+  - Click any tier to drill down to the exact files in it, the same way the codec and resolution breakdowns already work
+  - Each tier uses the bitrate Jellyfin measured for the video stream; when a file has no per-stream value, the average bitrate is estimated from its size and runtime, so almost every file lands in a real tier instead of Unknown
+  - Only video libraries (Movies, TV Shows and Other) are included; music is left out
+  - Tested by 5561 unit tests and 320 end-to-end tests
   - Requires Jellyfin 12.0 - if you are on Jellyfin 10.x, stay on v2.1.0.6

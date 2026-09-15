@@ -122,6 +122,13 @@ public class LibraryStatistics
     public long TotalSize => VideoSize + SubtitleSize + ImageSize + NfoSize + AudioSize + TrickplaySize + BookSize + OtherSize;
 
     /// <summary>
+    ///     Gets a reverse lookup of file path -> file size in bytes, populated for every classified
+    ///     video, music-audio, and eBook file. Used by the Statistics tab's "largest files" curated
+    ///     default view, which needs per-file size rather than the per-dimension aggregates above.
+    /// </summary>
+    public Dictionary<string, long> FileSizes { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Gets the container format breakdown (extension -> count), e.g. "MKV" -> 150.
     /// </summary>
     public Dictionary<string, int> ContainerFormats { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -226,6 +233,21 @@ public class LibraryStatistics
     public Dictionary<string, Collection<string>> DynamicRangePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Gets the video bitrate tier breakdown (tier -> count), e.g. "10-20 Mbps" -> 40.
+    /// </summary>
+    public Dictionary<string, int> VideoBitrateTiers { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the video bitrate tier size breakdown (tier -> total bytes).
+    /// </summary>
+    public Dictionary<string, long> VideoBitrateTierSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the video bitrate tier file paths (tier -> list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> VideoBitrateTierPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Gets or sets the number of video files without any subtitle file in the same directory.
     /// </summary>
     public int VideosWithoutSubtitles { get; set; }
@@ -264,4 +286,76 @@ public class LibraryStatistics
     /// Gets the list of directory paths that contain only metadata but no video (orphaned metadata).
     /// </summary>
     public Collection<string> OrphanedMetadataDirectoriesPaths { get; } = new();
+
+    /// <summary>
+    /// Gets the audio language breakdown (language -> count) for video files.
+    /// One file counts once per distinct language across its audio tracks.
+    /// </summary>
+    public Dictionary<string, int> AudioLanguages { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the audio language size breakdown (language -> total bytes) for video files.
+    /// </summary>
+    public Dictionary<string, long> AudioLanguageSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the audio language file paths (language -> list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> AudioLanguagePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the subtitle language breakdown (language -> count) for embedded subtitle tracks.
+    /// One file counts once per distinct embedded language; external sidecar files are excluded.
+    /// </summary>
+    public Dictionary<string, int> SubtitleLanguages { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the subtitle language size breakdown (language -> total bytes) for embedded subtitle tracks.
+    /// </summary>
+    public Dictionary<string, long> SubtitleLanguageSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the subtitle language file paths (language -> list of file paths) for embedded subtitle tracks.
+    /// </summary>
+    public Dictionary<string, Collection<string>> SubtitleLanguagePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the watched status breakdown (Watched vs Never watched).
+    /// Kept for the simple donut; per-user filtering uses <see cref="WatchedByUserPaths"/> instead of buckets.
+    /// </summary>
+    public Dictionary<string, int> WatchedTiers { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the watched status file paths (Watched / Never watched).
+    /// </summary>
+    public Dictionary<string, Collection<string>> WatchedTierPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the watched status size breakdown (Watched / Never watched).
+    /// </summary>
+    public Dictionary<string, long> WatchedTierSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the per-file watched-by mapping (file path -> list of usernames that have played the file).
+    /// Only files watched by at least one user have an entry; never-watched files are absent.
+    /// Kept for backward compatibility; new code also populates <see cref="WatchedDetails"/>.
+    /// </summary>
+    public Dictionary<string, Collection<string>> WatchedByUsers { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Gets the per-user watched paths (username -> list of file paths watched by that user).
+    /// Enables the "Watched by" filter without forcing every file into a bucket donut.
+    /// </summary>
+    public Dictionary<string, Collection<string>> WatchedByUserPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the per-user watched size breakdown (username -> total bytes of files watched by that user).
+    /// </summary>
+    public Dictionary<string, long> WatchedByUserSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the per-file per-user watch details (file path -> list of user details).
+    /// Each entry records play count and last played date so the file drawer can show "Alice - 3 Plays, zuletzt 2024-03-01".
+    /// </summary>
+    public Dictionary<string, Collection<WatchedUserDetail>> WatchedDetails { get; } = new(StringComparer.Ordinal);
 }

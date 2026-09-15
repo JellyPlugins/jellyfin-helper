@@ -238,7 +238,7 @@ jobs:
         #
         # sonar.tests marks the xUnit project and the E2E harness as TEST sources rather than
         # production code, so SonarCloud applies its (much lighter) test rule set to them instead
-        # of production rules like CA2000/CA5394/CA1861 — analysing test code with production rules
+        # of production rules like CA2000/CA5394/CA1861 analysing test code with production rules
         # is noise. Real test-quality issues (missing asserts, Thread.Sleep) still surface.
         dotnet sonarscanner begin \
           /k:"$SONAR_PROJECT_KEY" \
@@ -257,7 +257,7 @@ jobs:
 
   # Keeps the README test-count badge in sync automatically: counts the tests actually
   # executed in CI (from the .trx artifacts the `test` job already produced) and commits the
-  # updated badge straight back onto the open PR branch — so contributors never hand-edit it.
+  # updated badge straight back onto the open PR branch: so contributors never hand-edit it.
   test-badge:
     # Same-repo PRs only: fork PRs get a read-only GITHUB_TOKEN and cannot push, so the guard
     # skips them cleanly rather than failing. Never runs on push:main.
@@ -313,7 +313,7 @@ jobs:
       run: |
         set -euo pipefail
         if git diff --quiet -- README.md; then
-          echo "Test-count badge already at ${COUNT} — nothing to commit."
+          echo "Test-count badge already at ${COUNT}: nothing to commit."
           exit 0
         fi
 

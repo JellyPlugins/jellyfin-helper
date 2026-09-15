@@ -19,9 +19,9 @@ test.afterAll(async () => {
   await ctx.dispose();
 });
 
-test('Overview: Scan Libraries button fires a scan and re-enables', async ({ page }) => {
+test('Statistics: Scan Libraries button fires a scan and re-enables', async ({ page }) => {
   await openDashboard(page);
-  await switchTab(page, 'overview');
+  await switchTab(page, 'statistics');
 
   const scanBtn = page.locator('#btnScanLibraries');
   await expect(scanBtn).toBeVisible({ timeout: 15_000 });

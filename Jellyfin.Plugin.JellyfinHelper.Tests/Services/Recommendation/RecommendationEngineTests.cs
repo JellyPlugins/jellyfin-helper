@@ -1356,7 +1356,7 @@ public class RecommendationEngineTests
     public void CandidateFeatures_IsAbandoned_DefaultsToNeutralWhenUnset()
     {
         // With the legacy derived fallback removed, an unset IsAbandoned is a neutral 0.0 regardless of
-        // completion/interaction — the feature no longer silently derives from other fields.
+        // completion/interaction. The feature no longer silently derives from other fields.
         var features = new CandidateFeatures
         {
             HasUserInteraction = true,

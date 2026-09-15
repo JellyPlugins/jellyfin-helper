@@ -74,7 +74,6 @@ The build produces:
 - `Jellyfin.Plugin.JellyfinHelper.dll` (plugin assembly with embedded resources)
 - `configPage.html` (generated configuration page, embedded in the DLL at build time)
 
-
 See [Configuration Page Build System](#configuration-page-build-system) for how the config page is composed.
 
 ## Testing
@@ -166,8 +165,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── ConfigPageTemplateTests.cs # Template shell / placeholder / metadata
 │   ├── MainHtmlTests.cs           # Main.js: bootstrap, tab switching, page lifecycle
 │   ├── SharedHtmlTests.cs         # Shared.js: API wrappers, i18n, formatting, tree
-│   ├── OverviewHtmlTests.cs       # Overview tab
-│   ├── CodecsHtmlTests.cs         # Codecs tab (donut charts, path map)
+│   ├── StatisticsHtmlTests.cs     # Statistics tab (merged Overview+Codecs, interactive filters)
 │   ├── HealthHtmlTests.cs         # Health tab (orphan/missing detection)
 │   ├── TrendsHtmlTests.cs         # Trends tab (growth timeline + insights)
 │   ├── SettingsHtmlTests.cs       # Settings tab (task modes, trash, Seerr)
@@ -608,11 +606,11 @@ Jellyfin.Plugin.JellyfinHelper/
     ├── configPage.template.html # HTML shell (build-time composition)
     ├── configPage.html          # Generated output (do not edit)
     ├── css/                     # Per-tab CSS modules
-    │   ├── Shared.css, Overview.css, Codecs.css, Health.css
+    │   ├── Shared.css, Statistics.css, Health.css
     │   ├── Trends.css, Settings.css, ArrIntegration.css, Logs.css
     │   └── Recommendations.css  # Discover tab styles
     └── js/                      # Per-tab JS modules + eslint.config.js
-        ├── Shared.js, Overview.js, Codecs.js, Health.js
+        ├── Shared.js, Statistics.js, Health.js
         ├── Trends.js, Settings.js, ArrIntegration.js, Logs.js
         ├── Recommendations.js    # Discover tab logic
         ├── FolderBrowser.js      # Folder browser UI (path picker for settings)
@@ -682,7 +680,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/PluginPages/`
 
 - `ArrIntegrationHtmlTests.cs`
-- `CodecsHtmlTests.cs`
+- `StatisticsHtmlTests.cs`
 - `ConfigPageHtmlTests.cs`
 - `ConfigPageTemplateTests.cs`
 - `ConfigPageTestBase.cs`
@@ -691,7 +689,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `HealthHtmlTests.cs`
 - `LogsHtmlTests.cs`
 - `MainHtmlTests.cs`
-- `OverviewHtmlTests.cs`
+
 - `RecommendationsHtmlTests.cs`
 - `SettingsHtmlTests.cs`
 - `SharedHtmlTests.cs`
@@ -888,8 +886,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Statistics/`
 
 - `MediaStatisticsResultTests.cs` - Unit tests for MediaStatisticsResult aggregate totals and dictionary rollups
+- `MediaStatisticsResultLanguageTests.cs` - Unit tests for MediaStatisticsResult new language/watched aggregates
 - `MediaStatisticsServiceTests.cs` - Unit tests for MediaStatisticsService library scanning and statistics calculation
+- `MediaStatisticsServiceBitrateTests.cs` - Unit tests for MediaStatisticsService bitrate tier thresholds and legacy mapping
+- `MediaStatisticsServiceLanguageTests.cs` - Unit tests for MediaStatisticsService audio/subtitle language extraction
 - `MediaStatisticsServiceTvShowTests.cs` - Unit tests for MediaStatisticsService TV show structure and orphaned-metadata handling
+- `MediaStatisticsServiceWatchedTests.cs` - Unit tests for MediaStatisticsService watched status extraction
 - `StatisticsCacheServiceTests.cs` - Unit tests for StatisticsCacheService persisting and loading cached statistics results
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Timeline/`
@@ -983,27 +985,25 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/PluginPages/css/`
 
 - `ArrIntegration.css`
-- `Codecs.css`
 - `Health.css`
 - `Logs.css`
-- `Overview.css`
 - `Recommendations.css`
 - `Settings.css`
 - `Shared.css`
+- `Statistics.css`
 - `Trends.css`
 
 `Jellyfin.Plugin.JellyfinHelper/PluginPages/js/`
 
 - `ArrIntegration.js`
-- `Codecs.js`
 - `FolderBrowser.js`
 - `Health.js`
 - `Logs.js`
 - `Main.js`
-- `Overview.js`
 - `Recommendations.js`
 - `Settings.js`
 - `Shared.js`
+- `Statistics.js`
 - `Trends.js`
 
 `Jellyfin.Plugin.JellyfinHelper/ScheduledTasks/`
@@ -1232,6 +1232,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `MediaStatisticsResult.cs` - Aggregated media scan result grouping libraries by type with computed totals
 - `MediaStatisticsService.cs` - Recursively scans libraries computing size, codec, resolution, and health statistics
 - `StatisticsCacheService.cs` - Persists the latest statistics result to disk as JSON via atomic write
+- `WatchedUserDetail.cs` - Per-file per-user watch detail DTO (username, play count, last played)
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Timeline/`
 
@@ -1250,7 +1251,6 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/js/`
 
 - `discovery-sidebar.js`
-
 
 ### Service Registration
 
@@ -1426,23 +1426,23 @@ The `ComposeConfigPage` MSBuild task (`BuildTasks/ComposeConfigPage.cs`) runs du
 
 ### File Ordering
 
-`ComposeConfigPage` has no ordering arrays of its own — it concatenates whatever
+`ComposeConfigPage` has no ordering arrays of its own. It concatenates whatever
 list of files MSBuild passes in. The canonical order is defined by the `CssModule`
 and `JsModule` `ItemGroup`s in `Jellyfin.Plugin.JellyfinHelper.csproj`:
 
 ```
 # CSS order (csproj CssModule items)
-Shared.css, Overview.css, Codecs.css, Health.css,
+Shared.css, Statistics.css, Health.css,
 Trends.css, Settings.css, ArrIntegration.css,
 Recommendations.css, Logs.css
 
 # JS order (csproj JsModule items)
-Shared.js, Overview.js, Codecs.js, Health.js,
+Shared.js, Statistics.js, Health.js,
 Trends.js, Settings.js, ArrIntegration.js,
 Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```
 
-`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` — the module files themselves are unwrapped.
+`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` the module files themselves are unwrapped.
 
 ### Adding a New Tab
 

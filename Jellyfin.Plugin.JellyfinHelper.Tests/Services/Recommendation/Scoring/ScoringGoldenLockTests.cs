@@ -58,7 +58,7 @@ public class ScoringGoldenLockTests
     [System.Diagnostics.CodeAnalysis.SuppressMessage(
         "Security",
         "CA5394:Do not use insecure randomness",
-        Justification = "Seeded System.Random is required here for REPRODUCIBLE test fixtures — the golden digest must be identical on every run. A cryptographic RNG would be non-deterministic and defeat the test.")]
+        Justification = "Seeded System.Random is required here for REPRODUCIBLE test fixtures. The golden digest must be identical on every run. A cryptographic RNG would be non-deterministic and defeat the test.")]
     private static CandidateFeatures BuildDeterministicFeatures(PropertyInfo[] props, int seed)
     {
         var rng = new Random(seed);
