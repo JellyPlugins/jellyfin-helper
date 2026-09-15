@@ -87,7 +87,7 @@ test('Discard Changes leaves the tab and drops the edit', async ({ page }) => {
   }
 
   // Left the tab.
-  await expect(page.locator('#tab-overview')).toHaveClass(/active/, { timeout: 10_000 });
+  await expect(page.locator('#tab-statistics')).toHaveClass(/active/, { timeout: 10_000 });
 
   // Returning to settings shows the original value (edit discarded).
   await switchTab(page, 'settings');

@@ -40,8 +40,7 @@ public class StatisticsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_ContainsPerLibraryExplorer()
     {
-        Assert.Contains("stat-lib-row", HtmlContent);
-        Assert.Contains("stat-lib-row-header", HtmlContent);
+        Assert.Contains("stat-lib-table-row", HtmlContent);
         Assert.Contains("data-lib-index", HtmlContent);
         Assert.Contains("stat-explorer-section", HtmlContent);
     }
@@ -104,8 +103,8 @@ public class StatisticsHtmlTests : ConfigPageTestBase
     public void Html_ContainsStorageOverview()
     {
         Assert.Contains("stat-storage-section", HtmlContent);
-        Assert.Contains("stat-storage-header", HtmlContent);
-        Assert.Contains("stat-lib-row-list", HtmlContent);
+        Assert.Contains("stat-storage-title", HtmlContent);
+        Assert.Contains("library-table", HtmlContent);
         Assert.Contains("buildBarSegments", HtmlContent);
     }
 
@@ -122,7 +121,7 @@ public class StatisticsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("@media", HtmlContent);
         Assert.Contains("640px", HtmlContent);
-        Assert.Contains("stat-lib-row-header", HtmlContent);
+        Assert.Contains("stat-kpi-strip", HtmlContent);
     }
 
     [Fact]
@@ -205,7 +204,7 @@ public class StatisticsHtmlTests : ConfigPageTestBase
         Assert.Contains("function getExplorerState", HtmlContent);
         Assert.Contains("function getScopedLib", HtmlContent);
         Assert.Contains("function libScopeKey", HtmlContent);
-        Assert.Contains("function buildLibraryRowHtml", HtmlContent);
+        Assert.Contains("function buildLibraryTableRowHtml", HtmlContent);
         Assert.Contains("function buildExplorerHtml", HtmlContent);
     }
 

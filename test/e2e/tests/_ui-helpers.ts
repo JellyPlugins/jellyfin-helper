@@ -107,4 +107,18 @@ export async function expandArrCollapsibleSection(page: Page, type: string): Pro
   }
 }
 
+/**
+ * Expands the Statistics tab's "All Libraries — Explore & Filter" section. Donuts and breakdown
+ * rows only render once this section (and, per-dimension, its donut header) is expanded, so any
+ * test driving the codec/tree UI must call this first.
+ */
+export async function expandAllLibrariesExplorer(page: Page): Promise<void> {
+  const header = page.locator('.stat-explorer-header');
+  await expect(header).toBeVisible({ timeout: 20_000 });
+  if ((await header.getAttribute('aria-expanded')) !== 'true') {
+    await header.click();
+    await expect(header).toHaveAttribute('aria-expanded', 'true', { timeout: 5000 });
+  }
+}
+
 export { PLUGIN_GUID } from '../setup/api-client.ts';

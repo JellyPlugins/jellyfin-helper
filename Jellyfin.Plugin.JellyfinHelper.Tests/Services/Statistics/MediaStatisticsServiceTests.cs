@@ -344,6 +344,66 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_FileSizes_TracksVideoFilesButNotSubtitlesOrImages()
+    {
+        // FileSizes drives the Statistics tab's "largest files" curated view. It must contain every
+        // video file (so a 4K remux actually surfaces as "largest"), and must NOT contain subtitle
+        // or image files - broadening this to every file type would silently double the in-memory
+        // footprint on large libraries for a dimension nothing ever reads.
+        var libraryPath = TestPath("media", "movies");
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var videoPath = TestPath("media", "movies", "Film.mkv");
+        var subtitlePath = TestPath("media", "movies", "Film.srt");
+        var imagePath = TestPath("media", "movies", "poster.jpg");
+
+        var files = new[]
+        {
+            new FileSystemMetadata { FullName = videoPath, Name = "Film.mkv", Length = 4_000_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = subtitlePath, Name = "Film.srt", Length = 50_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = imagePath, Name = "poster.jpg", Length = 200_000, IsDirectory = false },
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var stats = _service.CalculateStatistics().Libraries[0];
+
+        Assert.Equal(4_000_000_000, stats.FileSizes[videoPath]);
+        Assert.False(stats.FileSizes.ContainsKey(subtitlePath));
+        Assert.False(stats.FileSizes.ContainsKey(imagePath));
+    }
+
+    [Fact]
+    public void CalculateStatistics_FileSizes_TracksAudioFiles()
+    {
+        var libraryPath = TestPath("media", "music");
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Music",
+            CollectionType = CollectionTypeOptions.music,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var audioPath = TestPath("media", "music", "Song.flac");
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = audioPath, Name = "Song.flac", Length = 30_000_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var stats = _service.CalculateStatistics().Libraries[0];
+
+        Assert.Equal(30_000_000, stats.FileSizes[audioPath]);
+    }
+
+    [Fact]
     public void CalculateStatistics_EbookFiles_CountedAsBooksNotOther()
     {
         var libraryPath = TestPath("media", "books");
@@ -368,6 +428,7 @@ public class MediaStatisticsServiceTests
         var lib = result.Libraries[0];
         Assert.Equal(3, lib.BookFileCount);
         Assert.Equal(10_000, lib.BookSize);
+        Assert.Equal(2_000, lib.FileSizes[TestPath("media", "books", "novel.epub")]);
         // eBooks must NOT land in the generic Other bucket.
         Assert.Equal(0, lib.OtherFileCount);
         Assert.Equal(0, lib.OtherSize);

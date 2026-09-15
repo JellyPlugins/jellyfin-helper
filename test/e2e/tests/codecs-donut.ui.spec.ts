@@ -2,18 +2,27 @@
  * Donut chart touch handling: first tap shows the tooltip, second tap on the same segment hides it.
  */
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { openDashboard, switchTab, trackConsoleErrors } from './_ui-helpers.ts';
+import { openDashboard, switchTab, trackConsoleErrors, expandAllLibrariesExplorer } from './_ui-helpers.ts';
 
 async function openSegments(page: Page) {
   await openDashboard(page);
   await switchTab(page, 'statistics');
+  await expandAllLibrariesExplorer(page);
+
+  const scope = page.locator('.stat-explorer[data-scope="all"]');
+  const header = scope.locator('.stat-donut-header').first();
+  await expect(header).toBeVisible({ timeout: 20_000 });
+  if ((await header.getAttribute('aria-expanded')) !== 'true') {
+    await header.click();
+  }
+
   // Wait for the statistics render to settle: either the donut appears (has data) or the no-data box
   // does. Both replace the initial placeholder, so a render that never settles fails the test here
   // instead of being swallowed into a false skip.
-  const donut = page.locator('#statisticsContent .donut-container');
-  const noData = page.locator('#statisticsContent .stat-donut-empty');
+  const donut = scope.locator('.donut-container');
+  const noData = scope.locator('.stat-donut-empty');
   await expect(donut.first().or(noData.first())).toBeVisible({ timeout: 15_000 });
-  return page.locator('#statisticsContent .donut-segment path');
+  return scope.locator('.donut-segment path');
 }
 
 // The touchend handler is bound per <path>, and a coordinate tap resolves to the <svg> ancestor, so

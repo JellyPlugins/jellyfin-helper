@@ -258,9 +258,10 @@ function buildBarSegmentsStat(data) {
     return html;
 }
 
-function buildStatKpiCard(icon, labelKey, labelFallback, value, detail, extraClass) {
-    var cls = 'stat-kpi-card' + (extraClass ? ' ' + extraClass : '');
-    return '<div class="' + cls + '"><h3>' + mi(icon) + escHtml(T(labelKey, labelFallback)) + '</h3><p class="stat-kpi-value">' + escHtml(value) + '</p><p class="stat-kpi-detail">' + escHtml(detail) + '</p></div>';
+function buildStatKpiCard(icon, labelKey, labelFallback, value, detail, extraClass, linkCategory) {
+    var cls = 'stat-kpi-card' + (extraClass ? ' ' + extraClass : '') + (linkCategory ? ' stat-kpi-card-linked' : '');
+    var linkAttr = linkCategory ? ' data-link-category="' + escAttr(linkCategory) + '" role="button" tabindex="0"' : '';
+    return '<div class="' + cls + '"' + linkAttr + '><h3>' + mi(icon) + escHtml(T(labelKey, labelFallback)) + '</h3><p class="stat-kpi-value">' + escHtml(value) + '</p><p class="stat-kpi-detail">' + escHtml(detail) + '</p></div>';
 }
 
 function buildFreedKpiCardsHtml() {
@@ -296,9 +297,9 @@ function buildKpiStripHtml() {
 
     var cards = [];
     cards.push(buildStatKpiCard('description', 'totalFiles', 'Total Files', String(totalFiles), videoFiles + ' ' + T('video', 'video') + ', ' + audioFiles + ' ' + T('audio', 'audio') + (bookFiles > 0 ? ', ' + bookFiles + ' ' + T('books', 'books') : '')));
-    if (totalVideoSize > 0) cards.push(buildStatKpiCard('movie', 'video', 'Video', formatBytes(totalVideoSize), videoFiles + ' ' + T('files', 'files')));
-    if (totalAudioSize > 0) cards.push(buildStatKpiCard('music_note', 'audio', 'Audio', formatBytes(totalAudioSize), audioFiles + ' ' + T('files', 'files')));
-    if (totalBookSize > 0) cards.push(buildStatKpiCard('library_books', 'books', 'Books', formatBytes(totalBookSize), bookFiles + ' ' + T('files', 'files')));
+    if (totalVideoSize > 0) cards.push(buildStatKpiCard('movie', 'video', 'Video', formatBytes(totalVideoSize), videoFiles + ' ' + T('files', 'files'), null, 'video'));
+    if (totalAudioSize > 0) cards.push(buildStatKpiCard('music_note', 'audio', 'Audio', formatBytes(totalAudioSize), audioFiles + ' ' + T('files', 'files'), null, 'audio'));
+    if (totalBookSize > 0) cards.push(buildStatKpiCard('library_books', 'books', 'Books', formatBytes(totalBookSize), bookFiles + ' ' + T('files', 'files'), null, 'books'));
     if (totalTrickplaySize > 0) cards.push(buildStatKpiCard('image', 'trickplay', 'Trickplay', formatBytes(totalTrickplaySize), trickplayFolders + ' ' + T('folders', 'folders')));
     cards.push(buildFreedKpiCardsHtml());
 
@@ -1023,44 +1024,52 @@ function buildAllExplorerSectionHtml() {
     return html;
 }
 
-function buildLibraryRowHtml(lib, index) {
+function buildLibraryTableRowHtml(lib, index) {
     var scopeKey = libScopeKey(index);
     var isExpanded = !!_expandedLibraryRows[index];
     var bodyId = 'statLibRowBody_' + index;
     var fileCount = (lib.VideoFileCount || 0) + (lib.AudioFileCount || 0) + (lib.BookFileCount || 0);
-    var html = '<div class="stat-lib-row">';
-    html += '<button class="stat-lib-row-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="' + bodyId + '" data-lib-index="' + index + '">';
-    html += '<span class="stat-lib-row-name">' + escHtml(lib.LibraryName) + '<span class="stat-lib-row-count">' + escHtml(String(fileCount)) + ' ' + escHtml(T('files', 'files')) + '</span></span>';
-    html += getCollectionBadgeStat(lib.CollectionType);
-    html += '<span class="stat-lib-row-stats">';
-    html += '<span>' + escHtml(T('video', 'Video')) + ': ' + escHtml(formatBytes(lib.VideoSize || 0)) + '</span>';
-    html += '<span>' + escHtml(T('audio', 'Audio')) + ': ' + escHtml(formatBytes(lib.AudioSize || 0)) + '</span>';
-    html += '<span>' + escHtml(T('subtitles', 'Subtitles')) + ': ' + escHtml(formatBytes(lib.SubtitleSize || 0)) + '</span>';
-    html += '<span>' + escHtml(T('images', 'Images')) + ': ' + escHtml(formatBytes(lib.ImageSize || 0)) + '</span>';
-    html += '<span>' + escHtml(T('trickplay', 'Trickplay')) + ': ' + escHtml(formatBytes(lib.TrickplaySize || 0)) + '</span>';
-    html += '<span class="stat-lib-row-total"><strong>' + escHtml(formatBytes(lib.TotalSize || 0)) + '</strong></span>';
-    html += '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span></button>';
-    html += '<div class="stat-lib-row-body" id="' + bodyId + '"' + (isExpanded ? '' : ' hidden') + '>';
+    var cls = classifyCollectionType(lib.CollectionType);
+    var html = '<tr class="stat-lib-table-row" data-lib-index="' + index + '" data-lib-category="' + escAttr(cls) + '" role="button" tabindex="0" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="' + bodyId + '">';
+    html += '<td class="stat-lib-table-name">' + escHtml(lib.LibraryName) + '<span class="stat-lib-row-count">' + escHtml(String(fileCount)) + ' ' + escHtml(T('files', 'files')) + '</span></td>';
+    html += '<td>' + getCollectionBadgeStat(lib.CollectionType) + '</td>';
+    html += '<td>' + escHtml(formatBytes(lib.VideoSize || 0)) + '</td>';
+    html += '<td>' + escHtml(formatBytes(lib.AudioSize || 0)) + '</td>';
+    html += '<td>' + escHtml(formatBytes(lib.SubtitleSize || 0)) + '</td>';
+    html += '<td>' + escHtml(formatBytes(lib.ImageSize || 0)) + '</td>';
+    html += '<td>' + escHtml(formatBytes(lib.TrickplaySize || 0)) + '</td>';
+    html += '<td class="stat-lib-table-total"><strong>' + escHtml(formatBytes(lib.TotalSize || 0)) + '</strong><span class="stat-donut-chevron">' + mi('expand_more') + '</span></td>';
+    html += '</tr>';
+    html += '<tr class="stat-lib-table-detail-row" id="' + bodyId + '"' + (isExpanded ? '' : ' hidden') + '><td colspan="7">';
     if (isExpanded) html += buildExplorerHtml(scopeKey);
-    html += '</div></div>';
+    html += '</td></tr>';
     return html;
 }
 
-function buildStorageOverviewHtml() {
+function buildStorageBarSectionHtml() {
     var data = _lastStatisticsData;
     if (!data) return '';
     var libs = data.Libraries || [];
     var grandTotal = 0;
     for (var i = 0; i < libs.length; i++) grandTotal += libs[i].TotalSize || 0;
     var html = '<div class="stat-storage-section">';
-    html += '<button class="stat-storage-header" aria-expanded="false" aria-controls="statStorageBody"><span class="stat-storage-title">' + mi('storage') + escHtml(T('storageDistribution', 'Storage Overview')) + ' · ' + escHtml(formatBytes(grandTotal)) + '</span><span class="stat-storage-chevron">' + mi('expand_more') + '</span></button>';
-    html += '<div class="stat-storage-body" id="statStorageBody" hidden>';
+    html += '<div class="stat-storage-title">' + mi('storage') + escHtml(T('storageDistribution', 'Storage Overview')) + ' · ' + escHtml(formatBytes(grandTotal)) + '</div>';
     html += buildBarSegmentsStat(data);
-    html += '<div class="section-title">' + mi('library_books') + escHtml(T('perLibraryBreakdown', 'Per-Library Breakdown')) + '</div>';
-    html += '<div class="stat-lib-row-list">';
-    for (var j = 0; j < libs.length; j++) html += buildLibraryRowHtml(libs[j], j);
     html += '</div>';
-    html += '</div></div>';
+    return html;
+}
+
+function buildPerLibraryBreakdownHtml() {
+    var data = _lastStatisticsData;
+    if (!data) return '';
+    var libs = data.Libraries || [];
+    var html = '<div class="stat-lib-breakdown-section">';
+    html += '<div class="section-title">' + mi('library_books') + escHtml(T('perLibraryBreakdown', 'Per-Library Breakdown')) + '</div>';
+    html += '<div class="library-table-wrapper"><table class="library-table"><thead><tr>';
+    html += '<th>' + escHtml(T('library', 'Library')) + '</th><th>' + escHtml(T('type', 'Type')) + '</th><th>' + escHtml(T('video', 'Video')) + '</th><th>' + escHtml(T('audio', 'Audio')) + '</th><th>' + escHtml(T('subtitles', 'Subtitles')) + '</th><th>' + escHtml(T('images', 'Images')) + '</th><th>' + escHtml(T('trickplay', 'Trickplay')) + '</th><th>' + escHtml(T('total', 'Total')) + '</th>';
+    html += '</tr></thead><tbody>';
+    for (var j = 0; j < libs.length; j++) html += buildLibraryTableRowHtml(libs[j], j);
+    html += '</tbody></table></div></div>';
     return html;
 }
 
@@ -1136,25 +1145,47 @@ function attachAllExplorerToggle(container) {
 }
 
 function attachLibraryRowToggles(container) {
-    var headers = container.querySelectorAll('.stat-lib-row-header');
-    for (var i = 0; i < headers.length; i++) {
-        headers[i].addEventListener('click', function () {
+    var rows = container.querySelectorAll('.stat-lib-table-row');
+    for (var i = 0; i < rows.length; i++) {
+        rows[i].addEventListener('click', function () {
             var idx = this.dataset.libIndex;
             _expandedLibraryRows[idx] = !_expandedLibraryRows[idx];
             renderStatisticsChrome();
         });
+        rows[i].addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); this.click(); }
+        });
     }
 }
 
-function attachStorageToggle(container) {
-    var storHeader = container.querySelector('.stat-storage-header');
-    if (!storHeader) return;
-    storHeader.addEventListener('click', function () {
-        var exp = this.getAttribute('aria-expanded') === 'true';
-        this.setAttribute('aria-expanded', exp ? 'false' : 'true');
-        var body = document.getElementById(this.getAttribute('aria-controls'));
-        if (body) body.hidden = exp;
-    });
+// KPI category cards ("Video" / "Audio" / "Books") jump straight to the matching library rows in
+// the Per-Library Breakdown table below and expand them, instead of duplicating the codec/tree
+// exploration UI a second time at the top of the page.
+var KPI_CATEGORY_TO_LIB_TYPES = {
+    video: ['movies', 'tvShows', 'other'],
+    audio: ['music'],
+    books: ['books']
+};
+
+function attachKpiCardLinks(container) {
+    var cards = container.querySelectorAll('.stat-kpi-card[data-link-category]');
+    for (var i = 0; i < cards.length; i++) {
+        cards[i].addEventListener('click', function () {
+            var libTypes = KPI_CATEGORY_TO_LIB_TYPES[this.dataset.linkCategory] || [];
+            var libs = (_lastStatisticsData && _lastStatisticsData.Libraries) || [];
+            var firstMatch = null;
+            for (var idx = 0; idx < libs.length; idx++) {
+                if (libTypes.indexOf(classifyCollectionType(libs[idx].CollectionType)) === -1) continue;
+                _expandedLibraryRows[idx] = true;
+                if (firstMatch === null) firstMatch = idx;
+            }
+            renderStatisticsChrome();
+            if (firstMatch !== null) {
+                var row = document.querySelector('.stat-lib-table-row[data-lib-index="' + firstMatch + '"]');
+                if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        });
+    }
 }
 
 function renderStatisticsChrome() {
@@ -1162,13 +1193,14 @@ function renderStatisticsChrome() {
     if (!container) return;
     var html = '';
     html += '<div id="statKpiWrap">' + buildKpiStripHtml() + '</div>';
+    html += buildStorageBarSectionHtml();
     html += buildAllExplorerSectionHtml();
-    html += buildStorageOverviewHtml();
+    html += buildPerLibraryBreakdownHtml();
     container.innerHTML = html;
 
+    attachKpiCardLinks(container);
     attachAllExplorerToggle(container);
     attachLibraryRowToggles(container);
-    attachStorageToggle(container);
     attachExplorerHandlers();
 
     var scopes = collectExpandedResultScopes();

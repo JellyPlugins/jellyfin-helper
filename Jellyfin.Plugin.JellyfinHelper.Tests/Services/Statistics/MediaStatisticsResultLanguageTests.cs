@@ -85,6 +85,30 @@ public class MediaStatisticsResultLanguageTests
     }
 
     [Fact]
+    public void TotalWatchedTiers_MusicLibraryInLibrariesButNotVideo_IsExcludedFromAggregate()
+    {
+        // Watched-status extraction only ever runs for video files, but a Music/Books library still
+        // lands in result.Libraries. Aggregating over Libraries (instead of the video-only subset)
+        // would silently double-count if a future release ever starts tracking "watched" for music,
+        // and masks the real per-type totals today. TotalAudioLanguages/TotalSubtitleLanguages use
+        // the same VideoLibraries-scoped aggregation - Watched must match for consistency.
+        var result = new MediaStatisticsResult();
+        var movieLib = new LibraryStatistics { LibraryName = "Movies", CollectionType = "movies" };
+        movieLib.WatchedTiers["Never watched"] = 2;
+        movieLib.WatchedTierSizes["Never watched"] = 1_000;
+        var musicLib = new LibraryStatistics { LibraryName = "Music", CollectionType = "music" };
+        musicLib.WatchedTiers["Never watched"] = 99;
+        musicLib.WatchedTierSizes["Never watched"] = 999_999;
+        result.Libraries.Add(movieLib);
+        result.Libraries.Add(musicLib);
+        result.Movies.Add(movieLib);
+        result.Music.Add(musicLib);
+
+        Assert.Equal(2, result.TotalWatchedTiers["Never watched"]);
+        Assert.Equal(1_000, result.TotalWatchedTierSizes["Never watched"]);
+    }
+
+    [Fact]
     public void TotalWatchedByUser_AggregatesCorrectly()
     {
         var result = new MediaStatisticsResult();
