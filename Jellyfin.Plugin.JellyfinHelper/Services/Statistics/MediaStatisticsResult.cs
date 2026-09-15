@@ -204,14 +204,14 @@ public class MediaStatisticsResult
     public Dictionary<string, long> TotalSubtitleLanguageSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.SubtitleLanguageSizes));
 
     /// <summary>
-    /// Gets the aggregated watched tier breakdown across all libraries (Watched / Never watched).
+    /// Gets the aggregated watched tier breakdown across video libraries only (Watched / Never watched). Watched status is only ever populated for Movies/TV Shows/Other; aggregating over VideoLibraries (rather than all Libraries) keeps this consistent with the sibling AudioLanguages/SubtitleLanguages aggregates above and guards against silent double-counting if a future release starts tracking watched status for other library types.
     /// </summary>
-    public Dictionary<string, int> TotalWatchedTiers => AggregateDictionaries(Libraries.Select(l => l.WatchedTiers));
+    public Dictionary<string, int> TotalWatchedTiers => AggregateDictionaries(VideoLibraries.Select(l => l.WatchedTiers));
 
     /// <summary>
-    /// Gets the aggregated watched tier sizes across all libraries.
+    /// Gets the aggregated watched tier sizes across video libraries only.
     /// </summary>
-    public Dictionary<string, long> TotalWatchedTierSizes => AggregateLongDictionaries(Libraries.Select(l => l.WatchedTierSizes));
+    public Dictionary<string, long> TotalWatchedTierSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.WatchedTierSizes));
 
     /// <summary>
     /// Gets the aggregated per-user watched counts across all libraries (username -> files watched).

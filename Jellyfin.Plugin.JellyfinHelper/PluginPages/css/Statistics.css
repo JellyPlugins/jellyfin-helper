@@ -278,6 +278,42 @@
     opacity: 0.6;
 }
 
+/* Chevron rotation is driven purely by aria-expanded so it can never drift out of sync with the
+   persisted expand state (fixes donuts visually "closing" on every filter click). */
+.stat-donut-header[aria-expanded="true"] .stat-donut-chevron {
+    transform: rotate(180deg);
+}
+
+/* When a breakdown value's inline file-tree is open, the body switches to a two-column layout on
+   wide viewports: donut + breakdown stay on the left, the tree appears immediately to the right
+   instead of far below the page or in a separate tab. */
+.stat-donut-body-with-tree {
+    text-align: left;
+}
+
+@media (min-width: 900px) {
+    .stat-donut-body-with-tree {
+        display: grid;
+        grid-template-columns: minmax(220px, 340px) 1fr;
+        align-items: start;
+        gap: 1.2em;
+    }
+
+    .stat-donut-body-with-tree .stat-donut-main {
+        text-align: center;
+    }
+
+    .stat-donut-body-with-tree .file-tree-panel-visible {
+        margin-top: 0;
+        max-height: 460px;
+    }
+}
+
+.stat-breakdown-row.stat-breakdown-tree-open {
+    border-color: rgba(0, 164, 220, 0.5);
+    background: rgba(0, 164, 220, 0.05);
+}
+
 .stat-donut-hint {
     font-size: 0.75em;
     font-weight: 400;
@@ -758,6 +794,21 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5em;
+}
+
+.stat-curated-meta {
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.stat-curated-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 /* Storage overview */

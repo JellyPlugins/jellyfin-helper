@@ -122,6 +122,13 @@ public class LibraryStatistics
     public long TotalSize => VideoSize + SubtitleSize + ImageSize + NfoSize + AudioSize + TrickplaySize + BookSize + OtherSize;
 
     /// <summary>
+    ///     Gets a reverse lookup of file path -> file size in bytes, populated for every classified
+    ///     video, music-audio, and eBook file. Used by the Statistics tab's "largest files" curated
+    ///     default view, which needs per-file size rather than the per-dimension aggregates above.
+    /// </summary>
+    public Dictionary<string, long> FileSizes { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Gets the container format breakdown (extension -> count), e.g. "MKV" -> 150.
     /// </summary>
     public Dictionary<string, int> ContainerFormats { get; } = new(StringComparer.OrdinalIgnoreCase);

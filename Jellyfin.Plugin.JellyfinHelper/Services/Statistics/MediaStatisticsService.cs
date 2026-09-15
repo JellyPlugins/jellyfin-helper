@@ -131,6 +131,11 @@ public class MediaStatisticsService : IMediaStatisticsService
             $"Pre-loaded {itemLookup.Count} library items for metadata lookup",
             _logger);
 
+        // Resolve the user list once for the whole scan (watched-status extraction needs it per
+        // video file). The list never changes mid-scan, so re-querying it per file would be pure
+        // waste on large multi-user libraries.
+        var users = _userManager?.GetUsers()?.ToList() ?? new List<Jellyfin.Database.Implementations.Entities.User>();
+
         foreach (var vf in virtualFolders)
         {
             var collectionType = vf.CollectionType;
@@ -178,7 +183,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                         _logger);
                 }
 
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, location, skipHealth, scanTrashFolderName, resolvedFullTrashPath);
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, users, location, skipHealth, scanTrashFolderName, resolvedFullTrashPath);
             }
 
             _pluginLog.LogDebug(
@@ -293,6 +298,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="directoryPath">The directory to analyze.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
+    /// <param name="users">All Jellyfin users, resolved once per scan (used for per-file watched-status extraction).</param>
     /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
     /// <param name="trashFolderName">Pre-resolved trash folder name; passed down to avoid re-reading config on every recursive call.</param>
@@ -306,6 +312,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         string directoryPath,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
+        List<Jellyfin.Database.Implementations.Entities.User> users,
         string? libraryRoot = null,
         bool skipHealthChecks = false,
         string? trashFolderName = null,
@@ -331,6 +338,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                     file,
                     stats,
                     itemLookup,
+                    users,
                     videoFiles,
                     videoStreamsCache,
                     flags);
@@ -356,6 +364,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 subDirs,
                 stats,
                 itemLookup,
+                users,
                 scanContext,
                 ref containsVideo);
 
@@ -392,6 +401,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="file">The file to classify.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
+    /// <param name="users">All Jellyfin users, resolved once per scan (used for per-file watched-status extraction).</param>
     /// <param name="videoFiles">Accumulator of video files for later health checks.</param>
     /// <param name="videoStreamsCache">Cache of media streams keyed by video file path.</param>
     /// <param name="flags">The per-directory presence flags updated as files are classified.</param>
@@ -399,6 +409,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         FileSystemMetadata file,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
+        List<Jellyfin.Database.Implementations.Entities.User> users,
         List<FileSystemMetadata> videoFiles,
         Dictionary<string, IReadOnlyList<MediaStream>?> videoStreamsCache,
         DirectoryFileFlags flags)
@@ -417,6 +428,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             stats.VideoSize += size;
             stats.VideoFileCount++;
+            stats.FileSizes[file.FullName] = size;
             flags.HasVideo = true;
             flags.ContainsVideo = true;
             videoFiles.Add(file);
@@ -429,7 +441,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             // Extract metadata from Jellyfin MediaStreams (resolution, codecs, dynamic range)
             // and cache the streams for subtitle health checks below
-            var streams = ExtractVideoMetadata(file.FullName, size, stats, itemLookup);
+            var streams = ExtractVideoMetadata(file.FullName, size, stats, itemLookup, users);
             videoStreamsCache[file.FullName] = streams;
         }
         else if (MediaExtensions.SubtitleExtensions.Contains(ext))
@@ -454,6 +466,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             stats.AudioSize += size;
             stats.AudioFileCount++;
+            stats.FileSizes[file.FullName] = size;
 
             // Extract music audio codec from Jellyfin metadata with extension fallback
             ExtractMusicAudioMetadata(file.FullName, ext, size, stats, itemLookup);
@@ -463,6 +476,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             // eBooks are tracked as a first-class "Books" category (rather than "Other") with a per-format breakdown, so the UI can surface a Books section only when books exist.
             stats.BookSize += size;
             stats.BookFileCount++;
+            stats.FileSizes[file.FullName] = size;
             var format = ext.TrimStart('.').ToUpperInvariant();
             stats.BookFormats[format] = stats.BookFormats.GetValueOrDefault(format) + 1;
             stats.BookFormatSizes[format] = stats.BookFormatSizes.GetValueOrDefault(format) + size;
@@ -481,6 +495,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="subDirs">The subdirectories to scan.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
+    /// <param name="users">All Jellyfin users, resolved once per scan (used for per-file watched-status extraction).</param>
     /// <param name="scanContext">The trash-resolution and recursion context.</param>
     /// <param name="containsVideo">Set true when any recursed subdirectory contained a video.</param>
     /// <returns><c>true</c> when at least one subdirectory contained a video.</returns>
@@ -488,6 +503,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         IEnumerable<FileSystemMetadata> subDirs,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
+        List<Jellyfin.Database.Implementations.Entities.User> users,
         SubdirectoryScanContext scanContext,
         ref bool containsVideo)
     {
@@ -516,7 +532,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 stats.TrickplaySize += trickplaySize;
                 stats.TrickplayFolderCount++;
             }
-            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, scanContext.LibraryRoot, scanContext.SkipHealthChecks, scanContext.TrashFolderName, scanContext.ResolvedFullTrashPath))
+            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, users, scanContext.LibraryRoot, scanContext.SkipHealthChecks, scanContext.TrashFolderName, scanContext.ResolvedFullTrashPath))
             {
                 subDirHasVideo = true;
                 containsVideo = true;
@@ -674,12 +690,14 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="fileSize">Size of the video file in bytes.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem.</param>
+    /// <param name="users">All Jellyfin users, resolved once per scan (used for per-file watched-status extraction).</param>
     /// <returns>The media streams for the file, or <c>null</c> if unavailable (reused for subtitle checks).</returns>
     private IReadOnlyList<MediaStream>? ExtractVideoMetadata(
         string filePath,
         long fileSize,
         LibraryStatistics stats,
-        Dictionary<string, BaseItem> itemLookup)
+        Dictionary<string, BaseItem> itemLookup,
+        List<Jellyfin.Database.Implementations.Entities.User> users)
     {
         IReadOnlyList<MediaStream>? streams = null;
 
@@ -766,11 +784,12 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         // Watched status: per-file watch details enable both the simple Watched/Never donut
         // and the per-user "Watched by" filter without forcing users into arbitrary buckets.
-        if (item != null && _userManager != null && _userDataManager != null)
+        // "users" is resolved once per scan by the caller - never re-queried per file.
+        if (item != null && _userDataManager != null)
         {
             var watchedDetails = new List<WatchedUserDetail>();
             var watchedUsernames = new List<string>();
-            foreach (var u in _userManager.GetUsers())
+            foreach (var u in users)
             {
                 var userData = _userDataManager.GetUserData(u, item);
                 if (userData is { PlayCount: > 0 })

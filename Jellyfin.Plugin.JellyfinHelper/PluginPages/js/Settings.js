@@ -62,10 +62,10 @@ function updateRecsTabVisibility(taskMode) {
     var panel = document.getElementById('tab-recommendations');
     if (btn) btn.style.display = show ? '' : 'none';
     if (panel) panel.style.display = show ? '' : 'none';
-    // If the hidden tab was active, switch to overview
+    // If the hidden tab was active, switch to the Statistics tab
     if (!show && btn && btn.classList.contains('active')) {
-        var overviewBtn = document.querySelector('.tab-btn[data-tab="overview"]');
-        if (overviewBtn) overviewBtn.click();
+        var statisticsBtn = document.querySelector('.tab-btn[data-tab="statistics"]');
+        if (statisticsBtn) statisticsBtn.click();
     }
 }
 
