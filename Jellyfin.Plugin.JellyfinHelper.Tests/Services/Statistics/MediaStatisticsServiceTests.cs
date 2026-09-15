@@ -2423,16 +2423,18 @@ public class ClassifyMethodTests
     [Theory]
     [InlineData(1_500_000, "< 2 Mbps")]
     [InlineData(1_999_999, "< 2 Mbps")]
-    [InlineData(2_000_000, "2-5 Mbps")]
-    [InlineData(4_999_999, "2-5 Mbps")]
-    [InlineData(5_000_000, "5-10 Mbps")]
-    [InlineData(9_999_999, "5-10 Mbps")]
-    [InlineData(10_000_000, "10-20 Mbps")]
-    [InlineData(19_999_999, "10-20 Mbps")]
-    [InlineData(20_000_000, "20-40 Mbps")]
-    [InlineData(39_999_999, "20-40 Mbps")]
-    [InlineData(40_000_000, "> 40 Mbps")]
-    [InlineData(80_000_000, "> 40 Mbps")]
+    [InlineData(2_000_000, "2–4 Mbps")]
+    [InlineData(3_999_999, "2–4 Mbps")]
+    [InlineData(4_000_000, "4–8 Mbps")]
+    [InlineData(7_999_999, "4–8 Mbps")]
+    [InlineData(8_000_000, "8–16 Mbps")]
+    [InlineData(15_999_999, "8–16 Mbps")]
+    [InlineData(16_000_000, "16–32 Mbps")]
+    [InlineData(31_999_999, "16–32 Mbps")]
+    [InlineData(32_000_000, "32–60 Mbps")]
+    [InlineData(59_999_999, "32–60 Mbps")]
+    [InlineData(60_000_000, "> 60 Mbps")]
+    [InlineData(80_000_000, "> 60 Mbps")]
     public void ClassifyBitrateTier_StreamBitrate_MapsToTier(int streamBitrate, string expected)
     {
         // File size and runtime must be ignored while a positive stream bitrate is present.
@@ -2443,8 +2445,8 @@ public class ClassifyMethodTests
     // TimeSpan.TicksPerSecond is 10,000,000, so an 8s clip uses 80,000,000 ticks.
     [Theory]
     [InlineData(1_000_000L, 100_000_000L, "< 2 Mbps")]  // 1 MB over 10s = 0.8 Mbps
-    [InlineData(5_000_000L, 80_000_000L, "5-10 Mbps")]  // 5 MB over 8s = 5 Mbps
-    [InlineData(25_000_000L, 80_000_000L, "20-40 Mbps")] // 25 MB over 8s = 25 Mbps
+    [InlineData(5_000_000L, 80_000_000L, "4–8 Mbps")]  // 5 MB over 8s = 5 Mbps
+    [InlineData(25_000_000L, 80_000_000L, "16–32 Mbps")] // 25 MB over 8s = 25 Mbps
     public void ClassifyBitrateTier_NullStream_EstimatesFromSizeAndRuntime(long fileSize, long runTimeTicks, string expected)
     {
         Assert.Equal(expected, MediaStatisticsService.ClassifyBitrateTier(null, fileSize, runTimeTicks));
@@ -2458,7 +2460,7 @@ public class ClassifyMethodTests
     public void ClassifyBitrateTier_NonPositiveStream_FallsBackToEstimate(int streamBitrate)
     {
         // 5 MB over 8s = 5 Mbps, proving the estimate ran instead of using the invalid stream value.
-        Assert.Equal("5-10 Mbps", MediaStatisticsService.ClassifyBitrateTier(streamBitrate, 5_000_000L, 80_000_000L));
+        Assert.Equal("4–8 Mbps", MediaStatisticsService.ClassifyBitrateTier(streamBitrate, 5_000_000L, 80_000_000L));
     }
 
     [Theory]
@@ -2930,12 +2932,12 @@ public class MetadataExtractionTests
             new MediaStream { Type = MediaStreamType.Audio, Codec = "aac", Profile = "LC" }
         ]);
 
-        // AV1 4K Dolby Vision
+        // AV1 4K Dolby Vision — use 3 Mbps to land in a distinct 2–4 tier
         var mockItem3 = new Mock<BaseItem>();
         mockItem3.Object.Path = av1Path;
         mockItem3.Setup(i => i.GetMediaStreams()).Returns(
         [
-            new MediaStream { Type = MediaStreamType.Video, Codec = "av1", Width = 3840, Height = 2160, BitRate = 15_000_000 },
+            new MediaStream { Type = MediaStreamType.Video, Codec = "av1", Width = 3840, Height = 2160, BitRate = 3_000_000 },
             new MediaStream { Type = MediaStreamType.Audio, Codec = "truehd", Profile = "Atmos" }
         ]);
 
@@ -2978,11 +2980,11 @@ public class MetadataExtractionTests
         Assert.Equal(2_000_000_000, stats.VideoCodecSizes["H.264"]);
         Assert.Equal(3_000_000_000, stats.VideoCodecSizes["AV1"]);
 
-        // Bitrate tiers from the measured video-stream bitrate (25 / 8 / 15 Mbps)
-        Assert.Equal(1, stats.VideoBitrateTiers["20-40 Mbps"]);
-        Assert.Equal(1, stats.VideoBitrateTiers["5-10 Mbps"]);
-        Assert.Equal(1, stats.VideoBitrateTiers["10-20 Mbps"]);
-        Assert.Equal(5_000_000_000, stats.VideoBitrateTierSizes["20-40 Mbps"]);
+        // Bitrate tiers from the measured video-stream bitrate (25 / 8 / 3 Mbps)
+        Assert.Equal(1, stats.VideoBitrateTiers["16–32 Mbps"]);
+        Assert.Equal(1, stats.VideoBitrateTiers["8–16 Mbps"]);
+        Assert.Equal(1, stats.VideoBitrateTiers["2–4 Mbps"]);
+        Assert.Equal(5_000_000_000, stats.VideoBitrateTierSizes["16–32 Mbps"]);
     }
 
     [Fact]

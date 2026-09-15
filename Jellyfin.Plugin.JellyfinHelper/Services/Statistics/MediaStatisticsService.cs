@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using Jellyfin.Data.Enums;
@@ -25,11 +26,56 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <summary>Fallback label used when a codec, resolution, or library name cannot be determined.</summary>
     private const string UnknownLabel = "Unknown";
 
+    private const double BitrateTier2Mbps = 2;
+    private const double BitrateTier4Mbps = 4;
+    private const double BitrateTier8Mbps = 8;
+    private const double BitrateTier16Mbps = 16;
+    private const double BitrateTier32Mbps = 32;
+    private const double BitrateTier60Mbps = 60;
+
+    private const string WatchedNever = "Never watched";
+    private const string Watched = "Watched";
+
+    // ISO 639-2/B codes are what Jellyfin stores in MediaStream.Language.
+    // The display names here are chosen to match what Jellyfin shows in the UI.
+    private static readonly Dictionary<string, string> _iso639DisplayNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["eng"] = "English", ["en"] = "English",
+        ["deu"] = "German", ["ger"] = "German", ["de"] = "German",
+        ["fra"] = "French", ["fre"] = "French", ["fr"] = "French",
+        ["spa"] = "Spanish", ["es"] = "Spanish",
+        ["ita"] = "Italian", ["it"] = "Italian",
+        ["jpn"] = "Japanese", ["ja"] = "Japanese",
+        ["kor"] = "Korean", ["ko"] = "Korean",
+        ["rus"] = "Russian", ["ru"] = "Russian",
+        ["zho"] = "Chinese", ["chi"] = "Chinese", ["zh"] = "Chinese",
+        ["por"] = "Portuguese", ["pt"] = "Portuguese",
+        ["nld"] = "Dutch", ["dut"] = "Dutch", ["nl"] = "Dutch",
+        ["pol"] = "Polish", ["pl"] = "Polish",
+        ["tur"] = "Turkish", ["tr"] = "Turkish",
+        ["ara"] = "Arabic", ["ar"] = "Arabic",
+        ["hin"] = "Hindi", ["hi"] = "Hindi",
+        ["swe"] = "Swedish", ["sv"] = "Swedish",
+        ["nor"] = "Norwegian", ["no"] = "Norwegian", ["nob"] = "Norwegian",
+        ["dan"] = "Danish", ["da"] = "Danish",
+        ["fin"] = "Finnish", ["fi"] = "Finnish",
+        ["ell"] = "Greek", ["gre"] = "Greek", ["el"] = "Greek",
+        ["ces"] = "Czech", ["cze"] = "Czech", ["cs"] = "Czech",
+        ["hun"] = "Hungarian", ["hu"] = "Hungarian",
+        ["tha"] = "Thai", ["th"] = "Thai",
+        ["vie"] = "Vietnamese", ["vi"] = "Vietnamese",
+        ["ukr"] = "Ukrainian", ["uk"] = "Ukrainian",
+        ["heb"] = "Hebrew", ["he"] = "Hebrew",
+        ["ron"] = "Romanian", ["rum"] = "Romanian", ["ro"] = "Romanian"
+    };
+
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IFileSystem _fileSystem;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<MediaStatisticsService> _logger;
     private readonly IPluginLogService _pluginLog;
+    private readonly IUserDataManager? _userDataManager;
+    private readonly IUserManager? _userManager;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="MediaStatisticsService" /> class.
@@ -39,18 +85,24 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="configHelper">The cleanup configuration helper.</param>
+    /// <param name="userDataManager">The user data manager for watched status.</param>
+    /// <param name="userManager">The user manager for user enumeration.</param>
     public MediaStatisticsService(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
         IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
-        ICleanupConfigHelper configHelper)
+        ICleanupConfigHelper configHelper,
+        IUserDataManager? userDataManager = null,
+        IUserManager? userManager = null)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
+        _userDataManager = userDataManager!;
+        _userManager = userManager!;
     }
 
     /// <summary>
@@ -683,6 +735,72 @@ public class MediaStatisticsService : IMediaStatisticsService
         FileSystemHelper.AccumulateValue(stats.VideoBitrateTierSizes, bitrateTier, fileSize);
         FileSystemHelper.AddPath(stats.VideoBitrateTierPaths, bitrateTier, filePath);
 
+        // Audio languages: one increment per file per distinct language.
+        if (streams != null)
+        {
+            var seenAudioLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in streams.Where(s => s.Type == MediaStreamType.Audio))
+            {
+                var lang = NormalizeIso639Language(s.Language);
+                if (lang != null && seenAudioLanguages.Add(lang))
+                {
+                    FileSystemHelper.IncrementCount(stats.AudioLanguages, lang);
+                    FileSystemHelper.AccumulateValue(stats.AudioLanguageSizes, lang, fileSize);
+                    FileSystemHelper.AddPath(stats.AudioLanguagePaths, lang, filePath);
+                }
+            }
+
+            // Subtitle languages: embedded tracks only; external sidecars are excluded.
+            var seenSubtitleLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal))
+            {
+                var lang = NormalizeIso639Language(s.Language);
+                if (lang != null && seenSubtitleLanguages.Add(lang))
+                {
+                    FileSystemHelper.IncrementCount(stats.SubtitleLanguages, lang);
+                    FileSystemHelper.AccumulateValue(stats.SubtitleLanguageSizes, lang, fileSize);
+                    FileSystemHelper.AddPath(stats.SubtitleLanguagePaths, lang, filePath);
+                }
+            }
+        }
+
+        // Watched status: per-file watch details enable both the simple Watched/Never donut
+        // and the per-user "Watched by" filter without forcing users into arbitrary buckets.
+        if (item != null && _userManager != null && _userDataManager != null)
+        {
+            var watchedDetails = new List<WatchedUserDetail>();
+            var watchedUsernames = new List<string>();
+            foreach (var u in _userManager.GetUsers())
+            {
+                var userData = _userDataManager.GetUserData(u, item);
+                if (userData is { PlayCount: > 0 })
+                {
+                    watchedUsernames.Add(u.Username);
+                    watchedDetails.Add(new WatchedUserDetail
+                    {
+                        Username = u.Username,
+                        PlayCount = userData.PlayCount,
+                        LastPlayedDate = userData.LastPlayedDate,
+                        Played = userData.Played
+                    });
+
+                    FileSystemHelper.AccumulateValue(stats.WatchedByUserSizes, u.Username, fileSize);
+                    FileSystemHelper.AddPath(stats.WatchedByUserPaths, u.Username, filePath);
+                }
+            }
+
+            var tier = watchedUsernames.Count == 0 ? WatchedNever : Watched;
+            FileSystemHelper.IncrementCount(stats.WatchedTiers, tier);
+            FileSystemHelper.AccumulateValue(stats.WatchedTierSizes, tier, fileSize);
+            FileSystemHelper.AddPath(stats.WatchedTierPaths, tier, filePath);
+
+            if (watchedUsernames.Count > 0)
+            {
+                stats.WatchedByUsers[filePath] = new Collection<string>(watchedUsernames);
+                stats.WatchedDetails[filePath] = new Collection<WatchedUserDetail>(watchedDetails);
+            }
+        }
+
         return streams;
     }
 
@@ -840,7 +958,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="streamBitrate">The video stream bitrate in bits per second, or <c>null</c> if unknown.</param>
     /// <param name="fileSize">The file size in bytes (used for the size-over-duration fallback).</param>
     /// <param name="runTimeTicks">The item runtime in 100ns ticks, or <c>null</c> if unknown.</param>
-    /// <returns>A tier label such as "5-10 Mbps", or "Unknown" when no bitrate can be determined.</returns>
+    /// <returns>A tier label such as "8–16 Mbps", or "Unknown" when no bitrate can be determined.</returns>
     internal static string ClassifyBitrateTier(int? streamBitrate, long fileSize, long? runTimeTicks)
     {
         double bitsPerSecond;
@@ -862,32 +980,78 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         var mbps = bitsPerSecond / 1_000_000d;
 
-        if (mbps < 2)
+        if (mbps < BitrateTier2Mbps)
         {
             return "< 2 Mbps";
         }
 
-        if (mbps < 5)
+        if (mbps < BitrateTier4Mbps)
         {
-            return "2-5 Mbps";
+            return "2–4 Mbps";
         }
 
-        if (mbps < 10)
+        if (mbps < BitrateTier8Mbps)
         {
-            return "5-10 Mbps";
+            return "4–8 Mbps";
         }
 
-        if (mbps < 20)
+        if (mbps < BitrateTier16Mbps)
         {
-            return "10-20 Mbps";
+            return "8–16 Mbps";
         }
 
-        if (mbps < 40)
+        if (mbps < BitrateTier32Mbps)
         {
-            return "20-40 Mbps";
+            return "16–32 Mbps";
         }
 
-        return "> 40 Mbps";
+        if (mbps < BitrateTier60Mbps)
+        {
+            return "32–60 Mbps";
+        }
+
+        return "> 60 Mbps";
+    }
+
+    /// <summary>
+    /// Maps a legacy bitrate tier label from a cached scan result to the current tier set.
+    /// </summary>
+    /// <param name="tier">The tier label stored in the cache.</param>
+    /// <returns>The current tier label.</returns>
+    internal static string MapLegacyBitrateTier(string tier) => tier switch
+    {
+        "2-5 Mbps" => "2–4 Mbps",
+        "5-10 Mbps" => "4–8 Mbps",
+        "10-20 Mbps" => "8–16 Mbps",
+        "20-40 Mbps" => "16–32 Mbps",
+        "> 40 Mbps" => "> 60 Mbps",
+        _ => tier
+    };
+
+    /// <summary>
+    /// Normalizes an ISO 639 language code from MediaStream to a human-readable display name.
+    /// </summary>
+    /// <param name="code">The language code (e.g. "eng", "de", "ger").</param>
+    /// <returns>The display name (e.g. "English"), the uppercased raw code for unknown codes, or <c>null</c> when the input is empty or undetermined.</returns>
+    internal static string? NormalizeIso639Language(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        var trimmed = code.Trim();
+        if (trimmed.Equals("und", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (_iso639DisplayNames.TryGetValue(trimmed, out var display))
+        {
+            return display;
+        }
+
+        return trimmed.ToUpperInvariant();
     }
 
     /// <summary>

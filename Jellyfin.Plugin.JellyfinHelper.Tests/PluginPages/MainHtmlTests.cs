@@ -94,8 +94,7 @@ public class MainHtmlTests : ConfigPageTestBase
     }
 
     [Theory]
-    [InlineData("overview")]
-    [InlineData("codecs")]
+    [InlineData("statistics")]
     [InlineData("health")]
     [InlineData("trends")]
     [InlineData("settings")]
@@ -116,8 +115,7 @@ public class MainHtmlTests : ConfigPageTestBase
     }
 
     [Theory]
-    [InlineData("id=\"tab-overview\"")]
-    [InlineData("id=\"tab-codecs\"")]
+    [InlineData("id=\"tab-statistics\"")]
     [InlineData("id=\"tab-health\"")]
     [InlineData("id=\"tab-trends\"")]
     [InlineData("id=\"tab-settings\"")]
@@ -130,8 +128,7 @@ public class MainHtmlTests : ConfigPageTestBase
     }
 
     [Theory]
-    [InlineData("tabOverview")]
-    [InlineData("tabCodecs")]
+    [InlineData("tabStatistics")]
     [InlineData("tabHealth")]
     [InlineData("tabTrends")]
     [InlineData("tabSettings")]
@@ -144,10 +141,8 @@ public class MainHtmlTests : ConfigPageTestBase
     }
 
     [Theory]
-    [InlineData("fillOverviewData")]
-    [InlineData("fillCodecsData")]
+    [InlineData("fillStatisticsData")]
     [InlineData("fillHealthData")]
-    [InlineData("loadCleanupStats")]
     public void Html_FillScanData_Calls(string callee)
     {
         Assert.Matches(
@@ -251,4 +246,16 @@ public class MainHtmlTests : ConfigPageTestBase
         Assert.Contains("setTimeout(loadLatestStatistics", HtmlContent);
         Assert.DoesNotContain("setTimeout(loadStatistics, _", HtmlContent);
     }
+
+    [Fact]
+    public void Html_DoesNotContainOldOverviewTab()
+        => Assert.DoesNotContain("tab-overview", HtmlContent);
+
+    [Fact]
+    public void Html_DoesNotContainOldCodecsTab()
+        => Assert.DoesNotContain("tab-codecs", HtmlContent);
+
+    [Fact]
+    public void Html_ContainsStatisticsTab()
+        => Assert.Contains("data-tab=\"statistics\"", HtmlContent);
 }
