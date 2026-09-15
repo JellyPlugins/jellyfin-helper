@@ -92,33 +92,19 @@ const sharedModuleGlobals = {
     attachTogglePanelHandlers: 'writable',
     resolveArrInstances: 'writable',
 
-    // Overview.js
+    // Statistics.js (replaces former Overview.js + Codecs.js)
     getCollectionBadge: 'writable',
     buildBarSegments: 'writable',
     loadCleanupStats: 'writable',
-    fillOverviewData: 'writable',
-
-    // Codecs.js
-    _lastCodecData: 'writable',
-    _donutTooltipData: 'writable',
-    _activeTooltipSegmentId: 'writable',
-    _touchOutsideListenerAttached: 'writable',
-    _lastTouchEndTime: 'writable',
-    showDonutTooltip: 'writable',
-    hideDonutTooltip: 'writable',
-    triggerCodecRowForSegment: 'writable',
-    polarToCartesian: 'writable',
-    describeArc: 'writable',
+    fillStatisticsData: 'writable',
+    _lastStatisticsData: 'writable',
+    _statDonutTooltipData: 'writable',
     renderDonutSvg: 'writable',
-    renderCodecBreakdown: 'writable',
-    renderDonutChart: 'writable',
-    collectCodecPaths: 'writable',
-    collectResolutionDimensions: 'writable',
-    CODEC_PATH_MAP: 'writable',
-    CODEC_CATEGORY_MAP: 'writable',
-    attachCodecClickHandlers: 'writable',
-    attachDonutHoverTooltips: 'writable',
-    fillCodecsData: 'writable',
+    renderStatisticsChrome: 'writable',
+    refreshCleanupKpi: 'writable',
+    STATISTICS_PATH_MAP: 'writable',
+    STATISTICS_CATEGORY_MAP: 'writable',
+    STATISTICS_DIMENSIONS: 'writable',
 
     // Health.js
     _lastScanResult: 'writable',

@@ -4,6 +4,15 @@ var _lastStatisticsData = null;
 var _filterState = { activeFilters: {}, libraryType: 'all', resultOffset: 0, innerTab: 'filters' };
 var _statsCleanupCache = null;
 
+// Expand/collapse state per donut dimension, persisted across renderStatisticsChrome() re-renders
+// so selecting a filter never visually collapses the section the user is looking at.
+var _expandedDonutDims = {};
+// Which breakdown value currently has its inline file-tree open, per dimension (like the old
+// per-donut "codec tree", restored so drill-down is visible immediately without navigating to a
+// separate results panel or scrolling past the other donut sections).
+var _activeDonutTreeValue = {};
+
+
 var STATISTICS_PAGE_SIZE = 50;
 var STATISTICS_MOBILE_BREAKPOINT = 640;
 
@@ -219,26 +228,65 @@ function attachLibrarySelectorHandlers() {
     }
 }
 
+function buildStatKpiCard(icon, labelKey, labelFallback, value, detail, extraClass) {
+    var cls = 'stat-kpi-card' + (extraClass ? ' ' + extraClass : '');
+    return '<div class="' + cls + '"><h3>' + mi(icon) + escHtml(T(labelKey, labelFallback)) + '</h3><p class="stat-kpi-value">' + escHtml(value) + '</p><p class="stat-kpi-detail">' + escHtml(detail) + '</p></div>';
+}
+
 function buildKpiStripHtml() {
     var d = getLibraryFilteredData();
     if (!d) return '';
     var libs = d.Libraries || [];
+    var libType = _filterState.libraryType;
     // Aggregate per-library file counts for the selected scope
     var videoFiles = 0;
     var audioFiles = 0;
+    var bookFiles = 0;
     var trickplayFolders = 0;
     var totalVideoSize = 0;
-    var grandTotal = 0;
+    var totalAudioSize = 0;
+    var totalBookSize = 0;
+    var totalTrickplaySize = 0;
     for (var i = 0; i < libs.length; i++) {
         videoFiles += libs[i].VideoFileCount || 0;
         audioFiles += libs[i].AudioFileCount || 0;
+        bookFiles += libs[i].BookFileCount || 0;
         trickplayFolders += libs[i].TrickplayFolderCount || 0;
         totalVideoSize += libs[i].VideoSize || 0;
-        grandTotal += libs[i].TotalSize || 0;
+        totalAudioSize += libs[i].AudioSize || 0;
+        totalBookSize += libs[i].BookSize || 0;
+        totalTrickplaySize += libs[i].TrickplaySize || 0;
     }
-    // Include music audio when scope is all or music — already in libs above.
-    // Freed card uses cached cleanup stats if available.
-    var freedHtml = '';
+
+    // Which categories exist at all for the current library-type scope. A category is only ever
+    // eligible for a scope that can contain it (e.g. Audio never shows for Movies/TV/Books) AND
+    // must actually have files (0 files -> no card, never an empty/misleading 0-value card).
+    var videoEligible = libType === 'all' || libType === 'movies' || libType === 'tvshows' || libType === 'other';
+    var audioEligible = libType === 'all' || libType === 'music';
+    var bookEligible = libType === 'all' || libType === 'books';
+    var trickplayEligible = videoEligible; // trickplay images only exist for video libraries
+
+    var showVideo = videoEligible && totalVideoSize > 0;
+    var showAudio = audioEligible && totalAudioSize > 0;
+    var showBooks = bookEligible && totalBookSize > 0;
+    var showTrickplay = trickplayEligible && totalTrickplaySize > 0;
+    var categoriesShown = (showVideo ? 1 : 0) + (showAudio ? 1 : 0) + (showBooks ? 1 : 0);
+
+    var cards = [];
+    // A "Total" card is only meaningful when more than one category is on screen — for a single
+    // category (e.g. Movies-only, or an "All" server that only has a Music library) it would be a
+    // literal duplicate of that one category's card.
+    if (categoriesShown > 1) {
+        var grandTotal = totalVideoSize + totalAudioSize + totalBookSize;
+        var totalFiles = videoFiles + audioFiles + bookFiles;
+        cards.push(buildStatKpiCard('storage', 'total', 'Total', formatBytes(grandTotal), totalFiles + ' ' + T('files', 'files')));
+    }
+    if (showVideo) cards.push(buildStatKpiCard('movie', 'video', 'Video', formatBytes(totalVideoSize), videoFiles + ' ' + T('files', 'files')));
+    if (showAudio) cards.push(buildStatKpiCard('music_note', 'audio', 'Audio', formatBytes(totalAudioSize), audioFiles + ' ' + T('files', 'files')));
+    if (showBooks) cards.push(buildStatKpiCard('library_books', 'books', 'Books', formatBytes(totalBookSize), bookFiles + ' ' + T('files', 'files')));
+    if (showTrickplay) cards.push(buildStatKpiCard('image', 'trickplay', 'Trickplay', formatBytes(totalTrickplaySize), trickplayFolders + ' ' + T('folders', 'folders')));
+
+    // Freed card is intentionally global (not library-scoped) — cleanup targets trickplay/subs/orphans across the whole server, always shown regardless of the library selector.
     if (_statsCleanupCache) {
         var freed = formatBytes(_statsCleanupCache.TotalBytesFreed || 0);
         var count = _statsCleanupCache.TotalItemsDeleted || 0;
@@ -246,19 +294,12 @@ function buildKpiStripHtml() {
         var parsed = tsRaw ? new Date(tsRaw) : null;
         var valid = parsed && tsRaw !== '0001-01-01T00:00:00' && !isNaN(parsed.getTime());
         var last = valid ? parsed.toLocaleString() : T('never', 'Never');
-        freedHtml = '<div class="stat-kpi-card stat-kpi-freed" title="' + escAttr(count + ' ' + T('totalItemsDeleted', 'items') + ' · ' + T('lastCleanup', 'Last cleanup') + ': ' + last) + '"><h3>' + mi('cleaning_services') + escHtml(T('totalBytesFreed', 'Freed')) + '</h3><p class="stat-kpi-value">' + escHtml(freed) + '</p><p class="stat-kpi-detail">' + escHtml(count + ' ' + T('items', 'items')) + '</p></div>';
+        cards.push('<div class="stat-kpi-card stat-kpi-freed" title="' + escAttr(count + ' ' + T('totalItemsDeleted', 'items') + ' · ' + T('lastCleanup', 'Last cleanup') + ': ' + last) + '"><h3>' + mi('cleaning_services') + escHtml(T('totalBytesFreed', 'Freed')) + '</h3><p class="stat-kpi-value">' + escHtml(freed) + '</p><p class="stat-kpi-detail">' + escHtml(count + ' ' + T('items', 'items')) + '</p></div>');
     } else {
-        freedHtml = '<div class="stat-kpi-card stat-kpi-freed"><h3>' + mi('cleaning_services') + escHtml(T('totalBytesFreed', 'Freed')) + '</h3><p class="stat-kpi-value">—</p><p class="stat-kpi-detail">' + escHtml(T('loadingInsights', 'Loading…')) + '</p></div>';
+        cards.push('<div class="stat-kpi-card stat-kpi-freed"><h3>' + mi('cleaning_services') + escHtml(T('totalBytesFreed', 'Freed')) + '</h3><p class="stat-kpi-value">—</p><p class="stat-kpi-detail">' + escHtml(T('loadingInsights', 'Loading…')) + '</p></div>');
     }
 
-    var html = '<div class="stat-kpi-strip">';
-    html += '<div class="stat-kpi-card"><h3>' + mi('storage') + escHtml(T('video', 'Video')) + '</h3><p class="stat-kpi-value">' + escHtml(formatBytes(grandTotal)) + '</p><p class="stat-kpi-detail">' + escHtml((videoFiles + audioFiles) + ' ' + T('files', 'files')) + '</p></div>';
-    html += '<div class="stat-kpi-card"><h3>' + mi('movie') + escHtml(T('video', 'Video')) + '</h3><p class="stat-kpi-value">' + escHtml(formatBytes(totalVideoSize)) + '</p><p class="stat-kpi-detail">' + escHtml(videoFiles + ' ' + T('files', 'files')) + '</p></div>';
-    html += '<div class="stat-kpi-card"><h3>' + mi('image') + escHtml(T('trickplay', 'Trickplay')) + '</h3><p class="stat-kpi-value">' + escHtml(formatBytes(d.TotalTrickplaySize || libs.reduce(function (a, b) { return a + (b.TrickplaySize || 0); }, 0))) + '</p><p class="stat-kpi-detail">' + escHtml(trickplayFolders + ' ' + T('folders', 'folders')) + '</p></div>';
-    html += freedHtml;
-    html += '<div class="stat-kpi-card"><h3>' + mi('description') + escHtml(T('totalFiles', 'Files')) + '</h3><p class="stat-kpi-value">' + escHtml(String(videoFiles + audioFiles)) + '</p><p class="stat-kpi-detail">' + escHtml(videoFiles + ' ' + T('video', 'video') + ', ' + audioFiles + ' ' + T('audio', 'audio')) + '</p></div>';
-    html += '</div>';
-    return html;
+    return '<div class="stat-kpi-strip">' + cards.join('') + '</div>';
 }
 
 function refreshCleanupKpi() {
@@ -276,12 +317,19 @@ function refreshCleanupKpi() {
 
 function toggleFilter(dimension, value) {
     if (!_filterState.activeFilters[dimension]) _filterState.activeFilters[dimension] = {};
-    if (_filterState.activeFilters[dimension][value]) {
+    var wasActive = !!_filterState.activeFilters[dimension][value];
+    if (wasActive) {
         delete _filterState.activeFilters[dimension][value];
         if (Object.keys(_filterState.activeFilters[dimension]).length === 0) delete _filterState.activeFilters[dimension];
     } else {
         _filterState.activeFilters[dimension][value] = true;
     }
+    // Selecting a value keeps its donut section open and previews its files inline (the old
+    // "codec tree" behaviour) instead of collapsing the section or hiding results elsewhere.
+    _expandedDonutDims[dimension] = true;
+    _activeDonutTreeValue[dimension] = wasActive
+        ? (_activeDonutTreeValue[dimension] === value ? null : _activeDonutTreeValue[dimension])
+        : value;
     _filterState.resultOffset = 0;
     renderStatisticsChrome();
 }
@@ -292,50 +340,37 @@ function clearAllFilters() {
     renderStatisticsChrome();
 }
 
+function collectPathsFromLibsDict(libs, dictName, seen, result) {
+    for (var li = 0; li < libs.length; li++) {
+        var dict = libs[li][dictName];
+        if (!dict) continue;
+        for (var key in dict) {
+            if (!Object.hasOwn(dict, key)) continue;
+            var arr = dict[key];
+            for (var j = 0; j < arr.length; j++) {
+                if (!seen[arr[j]]) { seen[arr[j]] = true; result.push(arr[j]); }
+            }
+        }
+    }
+}
+
 function computeFilteredPaths() {
     var data = getLibraryFilteredData();
     if (!data) return [];
     var dims = Object.keys(_filterState.activeFilters);
     if (dims.length === 0) {
-        // Collect unique file paths from WatchedTierPaths (covers all video files) or fallback to ContainerFormatPaths
+        // Collect unique file paths across the current library scope. Different library types
+        // populate different "primary" dictionaries, so try them in relevance order and iterate
+        // *every* library in scope (not just the first) so no library is silently skipped.
         var libs = data.Libraries || [];
         var seen = {};
         var result = [];
-        var primary = 'WatchedTierPaths';
-        for (var li = 0; li < libs.length; li++) {
-            var dict = libs[li][primary];
-            if (!dict) continue;
-            for (var key in dict) {
-                if (!Object.hasOwn(dict, key)) continue;
-                var arr = dict[key];
-                for (var j = 0; j < arr.length; j++) {
-                    if (!seen[arr[j]]) { seen[arr[j]] = true; result.push(arr[j]); }
-                }
-            }
-        }
-        // Fallback if Watched not populated (old cache or no watched data yet)
-        if (result.length === 0) {
-            for (var l = 0; l < libs.length; l++) {
-                var cdict = libs[l].ContainerFormatPaths;
-                if (!cdict) continue;
-                for (var kk in cdict) {
-                    if (!Object.hasOwn(cdict, kk)) continue;
-                    var a = cdict[kk];
-                    for (var q = 0; q < a.length; q++) if (!seen[a[q]]) { seen[a[q]] = true; result.push(a[q]); }
-                }
-            }
-        }
-        // Music/Books when filtered to those libs need their own primary
-        if (result.length === 0 && data.Libraries.length > 0) {
-            var firstLib = data.Libraries[0];
-            if ((firstLib.MusicAudioCodecPaths && Object.keys(firstLib.MusicAudioCodecPaths).length > 0)) {
-                for (var mk in firstLib.MusicAudioCodecPaths) {
-                    if (!Object.hasOwn(firstLib.MusicAudioCodecPaths, mk)) continue;
-                    var ma = firstLib.MusicAudioCodecPaths[mk];
-                    for (var r = 0; r < ma.length; r++) if (!seen[ma[r]]) { seen[ma[r]] = true; result.push(ma[r]); }
-                }
-            }
-        }
+        collectPathsFromLibsDict(libs, 'WatchedTierPaths', seen, result);
+        // Fallback if Watched not populated (old cache or no watched data yet) — Container covers all library types.
+        if (result.length === 0) collectPathsFromLibsDict(libs, 'ContainerFormatPaths', seen, result);
+        // Music/Books scopes may predate ContainerFormatPaths in very old cached scans — fall back to their own dimension.
+        if (result.length === 0) collectPathsFromLibsDict(libs, 'MusicAudioCodecPaths', seen, result);
+        if (result.length === 0) collectPathsFromLibsDict(libs, 'BookFormatPaths', seen, result);
         return result.sort();
     }
     var sets = [];
@@ -514,6 +549,27 @@ function renderFilterStrip() {
     if (clear) clear.addEventListener('click', function () { clearAllFilters(); });
 }
 
+// Builds the { movies, tvShows, music, books, other, rootPaths } shape expected by the shared
+// renderFileTree() from a keyed paths-dictionary property (e.g. "VideoCodecPaths") + a value
+// (e.g. "HEVC"), scoped to whatever library-type view is currently selected.
+function collectStatCodecPaths(data, pathsProp, value) {
+    var d = data || {};
+    return {
+        movies: collectDictPaths(d.Movies || [], pathsProp, value),
+        tvShows: collectDictPaths(d.TvShows || [], pathsProp, value),
+        music: collectDictPaths(d.Music || [], pathsProp, value),
+        books: collectDictPaths(d.Books || [], pathsProp, value),
+        other: collectDictPaths(d.Other || [], pathsProp, value),
+        rootPaths: {
+            movies: d.MovieRootPaths || [],
+            tvShows: d.TvShowRootPaths || [],
+            music: d.MusicRootPaths || [],
+            books: d.BookRootPaths || [],
+            other: d.OtherRootPaths || []
+        }
+    };
+}
+
 function buildDonutSectionHtml(dimension) {
     var meta = STATISTICS_DIMENSIONS.find(function (d) { return d.id === dimension; });
     if (!meta) return '';
@@ -525,19 +581,20 @@ function buildDonutSectionHtml(dimension) {
     for (var k in counts) if (Object.hasOwn(counts, k)) total += counts[k];
     var dimmed = !relevant ? ' stat-donut-dimmed' : '';
     var hint = !relevant ? '<span class="stat-donut-hint">' + escHtml(T('noData', 'No data in this view')) + '</span>' : '';
-    // Total file count for header when collapsed — current library scope
     var headerCount = total;
-    if (Object.keys(_filterState.activeFilters).length === 0) {
-        // header shows scope total, body shows breakdown
-    }
+    // Expand state persists across every re-render (toggleFilter no longer collapses sections).
+    var isExpanded = !!_expandedDonutDims[dimension];
+    var treeValue = _activeDonutTreeValue[dimension];
+    var hasTree = !!(treeValue && Object.hasOwn(counts, treeValue));
     var html = '<div class="stat-donut-section' + dimmed + '" data-dimension="' + escAttr(dimension) + '">';
-    html += '<button class="stat-donut-header" aria-expanded="false" aria-controls="stat-donut-body-' + escAttr(dimension) + '"><span class="stat-donut-title">' + mi(meta.icon) + escHtml(T(meta.labelKey, meta.fallback)) + '</span><span class="stat-donut-count">' + escHtml(String(headerCount)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span>' + hint + '</button>';
-    html += '<div class="stat-donut-body" id="stat-donut-body-' + escAttr(dimension) + '" hidden>';
+    html += '<button class="stat-donut-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="stat-donut-body-' + escAttr(dimension) + '"><span class="stat-donut-title">' + mi(meta.icon) + escHtml(T(meta.labelKey, meta.fallback)) + '</span><span class="stat-donut-count">' + escHtml(String(headerCount)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span>' + hint + '</button>';
+    html += '<div class="stat-donut-body' + (hasTree ? ' stat-donut-body-with-tree' : '') + '" id="stat-donut-body-' + escAttr(dimension) + '"' + (isExpanded ? '' : ' hidden') + '>';
     if (!relevant) {
         html += '<p class="stat-donut-empty">' + escHtml(T('noData', 'No data in this view')) + '</p>';
     } else if (total === 0) {
         html += '<p class="stat-donut-empty">' + escHtml(T('noData', 'No data')) + '</p>';
     } else {
+        html += '<div class="stat-donut-main">';
         // Render donut SVG + breakdown
         var chartId = 'stat_' + dimension;
         var libs = (getLibraryFilteredData() || {}).Libraries || [];
@@ -561,15 +618,27 @@ function buildDonutSectionHtml(dimension) {
             var ent = entries[e];
             var pct = total > 0 ? (ent.count / total * 100).toFixed(1) : '0';
             var isActive = _filterState.activeFilters[dimension] && _filterState.activeFilters[dimension][ent.label];
+            var isTreeOpen = treeValue === ent.label;
             var color = (typeof DONUT_COLORS !== 'undefined' ? DONUT_COLORS[e % DONUT_COLORS.length] : '#00a4dc');
-            html += '<button class="stat-breakdown-row' + (isActive ? ' stat-breakdown-active' : '') + '" data-dimension="' + escAttr(dimension) + '" data-value="' + escAttr(ent.label) + '" role="button" aria-pressed="' + (isActive ? 'true' : 'false') + '">';
+            html += '<button class="stat-breakdown-row' + (isActive ? ' stat-breakdown-active' : '') + (isTreeOpen ? ' stat-breakdown-tree-open' : '') + '" data-dimension="' + escAttr(dimension) + '" data-value="' + escAttr(ent.label) + '" role="button" aria-pressed="' + (isActive ? 'true' : 'false') + '">';
             html += '<span class="stat-breakdown-color" style="background:' + escAttr(color) + '"></span>';
             html += '<span class="stat-breakdown-info"><span class="stat-breakdown-name">' + escHtml(ent.label) + '</span><span class="stat-breakdown-stats">' + escHtml(String(ent.count)) + ' ' + escHtml(T('files', 'files')) + ' · ' + escHtml(pct) + '% · ' + escHtml(formatBytes(ent.size)) + '</span></span>';
             html += '<span class="stat-breakdown-bar"><span class="stat-breakdown-bar-fill" style="width:' + escAttr(pct) + '%;background:' + escAttr(color) + '"></span></span>';
             html += '</button>';
         }
         html += '</div>';
-        html += '<div class="file-tree-panel" id="statDetail_' + escAttr(dimension) + '"></div>';
+        html += '</div>'; // .stat-donut-main
+        // Inline file-tree for the currently focused breakdown value — shown immediately next to
+        // (desktop) or below (mobile) the donut it belongs to, never in a separate panel that
+        // requires scrolling or switching tabs to discover.
+        if (hasTree) {
+            var pathsProp = STATISTICS_PATH_MAP[dimension];
+            var treeData = collectStatCodecPaths(getLibraryFilteredData(), pathsProp, treeValue);
+            var treeMeta = dimension === 'resolutions' ? collectResolutionDimensionsMap() : null;
+            html += '<div class="file-tree-panel file-tree-panel-visible" id="statDetail_' + escAttr(dimension) + '">' + renderFileTree(treeData, treeValue, treeMeta) + '</div>';
+        } else {
+            html += '<div class="file-tree-panel" id="statDetail_' + escAttr(dimension) + '"></div>';
+        }
     }
     html += '</div></div>';
     return html;
@@ -624,12 +693,8 @@ function buildWatchedByUserFilterHtml() {
             if (!Object.hasOwn(dict2, user2)) continue;
             var arr2 = dict2[user2] || [];
             var cnt = 0;
-            var sz = 0;
             for (var ai = 0; ai < arr2.length; ai++) {
-                if (!filteredSet || filteredSet[arr2[ai]]) {
-                    cnt++;
-                    // size per file not stored per user, approximate via global sizes dict if available
-                }
+                if (!filteredSet || filteredSet[arr2[ai]]) cnt++;
             }
             if (cnt > 0) {
                 userCounts[user2] = (userCounts[user2] || 0) + cnt;
@@ -645,22 +710,33 @@ function buildWatchedByUserFilterHtml() {
     // Fallback when no per-user data but filteredSet exists: show nothing (handled below)
     var users = Object.keys(userCounts).sort(function(a,b){ return userCounts[b]-userCounts[a]; });
     if (users.length === 0) return '';
+    var isExpanded = !!_expandedDonutDims['watchedByUser'];
+    var treeValue = _activeDonutTreeValue['watchedByUser'];
+    var hasTree = !!(treeValue && Object.hasOwn(userCounts, treeValue));
     var html = '<div class="stat-donut-section" data-dimension="watchedByUser">';
-    html += '<button class="stat-donut-header" aria-expanded="false" aria-controls="stat-watchedByUser-body"><span class="stat-donut-title">' + mi('group') + escHtml(T('watchedBy', 'Watched by')) + '</span><span class="stat-donut-count">' + escHtml(String(users.length)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span></button>';
-    html += '<div class="stat-donut-body" id="stat-watchedByUser-body" hidden>';
-    html += '<div class="stat-breakdown">';
+    html += '<button class="stat-donut-header" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" aria-controls="stat-watchedByUser-body"><span class="stat-donut-title">' + mi('group') + escHtml(T('watchedBy', 'Watched by')) + '</span><span class="stat-donut-count">' + escHtml(String(users.length)) + '</span><span class="stat-donut-chevron">' + mi('expand_more') + '</span></button>';
+    html += '<div class="stat-donut-body' + (hasTree ? ' stat-donut-body-with-tree' : '') + '" id="stat-watchedByUser-body"' + (isExpanded ? '' : ' hidden') + '>';
+    html += '<div class="stat-donut-main"><div class="stat-breakdown">';
     for (var i = 0; i < users.length; i++) {
         var u = users[i];
         var cnt = userCounts[u];
         var size = userSizes[u] || 0;
         var isActive = _filterState.activeFilters['watchedByUser'] && _filterState.activeFilters['watchedByUser'][u];
+        var isTreeOpen = treeValue === u;
         var color = (typeof DONUT_COLORS !== 'undefined' ? DONUT_COLORS[i % DONUT_COLORS.length] : '#00a4dc');
-        html += '<button class="stat-breakdown-row' + (isActive ? ' stat-breakdown-active' : '') + '" data-dimension="watchedByUser" data-value="' + escAttr(u) + '" role="button" aria-pressed="' + (isActive ? 'true' : 'false') + '">';
+        html += '<button class="stat-breakdown-row' + (isActive ? ' stat-breakdown-active' : '') + (isTreeOpen ? ' stat-breakdown-tree-open' : '') + '" data-dimension="watchedByUser" data-value="' + escAttr(u) + '" role="button" aria-pressed="' + (isActive ? 'true' : 'false') + '">';
         html += '<span class="stat-breakdown-color" style="background:' + escAttr(color) + '"></span>';
         html += '<span class="stat-breakdown-info"><span class="stat-breakdown-name">' + escHtml(u) + '</span><span class="stat-breakdown-stats">' + escHtml(String(cnt)) + ' ' + escHtml(T('files', 'files')) + (size ? ' \u00b7 ' + escHtml(formatBytes(size)) : '') + '</span></span>';
         html += '</button>';
     }
-    html += '</div></div></div>';
+    html += '</div></div>';
+    if (hasTree) {
+        var treeData = collectStatCodecPaths(d, STATISTICS_PATH_MAP['watchedByUser'], treeValue);
+        html += '<div class="file-tree-panel file-tree-panel-visible" id="statDetail_watchedByUser">' + renderFileTree(treeData, treeValue) + '</div>';
+    } else {
+        html += '<div class="file-tree-panel" id="statDetail_watchedByUser"></div>';
+    }
+    html += '</div></div>';
     return html;
 }
 
@@ -709,8 +785,9 @@ function attachDonutPanelHandlers() {
             this.setAttribute('aria-expanded', expanded ? 'false' : 'true');
             var body = document.getElementById(this.getAttribute('aria-controls'));
             if (body) body.hidden = expanded;
-            var chev = this.querySelector('.stat-donut-chevron');
-            if (chev) chev.style.transform = expanded ? '' : 'rotate(180deg)';
+            var section = this.closest('.stat-donut-section');
+            var dim = section ? section.dataset.dimension : null;
+            if (dim) _expandedDonutDims[dim] = !expanded;
         });
     }
     var rows = document.querySelectorAll('.stat-breakdown-row');
@@ -733,6 +810,13 @@ function attachDonutPanelHandlers() {
     // Mirror hover tooltips if Codecs tooltip logic exists
     if (typeof attachDonutHoverTooltips === 'function') {
         try { attachDonutHoverTooltips(); } catch (e) { }
+    }
+    // Bind folder expand/collapse behaviour for any inline file-trees rendered above. Note:
+    // buildWatchedByUserFilterHtml() renders its section as a sibling of .stat-donut-panel (not
+    // nested inside it), so the selector must cover the whole filter panel, not just the donuts.
+    if (typeof bindFileTreeHandlers === 'function') {
+        var treePanels = document.querySelectorAll('#statFilterPanel .file-tree-panel-visible');
+        for (var tp = 0; tp < treePanels.length; tp++) bindFileTreeHandlers(treePanels[tp]);
     }
 }
 
@@ -847,7 +931,7 @@ function buildFileDetail(path) {
                 if (lpdRaw) {
                     try { when = formatTimeAgo(lpdRaw) || new Date(lpdRaw).toLocaleString(); } catch(e) { when = String(lpdRaw); }
                 } else {
-                    when = escHtml(T('never', 'unknown'));
+                    when = escHtml(T('statUnknownDate', 'Unknown date'));
                 }
                 var plays = pc === 1 ? '1 ' + escHtml(T('play', 'play')) : escHtml(String(pc)) + ' ' + escHtml(T('plays', 'plays'));
                 html += '<div class="stat-watched-user">' + mi('person') + '<span class="stat-watched-name">' + uname + '</span><span class="stat-watched-meta">' + plays + ' \u00b7 ' + escHtml(when) + '</span><button class="stat-chip stat-chip-small" data-dimension="watchedByUser" data-value="' + escAttr(unameRaw) + '">' + escHtml(T('filterByUser', 'Filter')) + '</button></div>';
@@ -876,28 +960,52 @@ function renderResultsPanel() {
     var page = filtered.slice(offset, offset + STATISTICS_PAGE_SIZE);
     var html = '';
     if (!hasFilters) {
-        // Curated defaults: Top 5 largest + Top 5 never-watched
+        // Curated defaults: Top 5 largest files (by FileSizes, across every library in scope) + Top 5 never-watched.
         var libs = (getLibraryFilteredData() || {}).Libraries || [];
-        // Largest: sort by known sizes — collect path->size via container sizes? Use file-size via bitrate sizes as proxy; for curated we can sort filtered (all) by path length proxy? Better use library VideoSize distribution not per-file size. Use Watched tier to get never-watched, and for largest we take first 5 of filtered sorted alphabetically as placeholder; true per-file size not stored per-file, so we show curated via watched + arbitrary largest from size dict
-        // Simpler: show Top 5 from filtered sorted, and Top 5 never-watched slice
+        var libType = _filterState.libraryType;
+        // Watched status only exists for video libraries — don't show a "never-watched" column for Music/Books.
+        var watchedEligible = libType === 'all' || libType === 'movies' || libType === 'tvshows' || libType === 'other';
         var neverWatched = [];
+        var largest = [];
         for (var li = 0; li < libs.length; li++) {
-            var wt = libs[li].WatchedTierPaths && libs[li].WatchedTierPaths['Never watched'];
-            if (wt) for (var n = 0; n < wt.length; n++) neverWatched.push(wt[n]);
+            if (watchedEligible) {
+                var wt = libs[li].WatchedTierPaths && libs[li].WatchedTierPaths['Never watched'];
+                if (wt) for (var n = 0; n < wt.length; n++) neverWatched.push(wt[n]);
+            }
+            var sizes = libs[li].FileSizes;
+            if (sizes) {
+                for (var sp in sizes) {
+                    if (Object.hasOwn(sizes, sp)) largest.push({ path: sp, size: sizes[sp] });
+                }
+            }
         }
+        largest.sort(function (a, b) { return b.size - a.size; });
         html += '<div class="stat-curated">';
         html += '<p class="stat-curated-hint">' + escHtml(T('statNoFiltersHint', 'Select a filter to explore your library.')) + '</p>';
         html += '<div class="stat-curated-cols">';
-        html += '<div class="stat-curated-col"><h4>' + escHtml(T('statTopNeverWatched', 'Top 5 never-watched')) + '</h4>';
-        if (neverWatched.length === 0) html += '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
+        html += '<div class="stat-curated-col"><h4>' + escHtml(T('statTopLargest', 'Top 5 largest files')) + '</h4>';
+        if (largest.length === 0) html += '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
         else {
-            for (var b = 0; b < Math.min(5, neverWatched.length); b++) {
-                var pp = neverWatched[b];
-                var nm = pp.split('/').pop() || pp;
-                html += '<div class="stat-curated-item" title="' + escAttr(pp) + '"><span class="stat-curated-name">' + escHtml(nm) + '</span></div>';
+            for (var lgi = 0; lgi < Math.min(5, largest.length); lgi++) {
+                var lp = largest[lgi].path;
+                var lnm = lp.split('/').pop().split('\\').pop() || lp;
+                html += '<div class="stat-curated-item" title="' + escAttr(lp) + '"><span class="stat-curated-name">' + escHtml(lnm) + '</span><span class="stat-curated-meta">' + escHtml(formatBytes(largest[lgi].size)) + '</span></div>';
             }
         }
-        html += '</div></div></div>';
+        html += '</div>';
+        if (watchedEligible) {
+            html += '<div class="stat-curated-col"><h4>' + escHtml(T('statTopNeverWatched', 'Top 5 never-watched')) + '</h4>';
+            if (neverWatched.length === 0) html += '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
+            else {
+                for (var b = 0; b < Math.min(5, neverWatched.length); b++) {
+                    var pp = neverWatched[b];
+                    var nm = pp.split('/').pop().split('\\').pop() || pp;
+                    html += '<div class="stat-curated-item" title="' + escAttr(pp) + '"><span class="stat-curated-name">' + escHtml(nm) + '</span></div>';
+                }
+            }
+            html += '</div>';
+        }
+        html += '</div></div>';
         container.innerHTML = html;
         return;
     }
