@@ -115,7 +115,7 @@ function loadLatestStatistics() {
 function renderShell() {
     var html = '';
 
-    // Tab bar — Statistics replaces Overview + Codecs (collapsed-by-default, progressive disclosure)
+    // Tab bar Statistics. Collapsed-by-default, progressive disclosure
     html += '<div class="tab-bar">';
     html += '<button class="tab-btn active" data-tab="statistics">' + mi('dashboard') + escHtml(T(
         'tabStatistics', 'Statistics')) + '</button>';
@@ -182,7 +182,7 @@ function renderShell() {
     return html;
 }
 
-// Fill scan-dependent tabs with data after a successful scan — Statistics replaces Overview+Codecs
+// Fill scan-dependent tabs with data after a successful scan
 function fillScanData(data) {
     fillStatisticsData(data);
     fillHealthData(data);
