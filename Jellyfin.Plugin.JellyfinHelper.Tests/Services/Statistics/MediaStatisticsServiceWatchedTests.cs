@@ -255,6 +255,49 @@ public class MediaStatisticsServiceWatchedTests
     }
 
     [Fact]
+    public void Watched_UnresolvedItem_CountsAsNeverWatched()
+    {
+        // No item in the lookup and FindByPath returns null on the mock: the file is
+        // unknown to Jellyfin, so it must land in Never watched instead of vanishing.
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers(("Alice", 1));
+        var service = CreateService();
+
+        var result = service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.WatchedTiers["Never watched"]);
+        Assert.Contains(path, stats.WatchedTierPaths["Never watched"]);
+        Assert.Empty(stats.WatchedByUsers);
+    }
+
+    [Fact]
+    public void Watched_UserDataThrows_SkipsUserAndCountsOthers()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers(("Alice", 2), ("Dave", 5));
+        var dave = _userManagerMock.Object.GetUsers().First(u => u.Username == "Dave");
+        _userDataManagerMock.Setup(m => m.GetUserData(dave, It.IsAny<BaseItem>())).Throws<InvalidOperationException>();
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 }
+        ]);
+        var service = CreateService();
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.WatchedTiers["Watched"]);
+        Assert.Single(stats.WatchedByUsers[path]);
+        Assert.Contains("Alice", stats.WatchedByUsers[path]);
+        Assert.False(stats.WatchedByUserPaths.ContainsKey("Dave"));
+    }
+
+    [Fact]
     public void WatchedByUsers_MultipleUsers_StoresAllUsernames()
     {
         var path = TestPath("media", "movies", "Film.mkv");

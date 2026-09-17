@@ -87,14 +87,28 @@ function getCodecsExplorerSelectedRoots() {
 }
 
 // Directory-boundary prefix match so /media/movies never matches /media/movies2.
+// Case follows PathComparison (the server-side source of truth): Windows-style roots
+// compare case-insensitively, POSIX roots ordinally. The path style reveals the server
+// OS because roots and file paths come from the same machine.
 function codecExplorerPathInRoots(path, roots) {
     if (!roots || roots.length === 0) {
         return true;
     }
-    var lower = (path || '').toLowerCase();
+    var ignoreCase = false;
     for (var i = 0; i < roots.length; i++) {
-        var root = (roots[i] || '').toLowerCase().replace(/[/\\]+$/, '');
-        if (root && (lower === root || lower.indexOf(root + '/') === 0 || lower.indexOf(root + '\\') === 0)) {
+        var probe = roots[i] || '';
+        if (/^[a-zA-Z]:[\\/]/.test(probe) || probe.indexOf('\\') !== -1) {
+            ignoreCase = true;
+            break;
+        }
+    }
+    var target = ignoreCase ? (path || '').toLowerCase() : (path || '');
+    for (var j = 0; j < roots.length; j++) {
+        var root = (roots[j] || '').replace(/[/\\]+$/, '');
+        if (ignoreCase) {
+            root = root.toLowerCase();
+        }
+        if (root && (target === root || target.indexOf(root + '/') === 0 || target.indexOf(root + '\\') === 0)) {
             return true;
         }
     }
@@ -587,9 +601,50 @@ function openCodecsExplorer(scope) {
     }
 }
 
+// Drops scope/filter selections that no longer exist after a rescan, so the search
+// never filters by phantom values while the controls show "All libraries" or "Any".
+function pruneCodecsExplorerState() {
+    var libs = getCodecsExplorerLibraries();
+    var scope = _codecsExplorerState.library;
+    if (scope && scope !== CODEC_EXPLORER_TYPE_MOVIES && scope !== CODEC_EXPLORER_TYPE_TVSHOWS) {
+        var known = false;
+        for (var i = 0; i < libs.length; i++) {
+            if (libs[i].LibraryName === scope) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            _codecsExplorerState.library = '';
+            _codecsExplorerState.filters = {};
+            return;
+        }
+    }
+    var scoped = getCodecsExplorerScopedLibraries();
+    for (var d = 0; d < CODEC_EXPLORER_DIMENSIONS.length; d++) {
+        var dim = CODEC_EXPLORER_DIMENSIONS[d];
+        var values = getCodecsExplorerSelection(dim.id);
+        if (values.length === 0) {
+            continue;
+        }
+        var universe = aggregateDict(scoped, dim.countProp);
+        var kept = values.filter(function (v) {
+            return universe[v] > 0;
+        });
+        if (kept.length === 0) {
+            delete _codecsExplorerState.filters[dim.id];
+        } else if (dim.multi) {
+            _codecsExplorerState.filters[dim.id] = kept;
+        } else {
+            _codecsExplorerState.filters[dim.id] = kept[0];
+        }
+    }
+}
+
 // Prepends the explorer above the donut grid. Called on every fillCodecsData so the
 // explorer always reflects the latest scan; user selections survive via module state.
 function renderCodecsExplorer(container) {
+    pruneCodecsExplorerState();
     var existing = container.querySelector('.codec-explorer');
     if (existing) {
         existing.parentNode.removeChild(existing);

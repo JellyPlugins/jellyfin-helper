@@ -283,12 +283,14 @@
     max-height: 0;
     overflow: hidden;
     opacity: 0;
+    visibility: hidden;
     padding: 0 0.5em;
 }
 
 .codec-explorer-body.open {
     max-height: none;
     opacity: 1;
+    visibility: visible;
     padding: 0.8em 0.5em;
     overflow: visible;
 }

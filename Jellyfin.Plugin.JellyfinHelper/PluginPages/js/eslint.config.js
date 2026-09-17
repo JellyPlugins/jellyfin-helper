@@ -151,6 +151,7 @@ const sharedModuleGlobals = {
     refreshCodecsExplorerControls: 'writable',
     bindCodecsExplorerControlHandlers: 'writable',
     attachCodecsExplorerHandlers: 'writable',
+    pruneCodecsExplorerState: 'writable',
     openCodecsExplorer: 'writable',
     renderCodecsExplorer: 'writable',
 

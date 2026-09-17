@@ -362,4 +362,46 @@ public class StatisticsCacheServiceTests : IDisposable
         Assert.Equal(5, loaded!.Libraries[0].WatchedTiers["Never watched"]);
         Assert.False(loaded.Libraries[0].WatchedTiers.ContainsKey("Watched"));
     }
+
+    [Fact]
+    public void LoadLatestResult_LegacyBitrateTiers_MigratesEveryCategoryCollection()
+    {
+        // Category collections deserialize into separate instances, so the migration
+        // must cover Movies/TvShows/etc. and not just Libraries.
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.VideoBitrateTiers["2-5 Mbps"] = 3;
+        var movies = new LibraryStatistics();
+        movies.VideoBitrateTiers["> 40 Mbps"] = 2;
+        stats.Libraries.Add(lib);
+        stats.Movies.Add(movies);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        Assert.False(loaded!.Libraries[0].VideoBitrateTiers.ContainsKey("2-5 Mbps"));
+        Assert.Equal(3, loaded.Libraries[0].VideoBitrateTiers["2–4 Mbps"]);
+        Assert.False(loaded.Movies[0].VideoBitrateTiers.ContainsKey("> 40 Mbps"));
+        Assert.Equal(2, loaded.Movies[0].VideoBitrateTiers["> 60 Mbps"]);
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyWatchedBuckets_MigratesEveryCategoryCollection()
+    {
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.WatchedTiers["1 user"] = 4;
+        var tv = new LibraryStatistics();
+        tv.WatchedTiers["2–3 users"] = 6;
+        stats.Libraries.Add(lib);
+        stats.TvShows.Add(tv);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        Assert.False(loaded!.Libraries[0].WatchedTiers.ContainsKey("1 user"));
+        Assert.Equal(4, loaded.Libraries[0].WatchedTiers["Watched"]);
+        Assert.False(loaded.TvShows[0].WatchedTiers.ContainsKey("2–3 users"));
+        Assert.Equal(6, loaded.TvShows[0].WatchedTiers["Watched"]);
+    }
 }

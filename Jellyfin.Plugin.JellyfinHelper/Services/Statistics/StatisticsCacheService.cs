@@ -132,7 +132,11 @@ public class StatisticsCacheService : IStatisticsCacheService
 
     private static void MigrateLegacyBitrateTiers(MediaStatisticsResult result)
     {
-        foreach (var lib in result.Libraries)
+        // Category collections deserialize into separate instances (no reference
+        // preservation), so every collection needs the migration, not just Libraries.
+        // Re-running on an already-migrated instance is a no-op: new labels pass through.
+        foreach (var lib in result.Libraries.Concat(result.Movies).Concat(result.TvShows)
+                     .Concat(result.Music).Concat(result.Books).Concat(result.Other))
         {
             MigrateIntDict(lib.VideoBitrateTiers);
             MigrateLongDict(lib.VideoBitrateTierSizes);
@@ -206,7 +210,9 @@ public class StatisticsCacheService : IStatisticsCacheService
 
     private static void MigrateLegacyWatchedBuckets(MediaStatisticsResult result)
     {
-        foreach (var lib in result.Libraries)
+        // Same as bitrate above: every category collection deserializes separately.
+        foreach (var lib in result.Libraries.Concat(result.Movies).Concat(result.TvShows)
+                     .Concat(result.Music).Concat(result.Books).Concat(result.Other))
         {
             MigrateWatchedBuckets(lib.WatchedTiers, lib.WatchedTierPaths, lib.WatchedTierSizes);
         }

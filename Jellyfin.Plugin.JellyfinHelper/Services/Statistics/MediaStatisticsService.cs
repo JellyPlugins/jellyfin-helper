@@ -10,6 +10,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
@@ -783,16 +784,31 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
         }
 
-        // Watched status: per-file watch details enable both the simple Watched/Never donut
-        // and the per-user "Watched by" filter without forcing users into arbitrary buckets.
+        // Watched status: per-file watch details feed both the Watched donut and the
+        // per-user paths. Files Jellyfin has not indexed (item == null) carry no watch
+        // evidence, so they count as Never watched instead of vanishing from the tier.
         // "users" is resolved once per scan by the caller - never re-queried per file.
+        var watchedDetails = new List<WatchedUserDetail>();
+        var watchedUsernames = new List<string>();
         if (item != null && _userDataManager != null)
         {
-            var watchedDetails = new List<WatchedUserDetail>();
-            var watchedUsernames = new List<string>();
             foreach (var u in users)
             {
-                var userData = _userDataManager.GetUserData(u, item);
+                UserItemData? userData;
+                try
+                {
+                    userData = _userDataManager.GetUserData(u, item);
+                }
+                catch (Exception ex) when (!ex.IsFatal())
+                {
+                    _pluginLog.LogWarning(
+                        LogCategory,
+                        $"Skipping watched lookup for user '{u.Username}' on '{filePath}'",
+                        ex,
+                        _logger);
+                    continue;
+                }
+
                 if (userData is { PlayCount: > 0 })
                 {
                     watchedUsernames.Add(u.Username);
@@ -808,17 +824,17 @@ public class MediaStatisticsService : IMediaStatisticsService
                     FileSystemHelper.AddPath(stats.WatchedByUserPaths, u.Username, filePath);
                 }
             }
+        }
 
-            var tier = watchedUsernames.Count == 0 ? WatchedNever : Watched;
-            FileSystemHelper.IncrementCount(stats.WatchedTiers, tier);
-            FileSystemHelper.AccumulateValue(stats.WatchedTierSizes, tier, fileSize);
-            FileSystemHelper.AddPath(stats.WatchedTierPaths, tier, filePath);
+        var tier = watchedUsernames.Count == 0 ? WatchedNever : Watched;
+        FileSystemHelper.IncrementCount(stats.WatchedTiers, tier);
+        FileSystemHelper.AccumulateValue(stats.WatchedTierSizes, tier, fileSize);
+        FileSystemHelper.AddPath(stats.WatchedTierPaths, tier, filePath);
 
-            if (watchedUsernames.Count > 0)
-            {
-                stats.WatchedByUsers[filePath] = new Collection<string>(watchedUsernames);
-                stats.WatchedDetails[filePath] = new Collection<WatchedUserDetail>(watchedDetails);
-            }
+        if (watchedUsernames.Count > 0)
+        {
+            stats.WatchedByUsers[filePath] = new Collection<string>(watchedUsernames);
+            stats.WatchedDetails[filePath] = new Collection<WatchedUserDetail>(watchedDetails);
         }
 
         return streams;
