@@ -403,5 +403,18 @@
   "trashPathAccessDenied": "Permiso denegado en la nueva ruta de la papelera.",
   "trashPathMoveNothingMoved": "No se movieron elementos. La fuente puede estar vacía o inaccesible debido a permisos.",
   "bookFormats": "Formatos de libro",
-  "books": "Libros"
+  "books": "Libros",
+  "videoBitrate": "Tasa de bits de video",
+  "audioLanguages": "Idiomas de audio",
+  "subtitleLanguages": "Idiomas de subtítulos",
+  "watched": "Visto",
+  "explorerTitle": "Explorador de bibliotecas",
+  "explorerHint": "Combina filtros de códecs para encontrar archivos coincidentes.",
+  "explorerLibrary": "Biblioteca",
+  "explorerAllLibraries": "Todas las bibliotecas",
+  "explorerAny": "Cualquiera",
+  "explorerReset": "Restablecer filtros",
+  "explorerPickFilter": "Elige al menos un filtro arriba para enumerar los archivos coincidentes.",
+  "explorerTruncated": "Mostrando las primeras 300 coincidencias — afina los filtros para reducir.",
+  "exploreInCodecs": "Explorar"
 }

@@ -156,7 +156,9 @@ function fillOverviewData(data) {
 
     for (const lib of libraries) {
         overviewHtml += '<tr>';
-        overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
+        overviewHtml += '<td>' + escHtml(lib.LibraryName)
+            + '<button class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '">'
+            + escHtml(T('exploreInCodecs', 'Explore')) + '</button></td>';
         overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.VideoSize) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.AudioSize) + '</td>';

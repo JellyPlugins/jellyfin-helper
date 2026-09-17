@@ -403,5 +403,18 @@
   "trashPathAccessDenied": "Yeni çöp klasörü yolunda izin reddedildi.",
   "trashPathMoveNothingMoved": "Hiçbir öğe taşınmadı. Kaynak boş olabilir veya izin sorunları nedeniyle erişilemeyebilir.",
   "bookFormats": "Kitap Biçimleri",
-  "books": "Kitaplar"
+  "books": "Kitaplar",
+  "videoBitrate": "Video Bit Hızı",
+  "audioLanguages": "Ses Dilleri",
+  "subtitleLanguages": "Altyazı Dilleri",
+  "watched": "İzlendi",
+  "explorerTitle": "Kütüphane Gezgini",
+  "explorerHint": "Eşleşen dosyaları bulmak için codec filtrelerini birleştirin.",
+  "explorerLibrary": "Kütüphane",
+  "explorerAllLibraries": "Tüm kütüphaneler",
+  "explorerAny": "Tümü",
+  "explorerReset": "Filtreleri sıfırla",
+  "explorerPickFilter": "Eşleşen dosyaları listelemek için yukarıdan en az bir filtre seçin.",
+  "explorerTruncated": "İlk 300 eşleşme gösteriliyor — daraltmak için filtreleri hassaslaştırın.",
+  "exploreInCodecs": "Keşfet"
 }

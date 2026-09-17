@@ -330,7 +330,11 @@ var CODEC_PATH_MAP = {
     'bookFormats': 'BookFormatPaths',
     'containers': 'ContainerFormatPaths',
     'resolutions': 'ResolutionPaths',
-    'dynamicRanges': 'DynamicRangePaths'
+    'dynamicRanges': 'DynamicRangePaths',
+    'videoBitrate': 'VideoBitrateTierPaths',
+    'audioLanguages': 'AudioLanguagePaths',
+    'subtitleLanguages': 'SubtitleLanguagePaths',
+    'watched': 'WatchedTierPaths'
 };
 
 // Map chart IDs to which media categories should be included Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges -> only Movies + TV Shows + Other Music Audio Codecs -> only Music Book Formats -> only Books Container Formats -> all libraries (Movies + TV Shows + Music +.
@@ -341,7 +345,11 @@ var CODEC_CATEGORY_MAP = {
     'bookFormats': {movies: false, tvShows: false, music: false, other: false, books: true},
     'containers': {movies: true, tvShows: true, music: true, other: true},
     'resolutions': {movies: true, tvShows: true, music: false, other: true},
-    'dynamicRanges': {movies: true, tvShows: true, music: false, other: true}
+    'dynamicRanges': {movies: true, tvShows: true, music: false, other: true},
+    'videoBitrate': {movies: true, tvShows: true, music: false, other: true},
+    'audioLanguages': {movies: true, tvShows: true, music: false, other: true},
+    'subtitleLanguages': {movies: true, tvShows: true, music: false, other: true},
+    'watched': {movies: true, tvShows: true, music: false, other: true}
 };
 
 // Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers
@@ -495,6 +503,10 @@ function fillCodecsData(data) {
     var containers = aggregateDict(data.Libraries, 'ContainerFormats');
     var resolutions = aggregateDict(videoLibraries, 'Resolutions');
     var dynamicRanges = aggregateDict(videoLibraries, 'DynamicRanges');
+    var videoBitrate = aggregateDict(videoLibraries, 'VideoBitrateTiers');
+    var audioLanguages = aggregateDict(videoLibraries, 'AudioLanguages');
+    var subtitleLanguages = aggregateDict(videoLibraries, 'SubtitleLanguages');
+    var watched = aggregateDict(videoLibraries, 'WatchedTiers');
 
     var videoCodecSizes = aggregateDict(videoLibraries, 'VideoCodecSizes');
     var videoAudioCodecSizes = aggregateDict(videoLibraries, 'VideoAudioCodecSizes');
@@ -503,6 +515,10 @@ function fillCodecsData(data) {
     var containerSizes = aggregateDict(data.Libraries, 'ContainerSizes');
     var resolutionSizes = aggregateDict(videoLibraries, 'ResolutionSizes');
     var dynamicRangeSizes = aggregateDict(videoLibraries, 'DynamicRangeSizes');
+    var videoBitrateSizes = aggregateDict(videoLibraries, 'VideoBitrateTierSizes');
+    var audioLanguageSizes = aggregateDict(videoLibraries, 'AudioLanguageSizes');
+    var subtitleLanguageSizes = aggregateDict(videoLibraries, 'SubtitleLanguageSizes');
+    var watchedSizes = aggregateDict(videoLibraries, 'WatchedTierSizes');
 
     var hasContainers = Object.keys(containers).length > 0;
     var hasResolutions = Object.keys(resolutions).length > 0;
@@ -511,8 +527,13 @@ function fillCodecsData(data) {
     var hasVideoAudio = Object.keys(videoAudioCodecs).length > 0;
     var hasMusicAudio = Object.keys(musicAudioCodecs).length > 0;
     var hasBookFormats = Object.keys(bookFormats).length > 0;
+    var hasVideoBitrate = Object.keys(videoBitrate).length > 0;
+    var hasAudioLanguages = Object.keys(audioLanguages).length > 0;
+    var hasSubtitleLanguages = Object.keys(subtitleLanguages).length > 0;
+    var hasWatched = Object.keys(watched).length > 0;
     var hasAnyCharts = hasContainers || hasResolutions || hasDynamicRanges
-        || hasVideoCodecs || hasVideoAudio || hasMusicAudio || hasBookFormats;
+        || hasVideoCodecs || hasVideoAudio || hasMusicAudio || hasBookFormats
+        || hasVideoBitrate || hasAudioLanguages || hasSubtitleLanguages || hasWatched;
 
     var codecsHtml = '<div class="charts-row">';
     if (hasContainers) {
@@ -547,6 +568,29 @@ function fillCodecsData(data) {
             'MusicAudioCodecs');
         codecsHtml += '</div>';
     }
+    if (hasVideoBitrate) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('high_quality') + T('videoBitrate', 'Video Bitrate') + '</h4>';
+        codecsHtml += renderDonutChart(videoBitrate, videoBitrateSizes, 'videoBitrate', videoLibraries,
+            'VideoBitrateTiers');
+        codecsHtml += '</div>';
+    }
+    if (hasAudioLanguages) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('description') + T('audioLanguages', 'Audio Languages') + '</h4>';
+        codecsHtml += renderDonutChart(audioLanguages, audioLanguageSizes, 'audioLanguages', videoLibraries,
+            'AudioLanguages');
+        codecsHtml += '</div>';
+    }
+    if (hasSubtitleLanguages) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('edit_note') + T('subtitleLanguages', 'Subtitle Languages') + '</h4>';
+        codecsHtml += renderDonutChart(subtitleLanguages, subtitleLanguageSizes, 'subtitleLanguages', videoLibraries,
+            'SubtitleLanguages');
+        codecsHtml += '</div>';
+    }
+    if (hasWatched) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + T('watched', 'Watched') + '</h4>';
+        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', videoLibraries, 'WatchedTiers');
+        codecsHtml += '</div>';
+    }
     if (hasBookFormats) {
         codecsHtml += '<div class="chart-box"><h4>' + mi('library_books') + T('bookFormats', 'Book Formats') + '</h4>';
         codecsHtml += renderDonutChart(bookFormats, bookFormatSizes, 'bookFormats', bookLibraries,
@@ -563,5 +607,6 @@ function fillCodecsData(data) {
         codecsContainer.innerHTML = codecsHtml;
         attachCodecClickHandlers();
         attachDonutHoverTooltips();
+        renderCodecsExplorer(codecsContainer);
     }
 }

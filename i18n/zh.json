@@ -403,5 +403,18 @@
   "trashPathAccessDenied": "新回收站路径权限被拒绝。",
   "trashPathMoveNothingMoved": "没有移动任何项目。源可能为空或由于权限问题而无法访问。",
   "bookFormats": "图书格式",
-  "books": "图书"
+  "books": "图书",
+  "videoBitrate": "视频比特率",
+  "audioLanguages": "音频语言",
+  "subtitleLanguages": "字幕语言",
+  "watched": "已观看",
+  "explorerTitle": "媒体库浏览器",
+  "explorerHint": "组合编码过滤器以查找匹配的文件。",
+  "explorerLibrary": "媒体库",
+  "explorerAllLibraries": "所有媒体库",
+  "explorerAny": "全部",
+  "explorerReset": "重置过滤器",
+  "explorerPickFilter": "在上方至少选择一个过滤器以列出匹配的文件。",
+  "explorerTruncated": "仅显示前 300 个匹配项 — 优化过滤器以缩小范围。",
+  "exploreInCodecs": "浏览"
 }

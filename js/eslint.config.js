@@ -120,6 +120,27 @@ const sharedModuleGlobals = {
     attachDonutHoverTooltips: 'writable',
     fillCodecsData: 'writable',
 
+    // CodecsExplorer.js
+    _codecsExplorerState: 'writable',
+    _codecExploreLinkBound: 'writable',
+    CODEC_EXPLORER_MAX_FILES: 'writable',
+    CODEC_EXPLORER_DIMENSIONS: 'writable',
+    getCodecsExplorerState: 'writable',
+    getCodecsExplorerLibraries: 'writable',
+    getCodecsExplorerVideoLibraries: 'writable',
+    getCodecsExplorerSelectedRoots: 'writable',
+    codecExplorerPathInRoots: 'writable',
+    getCodecsExplorerScopedLibraries: 'writable',
+    buildCodecsExplorerSelect: 'writable',
+    buildCodecsExplorerHtml: 'writable',
+    computeCodecsExplorerPaths: 'writable',
+    runCodecsExplorerSearch: 'writable',
+    refreshCodecsExplorerSelects: 'writable',
+    bindCodecsExplorerSelectHandlers: 'writable',
+    attachCodecsExplorerHandlers: 'writable',
+    openCodecsExplorer: 'writable',
+    renderCodecsExplorer: 'writable',
+
     // Health.js
     _lastScanResult: 'writable',
     collectHealthPaths: 'writable',
