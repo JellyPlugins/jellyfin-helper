@@ -1225,4 +1225,84 @@ public class RecommendationPlaylistServiceTests
                 new List<RecommendationResult>(),
                 CancellationToken.None));
     }
+
+    [Fact]
+    public async Task UpdatePlaylists_RosterUnavailable_DisabledUserResolvedViaLookup_RemovesStaleAndSkipsCreation()
+    {
+        // A stale result for a user disabled after generation must not create a playlist
+        // when the roster is unavailable: the per-result GetUserById fallback routes them
+        // through disabled-user cleanup instead.
+        var bobId = Guid.NewGuid();
+        var bob = new Jellyfin.Database.Implementations.Entities.User("Bob", "default", "default") { Id = bobId };
+        bob.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Throws(new InvalidOperationException("db hiccup"));
+        _userManagerMock.Setup(m => m.GetUserById(bobId)).Returns(bob);
+        var stale = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Bob"));
+        SetupPlaylistLookup(new[] { stale });
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(bobId, "Bob", 3) },
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(1, syncResult.OldPlaylistsRemoved);
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+        _libraryManagerMock.Verify(
+            m => m.DeleteItem(stale, It.IsAny<DeleteOptions>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_RosterUnavailable_UnknownUser_SkipsResult()
+    {
+        // When the roster is unavailable and the user no longer resolves, the result is
+        // skipped instead of creating a playlist for a potentially deleted user.
+        var ghostId = Guid.NewGuid();
+        _userManagerMock.Setup(m => m.GetUsers()).Returns((IEnumerable<Jellyfin.Database.Implementations.Entities.User>)null!);
+        _userManagerMock.Setup(m => m.GetUserById(ghostId)).Returns((Jellyfin.Database.Implementations.Entities.User?)null);
+        SetupPlaylistQuery();
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(ghostId, "Ghost", 2) },
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(0, syncResult.PlaylistsFailed);
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_RosterUnavailable_LookupThrows_SkipsResult()
+    {
+        // A failing per-user lookup must skip the result without failing the sync or
+        // creating a playlist that could belong to a disabled user.
+        var aliceId = Guid.NewGuid();
+        _userManagerMock.Setup(m => m.GetUsers()).Throws(new InvalidOperationException("db hiccup"));
+        _userManagerMock.Setup(m => m.GetUserById(aliceId)).Throws(new InvalidOperationException("lookup hiccup"));
+        SetupPlaylistQuery();
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(aliceId, "Alice", 2) },
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(0, syncResult.PlaylistsFailed);
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+        _pluginLogMock.Verify(
+            m => m.LogWarning(
+                "PlaylistSync",
+                It.Is<string>(s => s.Contains("user lookup failed", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
 }

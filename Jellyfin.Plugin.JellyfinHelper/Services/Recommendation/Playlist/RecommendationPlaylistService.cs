@@ -72,22 +72,32 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             _logger);
 
         // Disabled users are treated as if they do not exist: never create playlists for them and
-        // remove any stale ones from previous runs.
+        // remove any stale ones from previous runs. A null roster means the user list was
+        // unavailable, which must stay distinct from "no disabled users" so stale results
+        // cannot create playlists for users who are disabled at sync time.
         var disabledUserIds = GetDisabledUserIds(cancellationToken);
+        var rosterUnavailable = disabledUserIds is null;
         var handledDisabledUserIds = new HashSet<Guid>();
 
         foreach (var result in results)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (disabledUserIds.Contains(result.UserId))
+            if (disabledUserIds?.Contains(result.UserId) == true)
             {
                 SyncDisabledUserPlaylist(result, syncResult, handledDisabledUserIds, cancellationToken);
                 continue;
             }
 
+            if (rosterUnavailable && !IsVerifiedEnabledUser(result, handledDisabledUserIds, syncResult, cancellationToken))
+            {
+                continue;
+            }
+
             await SyncEnabledUserPlaylistAsync(result, syncResult, cancellationToken).ConfigureAwait(false);
         }
+
+        disabledUserIds ??= [];
 
         RemoveStalePlaylistsForDisabledUsers(disabledUserIds, handledDisabledUserIds, syncResult, cancellationToken);
 
@@ -345,19 +355,35 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
 
     /// <summary>
-    ///     Collects the ids of all disabled users. Never throws for non-cancellation failures: a user-list
-    ///     failure degrades to an empty set so the sync continues for enabled users.
+    ///     Resolves a single result against the live user record when the roster was unavailable.
+    ///     A resolved disabled user is routed through disabled-user cleanup, a resolved enabled
+    ///     user returns true for syncing, and a missing/failed lookup returns false to skip.
     /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The disabled user ids, or empty when the roster is unavailable.</returns>
-    private HashSet<Guid> GetDisabledUserIds(CancellationToken cancellationToken)
+    private bool IsVerifiedEnabledUser(
+        RecommendationResult result,
+        HashSet<Guid> handledDisabledUserIds,
+        PlaylistSyncResult syncResult,
+        CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
         try
         {
-            return _userManager.GetUsers()?.Where(static u => IsDisabled(u)).Select(static u => u.Id).ToHashSet()
-                ?? [];
+            var user = _userManager.GetUserById(result.UserId);
+            if (user is null)
+            {
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"Skipping playlist creation for unknown user '{result.UserName}' - user lookup returned null.",
+                    _logger);
+                return false;
+            }
+
+            if (IsDisabled(user))
+            {
+                SyncDisabledUserPlaylist(result, syncResult, handledDisabledUserIds, cancellationToken);
+                return false;
+            }
+
+            return true;
         }
         catch (OperationCanceledException)
         {
@@ -367,10 +393,49 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         {
             _pluginLog.LogWarning(
                 LogCategory,
-                "Failed to list disabled users - skipping disabled-user playlist cleanup.",
+                $"Skipping playlist creation for user '{result.UserName}' - user lookup failed.",
                 ex,
                 _logger);
-            return [];
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Collects the ids of all disabled users. Never throws for non-cancellation failures: a user-list
+    ///     failure degrades to null (roster unavailable) so callers resolve each result via GetUserById.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled user ids, or null when the roster is unavailable.</returns>
+    private HashSet<Guid>? GetDisabledUserIds(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            var users = _userManager.GetUsers();
+            if (users is null)
+            {
+                _pluginLog.LogWarning(
+                    LogCategory,
+                    "Failed to list disabled users - user roster unavailable, verifying each user individually.",
+                    logger: _logger);
+                return null;
+            }
+
+            return users.Where(static u => IsDisabled(u)).Select(static u => u.Id).ToHashSet();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                "Failed to list disabled users - user roster unavailable, verifying each user individually.",
+                ex,
+                _logger);
+            return null;
         }
     }
 
