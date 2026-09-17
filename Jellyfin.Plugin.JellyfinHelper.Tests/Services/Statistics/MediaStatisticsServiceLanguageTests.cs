@@ -213,6 +213,22 @@ public class MediaStatisticsServiceLanguageTests
     public void NormalizeIso639Language_UndInput_ReturnsNull()
         => Assert.Null(MediaStatisticsService.NormalizeIso639Language("und"));
 
+    [Theory]
+    [InlineData("mis")]
+    [InlineData("mul")]
+    [InlineData("zxx")]
+    [InlineData("MIS")]
+    public void NormalizeIso639Language_UncodedCodes_ReturnNull(string code)
+        => Assert.Null(MediaStatisticsService.NormalizeIso639Language(code));
+
+    [Theory]
+    [InlineData("en-US", "English")]
+    [InlineData("pt-BR", "Portuguese")]
+    [InlineData("de-DE", "German")]
+    [InlineData("en_us", "English")]
+    public void NormalizeIso639Language_RegionSubtag_StrippedToBase(string code, string expected)
+        => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+
     private sealed class TestableMediaStatisticsService(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,

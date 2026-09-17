@@ -415,7 +415,7 @@
   "explorerAny": "Any",
   "explorerReset": "Reset filters",
   "explorerPickFilter": "Pick at least one filter above to list matching files.",
-  "explorerTruncated": "Showing first 300 matches — refine filters to narrow down.",
+  "explorerTruncated": "Showing first {count} matches — refine filters to narrow down.",
   "explorerOpenTooltip": "Open in Library Explorer",
   "explorerNoOptions": "No matching options."
 }

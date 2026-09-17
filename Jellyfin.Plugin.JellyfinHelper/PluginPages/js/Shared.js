@@ -792,6 +792,9 @@ function removeDialogById(id) {
 
 /** * Attach click handlers to clickable items that toggle a detail panel. * * @param {Object} opts * @param {string} opts.itemSelector - CSS selector for the clickable items (e.g. */
 function attachTogglePanelHandlers(opts) {
+    // Optional CSS scope limiting which panels close each other (e.g. Codecs drill-down
+    // panels must not wipe the Library Explorer results). Defaults to the document.
+    var scope = opts.panelScope ? document.querySelector(opts.panelScope) || document : document;
     var items = document.querySelectorAll(opts.itemSelector);
     for (var i = 0; i < items.length; i++) {
         if (items[i].dataset.toggleBound) continue;
@@ -823,8 +826,9 @@ function attachTogglePanelHandlers(opts) {
                 if (sameGroup) allItems[j].classList.remove(opts.activeClass);
             }
 
-            // Close all other panels
-            var allPanels = document.querySelectorAll('.file-tree-panel');
+            // Close all other panels within the scope (never outside it, so e.g. the
+            // Library Explorer results survive donut drill-downs).
+            var allPanels = scope.querySelectorAll('.file-tree-panel');
             for (var p = 0; p < allPanels.length; p++) {
                 if (allPanels[p].id !== panelId) {
                     allPanels[p].innerHTML = '';

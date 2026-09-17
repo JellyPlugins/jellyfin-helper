@@ -894,6 +894,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `MediaStatisticsServiceBitrateTests.cs` - Unit tests for MediaStatisticsService bitrate tier thresholds and legacy mapping
 - `MediaStatisticsServiceLanguageTests.cs` - Unit tests for MediaStatisticsService audio/subtitle language extraction
 - `MediaStatisticsServiceWatchedTests.cs` - Unit tests for MediaStatisticsService watched status extraction (disabled users excluded)
+- `WatchedUserDetailTests.cs` - Unit tests for the WatchedUserDetail DTO defaults and JSON round-trip
 - `StatisticsCacheServiceTests.cs` - Unit tests for StatisticsCacheService persisting and loading cached statistics results
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Timeline/`
@@ -999,11 +1000,11 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/PluginPages/js/`
 
   - `ArrIntegration.js`
-- `Codecs.js`
-- `CodecsExplorer.js`
-- `FolderBrowser.js`
-- `Health.js`
-- `Logs.js`
+  - `Codecs.js`
+  - `CodecsExplorer.js`
+  - `FolderBrowser.js`
+  - `Health.js`
+  - `Logs.js`
 - `Main.js`
 - `Overview.js`
 - `Recommendations.js`

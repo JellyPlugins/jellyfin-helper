@@ -125,6 +125,7 @@ public class LibraryStatistics
     ///     Gets a reverse lookup of file path -> file size in bytes, populated for every classified
     ///     video, music-audio, and eBook file. Used by the Statistics tab's "largest files" curated
     ///     default view, which needs per-file size rather than the per-dimension aggregates above.
+    ///     Ordinal comparison is intentional: keys are file-system paths, which are case-sensitive on Linux.
     /// </summary>
     public Dictionary<string, long> FileSizes { get; } = new(StringComparer.Ordinal);
 
@@ -224,6 +225,7 @@ public class LibraryStatistics
     /// Gets the real pixel dimensions per file (file path -> "widthxheight", e.g. "1920x800").
     /// Lets the resolution drill-down show the exact source dimensions behind a tier label,
     /// so a cinemascope 1920x800 file listed under 1080p reveals why it was classified there.
+    /// Ordinal comparison is intentional: keys are file-system paths, which are case-sensitive on Linux.
     /// </summary>
     public Dictionary<string, string> ResolutionDimensions { get; } = new(StringComparer.Ordinal);
 
@@ -336,13 +338,6 @@ public class LibraryStatistics
     public Dictionary<string, long> WatchedTierSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the per-file watched-by mapping (file path -> list of usernames that have played the file).
-    /// Only files watched by at least one user have an entry; never-watched files are absent.
-    /// Kept for backward compatibility; new code also populates <see cref="WatchedDetails"/>.
-    /// </summary>
-    public Dictionary<string, Collection<string>> WatchedByUsers { get; } = new(StringComparer.Ordinal);
-
-    /// <summary>
     /// Gets the per-user watched paths (username -> list of file paths watched by that user).
     /// Enables the "Watched by" filter without forcing every file into a bucket donut.
     /// </summary>
@@ -356,6 +351,7 @@ public class LibraryStatistics
     /// <summary>
     /// Gets the per-file per-user watch details (file path -> list of user details).
     /// Each entry records play count and last played date so the file drawer can show "Alice - 3 Plays, zuletzt 2024-03-01".
+    /// Ordinal comparison is intentional: keys are file-system paths, which are case-sensitive on Linux.
     /// </summary>
     public Dictionary<string, Collection<WatchedUserDetail>> WatchedDetails { get; } = new(StringComparer.Ordinal);
 }

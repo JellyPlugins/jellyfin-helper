@@ -109,7 +109,7 @@ public class MediaStatisticsServiceWatchedTests
 
         Assert.Equal(1, stats.WatchedTiers["Never watched"]);
         Assert.Contains(path, stats.WatchedTierPaths["Never watched"]);
-        Assert.Empty(stats.WatchedByUsers);
+        Assert.Empty(stats.WatchedDetails);
     }
 
     [Fact]
@@ -131,8 +131,8 @@ public class MediaStatisticsServiceWatchedTests
 
         Assert.Equal(1, stats.WatchedTiers["Watched"]);
         Assert.Contains(path, stats.WatchedTierPaths["Watched"]);
-        Assert.Single(stats.WatchedByUsers[path]);
-        Assert.Contains("Alice", stats.WatchedByUsers[path]);
+        Assert.Single(stats.WatchedDetails[path]);
+        Assert.Contains(stats.WatchedDetails[path], static d => d.Username == "Alice");
         Assert.Single(stats.WatchedByUserPaths["Alice"]);
         Assert.Contains(path, stats.WatchedByUserPaths["Alice"]);
         Assert.Single(stats.WatchedDetails[path]);
@@ -204,7 +204,7 @@ public class MediaStatisticsServiceWatchedTests
         var stats = result.Libraries[0];
 
         Assert.Equal(1, stats.WatchedTiers["Never watched"]);
-        Assert.Empty(stats.WatchedByUsers);
+        Assert.Empty(stats.WatchedDetails);
     }
 
     [Fact]
@@ -225,7 +225,7 @@ public class MediaStatisticsServiceWatchedTests
         var stats = result.Libraries[0];
 
         Assert.Equal(1, stats.WatchedTiers["Never watched"]);
-        Assert.Empty(stats.WatchedByUsers);
+        Assert.Empty(stats.WatchedDetails);
         Assert.False(stats.WatchedByUserPaths.ContainsKey("Dave"));
     }
 
@@ -247,8 +247,8 @@ public class MediaStatisticsServiceWatchedTests
         var stats = result.Libraries[0];
 
         Assert.Equal(1, stats.WatchedTiers["Watched"]);
-        Assert.Single(stats.WatchedByUsers[path]);
-        Assert.Contains("Alice", stats.WatchedByUsers[path]);
+        Assert.Single(stats.WatchedDetails[path]);
+        Assert.Contains(stats.WatchedDetails[path], static d => d.Username == "Alice");
         Assert.False(stats.WatchedByUserPaths.ContainsKey("Dave"));
         Assert.Single(stats.WatchedDetails[path]);
         Assert.Equal("Alice", stats.WatchedDetails[path].First().Username);
@@ -269,7 +269,7 @@ public class MediaStatisticsServiceWatchedTests
 
         Assert.Equal(1, stats.WatchedTiers["Never watched"]);
         Assert.Contains(path, stats.WatchedTierPaths["Never watched"]);
-        Assert.Empty(stats.WatchedByUsers);
+        Assert.Empty(stats.WatchedDetails);
     }
 
     [Fact]
@@ -292,13 +292,13 @@ public class MediaStatisticsServiceWatchedTests
         var stats = result.Libraries[0];
 
         Assert.Equal(1, stats.WatchedTiers["Watched"]);
-        Assert.Single(stats.WatchedByUsers[path]);
-        Assert.Contains("Alice", stats.WatchedByUsers[path]);
+        Assert.Single(stats.WatchedDetails[path]);
+        Assert.Contains(stats.WatchedDetails[path], static d => d.Username == "Alice");
         Assert.False(stats.WatchedByUserPaths.ContainsKey("Dave"));
     }
 
     [Fact]
-    public void WatchedByUsers_MultipleUsers_StoresAllUsernames()
+    public void WatchedDetails_MultipleUsers_StoresAllUsernames()
     {
         var path = TestPath("media", "movies", "Film.mkv");
         SetupLibraryWithVideo(path);
@@ -314,9 +314,128 @@ public class MediaStatisticsServiceWatchedTests
         var result = service.CalculateStatistics();
         var stats = result.Libraries[0];
 
-        Assert.Equal(2, stats.WatchedByUsers[path].Count);
-        Assert.Contains("Alice", stats.WatchedByUsers[path]);
-        Assert.Contains("Bob", stats.WatchedByUsers[path]);
+        Assert.Equal(2, stats.WatchedDetails[path].Count);
+        Assert.Contains(stats.WatchedDetails[path], static d => d.Username == "Alice");
+        Assert.Contains(stats.WatchedDetails[path], static d => d.Username == "Bob");
+    }
+
+    [Fact]
+    public void Watched_PlayedWithoutPlayCount_CountsAsWatched()
+    {
+        // Manually marking an item played sets Played without raising PlayCount.
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers(("Alice", 0));
+        var alice = _userManagerMock.Object.GetUsers().First(u => u.Username == "Alice");
+        _userDataManagerMock.Setup(m => m.GetUserData(alice, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "key", PlayCount = 0, Played = true });
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 }
+        ]);
+        var service = CreateService();
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.WatchedTiers["Watched"]);
+        Assert.Single(stats.WatchedDetails[path]);
+    }
+
+    [Fact]
+    public void Watched_BatchHit_UsesBatchWithoutPerItemCalls()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers(("Alice", 1));
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 }
+        ]);
+        var alice = _userManagerMock.Object.GetUsers().First(u => u.Username == "Alice");
+        _userDataManagerMock
+            .Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+            .Returns(new Dictionary<Guid, UserItemData> { [mockItem.Object.Id] = new UserItemData { Key = "key", PlayCount = 3 } });
+        var service = CreateService();
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        _userDataManagerMock.Verify(m => m.GetUserData(It.IsAny<User>(), It.IsAny<BaseItem>()), Times.Never);
+        Assert.Equal(1, stats.WatchedTiers["Watched"]);
+        Assert.Equal(3, stats.WatchedDetails[path].Single().PlayCount);
+    }
+
+    [Fact]
+    public void Watched_UserManagerNull_RecordsNeverWatched()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 }
+        ]);
+        var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
+        var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
+        var service = new TestableMediaStatisticsService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            loggerMock.Object,
+            configHelperMock.Object,
+            _userDataManagerMock.Object,
+            null!);
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(1, result.Libraries[0].WatchedTiers["Never watched"]);
+    }
+
+    [Fact]
+    public void Watched_UserLookupThrows_RecordsNeverWatched()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers(("Alice", 1));
+        _userManagerMock.Setup(m => m.GetUsers()).Throws<InvalidOperationException>();
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 }
+        ]);
+        var service = CreateService();
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(1, result.Libraries[0].WatchedTiers["Never watched"]);
+    }
+
+    [Fact]
+    public void Languages_NoStreams_RecordsUnknownBuckets()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers();
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns((IReadOnlyList<MediaStream>)null!);
+        var service = CreateService();
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.AudioLanguages["Unknown"]);
+        Assert.Contains(path, stats.AudioLanguagePaths["Unknown"]);
+        Assert.Equal(1, stats.SubtitleLanguages["Unknown"]);
+        Assert.Contains(path, stats.SubtitleLanguagePaths["Unknown"]);
     }
 
     private sealed class TestableMediaStatisticsService(

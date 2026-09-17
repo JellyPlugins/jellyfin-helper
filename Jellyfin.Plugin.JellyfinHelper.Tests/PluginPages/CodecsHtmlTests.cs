@@ -63,7 +63,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
     [InlineData(@"'videoCodecs':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
     [InlineData(@"'videoAudioCodecs':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
     [InlineData(@"'musicAudioCodecs':\s*\{\s*movies:\s*false,\s*tvShows:\s*false,\s*music:\s*true,\s*other:\s*false\s*\}")]
-    [InlineData(@"'containers':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*true,\s*other:\s*true\s*\}")]
+    [InlineData(@"'containers':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*true,\s*books:\s*true,\s*other:\s*true\s*\}")]
     [InlineData(@"'resolutions':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
     [InlineData(@"'dynamicRanges':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
     [InlineData(@"'videoBitrate':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]

@@ -415,7 +415,7 @@
   "explorerAny": "Qualquer",
   "explorerReset": "Redefinir filtros",
   "explorerPickFilter": "Escolha pelo menos um filtro acima para listar os arquivos correspondentes.",
-  "explorerTruncated": "Mostrando as primeiras 300 correspondências — refine os filtros para reduzir.",
+  "explorerTruncated": "Mostrando as primeiras {count} correspondências — refine os filtros para reduzir.",
   "explorerOpenTooltip": "Abrir no explorador de bibliotecas",
   "explorerNoOptions": "Nenhuma opção correspondente."
 }

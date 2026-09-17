@@ -382,7 +382,7 @@ public class StatisticsCacheServiceTests : IDisposable
         Assert.False(loaded!.Libraries[0].VideoBitrateTiers.ContainsKey("2-5 Mbps"));
         Assert.Equal(3, loaded.Libraries[0].VideoBitrateTiers["2–4 Mbps"]);
         Assert.False(loaded.Movies[0].VideoBitrateTiers.ContainsKey("> 40 Mbps"));
-        Assert.Equal(2, loaded.Movies[0].VideoBitrateTiers["> 60 Mbps"]);
+        Assert.Equal(2, loaded.Movies[0].VideoBitrateTiers["32–60 Mbps"]);
     }
 
     [Fact]

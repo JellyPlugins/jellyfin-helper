@@ -2,8 +2,8 @@
 
 // Library Explorer (Codecs tab): Collapsible targeted file filter; charts stay static.
 // - Faceted filtering: Hides 0-result options (active selections stay toggleable).
-// - Scope-aware: Disables empty dimensions; multi-select libraries (OR logic, empty = all).
-var _codecsExplorerState = {libraries: [], filters: {}, expanded: false};
+// - Scope-aware: Disables empty dimensions; multi-select libraries (OR logic, null = all).
+var _codecsExplorerState = {libraries: null, filters: {}, expanded: false};
 
 // Which multi-dropdown panel is currently open (one at a time). Restored across
 // control rebuilds so choosing values does not collapse the panel.
@@ -74,11 +74,11 @@ function getCodecsExplorerGroupLibraries(group) {
     return data.Other || [];
 }
 
-// Root paths of the selected libraries (union). Empty selection means all libraries.
-// Unknown names resolve to no roots, which yields no files.
+// Root paths of the selected libraries (union). Null selection means all libraries.
+// A non-null selection without known roots matches nothing.
 function getCodecsExplorerSelectedRoots() {
     const selected = _codecsExplorerState.libraries;
-    if (selected.length === 0) {
+    if (selected === null) {
         return [];
     }
     const roots = [];
@@ -111,21 +111,18 @@ function codecExplorerPathInRoots(path, roots) {
     if (!roots || roots.length === 0) {
         return true;
     }
-    let ignoreCase = false;
-    for (const root of roots) {
-        const probe = root || '';
-        if (codecExplorerIsWindowsPath(probe) || probe.includes('\\')) {
-            ignoreCase = true;
-            break;
-        }
-    }
-    const target = ignoreCase ? (path || '').toLowerCase() : (path || '');
+    const target = path || '';
     for (const entry of roots) {
-        let root = codecExplorerTrimRoot(entry);
-        if (ignoreCase) {
-            root = root.toLowerCase();
+        const root = codecExplorerTrimRoot(entry);
+        if (!root) {
+            continue;
         }
-        if (root && (target === root || target.startsWith(root + '/') || target.startsWith(root + '\\'))) {
+        // Case follows the root style (mirrors PathComparison server-side):
+        // Windows-style roots compare insensitively, POSIX roots ordinally.
+        const probe = root.includes('\\') || codecExplorerIsWindowsPath(root);
+        const mine = probe ? target.toLowerCase() : target;
+        const theirs = probe ? root.toLowerCase() : root;
+        if (mine === theirs || mine.startsWith(theirs + '/') || mine.startsWith(theirs + '\\')) {
             return true;
         }
     }
@@ -139,7 +136,7 @@ function getCodecsExplorerScopedLibraries(dim) {
     const scoped = [];
     for (const group of dim.groups) {
         for (const lib of getCodecsExplorerGroupLibraries(group)) {
-            if (selected.length === 0 || selected.includes(lib.LibraryName)) {
+            if (selected === null || selected.includes(lib.LibraryName)) {
                 scoped.push(lib);
             }
         }
@@ -253,8 +250,9 @@ function intersectExplorerFilters(active) {
 // Applies the library scope to an intersected path map. A selection without known
 // roots (stale names) yields no files.
 function scopeExplorerPaths(result) {
+    const selected = _codecsExplorerState.libraries;
     const roots = getCodecsExplorerSelectedRoots();
-    if (_codecsExplorerState.libraries.length > 0 && roots.length === 0) {
+    if (selected !== null && roots.length === 0) {
         return {};
     }
     const scoped = {};
@@ -267,12 +265,20 @@ function scopeExplorerPaths(result) {
 }
 
 // Intersection of every active filter except one dimension, scoped to the library scope.
+// Facet subsets cached per control rebuild: every option count of one refresh pass
+// reuses the same per-dimension subset instead of rescanning the library each time.
+var _explorerSubsetCache = {};
+
 function computePathsExcluding(exceptDimId) {
-    const intersected = intersectExplorerFilters(getCodecsExplorerActiveDims(exceptDimId));
-    if (intersected === null) {
+    if (!_lastCodecData) {
         return null;
     }
-    return scopeExplorerPaths(intersected);
+    if (Object.hasOwn(_explorerSubsetCache, exceptDimId)) {
+        return _explorerSubsetCache[exceptDimId];
+    }
+    const subset = scopeExplorerPaths(intersectExplorerFilters(getCodecsExplorerActiveDims(exceptDimId)));
+    _explorerSubsetCache[exceptDimId] = subset;
+    return subset;
 }
 
 // Full result: intersection of all active filters, scoped. Empty when nothing is active.
@@ -413,7 +419,7 @@ function countLibraryFiles(lib) {
 // selected libraries are combined. Mirrors the dimension multi-dropdowns.
 function buildCodecsExplorerLibraryMulti() {
     const libs = getCodecsExplorerLibraries();
-    const selected = _codecsExplorerState.libraries;
+    const selected = _codecsExplorerState.libraries || [];
     const disabled = libs.length === 0;
     const open = _codecMultiOpen === 'libraries' && !disabled;
     let html = '<div class="codec-explorer-field codec-multi' + (disabled ? ' codec-explorer-field--disabled' : '') + '"'
@@ -524,11 +530,12 @@ function runCodecsExplorerSearch() {
         return;
     }
     const summary = outcome.paths.length + ' ' + (outcome.paths.length === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files')));
-    const labels = explorerSummaryLabels(outcome.active);
-    if (_codecsExplorerState.libraries.length > 0) {
-        labels.unshift(_codecsExplorerState.libraries.join(', '));
+    const labels = explorerSummaryLabels(outcome.active);    const scope = _codecsExplorerState.libraries;
+    if (scope !== null && scope.length > 0) {
+        labels.unshift(scope.join(', '));
     }
-    let html = '<div class="codec-explorer-summary"><span>' + escHtml(summary) + '</span>';
+    let html = '<div class="codec-explorer-summary"><span data-explorer-count="' + outcome.paths.length + '">'
+        + escHtml(summary) + '</span>';
     html += '<span class="codec-explorer-active">' + escHtml(labels.join(' · ')) + '</span></div>';
     if (outcome.paths.length === 0) {
         html += '<p class="codec-explorer-empty">' + escHtml(T('noFilesFound', 'No files found.')) + '</p>';
@@ -538,8 +545,8 @@ function runCodecsExplorerSearch() {
     const truncated = outcome.paths.length > CODEC_EXPLORER_MAX_FILES;
     const shown = truncated ? outcome.paths.slice(0, CODEC_EXPLORER_MAX_FILES) : outcome.paths;
     if (truncated) {
-        html += '<p class="codec-explorer-truncated">' + escHtml(T('explorerTruncated', 'Showing first 300 matches — refine filters to narrow down.')
-            .replace('300', String(CODEC_EXPLORER_MAX_FILES))) + '</p>';
+        html += '<p class="codec-explorer-truncated">' + escHtml(T('explorerTruncated', 'Showing first {count} matches — refine filters to narrow down.')
+            .replace('{count}', String(CODEC_EXPLORER_MAX_FILES))) + '</p>';
     }
     const split = groupExplorerResults(shown);
     html += '<div class="file-tree-panel file-tree-panel-visible">';
@@ -614,6 +621,7 @@ function refreshCodecsExplorerControls() {
     if (!controls) {
         return;
     }
+    _explorerSubsetCache = {};
     const focus = describeActiveExplorerControl();
     controls.innerHTML = buildCodecsExplorerControls();
     bindCodecsExplorerControlHandlers();
@@ -629,8 +637,10 @@ function onExplorerLibrariesChanged() {
             values.push(checked.value);
         }
     }
+    // Keep dimension filters: faceting recomputes every option, and pruning drops
+    // only values the new scope cannot produce.
     _codecsExplorerState.libraries = values;
-    _codecsExplorerState.filters = {};
+    pruneCodecsExplorerState();
     refreshCodecsExplorerControls();
 }
 
@@ -741,6 +751,7 @@ function attachCodecsExplorerHandlers() {
     const reset = document.getElementById('codecExplorerReset');
     if (reset) {
         reset.onclick = function () {
+            _codecsExplorerState.libraries = null;
             _codecsExplorerState.filters = {};
             refreshCodecsExplorerControls();
         };
@@ -780,7 +791,7 @@ function attachCodecsExplorerHandlers() {
 // every library of that group, a single name stays as-is, an array passes through.
 function resolveExplorerScope(scope) {
     if (!scope) {
-        return [];
+        return null;
     }
     if (Array.isArray(scope)) {
         return scope.slice();
@@ -819,20 +830,22 @@ function openCodecsExplorer(scope) {
 // never filters by phantom values while the controls show "All libraries" or "Any".
 function pruneCodecsExplorerState() {
     const libs = getCodecsExplorerLibraries();
-    const known = [];
-    for (const name of _codecsExplorerState.libraries) {
-        let found = false;
-        for (const lib of libs) {
-            if (lib.LibraryName === name) {
-                found = true;
-                break;
+    if (_codecsExplorerState.libraries !== null) {
+        const known = [];
+        for (const name of _codecsExplorerState.libraries) {
+            let found = false;
+            for (const lib of libs) {
+                if (lib.LibraryName === name) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                known.push(name);
             }
         }
-        if (found) {
-            known.push(name);
-        }
+        _codecsExplorerState.libraries = known;
     }
-    _codecsExplorerState.libraries = known;
     for (const dim of CODEC_EXPLORER_DIMENSIONS) {
         const values = getCodecsExplorerSelection(dim.id);
         if (values.length === 0) {

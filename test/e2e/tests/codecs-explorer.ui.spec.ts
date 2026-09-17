@@ -60,9 +60,9 @@ test('combining two filters narrows the result and shows both values', async ({ 
 });
 
 async function countFromSummary(summary: Locator): Promise<number> {
-  const text = await summary.innerText();
-  const match = text.match(/(\d+)\s+files?/i);
-  return match ? parseInt(match[1], 10) : Number.NaN;
+  // Locale-proof: the machine-readable count rides along as a data attribute.
+  const raw = await summary.locator('[data-explorer-count]').getAttribute('data-explorer-count');
+  return raw === null ? Number.NaN : parseInt(raw, 10);
 }
 
 test('overview library row deep-links into the explorer with preset library', async ({ page }) => {
@@ -107,4 +107,15 @@ test('language multi-dropdown selects several values and lists all in the summar
   const resultSummary = page.locator('.codec-explorer-summary');
   await expect(resultSummary).toContainText(first);
   await expect(resultSummary).toContainText(second);
+});
+
+test('reset clears filters and scope, showing the idle hint again', async ({ page }) => {
+  await openExplorer(page);
+  const resolution = page.locator('select[data-explorer-dim="resolutions"]');
+  test.skip((await resolution.locator('option').count()) <= 1, 'no resolution data on this server');
+  await resolution.selectOption({ index: 1 });
+  await expect(page.locator('.codec-explorer-summary')).toBeVisible({ timeout: 5_000 });
+  await page.locator('#codecExplorerReset').click();
+  await expect(page.locator('#codecExplorerResults')).toContainText(/at least one filter/i, { timeout: 5_000 });
+  await expect(page.locator('[data-library-option]:checked')).toHaveCount(0);
 });

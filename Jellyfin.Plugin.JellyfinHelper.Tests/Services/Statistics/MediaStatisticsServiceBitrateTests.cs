@@ -73,7 +73,7 @@ public class MediaStatisticsServiceBitrateTests
     [InlineData("5-10 Mbps", "4–8 Mbps")]
     [InlineData("10-20 Mbps", "8–16 Mbps")]
     [InlineData("20-40 Mbps", "16–32 Mbps")]
-    [InlineData("> 40 Mbps", "> 60 Mbps")]
+    [InlineData("> 40 Mbps", "32–60 Mbps")]
     public void MapLegacyBitrateTier_OldLabels_MapToNewLabels(string old, string expected)
         => Assert.Equal(expected, MediaStatisticsService.MapLegacyBitrateTier(old));
 

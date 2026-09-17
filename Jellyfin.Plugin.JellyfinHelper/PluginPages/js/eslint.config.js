@@ -124,6 +124,7 @@ const sharedModuleGlobals = {
     // CodecsExplorer.js
     _codecsExplorerState: 'writable',
     _codecMultiOpen: 'writable',
+    _explorerSubsetCache: 'writable',
     _codecExploreLinkBound: 'writable',
     CODEC_EXPLORER_MAX_FILES: 'writable',
     CODEC_EXPLORER_TYPE_MOVIES: 'writable',

@@ -214,14 +214,15 @@ public class MediaStatisticsResult
     public Dictionary<string, long> TotalWatchedTierSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.WatchedTierSizes));
 
     /// <summary>
-    /// Gets the aggregated per-user watched counts across all libraries (username -> files watched).
+    /// Gets the aggregated per-user watched counts across video libraries only (username -> files watched).
+    /// Watched status is only ever populated for Movies/TV Shows/Other, matching TotalWatchedTiers above.
     /// </summary>
-    public Dictionary<string, int> TotalWatchedByUser => AggregateDictionaries(Libraries.Select(l => l.WatchedByUserPaths.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Count, StringComparer.OrdinalIgnoreCase)));
+    public Dictionary<string, int> TotalWatchedByUser => AggregateDictionaries(VideoLibraries.Select(l => l.WatchedByUserPaths.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Count, StringComparer.OrdinalIgnoreCase)));
 
     /// <summary>
-    /// Gets the aggregated per-user watched sizes across all libraries (username -> total bytes watched).
+    /// Gets the aggregated per-user watched sizes across video libraries only (username -> total bytes watched).
     /// </summary>
-    public Dictionary<string, long> TotalWatchedByUserSizes => AggregateLongDictionaries(Libraries.Select(l => l.WatchedByUserSizes));
+    public Dictionary<string, long> TotalWatchedByUserSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.WatchedByUserSizes));
 
     /// <summary>
     /// Gets the total number of video files without subtitles.

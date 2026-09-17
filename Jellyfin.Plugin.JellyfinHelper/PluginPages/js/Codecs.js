@@ -340,6 +340,28 @@ function countWatchedUsers(libraries) {
     return counts;
 }
 
+// Per-library tooltip counts for the watched chart: Never watched comes from
+// WatchedTiers, usernames from WatchedByUserPaths. Passed as lightweight rows so the
+// shared donut renderer needs no watched-specific branch.
+function buildWatchedTooltipLibraries(videoLibraries) {
+    var rows = [];
+    for (var i = 0; i < videoLibraries.length; i++) {
+        var merged = {};
+        var tiers = videoLibraries[i].WatchedTiers || {};
+        if (tiers['Never watched'] > 0) {
+            merged['Never watched'] = tiers['Never watched'];
+        }
+        var byUser = videoLibraries[i].WatchedByUserPaths || {};
+        for (var user in byUser) {
+            if (Object.hasOwn(byUser, user) && byUser[user] && byUser[user].length > 0) {
+                merged[user] = byUser[user].length;
+            }
+        }
+        rows.push({LibraryName: videoLibraries[i].LibraryName, WatchedTooltip: merged});
+    }
+    return rows;
+}
+
 // Map chart IDs to their corresponding path property names
 var CODEC_PATH_MAP = {
     'videoCodecs': 'VideoCodecPaths',
@@ -361,7 +383,7 @@ var CODEC_CATEGORY_MAP = {
     'videoAudioCodecs': {movies: true, tvShows: true, music: false, other: true},
     'musicAudioCodecs': {movies: false, tvShows: false, music: true, other: false},
     'bookFormats': {movies: false, tvShows: false, music: false, other: false, books: true},
-    'containers': {movies: true, tvShows: true, music: true, other: true},
+    'containers': {movies: true, tvShows: true, music: true, books: true, other: true},
     'resolutions': {movies: true, tvShows: true, music: false, other: true},
     'dynamicRanges': {movies: true, tvShows: true, music: false, other: true},
     'videoBitrate': {movies: true, tvShows: true, music: false, other: true},
@@ -370,10 +392,12 @@ var CODEC_CATEGORY_MAP = {
     'watched': {movies: true, tvShows: true, music: false, other: true}
 };
 
-// Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers
+// Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers.
+// The panel scope keeps donut drill-downs from wiping the Library Explorer results.
 function attachCodecClickHandlers() {
     attachTogglePanelHandlers({
         itemSelector: '.codec-clickable',
+        panelScope: '#tab-codecs .charts-row',
         activeClass: 'codec-row-active',
         groupAttr: 'data-chart',
         typeAttr: 'data-codec',
@@ -620,7 +644,7 @@ function fillCodecsData(data) {
     }
     if (hasWatched) {
         codecsHtml += '<div class="chart-box"><h4>' + mi('group') + T('watched', 'Watched') + '</h4>';
-        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', videoLibraries, 'WatchedTiers');
+        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', buildWatchedTooltipLibraries(videoLibraries), 'WatchedTooltip');
         codecsHtml += '</div>';
     }
     if (hasBookFormats) {

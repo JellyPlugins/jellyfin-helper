@@ -415,7 +415,7 @@
   "explorerAny": "Beliebig",
   "explorerReset": "Filter zurücksetzen",
   "explorerPickFilter": "Wähle oben mindestens einen Filter, um passende Dateien zu listen.",
-  "explorerTruncated": "Erste 300 Treffer werden gezeigt — verfeinere die Filter für weniger Ergebnisse.",
+  "explorerTruncated": "Erste {count} Treffer werden gezeigt — verfeinere die Filter für weniger Ergebnisse.",
   "explorerOpenTooltip": "Im Bibliotheks-Explorer öffnen",
   "explorerNoOptions": "Keine passenden Optionen."
 }

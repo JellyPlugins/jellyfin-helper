@@ -284,9 +284,8 @@ plugin stays Active after every call).
 | Settings **Export Backup** → file download | `interactions.ui.spec.ts` |
 | Settings **folder-browser** → opens overlay (enables UseTrash fieldset first) | `interactions.ui.spec.ts` |
 | Trends **growth chart** → wheel zoom refines level, drag pan moves window, pinch zoom, tap tooltip, no label overlap | `trends-chart.ui.spec.ts` |
-  | Codec **donut** (touch) → first tap shows the segment tooltip, second tap on the same segment hides it
-(compat-mouse guard) | `codecs-donut.ui.spec.ts` |
-  | Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; Overview library row and Movies card deep-link into the explorer with preset scope | `codecs-explorer.ui.spec.ts` |
+| Codec **donut** (touch) → first tap shows the segment tooltip, second tap on the same segment hides it (compat-mouse guard) | `codecs-donut.ui.spec.ts` |
+| Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; language multi-dropdown selects several values; reset clears filters and scope; Overview library row and Movies card deep-link into the explorer | `codecs-explorer.ui.spec.ts` |
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
 Endpoints that smoke only *routed* or hardening only *tolerated a status class*
