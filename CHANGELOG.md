@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.0.3] - 2026-09-17
+
+### Added
+
+- **Library Explorer in the Codecs tab.** A new collapsible search below the breakdown charts combines resolution, video/audio codecs, bitrate, dynamic range, audio and subtitle languages and watched status into one search, optionally scoped to a single library. That answers questions like "which 4K films have a low bitrate?" in seconds. The result header always shows every active filter at once, a Reset button clears the whole search, and results arrive as the familiar grouped file tree.
+- **Explore links in the Overview.** Each row of the per-library table now has an Explore link that jumps to the Codecs tab and opens the Explorer pre-filtered to that library, so you can go from "how big is this library" to "what exactly is in it" in one click.
+- **Four new breakdowns in the Codecs tab.** Video Bitrate (7 tiers from `< 2` to `> 60 Mbps`), Audio Languages, Subtitle Languages and Watched each get their own chart with the usual drill-down to the exact files. The charts themselves stay static while you explore, so colors and percentages never shift under you.
+
+### Improved
+
+- **Disabled users no longer skew results.** Plays from deactivated Jellyfin accounts used to linger in recommendations and watch statistics. They are now excluded from Smart Recommendations, watch history and the new Watched breakdown, matching what you see in Jellyfin itself.
+- **Measured bitrates first, estimated as a fallback.** Each file is placed by the bitrate Jellyfin measured for its video stream. When a file has no per-stream bitrate, the average is estimated from its size and runtime, so almost every file lands in a real tier instead of Unknown.
+
+### Tests
+
+- **Unit: 5655 total.**
+- **End-to-end: 324 tests across 52 files.**
+
 ## [3.0.0.2] - 2026-09-14
 
 ### Fixed
