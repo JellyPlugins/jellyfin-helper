@@ -1083,4 +1083,26 @@ public sealed class WatchHistoryServiceTests
         Assert.Contains(alice.Id, ids);
         Assert.DoesNotContain(bob.Id, ids);
     }
+
+    [Fact]
+    public void GetAllUserWatchProfiles_GetUsersReturnsNull_ReturnsEmptyCollection()
+    {
+        // A null user roster must degrade to an empty result instead of throwing.
+        _mockUserManager.Setup(m => m.GetUsers()).Returns((IEnumerable<Jellyfin.Database.Implementations.Entities.User>)null!);
+        _mockLibraryManager.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem>());
+
+        var result = _service.GetAllUserWatchProfiles();
+
+        Assert.NotNull(result);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void GetAllUserIds_GetUsersReturnsNull_ReturnsEmpty()
+    {
+        // A null user roster must degrade to an empty result instead of throwing.
+        _mockUserManager.Setup(m => m.GetUsers()).Returns((IEnumerable<Jellyfin.Database.Implementations.Entities.User>)null!);
+
+        Assert.Empty(_service.GetAllUserIds());
+    }
 }

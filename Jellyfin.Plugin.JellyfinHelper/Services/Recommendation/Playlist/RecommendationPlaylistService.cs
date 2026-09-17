@@ -82,8 +82,24 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             if (disabledUserIds.Contains(result.UserId))
             {
-                var removedDisabled = RemoveUserPlaylists(result.UserId, cancellationToken);
-                syncResult.OldPlaylistsRemoved += removedDisabled;
+                try
+                {
+                    var removedDisabled = RemoveUserPlaylists(result.UserId, cancellationToken);
+                    syncResult.OldPlaylistsRemoved += removedDisabled;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (!ex.IsFatal())
+                {
+                    _pluginLog.LogWarning(
+                        LogCategory,
+                        $"Failed to remove stale playlists for disabled user '{result.UserName}'.",
+                        ex,
+                        _logger);
+                }
+
                 handledDisabledUserIds.Add(result.UserId);
 
                 _pluginLog.LogDebug(
