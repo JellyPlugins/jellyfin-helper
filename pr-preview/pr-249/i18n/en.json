@@ -416,9 +416,6 @@
   "explorerReset": "Reset filters",
   "explorerPickFilter": "Pick at least one filter above to list matching files.",
   "explorerTruncated": "Showing first 300 matches — refine filters to narrow down.",
-  "exploreInCodecs": "Explore",
-  "explorerScopeMovies": "Movies (all libraries)",
-  "explorerScopeTvShows": "TV Shows (all libraries)",
   "explorerOpenTooltip": "Open in Library Explorer",
   "explorerNoOptions": "No matching options."
 }
