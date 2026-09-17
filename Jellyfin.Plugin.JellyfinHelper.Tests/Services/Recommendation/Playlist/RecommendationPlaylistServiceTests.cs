@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -400,6 +401,69 @@ public class RecommendationPlaylistServiceTests
         };
         _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { user });
         _userManagerMock.Setup(m => m.GetUserById(userId)).Returns(user);
+    }
+
+    private void SetupUserManagerDisabledUser(Guid userId, string username)
+    {
+        var user = new Jellyfin.Database.Implementations.Entities.User(username, "default", "default")
+        {
+            Id = userId
+        };
+        user.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { user });
+        _userManagerMock.Setup(m => m.GetUserById(userId)).Returns(user);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_DisabledUserWithResults_RemovesStalePlaylistsAndSkipsCreation()
+    {
+        var userId = Guid.NewGuid();
+        SetupUserManagerDisabledUser(userId, "Disabled");
+        var stale = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Disabled"));
+        SetupPlaylistLookup(new[] { stale });
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(userId, "Disabled", 3) },
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(1, syncResult.OldPlaylistsRemoved);
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+        _libraryManagerMock.Verify(
+            m => m.DeleteItem(stale, It.IsAny<DeleteOptions>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_DisabledUserWithoutResults_RemovesStalePlaylistsViaSweep()
+    {
+        var aliceId = Guid.NewGuid();
+        var alice = new Jellyfin.Database.Implementations.Entities.User("Alice", "default", "default") { Id = aliceId };
+        var bobId = Guid.NewGuid();
+        var bob = new Jellyfin.Database.Implementations.Entities.User("Bob", "default", "default") { Id = bobId };
+        bob.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { alice, bob });
+        _userManagerMock.Setup(m => m.GetUserById(aliceId)).Returns(alice);
+        _userManagerMock.Setup(m => m.GetUserById(bobId)).Returns(bob);
+
+        var bobStale = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Bob"));
+        SetupPlaylistLookup(new BaseItem[] { bobStale });
+        _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
+            .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(aliceId, "Alice", 2) },
+            CancellationToken.None);
+
+        Assert.Equal(1, syncResult.PlaylistsCreated);
+        Assert.Equal(1, syncResult.OldPlaylistsRemoved);
+        _libraryManagerMock.Verify(
+            m => m.DeleteItem(bobStale, It.IsAny<DeleteOptions>()),
+            Times.Once);
     }
 
     [Fact]

@@ -1,4 +1,6 @@
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -1032,8 +1034,53 @@ public sealed class WatchHistoryServiceTests
         _mockLibraryManager.Verify(m => m.GetPeople(series), Times.Once);
     }
 
-    private static Jellyfin.Database.Implementations.Entities.User CreateTestUser(string username)
+    private static User CreateTestUser(string username)
     {
-        return new Jellyfin.Database.Implementations.Entities.User(username, "default", "default") { Id = Guid.NewGuid() };
+        return new User(username, "default", "default") { Id = Guid.NewGuid() };
+    }
+
+    private static User CreateDisabledTestUser(string username)
+    {
+        var user = CreateTestUser(username);
+        user.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        return user;
+    }
+
+    [Fact]
+    public void GetUserWatchProfile_DisabledUser_ReturnsNull()
+    {
+        var user = CreateDisabledTestUser("disabled");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+
+        Assert.Null(_service.GetUserWatchProfile(user.Id));
+    }
+
+    [Fact]
+    public void GetAllUserWatchProfiles_SkipsDisabledUsers()
+    {
+        var alice = CreateTestUser("alice");
+        var bob = CreateDisabledTestUser("bob-disabled");
+        _mockUserManager.Setup(m => m.GetUsers()).Returns(new[] { alice, bob }.AsQueryable());
+        _mockLibraryManager.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem>());
+
+        var result = _service.GetAllUserWatchProfiles();
+
+        Assert.Single(result);
+        Assert.Contains(result, p => p.UserName == "alice");
+        Assert.DoesNotContain(result, p => p.UserName == "bob-disabled");
+    }
+
+    [Fact]
+    public void GetAllUserIds_ExcludesDisabledUsers()
+    {
+        var alice = CreateTestUser("alice");
+        var bob = CreateDisabledTestUser("bob-disabled");
+        _mockUserManager.Setup(m => m.GetUsers()).Returns(new[] { alice, bob }.AsQueryable());
+
+        var ids = _service.GetAllUserIds();
+
+        Assert.Single(ids);
+        Assert.Contains(alice.Id, ids);
+        Assert.DoesNotContain(bob.Id, ids);
     }
 }
