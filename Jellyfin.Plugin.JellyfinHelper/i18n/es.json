@@ -417,5 +417,9 @@
   "explorerPickFilter": "Elige al menos un filtro arriba para enumerar los archivos coincidentes.",
   "explorerTruncated": "Mostrando las primeras {count} coincidencias — afina los filtros para reducir.",
   "explorerOpenTooltip": "Abrir en el explorador de bibliotecas",
-  "explorerNoOptions": "Sin opciones coincidentes."
+  "explorerNoOptions": "Sin opciones coincidentes.",
+  "explorerNeverWatched": "Nunca visto",
+  "explorerFileSize": "Tamaño",
+  "explorerOnePlay": "1 reproducción",
+  "explorerManyPlays": "{count} reproducciones"
 }

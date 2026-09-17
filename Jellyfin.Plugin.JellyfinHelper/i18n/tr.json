@@ -417,5 +417,9 @@
   "explorerPickFilter": "Eşleşen dosyaları listelemek için yukarıdan en az bir filtre seçin.",
   "explorerTruncated": "İlk {count} eşleşme gösteriliyor — daraltmak için filtreleri hassaslaştırın.",
   "explorerOpenTooltip": "Kütüphane Gezgini'nde aç",
-  "explorerNoOptions": "Eşleşen seçenek yok."
+  "explorerNoOptions": "Eşleşen seçenek yok.",
+  "explorerNeverWatched": "Hiç izlenmedi",
+  "explorerFileSize": "Boyut",
+  "explorerOnePlay": "1 oynatma",
+  "explorerManyPlays": "{count} oynatma"
 }

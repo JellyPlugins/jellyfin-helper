@@ -417,5 +417,9 @@
   "explorerPickFilter": "Pick at least one filter above to list matching files.",
   "explorerTruncated": "Showing first {count} matches — refine filters to narrow down.",
   "explorerOpenTooltip": "Open in Library Explorer",
-  "explorerNoOptions": "No matching options."
+  "explorerNoOptions": "No matching options.",
+  "explorerNeverWatched": "Never watched",
+  "explorerFileSize": "Size",
+  "explorerOnePlay": "1 play",
+  "explorerManyPlays": "{count} plays"
 }

@@ -186,6 +186,20 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_LibraryExplorer_ResultRowsExpandToFileDetails()
+    {
+        // Clicking a result file opens an inline detail card with path, size,
+        // codec/language values and a Watched expander. The count rides along
+        // as a data attribute so tests stay locale-independent.
+        Assert.Contains("function buildExplorerFileDetail", HtmlContent);
+        Assert.Contains("function toggleExplorerFileDetail", HtmlContent);
+        Assert.Contains("function bindExplorerFileDetails", HtmlContent);
+        Assert.Contains("codec-file-detail", HtmlContent);
+        Assert.Contains("data-explorer-count", HtmlContent);
+        Assert.Contains("function collectScopePaths", HtmlContent);
+    }
+
+    [Fact]
     public void Html_CollectCodecPaths_AcceptsCategoriesParameter()
     {
         // collectCodecPaths should accept a categories parameter

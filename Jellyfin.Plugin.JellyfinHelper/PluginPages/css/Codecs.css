@@ -310,14 +310,17 @@
 .codec-explorer-field {
     display: flex;
     flex-direction: column;
-    gap: 0.3em;
     min-width: 0;
 }
 
-.codec-explorer-field label {
+.codec-explorer-field > label,
+.codec-multi-label {
+    display: block;
     font-size: 0.78em;
     font-weight: 600;
     opacity: 0.7;
+    margin: 0 0 0.3em 0;
+    min-height: 1.2em;
 }
 
 /* Dimensions with no options in the current scope are greyed out but stay visible. */
@@ -356,18 +359,11 @@
     position: relative;
 }
 
-.codec-multi-label {
-    font-size: 0.78em;
-    font-weight: 600;
-    opacity: 0.7;
-}
-
 .codec-multi-toggle {
     display: flex;
     align-items: center;
     gap: 0.4em;
     width: 100%;
-    margin-top: 0.3em;
     padding: 0.55em 0.6em;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -455,6 +451,61 @@
     opacity: 0.5;
     font-size: 0.85em;
 }
+
+/* Per-file detail card inside explorer results (toggle by clicking the file row). */
+#codecExplorerResults .tree-leaf {
+    cursor: pointer;
+}
+
+#codecExplorerResults .tree-leaf.codec-file-open .tree-leaf-file-name {
+    color: var(--color-primary);
+}
+
+.codec-file-detail {
+    margin: 0.3em 0 0.8em 1.4em;
+    padding: 0.7em 0.9em;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md, 8px);
+    font-size: 0.85em;
+}
+
+.codec-file-path {
+    opacity: 0.65;
+    font-size: 0.9em;
+    word-break: break-all;
+    margin-bottom: 0.5em;
+}
+
+.codec-file-row {
+    display: flex;
+    gap: 0.6em;
+    padding: 0.12em 0;
+}
+
+.codec-file-label {
+    opacity: 0.6;
+    min-width: 7em;
+    flex-shrink: 0;
+}
+
+.codec-file-value {
+    min-width: 0;
+}
+
+.codec-file-watched {
+    margin-top: 0.4em;
+}
+
+.codec-file-watched summary {
+    cursor: pointer;
+    opacity: 0.85;
+}
+
+.codec-file-watcher {
+    padding: 0.15em 0 0.15em 1em;
+    opacity: 0.85;
+}
 .codec-explorer-reset {
     padding: 0.5em 1em;
     background: transparent;
@@ -525,6 +576,11 @@
         min-height: 44px;
     }
 
+    .codec-file-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
     .codec-explorer-toggle,
     .codec-explorer-reset {
         min-height: 44px;
@@ -560,4 +616,4 @@
     .codec-multi-item:hover {
         background: rgba(0, 0, 0, 0.04);
     }
-}
+}}

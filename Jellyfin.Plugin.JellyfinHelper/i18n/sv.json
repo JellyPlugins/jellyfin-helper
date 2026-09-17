@@ -417,5 +417,9 @@
   "explorerPickFilter": "Välj minst ett filter ovan för att lista matchande filer.",
   "explorerTruncated": "Visar de första {count} träffarna — förfina filtren för att begränsa.",
   "explorerOpenTooltip": "Öppna i biblioteksutforskaren",
-  "explorerNoOptions": "Inga matchande alternativ."
+  "explorerNoOptions": "Inga matchande alternativ.",
+  "explorerNeverWatched": "Aldrig tittat",
+  "explorerFileSize": "Storlek",
+  "explorerOnePlay": "1 visning",
+  "explorerManyPlays": "{count} visningar"
 }

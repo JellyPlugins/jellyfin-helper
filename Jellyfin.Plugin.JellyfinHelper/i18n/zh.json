@@ -417,5 +417,9 @@
   "explorerPickFilter": "在上方至少选择一个过滤器以列出匹配的文件。",
   "explorerTruncated": "仅显示前 {count} 个匹配项 — 优化过滤器以缩小范围。",
   "explorerOpenTooltip": "在媒体库浏览器中打开",
-  "explorerNoOptions": "没有匹配的选项。"
+  "explorerNoOptions": "没有匹配的选项。",
+  "explorerNeverWatched": "从未观看",
+  "explorerFileSize": "大小",
+  "explorerOnePlay": "1 次播放",
+  "explorerManyPlays": "{count} 次播放"
 }

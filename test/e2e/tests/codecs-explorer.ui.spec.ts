@@ -74,6 +74,8 @@ test('overview library row deep-links into the explorer with preset library', as
   await link.click();
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
   await expect(page.locator('#codecExplorerToggle')).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
+  // The scope panel starts closed; the checked box underneath still proves the preset.
+  await page.locator('[data-library-toggle]').click();
   const box = page.locator(`[data-library-option="${libName ?? ''}"]`);
   await expect(box).toBeChecked({ timeout: 5_000 });
 });
@@ -85,13 +87,15 @@ test('overview movies card deep-links into the explorer with scoped libraries', 
   test.skip((await card.count()) === 0, 'no movie libraries on this server');
   await card.first().click();
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
-  await expect(page.locator('[data-library-option]:checked').first()).toBeVisible({ timeout: 5_000 });
+  await page.locator('[data-library-toggle]').click();
+  await expect(page.locator('[data-library-option]:checked').first()).toBeChecked({ timeout: 5_000 });
 });
 
 test('language multi-dropdown selects several values and lists all in the summary', async ({ page }) => {
   await openExplorer(page);
   const toggle = page.locator('[data-multi-toggle="audioLanguages"]');
   test.skip((await toggle.count()) === 0, 'no audio language data on this server');
+  test.skip(await toggle.isDisabled(), 'audio language options are all empty on this server');
   await toggle.click();
   const panel = page.locator('[data-multi-panel="audioLanguages"]');
   await expect(panel).toBeVisible({ timeout: 5_000 });

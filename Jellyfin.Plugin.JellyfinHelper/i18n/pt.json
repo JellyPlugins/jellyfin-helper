@@ -417,5 +417,9 @@
   "explorerPickFilter": "Escolha pelo menos um filtro acima para listar os arquivos correspondentes.",
   "explorerTruncated": "Mostrando as primeiras {count} correspondências — refine os filtros para reduzir.",
   "explorerOpenTooltip": "Abrir no explorador de bibliotecas",
-  "explorerNoOptions": "Nenhuma opção correspondente."
+  "explorerNoOptions": "Nenhuma opção correspondente.",
+  "explorerNeverWatched": "Nunca assistido",
+  "explorerFileSize": "Tamanho",
+  "explorerOnePlay": "1 reprodução",
+  "explorerManyPlays": "{count} reproduções"
 }
