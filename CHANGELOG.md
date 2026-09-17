@@ -9,8 +9,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Added
 
-- **Library Explorer in the Codecs tab.** A new collapsible search below the breakdown charts combines resolution, video/audio codecs, bitrate, dynamic range, audio and subtitle languages and watched status into one search, optionally scoped to a single library. The result header always shows every active filter at once, a Reset button clears the whole search, and results arrive as the familiar grouped file tree.
-- **Explore links in the Overview.** Each row of the per-library table now has an Explore link that jumps to the Codecs tab and opens the Explorer pre-filtered to that library, so you can go from "how big is this library" to "what exactly is in it" in one click.
+- **Library Explorer in the Codecs tab.** A new collapsible search above the breakdown charts combines resolution, video/audio codecs, bitrate, dynamic range, audio and subtitle languages and watched status into one search, optionally scoped to a single library. Options that would yield nothing under the other active filters are hidden automatically, audio and subtitle languages accept several values at once, and the result header always shows every active filter. A Reset button clears the whole search, and results arrive as the familiar grouped file tree.
+- **Explore links in the Overview.** Each per-library table name and the Movies/TV stat cards jump to the Codecs tab and open the Explorer pre-filtered to that scope, so you can go from "how big is this library" to "what exactly is in it" in one click.
 - **Four new breakdowns in the Codecs tab.** Video Bitrate (7 tiers from `< 2` to `> 60 Mbps`), Audio Languages, Subtitle Languages and Watched each get their own chart with the usual drill-down to the exact files. The charts themselves stay static while you explore, so colors and percentages never shift under you.
 
 ### Improved

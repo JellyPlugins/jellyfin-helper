@@ -134,9 +134,21 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("renderCodecsExplorer(codecsContainer)", HtmlContent);
         Assert.Contains("function buildCodecsExplorerHtml", HtmlContent);
         Assert.Contains("function computeCodecsExplorerPaths", HtmlContent);
+        Assert.Contains("function computePathsExcluding", HtmlContent);
+        Assert.Contains("function countExplorerOptions", HtmlContent);
+        Assert.Contains("function buildCodecsExplorerChecks", HtmlContent);
         Assert.Contains("function openCodecsExplorer", HtmlContent);
+        Assert.Contains("CODEC_EXPLORER_TYPE_MOVIES", HtmlContent);
+        Assert.Contains("CODEC_EXPLORER_TYPE_TVSHOWS", HtmlContent);
         Assert.Contains("codec-explorer-toggle", HtmlContent);
         Assert.Contains("data-codec-explore-library", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_LibraryExplorer_RendersAboveDonutGrid()
+    {
+        // The explorer is prepended so the search sits above the charts, not below them.
+        Assert.Contains("container.insertBefore(tmp.firstChild, container.firstChild)", HtmlContent);
     }
 
     [Fact]

@@ -22,6 +22,21 @@
 .stat-card:hover {
     border-color: var(--color-primary);
 }
+
+/* Overview cards that deep-link into the Codecs Library Explorer. */
+.stat-card-link {
+    cursor: pointer;
+}
+
+.stat-card-link:hover {
+    border-color: var(--color-primary);
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.stat-card-link:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
 /* When the number of stat cards is odd (e.g. a Book library adds a 7th card),
    the Total Files card spans the full grid width so the last row has no gap.
    In the single-column mobile layout this is a harmless no-op. */

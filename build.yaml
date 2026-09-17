@@ -16,8 +16,9 @@ changelog: |-
   v3.0.0.3 - Library Explorer, new Codecs breakdowns, disabled users ignored
 
   - The Codecs tab now has a Library Explorer: combine resolution, codecs, bitrate, languages and watched status into one search, optionally scoped to a single library, so you can find e.g. all 4K films with low bitrate
+  - Options with zero matches under the other filters are hidden automatically, and audio/subtitle languages accept several values at once
   - Every active filter is shown in the result header and a Reset button clears the whole search; results arrive as the familiar grouped file tree
-  - Jump straight into the search from the Overview: each library row has an Explore link that opens the Explorer pre-filtered to that library
+  - Jump straight into the search from the Overview: each library name and the Movies/TV cards open the Explorer pre-filtered to that scope
   - Four new breakdowns in the Codecs tab, each with drill-down to the exact files: Video Bitrate (7 tiers from < 2 to > 60 Mbps), Audio Languages, Subtitle Languages and Watched
   - Each bitrate tier uses what Jellyfin measured for the video stream; when a file has no per-stream value the average is estimated from its size and runtime, so almost every file lands in a real tier instead of Unknown
   - Disabled Jellyfin users no longer skew results: their old plays are excluded from Smart Recommendations, watch history and the new Watched breakdown

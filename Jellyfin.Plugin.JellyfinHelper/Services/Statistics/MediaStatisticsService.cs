@@ -760,9 +760,8 @@ public class MediaStatisticsService : IMediaStatisticsService
         if (streams != null)
         {
             var seenAudioLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var s in streams.Where(s => s.Type == MediaStreamType.Audio))
+            foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Audio).Select(s => NormalizeIso639Language(s.Language)))
             {
-                var lang = NormalizeIso639Language(s.Language);
                 if (lang != null && seenAudioLanguages.Add(lang))
                 {
                     FileSystemHelper.IncrementCount(stats.AudioLanguages, lang);
@@ -773,9 +772,8 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             // Subtitle languages: embedded tracks only; external sidecars are excluded.
             var seenSubtitleLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var s in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal))
+            foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal).Select(s => NormalizeIso639Language(s.Language)))
             {
-                var lang = NormalizeIso639Language(s.Language);
                 if (lang != null && seenSubtitleLanguages.Add(lang))
                 {
                     FileSystemHelper.IncrementCount(stats.SubtitleLanguages, lang);

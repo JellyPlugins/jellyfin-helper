@@ -49,9 +49,20 @@ public class OverviewHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_LibraryRows_LinkIntoCodecsExplorer()
     {
-        // Each per-library row carries an Explore deep-link that opens the Codecs tab
+        // Each per-library name is a link that opens the Codecs tab
         // Library Explorer pre-scoped to that library.
         Assert.Contains("data-codec-explore-library", HtmlContent);
         Assert.Contains("codec-explore-link", HtmlContent);
+        Assert.Contains("explorerOpenTooltip", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_MovieAndTvCards_LinkIntoCodecsExplorer()
+    {
+        // The Movies and TV stat cards act as links into the explorer,
+        // pre-scoped to all libraries of that type.
+        Assert.Contains("stat-card-link", HtmlContent);
+        Assert.Contains("CODEC_EXPLORER_TYPE_MOVIES", HtmlContent);
+        Assert.Contains("CODEC_EXPLORER_TYPE_TVSHOWS", HtmlContent);
     }
 }

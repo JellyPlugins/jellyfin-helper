@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -139,16 +140,12 @@ public class StatisticsCacheService : IStatisticsCacheService
         }
     }
 
+    private static bool IsLegacyBitrateTier(string key) =>
+        key is "2-5 Mbps" or "5-10 Mbps" or "10-20 Mbps" or "20-40 Mbps" or "> 40 Mbps";
+
     private static void MigrateIntDict(Dictionary<string, int> dict)
     {
-        var legacyKeys = new List<string>();
-        foreach (var key in dict.Keys)
-        {
-            if (key is "2-5 Mbps" or "5-10 Mbps" or "10-20 Mbps" or "20-40 Mbps" or "> 40 Mbps")
-            {
-                legacyKeys.Add(key);
-            }
-        }
+        var legacyKeys = dict.Keys.Where(IsLegacyBitrateTier).ToList();
 
         foreach (var old in legacyKeys)
         {
@@ -165,14 +162,7 @@ public class StatisticsCacheService : IStatisticsCacheService
 
     private static void MigrateLongDict(Dictionary<string, long> dict)
     {
-        var legacyKeys = new List<string>();
-        foreach (var key in dict.Keys)
-        {
-            if (key is "2-5 Mbps" or "5-10 Mbps" or "10-20 Mbps" or "20-40 Mbps" or "> 40 Mbps")
-            {
-                legacyKeys.Add(key);
-            }
-        }
+        var legacyKeys = dict.Keys.Where(IsLegacyBitrateTier).ToList();
 
         foreach (var old in legacyKeys)
         {
@@ -189,14 +179,7 @@ public class StatisticsCacheService : IStatisticsCacheService
 
     private static void MigratePathsDict(Dictionary<string, System.Collections.ObjectModel.Collection<string>> dict)
     {
-        var legacyKeys = new List<string>();
-        foreach (var key in dict.Keys)
-        {
-            if (key is "2-5 Mbps" or "5-10 Mbps" or "10-20 Mbps" or "20-40 Mbps" or "> 40 Mbps")
-            {
-                legacyKeys.Add(key);
-            }
-        }
+        var legacyKeys = dict.Keys.Where(IsLegacyBitrateTier).ToList();
 
         foreach (var old in legacyKeys)
         {

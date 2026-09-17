@@ -47,6 +47,7 @@ test('combining two filters narrows the result and shows both values', async ({ 
   const firstValue = await resolution.inputValue();
   const summary = page.locator('.codec-explorer-summary');
   await expect(summary).toBeVisible({ timeout: 5_000 });
+  await expect(summary).toContainText(firstValue);
   const firstCount = await countFromSummary(summary);
 
   await codec.selectOption({ index: 1 });
@@ -74,4 +75,14 @@ test('overview library row deep-links into the explorer with preset library', as
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
   await expect(page.locator('#codecExplorerToggle')).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
   await expect(page.locator('#codecExplorerLibrary')).toHaveValue(libName ?? '');
+});
+
+test('overview movies card deep-links into the explorer with type scope', async ({ page }) => {
+  await openDashboard(page);
+  await switchTab(page, 'overview');
+  const card = page.locator('.stat-card-link[data-codec-explore-library="type:movies"]');
+  test.skip((await card.count()) === 0, 'no movie libraries on this server');
+  await card.first().click();
+  await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
+  await expect(page.locator('#codecExplorerLibrary')).toHaveValue('type:movies', { timeout: 5_000 });
 });
