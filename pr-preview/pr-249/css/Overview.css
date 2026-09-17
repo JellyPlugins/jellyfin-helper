@@ -198,3 +198,31 @@
     border-radius: 2px;
     flex-shrink: 0;
 }
+
+@media (prefers-color-scheme: light) {
+    /* noinspection CssUnusedSymbol */
+    .stat-card {
+        background: rgba(0, 0, 0, 0.03);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .stat-card-link:hover {
+        background: rgba(0, 0, 0, 0.05);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .library-table th,
+    .library-table td {
+        border-bottom-color: rgba(0, 0, 0, 0.08);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .library-table tbody tr:hover {
+        background: rgba(0, 0, 0, 0.03);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .total-bar {
+        background: rgba(0, 0, 0, 0.05);
+    }
+}

@@ -3,7 +3,7 @@
 // Library Explorer (Codecs tab): Collapsible targeted file filter; charts stay static.
 // - Faceted filtering: Hides 0-result options (active selections stay toggleable).
 // - Scope-aware: Disables empty dimensions; multi-select libraries (OR logic, null = all).
-var _codecsExplorerState = {libraries: null, filters: {}, expanded: false};
+var _codecsExplorerState = {libraries: null, filters: {}, expanded: false, scope: null};
 
 // Which multi-dropdown panel is currently open (one at a time). Restored across
 // control rebuilds so choosing values does not collapse the panel.
@@ -436,8 +436,9 @@ function buildCodecsExplorerMulti(dim) {
     html += '<span class="codec-multi-summary">' + escHtml(explorerMultiSummary(selected)) + '</span>';
     html += '<span class="codec-multi-chevron">' + mi('expand_more') + '</span></button>';
     html += '<div class="codec-multi-panel" data-multi-panel="' + escAttr(dim.id) + '"' + (open ? '' : ' hidden') + '>';
-    for (const option of visible) {
-        const inputId = 'codecMulti_' + dim.id + '_' + visible.indexOf(option);
+    for (let index = 0; index < visible.length; index++) {
+        const option = visible[index];
+        const inputId = 'codecMulti_' + dim.id + '_' + index;
         html += '<label class="codec-multi-item" for="' + escAttr(inputId) + '">'
             + '<input type="checkbox" id="' + escAttr(inputId) + '" value="' + escAttr(option) + '"'
             + (selected.includes(option) ? ' checked' : '') + '>'
@@ -451,9 +452,10 @@ function buildCodecsExplorerMulti(dim) {
     return html;
 }
 
-// Total media files of one library, used as the scope option count.
+// Total media files of one library, used as the scope option count. Mirrors exactly
+// what the scope listing can show (FileSizes covers video, audio and books only).
 function countLibraryFiles(lib) {
-    return (lib.VideoFileCount || 0) + (lib.AudioFileCount || 0) + (lib.BookFileCount || 0) + (lib.OtherFileCount || 0);
+    return (lib.VideoFileCount || 0) + (lib.AudioFileCount || 0) + (lib.BookFileCount || 0);
 }
 
 // Library scope as a multi-dropdown: empty means all libraries, otherwise the
@@ -473,8 +475,9 @@ function buildCodecsExplorerLibraryMulti() {
     html += '<span class="codec-multi-summary">' + escHtml(libraryMultiSummary(selected)) + '</span>';
     html += '<span class="codec-multi-chevron">' + mi('expand_more') + '</span></button>';
     html += '<div class="codec-multi-panel" data-library-panel="1"' + (open ? '' : ' hidden') + '>';
-    for (const lib of libs) {
-        const inputId = 'codecLibrary_' + libs.indexOf(lib);
+    for (let index = 0; index < libs.length; index++) {
+        const lib = libs[index];
+        const inputId = 'codecLibrary_' + index;
         html += '<label class="codec-multi-item" for="' + escAttr(inputId) + '">'
             + '<input type="checkbox" id="' + escAttr(inputId) + '" value="' + escAttr(lib.LibraryName) + '"'
             + (selected.includes(lib.LibraryName) ? ' checked' : '') + ' data-library-option="1">'
@@ -520,7 +523,7 @@ function buildCodecsExplorerHtml() {
 function explorerSummaryLabels(active) {
     const labels = [];
     for (const entry of active) {
-        labels.push(entry.values.join(', '));
+        labels.push(T(entry.dim.labelKey, entry.dim.fallback) + ': ' + entry.values.join(', '));
     }
     return labels;
 }
@@ -834,8 +837,10 @@ function onExplorerLibrariesChanged() {
         }
     }
     // Keep dimension filters: faceting recomputes every option, and pruning drops
-    // only values the new scope cannot produce.
-    _codecsExplorerState.libraries = values;
+    // only values the new scope cannot produce. Unchecking everything lifts the
+    // restriction (back to all libraries).
+    _codecsExplorerState.scope = values.length > 0 ? values : null;
+    _codecsExplorerState.libraries = values.length > 0 ? values : null;
     pruneCodecsExplorerState();
     refreshCodecsExplorerControls();
 }
@@ -947,6 +952,7 @@ function attachCodecsExplorerHandlers() {
     const reset = document.getElementById('codecExplorerReset');
     if (reset) {
         reset.onclick = function () {
+            _codecsExplorerState.scope = null;
             _codecsExplorerState.libraries = null;
             _codecsExplorerState.filters = {};
             refreshCodecsExplorerControls();
@@ -1005,7 +1011,10 @@ function resolveExplorerScope(scope) {
 
 // Deep-link from the Overview tab: switch to Codecs, expand the explorer and pre-select
 // the libraries (a name, name list, or type marker) so the admin starts scoped.
+// The raw intent survives until scan data arrives: type markers can only resolve
+// to library names once the libraries are known.
 function openCodecsExplorer(scope) {
+    _codecsExplorerState.scope = scope || null;
     _codecsExplorerState.libraries = resolveExplorerScope(scope);
     _codecsExplorerState.filters = {};
     _codecsExplorerState.expanded = true;
@@ -1064,6 +1073,11 @@ function pruneCodecsExplorerState() {
 // Prepends the explorer above the donut grid. Called on every fillCodecsData so the
 // explorer always reflects the latest scan; user selections survive via module state.
 function renderCodecsExplorer(container) {
+    // Late-resolve a pending deep-link scope: type markers need scan data, which may
+    // have arrived after the link was clicked.
+    if (_lastCodecData) {
+        _codecsExplorerState.libraries = resolveExplorerScope(_codecsExplorerState.scope);
+    }
     pruneCodecsExplorerState();
     _explorerDetailCache = {};
     const existing = container.querySelector('.codec-explorer');
