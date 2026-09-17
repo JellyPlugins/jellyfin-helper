@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -70,9 +71,27 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             $"Starting playlist sync for {results.Count} users.",
             _logger);
 
+        // Disabled users are treated as if they do not exist: never create playlists for them and
+        // remove any stale ones from previous runs.
+        var disabledUserIds = GetDisabledUserIds(cancellationToken);
+        var handledDisabledUserIds = new HashSet<Guid>();
+
         foreach (var result in results)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (disabledUserIds.Contains(result.UserId))
+            {
+                var removedDisabled = RemoveUserPlaylists(result.UserId, cancellationToken);
+                syncResult.OldPlaylistsRemoved += removedDisabled;
+                handledDisabledUserIds.Add(result.UserId);
+
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"Skipping playlist creation for disabled user '{result.UserName}' - stale playlists removed.",
+                    _logger);
+                continue;
+            }
 
             try
             {
@@ -163,6 +182,35 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
         }
 
+        // Sweep disabled users that had no fresh results (e.g. excluded from generation) so their
+        // stale playlists from previous runs are removed as well.
+        foreach (var disabledUserId in disabledUserIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!handledDisabledUserIds.Add(disabledUserId))
+            {
+                continue;
+            }
+
+            try
+            {
+                syncResult.OldPlaylistsRemoved += RemoveUserPlaylists(disabledUserId, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogWarning(
+                    LogCategory,
+                    $"Failed to remove stale playlists for disabled user {disabledUserId}.",
+                    ex,
+                    _logger);
+            }
+        }
+
         _pluginLog.LogInfo(
             LogCategory,
             $"Playlist sync complete: {syncResult.PlaylistsCreated} created, {syncResult.OldPlaylistsRemoved} old removed, {syncResult.PlaylistsFailed} failed, {syncResult.TotalItemsAdded} total items.",
@@ -221,6 +269,45 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     internal static string BuildPlaylistName(string userName)
     {
         return PlaylistNamePrefix + " for " + (string.IsNullOrWhiteSpace(userName) ? "you" : userName);
+    }
+
+    /// <summary>
+    ///     Returns true when the Jellyfin user is disabled. Disabled users are treated as if they do not
+    ///     exist: no recommendations are generated and their playlists are removed.
+    /// </summary>
+    /// <param name="user">The Jellyfin user entity.</param>
+    /// <returns><c>true</c> when the user carries the IsDisabled permission.</returns>
+    private static bool IsDisabled(Jellyfin.Database.Implementations.Entities.User user) =>
+        user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
+
+    /// <summary>
+    ///     Collects the ids of all disabled users. Never throws for non-cancellation failures: a user-list
+    ///     failure degrades to an empty set so the sync continues for enabled users.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled user ids, or empty when the roster is unavailable.</returns>
+    private HashSet<Guid> GetDisabledUserIds(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            return _userManager.GetUsers()?.Where(static u => IsDisabled(u)).Select(static u => u.Id).ToHashSet()
+                ?? [];
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                "Failed to list disabled users - skipping disabled-user playlist cleanup.",
+                ex,
+                _logger);
+            return [];
+        }
     }
 
     /// <summary>

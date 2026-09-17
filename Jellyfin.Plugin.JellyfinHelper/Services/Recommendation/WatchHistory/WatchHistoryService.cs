@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -61,7 +62,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     public UserWatchProfile? GetUserWatchProfile(Guid userId)
     {
         var user = _userManager.GetUserById(userId);
-        if (user is null)
+        if (user is null || IsDisabled(user))
         {
             return null;
         }
@@ -72,7 +73,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <inheritdoc />
     public Collection<UserWatchProfile> GetAllUserWatchProfiles()
     {
-        var users = _userManager.GetUsers().ToList();
+        var users = _userManager.GetUsers()?.Where(static u => !IsDisabled(u)).ToList() ?? [];
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -118,7 +119,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
     /// <inheritdoc />
     public IReadOnlyCollection<Guid> GetAllUserIds() =>
-        _userManager.GetUsers().Select(u => u.Id).ToList();
+        _userManager.GetUsers()?.Where(static u => !IsDisabled(u)).Select(static u => u.Id).ToList()
+            ?? (IReadOnlyCollection<Guid>)[];
+
+    /// <summary>
+    ///     Returns true when the Jellyfin user is disabled. Disabled users are treated as if they do not
+    ///     exist: no watch profile, no recommendations, and no influence on the shared model.
+    /// </summary>
+    /// <param name="user">The Jellyfin user entity.</param>
+    /// <returns><c>true</c> when the user carries the IsDisabled permission.</returns>
+    private static bool IsDisabled(Jellyfin.Database.Implementations.Entities.User user) =>
+        user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
 
     /// <summary>
     ///     Loads all video items from the library (movies, episodes, etc.).
