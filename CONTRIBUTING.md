@@ -888,8 +888,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Statistics/`
 
 - `MediaStatisticsResultTests.cs` - Unit tests for MediaStatisticsResult aggregate totals and dictionary rollups
+- `MediaStatisticsResultLanguageTests.cs` - Unit tests for MediaStatisticsResult audio/subtitle language and watched aggregates
 - `MediaStatisticsServiceTests.cs` - Unit tests for MediaStatisticsService library scanning and statistics calculation
 - `MediaStatisticsServiceTvShowTests.cs` - Unit tests for MediaStatisticsService TV show structure and orphaned-metadata handling
+- `MediaStatisticsServiceBitrateTests.cs` - Unit tests for MediaStatisticsService bitrate tier thresholds and legacy mapping
+- `MediaStatisticsServiceLanguageTests.cs` - Unit tests for MediaStatisticsService audio/subtitle language extraction
+- `MediaStatisticsServiceWatchedTests.cs` - Unit tests for MediaStatisticsService watched status extraction (disabled users excluded)
 - `StatisticsCacheServiceTests.cs` - Unit tests for StatisticsCacheService persisting and loading cached statistics results
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Timeline/`
@@ -994,8 +998,9 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper/PluginPages/js/`
 
-- `ArrIntegration.js`
+  - `ArrIntegration.js`
 - `Codecs.js`
+- `CodecsExplorer.js`
 - `FolderBrowser.js`
 - `Health.js`
 - `Logs.js`
@@ -1231,6 +1236,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `LibraryStatistics.cs` - Per-library statistics model: file sizes/counts, codec/quality breakdowns, health checks
 - `MediaStatisticsResult.cs` - Aggregated media scan result grouping libraries by type with computed totals
 - `MediaStatisticsService.cs` - Recursively scans libraries computing size, codec, resolution, and health statistics
+- `WatchedUserDetail.cs` - Per-file per-user watch detail DTO (username, play count, last played)
 - `StatisticsCacheService.cs` - Persists the latest statistics result to disk as JSON via atomic write
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Timeline/`
@@ -1437,7 +1443,7 @@ Trends.css, Settings.css, ArrIntegration.css,
 Recommendations.css, Logs.css
 
 # JS order (csproj JsModule items)
-Shared.js, Overview.js, Codecs.js, Health.js,
+Shared.js, Overview.js, Codecs.js, CodecsExplorer.js, Health.js,
 Trends.js, Settings.js, ArrIntegration.js,
 Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```

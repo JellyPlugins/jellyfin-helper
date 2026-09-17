@@ -240,3 +240,182 @@
     transform: rotate(90deg);
     color: var(--color-primary);
 }
+
+/* Library Explorer: collapsible combinable-filter search below the donut grid. */
+.codec-explorer {
+    margin-top: 0.5em;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 0.5em;
+}
+
+.codec-explorer-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    width: 100%;
+    padding: 0.7em 0.8em;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md, 8px);
+    color: inherit;
+    font-size: 0.95em;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+}
+
+.codec-explorer-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--color-primary);
+}
+
+.codec-explorer-toggle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.codec-explorer-arrow {
+    margin-left: auto;
+    font-size: 0.85em;
+}
+
+.codec-explorer-body {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    padding: 0 0.5em;
+}
+
+.codec-explorer-body.open {
+    max-height: none;
+    opacity: 1;
+    padding: 0.8em 0.5em;
+    overflow: visible;
+}
+
+.codec-explorer-hint {
+    opacity: 0.6;
+    font-size: 0.85em;
+    margin: 0 0 0.8em 0;
+}
+
+.codec-explorer-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.7em;
+    margin-bottom: 0.8em;
+}
+
+.codec-explorer-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    min-width: 0;
+}
+
+.codec-explorer-field label {
+    font-size: 0.78em;
+    font-weight: 600;
+    opacity: 0.7;
+}
+
+.codec-explorer-field select {
+    width: 100%;
+    padding: 0.55em 0.6em;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-md, 8px);
+    color: inherit;
+    font-size: 0.9em;
+}
+
+/* noinspection CssUnusedSymbol */
+.codec-explorer-field select option {
+    background: #2b2b2b;
+    color: #e0e0e0;
+}
+
+.codec-explorer-actions {
+    margin-bottom: 0.8em;
+}
+
+.codec-explorer-reset {
+    padding: 0.5em 1em;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-md, 8px);
+    color: inherit;
+    font-size: 0.85em;
+    cursor: pointer;
+}
+
+.codec-explorer-reset:hover {
+    border-color: var(--color-primary);
+}
+
+.codec-explorer-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+    align-items: baseline;
+    font-weight: 600;
+    margin-bottom: 0.6em;
+}
+
+.codec-explorer-active {
+    font-weight: 400;
+    opacity: 0.7;
+    font-size: 0.9em;
+}
+
+.codec-explorer-empty,
+.codec-explorer-truncated {
+    opacity: 0.6;
+    font-size: 0.85em;
+}
+
+/* Overview library-table deep-link into the explorer. */
+.codec-explore-link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin-left: 0.5em;
+    color: var(--color-primary);
+    font-size: 0.8em;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.codec-explore-link:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 700px) {
+    .codec-explorer-controls {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .codec-explorer-field select {
+        font-size: 16px;
+        padding: 0.6em;
+    }
+
+    .codec-explorer-toggle,
+    .codec-explorer-reset {
+        min-height: 44px;
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    /* noinspection CssUnusedSymbol */
+    .codec-explorer-field select {
+        background-color: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-explorer-field select option {
+        background: #ffffff;
+        color: #111111;
+    }
+}

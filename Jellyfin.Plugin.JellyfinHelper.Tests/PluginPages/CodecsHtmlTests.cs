@@ -43,6 +43,10 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("ContainerFormatPaths", HtmlContent);
         Assert.Contains("ResolutionPaths", HtmlContent);
         Assert.Contains("DynamicRangePaths", HtmlContent);
+        Assert.Contains("VideoBitrateTierPaths", HtmlContent);
+        Assert.Contains("AudioLanguagePaths", HtmlContent);
+        Assert.Contains("SubtitleLanguagePaths", HtmlContent);
+        Assert.Contains("WatchedTierPaths", HtmlContent);
     }
 
     [Fact]
@@ -62,6 +66,10 @@ public class CodecsHtmlTests : ConfigPageTestBase
     [InlineData(@"'containers':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*true,\s*other:\s*true\s*\}")]
     [InlineData(@"'resolutions':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
     [InlineData(@"'dynamicRanges':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    [InlineData(@"'videoBitrate':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    [InlineData(@"'audioLanguages':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    [InlineData(@"'subtitleLanguages':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
+    [InlineData(@"'watched':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}")]
     public void Html_CodecCategoryMap_HasExpectedLibraryFlags(string pattern)
     {
         Assert.Matches(pattern, HtmlContent);
@@ -100,6 +108,35 @@ public class CodecsHtmlTests : ConfigPageTestBase
     public void Html_FillCodecsData_UsesVideoLibrariesForDynamicRanges()
     {
         Assert.Contains("aggregateDict(videoLibraries, 'DynamicRanges')", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_FillCodecsData_AggregatesNewVideoDimensions()
+    {
+        Assert.Contains("aggregateDict(videoLibraries, 'VideoBitrateTiers')", HtmlContent);
+        Assert.Contains("aggregateDict(videoLibraries, 'AudioLanguages')", HtmlContent);
+        Assert.Contains("aggregateDict(videoLibraries, 'SubtitleLanguages')", HtmlContent);
+        Assert.Contains("aggregateDict(videoLibraries, 'WatchedTiers')", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_FillCodecsData_RendersNewDonutCharts()
+    {
+        Assert.Contains("renderDonutChart(videoBitrate,", HtmlContent);
+        Assert.Contains("renderDonutChart(audioLanguages,", HtmlContent);
+        Assert.Contains("renderDonutChart(subtitleLanguages,", HtmlContent);
+        Assert.Contains("renderDonutChart(watched,", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_FillCodecsData_RendersLibraryExplorer()
+    {
+        Assert.Contains("renderCodecsExplorer(codecsContainer)", HtmlContent);
+        Assert.Contains("function buildCodecsExplorerHtml", HtmlContent);
+        Assert.Contains("function computeCodecsExplorerPaths", HtmlContent);
+        Assert.Contains("function openCodecsExplorer", HtmlContent);
+        Assert.Contains("codec-explorer-toggle", HtmlContent);
+        Assert.Contains("data-codec-explore-library", HtmlContent);
     }
 
     [Fact]

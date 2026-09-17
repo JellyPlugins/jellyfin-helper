@@ -45,4 +45,13 @@ public class OverviewHtmlTests : ConfigPageTestBase
         // via the stat-card-full class, so the last grid row has no gap.
         Assert.Contains("stat-card-full", HtmlContent);
     }
+
+    [Fact]
+    public void Html_LibraryRows_LinkIntoCodecsExplorer()
+    {
+        // Each per-library row carries an Explore deep-link that opens the Codecs tab
+        // Library Explorer pre-scoped to that library.
+        Assert.Contains("data-codec-explore-library", HtmlContent);
+        Assert.Contains("codec-explore-link", HtmlContent);
+    }
 }

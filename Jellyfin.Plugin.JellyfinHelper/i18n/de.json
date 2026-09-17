@@ -403,5 +403,18 @@
   "trashPathAccessDenied": "Zugriff auf den neuen Trash-Pfad verweigert.",
   "trashPathMoveNothingMoved": "Es wurden keine Elemente verschoben. Die Quelle ist möglicherweise leer oder aufgrund fehlender Berechtigungen nicht zugänglich.",
   "bookFormats": "Buchformate",
-  "books": "Bücher"
+  "books": "Bücher",
+  "videoBitrate": "Video-Bitrate",
+  "audioLanguages": "Audiosprachen",
+  "subtitleLanguages": "Untertitelsprachen",
+  "watched": "Gesehen",
+  "explorerTitle": "Bibliotheks-Explorer",
+  "explorerHint": "Kombiniere Codec-Filter, um passende Dateien zu finden.",
+  "explorerLibrary": "Bibliothek",
+  "explorerAllLibraries": "Alle Bibliotheken",
+  "explorerAny": "Beliebig",
+  "explorerReset": "Filter zurücksetzen",
+  "explorerPickFilter": "Wähle oben mindestens einen Filter, um passende Dateien zu listen.",
+  "explorerTruncated": "Erste 300 Treffer werden gezeigt — verfeinere die Filter für weniger Ergebnisse.",
+  "exploreInCodecs": "Erkunden"
 }

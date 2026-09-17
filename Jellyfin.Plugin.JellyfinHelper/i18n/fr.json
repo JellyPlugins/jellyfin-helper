@@ -403,5 +403,18 @@
   "trashPathAccessDenied": "Permission refusée sur le nouveau chemin de la corbeille.",
   "trashPathMoveNothingMoved": "Aucun élément n'a été déplacé. La source est peut-être vide ou inaccessible en raison des permissions.",
   "bookFormats": "Formats de livre",
-  "books": "Livres"
+  "books": "Livres",
+  "videoBitrate": "Débit vidéo",
+  "audioLanguages": "Langues audio",
+  "subtitleLanguages": "Langues des sous-titres",
+  "watched": "Regardé",
+  "explorerTitle": "Explorateur de bibliothèques",
+  "explorerHint": "Combinez les filtres de codecs pour trouver les fichiers correspondants.",
+  "explorerLibrary": "Bibliothèque",
+  "explorerAllLibraries": "Toutes les bibliothèques",
+  "explorerAny": "Tous",
+  "explorerReset": "Réinitialiser les filtres",
+  "explorerPickFilter": "Choisissez au moins un filtre ci-dessus pour lister les fichiers correspondants.",
+  "explorerTruncated": "Affichage des 300 premiers résultats — affinez les filtres pour réduire.",
+  "exploreInCodecs": "Explorer"
 }
