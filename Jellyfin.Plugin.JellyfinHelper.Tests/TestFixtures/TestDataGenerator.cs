@@ -134,6 +134,8 @@ public static class TestDataGenerator
         lib.VideoAudioCodecs["DTS"] = 100;
         lib.VideoAudioCodecs["AAC"] = 200;
         lib.MusicAudioCodecs["FLAC"] = 10;
+        lib.VideoBitrateTiers["8–16 Mbps"] = 200;
+        lib.VideoBitrateTiers["16–32 Mbps"] = 100;
 
         // Codec sizes
         lib.ContainerSizes["MKV"] = 700_000_000_000L;
@@ -146,6 +148,8 @@ public static class TestDataGenerator
         lib.VideoAudioCodecSizes["DTS"] = 400_000_000_000L;
         lib.VideoAudioCodecSizes["AAC"] = 600_000_000_000L;
         lib.MusicAudioCodecSizes["FLAC"] = 5_000_000_000L;
+        lib.VideoBitrateTierSizes["8–16 Mbps"] = 500_000_000_000L;
+        lib.VideoBitrateTierSizes["16–32 Mbps"] = 500_000_000_000L;
 
         // Health check paths
         lib.VideosWithoutSubtitlesPaths.Add(TestPath("media", "movies", "NoSub1.mkv"));
@@ -229,6 +233,12 @@ public static class TestDataGenerator
         musicLib.ResolutionSizes.Clear();
         musicLib.VideoCodecSizes.Clear();
         musicLib.VideoAudioCodecSizes.Clear();
+        musicLib.VideoBitrateTiers.Clear();
+        musicLib.VideoBitrateTierSizes.Clear();
+        musicLib.VideoBitrateTierPaths.Clear();
+        musicLib.DynamicRanges.Clear();
+        musicLib.DynamicRangeSizes.Clear();
+        musicLib.DynamicRangePaths.Clear();
         musicLib.VideosWithoutSubtitles = 0;
         musicLib.VideosWithoutImages = 0;
         musicLib.VideosWithoutNfo = 0;
