@@ -82,124 +82,179 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             if (disabledUserIds.Contains(result.UserId))
             {
-                try
-                {
-                    var removedDisabled = RemoveUserPlaylists(result.UserId, cancellationToken);
-                    syncResult.OldPlaylistsRemoved += removedDisabled;
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (!ex.IsFatal())
-                {
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"Failed to remove stale playlists for disabled user '{result.UserName}'.",
-                        ex,
-                        _logger);
-                }
-
-                handledDisabledUserIds.Add(result.UserId);
-
-                _pluginLog.LogDebug(
-                    LogCategory,
-                    $"Skipping playlist creation for disabled user '{result.UserName}' - stale playlists removed.",
-                    _logger);
+                SyncDisabledUserPlaylist(result, syncResult, handledDisabledUserIds, cancellationToken);
                 continue;
             }
 
-            try
+            await SyncEnabledUserPlaylistAsync(result, syncResult, cancellationToken).ConfigureAwait(false);
+        }
+
+        RemoveStalePlaylistsForDisabledUsers(disabledUserIds, handledDisabledUserIds, syncResult, cancellationToken);
+
+        _pluginLog.LogInfo(
+            LogCategory,
+            $"Playlist sync complete: {syncResult.PlaylistsCreated} created, {syncResult.OldPlaylistsRemoved} old removed, {syncResult.PlaylistsFailed} failed, {syncResult.TotalItemsAdded} total items.",
+            _logger);
+
+        return syncResult;
+    }
+
+    /// <summary>
+    ///     Removes stale playlists for a single disabled user without creating new ones. A per-user
+    ///     cleanup failure is logged and swallowed so remaining users are still processed.
+    /// </summary>
+    /// <param name="result">The recommendation result of the disabled user.</param>
+    /// <param name="syncResult">The running sync counters (updated in place).</param>
+    /// <param name="handledDisabledUserIds">Accumulator of already-processed disabled user ids.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private void SyncDisabledUserPlaylist(
+        RecommendationResult result,
+        PlaylistSyncResult syncResult,
+        HashSet<Guid> handledDisabledUserIds,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var removedDisabled = RemoveUserPlaylists(result.UserId, cancellationToken);
+            syncResult.OldPlaylistsRemoved += removedDisabled;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Failed to remove stale playlists for disabled user '{result.UserName}'.",
+                ex,
+                _logger);
+        }
+
+        handledDisabledUserIds.Add(result.UserId);
+
+        _pluginLog.LogDebug(
+            LogCategory,
+            $"Skipping playlist creation for disabled user '{result.UserName}' - stale playlists removed.",
+            _logger);
+    }
+
+    /// <summary>
+    ///     Syncs the recommendation playlist for a single enabled user: creates the new playlist
+    ///     before removing old ones so the user is never left without one if creation fails.
+    /// </summary>
+    /// <param name="result">The recommendation result of the enabled user.</param>
+    /// <param name="syncResult">The running sync counters (updated in place).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private async Task SyncEnabledUserPlaylistAsync(
+        RecommendationResult result,
+        PlaylistSyncResult syncResult,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Skip playlist creation if there are no recommendations
+            if (result.Recommendations.Count == 0)
             {
-                // Skip playlist creation if there are no recommendations
-                if (result.Recommendations.Count == 0)
-                {
-                    // Still clean up old playlists when there are no new recommendations
-                    var removedEmpty = RemoveUserPlaylists(result.UserId, cancellationToken);
-                    syncResult.OldPlaylistsRemoved += removedEmpty;
+                // Still clean up old playlists when there are no new recommendations
+                var removedEmpty = RemoveUserPlaylists(result.UserId, cancellationToken);
+                syncResult.OldPlaylistsRemoved += removedEmpty;
 
-                    _pluginLog.LogDebug(
-                        LogCategory,
-                        $"No recommendations for user '{result.UserName}' - skipping playlist creation.",
-                        _logger);
-                    continue;
-                }
-
-                // Create new playlist with items in score-ranked order. Series items are resolved to their first episode to prevent Jellyfin's PlaylistManager from expanding the entire series into individual episodes.
-                var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count);
-
-                if (itemIds.Length == 0)
-                {
-                    // Clean up stale playlists when no playable items resolve,
-                    // so users don't keep seeing outdated recommendations.
-                    var removedStale = RemoveUserPlaylists(result.UserId, cancellationToken);
-                    syncResult.OldPlaylistsRemoved += removedStale;
-
-                    _pluginLog.LogDebug(
-                        LogCategory,
-                        $"No playable items resolved for user '{result.UserName}' - skipping playlist creation.",
-                        _logger);
-                    continue;
-                }
-
-                // Build a personalized playlist name per user to avoid filesystem name collisions
-                var playlistName = BuildPlaylistName(result.UserName);
-
-                var request = new PlaylistCreationRequest
-                {
-                    Name = playlistName,
-                    UserId = result.UserId,
-                    ItemIdList = itemIds,
-                    MediaType = MediaType.Unknown // Mixed content (movies + series)
-                };
-
-                // Create the new playlist BEFORE removing old ones so the user is never left
-                // without a recommendation playlist if creation fails.
-                var playlistResult = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
-
-                if (!string.IsNullOrEmpty(playlistResult.Id))
-                {
-                    // New playlist created - now safe to remove old playlists.
-                    var removed = RemoveUserPlaylistsExcept(
-                        result.UserId,
-                        playlistResult.Id,
-                        cancellationToken);
-                    syncResult.OldPlaylistsRemoved += removed;
-
-                    syncResult.PlaylistsCreated++;
-                    syncResult.TotalItemsAdded += itemIds.Length;
-
-                    _pluginLog.LogDebug(
-                        LogCategory,
-                        $"Created playlist '{playlistName}' for user '{result.UserName}' with {itemIds.Length} items.",
-                        _logger);
-                }
-                else
-                {
-                    syncResult.PlaylistsFailed++;
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"Playlist creation returned empty ID for user '{result.UserName}'.",
-                        logger: _logger);
-                }
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"No recommendations for user '{result.UserName}' - skipping playlist creation.",
+                    _logger);
+                return;
             }
-            catch (OperationCanceledException)
+
+            // Create new playlist with items in score-ranked order. Series items are resolved to their first episode to prevent Jellyfin's PlaylistManager from expanding the entire series into individual episodes.
+            var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count);
+
+            if (itemIds.Length == 0)
             {
-                throw;
+                // Clean up stale playlists when no playable items resolve,
+                // so users don't keep seeing outdated recommendations.
+                var removedStale = RemoveUserPlaylists(result.UserId, cancellationToken);
+                syncResult.OldPlaylistsRemoved += removedStale;
+
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"No playable items resolved for user '{result.UserName}' - skipping playlist creation.",
+                    _logger);
+                return;
             }
-            catch (Exception ex) when (!ex.IsFatal())
+
+            // Build a personalized playlist name per user to avoid filesystem name collisions
+            var playlistName = BuildPlaylistName(result.UserName);
+
+            var request = new PlaylistCreationRequest
+            {
+                Name = playlistName,
+                UserId = result.UserId,
+                ItemIdList = itemIds,
+                MediaType = MediaType.Unknown // Mixed content (movies + series)
+            };
+
+            // Create the new playlist BEFORE removing old ones so the user is never left
+            // without a recommendation playlist if creation fails.
+            var playlistResult = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
+
+            if (!string.IsNullOrEmpty(playlistResult.Id))
+            {
+                // New playlist created - now safe to remove old playlists.
+                var removed = RemoveUserPlaylistsExcept(
+                    result.UserId,
+                    playlistResult.Id,
+                    cancellationToken);
+                syncResult.OldPlaylistsRemoved += removed;
+
+                syncResult.PlaylistsCreated++;
+                syncResult.TotalItemsAdded += itemIds.Length;
+
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"Created playlist '{playlistName}' for user '{result.UserName}' with {itemIds.Length} items.",
+                    _logger);
+            }
+            else
             {
                 syncResult.PlaylistsFailed++;
                 _pluginLog.LogWarning(
                     LogCategory,
-                    $"Failed to sync playlist for user '{result.UserName}'.",
-                    ex,
-                    _logger);
+                    $"Playlist creation returned empty ID for user '{result.UserName}'.",
+                    logger: _logger);
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            syncResult.PlaylistsFailed++;
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Failed to sync playlist for user '{result.UserName}'.",
+                ex,
+                _logger);
+        }
+    }
 
-        // Sweep disabled users that had no fresh results (e.g. excluded from generation) so their
-        // stale playlists from previous runs are removed as well.
+    /// <summary>
+    ///     Removes stale playlists for disabled users that had no fresh results (e.g. excluded from
+    ///     generation), so no outdated recommendation playlist survives from previous runs.
+    /// </summary>
+    /// <param name="disabledUserIds">The ids of all disabled users.</param>
+    /// <param name="handledDisabledUserIds">Accumulator of already-processed disabled user ids.</param>
+    /// <param name="syncResult">The running sync counters (updated in place).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private void RemoveStalePlaylistsForDisabledUsers(
+        HashSet<Guid> disabledUserIds,
+        HashSet<Guid> handledDisabledUserIds,
+        PlaylistSyncResult syncResult,
+        CancellationToken cancellationToken)
+    {
         foreach (var disabledUserId in disabledUserIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -226,13 +281,6 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     _logger);
             }
         }
-
-        _pluginLog.LogInfo(
-            LogCategory,
-            $"Playlist sync complete: {syncResult.PlaylistsCreated} created, {syncResult.OldPlaylistsRemoved} old removed, {syncResult.PlaylistsFailed} failed, {syncResult.TotalItemsAdded} total items.",
-            _logger);
-
-        return syncResult;
     }
 
     /// <inheritdoc />
