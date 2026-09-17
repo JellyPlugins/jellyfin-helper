@@ -416,5 +416,9 @@
   "explorerReset": "Redefinir filtros",
   "explorerPickFilter": "Escolha pelo menos um filtro acima para listar os arquivos correspondentes.",
   "explorerTruncated": "Mostrando as primeiras 300 correspondências — refine os filtros para reduzir.",
-  "exploreInCodecs": "Explorar"
+  "exploreInCodecs": "Explorar",
+  "explorerScopeMovies": "Filmes (todas as bibliotecas)",
+  "explorerScopeTvShows": "Séries (todas as bibliotecas)",
+  "explorerOpenTooltip": "Abrir no explorador de bibliotecas",
+  "explorerNoOptions": "Nenhuma opção correspondente."
 }
