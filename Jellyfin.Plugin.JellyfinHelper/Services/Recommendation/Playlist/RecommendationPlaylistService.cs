@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -70,98 +71,35 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             $"Starting playlist sync for {results.Count} users.",
             _logger);
 
+        // Disabled users are treated as if they do not exist: never create playlists for them and
+        // remove any stale ones from previous runs. A null roster means the user list was
+        // unavailable, which must stay distinct from "no disabled users" so stale results
+        // cannot create playlists for users who are disabled at sync time.
+        var disabledUserIds = GetDisabledUserIds(cancellationToken);
+        var rosterUnavailable = disabledUserIds is null;
+        var handledDisabledUserIds = new HashSet<Guid>();
+
         foreach (var result in results)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            try
+            if (disabledUserIds?.Contains(result.UserId) == true)
             {
-                // Skip playlist creation if there are no recommendations
-                if (result.Recommendations.Count == 0)
-                {
-                    // Still clean up old playlists when there are no new recommendations
-                    var removedEmpty = RemoveUserPlaylists(result.UserId, cancellationToken);
-                    syncResult.OldPlaylistsRemoved += removedEmpty;
-
-                    _pluginLog.LogDebug(
-                        LogCategory,
-                        $"No recommendations for user '{result.UserName}' - skipping playlist creation.",
-                        _logger);
-                    continue;
-                }
-
-                // Create new playlist with items in score-ranked order. Series items are resolved to their first episode to prevent Jellyfin's PlaylistManager from expanding the entire series into individual episodes.
-                var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count);
-
-                if (itemIds.Length == 0)
-                {
-                    // Clean up stale playlists when no playable items resolve,
-                    // so users don't keep seeing outdated recommendations.
-                    var removedStale = RemoveUserPlaylists(result.UserId, cancellationToken);
-                    syncResult.OldPlaylistsRemoved += removedStale;
-
-                    _pluginLog.LogDebug(
-                        LogCategory,
-                        $"No playable items resolved for user '{result.UserName}' - skipping playlist creation.",
-                        _logger);
-                    continue;
-                }
-
-                // Build a personalized playlist name per user to avoid filesystem name collisions
-                var playlistName = BuildPlaylistName(result.UserName);
-
-                var request = new PlaylistCreationRequest
-                {
-                    Name = playlistName,
-                    UserId = result.UserId,
-                    ItemIdList = itemIds,
-                    MediaType = MediaType.Unknown // Mixed content (movies + series)
-                };
-
-                // Create the new playlist BEFORE removing old ones so the user is never left
-                // without a recommendation playlist if creation fails.
-                var playlistResult = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
-
-                if (!string.IsNullOrEmpty(playlistResult.Id))
-                {
-                    // New playlist created - now safe to remove old playlists.
-                    var removed = RemoveUserPlaylistsExcept(
-                        result.UserId,
-                        playlistResult.Id,
-                        cancellationToken);
-                    syncResult.OldPlaylistsRemoved += removed;
-
-                    syncResult.PlaylistsCreated++;
-                    syncResult.TotalItemsAdded += itemIds.Length;
-
-                    _pluginLog.LogDebug(
-                        LogCategory,
-                        $"Created playlist '{playlistName}' for user '{result.UserName}' with {itemIds.Length} items.",
-                        _logger);
-                }
-                else
-                {
-                    syncResult.PlaylistsFailed++;
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"Playlist creation returned empty ID for user '{result.UserName}'.",
-                        logger: _logger);
-                }
+                SyncDisabledUserPlaylist(result, syncResult, handledDisabledUserIds, cancellationToken);
+                continue;
             }
-            catch (OperationCanceledException)
+
+            if (rosterUnavailable && !IsVerifiedEnabledUser(result, handledDisabledUserIds, syncResult, cancellationToken))
             {
-                throw;
+                continue;
             }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                syncResult.PlaylistsFailed++;
-                _pluginLog.LogWarning(
-                    LogCategory,
-                    $"Failed to sync playlist for user '{result.UserName}'.",
-                    ex,
-                    _logger);
-            }
+
+            await SyncEnabledUserPlaylistAsync(result, syncResult, cancellationToken).ConfigureAwait(false);
         }
+
+        disabledUserIds ??= [];
+
+        RemoveStalePlaylistsForDisabledUsers(disabledUserIds, handledDisabledUserIds, syncResult, cancellationToken);
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -169,6 +107,190 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             _logger);
 
         return syncResult;
+    }
+
+    /// <summary>
+    ///     Removes stale playlists for a single disabled user without creating new ones. A per-user
+    ///     cleanup failure is logged and swallowed so remaining users are still processed.
+    /// </summary>
+    /// <param name="result">The recommendation result of the disabled user.</param>
+    /// <param name="syncResult">The running sync counters (updated in place).</param>
+    /// <param name="handledDisabledUserIds">Accumulator of already-processed disabled user ids.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private void SyncDisabledUserPlaylist(
+        RecommendationResult result,
+        PlaylistSyncResult syncResult,
+        HashSet<Guid> handledDisabledUserIds,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var removedDisabled = RemoveUserPlaylists(result.UserId, cancellationToken);
+            syncResult.OldPlaylistsRemoved += removedDisabled;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Failed to remove stale playlists for disabled user '{result.UserName}'.",
+                ex,
+                _logger);
+        }
+
+        handledDisabledUserIds.Add(result.UserId);
+
+        _pluginLog.LogDebug(
+            LogCategory,
+            $"Skipping playlist creation for disabled user '{result.UserName}' - stale playlists removed.",
+            _logger);
+    }
+
+    /// <summary>
+    ///     Syncs the recommendation playlist for a single enabled user: creates the new playlist
+    ///     before removing old ones so the user is never left without one if creation fails.
+    /// </summary>
+    /// <param name="result">The recommendation result of the enabled user.</param>
+    /// <param name="syncResult">The running sync counters (updated in place).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private async Task SyncEnabledUserPlaylistAsync(
+        RecommendationResult result,
+        PlaylistSyncResult syncResult,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Skip playlist creation if there are no recommendations
+            if (result.Recommendations.Count == 0)
+            {
+                // Still clean up old playlists when there are no new recommendations
+                var removedEmpty = RemoveUserPlaylists(result.UserId, cancellationToken);
+                syncResult.OldPlaylistsRemoved += removedEmpty;
+
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"No recommendations for user '{result.UserName}' - skipping playlist creation.",
+                    _logger);
+                return;
+            }
+
+            // Create new playlist with items in score-ranked order. Series items are resolved to their first episode to prevent Jellyfin's PlaylistManager from expanding the entire series into individual episodes.
+            var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count);
+
+            if (itemIds.Length == 0)
+            {
+                // Clean up stale playlists when no playable items resolve,
+                // so users don't keep seeing outdated recommendations.
+                var removedStale = RemoveUserPlaylists(result.UserId, cancellationToken);
+                syncResult.OldPlaylistsRemoved += removedStale;
+
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"No playable items resolved for user '{result.UserName}' - skipping playlist creation.",
+                    _logger);
+                return;
+            }
+
+            // Build a personalized playlist name per user to avoid filesystem name collisions
+            var playlistName = BuildPlaylistName(result.UserName);
+
+            var request = new PlaylistCreationRequest
+            {
+                Name = playlistName,
+                UserId = result.UserId,
+                ItemIdList = itemIds,
+                MediaType = MediaType.Unknown // Mixed content (movies + series)
+            };
+
+            // Create the new playlist BEFORE removing old ones so the user is never left
+            // without a recommendation playlist if creation fails.
+            var playlistResult = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
+
+            if (!string.IsNullOrEmpty(playlistResult.Id))
+            {
+                // New playlist created - now safe to remove old playlists.
+                var removed = RemoveUserPlaylistsExcept(
+                    result.UserId,
+                    playlistResult.Id,
+                    cancellationToken);
+                syncResult.OldPlaylistsRemoved += removed;
+
+                syncResult.PlaylistsCreated++;
+                syncResult.TotalItemsAdded += itemIds.Length;
+
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"Created playlist '{playlistName}' for user '{result.UserName}' with {itemIds.Length} items.",
+                    _logger);
+            }
+            else
+            {
+                syncResult.PlaylistsFailed++;
+                _pluginLog.LogWarning(
+                    LogCategory,
+                    $"Playlist creation returned empty ID for user '{result.UserName}'.",
+                    logger: _logger);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            syncResult.PlaylistsFailed++;
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Failed to sync playlist for user '{result.UserName}'.",
+                ex,
+                _logger);
+        }
+    }
+
+    /// <summary>
+    ///     Removes stale playlists for disabled users that had no fresh results (e.g. excluded from
+    ///     generation), so no outdated recommendation playlist survives from previous runs.
+    /// </summary>
+    /// <param name="disabledUserIds">The ids of all disabled users.</param>
+    /// <param name="handledDisabledUserIds">Accumulator of already-processed disabled user ids.</param>
+    /// <param name="syncResult">The running sync counters (updated in place).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private void RemoveStalePlaylistsForDisabledUsers(
+        HashSet<Guid> disabledUserIds,
+        HashSet<Guid> handledDisabledUserIds,
+        PlaylistSyncResult syncResult,
+        CancellationToken cancellationToken)
+    {
+        foreach (var disabledUserId in disabledUserIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!handledDisabledUserIds.Add(disabledUserId))
+            {
+                continue;
+            }
+
+            try
+            {
+                syncResult.OldPlaylistsRemoved += RemoveUserPlaylists(disabledUserId, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogWarning(
+                    LogCategory,
+                    $"Failed to remove stale playlists for disabled user {disabledUserId}.",
+                    ex,
+                    _logger);
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -221,6 +343,100 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     internal static string BuildPlaylistName(string userName)
     {
         return PlaylistNamePrefix + " for " + (string.IsNullOrWhiteSpace(userName) ? "you" : userName);
+    }
+
+    /// <summary>
+    ///     Returns true when the Jellyfin user is disabled. Disabled users are treated as if they do not
+    ///     exist: no recommendations are generated and their playlists are removed.
+    /// </summary>
+    /// <param name="user">The Jellyfin user entity.</param>
+    /// <returns><c>true</c> when the user carries the IsDisabled permission.</returns>
+    private static bool IsDisabled(Jellyfin.Database.Implementations.Entities.User user) =>
+        user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
+
+    /// <summary>
+    ///     Resolves a single result against the live user record when the roster was unavailable.
+    ///     A resolved disabled user is routed through disabled-user cleanup, a resolved enabled
+    ///     user returns true for syncing, and a missing/failed lookup returns false to skip.
+    /// </summary>
+    private bool IsVerifiedEnabledUser(
+        RecommendationResult result,
+        HashSet<Guid> handledDisabledUserIds,
+        PlaylistSyncResult syncResult,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var user = _userManager.GetUserById(result.UserId);
+            if (user is null)
+            {
+                _pluginLog.LogDebug(
+                    LogCategory,
+                    $"Skipping playlist creation for unknown user '{result.UserName}' - user lookup returned null.",
+                    _logger);
+                return false;
+            }
+
+            if (IsDisabled(user))
+            {
+                SyncDisabledUserPlaylist(result, syncResult, handledDisabledUserIds, cancellationToken);
+                return false;
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Skipping playlist creation for user '{result.UserName}' - user lookup failed.",
+                ex,
+                _logger);
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Collects the ids of all disabled users. Never throws for non-cancellation failures: a user-list
+    ///     failure degrades to null (roster unavailable) so callers resolve each result via GetUserById.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled user ids, or null when the roster is unavailable.</returns>
+    private HashSet<Guid>? GetDisabledUserIds(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            var users = _userManager.GetUsers();
+            if (users is null)
+            {
+                _pluginLog.LogWarning(
+                    LogCategory,
+                    "Failed to list disabled users - user roster unavailable, verifying each user individually.",
+                    logger: _logger);
+                return null;
+            }
+
+            return users.Where(static u => IsDisabled(u)).Select(static u => u.Id).ToHashSet();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                "Failed to list disabled users - user roster unavailable, verifying each user individually.",
+                ex,
+                _logger);
+            return null;
+        }
     }
 
     /// <summary>
