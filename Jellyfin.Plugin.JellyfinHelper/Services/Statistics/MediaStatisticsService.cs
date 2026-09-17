@@ -112,6 +112,13 @@ public class MediaStatisticsService : IMediaStatisticsService
         _configHelper = configHelper;
         _userDataManager = userDataManager!;
         _userManager = userManager!;
+        if (userDataManager == null || userManager == null)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                "User data services unavailable; watched status will show Never watched.",
+                logger: _logger);
+        }
     }
 
     /// <summary>
@@ -196,7 +203,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                         _logger);
                 }
 
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, location, skipHealth, scanTrashFolderName, resolvedFullTrashPath));
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, location, skipHealth, resolvedFullTrashPath));
             }
 
             _pluginLog.LogDebug(
@@ -919,12 +926,14 @@ public class MediaStatisticsService : IMediaStatisticsService
         ScanUserContext userContext,
         string filePath)
     {
-        if (userContext.WatchLookups.TryGetValue(user.Id, out var lookup) && lookup != null)
+        if (userContext.WatchLookups.TryGetValue(user.Id, out var lookup) && lookup != null
+            && lookup.TryGetValue(item.Id, out var found))
         {
-            lookup.TryGetValue(item.Id, out var found);
             return found;
         }
 
+        // No batch entry (failed batch or stale/partial map): fall back to the per-item
+        // lookup so one gap never silently marks files unwatched.
         // A single failing user must not abort the file or the scan: skip and continue
         // with the next user, matching the containment in WatchHistoryService.
         try
@@ -1382,13 +1391,11 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="ResolvedTrashFolderName">The resolved trash folder name (empty when unset).</param>
     /// <param name="LibraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="SkipHealthChecks">When true, skip health check counters.</param>
-    /// <param name="TrashFolderName">Pre-resolved trash folder name, threaded through recursion.</param>
     /// <param name="ResolvedFullTrashPath">The normalized absolute trash path for this library root.</param>
     private readonly record struct SubdirectoryScanContext(
         string ResolvedTrashFolderName,
         string? LibraryRoot,
         bool SkipHealthChecks,
-        string? TrashFolderName,
         string? ResolvedFullTrashPath);
 
     /// <summary>

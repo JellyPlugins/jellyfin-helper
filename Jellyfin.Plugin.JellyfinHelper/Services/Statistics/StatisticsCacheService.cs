@@ -149,64 +149,39 @@ public class StatisticsCacheService : IStatisticsCacheService
     private static bool IsLegacyBitrateTier(string key) =>
         key is "2-5 Mbps" or "5-10 Mbps" or "10-20 Mbps" or "20-40 Mbps" or "> 40 Mbps";
 
-    private static void MigrateIntDict(Dictionary<string, int> dict)
-    {
-        var legacyKeys = dict.Keys.Where(IsLegacyBitrateTier).ToList();
+    private static void MigrateIntDict(Dictionary<string, int> dict) =>
+        MigrateDict(dict, static (existing, value) => existing + value);
 
-        foreach (var old in legacyKeys)
-        {
-            if (!dict.TryGetValue(old, out var value))
-            {
-                continue;
-            }
+    private static void MigrateLongDict(Dictionary<string, long> dict) =>
+        MigrateDict(dict, static (existing, value) => existing + value);
 
-            dict.Remove(old);
-            var migrated = MediaStatisticsService.MapLegacyBitrateTier(old);
-            dict[migrated] = dict.TryGetValue(migrated, out var existing) ? existing + value : value;
-        }
-    }
-
-    private static void MigrateLongDict(Dictionary<string, long> dict)
-    {
-        var legacyKeys = dict.Keys.Where(IsLegacyBitrateTier).ToList();
-
-        foreach (var old in legacyKeys)
-        {
-            if (!dict.TryGetValue(old, out var value))
-            {
-                continue;
-            }
-
-            dict.Remove(old);
-            var migrated = MediaStatisticsService.MapLegacyBitrateTier(old);
-            dict[migrated] = dict.TryGetValue(migrated, out var existing) ? existing + value : value;
-        }
-    }
-
-    private static void MigratePathsDict(Dictionary<string, System.Collections.ObjectModel.Collection<string>> dict)
-    {
-        var legacyKeys = dict.Keys.Where(IsLegacyBitrateTier).ToList();
-
-        foreach (var old in legacyKeys)
-        {
-            if (!dict.TryGetValue(old, out var value))
-            {
-                continue;
-            }
-
-            dict.Remove(old);
-            var migrated = MediaStatisticsService.MapLegacyBitrateTier(old);
-            if (dict.TryGetValue(migrated, out var existing))
+    private static void MigratePathsDict(Dictionary<string, System.Collections.ObjectModel.Collection<string>> dict) =>
+        MigrateDict(
+            dict,
+            static (existing, value) =>
             {
                 foreach (var p in value)
                 {
                     existing.Add(p);
                 }
-            }
-            else
+
+                return existing;
+            });
+
+    private static void MigrateDict<TValue>(Dictionary<string, TValue> dict, Func<TValue, TValue, TValue> merge)
+    {
+        var legacyKeys = dict.Keys.Where(IsLegacyBitrateTier).ToList();
+
+        foreach (var old in legacyKeys)
+        {
+            if (!dict.TryGetValue(old, out var value))
             {
-                dict[migrated] = value;
+                continue;
             }
+
+            dict.Remove(old);
+            var migrated = MediaStatisticsService.MapLegacyBitrateTier(old);
+            dict[migrated] = dict.TryGetValue(migrated, out var existing) ? merge(existing, value) : value;
         }
     }
 

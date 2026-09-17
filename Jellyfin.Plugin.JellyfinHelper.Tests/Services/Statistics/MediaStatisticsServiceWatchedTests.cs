@@ -345,6 +345,33 @@ public class MediaStatisticsServiceWatchedTests
     }
 
     [Fact]
+    public void Watched_BatchMiss_FallsBackToPerItemLookup()
+    {
+        // A batch map without the item id (stale/partial batch) must not silently
+        // mark the file unwatched: the per-item lookup still applies.
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers(("Alice", 2));
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 }
+        ]);
+        var alice = _userManagerMock.Object.GetUsers().First(u => u.Username == "Alice");
+        _userDataManagerMock
+            .Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+            .Returns(new Dictionary<Guid, UserItemData>());
+        var service = CreateService();
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        _userDataManagerMock.Verify(m => m.GetUserData(alice, It.IsAny<BaseItem>()), Times.Once);
+        Assert.Equal(1, stats.WatchedTiers["Watched"]);
+    }
+
+    [Fact]
     public void Watched_BatchHit_UsesBatchWithoutPerItemCalls()
     {
         var path = TestPath("media", "movies", "Film.mkv");
