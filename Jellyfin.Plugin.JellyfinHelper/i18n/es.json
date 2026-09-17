@@ -416,12 +416,6 @@
   "explorerReset": "Restablecer filtros",
   "explorerPickFilter": "Elige al menos un filtro arriba para enumerar los archivos coincidentes.",
   "explorerTruncated": "Mostrando las primeras 300 coincidencias — afina los filtros para reducir.",
-  "explorerScopeMovies": "Películas (todas)",
-  "explorerScopeTvShows": "Series (todas)",
   "explorerOpenTooltip": "Abrir en el explorador de bibliotecas",
-  "explorerNoOptions": "Sin opciones coincidentes.",
-  "explorerScopeMusic": "Música (toda)",
-  "explorerScopeBooks": "Libros (todos)",
-  "explorerGroupType": "Tipo de medio",
-  "explorerGroupLibrary": "Biblioteca individual"
+  "explorerNoOptions": "Sin opciones coincidentes."
 }

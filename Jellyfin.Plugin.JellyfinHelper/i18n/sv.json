@@ -416,12 +416,6 @@
   "explorerReset": "Återställ filter",
   "explorerPickFilter": "Välj minst ett filter ovan för att lista matchande filer.",
   "explorerTruncated": "Visar de första 300 träffarna — förfina filtren för att begränsa.",
-  "explorerScopeMovies": "Filmer (alla)",
-  "explorerScopeTvShows": "TV-serier (alla)",
   "explorerOpenTooltip": "Öppna i biblioteksutforskaren",
-  "explorerNoOptions": "Inga matchande alternativ.",
-  "explorerScopeMusic": "Musik (alla)",
-  "explorerScopeBooks": "Böcker (alla)",
-  "explorerGroupType": "Medietyp",
-  "explorerGroupLibrary": "Enskilt bibliotek"
+  "explorerNoOptions": "Inga matchande alternativ."
 }

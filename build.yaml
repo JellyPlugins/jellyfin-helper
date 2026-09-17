@@ -15,7 +15,7 @@ artifacts:
 changelog: |-
   v3.0.0.3 - Library Explorer, new Codecs breakdowns, disabled users ignored
 
-  - The Codecs tab now has a Library Explorer: combine resolution, codecs, bitrate, languages, watched users and formats into one search, optionally scoped to a single library or media type, so you can find e.g. all 4K films with low bitrate
+  - The Codecs tab now has a Library Explorer: combine resolution, codecs, bitrate, languages, watched users and formats into one search, scoped to the libraries you pick in its multi-select, so you can find e.g. all 4K films with low bitrate
   - Options with zero matches under the other filters are hidden automatically, dimensions without matches stay greyed out, and multi-value dropdowns accept several audio languages, subtitle languages or users at once
   - Every active filter is shown in the result header and a Reset button clears the whole search; results arrive as the familiar grouped file tree with Movies, TV Shows and other sections
   - Jump straight into the search from the Overview: each library name and all four media cards open the Explorer pre-filtered to that scope

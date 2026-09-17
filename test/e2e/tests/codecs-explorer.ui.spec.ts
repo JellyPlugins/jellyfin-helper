@@ -68,23 +68,24 @@ async function countFromSummary(summary: Locator): Promise<number> {
 test('overview library row deep-links into the explorer with preset library', async ({ page }) => {
   await openDashboard(page);
   await switchTab(page, 'overview');
-  const link = page.locator('[data-codec-explore-library]').first();
+  const link = page.locator('#overviewContent .library-table [data-codec-explore-library]').first();
   test.skip((await link.count()) === 0, 'no libraries on this server');
   const libName = await link.getAttribute('data-codec-explore-library');
   await link.click();
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
   await expect(page.locator('#codecExplorerToggle')).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
-  await expect(page.locator('#codecExplorerLibrary')).toHaveValue(libName ?? '');
+  const box = page.locator(`[data-library-option="${libName ?? ''}"]`);
+  await expect(box).toBeChecked({ timeout: 5_000 });
 });
 
-test('overview movies card deep-links into the explorer with type scope', async ({ page }) => {
+test('overview movies card deep-links into the explorer with scoped libraries', async ({ page }) => {
   await openDashboard(page);
   await switchTab(page, 'overview');
   const card = page.locator('.stat-card-link[data-codec-explore-library="type:movies"]');
   test.skip((await card.count()) === 0, 'no movie libraries on this server');
   await card.first().click();
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
-  await expect(page.locator('#codecExplorerLibrary')).toHaveValue('type:movies', { timeout: 5_000 });
+  await expect(page.locator('[data-library-option]:checked').first()).toBeVisible({ timeout: 5_000 });
 });
 
 test('language multi-dropdown selects several values and lists all in the summary', async ({ page }) => {

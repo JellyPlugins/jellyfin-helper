@@ -416,12 +416,6 @@
   "explorerReset": "Reset filters",
   "explorerPickFilter": "Pick at least one filter above to list matching files.",
   "explorerTruncated": "Showing first 300 matches — refine filters to narrow down.",
-  "explorerScopeMovies": "Movies (all)",
-  "explorerScopeTvShows": "TV Shows (all)",
   "explorerOpenTooltip": "Open in Library Explorer",
-  "explorerNoOptions": "No matching options.",
-  "explorerScopeMusic": "Music (all)",
-  "explorerScopeBooks": "Books (all)",
-  "explorerGroupType": "Media type",
-  "explorerGroupLibrary": "Single library"
+  "explorerNoOptions": "No matching options."
 }

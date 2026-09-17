@@ -165,11 +165,15 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_LibraryExplorer_ExplorerLibrarySelectGroupsScopes()
+    public void Html_LibraryExplorer_LibraryScopeIsMultiDropdown()
     {
-        Assert.Contains("<optgroup", HtmlContent);
-        Assert.Contains("explorerGroupType", HtmlContent);
-        Assert.Contains("explorerGroupLibrary", HtmlContent);
+        // The library scope is a multi-dropdown like the dimension ones: real
+        // library names only, no synthetic type entries.
+        Assert.Contains("function buildCodecsExplorerLibraryMulti", HtmlContent);
+        Assert.Contains("data-library-toggle", HtmlContent);
+        Assert.Contains("data-library-panel", HtmlContent);
+        Assert.Contains("data-library-option", HtmlContent);
+        Assert.DoesNotContain("<optgroup", HtmlContent);
     }
 
     [Fact]
