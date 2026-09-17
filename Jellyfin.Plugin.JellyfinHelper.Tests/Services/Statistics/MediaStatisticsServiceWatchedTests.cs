@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.JellyfinHelper.Services;
@@ -42,11 +43,19 @@ public class MediaStatisticsServiceWatchedTests
     }
 
     private void SetupUserManagerWithUsers(params (string username, int playCount)[] users)
+        => SetupUserManagerWithUsers([], users);
+
+    private void SetupUserManagerWithUsers(string[] disabledUsernames, params (string username, int playCount)[] users)
     {
         var userList = new List<User>();
         foreach (var (username, _) in users)
         {
             var user = new User(username, "default", "default") { Id = Guid.NewGuid() };
+            if (disabledUsernames.Contains(username, StringComparer.Ordinal))
+            {
+                user.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+            }
+
             userList.Add(user);
         }
 
@@ -196,6 +205,53 @@ public class MediaStatisticsServiceWatchedTests
 
         Assert.Equal(1, stats.WatchedTiers["Never watched"]);
         Assert.Empty(stats.WatchedByUsers);
+    }
+
+    [Fact]
+    public void Watched_DisabledUserWithPlays_NotCountedAsWatched()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers(["Dave"], ("Dave", 5));
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 }
+        ]);
+        var service = CreateService();
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.WatchedTiers["Never watched"]);
+        Assert.Empty(stats.WatchedByUsers);
+        Assert.False(stats.WatchedByUserPaths.ContainsKey("Dave"));
+    }
+
+    [Fact]
+    public void Watched_DisabledAndEnabledUsers_OnlyEnabledUserCounts()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        SetupLibraryWithVideo(path);
+        SetupUserManagerWithUsers(["Dave"], ("Alice", 1), ("Dave", 5));
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = path;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 }
+        ]);
+        var service = CreateService();
+        service.SetItemLookup(path, mockItem.Object);
+
+        var result = service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.WatchedTiers["Watched"]);
+        Assert.Single(stats.WatchedByUsers[path]);
+        Assert.Contains("Alice", stats.WatchedByUsers[path]);
+        Assert.False(stats.WatchedByUserPaths.ContainsKey("Dave"));
+        Assert.Single(stats.WatchedDetails[path]);
+        Assert.Equal("Alice", stats.WatchedDetails[path].First().Username);
     }
 
     [Fact]

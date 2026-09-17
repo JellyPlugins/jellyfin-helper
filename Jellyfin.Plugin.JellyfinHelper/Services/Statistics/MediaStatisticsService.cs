@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -133,8 +134,10 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         // Resolve the user list once for the whole scan (watched-status extraction needs it per
         // video file). The list never changes mid-scan, so re-querying it per file would be pure
-        // waste on large multi-user libraries.
-        var users = _userManager?.GetUsers()?.ToList() ?? new List<Jellyfin.Database.Implementations.Entities.User>();
+        // waste on large multi-user libraries. Disabled users are excluded, matching
+        // WatchHistoryService, so their stale play counts never mark files as watched.
+        var users = _userManager?.GetUsers()?.Where(static u => !IsDisabled(u)).ToList()
+            ?? new List<Jellyfin.Database.Implementations.Entities.User>();
 
         foreach (var vf in virtualFolders)
         {
@@ -1046,6 +1049,14 @@ public class MediaStatisticsService : IMediaStatisticsService
         "> 40 Mbps" => "> 60 Mbps",
         _ => tier
     };
+
+    /// <summary>
+    ///     Reports whether a Jellyfin user is disabled and must be ignored by watched-status extraction.
+    /// </summary>
+    /// <param name="user">The user to check.</param>
+    /// <returns><c>true</c> when the user carries the IsDisabled permission.</returns>
+    private static bool IsDisabled(Jellyfin.Database.Implementations.Entities.User user) =>
+        user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
 
     /// <summary>
     /// Normalizes an ISO 639 language code from MediaStream to a human-readable display name.
