@@ -415,7 +415,11 @@
   "explorerAny": "Tous",
   "explorerReset": "Réinitialiser les filtres",
   "explorerPickFilter": "Choisissez au moins un filtre ci-dessus pour lister les fichiers correspondants.",
-  "explorerTruncated": "Affichage des 300 premiers résultats — affinez les filtres pour réduire.",
+  "explorerTruncated": "Affichage des {count} premiers résultats — affinez les filtres pour réduire.",
   "explorerOpenTooltip": "Ouvrir dans l'explorateur de bibliothèques",
-  "explorerNoOptions": "Aucune option correspondante."
+  "explorerNoOptions": "Aucune option correspondante.",
+  "explorerNeverWatched": "Jamais regardé",
+  "explorerFileSize": "Taille",
+  "explorerOnePlay": "1 lecture",
+  "explorerManyPlays": "{count} lectures"
 }
