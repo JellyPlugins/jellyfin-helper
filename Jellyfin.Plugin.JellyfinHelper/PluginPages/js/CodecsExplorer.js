@@ -5,6 +5,7 @@
 // with low bitrate. The donut charts below stay static; only this section filters.
 // Filtering is faceted: options that would yield zero files under the other active
 // filters are hidden, except values already selected (so they can be deselected).
+// Dimensions with no options in the current scope are disabled (greyed out).
 var _codecsExplorerState = {library: '', filters: {}, expanded: false};
 
 // Guard: the deep-link handlers are registered once at document level.
@@ -46,13 +47,13 @@ function getCodecsExplorerLibraries() {
 
 // Video-scoped library groups of the last scan (the only ones carrying codec dimensions).
 function getCodecsExplorerVideoGroups() {
-    var data = _lastCodecData || {};
+    const data = _lastCodecData || {};
     return [data.Movies || [], data.TvShows || [], data.Other || []];
 }
 
 // Libraries of one video group (movies or tvShows), used for type scopes.
 function getCodecsExplorerTypeLibraries(type) {
-    var data = _lastCodecData || {};
+    const data = _lastCodecData || {};
     if (type === CODEC_EXPLORER_TYPE_MOVIES) {
         return data.Movies || [];
     }
@@ -65,25 +66,37 @@ function getCodecsExplorerTypeLibraries(type) {
 // Root paths of the selected scope: one library by name, one type, or all video roots.
 // Null means the selected scope matches nothing (stale name), which must yield no files.
 function getCodecsExplorerSelectedRoots() {
-    var selected = _codecsExplorerState.library;
+    const selected = _codecsExplorerState.library;
     if (!selected) {
         return [];
     }
     if (selected === CODEC_EXPLORER_TYPE_MOVIES || selected === CODEC_EXPLORER_TYPE_TVSHOWS) {
-        var roots = [];
-        var libs = getCodecsExplorerTypeLibraries(selected);
-        for (var i = 0; i < libs.length; i++) {
-            roots = roots.concat(libs[i].RootPaths || []);
+        const roots = [];
+        for (const lib of getCodecsExplorerTypeLibraries(selected)) {
+            for (const root of lib.RootPaths || []) {
+                roots.push(root);
+            }
         }
         return roots;
     }
-    var all = getCodecsExplorerLibraries();
-    for (var j = 0; j < all.length; j++) {
-        if (all[j].LibraryName === selected) {
-            return all[j].RootPaths || [];
+    for (const lib of getCodecsExplorerLibraries()) {
+        if (lib.LibraryName === selected) {
+            return lib.RootPaths || [];
         }
     }
     return null;
+}
+
+function codecExplorerIsWindowsPath(path) {
+    return path.length > 2 && path[1] === ':' && (path[2] === '/' || path[2] === '\\');
+}
+
+function codecExplorerTrimRoot(root) {
+    let trimmed = root || '';
+    while (trimmed.endsWith('/') || trimmed.endsWith('\\')) {
+        trimmed = trimmed.slice(0, -1);
+    }
+    return trimmed;
 }
 
 // Directory-boundary prefix match so /media/movies never matches /media/movies2.
@@ -94,21 +107,21 @@ function codecExplorerPathInRoots(path, roots) {
     if (!roots || roots.length === 0) {
         return true;
     }
-    var ignoreCase = false;
-    for (var i = 0; i < roots.length; i++) {
-        var probe = roots[i] || '';
-        if (/^[a-zA-Z]:[\\/]/.test(probe) || probe.indexOf('\\') !== -1) {
+    let ignoreCase = false;
+    for (const root of roots) {
+        const probe = root || '';
+        if (codecExplorerIsWindowsPath(probe) || probe.includes('\\')) {
             ignoreCase = true;
             break;
         }
     }
-    var target = ignoreCase ? (path || '').toLowerCase() : (path || '');
-    for (var j = 0; j < roots.length; j++) {
-        var root = (roots[j] || '').replace(/[/\\]+$/, '');
+    const target = ignoreCase ? (path || '').toLowerCase() : (path || '');
+    for (const entry of roots) {
+        let root = codecExplorerTrimRoot(entry);
         if (ignoreCase) {
             root = root.toLowerCase();
         }
-        if (root && (target === root || target.indexOf(root + '/') === 0 || target.indexOf(root + '\\') === 0)) {
+        if (root && (target === root || target.startsWith(root + '/') || target.startsWith(root + '\\'))) {
             return true;
         }
     }
@@ -117,153 +130,129 @@ function codecExplorerPathInRoots(path, roots) {
 
 // Libraries defining the option universe under the current scope.
 function getCodecsExplorerScopedLibraries() {
-    var selected = _codecsExplorerState.library;
+    const selected = _codecsExplorerState.library;
     if (selected === CODEC_EXPLORER_TYPE_MOVIES || selected === CODEC_EXPLORER_TYPE_TVSHOWS) {
         return getCodecsExplorerTypeLibraries(selected);
     }
-    if (!selected) {
-        var scoped = [];
-        var groups = getCodecsExplorerVideoGroups();
-        for (var g = 0; g < groups.length; g++) {
-            scoped = scoped.concat(groups[g]);
-        }
-        return scoped;
-    }
-    var libs = getCodecsExplorerVideoGroups();
-    var match = [];
-    for (var h = 0; h < libs.length; h++) {
-        for (var i = 0; i < libs[h].length; i++) {
-            if (libs[h][i].LibraryName === selected) {
-                match.push(libs[h][i]);
+    const scoped = [];
+    for (const group of getCodecsExplorerVideoGroups()) {
+        for (const lib of group) {
+            if (!selected || lib.LibraryName === selected) {
+                scoped.push(lib);
             }
         }
     }
-    return match;
+    return scoped;
 }
 
 // Selected values of a dimension, always as an array (single-selects hold at most one).
 function getCodecsExplorerSelection(dimId) {
-    var value = _codecsExplorerState.filters[dimId];
+    const value = _codecsExplorerState.filters[dimId];
     if (value === undefined || value === null || value === '') {
         return [];
     }
     return Array.isArray(value) ? value : [value];
 }
 
+// Active dimensions with values, optionally skipping one (for faceted counting).
+function getCodecsExplorerActiveDims(exceptDimId) {
+    const active = [];
+    for (const dim of CODEC_EXPLORER_DIMENSIONS) {
+        if (dim.id === exceptDimId) {
+            continue;
+        }
+        const values = getCodecsExplorerSelection(dim.id);
+        if (values.length > 0) {
+            active.push({dim: dim, values: values});
+        }
+    }
+    return active;
+}
+
 // Path set of one dimension value across all categories.
 function collectExplorerValuePaths(dim, value) {
-    var collected = collectCodecPaths(_lastCodecData, dim.pathsProp, value, CODEC_CATEGORY_MAP[dim.id]);
+    const collected = collectCodecPaths(_lastCodecData, dim.pathsProp, value, CODEC_CATEGORY_MAP[dim.id]);
     return (collected.movies || []).concat(collected.tvShows || []).concat(collected.music || [])
         .concat(collected.books || []).concat(collected.other || []);
 }
 
-// Intersection of every active filter except one dimension, scoped to the library scope.
-// Returns null when the scope itself is stale so callers show no files.
-function computePathsExcluding(exceptDimId) {
+// Shared intersection core: union per dimension (OR within multi-selects), then AND
+// across dimensions. Returns the path map, or null without scan data.
+function intersectExplorerFilters(active) {
     if (!_lastCodecData) {
         return null;
     }
-    var roots = getCodecsExplorerSelectedRoots();
-    if (roots === null) {
-        return null;
-    }
-    var result = null;
-    for (var d = 0; d < CODEC_EXPLORER_DIMENSIONS.length; d++) {
-        var dim = CODEC_EXPLORER_DIMENSIONS[d];
-        if (dim.id === exceptDimId) {
-            continue;
-        }
-        var values = getCodecsExplorerSelection(dim.id);
-        if (values.length === 0) {
-            continue;
-        }
-        var union = {};
-        for (var v = 0; v < values.length; v++) {
-            var paths = collectExplorerValuePaths(dim, values[v]);
-            for (var p = 0; p < paths.length; p++) {
-                union[paths[p]] = true;
+    let result = null;
+    for (const entry of active) {
+        const union = {};
+        for (const value of entry.values) {
+            for (const path of collectExplorerValuePaths(entry.dim, value)) {
+                union[path] = true;
             }
         }
         if (result === null) {
             result = union;
         } else {
-            var next = {};
-            for (var key in result) {
-                if (Object.hasOwn(result, key) && union[key]) {
+            const next = {};
+            for (const key of Object.keys(result)) {
+                if (union[key]) {
                     next[key] = true;
                 }
             }
             result = next;
         }
     }
-    if (result === null) {
-        return {};
+    return result === null ? {} : result;
+}
+
+// Applies the library scope to an intersected path map. Null scope yields no files.
+function scopeExplorerPaths(result) {
+    const roots = getCodecsExplorerSelectedRoots();
+    if (roots === null) {
+        return null;
     }
-    var scoped = {};
-    for (var path in result) {
-        if (Object.hasOwn(result, path) && codecExplorerPathInRoots(path, roots)) {
+    const scoped = {};
+    for (const path of Object.keys(result)) {
+        if (codecExplorerPathInRoots(path, roots)) {
             scoped[path] = true;
         }
     }
     return scoped;
 }
 
+// Intersection of every active filter except one dimension, scoped to the library scope.
+function computePathsExcluding(exceptDimId) {
+    const intersected = intersectExplorerFilters(getCodecsExplorerActiveDims(exceptDimId));
+    if (intersected === null) {
+        return null;
+    }
+    return scopeExplorerPaths(intersected);
+}
+
 // Full result: intersection of all active filters, scoped. Empty when nothing is active.
 function computeCodecsExplorerPaths() {
-    var active = [];
-    for (var d = 0; d < CODEC_EXPLORER_DIMENSIONS.length; d++) {
-        var values = getCodecsExplorerSelection(CODEC_EXPLORER_DIMENSIONS[d].id);
-        if (values.length > 0) {
-            active.push({dim: CODEC_EXPLORER_DIMENSIONS[d], values: values});
-        }
-    }
-    if (active.length === 0 || !_lastCodecData) {
+    const active = getCodecsExplorerActiveDims(null);
+    if (active.length === 0) {
         return {paths: [], active: active};
     }
-    var roots = getCodecsExplorerSelectedRoots();
-    if (roots === null) {
+    const intersected = intersectExplorerFilters(active);
+    if (intersected === null) {
         return {paths: [], active: active};
     }
-    var result = null;
-    for (var i = 0; i < active.length; i++) {
-        var union = {};
-        for (var v = 0; v < active[i].values.length; v++) {
-            var paths = collectExplorerValuePaths(active[i].dim, active[i].values[v]);
-            for (var p = 0; p < paths.length; p++) {
-                union[paths[p]] = true;
-            }
-        }
-        if (result === null) {
-            result = union;
-        } else {
-            var next = {};
-            for (var key in result) {
-                if (Object.hasOwn(result, key) && union[key]) {
-                    next[key] = true;
-                }
-            }
-            result = next;
-        }
+    const scoped = scopeExplorerPaths(intersected);
+    if (scoped === null) {
+        return {paths: [], active: active};
     }
-    var out = [];
-    for (var path in result) {
-        if (Object.hasOwn(result, path) && codecExplorerPathInRoots(path, roots)) {
-            out.push(path);
-        }
-    }
-    out.sort();
-    return {paths: out, active: active};
+    const paths = Object.keys(scoped);
+    paths.sort(function (a, b) {
+        return a.localeCompare(b);
+    });
+    return {paths: paths, active: active};
 }
 
 // Whether any dimension other than one holds an active selection.
 function hasOtherActiveFilters(exceptDimId) {
-    for (var d = 0; d < CODEC_EXPLORER_DIMENSIONS.length; d++) {
-        if (CODEC_EXPLORER_DIMENSIONS[d].id !== exceptDimId
-            && getCodecsExplorerSelection(CODEC_EXPLORER_DIMENSIONS[d].id).length > 0) {
-            return true;
-        }
-    }
-    return false;
+    return getCodecsExplorerActiveDims(exceptDimId).length > 0;
 }
 
 // Facet counts for one dimension: files per option within the other active filters.
@@ -271,79 +260,80 @@ function hasOtherActiveFilters(exceptDimId) {
 // offers every available value. Selected values always count (so they stay visible
 // for deselection); unselected zero-count options are dropped by the caller.
 function countExplorerOptions(dim) {
-    var universe = aggregateDict(getCodecsExplorerScopedLibraries(), dim.countProp);
-    var counts = {};
-    var options = Object.keys(universe).filter(function (k) {
+    const universe = aggregateDict(getCodecsExplorerScopedLibraries(), dim.countProp);
+    const options = Object.keys(universe).filter(function (k) {
         return universe[k] > 0;
-    }).sort(function (a, b) {
+    });
+    options.sort(function (a, b) {
         return universe[b] - universe[a];
     });
+    const counts = {};
     if (!hasOtherActiveFilters(dim.id)) {
-        for (var i = 0; i < options.length; i++) {
-            counts[options[i]] = universe[options[i]];
+        for (const option of options) {
+            counts[option] = universe[option];
         }
         return counts;
     }
-    var subset = computePathsExcluding(dim.id);
+    const subset = computePathsExcluding(dim.id);
     if (subset === null) {
-        for (var j = 0; j < options.length; j++) {
-            counts[options[j]] = 0;
+        for (const option of options) {
+            counts[option] = 0;
         }
         return counts;
     }
-    for (var o = 0; o < options.length; o++) {
-        var paths = collectExplorerValuePaths(dim, options[o]);
-        var count = 0;
-        for (var p = 0; p < paths.length; p++) {
-            if (subset[paths[p]]) {
+    for (const option of options) {
+        let count = 0;
+        for (const path of collectExplorerValuePaths(dim, option)) {
+            if (subset[path]) {
                 count++;
             }
         }
-        counts[options[o]] = count;
+        counts[option] = count;
     }
     return counts;
 }
 
+// Visible options: everything with matches, plus selected values (for deselection).
+function visibleExplorerOptions(counts, selected) {
+    return Object.keys(counts).filter(function (option) {
+        return counts[option] > 0 || selected.includes(option);
+    });
+}
+
 function buildCodecsExplorerSelect(dim) {
-    var counts = countExplorerOptions(dim);
-    var selected = getCodecsExplorerSelection(dim.id);
-    var current = selected.length > 0 ? selected[0] : '';
-    var html = '<div class="codec-explorer-field">';
+    const counts = countExplorerOptions(dim);
+    const selected = getCodecsExplorerSelection(dim.id);
+    const current = selected.length > 0 ? selected[0] : '';
+    const visible = visibleExplorerOptions(counts, selected);
+    const disabled = visible.length === 0 ? ' disabled' : '';
+    let html = '<div class="codec-explorer-field' + (disabled ? ' codec-explorer-field--disabled' : '') + '">';
     html += '<label for="codecExplorer_' + escAttr(dim.id) + '">' + escHtml(T(dim.labelKey, dim.fallback)) + '</label>';
-    html += '<select id="codecExplorer_' + escAttr(dim.id) + '" data-explorer-dim="' + escAttr(dim.id) + '">';
+    html += '<select id="codecExplorer_' + escAttr(dim.id) + '" data-explorer-dim="' + escAttr(dim.id) + '"' + disabled + '>';
     html += '<option value="">' + escHtml(T('explorerAny', 'Any')) + '</option>';
-    var options = Object.keys(counts);
-    for (var i = 0; i < options.length; i++) {
-        if (counts[options[i]] === 0 && options[i] !== current) {
-            continue;
-        }
-        html += '<option value="' + escAttr(options[i]) + '"' + (options[i] === current ? ' selected' : '') + '>'
-            + escHtml(options[i]) + ' (' + counts[options[i]] + ')</option>';
+    for (const option of visible) {
+        html += '<option value="' + escAttr(option) + '"' + (option === current ? ' selected' : '') + '>'
+            + escHtml(option) + ' (' + counts[option] + ')</option>';
     }
     html += '</select></div>';
     return html;
 }
 
 function buildCodecsExplorerChecks(dim) {
-    var counts = countExplorerOptions(dim);
-    var selected = getCodecsExplorerSelection(dim.id);
-    var html = '<fieldset class="codec-explorer-field codec-explorer-checks" data-explorer-dim="' + escAttr(dim.id) + '">';
+    const counts = countExplorerOptions(dim);
+    const selected = getCodecsExplorerSelection(dim.id);
+    const visible = visibleExplorerOptions(counts, selected);
+    const disabled = visible.length === 0 ? ' disabled' : '';
+    let html = '<fieldset class="codec-explorer-field codec-explorer-checks' + (disabled ? ' codec-explorer-field--disabled' : '') + '"'
+        + ' data-explorer-dim="' + escAttr(dim.id) + '"' + disabled + '>';
     html += '<legend>' + escHtml(T(dim.labelKey, dim.fallback)) + '</legend>';
-    var options = Object.keys(counts);
-    var visible = 0;
-    for (var i = 0; i < options.length; i++) {
-        var isChecked = selected.indexOf(options[i]) !== -1;
-        if (counts[options[i]] === 0 && !isChecked) {
-            continue;
-        }
-        visible++;
-        var inputId = 'codecExplorer_' + dim.id + '_' + i;
+    for (const option of visible) {
+        const inputId = 'codecExplorer_' + dim.id + '_' + visible.indexOf(option);
         html += '<label class="codec-explorer-check" for="' + escAttr(inputId) + '">'
-            + '<input type="checkbox" id="' + escAttr(inputId) + '" value="' + escAttr(options[i]) + '"'
-            + (isChecked ? ' checked' : '') + '>'
-            + '<span>' + escHtml(options[i]) + ' (' + counts[options[i]] + ')</span></label>';
+            + '<input type="checkbox" id="' + escAttr(inputId) + '" value="' + escAttr(option) + '"'
+            + (selected.includes(option) ? ' checked' : '') + '>'
+            + '<span>' + escHtml(option) + ' (' + counts[option] + ')</span></label>';
     }
-    if (visible === 0) {
+    if (visible.length === 0) {
         html += '<span class="codec-explorer-none">' + escHtml(T('explorerNoOptions', 'No matching options.')) + '</span>';
     }
     html += '</fieldset>';
@@ -351,36 +341,34 @@ function buildCodecsExplorerChecks(dim) {
 }
 
 function buildCodecsExplorerLibrarySelect() {
-    var libs = getCodecsExplorerLibraries();
-    var selected = _codecsExplorerState.library;
-    var html = '<div class="codec-explorer-field"><label for="codecExplorerLibrary">' + escHtml(T('explorerLibrary', 'Library')) + '</label>';
+    const selected = _codecsExplorerState.library;
+    let html = '<div class="codec-explorer-field"><label for="codecExplorerLibrary">' + escHtml(T('explorerLibrary', 'Library')) + '</label>';
     html += '<select id="codecExplorerLibrary">';
     html += '<option value="">' + escHtml(T('explorerAllLibraries', 'All libraries')) + '</option>';
     html += '<option value="' + CODEC_EXPLORER_TYPE_MOVIES + '"' + (selected === CODEC_EXPLORER_TYPE_MOVIES ? ' selected' : '') + '>'
         + escHtml(T('explorerScopeMovies', 'Movies (all libraries)')) + '</option>';
     html += '<option value="' + CODEC_EXPLORER_TYPE_TVSHOWS + '"' + (selected === CODEC_EXPLORER_TYPE_TVSHOWS ? ' selected' : '') + '>'
         + escHtml(T('explorerScopeTvShows', 'TV Shows (all libraries)')) + '</option>';
-    for (var i = 0; i < libs.length; i++) {
-        html += '<option value="' + escAttr(libs[i].LibraryName) + '"'
-            + (libs[i].LibraryName === selected ? ' selected' : '') + '>'
-            + escHtml(libs[i].LibraryName) + '</option>';
+    for (const lib of getCodecsExplorerLibraries()) {
+        html += '<option value="' + escAttr(lib.LibraryName) + '"'
+            + (lib.LibraryName === selected ? ' selected' : '') + '>'
+            + escHtml(lib.LibraryName) + '</option>';
     }
     html += '</select></div>';
     return html;
 }
 
 function buildCodecsExplorerControls() {
-    var html = buildCodecsExplorerLibrarySelect();
-    for (var d = 0; d < CODEC_EXPLORER_DIMENSIONS.length; d++) {
-        var dim = CODEC_EXPLORER_DIMENSIONS[d];
+    let html = buildCodecsExplorerLibrarySelect();
+    for (const dim of CODEC_EXPLORER_DIMENSIONS) {
         html += dim.multi ? buildCodecsExplorerChecks(dim) : buildCodecsExplorerSelect(dim);
     }
     return html;
 }
 
 function buildCodecsExplorerHtml() {
-    var expanded = _codecsExplorerState.expanded;
-    var html = '<div class="codec-explorer">';
+    const expanded = _codecsExplorerState.expanded;
+    let html = '<div class="codec-explorer">';
     html += '<button class="codec-explorer-toggle" id="codecExplorerToggle" aria-expanded="' + (expanded ? 'true' : 'false') + '"'
         + ' aria-controls="codecExplorerBody">' + mi('search')
         + '<span>' + escHtml(T('explorerTitle', 'Library Explorer')) + '</span>'
@@ -395,30 +383,35 @@ function buildCodecsExplorerHtml() {
     return html;
 }
 
+function explorerSummaryLabels(active) {
+    const labels = [];
+    for (const entry of active) {
+        labels.push(entry.values.join(', '));
+    }
+    return labels;
+}
+
 function runCodecsExplorerSearch() {
-    var host = document.getElementById('codecExplorerResults');
+    const host = document.getElementById('codecExplorerResults');
     if (!host || !_lastCodecData) {
         return;
     }
-    var outcome = computeCodecsExplorerPaths();
+    const outcome = computeCodecsExplorerPaths();
     if (outcome.active.length === 0) {
         host.innerHTML = '<p class="codec-explorer-empty">' + escHtml(T('explorerPickFilter', 'Pick at least one filter above to list matching files.')) + '</p>';
         return;
     }
-    var summary = outcome.paths.length + ' ' + (outcome.paths.length === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files')));
-    var labels = [];
-    for (var i = 0; i < outcome.active.length; i++) {
-        labels.push(outcome.active[i].values.join(', '));
-    }
-    var html = '<div class="codec-explorer-summary"><span>' + escHtml(summary) + '</span>';
+    const summary = outcome.paths.length + ' ' + (outcome.paths.length === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files')));
+    const labels = explorerSummaryLabels(outcome.active);
+    let html = '<div class="codec-explorer-summary"><span>' + escHtml(summary) + '</span>';
     html += '<span class="codec-explorer-active">' + escHtml(labels.join(' · ')) + '</span></div>';
     if (outcome.paths.length === 0) {
         html += '<p class="codec-explorer-empty">' + escHtml(T('noFilesFound', 'No files found.')) + '</p>';
         host.innerHTML = html;
         return;
     }
-    var truncated = outcome.paths.length > CODEC_EXPLORER_MAX_FILES;
-    var shown = truncated ? outcome.paths.slice(0, CODEC_EXPLORER_MAX_FILES) : outcome.paths;
+    const truncated = outcome.paths.length > CODEC_EXPLORER_MAX_FILES;
+    const shown = truncated ? outcome.paths.slice(0, CODEC_EXPLORER_MAX_FILES) : outcome.paths;
     if (truncated) {
         html += '<p class="codec-explorer-truncated">' + escHtml(T('explorerTruncated', 'Showing first 300 matches — refine filters to narrow down.')
             .replace('300', String(CODEC_EXPLORER_MAX_FILES))) + '</p>';
@@ -431,18 +424,21 @@ function runCodecsExplorerSearch() {
 // Remembers the focused control across the rebuild so keyboard and touch users keep
 // their place while option lists update around them.
 function describeActiveExplorerControl() {
-    var active = document.activeElement;
-    if (!active || !active.getAttribute) {
+    const active = document.activeElement;
+    if (!active || !active.dataset) {
         return null;
     }
-    var dim = active.getAttribute('data-explorer-dim');
     if (active.id === 'codecExplorerLibrary') {
         return {id: 'codecExplorerLibrary'};
     }
-    if (dim && active.id) {
+    const dim = active.dataset.explorerDim;
+    if (!dim) {
+        return null;
+    }
+    if (active.id) {
         return {id: active.id};
     }
-    if (dim && active.value !== undefined) {
+    if (active.value !== undefined) {
         return {dim: dim, value: active.value};
     }
     return null;
@@ -452,102 +448,100 @@ function restoreExplorerFocus(descriptor) {
     if (!descriptor) {
         return;
     }
-    var target = null;
+    let target = null;
     if (descriptor.id) {
         target = document.getElementById(descriptor.id);
     } else if (descriptor.dim) {
-        var group = document.querySelector('fieldset[data-explorer-dim="' + descriptor.dim + '"]');
-        if (group) {
-            var boxes = group.querySelectorAll('input[type="checkbox"]');
-            for (var i = 0; i < boxes.length; i++) {
-                if (boxes[i].value === descriptor.value) {
-                    target = boxes[i];
-                    break;
-                }
+        const group = document.querySelector('fieldset[data-explorer-dim="' + descriptor.dim + '"]');
+        const boxes = group?.querySelectorAll('input[type="checkbox"]') || [];
+        for (const box of boxes) {
+            if (box.value === descriptor.value) {
+                target = box;
+                break;
             }
         }
     }
-    if (target && target.focus) {
-        target.focus({preventScroll: true});
-    }
+    target?.focus({preventScroll: true});
 }
 
 function refreshCodecsExplorerControls() {
-    var controls = document.getElementById('codecExplorerControls');
+    const controls = document.getElementById('codecExplorerControls');
     if (!controls) {
         return;
     }
-    var focus = describeActiveExplorerControl();
+    const focus = describeActiveExplorerControl();
     controls.innerHTML = buildCodecsExplorerControls();
     bindCodecsExplorerControlHandlers();
     restoreExplorerFocus(focus);
     runCodecsExplorerSearch();
 }
 
+function onExplorerLibraryChanged(library) {
+    _codecsExplorerState.library = library.value;
+    _codecsExplorerState.filters = {};
+    refreshCodecsExplorerControls();
+}
+
+function onExplorerSelectChanged(select) {
+    const dimId = select.dataset.explorerDim;
+    if (select.value) {
+        _codecsExplorerState.filters[dimId] = select.value;
+    } else {
+        delete _codecsExplorerState.filters[dimId];
+    }
+    refreshCodecsExplorerControls();
+}
+
+function onExplorerChecksChanged(group) {
+    const dimId = group.dataset.explorerDim;
+    const values = [];
+    for (const checked of group.querySelectorAll('input[type="checkbox"]:checked')) {
+        values.push(checked.value);
+    }
+    if (values.length > 0) {
+        _codecsExplorerState.filters[dimId] = values;
+    } else {
+        delete _codecsExplorerState.filters[dimId];
+    }
+    refreshCodecsExplorerControls();
+}
+
 function bindCodecsExplorerControlHandlers() {
-    var library = document.getElementById('codecExplorerLibrary');
+    const library = document.getElementById('codecExplorerLibrary');
     if (library) {
         library.onchange = function () {
-            _codecsExplorerState.library = library.value;
-            _codecsExplorerState.filters = {};
-            refreshCodecsExplorerControls();
+            onExplorerLibraryChanged(library);
         };
     }
-    var selects = document.querySelectorAll('#codecExplorerControls select[data-explorer-dim]');
-    for (var i = 0; i < selects.length; i++) {
-        (function (select) {
-            select.onchange = function () {
-                var dimId = select.getAttribute('data-explorer-dim');
-                if (select.value) {
-                    _codecsExplorerState.filters[dimId] = select.value;
-                } else {
-                    delete _codecsExplorerState.filters[dimId];
-                }
-                refreshCodecsExplorerControls();
-            };
-        })(selects[i]);
+    for (const select of document.querySelectorAll('#codecExplorerControls select[data-explorer-dim]')) {
+        select.onchange = function () {
+            onExplorerSelectChanged(select);
+        };
     }
-    var groups = document.querySelectorAll('#codecExplorerControls fieldset[data-explorer-dim]');
-    for (var g = 0; g < groups.length; g++) {
-        (function (group) {
-            var dimId = group.getAttribute('data-explorer-dim');
-            var boxes = group.querySelectorAll('input[type="checkbox"]');
-            for (var b = 0; b < boxes.length; b++) {
-                boxes[b].onchange = function () {
-                    var values = [];
-                    var current = group.querySelectorAll('input[type="checkbox"]:checked');
-                    for (var c = 0; c < current.length; c++) {
-                        values.push(current[c].value);
-                    }
-                    if (values.length > 0) {
-                        _codecsExplorerState.filters[dimId] = values;
-                    } else {
-                        delete _codecsExplorerState.filters[dimId];
-                    }
-                    refreshCodecsExplorerControls();
-                };
-            }
-        })(groups[g]);
+    for (const group of document.querySelectorAll('#codecExplorerControls fieldset[data-explorer-dim]')) {
+        for (const box of group.querySelectorAll('input[type="checkbox"]')) {
+            box.onchange = function () {
+                onExplorerChecksChanged(group);
+            };
+        }
     }
 }
 
 function attachCodecsExplorerHandlers() {
-    var toggle = document.getElementById('codecExplorerToggle');
+    const toggle = document.getElementById('codecExplorerToggle');
     if (toggle) {
         toggle.onclick = function () {
-            var body = document.getElementById('codecExplorerBody');
-            var arrow = toggle.querySelector('.codec-explorer-arrow');
+            const body = document.getElementById('codecExplorerBody');
+            const arrow = toggle.querySelector('.codec-explorer-arrow');
             _codecsExplorerState.expanded = !_codecsExplorerState.expanded;
-            if (body) {
-                body.classList.toggle('open', _codecsExplorerState.expanded);
-            }
+            body?.classList.toggle('open', _codecsExplorerState.expanded);
             toggle.setAttribute('aria-expanded', _codecsExplorerState.expanded ? 'true' : 'false');
             if (arrow) {
                 arrow.innerHTML = _codecsExplorerState.expanded ? '&#9660;' : '&#9654;';
             }
         };
     }
-    var reset = document.getElementById('codecExplorerReset');
+    const reset = document.getElementById('codecExplorerReset');
     if (reset) {
         reset.onclick = function () {
             _codecsExplorerState.filters = {};
@@ -558,19 +552,19 @@ function attachCodecsExplorerHandlers() {
     if (!_codecExploreLinkBound) {
         _codecExploreLinkBound = true;
         document.addEventListener('click', function (evt) {
-            var target = evt.target && evt.target.closest ? evt.target.closest('[data-codec-explore-library]') : null;
+            const target = evt.target?.closest?.('[data-codec-explore-library]');
             if (target && !target.disabled) {
-                openCodecsExplorer(target.getAttribute('data-codec-explore-library') || '');
+                openCodecsExplorer(target.dataset.codecExploreLibrary || '');
             }
         });
         document.addEventListener('keydown', function (evt) {
             if (evt.key !== 'Enter' && evt.key !== ' ') {
                 return;
             }
-            var target = evt.target && evt.target.closest ? evt.target.closest('[data-codec-explore-library][role="button"]') : null;
+            const target = evt.target?.closest?.('[data-codec-explore-library][role="button"]');
             if (target) {
                 evt.preventDefault();
-                openCodecsExplorer(target.getAttribute('data-codec-explore-library') || '');
+                openCodecsExplorer(target.dataset.codecExploreLibrary || '');
             }
         });
     }
@@ -583,33 +577,28 @@ function openCodecsExplorer(scope) {
     _codecsExplorerState.library = scope || '';
     _codecsExplorerState.filters = {};
     _codecsExplorerState.expanded = true;
-    var tabBtn = document.querySelector('.tab-btn[data-tab="codecs"]');
-    if (tabBtn) {
-        tabBtn.click();
-    }
+    const tabBtn = document.querySelector('.tab-btn[data-tab="codecs"]');
+    tabBtn?.click();
     if (!_lastCodecData) {
         return;
     }
-    var container = document.getElementById('codecsContent');
+    const container = document.getElementById('codecsContent');
     if (!container) {
         return;
     }
     renderCodecsExplorer(container);
-    var body = document.getElementById('codecExplorerBody');
-    if (body && body.scrollIntoView) {
-        body.scrollIntoView({block: 'start'});
-    }
+    document.getElementById('codecExplorerBody')?.scrollIntoView({block: 'start'});
 }
 
 // Drops scope/filter selections that no longer exist after a rescan, so the search
 // never filters by phantom values while the controls show "All libraries" or "Any".
 function pruneCodecsExplorerState() {
-    var libs = getCodecsExplorerLibraries();
-    var scope = _codecsExplorerState.library;
+    const libs = getCodecsExplorerLibraries();
+    const scope = _codecsExplorerState.library;
     if (scope && scope !== CODEC_EXPLORER_TYPE_MOVIES && scope !== CODEC_EXPLORER_TYPE_TVSHOWS) {
-        var known = false;
-        for (var i = 0; i < libs.length; i++) {
-            if (libs[i].LibraryName === scope) {
+        let known = false;
+        for (const lib of libs) {
+            if (lib.LibraryName === scope) {
                 known = true;
                 break;
             }
@@ -620,15 +609,14 @@ function pruneCodecsExplorerState() {
             return;
         }
     }
-    var scoped = getCodecsExplorerScopedLibraries();
-    for (var d = 0; d < CODEC_EXPLORER_DIMENSIONS.length; d++) {
-        var dim = CODEC_EXPLORER_DIMENSIONS[d];
-        var values = getCodecsExplorerSelection(dim.id);
+    const scoped = getCodecsExplorerScopedLibraries();
+    for (const dim of CODEC_EXPLORER_DIMENSIONS) {
+        const values = getCodecsExplorerSelection(dim.id);
         if (values.length === 0) {
             continue;
         }
-        var universe = aggregateDict(scoped, dim.countProp);
-        var kept = values.filter(function (v) {
+        const universe = aggregateDict(scoped, dim.countProp);
+        const kept = values.filter(function (v) {
             return universe[v] > 0;
         });
         if (kept.length === 0) {
@@ -645,11 +633,9 @@ function pruneCodecsExplorerState() {
 // explorer always reflects the latest scan; user selections survive via module state.
 function renderCodecsExplorer(container) {
     pruneCodecsExplorerState();
-    var existing = container.querySelector('.codec-explorer');
-    if (existing) {
-        existing.parentNode.removeChild(existing);
-    }
-    var tmp = document.createElement('div');
+    const existing = container.querySelector('.codec-explorer');
+    existing?.remove();
+    const tmp = document.createElement('div');
     tmp.innerHTML = buildCodecsExplorerHtml();
     container.insertBefore(tmp.firstChild, container.firstChild);
     attachCodecsExplorerHandlers();

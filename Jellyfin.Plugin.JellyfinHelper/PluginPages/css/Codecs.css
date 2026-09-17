@@ -321,6 +321,16 @@
     opacity: 0.7;
 }
 
+/* Dimensions with no options in the current scope are greyed out but stay visible. */
+.codec-explorer-field--disabled {
+    opacity: 0.45;
+}
+
+.codec-explorer-field select:disabled,
+.codec-explorer-checks:disabled {
+    cursor: not-allowed;
+}
+
 .codec-explorer-field select {
     width: 100%;
     padding: 0.55em 0.6em;

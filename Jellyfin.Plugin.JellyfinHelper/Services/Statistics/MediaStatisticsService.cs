@@ -187,7 +187,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                         _logger);
                 }
 
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, users, location, skipHealth, scanTrashFolderName, resolvedFullTrashPath);
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, users, new SubdirectoryScanContext(scanTrashFolderName, location, skipHealth, scanTrashFolderName, resolvedFullTrashPath));
             }
 
             _pluginLog.LogDebug(
@@ -303,24 +303,13 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
     /// <param name="users">All Jellyfin users, resolved once per scan (used for per-file watched-status extraction).</param>
-    /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
-    /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
-    /// <param name="trashFolderName">Pre-resolved trash folder name; passed down to avoid re-reading config on every recursive call.</param>
-    /// <param name="resolvedFullTrashPath">
-    ///     The normalized absolute trash path for this library root, pre-computed by the caller
-    ///     and threaded through every recursive call to avoid re-invoking
-    ///     <see cref="ICleanupConfigHelper.GetTrashPath" /> on every directory.
-    ///     Null when <paramref name="libraryRoot" /> is null.
-    /// </param>
+    /// <param name="scanContext">Trash-resolution, library-root and health-check context threaded through recursion.</param>
     private bool AnalyzeDirectoryRecursive(
         string directoryPath,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
         List<Jellyfin.Database.Implementations.Entities.User> users,
-        string? libraryRoot = null,
-        bool skipHealthChecks = false,
-        string? trashFolderName = null,
-        string? resolvedFullTrashPath = null)
+        SubdirectoryScanContext scanContext)
     {
         var containsVideo = false;
         try
@@ -350,19 +339,9 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             containsVideo = flags.ContainsVideo;
 
-            // Recurse into subdirectories
+            // Recurse into subdirectories. The context arrives pre-built from the caller
+            // (top level or parent directory), so it is passed through untouched.
             var subDirs = _fileSystem.GetDirectories(directoryPath);
-
-            var resolvedTrashFolderName = trashFolderName ?? string.Empty;
-
-            // resolvedFullTrashPath is computed once at the top-level call site and threaded
-            // through every recursive call - no config re-read on each directory.
-            var scanContext = new SubdirectoryScanContext(
-                resolvedTrashFolderName,
-                libraryRoot,
-                skipHealthChecks,
-                trashFolderName,
-                resolvedFullTrashPath);
 
             var subDirHasVideo = ScanSubdirectories(
                 subDirs,
@@ -373,7 +352,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 ref containsVideo);
 
             // Health checks - per-directory analysis Boxset/collection libraries are excluded: they are Jellyfin-internal virtual folders that group related movies and typically only contain posters/images, not real media.
-            if (!skipHealthChecks)
+            if (!scanContext.SkipHealthChecks)
             {
                 if (flags.HasVideo)
                 {
@@ -536,7 +515,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 stats.TrickplaySize += trickplaySize;
                 stats.TrickplayFolderCount++;
             }
-            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, users, scanContext.LibraryRoot, scanContext.SkipHealthChecks, scanContext.TrashFolderName, scanContext.ResolvedFullTrashPath))
+            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, users, scanContext))
             {
                 subDirHasVideo = true;
                 containsVideo = true;
@@ -761,9 +740,9 @@ public class MediaStatisticsService : IMediaStatisticsService
         if (streams != null)
         {
             var seenAudioLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Audio).Select(s => NormalizeIso639Language(s.Language)))
+            foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Audio).Select(s => NormalizeIso639Language(s.Language)).OfType<string>())
             {
-                if (lang != null && seenAudioLanguages.Add(lang))
+                if (seenAudioLanguages.Add(lang))
                 {
                     FileSystemHelper.IncrementCount(stats.AudioLanguages, lang);
                     FileSystemHelper.AccumulateValue(stats.AudioLanguageSizes, lang, fileSize);
@@ -773,9 +752,9 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             // Subtitle languages: embedded tracks only; external sidecars are excluded.
             var seenSubtitleLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal).Select(s => NormalizeIso639Language(s.Language)))
+            foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal).Select(s => NormalizeIso639Language(s.Language)).OfType<string>())
             {
-                if (lang != null && seenSubtitleLanguages.Add(lang))
+                if (seenSubtitleLanguages.Add(lang))
                 {
                     FileSystemHelper.IncrementCount(stats.SubtitleLanguages, lang);
                     FileSystemHelper.AccumulateValue(stats.SubtitleLanguageSizes, lang, fileSize);
@@ -784,31 +763,35 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
         }
 
-        // Watched status: per-file watch details feed both the Watched donut and the
-        // per-user paths. Files Jellyfin has not indexed (item == null) carry no watch
-        // evidence, so they count as Never watched instead of vanishing from the tier.
-        // "users" is resolved once per scan by the caller - never re-queried per file.
+        ExtractWatchedStatus(filePath, fileSize, stats, item, users);
+
+        return streams;
+    }
+
+    /// <summary>
+    ///     Records per-file watched status: the Watched/Never watched tier plus per-user details.
+    /// </summary>
+    /// <param name="filePath">Full path to the video file.</param>
+    /// <param name="fileSize">Size of the video file in bytes.</param>
+    /// <param name="stats">The statistics accumulator.</param>
+    /// <param name="item">The resolved library item, or <c>null</c> when Jellyfin has not indexed the file (counts as Never watched).</param>
+    /// <param name="users">All Jellyfin users, resolved once per scan (disabled users already excluded).</param>
+    private void ExtractWatchedStatus(
+        string filePath,
+        long fileSize,
+        LibraryStatistics stats,
+        BaseItem? item,
+        List<Jellyfin.Database.Implementations.Entities.User> users)
+    {
+        // Files Jellyfin has not indexed carry no watch evidence, so they count as
+        // Never watched instead of vanishing from the tier.
         var watchedDetails = new List<WatchedUserDetail>();
         var watchedUsernames = new List<string>();
         if (item != null && _userDataManager != null)
         {
             foreach (var u in users)
             {
-                UserItemData? userData;
-                try
-                {
-                    userData = _userDataManager.GetUserData(u, item);
-                }
-                catch (Exception ex) when (!ex.IsFatal())
-                {
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"Skipping watched lookup for user '{u.Username}' on '{filePath}'",
-                        ex,
-                        _logger);
-                    continue;
-                }
-
+                var userData = LookupUserData(u, item, filePath);
                 if (userData is { PlayCount: > 0 })
                 {
                     watchedUsernames.Add(u.Username);
@@ -836,8 +819,35 @@ public class MediaStatisticsService : IMediaStatisticsService
             stats.WatchedByUsers[filePath] = new Collection<string>(watchedUsernames);
             stats.WatchedDetails[filePath] = new Collection<WatchedUserDetail>(watchedDetails);
         }
+    }
 
-        return streams;
+    /// <summary>
+    ///     Looks up one user's watch data for an item, containing per-user failures.
+    /// </summary>
+    /// <param name="user">The user to look up.</param>
+    /// <param name="item">The library item.</param>
+    /// <param name="filePath">The file path (used for diagnostic logging only).</param>
+    /// <returns>The user data, or <c>null</c> when the lookup fails non-fatally.</returns>
+    private UserItemData? LookupUserData(
+        Jellyfin.Database.Implementations.Entities.User user,
+        BaseItem item,
+        string filePath)
+    {
+        // A single failing user must not abort the file or the scan: skip and continue
+        // with the next user, matching the containment in WatchHistoryService.
+        try
+        {
+            return _userDataManager!.GetUserData(user, item);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Skipping watched lookup for user '{user.Username}' on '{filePath}'",
+                ex,
+                _logger);
+            return null;
+        }
     }
 
     /// <summary>

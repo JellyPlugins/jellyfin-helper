@@ -18,8 +18,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 public class StatisticsCacheService : IStatisticsCacheService
 {
     private const string LatestResultFileName = "jellyfin-helper-statistics-latest.json";
+    private const string WatchedBucket = "Watched";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
+    private static readonly string[] _legacyWatchedKeys = ["1 user", "2–3 users", "4+ users", "2-3 users"];
     private readonly Lock _fileLock = new();
 
     private readonly string _latestResultFilePath;
@@ -223,18 +225,7 @@ public class StatisticsCacheService : IStatisticsCacheService
         Dictionary<string, Collection<string>> tierPaths,
         Dictionary<string, long> tierSizes)
     {
-        var legacyKeys = new[] { "1 user", "2–3 users", "4+ users", "2-3 users" };
-        var hasLegacy = false;
-        foreach (var k in legacyKeys)
-        {
-            if (tiers.ContainsKey(k) || tierPaths.ContainsKey(k) || tierSizes.ContainsKey(k))
-            {
-                hasLegacy = true;
-                break;
-            }
-        }
-
-        if (!hasLegacy)
+        if (!_legacyWatchedKeys.Any(k => tiers.ContainsKey(k) || tierPaths.ContainsKey(k) || tierSizes.ContainsKey(k)))
         {
             return;
         }
@@ -243,39 +234,19 @@ public class StatisticsCacheService : IStatisticsCacheService
         var watchedPaths = new Collection<string>();
         long watchedSize = 0;
 
-        foreach (var k in legacyKeys)
+        foreach (var k in _legacyWatchedKeys)
         {
-            if (tiers.TryGetValue(k, out var c))
-            {
-                watchedCount += c;
-                tiers.Remove(k);
-            }
-
-            if (tierPaths.TryGetValue(k, out var paths))
-            {
-                foreach (var p in paths)
-                {
-                    watchedPaths.Add(p);
-                }
-
-                tierPaths.Remove(k);
-            }
-
-            if (tierSizes.TryGetValue(k, out var s))
-            {
-                watchedSize += s;
-                tierSizes.Remove(k);
-            }
+            DrainWatchedBucket(k, tiers, tierPaths, tierSizes, ref watchedCount, watchedPaths, ref watchedSize);
         }
 
         if (watchedCount > 0)
         {
-            tiers["Watched"] = tiers.TryGetValue("Watched", out var existing) ? existing + watchedCount : watchedCount;
+            tiers[WatchedBucket] = tiers.TryGetValue(WatchedBucket, out var existing) ? existing + watchedCount : watchedCount;
         }
 
         if (watchedPaths.Count > 0)
         {
-            if (tierPaths.TryGetValue("Watched", out var existingPaths))
+            if (tierPaths.TryGetValue(WatchedBucket, out var existingPaths))
             {
                 foreach (var p in watchedPaths)
                 {
@@ -284,13 +255,45 @@ public class StatisticsCacheService : IStatisticsCacheService
             }
             else
             {
-                tierPaths["Watched"] = watchedPaths;
+                tierPaths[WatchedBucket] = watchedPaths;
             }
         }
 
         if (watchedSize > 0)
         {
-            tierSizes["Watched"] = tierSizes.TryGetValue("Watched", out var existingSize) ? existingSize + watchedSize : watchedSize;
+            tierSizes[WatchedBucket] = tierSizes.TryGetValue(WatchedBucket, out var existingSize) ? existingSize + watchedSize : watchedSize;
+        }
+    }
+
+    private static void DrainWatchedBucket(
+        string key,
+        Dictionary<string, int> tiers,
+        Dictionary<string, Collection<string>> tierPaths,
+        Dictionary<string, long> tierSizes,
+        ref int watchedCount,
+        Collection<string> watchedPaths,
+        ref long watchedSize)
+    {
+        if (tiers.TryGetValue(key, out var c))
+        {
+            watchedCount += c;
+            tiers.Remove(key);
+        }
+
+        if (tierPaths.TryGetValue(key, out var paths))
+        {
+            foreach (var p in paths)
+            {
+                watchedPaths.Add(p);
+            }
+
+            tierPaths.Remove(key);
+        }
+
+        if (tierSizes.TryGetValue(key, out var s))
+        {
+            watchedSize += s;
+            tierSizes.Remove(key);
         }
     }
 }

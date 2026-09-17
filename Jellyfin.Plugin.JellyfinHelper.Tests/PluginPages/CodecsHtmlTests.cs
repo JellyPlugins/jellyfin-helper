@@ -152,6 +152,15 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_LibraryExplorer_DisablesEmptyDimensions()
+    {
+        // Dimensions with no options in the current scope render greyed out.
+        Assert.Contains("codec-explorer-field--disabled", HtmlContent);
+        Assert.Contains("function visibleExplorerOptions", HtmlContent);
+        Assert.Contains("function pruneCodecsExplorerState", HtmlContent);
+    }
+
+    [Fact]
     public void Html_CollectCodecPaths_AcceptsCategoriesParameter()
     {
         // collectCodecPaths should accept a categories parameter

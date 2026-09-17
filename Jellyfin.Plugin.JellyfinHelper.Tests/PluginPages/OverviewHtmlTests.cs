@@ -49,11 +49,18 @@ public class OverviewHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_LibraryRows_LinkIntoCodecsExplorer()
     {
-        // Each per-library name is a link that opens the Codecs tab
+        // Each video-library name is a link that opens the Codecs tab
         // Library Explorer pre-scoped to that library.
         Assert.Contains("data-codec-explore-library", HtmlContent);
         Assert.Contains("codec-explore-link", HtmlContent);
         Assert.Contains("explorerOpenTooltip", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_MusicAndBookRows_HaveNoExplorerLink()
+    {
+        // Music and books carry no video dimensions, so their rows stay plain text.
+        Assert.Contains("libType === 'music' || libType === 'books'", HtmlContent);
     }
 
     [Fact]
