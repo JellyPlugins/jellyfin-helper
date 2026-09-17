@@ -322,6 +322,24 @@ function collectResolutionDimensions(data) {
     return merged;
 }
 
+// Per-user watched file counts across libraries. Usernames come from WatchedByUserPaths
+// (one entry per file per watching user); the file totals behind them may overlap.
+function countWatchedUsers(libraries) {
+    var counts = {};
+    for (var i = 0; i < libraries.length; i++) {
+        var byUser = libraries[i].WatchedByUserPaths;
+        if (!byUser) {
+            continue;
+        }
+        for (var user in byUser) {
+            if (Object.hasOwn(byUser, user) && byUser[user] && byUser[user].length > 0) {
+                counts[user] = (counts[user] || 0) + byUser[user].length;
+            }
+        }
+    }
+    return counts;
+}
+
 // Map chart IDs to their corresponding path property names
 var CODEC_PATH_MAP = {
     'videoCodecs': 'VideoCodecPaths',
@@ -369,6 +387,11 @@ function attachCodecClickHandlers() {
             var chartId = item.dataset.chart;
             var codecName = item.dataset.codec;
             var pathsProp = CODEC_PATH_MAP[chartId];
+            // Watched slices span two maps: Never watched lives in WatchedTierPaths,
+            // usernames in WatchedByUserPaths.
+            if (chartId === 'watched' && codecName !== 'Never watched') {
+                pathsProp = 'WatchedByUserPaths';
+            }
             var categories = CODEC_CATEGORY_MAP[chartId];
             var result = collectCodecPaths(_lastCodecData, pathsProp, codecName,
                 categories);
@@ -506,7 +529,12 @@ function fillCodecsData(data) {
     var videoBitrate = aggregateDict(videoLibraries, 'VideoBitrateTiers');
     var audioLanguages = aggregateDict(videoLibraries, 'AudioLanguages');
     var subtitleLanguages = aggregateDict(videoLibraries, 'SubtitleLanguages');
-    var watched = aggregateDict(videoLibraries, 'WatchedTiers');
+    // Watched shows who watched: one slice per username plus Never watched.
+    var watched = countWatchedUsers(videoLibraries);
+    var neverWatchedCount = aggregateDict(videoLibraries, 'WatchedTiers')['Never watched'] || 0;
+    if (neverWatchedCount > 0) {
+        watched['Never watched'] = neverWatchedCount;
+    }
 
     var videoCodecSizes = aggregateDict(videoLibraries, 'VideoCodecSizes');
     var videoAudioCodecSizes = aggregateDict(videoLibraries, 'VideoAudioCodecSizes');
@@ -518,7 +546,11 @@ function fillCodecsData(data) {
     var videoBitrateSizes = aggregateDict(videoLibraries, 'VideoBitrateTierSizes');
     var audioLanguageSizes = aggregateDict(videoLibraries, 'AudioLanguageSizes');
     var subtitleLanguageSizes = aggregateDict(videoLibraries, 'SubtitleLanguageSizes');
-    var watchedSizes = aggregateDict(videoLibraries, 'WatchedTierSizes');
+    var watchedSizes = aggregateDict(videoLibraries, 'WatchedByUserSizes');
+    var neverWatchedSize = aggregateDict(videoLibraries, 'WatchedTierSizes')['Never watched'] || 0;
+    if (neverWatchedSize > 0) {
+        watchedSizes['Never watched'] = neverWatchedSize;
+    }
 
     var hasContainers = Object.keys(containers).length > 0;
     var hasResolutions = Object.keys(resolutions).length > 0;

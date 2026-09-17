@@ -241,13 +241,12 @@
     color: var(--color-primary);
 }
 
-/* Library Explorer: collapsible combinable-filter search below the donut grid. */
+/* Library Explorer: collapsible combinable-filter search above the donut grid. */
 .codec-explorer {
-    margin-top: 0.5em;
+    margin: 0 0 1.5em 0;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     padding-top: 0.5em;
 }
-
 .codec-explorer-toggle {
     display: flex;
     align-items: center;
@@ -351,43 +350,105 @@
     margin-bottom: 0.8em;
 }
 
-/* Multi-value dimensions (audio/subtitle languages) render as checkbox groups. */
-.codec-explorer-checks {
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: var(--radius-md, 8px);
-    padding: 0.5em 0.6em;
-    margin: 0;
-    max-height: 190px;
-    overflow-y: auto;
+/* Multi-value dropdowns (languages, watched): toggle button with summary plus panel,
+   mirroring the Settings library multi-select. */
+.codec-multi {
+    position: relative;
 }
 
-.codec-explorer-checks legend {
+.codec-multi-label {
     font-size: 0.78em;
     font-weight: 600;
     opacity: 0.7;
-    padding: 0 0.3em;
 }
 
-.codec-explorer-check {
+.codec-multi-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    width: 100%;
+    margin-top: 0.3em;
+    padding: 0.55em 0.6em;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-md, 8px);
+    color: inherit;
+    font-size: 0.9em;
+    cursor: pointer;
+    text-align: left;
+}
+
+.codec-multi-toggle:hover {
+    border-color: var(--color-primary);
+}
+
+.codec-multi-toggle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.codec-multi-summary {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.codec-multi-chevron {
+    display: inline-flex;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.codec-multi-panel {
+    position: absolute;
+    z-index: 10;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin-top: 0.3em;
+    border: 1px solid var(--color-border-strong, rgba(255, 255, 255, 0.15));
+    border-radius: var(--radius-sm, 6px);
+    background: rgba(30, 30, 30, 0.98);
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 0.3em 0;
+}
+
+.codec-multi-item {
     display: flex;
     align-items: center;
     gap: 0.5em;
     min-height: 32px;
+    padding: 0.25em 0.6em;
     font-size: 0.85em;
     cursor: pointer;
-    border-radius: var(--radius-md, 8px);
-    padding: 0.15em 0.3em;
 }
 
-.codec-explorer-check:hover {
-    background: rgba(255, 255, 255, 0.05);
+.codec-multi-item:hover {
+    background: rgba(255, 255, 255, 0.06);
 }
 
-.codec-explorer-check input[type="checkbox"] {
+.codec-multi-item input[type="checkbox"] {
     width: 16px;
     height: 16px;
     flex-shrink: 0;
     accent-color: var(--color-primary);
+}
+
+.codec-multi-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.codec-multi-count {
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
 }
 
 .codec-explorer-none {
@@ -455,7 +516,12 @@
         padding: 0.6em;
     }
 
-    .codec-explorer-check {
+    .codec-multi-toggle {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    .codec-multi-item {
         min-height: 44px;
     }
 
@@ -476,5 +542,22 @@
     .codec-explorer-field select option {
         background: #ffffff;
         color: #111111;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-multi-toggle {
+        background-color: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-multi-panel {
+        background: #ffffff;
+        border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-multi-item:hover {
+        background: rgba(0, 0, 0, 0.04);
     }
 }

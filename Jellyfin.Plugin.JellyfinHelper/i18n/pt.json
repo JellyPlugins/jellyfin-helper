@@ -416,8 +416,12 @@
   "explorerReset": "Redefinir filtros",
   "explorerPickFilter": "Escolha pelo menos um filtro acima para listar os arquivos correspondentes.",
   "explorerTruncated": "Mostrando as primeiras 300 correspondências — refine os filtros para reduzir.",
-  "explorerScopeMovies": "Filmes (todas as bibliotecas)",
-  "explorerScopeTvShows": "Séries (todas as bibliotecas)",
+  "explorerScopeMovies": "Filmes (todas)",
+  "explorerScopeTvShows": "Séries (todas)",
   "explorerOpenTooltip": "Abrir no explorador de bibliotecas",
-  "explorerNoOptions": "Nenhuma opção correspondente."
+  "explorerNoOptions": "Nenhuma opção correspondente.",
+  "explorerScopeMusic": "Música (toda)",
+  "explorerScopeBooks": "Livros (todos)",
+  "explorerGroupType": "Tipo de mídia",
+  "explorerGroupLibrary": "Biblioteca individual"
 }

@@ -416,8 +416,12 @@
   "explorerReset": "重置过滤器",
   "explorerPickFilter": "在上方至少选择一个过滤器以列出匹配的文件。",
   "explorerTruncated": "仅显示前 300 个匹配项 — 优化过滤器以缩小范围。",
-  "explorerScopeMovies": "电影（所有媒体库）",
-  "explorerScopeTvShows": "电视剧（所有媒体库）",
+  "explorerScopeMovies": "电影（全部）",
+  "explorerScopeTvShows": "电视剧（全部）",
   "explorerOpenTooltip": "在媒体库浏览器中打开",
-  "explorerNoOptions": "没有匹配的选项。"
+  "explorerNoOptions": "没有匹配的选项。",
+  "explorerScopeMusic": "音乐（全部）",
+  "explorerScopeBooks": "图书（全部）",
+  "explorerGroupType": "媒体类型",
+  "explorerGroupLibrary": "单个媒体库"
 }

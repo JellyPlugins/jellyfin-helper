@@ -86,3 +86,24 @@ test('overview movies card deep-links into the explorer with type scope', async 
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
   await expect(page.locator('#codecExplorerLibrary')).toHaveValue('type:movies', { timeout: 5_000 });
 });
+
+test('language multi-dropdown selects several values and lists all in the summary', async ({ page }) => {
+  await openExplorer(page);
+  const toggle = page.locator('[data-multi-toggle="audioLanguages"]');
+  test.skip((await toggle.count()) === 0, 'no audio language data on this server');
+  await toggle.click();
+  const panel = page.locator('[data-multi-panel="audioLanguages"]');
+  await expect(panel).toBeVisible({ timeout: 5_000 });
+  const boxes = panel.locator('input[type="checkbox"]');
+  test.skip((await boxes.count()) < 2, 'not enough audio languages on this server');
+  await boxes.nth(0).check();
+  await boxes.nth(1).check();
+  const first = await boxes.nth(0).inputValue();
+  const second = await boxes.nth(1).inputValue();
+  const summary = page.locator('[data-multi-toggle="audioLanguages"] .codec-multi-summary');
+  await expect(summary).toContainText(first, { timeout: 5_000 });
+  await expect(summary).toContainText(second);
+  const resultSummary = page.locator('.codec-explorer-summary');
+  await expect(resultSummary).toContainText(first);
+  await expect(resultSummary).toContainText(second);
+});

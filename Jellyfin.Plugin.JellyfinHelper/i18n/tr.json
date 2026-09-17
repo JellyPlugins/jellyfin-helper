@@ -416,8 +416,12 @@
   "explorerReset": "Filtreleri sıfırla",
   "explorerPickFilter": "Eşleşen dosyaları listelemek için yukarıdan en az bir filtre seçin.",
   "explorerTruncated": "İlk 300 eşleşme gösteriliyor — daraltmak için filtreleri hassaslaştırın.",
-  "explorerScopeMovies": "Filmler (tüm kütüphaneler)",
-  "explorerScopeTvShows": "Diziler (tüm kütüphaneler)",
+  "explorerScopeMovies": "Filmler (tümü)",
+  "explorerScopeTvShows": "Diziler (tümü)",
   "explorerOpenTooltip": "Kütüphane Gezgini'nde aç",
-  "explorerNoOptions": "Eşleşen seçenek yok."
+  "explorerNoOptions": "Eşleşen seçenek yok.",
+  "explorerScopeMusic": "Müzik (tümü)",
+  "explorerScopeBooks": "Kitaplar (tümü)",
+  "explorerGroupType": "Medya türü",
+  "explorerGroupLibrary": "Tek kütüphane"
 }

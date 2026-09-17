@@ -49,18 +49,11 @@ public class OverviewHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_LibraryRows_LinkIntoCodecsExplorer()
     {
-        // Each video-library name is a link that opens the Codecs tab
+        // Each library name is a link that opens the Codecs tab
         // Library Explorer pre-scoped to that library.
         Assert.Contains("data-codec-explore-library", HtmlContent);
         Assert.Contains("codec-explore-link", HtmlContent);
         Assert.Contains("explorerOpenTooltip", HtmlContent);
-    }
-
-    [Fact]
-    public void Html_MusicAndBookRows_HaveNoExplorerLink()
-    {
-        // Music and books carry no video dimensions, so their rows stay plain text.
-        Assert.Contains("libType === 'music' || libType === 'books'", HtmlContent);
     }
 
     [Fact]
@@ -71,5 +64,14 @@ public class OverviewHtmlTests : ConfigPageTestBase
         Assert.Contains("stat-card-link", HtmlContent);
         Assert.Contains("CODEC_EXPLORER_TYPE_MOVIES", HtmlContent);
         Assert.Contains("CODEC_EXPLORER_TYPE_TVSHOWS", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_MusicAndBookCards_LinkIntoCodecsExplorer()
+    {
+        // Music and Books cards link into the explorer with their type scope,
+        // where their dedicated codec dimensions stay enabled.
+        Assert.Contains("CODEC_EXPLORER_TYPE_MUSIC", HtmlContent);
+        Assert.Contains("CODEC_EXPLORER_TYPE_BOOKS", HtmlContent);
     }
 }
