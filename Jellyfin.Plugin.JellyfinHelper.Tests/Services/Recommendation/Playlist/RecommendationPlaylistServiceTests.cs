@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -400,6 +401,69 @@ public class RecommendationPlaylistServiceTests
         };
         _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { user });
         _userManagerMock.Setup(m => m.GetUserById(userId)).Returns(user);
+    }
+
+    private void SetupUserManagerDisabledUser(Guid userId, string username)
+    {
+        var user = new Jellyfin.Database.Implementations.Entities.User(username, "default", "default")
+        {
+            Id = userId
+        };
+        user.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { user });
+        _userManagerMock.Setup(m => m.GetUserById(userId)).Returns(user);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_DisabledUserWithResults_RemovesStalePlaylistsAndSkipsCreation()
+    {
+        var userId = Guid.NewGuid();
+        SetupUserManagerDisabledUser(userId, "Disabled");
+        var stale = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Disabled"));
+        SetupPlaylistLookup(new[] { stale });
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(userId, "Disabled", 3) },
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(1, syncResult.OldPlaylistsRemoved);
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+        _libraryManagerMock.Verify(
+            m => m.DeleteItem(stale, It.IsAny<DeleteOptions>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_DisabledUserWithoutResults_RemovesStalePlaylistsViaSweep()
+    {
+        var aliceId = Guid.NewGuid();
+        var alice = new Jellyfin.Database.Implementations.Entities.User("Alice", "default", "default") { Id = aliceId };
+        var bobId = Guid.NewGuid();
+        var bob = new Jellyfin.Database.Implementations.Entities.User("Bob", "default", "default") { Id = bobId };
+        bob.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { alice, bob });
+        _userManagerMock.Setup(m => m.GetUserById(aliceId)).Returns(alice);
+        _userManagerMock.Setup(m => m.GetUserById(bobId)).Returns(bob);
+
+        var bobStale = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Bob"));
+        SetupPlaylistLookup(new BaseItem[] { bobStale });
+        _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
+            .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(aliceId, "Alice", 2) },
+            CancellationToken.None);
+
+        Assert.Equal(1, syncResult.PlaylistsCreated);
+        Assert.Equal(1, syncResult.OldPlaylistsRemoved);
+        _libraryManagerMock.Verify(
+            m => m.DeleteItem(bobStale, It.IsAny<DeleteOptions>()),
+            Times.Once);
     }
 
     [Fact]
@@ -996,5 +1060,249 @@ public class RecommendationPlaylistServiceTests
         _libraryManagerMock.Verify(
             m => m.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_DisabledUserCleanupThrows_ContinuesWithRemainingUsers()
+    {
+        // A cleanup failure for one disabled user must not stop synchronization
+        // before remaining users are processed.
+        var aliceId = Guid.NewGuid();
+        var alice = new Jellyfin.Database.Implementations.Entities.User("Alice", "default", "default") { Id = aliceId };
+        var bobId = Guid.NewGuid();
+        var bob = new Jellyfin.Database.Implementations.Entities.User("Bob", "default", "default") { Id = bobId };
+        bob.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { alice, bob });
+        _userManagerMock.Setup(m => m.GetUserById(aliceId)).Returns(alice);
+        _userManagerMock.Setup(m => m.GetUserById(bobId)).Throws(new InvalidOperationException("db hiccup"));
+        SetupPlaylistQuery();
+        _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
+            .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult>
+            {
+                CreateResult(bobId, "Bob", 3),
+                CreateResult(aliceId, "Alice", 2)
+            },
+            CancellationToken.None);
+
+        Assert.Equal(1, syncResult.PlaylistsCreated);
+        Assert.Equal(0, syncResult.PlaylistsFailed);
+        Assert.Equal(0, syncResult.OldPlaylistsRemoved);
+        _pluginLogMock.Verify(
+            m => m.LogWarning(
+                "PlaylistSync",
+                It.Is<string>(s => s.Contains("Failed to remove stale playlists", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_GetUsersReturnsNull_StillSyncsEnabledUsers()
+    {
+        // A null user roster must degrade to "no disabled users" instead of throwing,
+        // so enabled users still get their playlists.
+        var aliceId = Guid.NewGuid();
+        var alice = new Jellyfin.Database.Implementations.Entities.User("Alice", "default", "default") { Id = aliceId };
+        _userManagerMock.Setup(m => m.GetUsers()).Returns((IEnumerable<Jellyfin.Database.Implementations.Entities.User>)null!);
+        _userManagerMock.Setup(m => m.GetUserById(aliceId)).Returns(alice);
+        SetupPlaylistQuery();
+        _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
+            .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(aliceId, "Alice", 2) },
+            CancellationToken.None);
+
+        Assert.Equal(1, syncResult.PlaylistsCreated);
+        Assert.Equal(0, syncResult.OldPlaylistsRemoved);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_GetUsersThrows_ContinuesSyncForEnabledUsers()
+    {
+        // A roster failure must not abort the sync: disabled-user cleanup is skipped
+        // with a warning while enabled users are still processed.
+        var aliceId = Guid.NewGuid();
+        var alice = new Jellyfin.Database.Implementations.Entities.User("Alice", "default", "default") { Id = aliceId };
+        _userManagerMock.Setup(m => m.GetUsers()).Throws(new InvalidOperationException("db hiccup"));
+        _userManagerMock.Setup(m => m.GetUserById(aliceId)).Returns(alice);
+        SetupPlaylistQuery();
+        _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
+            .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(aliceId, "Alice", 2) },
+            CancellationToken.None);
+
+        Assert.Equal(1, syncResult.PlaylistsCreated);
+        Assert.Equal(0, syncResult.PlaylistsFailed);
+        _pluginLogMock.Verify(
+            m => m.LogWarning(
+                "PlaylistSync",
+                It.Is<string>(s => s.Contains("Failed to list disabled users", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_GetUsersThrowsCancellation_Rethrows()
+    {
+        // Cancellation while listing users must propagate instead of degrading to an empty set.
+        _userManagerMock.Setup(m => m.GetUsers()).Throws(new OperationCanceledException());
+
+        var sut = CreateSut();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            sut.UpdatePlaylistsForAllUsersAsync(
+                new List<RecommendationResult> { CreateResult(Guid.NewGuid(), "Alice", 2) },
+                CancellationToken.None));
+
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_DisabledSweepLookupThrows_ContinuesSync()
+    {
+        // Mirrors RemoveAllRecommendationPlaylists_OneUserThrows: a cleanup failure for a
+        // disabled user must not fail the whole sync.
+        var bobId = Guid.NewGuid();
+        var bob = new Jellyfin.Database.Implementations.Entities.User("Bob", "default", "default") { Id = bobId };
+        bob.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { bob });
+        _userManagerMock.Setup(m => m.GetUserById(bobId)).Returns(bob);
+        _libraryManagerMock
+            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes != null &&
+                q.IncludeItemTypes.Length == 1 &&
+                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
+            .Throws(new InvalidOperationException("db hiccup"));
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult>(),
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(0, syncResult.OldPlaylistsRemoved);
+        _pluginLogMock.Verify(
+            m => m.LogWarning(
+                "PlaylistSync",
+                It.Is<string>(s => s.Contains("Failed to remove stale playlists", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_DisabledSweepCancellation_Rethrows()
+    {
+        // Cancellation during disabled-user cleanup must propagate instead of being swallowed.
+        var bobId = Guid.NewGuid();
+        var bob = new Jellyfin.Database.Implementations.Entities.User("Bob", "default", "default") { Id = bobId };
+        bob.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { bob });
+        _userManagerMock.Setup(m => m.GetUserById(bobId)).Returns(bob);
+        _libraryManagerMock
+            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
+                q.IncludeItemTypes != null &&
+                q.IncludeItemTypes.Length == 1 &&
+                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
+            .Throws(new OperationCanceledException());
+
+        var sut = CreateSut();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            sut.UpdatePlaylistsForAllUsersAsync(
+                new List<RecommendationResult>(),
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_RosterUnavailable_DisabledUserResolvedViaLookup_RemovesStaleAndSkipsCreation()
+    {
+        // A stale result for a user disabled after generation must not create a playlist
+        // when the roster is unavailable: the per-result GetUserById fallback routes them
+        // through disabled-user cleanup instead.
+        var bobId = Guid.NewGuid();
+        var bob = new Jellyfin.Database.Implementations.Entities.User("Bob", "default", "default") { Id = bobId };
+        bob.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Throws(new InvalidOperationException("db hiccup"));
+        _userManagerMock.Setup(m => m.GetUserById(bobId)).Returns(bob);
+        var stale = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Bob"));
+        SetupPlaylistLookup(new[] { stale });
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(bobId, "Bob", 3) },
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(1, syncResult.OldPlaylistsRemoved);
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+        _libraryManagerMock.Verify(
+            m => m.DeleteItem(stale, It.IsAny<DeleteOptions>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_RosterUnavailable_UnknownUser_SkipsResult()
+    {
+        // When the roster is unavailable and the user no longer resolves, the result is
+        // skipped instead of creating a playlist for a potentially deleted user.
+        var ghostId = Guid.NewGuid();
+        _userManagerMock.Setup(m => m.GetUsers()).Returns((IEnumerable<Jellyfin.Database.Implementations.Entities.User>)null!);
+        _userManagerMock.Setup(m => m.GetUserById(ghostId)).Returns((Jellyfin.Database.Implementations.Entities.User?)null);
+        SetupPlaylistQuery();
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(ghostId, "Ghost", 2) },
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(0, syncResult.PlaylistsFailed);
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_RosterUnavailable_LookupThrows_SkipsResult()
+    {
+        // A failing per-user lookup must skip the result without failing the sync or
+        // creating a playlist that could belong to a disabled user.
+        var aliceId = Guid.NewGuid();
+        _userManagerMock.Setup(m => m.GetUsers()).Throws(new InvalidOperationException("db hiccup"));
+        _userManagerMock.Setup(m => m.GetUserById(aliceId)).Throws(new InvalidOperationException("lookup hiccup"));
+        SetupPlaylistQuery();
+
+        var sut = CreateSut();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(
+            new List<RecommendationResult> { CreateResult(aliceId, "Alice", 2) },
+            CancellationToken.None);
+
+        Assert.Equal(0, syncResult.PlaylistsCreated);
+        Assert.Equal(0, syncResult.PlaylistsFailed);
+        _playlistManagerMock.Verify(
+            m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()),
+            Times.Never);
+        _pluginLogMock.Verify(
+            m => m.LogWarning(
+                "PlaylistSync",
+                It.Is<string>(s => s.Contains("user lookup failed", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
     }
 }
