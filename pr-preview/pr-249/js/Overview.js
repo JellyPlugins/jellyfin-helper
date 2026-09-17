@@ -160,9 +160,16 @@ function fillOverviewData(data) {
 
     for (const lib of libraries) {
         overviewHtml += '<tr>';
-        overviewHtml += '<td><button class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '"'
-            + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
-            + escHtml(lib.LibraryName) + '</button></td>';
+        // Only libraries with video dimensions (everything except music and books,
+        // which the explorer does not cover) link into the Library Explorer.
+        var libType = (lib.CollectionType || '').toLowerCase();
+        if (libType === 'music' || libType === 'books') {
+            overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
+        } else {
+            overviewHtml += '<td><button class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '"'
+                + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
+                + escHtml(lib.LibraryName) + '</button></td>';
+        }
         overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.VideoSize) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.AudioSize) + '</td>';
