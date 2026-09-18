@@ -152,7 +152,9 @@ test('bitrate editor offers an absolute range with a distribution preview', asyn
   const hi = parseFloat(await max.inputValue());
   expect(hi, 'fixture bitrates must span a real range').toBeGreaterThan(lo);
   // Narrowing the top end keeps a removable pill with an absolute label.
+  // Tab leaves the field so the change commits even when fill alone fires none.
   await max.fill(String(lo));
+  await max.press('Tab');
   await expect(page.locator('.codec-pill')).toContainText('Mbps', { timeout: 5_000 });
   await expect(page.locator('.codec-explorer-summary')).toContainText('Mbps');
 });

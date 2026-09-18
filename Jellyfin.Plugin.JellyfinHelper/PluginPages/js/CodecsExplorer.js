@@ -1359,6 +1359,14 @@ function previewBitrateRange() {
     runCodecsExplorerSearch();
 }
 
+// Enter commits without leaving the keyboard. Blurring fires the change handler,
+// so keyboard and pointer commits share one path.
+function commitBitrateOnEnter(evt) {
+    if (evt.key === 'Enter' && evt.target && typeof evt.target.blur === 'function') {
+        evt.target.blur();
+    }
+}
+
 // Commits the range on release. A range that spans everything equals Any,
 // so it collapses back to null instead of filtering nothing.
 function commitBitrateRange() {
@@ -1403,11 +1411,13 @@ function bindBitrateEditorHandlers() {
         minInput.onchange = function () {
             commitBitrateRange();
         };
+        minInput.onkeydown = commitBitrateOnEnter;
     }
     if (maxInput) {
         maxInput.onchange = function () {
             commitBitrateRange();
         };
+        maxInput.onkeydown = commitBitrateOnEnter;
     }
     const clear = editor.querySelector('[data-bitrate-clear]');
     if (clear) {
@@ -1450,13 +1460,15 @@ function attachCodecsExplorerHandlers() {
         document.addEventListener('click', function (evt) {
             const multi = evt.target?.closest?.('[data-multi-dim]');
             const libraries = evt.target?.closest?.('[data-library-widget]');
-            if (!multi && !libraries) {
-                closeExplorerMultis();
-            }
             // Pills stay interactive without collapsing the editor, so removing
             // several filters never forces the popover through reopen hops.
             const filterArea = evt.target?.closest?.('[data-filter-add]');
             const pillArea = evt.target?.closest?.('#codecFilterPills');
+            // Clicks inside the popover must not collapse its inline option panel,
+            // which the builder opens on purpose for the picked dimension.
+            if (!multi && !libraries && !filterArea) {
+                closeExplorerMultis();
+            }
             if (!filterArea && !pillArea) {
                 closeFilterPop();
             }
