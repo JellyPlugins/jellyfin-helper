@@ -10,9 +10,8 @@ const _codecsExplorerState = {libraries: null, filters: {}, expanded: false, sco
 let _codecMultiOpen = null;
 
 // Which filter popover view is open. Null hides it, add lists dimensions,
-// a dimension id or bitrate shows its editor. Search text narrows long option lists.
+// a dimension id or bitrate shows its editor.
 let _codecFilterOpen = null;
-let _codecFilterSearch = '';
 
 // Bitrate facet id used by the popover, pills, and range state. Buckets stay donut only.
 const CODEC_BITRATE_DIM = 'bitrate';
@@ -462,6 +461,30 @@ function collectScopePaths() {
     return paths;
 }
 
+// Starting path set before the range applies. A lone range covers every measured
+// file, or the scope files when a scope is picked. Null means no scan data.
+function baseExplorerPaths(active) {
+    if (active.length > 0) {
+        const intersected = intersectExplorerFilters(active);
+        if (intersected === null) {
+            return null;
+        }
+        return scopeExplorerPaths(intersected);
+    }
+    const scoped = {};
+    if (_codecsExplorerState.libraries === null) {
+        const map = getBitrateMap();
+        for (const path of Object.keys(map)) {
+            scoped[path] = true;
+        }
+    } else {
+        for (const path of collectScopePaths()) {
+            scoped[path] = true;
+        }
+    }
+    return scoped;
+}
+
 // Full result: intersection of all active filters, scoped. A bare scope without
 // filters lists the scope files; no scope and no filters show the idle hint.
 // A lone range starts from every measured file, or from the scope files when scoped.
@@ -471,25 +494,9 @@ function computeCodecsExplorerPaths() {
     if (active.length === 0 && !rangeActive) {
         return {paths: collectScopePaths(), active: active, bitrateActive: false};
     }
-    let scoped = null;
-    if (active.length === 0) {
-        scoped = {};
-        if (_codecsExplorerState.libraries === null) {
-            const map = getBitrateMap();
-            for (const path of Object.keys(map)) {
-                scoped[path] = true;
-            }
-        } else {
-            for (const path of collectScopePaths()) {
-                scoped[path] = true;
-            }
-        }
-    } else {
-        const intersected = intersectExplorerFilters(active);
-        if (intersected === null) {
-            return {paths: [], active: active, bitrateActive: rangeActive};
-        }
-        scoped = scopeExplorerPaths(intersected);
+    let scoped = baseExplorerPaths(active);
+    if (scoped === null) {
+        return {paths: [], active: active, bitrateActive: rangeActive};
     }
     if (rangeActive) {
         scoped = applyBitrateRange(scoped, _codecsExplorerState.bitrateRange);
@@ -728,10 +735,7 @@ function buildCodecsExplorerDimEditor() {
         title = T(dim.labelKey, dim.fallback);
         if (dim.multi) {
             _codecMultiOpen = dim.id;
-            body = '<input type="search" id="codecFilterSearch" class="codec-filter-search" autocomplete="off"'
-                + ' placeholder="' + escAttr(T('explorerSearchValues', 'Search values...')) + '"'
-                + ' value="' + escAttr(_codecFilterSearch) + '">'
-                + buildCodecsExplorerMulti(dim);
+            body = buildCodecsExplorerMulti(dim);
         } else {
             body = buildCodecsExplorerSelect(dim);
         }
@@ -1112,48 +1116,58 @@ function restoreExplorerFocus(descriptor) {
     if (!descriptor) {
         return;
     }
-    if (descriptor.filterAdd) {
-        document.getElementById('codecFilterAddBtn')?.focus({preventScroll: true});
+    if (restoreFilterFocus(descriptor)) {
         return;
     }
+    findExplorerFocusTarget(descriptor)?.focus({preventScroll: true});
+}
+
+// Refocuses a popover control by intent. True when handled, so the generic
+// control lookup below stays untouched.
+function restoreFilterFocus(descriptor) {
+    if (descriptor.filterAdd) {
+        document.getElementById('codecFilterAddBtn')?.focus({preventScroll: true});
+        return true;
+    }
     if (descriptor.filterDim) {
-        const editorSearch = document.getElementById('codecFilterSearch');
-        if (_codecFilterOpen === descriptor.filterDim && editorSearch) {
-            editorSearch.focus({preventScroll: true});
-            return;
-        }
         const back = document.getElementById('codecFilterBack');
         if (_codecFilterOpen === descriptor.filterDim && back) {
             back.focus({preventScroll: true});
-            return;
+        } else {
+            const dimBtn = document.querySelector('[data-filter-dim="' + descriptor.filterDim + '"]');
+            dimBtn?.focus({preventScroll: true});
         }
-        const dimBtn = document.querySelector('[data-filter-dim="' + descriptor.filterDim + '"]');
-        dimBtn?.focus({preventScroll: true});
-        return;
+        return true;
     }
-    let target = null;
+    return false;
+}
+
+// Locates a rebuilt control for focus restore. Boxes are found by value because
+// option order follows live match counts, so element ids are not stable for them.
+function findExplorerFocusTarget(descriptor) {
     if (descriptor.id) {
-        target = document.getElementById(descriptor.id);
-    } else if (descriptor.libraries) {
-        const widget = document.querySelector('[data-library-widget]');
-        const boxes = widget?.querySelectorAll('[data-library-option]') || [];
-        for (const box of boxes) {
-            if (box.value === descriptor.libraries) {
-                target = box;
-                break;
-            }
-        }
-    } else if (descriptor.dim) {
-        const scope = document.querySelector('[data-multi-dim="' + descriptor.dim + '"]');
-        const boxes = scope?.querySelectorAll('input[type="checkbox"]') || [];
-        for (const box of boxes) {
-            if (box.value === descriptor.value) {
-                target = box;
-                break;
-            }
+        return document.getElementById(descriptor.id);
+    }
+    if (descriptor.libraries) {
+        return findExplorerFocusBox('[data-library-widget]', '[data-library-option]', descriptor.libraries);
+    }
+    if (descriptor.dim) {
+        return findExplorerFocusBox('[data-multi-dim="' + descriptor.dim + '"]', 'input[type="checkbox"]', descriptor.value);
+    }
+    return null;
+}
+
+// First box in a scope whose value matches. A linear scan keeps the lookup
+// independent of option order.
+function findExplorerFocusBox(scopeSelector, boxSelector, value) {
+    const scope = document.querySelector(scopeSelector);
+    const boxes = scope?.querySelectorAll(boxSelector) || [];
+    for (const box of boxes) {
+        if (box.value === value) {
+            return box;
         }
     }
-    target?.focus({preventScroll: true});
+    return null;
 }
 
 function refreshCodecsExplorerControls() {
@@ -1193,6 +1207,9 @@ function onExplorerSelectChanged(select) {
     } else {
         delete _codecsExplorerState.filters[dimId];
     }
+    // A single pick completes the choice, so the popover collapses back to the
+    // bar. Multi editors stay open for picking further values.
+    _codecFilterOpen = null;
     refreshCodecsExplorerControls();
 }
 
@@ -1297,7 +1314,6 @@ function bindCodecsExplorerFilterHandlers() {
     for (const dimBtn of document.querySelectorAll('[data-filter-dim]')) {
         dimBtn.onclick = function () {
             _codecFilterOpen = dimBtn.dataset.filterDim;
-            _codecFilterSearch = '';
             refreshCodecsExplorerControls();
         };
     }
@@ -1310,7 +1326,6 @@ function bindCodecsExplorerFilterHandlers() {
     }
     bindPillHandlers();
     bindBitrateEditorHandlers();
-    bindFilterSearchHandler();
 }
 
 function bindPillHandlers() {
@@ -1335,8 +1350,8 @@ function readBitrateEditor() {
     const bounds = getBitrateBounds();
     const minInput = document.getElementById('codecBitrateMin');
     const maxInput = document.getElementById('codecBitrateMax');
-    let min = minInput ? parseFloat(minInput.value) : bounds.min;
-    let max = maxInput ? parseFloat(maxInput.value) : bounds.max;
+    let min = minInput ? Number.parseFloat(minInput.value) : bounds.min;
+    let max = maxInput ? Number.parseFloat(maxInput.value) : bounds.max;
     if (!Number.isFinite(min)) {
         min = bounds.min;
     }
@@ -1365,6 +1380,14 @@ function previewBitrateRange() {
         bindPillHandlers();
     }
     runCodecsExplorerSearch();
+}
+
+// Enter commits without leaving the keyboard. Blurring fires the change handler,
+// so keyboard and pointer commits share one path.
+function commitBitrateOnEnter(evt) {
+    if (evt.key === 'Enter' && evt.target && typeof evt.target.blur === 'function') {
+        evt.target.blur();
+    }
 }
 
 // Commits the range on release. A range that spans everything equals Any,
@@ -1411,11 +1434,13 @@ function bindBitrateEditorHandlers() {
         minInput.onchange = function () {
             commitBitrateRange();
         };
+        minInput.onkeydown = commitBitrateOnEnter;
     }
     if (maxInput) {
         maxInput.onchange = function () {
             commitBitrateRange();
         };
+        maxInput.onkeydown = commitBitrateOnEnter;
     }
     const clear = editor.querySelector('[data-bitrate-clear]');
     if (clear) {
@@ -1423,30 +1448,6 @@ function bindBitrateEditorHandlers() {
             _codecsExplorerState.bitrateRange = null;
             refreshCodecsExplorerControls();
         };
-    }
-}
-
-// Narrows the open multi option list as the user types. Pure DOM filtering keeps
-// focus in the box, which a control rebuild would steal on every keystroke.
-function bindFilterSearchHandler() {
-    const search = document.getElementById('codecFilterSearch');
-    if (!search) {
-        return;
-    }
-    search.value = _codecFilterSearch;
-    search.oninput = function () {
-        _codecFilterSearch = search.value;
-        const query = _codecFilterSearch.toLowerCase();
-        const editor = search.closest('.codec-filter-editor');
-        const items = editor ? editor.querySelectorAll('.codec-multi-item') : [];
-        for (const item of items) {
-            const name = item.querySelector('.codec-multi-name');
-            const text = name ? name.textContent.toLowerCase() : '';
-            item.style.display = text.includes(query) ? '' : 'none';
-        }
-    };
-    if (_codecFilterSearch) {
-        search.oninput();
     }
 }
 
@@ -1472,7 +1473,6 @@ function attachCodecsExplorerHandlers() {
             _codecsExplorerState.filters = {};
             _codecsExplorerState.bitrateRange = null;
             _codecFilterOpen = null;
-            _codecFilterSearch = '';
             _codecMultiOpen = null;
             refreshCodecsExplorerControls();
         };
@@ -1483,13 +1483,15 @@ function attachCodecsExplorerHandlers() {
         document.addEventListener('click', function (evt) {
             const multi = evt.target?.closest?.('[data-multi-dim]');
             const libraries = evt.target?.closest?.('[data-library-widget]');
-            if (!multi && !libraries) {
-                closeExplorerMultis();
-            }
             // Pills stay interactive without collapsing the editor, so removing
             // several filters never forces the popover through reopen hops.
             const filterArea = evt.target?.closest?.('[data-filter-add]');
             const pillArea = evt.target?.closest?.('#codecFilterPills');
+            // Clicks inside the popover must not collapse its inline option panel,
+            // which the builder opens on purpose for the picked dimension.
+            if (!multi && !libraries && !filterArea) {
+                closeExplorerMultis();
+            }
             if (!filterArea && !pillArea) {
                 closeFilterPop();
             }
@@ -1546,7 +1548,6 @@ function openCodecsExplorer(scope) {
     _codecsExplorerState.filters = {};
     _codecsExplorerState.bitrateRange = null;
     _codecFilterOpen = null;
-    _codecFilterSearch = '';
     _codecsExplorerState.expanded = true;
     const tabBtn = document.querySelector('.tab-btn[data-tab="codecs"]');
     tabBtn?.click();
