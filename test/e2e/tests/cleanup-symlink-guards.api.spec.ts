@@ -133,10 +133,12 @@ test.describe.serial('cleanup stages refuse reparse points but still delete genu
     // A folder that would look empty/orphaned (no video anywhere in its own tree) BUT contains a symlinked subdirectory.
     const linkTarget = '/config/jfh-empty-link-target';
     containerWriteFile(`${linkTarget}/data.txt`, 'TARGET');
-    test.skip(
-      !containerFileExists(`${linkTarget}/data.txt`),
-      '/config/jfh-empty-link-target not writable in this environment - cannot seed the link target',
-    );
+    // The docker gate in ensureCanariesPlanted skips without a container; a missing
+    // seed with docker present means the setup broke - fail, don't skip.
+    expect(
+      containerFileExists(`${linkTarget}/data.txt`),
+      '/config/jfh-empty-link-target must be writable to seed the link target',
+    ).toBe(true);
 
     containerMkdir(`${M}/Unresolved Folder (2020)`);
     // A non-video file so it looks like an empty/metadata-only orphan...

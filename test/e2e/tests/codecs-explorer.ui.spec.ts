@@ -40,8 +40,10 @@ test('combining two filters narrows the result and shows both values', async ({ 
   await openExplorer(page);
   const resolution = page.locator('select[data-explorer-dim="resolutions"]');
   const codec = page.locator('select[data-explorer-dim="videoCodecs"]');
-  test.skip((await resolution.locator('option').count()) <= 1, 'no resolution data on this server');
-  test.skip((await codec.locator('option').count()) <= 1, 'no video codec data on this server');
+  // gen-media.sh writes multiple resolutions and codecs; a single placeholder option
+  // means the scan or the stats pipeline broke - fail instead of skipping.
+  expect(await resolution.locator('option').count(), 'resolution filter must offer fixture data').toBeGreaterThan(1);
+  expect(await codec.locator('option').count(), 'video codec filter must offer fixture data').toBeGreaterThan(1);
 
   await resolution.selectOption({ index: 1 });
   const firstValue = await resolution.inputValue();
@@ -69,7 +71,9 @@ test('overview library row deep-links into the explorer with preset library', as
   await openDashboard(page);
   await switchTab(page, 'overview');
   const link = page.locator('#overviewContent .library-table [data-codec-explore-library]').first();
-  test.skip((await link.count()) === 0, 'no libraries on this server');
+  // global-setup always creates Movies/Shows/Books; zero rows means the libraries or
+  // the overview table broke - fail instead of skipping.
+  expect(await link.count(), 'overview must list fixture libraries').toBeGreaterThan(0);
   const libName = await link.getAttribute('data-codec-explore-library');
   await link.click();
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
@@ -88,7 +92,7 @@ test('overview movies card deep-links into the explorer with scoped libraries', 
   await openDashboard(page);
   await switchTab(page, 'overview');
   const card = page.locator('.stat-card-link[data-codec-explore-library="type:movies"]');
-  test.skip((await card.count()) === 0, 'no movie libraries on this server');
+  expect(await card.count(), 'overview must link the fixture Movies library').toBeGreaterThan(0);
   await card.first().click();
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
   await page.locator('[data-library-toggle]').click();
@@ -98,13 +102,15 @@ test('overview movies card deep-links into the explorer with scoped libraries', 
 test('language multi-dropdown selects several values and lists all in the summary', async ({ page }) => {
   await openExplorer(page);
   const toggle = page.locator('[data-multi-toggle="audioLanguages"]');
-  test.skip((await toggle.count()) === 0, 'no audio language data on this server');
-  test.skip(await toggle.isDisabled(), 'audio language options are all empty on this server');
+  // The fixture videos carry multiple audio languages; missing or disabled controls
+  // mean the scan or the stats pipeline broke - fail instead of skipping.
+  expect(await toggle.count(), 'audio language filter must exist').toBeGreaterThan(0);
+  expect(await toggle.isDisabled(), 'audio language filter must be enabled on the fixture library').toBe(false);
   await toggle.click();
   const panel = page.locator('[data-multi-panel="audioLanguages"]');
   await expect(panel).toBeVisible({ timeout: 5_000 });
   const boxes = panel.locator('input[type="checkbox"]');
-  test.skip((await boxes.count()) < 2, 'not enough audio languages on this server');
+  expect(await boxes.count(), 'fixture must provide at least two audio languages').toBeGreaterThanOrEqual(2);
   await boxes.nth(0).check();
   await boxes.nth(1).check();
   const first = await boxes.nth(0).inputValue();
@@ -120,7 +126,7 @@ test('language multi-dropdown selects several values and lists all in the summar
 test('reset clears filters and scope, showing the idle hint again', async ({ page }) => {
   await openExplorer(page);
   const resolution = page.locator('select[data-explorer-dim="resolutions"]');
-  test.skip((await resolution.locator('option').count()) <= 1, 'no resolution data on this server');
+  expect(await resolution.locator('option').count(), 'resolution filter must offer fixture data').toBeGreaterThan(1);
   await resolution.selectOption({ index: 1 });
   await expect(page.locator('.codec-explorer-summary')).toBeVisible({ timeout: 5_000 });
   await page.locator('#codecExplorerReset').click();

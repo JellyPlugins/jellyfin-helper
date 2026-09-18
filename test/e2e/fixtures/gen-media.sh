@@ -32,17 +32,23 @@ make_clip() {
 
 # ---- Movies: varied codecs / resolutions / dynamic range ------------------
 # Names follow Jellyfin's expected "Title (Year)/Title (Year).ext" layout.
+# Audio tracks carry language tags on purpose: the Codecs explorer's audio-language
+# multi-select needs at least two distinct languages, and untagged tracks would leave
+# it empty (its tests must fail loudly then, not skip).
 
-# 1080p H.264 SDR
-make_clip "$MOVIES/Aurora Skies (2019)/Aurora Skies (2019).mkv" 1920 1080 libx264
+# 1080p H.264 SDR, English audio
+make_clip "$MOVIES/Aurora Skies (2019)/Aurora Skies (2019).mkv" 1920 1080 libx264 \
+  -metadata:s:a:0 language=eng
 
-# 4K HEVC HDR10 (real HDR metadata so DynamicRange analysis has something)
+# 4K HEVC HDR10 (real HDR metadata so DynamicRange analysis has something), English audio
 make_clip "$MOVIES/Nebula Drift (2021)/Nebula Drift (2021).mkv" 3840 2160 libx265 \
   -pix_fmt yuv420p10le \
-  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc
+  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+  -metadata:s:a:0 language=eng
 
-# 720p H.264 SDR, WITH an external subtitle that has a matching video (valid, must NOT be cleaned)
-make_clip "$MOVIES/Copper Canyon (2015)/Copper Canyon (2015).mkv" 1280 720 libx264
+# 720p H.264 SDR, German audio, WITH an external subtitle that has a matching video (valid, must NOT be cleaned)
+make_clip "$MOVIES/Copper Canyon (2015)/Copper Canyon (2015).mkv" 1280 720 libx264 \
+  -metadata:s:a:0 language=deu
 printf '1\n00:00:00,000 --> 00:00:01,000\nHello\n' \
   > "$MOVIES/Copper Canyon (2015)/Copper Canyon (2015).en.srt"
 
@@ -50,8 +56,10 @@ printf '1\n00:00:00,000 --> 00:00:01,000\nHello\n' \
 make_clip "$MOVIES/Old Reel (1998)/Old Reel (1998).mp4" 640 480 mpeg4
 
 # ---- Shows: a couple of episodes -----------------------------------------
-make_clip "$SHOWS/Test Show/Season 01/Test Show S01E01.mkv" 1920 1080 libx264
-make_clip "$SHOWS/Test Show/Season 01/Test Show S01E02.mkv" 1280 720 libx265
+make_clip "$SHOWS/Test Show/Season 01/Test Show S01E01.mkv" 1920 1080 libx264 \
+  -metadata:s:a:0 language=eng
+make_clip "$SHOWS/Test Show/Season 01/Test Show S01E02.mkv" 1280 720 libx265 \
+  -metadata:s:a:0 language=eng
 
 # ---- Cleanup fixtures (deliberately broken/orphaned) ----------------------
 

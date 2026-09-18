@@ -42,8 +42,10 @@ export default defineConfig({
       name: 'ui',
       testMatch: /\.ui\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
-      // UI tests assume config/library exist; run after api mutations settle.
-      dependencies: ['api'],
+      // No dependencies entry on purpose: with workers:1 the api project still runs
+      // first (declaration order), but a single api failure no longer marks the whole
+      // ui project "did not run" - cascading skips hid the real signal. UI specs only
+      // rely on global-setup state (libraries, seeded timeline), not on api specs.
     },
   ],
 });

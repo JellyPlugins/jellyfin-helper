@@ -51,7 +51,9 @@ test('growth timeline contains no negative or future data', async () => {
     // A genuine server error must fail the test, not silently skip it.
     expect(res.status(), 'unexpected GrowthTimeline status').toBeLessThan(500);
   }
-  test.skip(!body, 'timeline not available yet');
+  // global-setup seeds and verifies the timeline, so a missing body means the seed
+  // or the endpoint broke - fail instead of skipping into a vacuous pass.
+  expect(body, 'growth timeline must be available (seeded by global-setup)').toBeTruthy();
 
   const now = Date.now();
   const points: Array<any> = body.DataPoints ?? body.dataPoints ?? [];
