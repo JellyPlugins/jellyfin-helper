@@ -461,6 +461,30 @@ function collectScopePaths() {
     return paths;
 }
 
+// Starting path set before the range applies. A lone range covers every measured
+// file, or the scope files when a scope is picked. Null means no scan data.
+function baseExplorerPaths(active) {
+    if (active.length > 0) {
+        const intersected = intersectExplorerFilters(active);
+        if (intersected === null) {
+            return null;
+        }
+        return scopeExplorerPaths(intersected);
+    }
+    const scoped = {};
+    if (_codecsExplorerState.libraries === null) {
+        const map = getBitrateMap();
+        for (const path of Object.keys(map)) {
+            scoped[path] = true;
+        }
+    } else {
+        for (const path of collectScopePaths()) {
+            scoped[path] = true;
+        }
+    }
+    return scoped;
+}
+
 // Full result: intersection of all active filters, scoped. A bare scope without
 // filters lists the scope files; no scope and no filters show the idle hint.
 // A lone range starts from every measured file, or from the scope files when scoped.
@@ -470,25 +494,9 @@ function computeCodecsExplorerPaths() {
     if (active.length === 0 && !rangeActive) {
         return {paths: collectScopePaths(), active: active, bitrateActive: false};
     }
-    let scoped = null;
-    if (active.length === 0) {
-        scoped = {};
-        if (_codecsExplorerState.libraries === null) {
-            const map = getBitrateMap();
-            for (const path of Object.keys(map)) {
-                scoped[path] = true;
-            }
-        } else {
-            for (const path of collectScopePaths()) {
-                scoped[path] = true;
-            }
-        }
-    } else {
-        const intersected = intersectExplorerFilters(active);
-        if (intersected === null) {
-            return {paths: [], active: active, bitrateActive: rangeActive};
-        }
-        scoped = scopeExplorerPaths(intersected);
+    let scoped = baseExplorerPaths(active);
+    if (scoped === null) {
+        return {paths: [], active: active, bitrateActive: rangeActive};
     }
     if (rangeActive) {
         scoped = applyBitrateRange(scoped, _codecsExplorerState.bitrateRange);
@@ -1108,43 +1116,58 @@ function restoreExplorerFocus(descriptor) {
     if (!descriptor) {
         return;
     }
+    if (restoreFilterFocus(descriptor)) {
+        return;
+    }
+    findExplorerFocusTarget(descriptor)?.focus({preventScroll: true});
+}
+
+// Refocuses a popover control by intent. True when handled, so the generic
+// control lookup below stays untouched.
+function restoreFilterFocus(descriptor) {
     if (descriptor.filterAdd) {
         document.getElementById('codecFilterAddBtn')?.focus({preventScroll: true});
-        return;
+        return true;
     }
     if (descriptor.filterDim) {
         const back = document.getElementById('codecFilterBack');
         if (_codecFilterOpen === descriptor.filterDim && back) {
             back.focus({preventScroll: true});
-            return;
+        } else {
+            const dimBtn = document.querySelector('[data-filter-dim="' + descriptor.filterDim + '"]');
+            dimBtn?.focus({preventScroll: true});
         }
-        const dimBtn = document.querySelector('[data-filter-dim="' + descriptor.filterDim + '"]');
-        dimBtn?.focus({preventScroll: true});
-        return;
+        return true;
     }
-    let target = null;
+    return false;
+}
+
+// Locates a rebuilt control for focus restore. Boxes are found by value because
+// option order follows live match counts, so element ids are not stable for them.
+function findExplorerFocusTarget(descriptor) {
     if (descriptor.id) {
-        target = document.getElementById(descriptor.id);
-    } else if (descriptor.libraries) {
-        const widget = document.querySelector('[data-library-widget]');
-        const boxes = widget?.querySelectorAll('[data-library-option]') || [];
-        for (const box of boxes) {
-            if (box.value === descriptor.libraries) {
-                target = box;
-                break;
-            }
-        }
-    } else if (descriptor.dim) {
-        const scope = document.querySelector('[data-multi-dim="' + descriptor.dim + '"]');
-        const boxes = scope?.querySelectorAll('input[type="checkbox"]') || [];
-        for (const box of boxes) {
-            if (box.value === descriptor.value) {
-                target = box;
-                break;
-            }
+        return document.getElementById(descriptor.id);
+    }
+    if (descriptor.libraries) {
+        return findExplorerFocusBox('[data-library-widget]', '[data-library-option]', descriptor.libraries);
+    }
+    if (descriptor.dim) {
+        return findExplorerFocusBox('[data-multi-dim="' + descriptor.dim + '"]', 'input[type="checkbox"]', descriptor.value);
+    }
+    return null;
+}
+
+// First box in a scope whose value matches. A linear scan keeps the lookup
+// independent of option order.
+function findExplorerFocusBox(scopeSelector, boxSelector, value) {
+    const scope = document.querySelector(scopeSelector);
+    const boxes = scope?.querySelectorAll(boxSelector) || [];
+    for (const box of boxes) {
+        if (box.value === value) {
+            return box;
         }
     }
-    target?.focus({preventScroll: true});
+    return null;
 }
 
 function refreshCodecsExplorerControls() {
@@ -1327,8 +1350,8 @@ function readBitrateEditor() {
     const bounds = getBitrateBounds();
     const minInput = document.getElementById('codecBitrateMin');
     const maxInput = document.getElementById('codecBitrateMax');
-    let min = minInput ? parseFloat(minInput.value) : bounds.min;
-    let max = maxInput ? parseFloat(maxInput.value) : bounds.max;
+    let min = minInput ? Number.parseFloat(minInput.value) : bounds.min;
+    let max = maxInput ? Number.parseFloat(maxInput.value) : bounds.max;
     if (!Number.isFinite(min)) {
         min = bounds.min;
     }

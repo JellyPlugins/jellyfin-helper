@@ -301,10 +301,9 @@
     margin: 0 0 0.8em 0;
 }
 
+/* Filter bar holds library scope plus add filter plus active pills in one wrapping row. */
 .codec-explorer-controls {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 0.7em;
+    display: block;
     margin-bottom: 0.8em;
 }
 
@@ -453,18 +452,12 @@
     font-size: 0.85em;
 }
 
-/* Filter bar: library scope plus add filter plus active pills in one wrapping row. */
-.codec-explorer-controls {
-    display: block;
-}
-
 /* Bottom aligned so the button and the pills share one line with the library toggle. */
 .codec-filter-bar {
     display: flex;
     flex-wrap: wrap;
     gap: 0.6em;
     align-items: flex-end;
-    margin-bottom: 0.8em;
 }
 
 .codec-filter-bar .codec-multi {
