@@ -421,5 +421,11 @@
   "explorerNeverWatched": "Nunca visto",
   "explorerFileSize": "Tamaño",
   "explorerOnePlay": "1 reproducción",
-  "explorerManyPlays": "{count} reproducciones"
+  "explorerManyPlays": "{count} reproducciones",
+  "explorerAddFilter": "Añadir filtro",
+  "explorerSearchValues": "Buscar valores...",
+  "explorerBack": "Atrás",
+  "explorerBitrateMin": "Mín (Mbps)",
+  "explorerBitrateMax": "Máx (Mbps)",
+  "explorerBitrateNoData": "Aún no hay datos de tasa de bits. Ejecuta un nuevo análisis para filtrar por tasa absoluta."
 }

@@ -421,5 +421,11 @@
   "explorerNeverWatched": "Hiç izlenmedi",
   "explorerFileSize": "Boyut",
   "explorerOnePlay": "1 oynatma",
-  "explorerManyPlays": "{count} oynatma"
+  "explorerManyPlays": "{count} oynatma",
+  "explorerAddFilter": "Filtre ekle",
+  "explorerSearchValues": "Değer ara...",
+  "explorerBack": "Geri",
+  "explorerBitrateMin": "Min (Mbps)",
+  "explorerBitrateMax": "Maks (Mbps)",
+  "explorerBitrateNoData": "Henüz bit hızı verisi yok. Mutlak bit hızına göre filtrelemek için yeni tarama çalıştırın."
 }

@@ -421,5 +421,11 @@
   "explorerNeverWatched": "Nunca assistido",
   "explorerFileSize": "Tamanho",
   "explorerOnePlay": "1 reprodução",
-  "explorerManyPlays": "{count} reproduções"
+  "explorerManyPlays": "{count} reproduções",
+  "explorerAddFilter": "Adicionar filtro",
+  "explorerSearchValues": "Pesquisar valores...",
+  "explorerBack": "Voltar",
+  "explorerBitrateMin": "Mín (Mbps)",
+  "explorerBitrateMax": "Máx (Mbps)",
+  "explorerBitrateNoData": "Sem dados de bitrate. Execute uma nova verificação para filtrar por bitrate absoluto."
 }

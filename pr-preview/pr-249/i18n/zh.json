@@ -421,5 +421,11 @@
   "explorerNeverWatched": "从未观看",
   "explorerFileSize": "大小",
   "explorerOnePlay": "1 次播放",
-  "explorerManyPlays": "{count} 次播放"
+  "explorerManyPlays": "{count} 次播放",
+  "explorerAddFilter": "添加筛选",
+  "explorerSearchValues": "搜索值...",
+  "explorerBack": "返回",
+  "explorerBitrateMin": "最小 (Mbps)",
+  "explorerBitrateMax": "最大 (Mbps)",
+  "explorerBitrateNoData": "暂无码率数据。运行新的扫描以按绝对码率筛选。"
 }
