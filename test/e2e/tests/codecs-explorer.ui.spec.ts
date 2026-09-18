@@ -17,6 +17,13 @@ async function openExplorer(page: Page): Promise<Locator> {
   return toggle;
 }
 
+async function openDimEditor(page: Page, dimId: string): Promise<void> {
+  await page.locator('#codecFilterAddBtn').click();
+  const dim = page.locator(`[data-filter-dim="${dimId}"]`);
+  await expect(dim).toBeVisible({ timeout: 5_000 });
+  await dim.click();
+}
+
 test('explorer starts collapsed and expands without JS errors', async ({ page }) => {
   const errors = trackConsoleErrors(page);
   await openDashboard(page);
@@ -38,22 +45,29 @@ test('explorer asks for a filter before listing anything', async ({ page }) => {
 
 test('combining two filters narrows the result and shows both values', async ({ page }) => {
   await openExplorer(page);
-  const resolution = page.locator('select[data-explorer-dim="resolutions"]');
-  const codec = page.locator('select[data-explorer-dim="videoCodecs"]');
+
+  await openDimEditor(page, 'resolutions');
+  const resolution = page.locator('.codec-filter-editor select[data-explorer-dim="resolutions"]');
   // gen-media.sh writes multiple resolutions and codecs; a single placeholder option
   // means the scan or the stats pipeline broke - fail instead of skipping.
   expect(await resolution.locator('option').count(), 'resolution filter must offer fixture data').toBeGreaterThan(1);
-  expect(await codec.locator('option').count(), 'video codec filter must offer fixture data').toBeGreaterThan(1);
-
+  const firstValue = (await resolution.locator('option').nth(1).getAttribute('value')) ?? '';
+  expect(firstValue.length, 'resolution option must carry a value').toBeGreaterThan(0);
   await resolution.selectOption({ index: 1 });
-  const firstValue = await resolution.inputValue();
+  // A single pick collapses the popover back to the bar with a removable pill.
+  await expect(page.locator('[data-filter-pop]')).toHaveCount(0);
+  await expect(page.locator('.codec-pill')).toContainText(firstValue, { timeout: 5_000 });
   const summary = page.locator('.codec-explorer-summary');
   await expect(summary).toBeVisible({ timeout: 5_000 });
   await expect(summary).toContainText(firstValue);
   const firstCount = await countFromSummary(summary);
 
+  await openDimEditor(page, 'videoCodecs');
+  const codec = page.locator('.codec-filter-editor select[data-explorer-dim="videoCodecs"]');
+  expect(await codec.locator('option').count(), 'video codec filter must offer fixture data').toBeGreaterThan(1);
+  const secondValue = (await codec.locator('option').nth(1).getAttribute('value')) ?? '';
+  expect(secondValue.length, 'codec option must carry a value').toBeGreaterThan(0);
   await codec.selectOption({ index: 1 });
-  const secondValue = await codec.inputValue();
   await expect(summary).toContainText(secondValue, { timeout: 5_000 });
   const combinedCount = await countFromSummary(summary);
 
@@ -101,13 +115,13 @@ test('overview movies card deep-links into the explorer with scoped libraries', 
 
 test('language multi-dropdown selects several values and lists all in the summary', async ({ page }) => {
   await openExplorer(page);
-  const toggle = page.locator('[data-multi-toggle="audioLanguages"]');
+  await openDimEditor(page, 'audioLanguages');
+  const toggle = page.locator('.codec-filter-editor [data-multi-toggle="audioLanguages"]');
   // The fixture videos carry multiple audio languages; missing or disabled controls
   // mean the scan or the stats pipeline broke - fail instead of skipping.
   expect(await toggle.count(), 'audio language filter must exist').toBeGreaterThan(0);
   expect(await toggle.isDisabled(), 'audio language filter must be enabled on the fixture library').toBe(false);
-  await toggle.click();
-  const panel = page.locator('[data-multi-panel="audioLanguages"]');
+  const panel = page.locator('.codec-filter-editor [data-multi-panel="audioLanguages"]');
   await expect(panel).toBeVisible({ timeout: 5_000 });
   const boxes = panel.locator('input[type="checkbox"]');
   expect(await boxes.count(), 'fixture must provide at least two audio languages').toBeGreaterThanOrEqual(2);
@@ -115,7 +129,7 @@ test('language multi-dropdown selects several values and lists all in the summar
   await boxes.nth(1).check();
   const first = await boxes.nth(0).inputValue();
   const second = await boxes.nth(1).inputValue();
-  const summary = page.locator('[data-multi-toggle="audioLanguages"] .codec-multi-summary');
+  const summary = page.locator('.codec-filter-editor [data-multi-toggle="audioLanguages"] .codec-multi-summary');
   await expect(summary).toContainText(first, { timeout: 5_000 });
   await expect(summary).toContainText(second);
   const resultSummary = page.locator('.codec-explorer-summary');
@@ -123,9 +137,30 @@ test('language multi-dropdown selects several values and lists all in the summar
   await expect(resultSummary).toContainText(second);
 });
 
+test('bitrate editor offers an absolute range with a distribution preview', async ({ page }) => {
+  await openExplorer(page);
+  await openDimEditor(page, 'bitrate');
+  const editor = page.locator('[data-bitrate-editor]');
+  // The fixture clips are real ffmpeg files with measurable streams; a missing
+  // editor means the per file bitrate pipeline broke - fail instead of skipping.
+  await expect(editor).toBeVisible({ timeout: 5_000 });
+  const bars = editor.locator('.codec-bitrate-bar');
+  expect(await bars.count(), 'bitrate histogram must render bins').toBeGreaterThan(0);
+  const min = page.locator('#codecBitrateMin');
+  const max = page.locator('#codecBitrateMax');
+  const lo = parseFloat(await min.inputValue());
+  const hi = parseFloat(await max.inputValue());
+  expect(hi, 'fixture bitrates must span a real range').toBeGreaterThan(lo);
+  // Narrowing the top end keeps a removable pill with an absolute label.
+  await max.fill(String(lo));
+  await expect(page.locator('.codec-pill')).toContainText('Mbps', { timeout: 5_000 });
+  await expect(page.locator('.codec-explorer-summary')).toContainText('Mbps');
+});
+
 test('reset clears filters and scope, showing the idle hint again', async ({ page }) => {
   await openExplorer(page);
-  const resolution = page.locator('select[data-explorer-dim="resolutions"]');
+  await openDimEditor(page, 'resolutions');
+  const resolution = page.locator('.codec-filter-editor select[data-explorer-dim="resolutions"]');
   expect(await resolution.locator('option').count(), 'resolution filter must offer fixture data').toBeGreaterThan(1);
   await resolution.selectOption({ index: 1 });
   await expect(page.locator('.codec-explorer-summary')).toBeVisible({ timeout: 5_000 });

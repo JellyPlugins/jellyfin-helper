@@ -10,9 +10,8 @@ const _codecsExplorerState = {libraries: null, filters: {}, expanded: false, sco
 let _codecMultiOpen = null;
 
 // Which filter popover view is open. Null hides it, add lists dimensions,
-// a dimension id or bitrate shows its editor. Search text narrows long option lists.
+// a dimension id or bitrate shows its editor.
 let _codecFilterOpen = null;
-let _codecFilterSearch = '';
 
 // Bitrate facet id used by the popover, pills, and range state. Buckets stay donut only.
 const CODEC_BITRATE_DIM = 'bitrate';
@@ -728,10 +727,7 @@ function buildCodecsExplorerDimEditor() {
         title = T(dim.labelKey, dim.fallback);
         if (dim.multi) {
             _codecMultiOpen = dim.id;
-            body = '<input type="search" id="codecFilterSearch" class="codec-filter-search" autocomplete="off"'
-                + ' placeholder="' + escAttr(T('explorerSearchValues', 'Search values...')) + '"'
-                + ' value="' + escAttr(_codecFilterSearch) + '">'
-                + buildCodecsExplorerMulti(dim);
+            body = buildCodecsExplorerMulti(dim);
         } else {
             body = buildCodecsExplorerSelect(dim);
         }
@@ -1117,11 +1113,6 @@ function restoreExplorerFocus(descriptor) {
         return;
     }
     if (descriptor.filterDim) {
-        const editorSearch = document.getElementById('codecFilterSearch');
-        if (_codecFilterOpen === descriptor.filterDim && editorSearch) {
-            editorSearch.focus({preventScroll: true});
-            return;
-        }
         const back = document.getElementById('codecFilterBack');
         if (_codecFilterOpen === descriptor.filterDim && back) {
             back.focus({preventScroll: true});
@@ -1193,6 +1184,9 @@ function onExplorerSelectChanged(select) {
     } else {
         delete _codecsExplorerState.filters[dimId];
     }
+    // A single pick completes the choice, so the popover collapses back to the
+    // bar. Multi editors stay open for picking further values.
+    _codecFilterOpen = null;
     refreshCodecsExplorerControls();
 }
 
@@ -1297,7 +1291,6 @@ function bindCodecsExplorerFilterHandlers() {
     for (const dimBtn of document.querySelectorAll('[data-filter-dim]')) {
         dimBtn.onclick = function () {
             _codecFilterOpen = dimBtn.dataset.filterDim;
-            _codecFilterSearch = '';
             refreshCodecsExplorerControls();
         };
     }
@@ -1310,7 +1303,6 @@ function bindCodecsExplorerFilterHandlers() {
     }
     bindPillHandlers();
     bindBitrateEditorHandlers();
-    bindFilterSearchHandler();
 }
 
 function bindPillHandlers() {
@@ -1426,30 +1418,6 @@ function bindBitrateEditorHandlers() {
     }
 }
 
-// Narrows the open multi option list as the user types. Pure DOM filtering keeps
-// focus in the box, which a control rebuild would steal on every keystroke.
-function bindFilterSearchHandler() {
-    const search = document.getElementById('codecFilterSearch');
-    if (!search) {
-        return;
-    }
-    search.value = _codecFilterSearch;
-    search.oninput = function () {
-        _codecFilterSearch = search.value;
-        const query = _codecFilterSearch.toLowerCase();
-        const editor = search.closest('.codec-filter-editor');
-        const items = editor ? editor.querySelectorAll('.codec-multi-item') : [];
-        for (const item of items) {
-            const name = item.querySelector('.codec-multi-name');
-            const text = name ? name.textContent.toLowerCase() : '';
-            item.style.display = text.includes(query) ? '' : 'none';
-        }
-    };
-    if (_codecFilterSearch) {
-        search.oninput();
-    }
-}
-
 function attachCodecsExplorerHandlers() {
     const toggle = document.getElementById('codecExplorerToggle');
     if (toggle) {
@@ -1472,7 +1440,6 @@ function attachCodecsExplorerHandlers() {
             _codecsExplorerState.filters = {};
             _codecsExplorerState.bitrateRange = null;
             _codecFilterOpen = null;
-            _codecFilterSearch = '';
             _codecMultiOpen = null;
             refreshCodecsExplorerControls();
         };
@@ -1546,7 +1513,6 @@ function openCodecsExplorer(scope) {
     _codecsExplorerState.filters = {};
     _codecsExplorerState.bitrateRange = null;
     _codecFilterOpen = null;
-    _codecFilterSearch = '';
     _codecsExplorerState.expanded = true;
     const tabBtn = document.querySelector('.tab-btn[data-tab="codecs"]');
     tabBtn?.click();
