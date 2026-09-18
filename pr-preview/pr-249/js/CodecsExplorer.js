@@ -3,26 +3,26 @@
 // Library Explorer (Codecs tab): Collapsible targeted file filter; charts stay static.
 // - Faceted filtering: Hides 0-result options (active selections stay toggleable).
 // - Scope-aware: Disables empty dimensions; multi-select libraries (OR logic, null = all).
-var _codecsExplorerState = {libraries: null, filters: {}, expanded: false, scope: null};
+const _codecsExplorerState = {libraries: null, filters: {}, expanded: false, scope: null};
 
 // Which multi-dropdown panel is currently open (one at a time). Restored across
 // control rebuilds so choosing values does not collapse the panel.
-var _codecMultiOpen = null;
+let _codecMultiOpen = null;
 
 // Guard: the deep-link and panel-close handlers are registered once at document level.
-var _codecExploreLinkBound = false;
+let _codecExploreLinkBound = false;
 
 // Upper bound for rendered result files. The tree renders every leaf eagerly, so an
 // unbounded 10k-file result would freeze low-end phones. The hint tells how to narrow down.
-var CODEC_EXPLORER_MAX_FILES = 300;
+const CODEC_EXPLORER_MAX_FILES = 300;
 
 // Library type scopes (used by Overview cards and the scope dropdown).
-var CODEC_EXPLORER_TYPE_MOVIES = 'type:movies';
-var CODEC_EXPLORER_TYPE_TVSHOWS = 'type:tvshows';
-var CODEC_EXPLORER_TYPE_MUSIC = 'type:music';
-var CODEC_EXPLORER_TYPE_BOOKS = 'type:books';
+const CODEC_EXPLORER_TYPE_MOVIES = 'type:movies';
+const CODEC_EXPLORER_TYPE_TVSHOWS = 'type:tvshows';
+const CODEC_EXPLORER_TYPE_MUSIC = 'type:music';
+const CODEC_EXPLORER_TYPE_BOOKS = 'type:books';
 
-var CODEC_EXPLORER_TYPE_GROUPS = {};
+const CODEC_EXPLORER_TYPE_GROUPS = {};
 CODEC_EXPLORER_TYPE_GROUPS[CODEC_EXPLORER_TYPE_MOVIES] = 'movies';
 CODEC_EXPLORER_TYPE_GROUPS[CODEC_EXPLORER_TYPE_TVSHOWS] = 'tvshows';
 CODEC_EXPLORER_TYPE_GROUPS[CODEC_EXPLORER_TYPE_MUSIC] = 'music';
@@ -31,7 +31,7 @@ CODEC_EXPLORER_TYPE_GROUPS[CODEC_EXPLORER_TYPE_BOOKS] = 'books';
 // Explorer dimensions in display order. Dropdown dimensions allow multiple values (OR
 // within the dimension, e.g. German + English audio); the rest take a single value.
 // Paths reuse the Codecs tab maps so the explorer always agrees with the donuts below.
-var CODEC_EXPLORER_DIMENSIONS = [
+const CODEC_EXPLORER_DIMENSIONS = [
     {id: 'resolutions', pathsProp: 'ResolutionPaths', countProp: 'Resolutions', groups: ['movies', 'tvshows', 'other'], labelKey: 'resolutions', fallback: 'Resolution'},
     {id: 'videoCodecs', pathsProp: 'VideoCodecPaths', countProp: 'VideoCodecs', groups: ['movies', 'tvshows', 'other'], labelKey: 'videoCodecs', fallback: 'Video codec'},
     {id: 'videoAudioCodecs', pathsProp: 'VideoAudioCodecPaths', countProp: 'VideoAudioCodecs', groups: ['movies', 'tvshows', 'other'], labelKey: 'videoAudioCodecs', fallback: 'Audio codec'},
@@ -105,8 +105,8 @@ function codecExplorerIsWindowsPath(path) {
     return path.length > 2 && path[1] === ':' && (path[2] === '/' || path[2] === '\\');
 }
 
-function codecExplorerTrimRoot(root) {
-    let trimmed = root || '';
+function codecExplorerTrimRoot(root = '') {
+    let trimmed = root;
     while (trimmed.endsWith('/') || trimmed.endsWith('\\')) {
         trimmed = trimmed.slice(0, -1);
     }
@@ -229,29 +229,34 @@ function collectExplorerValuePaths(dim, value) {
 
 // Shared intersection core: union per dimension (OR within multi-selects), then AND
 // across dimensions. Returns the path map, or null without scan data.
+function unionExplorerPaths(dim, values) {
+    const union = {};
+    for (const value of values) {
+        for (const path of collectExplorerValuePaths(dim, value)) {
+            union[path] = true;
+        }
+    }
+    return union;
+}
+
+function intersectPathMaps(first, second) {
+    const next = {};
+    for (const key of Object.keys(first)) {
+        if (second[key]) {
+            next[key] = true;
+        }
+    }
+    return next;
+}
+
 function intersectExplorerFilters(active) {
     if (!_lastCodecData) {
         return null;
     }
     let result = null;
     for (const entry of active) {
-        const union = {};
-        for (const value of entry.values) {
-            for (const path of collectExplorerValuePaths(entry.dim, value)) {
-                union[path] = true;
-            }
-        }
-        if (result === null) {
-            result = union;
-        } else {
-            const next = {};
-            for (const key of Object.keys(result)) {
-                if (union[key]) {
-                    next[key] = true;
-                }
-            }
-            result = next;
-        }
+        const union = unionExplorerPaths(entry.dim, entry.values);
+        result = result === null ? union : intersectPathMaps(result, union);
     }
     return result === null ? {} : result;
 }
@@ -276,7 +281,7 @@ function scopeExplorerPaths(result) {
 // Intersection of every active filter except one dimension, scoped to the library scope.
 // Facet subsets cached per control rebuild: every option count of one refresh pass
 // reuses the same per-dimension subset instead of rescanning the library each time.
-var _explorerSubsetCache = {};
+let _explorerSubsetCache = {};
 
 function computePathsExcluding(exceptDimId) {
     if (!_lastCodecData) {
@@ -530,7 +535,7 @@ function explorerSummaryLabels(active) {
 
 // Per-file detail cards (rendered on demand below a result row): path, size, every
 // matching codec/language value plus a Watched expander listing who watched it.
-var _explorerDetailCache = {};
+let _explorerDetailCache = {};
 
 // First dimension value whose paths contain the file, or null.
 function findExplorerDimValue(dim, path) {
@@ -646,8 +651,8 @@ function buildExplorerFileDetail(path) {
 
 function toggleExplorerFileDetail(leaf) {
     const next = leaf.nextElementSibling;
-    if (next && next.classList.contains('codec-file-detail')) {
-        next.parentNode.removeChild(next);
+    if (next?.classList.contains('codec-file-detail')) {
+        next.remove();
         leaf.classList.remove('codec-file-open');
         return;
     }
@@ -762,7 +767,7 @@ function runCodecsExplorerSearch() {
 // their place while option lists update around them.
 function describeActiveExplorerControl() {
     const active = document.activeElement;
-    if (!active || !active.dataset) {
+    if (!active?.dataset) {
         return null;
     }
     if (active.id === 'codecMultiToggle_libraries') {
@@ -1034,39 +1039,42 @@ function openCodecsExplorer(scope) {
 // Drops scope/filter selections that no longer exist after a rescan, so the search
 // never filters by phantom values while the controls show "All libraries" or "Any".
 function pruneCodecsExplorerState() {
-    const libs = getCodecsExplorerLibraries();
     if (_codecsExplorerState.libraries !== null) {
-        const known = [];
-        for (const name of _codecsExplorerState.libraries) {
-            let found = false;
-            for (const lib of libs) {
-                if (lib.LibraryName === name) {
-                    found = true;
-                    break;
-                }
-            }
-            if (found) {
-                known.push(name);
-            }
-        }
-        _codecsExplorerState.libraries = known;
+        _codecsExplorerState.libraries = pruneExplorerScopeNames(
+            getCodecsExplorerLibraries(), _codecsExplorerState.libraries);
     }
     for (const dim of CODEC_EXPLORER_DIMENSIONS) {
-        const values = getCodecsExplorerSelection(dim.id);
-        if (values.length === 0) {
-            continue;
+        pruneExplorerDimSelection(dim);
+    }
+}
+
+function pruneExplorerScopeNames(libs, names) {
+    const known = [];
+    for (const name of names) {
+        if (libs.some(function (lib) {
+            return lib.LibraryName === name;
+        })) {
+            known.push(name);
         }
-        const universe = getExplorerUniverse(dim, getCodecsExplorerScopedLibraries(dim));
-        const kept = values.filter(function (v) {
-            return universe[v] > 0;
-        });
-        if (kept.length === 0) {
-            delete _codecsExplorerState.filters[dim.id];
-        } else if (dim.multi) {
-            _codecsExplorerState.filters[dim.id] = kept;
-        } else {
-            _codecsExplorerState.filters[dim.id] = kept[0];
-        }
+    }
+    return known;
+}
+
+function pruneExplorerDimSelection(dim) {
+    const values = getCodecsExplorerSelection(dim.id);
+    if (values.length === 0) {
+        return;
+    }
+    const universe = getExplorerUniverse(dim, getCodecsExplorerScopedLibraries(dim));
+    const kept = values.filter(function (v) {
+        return universe[v] > 0;
+    });
+    if (kept.length === 0) {
+        delete _codecsExplorerState.filters[dim.id];
+    } else if (dim.multi) {
+        _codecsExplorerState.filters[dim.id] = kept;
+    } else {
+        _codecsExplorerState.filters[dim.id] = kept[0];
     }
 }
 
