@@ -16,8 +16,8 @@ test.beforeAll(() => {
   seedGrowthTimeline();
 });
 
-// Opens the Trends tab and returns the chart locator, skipping the test if the chart has
-// no data yet (a fresh server may not have produced a timeline). The chart needs >= 2 points.
+// Opens the Trends tab and returns the chart locator. The chart needs >= 2 points,
+// which beforeAll guarantees by re-seeding; callers fail loudly when it is absent.
 async function openChart(page: Page) {
   await openDashboard(page);
   await switchTab(page, 'trends');
@@ -62,7 +62,8 @@ test.describe('trend chart desktop zoom/pan', () => {
   test('renders and shows a tooltip on hover', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     const chart = await openChart(page);
-    test.skip((await chart.count()) === 0, 'no trend data on this server');
+    // beforeAll re-seeds the multi-year series, so a missing chart means the seed or the renderer broke - fail instead of skipping.
+    expect(await chart.count(), 'trend chart must render the seeded timeline').toBeGreaterThan(0);
 
     await chart.locator('svg').hover({ position: { x: 300, y: 100 } });
     await expect(page.locator('.trend-tooltip')).toHaveClass(/visible/, { timeout: 5_000 });
@@ -73,7 +74,8 @@ test.describe('trend chart desktop zoom/pan', () => {
   test('wheel zoom-in narrows the window and can refine the level', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     const chart = await openChart(page);
-    test.skip((await chart.count()) === 0, 'no trend data on this server');
+    // beforeAll re-seeds the multi-year series, so a missing chart means the seed or the renderer broke - fail instead of skipping.
+    expect(await chart.count(), 'trend chart must render the seeded timeline').toBeGreaterThan(0);
 
     const before = await currentLevel(page);
     const order = ['yearly', 'monthly', 'weekly', 'daily'];
@@ -96,7 +98,8 @@ test.describe('trend chart desktop zoom/pan', () => {
   test('drag pans the visible window', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     const chart = await openChart(page);
-    test.skip((await chart.count()) === 0, 'no trend data on this server');
+    // beforeAll re-seeds the multi-year series, so a missing chart means the seed or the renderer broke - fail instead of skipping.
+    expect(await chart.count(), 'trend chart must render the seeded timeline').toBeGreaterThan(0);
 
     // One notch keeps the window wide (far from the min-span clamp) with plenty of pan room.
     const box = (await chart.boundingBox())!;
@@ -127,7 +130,8 @@ test.describe('trend chart touch gestures', () => {
   test('tap shows a tooltip', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     const chart = await openChart(page);
-    test.skip((await chart.count()) === 0, 'no trend data on this server');
+    // beforeAll re-seeds the multi-year series, so a missing chart means the seed or the renderer broke - fail instead of skipping.
+    expect(await chart.count(), 'trend chart must render the seeded timeline').toBeGreaterThan(0);
 
     const box = (await chart.boundingBox())!;
     const cx = box.x + box.width / 2;
@@ -149,7 +153,8 @@ test.describe('trend chart touch gestures', () => {
   test('pinch zoom refines the level without JS errors', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     const chart = await openChart(page);
-    test.skip((await chart.count()) === 0, 'no trend data on this server');
+    // beforeAll re-seeds the multi-year series, so a missing chart means the seed or the renderer broke - fail instead of skipping.
+    expect(await chart.count(), 'trend chart must render the seeded timeline').toBeGreaterThan(0);
 
     const before = await currentLevel(page);
     const order = ['yearly', 'monthly', 'weekly', 'daily'];

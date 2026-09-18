@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 
@@ -12,8 +13,18 @@ public class PluginConfigurationService : IPluginConfigurationService
     private readonly IPluginAccessor _accessor;
 
     // Guards the read-mutate-save triple in ReadAndMutate so concurrent callers
-    // cannot interleave their mutations on the shared PluginConfiguration object.
-    private readonly Lock _mutateLock = new();
+    // cannot interleave their own mutations on the shared PluginConfiguration object.
+    // Static so the guard holds process-wide even if more than one service instance
+    // ever exists (a second DI container, a manually constructed service, or parallel
+    // test hosts): concurrent saves serialize to Jellyfin's FileShare.None config
+    // file instead of colliding with a sharing-violation IOException that surfaces
+    // as a 500 on otherwise valid concurrent writes.
+    private static readonly Lock MutateLock = new();
+
+    // Bounded retries for the config-file save inside ReadAndMutate. The save opens
+    // the file with FileShare.None, so any out-of-band writer (Jellyfin's own admin
+    // save, a second host, a scanner holding the file) can transiently collide.
+    private static readonly TimeSpan[] SaveRetryDelays = [TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(100)];
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfigurationService"/> class
@@ -92,7 +103,7 @@ public class PluginConfigurationService : IPluginConfigurationService
     {
         ArgumentNullException.ThrowIfNull(mutate);
 
-        lock (_mutateLock)
+        lock (MutateLock)
         {
             var config = _accessor.Configuration;
             if (config == null)
@@ -101,8 +112,30 @@ public class PluginConfigurationService : IPluginConfigurationService
                 return;
             }
 
+            // Run the mutation exactly once; only the persistence below retries.
+            // Re-running mutate could double-apply non-idempotent edits such as the
+            // cleanup-totals increments in CleanupTrackingService.
             mutate(config);
-            _accessor.SaveConfiguration();
+            SaveWithRetry();
+        }
+    }
+
+    /// <summary>
+    ///     Persists the configuration, retrying transient file-lock collisions.
+    /// </summary>
+    private void SaveWithRetry()
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                _accessor.SaveConfiguration();
+                return;
+            }
+            catch (IOException) when (attempt < SaveRetryDelays.Length)
+            {
+                Thread.Sleep(SaveRetryDelays[attempt]);
+            }
         }
     }
 

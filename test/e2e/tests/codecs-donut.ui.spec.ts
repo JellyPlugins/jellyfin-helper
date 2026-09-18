@@ -47,7 +47,9 @@ test.describe('codec donut touch tap', () => {
   test('tap shows a segment tooltip', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     const segments = await openSegments(page);
-    test.skip((await segments.count()) === 0, 'no codec data on this server');
+    // The fixture library always yields codec data; zero segments means the scan or
+    // the stats pipeline broke - fail instead of skipping into a vacuous pass.
+    expect(await segments.count(), 'codec donut must have segments on the fixture library').toBeGreaterThan(0);
 
     const segment = segments.first();
     await tapPath(segment);
@@ -62,7 +64,7 @@ test.describe('codec donut touch tap', () => {
   test('second tap on same segment hides the tooltip', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     const segments = await openSegments(page);
-    test.skip((await segments.count()) === 0, 'no codec data on this server');
+    expect(await segments.count(), 'codec donut must have segments on the fixture library').toBeGreaterThan(0);
 
     const segment = segments.first();
     const tooltip = page.locator('#codecsContent .donut-tooltip.visible');

@@ -14,12 +14,29 @@ public class PluginConfigurationServiceTests
     /// </summary>
     private sealed class FakePluginAccessor : PluginConfigurationService.IPluginAccessor
     {
+        private readonly Queue<Exception> _saveFailures = new();
+
         public bool IsInitialized { get; set; }
         public string? Version { get; set; }
         public PluginConfiguration? Configuration { get; set; }
         public int SaveCallCount { get; private set; }
 
-        public void SaveConfiguration() => SaveCallCount++;
+        public void SaveConfiguration()
+        {
+            SaveCallCount++;
+            if (_saveFailures.TryDequeue(out var failure))
+            {
+                throw failure;
+            }
+        }
+
+        public void FailNextSaves(Exception failure, int times)
+        {
+            for (var i = 0; i < times; i++)
+            {
+                _saveFailures.Enqueue(failure);
+            }
+        }
     }
 
     [Fact]
@@ -186,5 +203,53 @@ public class PluginConfigurationServiceTests
         Assert.Throws<InvalidOperationException>(
             () => sut.ReadAndMutate(_ => throw new InvalidOperationException("boom")));
         Assert.Equal(0, accessor.SaveCallCount);
+    }
+
+    [Fact]
+    public void ReadAndMutate_RetriesSave_WhenAccessorThrowsTransientIOException()
+    {
+        // Concurrent writers can collide on Jellyfin's FileShare.None config file.
+        // Transient IOExceptions must be retried without re-running the mutation.
+        var accessor = new FakePluginAccessor { Configuration = new PluginConfiguration { Language = "en" } };
+        accessor.FailNextSaves(new IOException("sharing violation"), 2);
+        var sut = new PluginConfigurationService(accessor);
+
+        var mutateCount = 0;
+        sut.ReadAndMutate(c =>
+        {
+            mutateCount++;
+            c.Language = "fr";
+        });
+
+        Assert.Equal(1, mutateCount);
+        Assert.Equal("fr", accessor.Configuration!.Language);
+        Assert.Equal(3, accessor.SaveCallCount);
+    }
+
+    [Fact]
+    public void ReadAndMutate_Rethrows_WhenSaveKeepsFailing()
+    {
+        // Retries are bounded: a persistently locked file must surface instead of looping forever.
+        var accessor = new FakePluginAccessor { Configuration = new PluginConfiguration() };
+        accessor.FailNextSaves(new IOException("locked"), 10);
+        var sut = new PluginConfigurationService(accessor);
+
+        var mutateCount = 0;
+        Assert.Throws<IOException>(() => sut.ReadAndMutate(_ => mutateCount++));
+
+        Assert.Equal(1, mutateCount);
+        Assert.Equal(3, accessor.SaveCallCount);
+    }
+
+    [Fact]
+    public void ReadAndMutate_DoesNotRetry_WhenSaveThrowsNonIOException()
+    {
+        // Only transient file-lock failures are retried; anything else propagates immediately.
+        var accessor = new FakePluginAccessor { Configuration = new PluginConfiguration() };
+        accessor.FailNextSaves(new InvalidOperationException("boom"), 10);
+        var sut = new PluginConfigurationService(accessor);
+
+        Assert.Throws<InvalidOperationException>(() => sut.ReadAndMutate(_ => { }));
+        Assert.Equal(1, accessor.SaveCallCount);
     }
 }
