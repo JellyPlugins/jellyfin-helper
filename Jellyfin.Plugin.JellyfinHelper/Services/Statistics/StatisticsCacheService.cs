@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -15,8 +18,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 public class StatisticsCacheService : IStatisticsCacheService
 {
     private const string LatestResultFileName = "jellyfin-helper-statistics-latest.json";
+    private const string WatchedBucket = "Watched";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
+    private static readonly string[] _legacyWatchedKeys = ["1 user", "2–3 users", "4+ users", "2-3 users"];
     private readonly Lock _fileLock = new();
 
     private readonly string _latestResultFilePath;
@@ -104,7 +109,14 @@ public class StatisticsCacheService : IStatisticsCacheService
                 json = File.ReadAllText(_latestResultFilePath);
             }
 
-            return JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
+            var result = JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
+            if (result != null)
+            {
+                MigrateLegacyBitrateTiers(result);
+                MigrateLegacyWatchedBuckets(result);
+            }
+
+            return result;
         }
         catch (Exception ex) when (ex is IOException
                                     or UnauthorizedAccessException
@@ -117,6 +129,157 @@ public class StatisticsCacheService : IStatisticsCacheService
                 ex,
                 _logger);
             return null;
+        }
+    }
+
+    private static void MigrateLegacyBitrateTiers(MediaStatisticsResult result)
+    {
+        // Category collections deserialize into separate instances (no reference
+        // preservation), so every collection needs the migration, not just Libraries.
+        // Re-running on an already-migrated instance is a no-op: new labels pass through.
+        foreach (var lib in result.Libraries.Concat(result.Movies).Concat(result.TvShows)
+                     .Concat(result.Music).Concat(result.Books).Concat(result.Other))
+        {
+            MigrateIntDict(lib.VideoBitrateTiers);
+            MigrateLongDict(lib.VideoBitrateTierSizes);
+            MigratePathsDict(lib.VideoBitrateTierPaths);
+        }
+    }
+
+    private static bool IsLegacyBitrateTier(string key) =>
+        key is "2-5 Mbps" or "5-10 Mbps" or "10-20 Mbps" or "20-40 Mbps" or "> 40 Mbps";
+
+    private static void MigrateIntDict(Dictionary<string, int> dict) =>
+        MigrateDict(dict, static (existing, value) => existing + value);
+
+    private static void MigrateLongDict(Dictionary<string, long> dict) =>
+        MigrateDict(dict, static (existing, value) => existing + value);
+
+    private static void MigratePathsDict(Dictionary<string, System.Collections.ObjectModel.Collection<string>> dict) =>
+        MigrateDict(
+            dict,
+            static (existing, value) =>
+            {
+                foreach (var p in value)
+                {
+                    existing.Add(p);
+                }
+
+                return existing;
+            });
+
+    private static void MigrateDict<TValue>(Dictionary<string, TValue> dict, Func<TValue, TValue, TValue> merge)
+    {
+        var legacyKeys = dict.Keys.Where(IsLegacyBitrateTier).ToList();
+
+        foreach (var old in legacyKeys)
+        {
+            if (!dict.TryGetValue(old, out var value))
+            {
+                continue;
+            }
+
+            dict.Remove(old);
+            var migrated = MediaStatisticsService.MapLegacyBitrateTier(old);
+            dict[migrated] = dict.TryGetValue(migrated, out var existing) ? merge(existing, value) : value;
+        }
+    }
+
+    private static void MigrateLegacyWatchedBuckets(MediaStatisticsResult result)
+    {
+        // Same as bitrate above: every category collection deserializes separately.
+        foreach (var lib in result.Libraries.Concat(result.Movies).Concat(result.TvShows)
+                     .Concat(result.Music).Concat(result.Books).Concat(result.Other))
+        {
+            MigrateWatchedBuckets(lib.WatchedTiers, lib.WatchedTierPaths, lib.WatchedTierSizes);
+        }
+    }
+
+    private static void MigrateWatchedBuckets(
+        Dictionary<string, int> tiers,
+        Dictionary<string, Collection<string>> tierPaths,
+        Dictionary<string, long> tierSizes)
+    {
+        if (!_legacyWatchedKeys.Any(k => tiers.ContainsKey(k) || tierPaths.ContainsKey(k) || tierSizes.ContainsKey(k)))
+        {
+            return;
+        }
+
+        var watchedCount = 0;
+        var watchedPaths = new Collection<string>();
+        long watchedSize = 0;
+
+        foreach (var k in _legacyWatchedKeys)
+        {
+            DrainWatchedBucket(k, tiers, tierPaths, tierSizes, ref watchedCount, watchedPaths, ref watchedSize);
+        }
+
+        StoreWatchedBucket(tiers, tierPaths, tierSizes, watchedCount, watchedPaths, watchedSize);
+    }
+
+    private static void StoreWatchedBucket(
+        Dictionary<string, int> tiers,
+        Dictionary<string, Collection<string>> tierPaths,
+        Dictionary<string, long> tierSizes,
+        int watchedCount,
+        Collection<string> watchedPaths,
+        long watchedSize)
+    {
+        if (watchedCount > 0)
+        {
+            tiers[WatchedBucket] = tiers.TryGetValue(WatchedBucket, out var existing) ? existing + watchedCount : watchedCount;
+        }
+
+        if (watchedPaths.Count > 0)
+        {
+            if (tierPaths.TryGetValue(WatchedBucket, out var existingPaths))
+            {
+                foreach (var p in watchedPaths)
+                {
+                    existingPaths.Add(p);
+                }
+            }
+            else
+            {
+                tierPaths[WatchedBucket] = watchedPaths;
+            }
+        }
+
+        if (watchedSize > 0)
+        {
+            tierSizes[WatchedBucket] = tierSizes.TryGetValue(WatchedBucket, out var existingSize) ? existingSize + watchedSize : watchedSize;
+        }
+    }
+
+    private static void DrainWatchedBucket(
+        string key,
+        Dictionary<string, int> tiers,
+        Dictionary<string, Collection<string>> tierPaths,
+        Dictionary<string, long> tierSizes,
+        ref int watchedCount,
+        Collection<string> watchedPaths,
+        ref long watchedSize)
+    {
+        if (tiers.TryGetValue(key, out var c))
+        {
+            watchedCount += c;
+            tiers.Remove(key);
+        }
+
+        if (tierPaths.TryGetValue(key, out var paths))
+        {
+            foreach (var p in paths)
+            {
+                watchedPaths.Add(p);
+            }
+
+            tierPaths.Remove(key);
+        }
+
+        if (tierSizes.TryGetValue(key, out var s))
+        {
+            watchedSize += s;
+            tierSizes.Remove(key);
         }
     }
 }

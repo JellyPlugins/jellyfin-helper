@@ -74,14 +74,9 @@ test.describe('Book libraries are tracked in statistics but never deleted by cle
   test('TRACKING: a Book library is reported as a first-class Books category with format keys', async () => {
     const stats = await getStats();
 
-    // Conditional presence: Books is populated ONLY when a Book library exists. The fixture provisions one, so it must be non-empty here.
-    if (stats.Books.length === 0) {
-      // No Book library in this fixture -> conditional-presence contract holds.
-      expect(stats.TotalBookFileCount, 'no books -> zero count').toBe(0);
-      expect(Object.keys(stats.TotalBookFormats), 'no books -> empty formats').toHaveLength(0);
-      test.skip(true, 'no Book library present in fixture (conditional-presence contract verified)');
-      return;
-    }
+    // global-setup always provisions the Books library (/media/Books with EPUB+PDF),
+    // so an empty Books section means the fixture or the tracking broke - fail loudly.
+    expect(stats.Books.length, 'Books fixture must be provisioned by global-setup').toBeGreaterThan(0);
 
     // A Book library IS present -> full tracking assertions.
     expect(stats.TotalBookFileCount, 'eBook files are counted').toBeGreaterThan(0);
@@ -134,10 +129,9 @@ test.describe('Book libraries are tracked in statistics but never deleted by cle
     const novel = `${B}/Some Novel/Some Novel.epub`;
     const manual = `${B}/A Manual/A Manual.pdf`;
     const another = `${B}/Another Story/Another Story.epub`;
-    if (!containerFileExists(novel)) {
-      test.skip(true, `no eBook fixture at ${novel} (Book library not provisioned in this run)`);
-      return;
-    }
+    // gen-media.sh always writes these fixtures; a missing file means the fixture
+    // generation broke and "they survived" would pass vacuously - fail instead.
+    expect(containerFileExists(novel), `eBook fixture must exist at ${novel}`).toBe(true);
 
     // Most aggressive config: Activate the empty-folder stage (the one that would delete a video-less folder), permanent delete (UseTrash=false), no age gate (OrphanMinAgeDays=0).
     await putConfig({
@@ -172,10 +166,7 @@ test.describe('Book libraries are tracked in statistics but never deleted by cle
   test('NO-DELETE: eBooks still survive when EVERY cleanup stage is Activated at once', async () => {
     test.skip(!hasDocker(), 'docker exec unavailable - cannot verify eBook files on disk');
     const novel = `${B}/Some Novel/Some Novel.epub`;
-    if (!containerFileExists(novel)) {
-      test.skip(true, 'no eBook fixture present (Book library not provisioned in this run)');
-      return;
-    }
+    expect(containerFileExists(novel), 'eBook fixture must be provisioned by gen-media.sh').toBe(true);
 
     // Belt-and-braces: activate ALL cleanup stages. No stage is allowed to touch
     // a books-type library regardless of which one is running.

@@ -174,6 +174,57 @@ public class MediaStatisticsResult
     public Dictionary<string, long> TotalDynamicRangeSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.DynamicRangeSizes));
 
     /// <summary>
+    /// Gets the aggregated video bitrate tier breakdown across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, int> TotalVideoBitrateTiers => AggregateDictionaries(VideoLibraries.Select(l => l.VideoBitrateTiers));
+
+    /// <summary>
+    /// Gets the aggregated video bitrate tier sizes across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, long> TotalVideoBitrateTierSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.VideoBitrateTierSizes));
+
+    /// <summary>
+    /// Gets the aggregated audio language breakdown across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, int> TotalAudioLanguages => AggregateDictionaries(VideoLibraries.Select(l => l.AudioLanguages));
+
+    /// <summary>
+    /// Gets the aggregated audio language sizes across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, long> TotalAudioLanguageSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.AudioLanguageSizes));
+
+    /// <summary>
+    /// Gets the aggregated subtitle language breakdown across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, int> TotalSubtitleLanguages => AggregateDictionaries(VideoLibraries.Select(l => l.SubtitleLanguages));
+
+    /// <summary>
+    /// Gets the aggregated subtitle language sizes across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, long> TotalSubtitleLanguageSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.SubtitleLanguageSizes));
+
+    /// <summary>
+    /// Gets the aggregated watched tier breakdown across video libraries only (Watched / Never watched). Watched status is only ever populated for Movies/TV Shows/Other; aggregating over VideoLibraries (rather than all Libraries) keeps this consistent with the sibling AudioLanguages/SubtitleLanguages aggregates above and guards against silent double-counting if a future release starts tracking watched status for other library types.
+    /// </summary>
+    public Dictionary<string, int> TotalWatchedTiers => AggregateDictionaries(VideoLibraries.Select(l => l.WatchedTiers));
+
+    /// <summary>
+    /// Gets the aggregated watched tier sizes across video libraries only.
+    /// </summary>
+    public Dictionary<string, long> TotalWatchedTierSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.WatchedTierSizes));
+
+    /// <summary>
+    /// Gets the aggregated per-user watched counts across video libraries only (username -> files watched).
+    /// Watched status is only ever populated for Movies/TV Shows/Other, matching TotalWatchedTiers above.
+    /// </summary>
+    public Dictionary<string, int> TotalWatchedByUser => AggregateDictionaries(VideoLibraries.Select(l => l.WatchedByUserPaths.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Count, StringComparer.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Gets the aggregated per-user watched sizes across video libraries only (username -> total bytes watched).
+    /// </summary>
+    public Dictionary<string, long> TotalWatchedByUserSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.WatchedByUserSizes));
+
+    /// <summary>
     /// Gets the total number of video files without subtitles.
     /// </summary>
     public int TotalVideosWithoutSubtitles => Libraries.Sum(l => l.VideosWithoutSubtitles);

@@ -92,21 +92,27 @@ function fillOverviewData(data) {
 
     var overviewHtml = '';
     overviewHtml += '<div class="stats-grid">';
-    overviewHtml += '<div class="stat-card"><h3>' + mi('movie') + escHtml(T('movieVideoData', 'Video Data - Movies')) + '</h3>';
+    overviewHtml += '<div class="stat-card stat-card-link" role="button" tabindex="0" data-codec-explore-library="'
+        + CODEC_EXPLORER_TYPE_MOVIES + '" title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">';
+    overviewHtml += '<h3>' + mi('movie') + escHtml(T('movieVideoData', 'Video Data - Movies')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMovieVideoSize) + '</p>';
     var movieFiles = 0;
     for (const movie of movies) movieFiles += movie.VideoFileCount;
     overviewHtml += '<p class="stat-detail">' + movieFiles + ' ' + (movieFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + ' ' + escHtml(T('across', 'across')) + ' ' + movies.length + ' ' + escHtml(T('libraries', 'libraries')) + '</p>';
     overviewHtml += '</div>';
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('tv') + escHtml(T('tvVideoData', 'Video Data - TV Shows')) + '</h3>';
+    overviewHtml += '<div class="stat-card stat-card-link" role="button" tabindex="0" data-codec-explore-library="'
+        + CODEC_EXPLORER_TYPE_TVSHOWS + '" title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">';
+    overviewHtml += '<h3>' + mi('tv') + escHtml(T('tvVideoData', 'Video Data - TV Shows')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTvShowVideoSize) + '</p>';
     var tvFiles = 0;
     for (const show of tvShows) tvFiles += show.VideoFileCount;
     overviewHtml += '<p class="stat-detail">' + tvFiles + ' ' + (tvFiles === 1 ? escHtml(T('episode', 'episode')) : escHtml(T('episodes', 'episodes'))) + ' ' + escHtml(T('across', 'across')) + ' ' + tvShows.length + ' ' + escHtml(T('libraries', 'libraries')) + '</p>';
     overviewHtml += '</div>';
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('music_note') + escHtml(T('musicAudioData', 'Music / Audio')) + '</h3>';
+    overviewHtml += '<div class="stat-card stat-card-link" role="button" tabindex="0" data-codec-explore-library="'
+        + CODEC_EXPLORER_TYPE_MUSIC + '" title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">';
+    overviewHtml += '<h3>' + mi('music_note') + escHtml(T('musicAudioData', 'Music / Audio')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMusicAudioSize) + '</p>';
     overviewHtml += '<p class="stat-detail">' + totalAudioFileCount + ' ' + (totalAudioFileCount === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
     overviewHtml += '</div>';
@@ -114,7 +120,9 @@ function fillOverviewData(data) {
     // Books card only renders when a Book library exists.
     if (data.TotalBookFileCount > 0) {
         var totalBookFileCount = data.TotalBookFileCount || 0;
-        overviewHtml += '<div class="stat-card"><h3>' + mi('library_books') + escHtml(T('books', 'Books')) + '</h3>';
+        overviewHtml += '<div class="stat-card stat-card-link" role="button" tabindex="0" data-codec-explore-library="'
+            + CODEC_EXPLORER_TYPE_BOOKS + '" title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">';
+        overviewHtml += '<h3>' + mi('library_books') + escHtml(T('books', 'Books')) + '</h3>';
         overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalBookSize) + '</p>';
         overviewHtml += '<p class="stat-detail">' + totalBookFileCount + ' ' + (totalBookFileCount === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
         overviewHtml += '</div>';
@@ -156,7 +164,11 @@ function fillOverviewData(data) {
 
     for (const lib of libraries) {
         overviewHtml += '<tr>';
-        overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
+        // The library name links into the Codecs Library Explorer pre-scoped to
+        // that library. Dimensions without data for its media type render greyed out.
+        overviewHtml += '<td><button class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '"'
+            + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
+            + escHtml(lib.LibraryName) + '</button></td>';
         overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.VideoSize) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.AudioSize) + '</td>';

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.0.3] - 2026-09-17
+
+### Added
+
+- **Library Explorer in the Codecs tab.** A new collapsible search above the breakdown charts combines resolution, codecs, bitrate, dynamic range, audio and subtitle languages, watched users and media formats into one search, scoped to the libraries you pick in its multi-select. Options that would yield nothing under the other active filters are hidden automatically, dimensions without matches stay visible but greyed out, and multi-value dropdowns accept several audio languages, subtitle languages or users at once. The result header always shows every active filter, a Reset button clears the whole search, and results arrive as the familiar grouped file tree with Movies, TV Shows and other sections.
+- **Explore links in the Overview.** Each library name and all four media stat cards (Movies, TV, Music, Books) jump to the Codecs tab and open the Explorer pre-filtered to that scope, so you can go from "how big is this library" to "what exactly is in it" in one click.
+- **Four new breakdowns in the Codecs tab.** Video Bitrate (7 tiers from `< 2` to `> 60 Mbps`), Audio Languages, Subtitle Languages and Watched each get their own chart with drill-down to the exact files. Watched breaks down by username plus Never watched, so you can see who watched what. The charts themselves stay static while you explore, so colors and percentages never shift under you.
+
+### Improved
+
+- **Disabled users no longer skew results.** Plays from deactivated Jellyfin accounts used to linger in recommendations and watch statistics. They are now excluded from Smart Recommendations, watch history and the new Watched breakdown, matching what you see in Jellyfin itself.
+- **Measured bitrates first, estimated as a fallback.** Each file is placed by the bitrate Jellyfin measured for its video stream. When a file has no per-stream bitrate, the average is estimated from its size and runtime, so almost every file lands in a real tier instead of Unknown.
+
+### Tests
+
+- **Unit: 5695 total.**
+- **End-to-end: 328 tests across 52 files.**
+
 ## [3.0.0.2] - 2026-09-14
 
 ### Fixed

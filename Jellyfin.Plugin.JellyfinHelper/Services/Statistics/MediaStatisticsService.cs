@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -25,11 +27,64 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <summary>Fallback label used when a codec, resolution, or library name cannot be determined.</summary>
     private const string UnknownLabel = "Unknown";
 
+    private const double BitrateTier2Mbps = 2;
+    private const double BitrateTier4Mbps = 4;
+    private const double BitrateTier8Mbps = 8;
+    private const double BitrateTier16Mbps = 16;
+    private const double BitrateTier32Mbps = 32;
+    private const double BitrateTier60Mbps = 60;
+
+    private const string BitrateBelow2 = "< 2 Mbps";
+    private const string Bitrate2To4 = "2–4 Mbps";
+    private const string Bitrate4To8 = "4–8 Mbps";
+    private const string Bitrate8To16 = "8–16 Mbps";
+    private const string Bitrate16To32 = "16–32 Mbps";
+    private const string Bitrate32To60 = "32–60 Mbps";
+    private const string BitrateAbove60 = "> 60 Mbps";
+
+    private const string WatchedNever = "Never watched";
+    private const string Watched = "Watched";
+
+    // ISO 639-2/B codes are what Jellyfin stores in MediaStream.Language.
+    // The display names here are chosen to match what Jellyfin shows in the UI.
+    private static readonly Dictionary<string, string> _iso639DisplayNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["eng"] = "English", ["en"] = "English",
+        ["deu"] = "German", ["ger"] = "German", ["de"] = "German",
+        ["fra"] = "French", ["fre"] = "French", ["fr"] = "French",
+        ["spa"] = "Spanish", ["es"] = "Spanish",
+        ["ita"] = "Italian", ["it"] = "Italian",
+        ["jpn"] = "Japanese", ["ja"] = "Japanese",
+        ["kor"] = "Korean", ["ko"] = "Korean",
+        ["rus"] = "Russian", ["ru"] = "Russian",
+        ["zho"] = "Chinese", ["chi"] = "Chinese", ["zh"] = "Chinese",
+        ["por"] = "Portuguese", ["pt"] = "Portuguese",
+        ["nld"] = "Dutch", ["dut"] = "Dutch", ["nl"] = "Dutch",
+        ["pol"] = "Polish", ["pl"] = "Polish",
+        ["tur"] = "Turkish", ["tr"] = "Turkish",
+        ["ara"] = "Arabic", ["ar"] = "Arabic",
+        ["hin"] = "Hindi", ["hi"] = "Hindi",
+        ["swe"] = "Swedish", ["sv"] = "Swedish",
+        ["nor"] = "Norwegian", ["no"] = "Norwegian", ["nob"] = "Norwegian",
+        ["dan"] = "Danish", ["da"] = "Danish",
+        ["fin"] = "Finnish", ["fi"] = "Finnish",
+        ["ell"] = "Greek", ["gre"] = "Greek", ["el"] = "Greek",
+        ["ces"] = "Czech", ["cze"] = "Czech", ["cs"] = "Czech",
+        ["hun"] = "Hungarian", ["hu"] = "Hungarian",
+        ["tha"] = "Thai", ["th"] = "Thai",
+        ["vie"] = "Vietnamese", ["vi"] = "Vietnamese",
+        ["ukr"] = "Ukrainian", ["uk"] = "Ukrainian",
+        ["heb"] = "Hebrew", ["he"] = "Hebrew",
+        ["ron"] = "Romanian", ["rum"] = "Romanian", ["ro"] = "Romanian"
+    };
+
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IFileSystem _fileSystem;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<MediaStatisticsService> _logger;
     private readonly IPluginLogService _pluginLog;
+    private readonly IUserDataManager? _userDataManager;
+    private readonly IUserManager? _userManager;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="MediaStatisticsService" /> class.
@@ -39,18 +94,31 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="configHelper">The cleanup configuration helper.</param>
+    /// <param name="userDataManager">The user data manager for watched status.</param>
+    /// <param name="userManager">The user manager for user enumeration.</param>
     public MediaStatisticsService(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
         IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
-        ICleanupConfigHelper configHelper)
+        ICleanupConfigHelper configHelper,
+        IUserDataManager? userDataManager = null,
+        IUserManager? userManager = null)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
+        _userDataManager = userDataManager!;
+        _userManager = userManager!;
+        if (userDataManager == null || userManager == null)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                "User data services unavailable; watched status will show Never watched.",
+                logger: _logger);
+        }
     }
 
     /// <summary>
@@ -78,6 +146,15 @@ public class MediaStatisticsService : IMediaStatisticsService
             LogCategory,
             $"Pre-loaded {itemLookup.Count} library items for metadata lookup",
             _logger);
+
+        // Resolve the enabled users once for the whole scan (watched-status extraction
+        // needs them per video file) and pre-fetch their watch data in one batch call per
+        // user, so the scan performs dictionary lookups instead of per-file database queries.
+        var userContext = new ScanUserContext(ResolveScanUsers(), new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>());
+        foreach (var u in userContext.Users)
+        {
+            userContext.WatchLookups[u.Id] = TryLoadUserWatchBatch(u, itemLookup.Values.Distinct().ToList());
+        }
 
         foreach (var vf in virtualFolders)
         {
@@ -109,24 +186,11 @@ public class MediaStatisticsService : IMediaStatisticsService
                     $"Scanning library location: {location} (type: {collectionType})",
                     _logger);
 
-                // Pre-compute the resolved absolute trash path once per library root so it
+                // The resolved absolute trash path is computed once per library root so it
                 // is not re-derived on every recursive directory call.
-                string? resolvedFullTrashPath = null;
-                try
-                {
-                    resolvedFullTrashPath = Path.GetFullPath(_configHelper.GetTrashPath(location))
-                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                }
-                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-                {
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"Could not resolve trash path for library root: {location}",
-                        ex,
-                        _logger);
-                }
+                var resolvedFullTrashPath = ResolveLibraryTrashPath(location);
 
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, location, skipHealth, scanTrashFolderName, resolvedFullTrashPath);
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, location, skipHealth, resolvedFullTrashPath));
             }
 
             _pluginLog.LogDebug(
@@ -241,23 +305,14 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="directoryPath">The directory to analyze.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
-    /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
-    /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
-    /// <param name="trashFolderName">Pre-resolved trash folder name; passed down to avoid re-reading config on every recursive call.</param>
-    /// <param name="resolvedFullTrashPath">
-    ///     The normalized absolute trash path for this library root, pre-computed by the caller
-    ///     and threaded through every recursive call to avoid re-invoking
-    ///     <see cref="ICleanupConfigHelper.GetTrashPath" /> on every directory.
-    ///     Null when <paramref name="libraryRoot" /> is null.
-    /// </param>
+    /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
+    /// <param name="scanContext">Trash-resolution, library-root and health-check context threaded through recursion.</param>
     private bool AnalyzeDirectoryRecursive(
         string directoryPath,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
-        string? libraryRoot = null,
-        bool skipHealthChecks = false,
-        string? trashFolderName = null,
-        string? resolvedFullTrashPath = null)
+        ScanUserContext userContext,
+        SubdirectoryScanContext scanContext)
     {
         var containsVideo = false;
         try
@@ -279,6 +334,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                     file,
                     stats,
                     itemLookup,
+                    userContext,
                     videoFiles,
                     videoStreamsCache,
                     flags);
@@ -286,29 +342,20 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             containsVideo = flags.ContainsVideo;
 
-            // Recurse into subdirectories
+            // Recurse into subdirectories. The context arrives pre-built from the caller
+            // (top level or parent directory), so it is passed through untouched.
             var subDirs = _fileSystem.GetDirectories(directoryPath);
-
-            var resolvedTrashFolderName = trashFolderName ?? string.Empty;
-
-            // resolvedFullTrashPath is computed once at the top-level call site and threaded
-            // through every recursive call - no config re-read on each directory.
-            var scanContext = new SubdirectoryScanContext(
-                resolvedTrashFolderName,
-                libraryRoot,
-                skipHealthChecks,
-                trashFolderName,
-                resolvedFullTrashPath);
 
             var subDirHasVideo = ScanSubdirectories(
                 subDirs,
                 stats,
                 itemLookup,
+                userContext,
                 scanContext,
                 ref containsVideo);
 
             // Health checks - per-directory analysis Boxset/collection libraries are excluded: they are Jellyfin-internal virtual folders that group related movies and typically only contain posters/images, not real media.
-            if (!skipHealthChecks)
+            if (!scanContext.SkipHealthChecks)
             {
                 if (flags.HasVideo)
                 {
@@ -340,6 +387,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="file">The file to classify.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
+    /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
     /// <param name="videoFiles">Accumulator of video files for later health checks.</param>
     /// <param name="videoStreamsCache">Cache of media streams keyed by video file path.</param>
     /// <param name="flags">The per-directory presence flags updated as files are classified.</param>
@@ -347,6 +395,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         FileSystemMetadata file,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
+        ScanUserContext userContext,
         List<FileSystemMetadata> videoFiles,
         Dictionary<string, IReadOnlyList<MediaStream>?> videoStreamsCache,
         DirectoryFileFlags flags)
@@ -365,6 +414,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             stats.VideoSize += size;
             stats.VideoFileCount++;
+            stats.FileSizes[file.FullName] = size;
             flags.HasVideo = true;
             flags.ContainsVideo = true;
             videoFiles.Add(file);
@@ -377,7 +427,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             // Extract metadata from Jellyfin MediaStreams (resolution, codecs, dynamic range)
             // and cache the streams for subtitle health checks below
-            var streams = ExtractVideoMetadata(file.FullName, size, stats, itemLookup);
+            var streams = ExtractVideoMetadata(file.FullName, size, stats, itemLookup, userContext);
             videoStreamsCache[file.FullName] = streams;
         }
         else if (MediaExtensions.SubtitleExtensions.Contains(ext))
@@ -402,6 +452,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             stats.AudioSize += size;
             stats.AudioFileCount++;
+            stats.FileSizes[file.FullName] = size;
 
             // Extract music audio codec from Jellyfin metadata with extension fallback
             ExtractMusicAudioMetadata(file.FullName, ext, size, stats, itemLookup);
@@ -411,6 +462,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             // eBooks are tracked as a first-class "Books" category (rather than "Other") with a per-format breakdown, so the UI can surface a Books section only when books exist.
             stats.BookSize += size;
             stats.BookFileCount++;
+            stats.FileSizes[file.FullName] = size;
             var format = ext.TrimStart('.').ToUpperInvariant();
             stats.BookFormats[format] = stats.BookFormats.GetValueOrDefault(format) + 1;
             stats.BookFormatSizes[format] = stats.BookFormatSizes.GetValueOrDefault(format) + size;
@@ -429,6 +481,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="subDirs">The subdirectories to scan.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
+    /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
     /// <param name="scanContext">The trash-resolution and recursion context.</param>
     /// <param name="containsVideo">Set true when any recursed subdirectory contained a video.</param>
     /// <returns><c>true</c> when at least one subdirectory contained a video.</returns>
@@ -436,6 +489,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         IEnumerable<FileSystemMetadata> subDirs,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
+        ScanUserContext userContext,
         SubdirectoryScanContext scanContext,
         ref bool containsVideo)
     {
@@ -464,7 +518,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 stats.TrickplaySize += trickplaySize;
                 stats.TrickplayFolderCount++;
             }
-            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, scanContext.LibraryRoot, scanContext.SkipHealthChecks, scanContext.TrashFolderName, scanContext.ResolvedFullTrashPath))
+            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, userContext, scanContext))
             {
                 subDirHasVideo = true;
                 containsVideo = true;
@@ -565,6 +619,29 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
+    ///     Resolves the normalized absolute trash path for one library root.
+    /// </summary>
+    /// <param name="location">The library root path.</param>
+    /// <returns>The trash path, or <c>null</c> when it cannot be resolved.</returns>
+    private string? ResolveLibraryTrashPath(string location)
+    {
+        try
+        {
+            return Path.GetFullPath(_configHelper.GetTrashPath(location))
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Could not resolve trash path for library root: {location}",
+                ex,
+                _logger);
+            return null;
+        }
+    }
+
+    /// <summary>
     ///     Resolves the Jellyfin library item for a given file path by first checking the pre-built batch lookup, then falling back to a per-file FindByPath call.
     /// </summary>
     /// <param name="filePath">Full path to the media file.</param>
@@ -622,12 +699,14 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="fileSize">Size of the video file in bytes.</param>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem.</param>
+    /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
     /// <returns>The media streams for the file, or <c>null</c> if unavailable (reused for subtitle checks).</returns>
     private IReadOnlyList<MediaStream>? ExtractVideoMetadata(
         string filePath,
         long fileSize,
         LibraryStatistics stats,
-        Dictionary<string, BaseItem> itemLookup)
+        Dictionary<string, BaseItem> itemLookup,
+        ScanUserContext userContext)
     {
         IReadOnlyList<MediaStream>? streams = null;
 
@@ -675,7 +754,211 @@ public class MediaStatisticsService : IMediaStatisticsService
             FileSystemHelper.AddPath(stats.VideoAudioCodecPaths, audioCodec, filePath);
         }
 
+        // Bitrate feeds two shapes at once. Tiers stay for the donut overview while the
+        // measured value is kept per file so the explorer can filter by absolute range.
+        // The container average from size over duration covers files without stream
+        // metadata. Nothing is invented. Unknown is used only when both fail.
+        var bitrateMbps = ComputeBitrateMbps(videoStream?.BitRate, fileSize, item?.RunTimeTicks);
+        var bitrateTier = bitrateMbps.HasValue ? ClassifyBitrateValue(bitrateMbps.Value) : UnknownLabel;
+        if (bitrateMbps.HasValue)
+        {
+            stats.VideoBitrates[filePath] = Math.Round(bitrateMbps.Value, 2);
+        }
+
+        FileSystemHelper.IncrementCount(stats.VideoBitrateTiers, bitrateTier);
+        FileSystemHelper.AccumulateValue(stats.VideoBitrateTierSizes, bitrateTier, fileSize);
+        FileSystemHelper.AddPath(stats.VideoBitrateTierPaths, bitrateTier, filePath);
+
+        // Audio and subtitle languages land in Unknown for files without readable
+        // streams, so language totals reconcile with the other breakdowns.
+        ExtractLanguageMetadata(streams, filePath, fileSize, stats);
+
+        ExtractWatchedStatus(filePath, fileSize, stats, item, userContext);
+
         return streams;
+    }
+
+    /// <summary>
+    ///     Extracts audio/subtitle language metadata from media streams.
+    /// </summary>
+    /// <param name="streams">The media streams, or <c>null</c> when unavailable.</param>
+    /// <param name="filePath">Full path to the video file.</param>
+    /// <param name="fileSize">Size of the video file in bytes.</param>
+    /// <param name="stats">The statistics accumulator.</param>
+    private static void ExtractLanguageMetadata(
+        IReadOnlyList<MediaStream>? streams,
+        string filePath,
+        long fileSize,
+        LibraryStatistics stats)
+    {
+        if (streams == null)
+        {
+            RecordUnknownLanguages(stats, filePath, fileSize);
+            return;
+        }
+
+        // Audio languages: one increment per file per distinct language.
+        foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Audio).Select(s => NormalizeIso639Language(s.Language)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            FileSystemHelper.IncrementCount(stats.AudioLanguages, lang);
+            FileSystemHelper.AccumulateValue(stats.AudioLanguageSizes, lang, fileSize);
+            FileSystemHelper.AddPath(stats.AudioLanguagePaths, lang, filePath);
+        }
+
+        // Subtitle languages: embedded tracks only; external sidecars are excluded.
+        foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal).Select(s => NormalizeIso639Language(s.Language)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            FileSystemHelper.IncrementCount(stats.SubtitleLanguages, lang);
+            FileSystemHelper.AccumulateValue(stats.SubtitleLanguageSizes, lang, fileSize);
+            FileSystemHelper.AddPath(stats.SubtitleLanguagePaths, lang, filePath);
+        }
+    }
+
+    /// <summary>
+    ///     Records Unknown audio/subtitle language entries for files without readable streams.
+    /// </summary>
+    private static void RecordUnknownLanguages(LibraryStatistics stats, string filePath, long fileSize)
+    {
+        FileSystemHelper.IncrementCount(stats.AudioLanguages, UnknownLabel);
+        FileSystemHelper.AccumulateValue(stats.AudioLanguageSizes, UnknownLabel, fileSize);
+        FileSystemHelper.AddPath(stats.AudioLanguagePaths, UnknownLabel, filePath);
+        FileSystemHelper.IncrementCount(stats.SubtitleLanguages, UnknownLabel);
+        FileSystemHelper.AccumulateValue(stats.SubtitleLanguageSizes, UnknownLabel, fileSize);
+        FileSystemHelper.AddPath(stats.SubtitleLanguagePaths, UnknownLabel, filePath);
+    }
+
+    /// <summary>
+    ///     Records per-file watched status: the Watched/Never watched tier plus per-user details.
+    /// </summary>
+    /// <param name="filePath">Full path to the video file.</param>
+    /// <param name="fileSize">Size of the video file in bytes.</param>
+    /// <param name="stats">The statistics accumulator.</param>
+    /// <param name="item">The resolved library item, or <c>null</c> when Jellyfin has not indexed the file (counts as Never watched).</param>
+    /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
+    private void ExtractWatchedStatus(
+        string filePath,
+        long fileSize,
+        LibraryStatistics stats,
+        BaseItem? item,
+        ScanUserContext userContext)
+    {
+        // Files Jellyfin has not indexed carry no watch evidence, so they count as
+        // Never watched instead of vanishing from the tier.
+        var watchedDetails = new List<WatchedUserDetail>();
+        var watchedUsernames = new List<string>();
+        if (item != null && _userDataManager != null)
+        {
+            foreach (var u in userContext.Users)
+            {
+                var userData = LookupUserData(u, item, userContext, filePath);
+                if (userData is { PlayCount: > 0 } or { Played: true })
+                {
+                    watchedUsernames.Add(u.Username);
+                    watchedDetails.Add(new WatchedUserDetail
+                    {
+                        Username = u.Username,
+                        PlayCount = userData.PlayCount,
+                        LastPlayedDate = userData.LastPlayedDate,
+                        Played = userData.Played
+                    });
+
+                    FileSystemHelper.AccumulateValue(stats.WatchedByUserSizes, u.Username, fileSize);
+                    FileSystemHelper.AddPath(stats.WatchedByUserPaths, u.Username, filePath);
+                }
+            }
+        }
+
+        var tier = watchedUsernames.Count == 0 ? WatchedNever : Watched;
+        FileSystemHelper.IncrementCount(stats.WatchedTiers, tier);
+        FileSystemHelper.AccumulateValue(stats.WatchedTierSizes, tier, fileSize);
+        FileSystemHelper.AddPath(stats.WatchedTierPaths, tier, filePath);
+
+        if (watchedUsernames.Count > 0)
+        {
+            stats.WatchedDetails[filePath] = new Collection<WatchedUserDetail>(watchedDetails);
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the enabled scan users, tolerating user-manager outages.
+    /// </summary>
+    /// <returns>The enabled users, or an empty list when the lookup fails.</returns>
+    private List<Jellyfin.Database.Implementations.Entities.User> ResolveScanUsers()
+    {
+        try
+        {
+            return _userManager?.GetUsers()?.Where(static u => !IsDisabled(u)).ToList()
+                ?? new List<Jellyfin.Database.Implementations.Entities.User>();
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogCategory, "User lookup failed; watched status will show Never watched.", ex, _logger);
+            return new List<Jellyfin.Database.Implementations.Entities.User>();
+        }
+    }
+
+    /// <summary>
+    ///     Pre-fetches one user's watch data for many items in a single batch call.
+    /// </summary>
+    /// <param name="user">The user to load watch data for.</param>
+    /// <param name="items">The distinct library items of this scan.</param>
+    /// <returns>Item-id to watch-data map, or <c>null</c> when the batch is unavailable (per-item lookup applies).</returns>
+    private IReadOnlyDictionary<Guid, UserItemData>? TryLoadUserWatchBatch(
+        Jellyfin.Database.Implementations.Entities.User user,
+        List<BaseItem> items)
+    {
+        if (_userDataManager == null || items.Count == 0)
+        {
+            return new Dictionary<Guid, UserItemData>();
+        }
+
+        return BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
+            batchCall: () => _userDataManager.GetUserDataBatch(items, user),
+            fallbackValue: null,
+            onFailure: ex => _pluginLog.LogWarning(
+                LogCategory,
+                $"Batch watch-data load failed for user '{user.Username}'; falling back to per-item lookup.",
+                ex,
+                _logger));
+    }
+
+    /// <summary>
+    ///     Looks up one user's watch data for an item, preferring the pre-fetched batch map.
+    /// </summary>
+    /// <param name="user">The user to look up.</param>
+    /// <param name="item">The library item.</param>
+    /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
+    /// <param name="filePath">The file path (used for diagnostic logging only).</param>
+    /// <returns>The user data, or <c>null</c> when unknown or the lookup fails non-fatally.</returns>
+    private UserItemData? LookupUserData(
+        Jellyfin.Database.Implementations.Entities.User user,
+        BaseItem item,
+        ScanUserContext userContext,
+        string filePath)
+    {
+        if (userContext.WatchLookups.TryGetValue(user.Id, out var lookup) && lookup != null
+            && lookup.TryGetValue(item.Id, out var found))
+        {
+            return found;
+        }
+
+        // No batch entry (failed batch or stale/partial map): fall back to the per-item
+        // lookup so one gap never silently marks files unwatched.
+        // A single failing user must not abort the file or the scan: skip and continue
+        // with the next user, matching the containment in WatchHistoryService.
+        try
+        {
+            return _userDataManager!.GetUserData(user, item);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Skipping watched lookup for user '{user.Username}' on '{filePath}'",
+                ex,
+                _logger);
+            return null;
+        }
     }
 
     /// <summary>
@@ -823,6 +1106,161 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
 
         return "SD";
+    }
+
+    /// <summary>
+    ///     Computes the measured video bitrate in Mbps. Uses the measured video stream bitrate when
+    ///     available, otherwise estimates the container average bitrate from file size and runtime.
+    ///     The estimate describes the whole container, so estimates skew slightly high on
+    ///     subtitle rich files. Returns null when neither source yields a value.
+    /// </summary>
+    /// <param name="streamBitrate">The video stream bitrate in bits per second, or <c>null</c> if unknown.</param>
+    /// <param name="fileSize">The file size in bytes (used for the size-over-duration fallback).</param>
+    /// <param name="runTimeTicks">The item runtime in 100ns ticks, or <c>null</c> if unknown.</param>
+    /// <returns>The bitrate in Mbps, or <c>null</c> when no bitrate can be determined.</returns>
+    internal static double? ComputeBitrateMbps(int? streamBitrate, long fileSize, long? runTimeTicks)
+    {
+        double bitsPerSecond;
+
+        if (streamBitrate is > 0)
+        {
+            bitsPerSecond = streamBitrate.Value;
+        }
+        else if (runTimeTicks is > 0 && fileSize > 0)
+        {
+            // TimeSpan ticks are 100ns units; 10,000,000 per second. Average container bitrate.
+            var seconds = runTimeTicks.Value / (double)TimeSpan.TicksPerSecond;
+            bitsPerSecond = fileSize * 8d / seconds;
+        }
+        else
+        {
+            return null;
+        }
+
+        return bitsPerSecond / 1_000_000d;
+    }
+
+    /// <summary>
+    ///     Maps a measured bitrate to its tier label for the donut overview.
+    /// </summary>
+    /// <param name="mbps">The measured bitrate in Mbps.</param>
+    /// <returns>A tier label such as "8–16 Mbps".</returns>
+    private static string ClassifyBitrateValue(double mbps)
+    {
+        if (mbps < BitrateTier2Mbps)
+        {
+            return BitrateBelow2;
+        }
+
+        if (mbps < BitrateTier4Mbps)
+        {
+            return Bitrate2To4;
+        }
+
+        if (mbps < BitrateTier8Mbps)
+        {
+            return Bitrate4To8;
+        }
+
+        if (mbps < BitrateTier16Mbps)
+        {
+            return Bitrate8To16;
+        }
+
+        if (mbps < BitrateTier32Mbps)
+        {
+            return Bitrate16To32;
+        }
+
+        if (mbps < BitrateTier60Mbps)
+        {
+            return Bitrate32To60;
+        }
+
+        return BitrateAbove60;
+    }
+
+    /// <summary>
+    ///     Classifies a video file into a bitrate tier. Uses the measured video-stream bitrate when
+    ///     available, otherwise estimates the container's average bitrate from file size and runtime.
+    ///     Both sources share the same tiers: the measured value describes the video stream while
+    ///     the estimate describes the whole container, so estimates skew slightly high on
+    ///     subtitle-rich files. Tiers are coarse enough that this rarely changes the bucket.
+    ///     The measured value behind the tier is stored per file in
+    ///     <see cref="LibraryStatistics.VideoBitrates"/> so the explorer can filter by absolute range.
+    /// </summary>
+    /// <param name="streamBitrate">The video stream bitrate in bits per second, or <c>null</c> if unknown.</param>
+    /// <param name="fileSize">The file size in bytes (used for the size-over-duration fallback).</param>
+    /// <param name="runTimeTicks">The item runtime in 100ns ticks, or <c>null</c> if unknown.</param>
+    /// <returns>A tier label such as "8–16 Mbps", or "Unknown" when no bitrate can be determined.</returns>
+    internal static string ClassifyBitrateTier(int? streamBitrate, long fileSize, long? runTimeTicks)
+    {
+        var mbps = ComputeBitrateMbps(streamBitrate, fileSize, runTimeTicks);
+        if (!mbps.HasValue)
+        {
+            return UnknownLabel;
+        }
+
+        return ClassifyBitrateValue(mbps.Value);
+    }
+
+    /// <summary>
+    /// Maps a legacy bitrate tier label from a cached scan result to the current tier set.
+    /// The mapping is approximate by necessity: old buckets cannot be split exactly, so each
+    /// lands in the closest new bucket ("&gt; 40 Mbps" covers 40–60, hence 32–60). The next
+    /// live scan classifies every file precisely.
+    /// </summary>
+    /// <param name="tier">The tier label stored in the cache.</param>
+    /// <returns>The current tier label.</returns>
+    internal static string MapLegacyBitrateTier(string tier) => tier switch
+    {
+        "2-5 Mbps" => Bitrate2To4,
+        "5-10 Mbps" => Bitrate4To8,
+        "10-20 Mbps" => Bitrate8To16,
+        "20-40 Mbps" => Bitrate16To32,
+        "> 40 Mbps" => Bitrate32To60,
+        _ => tier
+    };
+
+    /// <summary>
+    ///     Reports whether a Jellyfin user is disabled and must be ignored by watched-status extraction.
+    /// </summary>
+    /// <param name="user">The user to check.</param>
+    /// <returns><c>true</c> when the user carries the IsDisabled permission.</returns>
+    private static bool IsDisabled(Jellyfin.Database.Implementations.Entities.User user) =>
+        user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
+
+    /// <summary>
+    /// Normalizes an ISO 639 language code from MediaStream to a human-readable display name.
+    /// Region subtags (en-US, pt-BR) are stripped to the base code before lookup.
+    /// </summary>
+    /// <param name="code">The language code (e.g. "eng", "de", "ger", "en-US").</param>
+    /// <returns>The display name (e.g. "English"), the uppercased raw code for unknown codes, or <c>null</c> when the input is empty or undetermined (und, mis, mul, zxx).</returns>
+    internal static string? NormalizeIso639Language(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        var trimmed = code.Trim();
+        var separator = trimmed.IndexOfAny(['-', '_']);
+        var basis = separator > 0 ? trimmed.Substring(0, separator) : trimmed;
+        if (basis.Length == 0
+            || basis.Equals("und", StringComparison.OrdinalIgnoreCase)
+            || basis.Equals("mis", StringComparison.OrdinalIgnoreCase)
+            || basis.Equals("mul", StringComparison.OrdinalIgnoreCase)
+            || basis.Equals("zxx", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (_iso639DisplayNames.TryGetValue(basis, out var display))
+        {
+            return display;
+        }
+
+        return basis.ToUpperInvariant();
     }
 
     /// <summary>
@@ -994,14 +1432,22 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="ResolvedTrashFolderName">The resolved trash folder name (empty when unset).</param>
     /// <param name="LibraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="SkipHealthChecks">When true, skip health check counters.</param>
-    /// <param name="TrashFolderName">Pre-resolved trash folder name, threaded through recursion.</param>
     /// <param name="ResolvedFullTrashPath">The normalized absolute trash path for this library root.</param>
     private readonly record struct SubdirectoryScanContext(
         string ResolvedTrashFolderName,
         string? LibraryRoot,
         bool SkipHealthChecks,
-        string? TrashFolderName,
         string? ResolvedFullTrashPath);
+
+    /// <summary>
+    ///     Users plus their pre-fetched watch data, resolved once per scan and threaded through
+    ///     the analysis so per-file extraction is a dictionary lookup, not a database query.
+    /// </summary>
+    /// <param name="Users">Enabled Jellyfin users.</param>
+    /// <param name="WatchLookups">Per-user item-id to watch-data maps; a <c>null</c> value means the batch load failed and per-item lookup applies.</param>
+    private readonly record struct ScanUserContext(
+        List<Jellyfin.Database.Implementations.Entities.User> Users,
+        Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?> WatchLookups);
 
     /// <summary>
     ///     Mutable per-directory presence flags accumulated while classifying the files of a single directory.

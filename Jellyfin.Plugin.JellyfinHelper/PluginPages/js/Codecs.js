@@ -322,6 +322,46 @@ function collectResolutionDimensions(data) {
     return merged;
 }
 
+// Per-user watched file counts across libraries. Usernames come from WatchedByUserPaths
+// (one entry per file per watching user); the file totals behind them may overlap.
+function countWatchedUsers(libraries) {
+    var counts = {};
+    for (const lib of libraries) {
+        var byUser = lib.WatchedByUserPaths;
+        if (!byUser) {
+            continue;
+        }
+        for (var user in byUser) {
+            if (Object.hasOwn(byUser, user) && byUser[user] && byUser[user].length > 0) {
+                counts[user] = (counts[user] || 0) + byUser[user].length;
+            }
+        }
+    }
+    return counts;
+}
+
+// Per-library tooltip counts for the watched chart: Never watched comes from
+// WatchedTiers, usernames from WatchedByUserPaths. Passed as lightweight rows so the
+// shared donut renderer needs no watched-specific branch.
+function buildWatchedTooltipLibraries(videoLibraries) {
+    var rows = [];
+    for (const lib of videoLibraries) {
+        var merged = {};
+        var tiers = lib.WatchedTiers || {};
+        if (tiers['Never watched'] > 0) {
+            merged['Never watched'] = tiers['Never watched'];
+        }
+        var byUser = lib.WatchedByUserPaths || {};
+        for (var user in byUser) {
+            if (Object.hasOwn(byUser, user) && byUser[user] && byUser[user].length > 0) {
+                merged[user] = byUser[user].length;
+            }
+        }
+        rows.push({LibraryName: lib.LibraryName, WatchedTooltip: merged});
+    }
+    return rows;
+}
+
 // Map chart IDs to their corresponding path property names
 var CODEC_PATH_MAP = {
     'videoCodecs': 'VideoCodecPaths',
@@ -330,7 +370,11 @@ var CODEC_PATH_MAP = {
     'bookFormats': 'BookFormatPaths',
     'containers': 'ContainerFormatPaths',
     'resolutions': 'ResolutionPaths',
-    'dynamicRanges': 'DynamicRangePaths'
+    'dynamicRanges': 'DynamicRangePaths',
+    'videoBitrate': 'VideoBitrateTierPaths',
+    'audioLanguages': 'AudioLanguagePaths',
+    'subtitleLanguages': 'SubtitleLanguagePaths',
+    'watched': 'WatchedTierPaths'
 };
 
 // Map chart IDs to which media categories should be included Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges -> only Movies + TV Shows + Other Music Audio Codecs -> only Music Book Formats -> only Books Container Formats -> all libraries (Movies + TV Shows + Music +.
@@ -339,15 +383,21 @@ var CODEC_CATEGORY_MAP = {
     'videoAudioCodecs': {movies: true, tvShows: true, music: false, other: true},
     'musicAudioCodecs': {movies: false, tvShows: false, music: true, other: false},
     'bookFormats': {movies: false, tvShows: false, music: false, other: false, books: true},
-    'containers': {movies: true, tvShows: true, music: true, other: true},
+    'containers': {movies: true, tvShows: true, music: true, books: true, other: true},
     'resolutions': {movies: true, tvShows: true, music: false, other: true},
-    'dynamicRanges': {movies: true, tvShows: true, music: false, other: true}
+    'dynamicRanges': {movies: true, tvShows: true, music: false, other: true},
+    'videoBitrate': {movies: true, tvShows: true, music: false, other: true},
+    'audioLanguages': {movies: true, tvShows: true, music: false, other: true},
+    'subtitleLanguages': {movies: true, tvShows: true, music: false, other: true},
+    'watched': {movies: true, tvShows: true, music: false, other: true}
 };
 
-// Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers
+// Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers.
+// The panel scope keeps donut drill-downs from wiping the Library Explorer results.
 function attachCodecClickHandlers() {
     attachTogglePanelHandlers({
         itemSelector: '.codec-clickable',
+        panelScope: '#tab-codecs .charts-row',
         activeClass: 'codec-row-active',
         groupAttr: 'data-chart',
         typeAttr: 'data-codec',
@@ -361,6 +411,11 @@ function attachCodecClickHandlers() {
             var chartId = item.dataset.chart;
             var codecName = item.dataset.codec;
             var pathsProp = CODEC_PATH_MAP[chartId];
+            // Watched slices span two maps: Never watched lives in WatchedTierPaths,
+            // usernames in WatchedByUserPaths.
+            if (chartId === 'watched' && codecName !== 'Never watched') {
+                pathsProp = 'WatchedByUserPaths';
+            }
             var categories = CODEC_CATEGORY_MAP[chartId];
             var result = collectCodecPaths(_lastCodecData, pathsProp, codecName,
                 categories);
@@ -495,6 +550,15 @@ function fillCodecsData(data) {
     var containers = aggregateDict(data.Libraries, 'ContainerFormats');
     var resolutions = aggregateDict(videoLibraries, 'Resolutions');
     var dynamicRanges = aggregateDict(videoLibraries, 'DynamicRanges');
+    var videoBitrate = aggregateDict(videoLibraries, 'VideoBitrateTiers');
+    var audioLanguages = aggregateDict(videoLibraries, 'AudioLanguages');
+    var subtitleLanguages = aggregateDict(videoLibraries, 'SubtitleLanguages');
+    // Watched shows who watched: one slice per username plus Never watched.
+    var watched = countWatchedUsers(videoLibraries);
+    var neverWatchedCount = aggregateDict(videoLibraries, 'WatchedTiers')['Never watched'] || 0;
+    if (neverWatchedCount > 0) {
+        watched['Never watched'] = neverWatchedCount;
+    }
 
     var videoCodecSizes = aggregateDict(videoLibraries, 'VideoCodecSizes');
     var videoAudioCodecSizes = aggregateDict(videoLibraries, 'VideoAudioCodecSizes');
@@ -503,6 +567,14 @@ function fillCodecsData(data) {
     var containerSizes = aggregateDict(data.Libraries, 'ContainerSizes');
     var resolutionSizes = aggregateDict(videoLibraries, 'ResolutionSizes');
     var dynamicRangeSizes = aggregateDict(videoLibraries, 'DynamicRangeSizes');
+    var videoBitrateSizes = aggregateDict(videoLibraries, 'VideoBitrateTierSizes');
+    var audioLanguageSizes = aggregateDict(videoLibraries, 'AudioLanguageSizes');
+    var subtitleLanguageSizes = aggregateDict(videoLibraries, 'SubtitleLanguageSizes');
+    var watchedSizes = aggregateDict(videoLibraries, 'WatchedByUserSizes');
+    var neverWatchedSize = aggregateDict(videoLibraries, 'WatchedTierSizes')['Never watched'] || 0;
+    if (neverWatchedSize > 0) {
+        watchedSizes['Never watched'] = neverWatchedSize;
+    }
 
     var hasContainers = Object.keys(containers).length > 0;
     var hasResolutions = Object.keys(resolutions).length > 0;
@@ -511,8 +583,13 @@ function fillCodecsData(data) {
     var hasVideoAudio = Object.keys(videoAudioCodecs).length > 0;
     var hasMusicAudio = Object.keys(musicAudioCodecs).length > 0;
     var hasBookFormats = Object.keys(bookFormats).length > 0;
+    var hasVideoBitrate = Object.keys(videoBitrate).length > 0;
+    var hasAudioLanguages = Object.keys(audioLanguages).length > 0;
+    var hasSubtitleLanguages = Object.keys(subtitleLanguages).length > 0;
+    var hasWatched = Object.keys(watched).length > 0;
     var hasAnyCharts = hasContainers || hasResolutions || hasDynamicRanges
-        || hasVideoCodecs || hasVideoAudio || hasMusicAudio || hasBookFormats;
+        || hasVideoCodecs || hasVideoAudio || hasMusicAudio || hasBookFormats
+        || hasVideoBitrate || hasAudioLanguages || hasSubtitleLanguages || hasWatched;
 
     var codecsHtml = '<div class="charts-row">';
     if (hasContainers) {
@@ -547,6 +624,29 @@ function fillCodecsData(data) {
             'MusicAudioCodecs');
         codecsHtml += '</div>';
     }
+    if (hasVideoBitrate) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('high_quality') + T('videoBitrate', 'Video Bitrate') + '</h4>';
+        codecsHtml += renderDonutChart(videoBitrate, videoBitrateSizes, 'videoBitrate', videoLibraries,
+            'VideoBitrateTiers');
+        codecsHtml += '</div>';
+    }
+    if (hasAudioLanguages) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('description') + T('audioLanguages', 'Audio Languages') + '</h4>';
+        codecsHtml += renderDonutChart(audioLanguages, audioLanguageSizes, 'audioLanguages', videoLibraries,
+            'AudioLanguages');
+        codecsHtml += '</div>';
+    }
+    if (hasSubtitleLanguages) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('edit_note') + T('subtitleLanguages', 'Subtitle Languages') + '</h4>';
+        codecsHtml += renderDonutChart(subtitleLanguages, subtitleLanguageSizes, 'subtitleLanguages', videoLibraries,
+            'SubtitleLanguages');
+        codecsHtml += '</div>';
+    }
+    if (hasWatched) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + T('watched', 'Watched') + '</h4>';
+        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', buildWatchedTooltipLibraries(videoLibraries), 'WatchedTooltip');
+        codecsHtml += '</div>';
+    }
     if (hasBookFormats) {
         codecsHtml += '<div class="chart-box"><h4>' + mi('library_books') + T('bookFormats', 'Book Formats') + '</h4>';
         codecsHtml += renderDonutChart(bookFormats, bookFormatSizes, 'bookFormats', bookLibraries,
@@ -563,5 +663,6 @@ function fillCodecsData(data) {
         codecsContainer.innerHTML = codecsHtml;
         attachCodecClickHandlers();
         attachDonutHoverTooltips();
+        renderCodecsExplorer(codecsContainer);
     }
 }

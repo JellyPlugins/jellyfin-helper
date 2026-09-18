@@ -217,4 +217,205 @@ public class StatisticsCacheServiceTests : IDisposable
 
         Assert.Null(Record.Exception(() => _service.SaveLatestResult(new MediaStatisticsResult())));
     }
+
+    [Fact]
+    public void LoadLatestResult_LegacyBitrateTiers_AreMigratedToNewLabels()
+    {
+        // A cache written before the 7-tier bitrate rework used the old 5-tier labels. On load
+        // these must be remapped so old data does not silently vanish from the UI after upgrade.
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.VideoBitrateTiers["2-5 Mbps"] = 3;
+        lib.VideoBitrateTierSizes["2-5 Mbps"] = 3_000;
+        lib.VideoBitrateTierPaths["2-5 Mbps"] = new System.Collections.ObjectModel.Collection<string> { "/a.mkv", "/b.mkv" };
+        stats.Libraries.Add(lib);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        var loadedLib = loaded!.Libraries[0];
+        Assert.False(loadedLib.VideoBitrateTiers.ContainsKey("2-5 Mbps"));
+        Assert.Equal(3, loadedLib.VideoBitrateTiers["2–4 Mbps"]);
+        Assert.Equal(3_000, loadedLib.VideoBitrateTierSizes["2–4 Mbps"]);
+        Assert.Equal(2, loadedLib.VideoBitrateTierPaths["2–4 Mbps"].Count);
+        Assert.Contains("/a.mkv", loadedLib.VideoBitrateTierPaths["2–4 Mbps"]);
+    }
+
+    [Fact]
+    public void LoadLatestResult_CacheWithoutVideoBitrates_LoadsWithEmptyMap()
+    {
+        // Caches written before per file bitrates existed carry no VideoBitrates key.
+        // Loading them must yield an empty map instead of failing, so the explorer
+        // can show its rescan hint until the next scan fills the values.
+        var legacyJson = "{\"LibraryName\":\"Movies\",\"VideoBitrateTiers\":{\"8–16 Mbps\":1}}";
+        var lib = System.Text.Json.JsonSerializer.Deserialize<LibraryStatistics>(legacyJson);
+
+        Assert.NotNull(lib);
+        Assert.NotNull(lib!.VideoBitrates);
+        Assert.Empty(lib.VideoBitrates);
+    }
+
+    [Fact]
+    public void LoadLatestResult_TwoLegacyBitrateTiers_MergeIntoSameNewTier()
+    {
+        // "5-10 Mbps" and legacy overlap must accumulate rather than overwrite when they land in
+        // the same new bucket alongside a value already present under the new label.
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.VideoBitrateTiers["10-20 Mbps"] = 2;
+        lib.VideoBitrateTierSizes["10-20 Mbps"] = 2_000;
+        lib.VideoBitrateTiers["8–16 Mbps"] = 5; // already-migrated data coexisting in the same cache
+        lib.VideoBitrateTierSizes["8–16 Mbps"] = 5_000;
+        stats.Libraries.Add(lib);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        var loadedLib = loaded!.Libraries[0];
+        Assert.False(loadedLib.VideoBitrateTiers.ContainsKey("10-20 Mbps"));
+        Assert.Equal(7, loadedLib.VideoBitrateTiers["8–16 Mbps"]);
+        Assert.Equal(7_000, loadedLib.VideoBitrateTierSizes["8–16 Mbps"]);
+    }
+
+    [Fact]
+    public void LoadLatestResult_NoLegacyBitrateTiers_LeavesDataUntouched()
+    {
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.VideoBitrateTiers["4–8 Mbps"] = 9;
+        stats.Libraries.Add(lib);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        Assert.Equal(9, loaded!.Libraries[0].VideoBitrateTiers["4–8 Mbps"]);
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyBitrateTierPaths_MergeIntoExistingNewTierPaths()
+    {
+        // A cache can already contain paths under the new label (e.g. a mixed old/new dataset).
+        // Legacy paths must be appended to that existing list, not discarded or used to replace it.
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.VideoBitrateTierPaths["10-20 Mbps"] = new System.Collections.ObjectModel.Collection<string> { "/legacy.mkv" };
+        lib.VideoBitrateTierPaths["8–16 Mbps"] = new System.Collections.ObjectModel.Collection<string> { "/existing.mkv" };
+        stats.Libraries.Add(lib);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        var loadedLib = loaded!.Libraries[0];
+        Assert.False(loadedLib.VideoBitrateTierPaths.ContainsKey("10-20 Mbps"));
+        Assert.Equal(2, loadedLib.VideoBitrateTierPaths["8–16 Mbps"].Count);
+        Assert.Contains("/legacy.mkv", loadedLib.VideoBitrateTierPaths["8–16 Mbps"]);
+        Assert.Contains("/existing.mkv", loadedLib.VideoBitrateTierPaths["8–16 Mbps"]);
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyWatchedBuckets_MergeIntoWatched()
+    {
+        // Pre-binary-Watched/Never-watched caches used "1 user"/"2-3 users"/"4+ users". These must
+        // collapse into the single "Watched" bucket so upgraded servers do not lose watched counts.
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.WatchedTiers["1 user"] = 2;
+        lib.WatchedTiers["2–3 users"] = 3;
+        lib.WatchedTiers["4+ users"] = 1;
+        lib.WatchedTierSizes["1 user"] = 1_000;
+        lib.WatchedTierPaths["1 user"] = new System.Collections.ObjectModel.Collection<string> { "/a.mkv" };
+        lib.WatchedTierPaths["2–3 users"] = new System.Collections.ObjectModel.Collection<string> { "/b.mkv" };
+        stats.Libraries.Add(lib);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        var loadedLib = loaded!.Libraries[0];
+        Assert.False(loadedLib.WatchedTiers.ContainsKey("1 user"));
+        Assert.False(loadedLib.WatchedTiers.ContainsKey("2–3 users"));
+        Assert.False(loadedLib.WatchedTiers.ContainsKey("4+ users"));
+        Assert.Equal(6, loadedLib.WatchedTiers["Watched"]);
+        Assert.Equal(1_000, loadedLib.WatchedTierSizes["Watched"]);
+        Assert.Equal(2, loadedLib.WatchedTierPaths["Watched"].Count);
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyWatchedBucketsWithExistingWatchedEntry_Accumulates()
+    {
+        // A cache can already contain a "Watched" bucket (mixed old/new data) - legacy counts must
+        // add to it, not overwrite it.
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.WatchedTiers["Watched"] = 10;
+        lib.WatchedTiers["1 user"] = 4;
+        lib.WatchedTierPaths["Watched"] = new System.Collections.ObjectModel.Collection<string> { "/existing.mkv" };
+        lib.WatchedTierPaths["1 user"] = new System.Collections.ObjectModel.Collection<string> { "/legacy.mkv" };
+        stats.Libraries.Add(lib);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        var loadedLib = loaded!.Libraries[0];
+        Assert.Equal(14, loadedLib.WatchedTiers["Watched"]);
+        Assert.Equal(2, loadedLib.WatchedTierPaths["Watched"].Count);
+        Assert.Contains("/existing.mkv", loadedLib.WatchedTierPaths["Watched"]);
+        Assert.Contains("/legacy.mkv", loadedLib.WatchedTierPaths["Watched"]);
+    }
+
+    [Fact]
+    public void LoadLatestResult_NoLegacyWatchedBuckets_LeavesNeverWatchedUntouched()
+    {
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.WatchedTiers["Never watched"] = 5;
+        stats.Libraries.Add(lib);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        Assert.Equal(5, loaded!.Libraries[0].WatchedTiers["Never watched"]);
+        Assert.False(loaded.Libraries[0].WatchedTiers.ContainsKey("Watched"));
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyBitrateTiers_MigratesEveryCategoryCollection()
+    {
+        // Category collections deserialize into separate instances, so the migration
+        // must cover Movies/TvShows/etc. and not just Libraries.
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.VideoBitrateTiers["2-5 Mbps"] = 3;
+        var movies = new LibraryStatistics();
+        movies.VideoBitrateTiers["> 40 Mbps"] = 2;
+        stats.Libraries.Add(lib);
+        stats.Movies.Add(movies);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        Assert.False(loaded!.Libraries[0].VideoBitrateTiers.ContainsKey("2-5 Mbps"));
+        Assert.Equal(3, loaded.Libraries[0].VideoBitrateTiers["2–4 Mbps"]);
+        Assert.False(loaded.Movies[0].VideoBitrateTiers.ContainsKey("> 40 Mbps"));
+        Assert.Equal(2, loaded.Movies[0].VideoBitrateTiers["32–60 Mbps"]);
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyWatchedBuckets_MigratesEveryCategoryCollection()
+    {
+        var stats = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        lib.WatchedTiers["1 user"] = 4;
+        var tv = new LibraryStatistics();
+        tv.WatchedTiers["2–3 users"] = 6;
+        stats.Libraries.Add(lib);
+        stats.TvShows.Add(tv);
+        _service.SaveLatestResult(stats);
+
+        var loaded = _service.LoadLatestResult();
+
+        Assert.False(loaded!.Libraries[0].WatchedTiers.ContainsKey("1 user"));
+        Assert.Equal(4, loaded.Libraries[0].WatchedTiers["Watched"]);
+        Assert.False(loaded.TvShows[0].WatchedTiers.ContainsKey("2–3 users"));
+        Assert.Equal(6, loaded.TvShows[0].WatchedTiers["Watched"]);
+    }
 }

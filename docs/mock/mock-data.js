@@ -14,14 +14,31 @@ VideoCodecSizes:{"HEVC":2642000000000,"H.264":1847000000000,"AV1":537000000000,"
 VideoAudioCodecSizes:{"AAC":2100000000000,"AC3":1400000000000,"EAC3":800000000000,"DTS":600000000000,"TrueHD":350000000000,"Opus":33942948864},
 ContainerSizes:{"MKV":3500000000000,"MP4":1550000000000,"AVI":150000000000,"WebM":83942948864},
 ResolutionSizes:{"4K":3200000000000,"1080p":1700000000000,"720p":280000000000,"480p":80000000000,"576p":23942948864},
-VideoCodecPaths:{"HEVC":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Interstellar (2014)/Interstellar.mkv"],"H.264":["/data/movies/The Matrix (1999)/The Matrix.mp4"],"AV1":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"],"MPEG-2":["/data/movies/Old Movie (1992)/Old Movie.avi"],"VP9":["/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm"]},
-VideoAudioCodecPaths:{"AAC":["/data/movies/The Matrix (1999)/The Matrix.mp4"],"AC3":["/data/movies/Inception (2010)/Inception.mkv"],"EAC3":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"DTS":["/data/movies/Interstellar (2014)/Interstellar.mkv"],"TrueHD":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"],"Opus":["/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm"]},
-ContainerFormatPaths:{"MKV":["/data/movies/Inception (2010)/Inception.mkv"],"MP4":["/data/movies/The Matrix (1999)/The Matrix.mp4"],"AVI":["/data/movies/Old Movie (1992)/Old Movie.avi"],"WebM":["/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm"]},
-ResolutionPaths:{"4K":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"1080p":["/data/movies/The Matrix (1999)/The Matrix.mp4"],"720p":["/data/movies/Pulp Fiction (1994)/Pulp Fiction.mkv"],"480p":["/data/movies/Old Movie (1992)/Old Movie.avi"],"576p":["/data/movies/French Film (1998)/French Film.mkv"]},
-ResolutionDimensions:{"/data/movies/Dune Part Two (2024)/Dune Part Two.mkv":"3840x1600","/data/movies/The Matrix (1999)/The Matrix.mp4":"1920x800","/data/movies/Pulp Fiction (1994)/Pulp Fiction.mkv":"1280x720","/data/movies/Old Movie (1992)/Old Movie.avi":"854x480","/data/movies/French Film (1998)/French Film.mkv":"1024x576"},
+VideoCodecPaths:{"HEVC":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Interstellar (2014)/Interstellar.mkv","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv"],"H.264":["/data/movies/The Matrix (1999)/The Matrix.mp4","/data/movies/Home Video (2023)/Home Video.mp4","/data/movies/Your Name (2016)/Your Name.mkv","/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv"],"AV1":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"],"MPEG-2":["/data/movies/Old Movie (1992)/Old Movie.avi"],"VP9":["/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm"]},
+VideoAudioCodecPaths:{"AAC":["/data/movies/The Matrix (1999)/The Matrix.mp4","/data/movies/Home Video (2023)/Home Video.mp4","/data/movies/Your Name (2016)/Your Name.mkv"],"AC3":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv"],"EAC3":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"DTS":["/data/movies/Interstellar (2014)/Interstellar.mkv"],"TrueHD":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv"],"Opus":["/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm"]},
+ContainerFormatPaths:{"MKV":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Dune Part Two (2024)/Dune Part Two.mkv","/data/movies/Your Name (2016)/Your Name.mkv","/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv"],"MP4":["/data/movies/The Matrix (1999)/The Matrix.mp4","/data/movies/Home Video (2023)/Home Video.mp4"],"AVI":["/data/movies/Old Movie (1992)/Old Movie.avi"],"WebM":["/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm"]},
+ResolutionPaths:{"4K":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv"],"1080p":["/data/movies/The Matrix (1999)/The Matrix.mp4","/data/movies/Your Name (2016)/Your Name.mkv","/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv"],"720p":["/data/movies/Pulp Fiction (1994)/Pulp Fiction.mkv"],"480p":["/data/movies/Old Movie (1992)/Old Movie.avi"],"576p":["/data/movies/French Film (1998)/French Film.mkv"]},
+ResolutionDimensions:{"/data/movies/Dune Part Two (2024)/Dune Part Two.mkv":"3840x1600","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv":"3840x2160","/data/movies/The Matrix (1999)/The Matrix.mp4":"1920x800","/data/movies/Your Name (2016)/Your Name.mkv":"1920x1080","/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv":"1920x1080","/data/movies/Pulp Fiction (1994)/Pulp Fiction.mkv":"1280x720","/data/movies/Old Movie (1992)/Old Movie.avi":"854x480","/data/movies/French Film (1998)/French Film.mkv":"1024x576"},
 DynamicRanges:{"SDR":780,"HDR10":280,"Dolby Vision":130,"HLG":37,"HDR10+":20},
 DynamicRangeSizes:{"SDR":2000000000000,"HDR10":1800000000000,"Dolby Vision":1000000000000,"HLG":300000000000,"HDR10+":183942948864},
-DynamicRangePaths:{"HDR10":["/data/movies/Inception (2010)/Inception.mkv"],"Dolby Vision":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"HDR10+":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"]},
+DynamicRangePaths:{"HDR10":["/data/movies/Inception (2010)/Inception.mkv"],"Dolby Vision":["/data/movies/Dune Part Two (2024)/Dune Part Two.mkv","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv"],"HDR10+":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"],"SDR":["/data/movies/The Matrix (1999)/The Matrix.mp4","/data/movies/Your Name (2016)/Your Name.mkv","/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv"],"HLG":["/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm"]},
+VideoBitrateTiers:{"8–16 Mbps":420,"4–8 Mbps":380,"16–32 Mbps":250,"2–4 Mbps":120,"32–60 Mbps":50,"< 2 Mbps":20,"> 60 Mbps":7},
+VideoBitrateTierSizes:{"8–16 Mbps":1900000000000,"4–8 Mbps":1500000000000,"16–32 Mbps":1200000000000,"2–4 Mbps":400000000000,"32–60 Mbps":250000000000,"< 2 Mbps":60000000000,"> 60 Mbps":23942948864},
+VideoBitrateTierPaths:{"32–60 Mbps":["/data/movies/Interstellar (2014)/Interstellar.mkv","/data/movies/Dune Part Two (2024)/Dune Part Two.mkv"],"4–8 Mbps":["/data/movies/The Matrix (1999)/The Matrix.mp4","/data/movies/Home Video (2023)/Home Video.mp4","/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv"],"8–16 Mbps":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Your Name (2016)/Your Name.mkv","/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm"],"16–32 Mbps":["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"],"2–4 Mbps":["/data/movies/French Film (1998)/French Film.mkv"],"< 2 Mbps":["/data/movies/Old Movie (1992)/Old Movie.avi"],"> 60 Mbps":["/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv"]},
+VideoBitrates:{"/data/movies/Inception (2010)/Inception.mkv":12.5,"/data/movies/Interstellar (2014)/Interstellar.mkv":45.2,"/data/movies/The Matrix (1999)/The Matrix.mp4":6.1,"/data/movies/Oppenheimer (2023)/Oppenheimer.mkv":24.6,"/data/movies/Old Movie (1992)/Old Movie.avi":1.4,"/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm":9.8,"/data/movies/Dune Part Two (2024)/Dune Part Two.mkv":52.3,"/data/movies/Pulp Fiction (1994)/Pulp Fiction.mkv":7.2,"/data/movies/French Film (1998)/French Film.mkv":3.1,"/data/movies/Home Video (2023)/Home Video.mp4":5.5,"/data/movies/Your Name (2016)/Your Name.mkv":8.4,"/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv":5.6,"/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv":68.4},
+AudioLanguages:{"English":1100,"German":320,"French":140,"Japanese":60,"Spanish":45},
+AudioLanguageSizes:{"English":4200000000000,"German":600000000000,"French":250000000000,"Japanese":120000000000,"Spanish":63942948864},
+AudioLanguagePaths:{"English":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv","/data/movies/Home Video (2023)/Home Video.mp4"],"German":["/data/movies/Inception (2010)/Inception.mkv"],"French":["/data/movies/French Film (1998)/French Film.mkv"],"Japanese":["/data/movies/Your Name (2016)/Your Name.mkv"],"Spanish":["/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv"]},
+SubtitleLanguages:{"English":980,"German":410,"French":220,"Spanish":90},
+SubtitleLanguageSizes:{"English":3800000000000,"German":800000000000,"French":400000000000,"Spanish":163942948864},
+SubtitleLanguagePaths:{"English":["/data/movies/Interstellar (2014)/Interstellar.mkv","/data/movies/Your Name (2016)/Your Name.mkv"],"German":["/data/movies/Inception (2010)/Inception.mkv"],"French":["/data/movies/French Film (1998)/French Film.mkv"],"Spanish":["/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv"]},
+WatchedTiers:{"Watched":900,"Never watched":347},
+WatchedTierSizes:{"Watched":3900000000000,"Never watched":1383942948864},
+WatchedTierPaths:{"Watched":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv"],"Never watched":["/data/movies/Old Movie (1992)/Old Movie.avi","/data/movies/Your Name (2016)/Your Name.mkv","/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv"]},
+WatchedByUserPaths:{"Alice":["/data/movies/Inception (2010)/Inception.mkv","/data/movies/Interstellar (2014)/Interstellar.mkv","/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv"],"Bob":["/data/movies/Inception (2010)/Inception.mkv"]},
+WatchedByUserSizes:{"Alice":3200000000000,"Bob":1500000000000},
+WatchedDetails:{"/data/movies/Inception (2010)/Inception.mkv":[{"Username":"Alice","PlayCount":3,"LastPlayedDate":"2024-03-01T12:00:00Z","Played":true},{"Username":"Bob","PlayCount":1,"LastPlayedDate":"2024-02-14T20:00:00Z","Played":true}],"/data/movies/Interstellar (2014)/Interstellar.mkv":[{"Username":"Alice","PlayCount":1,"LastPlayedDate":"2024-01-05T21:00:00Z","Played":true}],"/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv":[{"Username":"Alice","PlayCount":2,"LastPlayedDate":"2024-05-11T21:30:00Z","Played":true}]},
+FileSizes:{"/data/movies/Inception (2010)/Inception.mkv":24500000000,"/data/movies/Interstellar (2014)/Interstellar.mkv":31200000000,"/data/movies/The Matrix (1999)/The Matrix.mp4":8400000000,"/data/movies/Oppenheimer (2023)/Oppenheimer.mkv":38900000000,"/data/movies/Dune Part Two (2024)/Dune Part Two.mkv":52400000000,"/data/movies/Pulp Fiction (1994)/Pulp Fiction.mkv":4600000000,"/data/movies/French Film (1998)/French Film.mkv":2200000000,"/data/movies/Old Movie (1992)/Old Movie.avi":1100000000,"/data/movies/Big Buck Bunny (2008)/Big Buck Bunny.webm":890000000,"/data/movies/Home Video (2023)/Home Video.mp4":3800000000,"/data/movies/Your Name (2016)/Your Name.mkv":7900000000,"/data/movies/Pans Labyrinth (2006)/Pans Labyrinth.mkv":6700000000,"/data/movies/Blade Runner 2049 (2017)/Blade Runner 2049.mkv":68400000000},
 VideosWithoutSubtitles:8,VideosWithoutImages:2,VideosWithoutNfo:1,
 VideosWithoutSubtitlesPaths:["/data/movies/Home Video (2023)/Home Video.mp4","/data/movies/Old Movie (1992)/Old Movie.avi"],
 VideosWithoutImagesPaths:["/data/movies/Home Video (2023)/Home Video.mp4"],
@@ -47,7 +64,24 @@ ResolutionPaths:{"4K":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"1080p"
 ResolutionDimensions:{"/data/tv/Planet Earth III/Season 01/S01E01.mkv":"3840x2160","/data/tv/Breaking Bad/Season 01/S01E01.mkv":"1916x1076","/data/tv/The Office/Season 01/S01E01.mp4":"1280x720","/data/tv/Friends/Season 01/S01E01.mp4":"854x480","/data/tv/Old Show (1995)/S01E01.avi":"1024x576"},
 DynamicRanges:{"SDR":3100,"HDR10":450,"Dolby Vision":200,"HLG":62,"HDR10+":30},
 DynamicRangeSizes:{"SDR":2200000000000,"HDR10":650000000000,"Dolby Vision":380000000000,"HLG":130000000000,"HDR10+":75973836800},
-DynamicRangePaths:{"HDR10":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"Dolby Vision":["/data/tv/The Expanse/Season 01/S01E01.mkv"]},
+DynamicRangePaths:{"HDR10":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"Dolby Vision":["/data/tv/The Expanse/Season 01/S01E01.mkv"],"HLG":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"HDR10+":["/data/tv/Breaking Bad/Season 05/S05E16.mkv"],"SDR":["/data/tv/Breaking Bad/Season 01/S01E01.mkv","/data/tv/Friends/Season 01/S01E01.mp4"]},
+VideoBitrateTiers:{"4–8 Mbps":1500,"8–16 Mbps":1100,"2–4 Mbps":700,"16–32 Mbps":350,"< 2 Mbps":150,"32–60 Mbps":42},
+VideoBitrateTierSizes:{"4–8 Mbps":1400000000000,"8–16 Mbps":1100000000000,"2–4 Mbps":500000000000,"16–32 Mbps":300000000000,"< 2 Mbps":90000000000,"32–60 Mbps":45973836800},
+VideoBitrateTierPaths:{"4–8 Mbps":["/data/tv/Breaking Bad/Season 01/S01E01.mkv","/data/tv/The Office/Season 01/S01E01.mp4"],"8–16 Mbps":["/data/tv/YouTube Originals/S01E01.webm","/data/tv/The Expanse/Season 01/S01E01.mkv"],"2–4 Mbps":["/data/tv/Friends/Season 01/S01E01.mp4","/data/tv/New Show/Season 01/S01E01.mkv"],"16–32 Mbps":["/data/tv/Planet Earth III/Season 01/S01E01.mkv"],"< 2 Mbps":["/data/tv/Old Show (1995)/S01E01.avi"],"32–60 Mbps":["/data/tv/Breaking Bad/Season 05/S05E16.mkv"],"< 2 Mbps":["/data/tv/Old Show (1995)/S01E01.avi"]},
+VideoBitrates:{"/data/tv/Breaking Bad/Season 01/S01E01.mkv":6.8,"/data/tv/Friends/Season 01/S01E01.mp4":3.4,"/data/tv/Planet Earth III/Season 01/S01E01.mkv":18.6,"/data/tv/The Office/Season 01/S01E01.mp4":5.9,"/data/tv/The Expanse/Season 01/S01E01.mkv":11.3,"/data/tv/YouTube Originals/S01E01.webm":9.1,"/data/tv/Old Show (1995)/S01E01.avi":1.1,"/data/tv/Old Show (1995)/S01E01.ts":1.3,"/data/tv/New Show/Season 01/S01E01.mkv":2.2,"/data/tv/Breaking Bad/Season 05/S05E16.mkv":34.8},
+AudioLanguages:{"English":3600,"German":900,"Spanish":300,"French":180},
+AudioLanguageSizes:{"English":2800000000000,"German":350000000000,"Spanish":150000000000,"French":135973836800},
+AudioLanguagePaths:{"English":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"German":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"Spanish":["/data/tv/Friends/Season 01/S01E01.mp4"],"French":["/data/tv/The Expanse/Season 01/S01E01.mkv"]},
+SubtitleLanguages:{"English":3300,"German":1200,"French":400},
+SubtitleLanguageSizes:{"English":2500000000000,"German":600000000000,"French":335973836800},
+SubtitleLanguagePaths:{"English":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"German":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"French":["/data/tv/The Expanse/Season 01/S01E01.mkv"]},
+WatchedTiers:{"Watched":2900,"Never watched":942},
+WatchedTierSizes:{"Watched":2600000000000,"Never watched":835973836800},
+WatchedTierPaths:{"Watched":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"Never watched":["/data/tv/New Show/Season 01/S01E01.mkv"]},
+WatchedByUserPaths:{"Alice":["/data/tv/Breaking Bad/Season 01/S01E01.mkv"],"Carol":["/data/tv/Friends/Season 01/S01E01.mp4"]},
+WatchedByUserSizes:{"Alice":900000000000,"Carol":400000000000},
+WatchedDetails:{"/data/tv/Breaking Bad/Season 01/S01E01.mkv":[{"Username":"Alice","PlayCount":2,"LastPlayedDate":"2024-04-02T19:00:00Z","Played":true}]},
+FileSizes:{"/data/tv/Breaking Bad/Season 01/S01E01.mkv":3200000000,"/data/tv/Friends/Season 01/S01E01.mp4":700000000,"/data/tv/Planet Earth III/Season 01/S01E01.mkv":12500000000,"/data/tv/The Office/Season 01/S01E01.mp4":900000000,"/data/tv/The Expanse/Season 01/S01E01.mkv":4100000000,"/data/tv/YouTube Originals/S01E01.webm":640000000,"/data/tv/Old Show (1995)/S01E01.avi":380000000,"/data/tv/Old Show (1995)/S01E01.ts":340000000,"/data/tv/New Show/Season 01/S01E01.mkv":1100000000,"/data/tv/Breaking Bad/Season 05/S05E16.mkv":9800000000},
 VideosWithoutSubtitles:45,VideosWithoutImages:8,OrphanedMetadataDirectories:2,
 VideosWithoutSubtitlesPaths:["/data/tv/New Show/Season 01/S01E01.mkv","/data/tv/New Show/Season 01/S01E02.mkv"],
 VideosWithoutImagesPaths:["/data/tv/New Show/Season 01/S01E01.mkv"],
@@ -59,7 +93,8 @@ RootPaths:["/data/music"],AudioSize:214748364800,ImageSize:1073741824,
 AudioFileCount:12450,ImageFileCount:2000,
 MusicAudioCodecs:{"FLAC":6000,"MP3":3200,"Opus":1500,"AAC":1000,"ALAC":500,"WavPack":250},
 MusicAudioCodecSizes:{"FLAC":140000000000,"MP3":32000000000,"Opus":18000000000,"AAC":12000000000,"ALAC":10000000000,"WavPack":2748364800},
-MusicAudioCodecPaths:{"FLAC":["/data/music/Pink Floyd/01.flac"],"MP3":["/data/music/Various/song.mp3"]}
+MusicAudioCodecPaths:{"FLAC":["/data/music/Pink Floyd/01.flac","/data/music/Pink Floyd/02.flac"],"MP3":["/data/music/Various/song.mp3"],"Opus":["/data/music/Podcasts/episode.opus"],"AAC":["/data/music/Various/song.m4a"],"ALAC":["/data/music/Beatles/01.m4a"],"WavPack":["/data/music/Pink Floyd/03.wv"]},
+FileSizes:{"/data/music/Pink Floyd/01.flac":32000000,"/data/music/Pink Floyd/02.flac":29000000,"/data/music/Various/song.mp3":9000000,"/data/music/Podcasts/episode.opus":18000000,"/data/music/Various/song.m4a":8000000,"/data/music/Beatles/01.m4a":28000000,"/data/music/Pink Floyd/03.wv":35000000}
 });
 
 var _booksLib=_lib("Books","books",{
@@ -67,7 +102,8 @@ RootPaths:["/data/books"],BookSize:48318382080,ImageSize:268435456,
 BookFileCount:3120,ImageFileCount:850,
 BookFormats:{"EPUB":1840,"PDF":720,"CBZ":360,"MOBI":150,"AZW3":50},
 BookFormatSizes:{"EPUB":18253611008,"PDF":22548578304,"CBZ":5905580032,"MOBI":1181116006,"AZW3":429496730},
-BookFormatPaths:{"EPUB":["/data/books/Brandon Sanderson/Mistborn.epub"],"PDF":["/data/books/OReilly/Designing Data-Intensive Applications.pdf"],"CBZ":["/data/books/Comics/Saga Vol 1.cbz"]}
+BookFormatPaths:{"EPUB":["/data/books/Brandon Sanderson/Mistborn.epub","/data/books/Brandon Sanderson/Way of Kings.epub"],"PDF":["/data/books/OReilly/Designing Data-Intensive Applications.pdf"],"CBZ":["/data/books/Comics/Saga Vol 1.cbz"],"MOBI":["/data/books/Tolkien/The Hobbit.mobi"],"AZW3":["/data/books/Asimov/Foundation.azw3"]},
+FileSizes:{"/data/books/Brandon Sanderson/Mistborn.epub":2100000,"/data/books/Brandon Sanderson/Way of Kings.epub":4200000,"/data/books/OReilly/Designing Data-Intensive Applications.pdf":18000000,"/data/books/Comics/Saga Vol 1.cbz":120000000,"/data/books/Tolkien/The Hobbit.mobi":1800000,"/data/books/Asimov/Foundation.azw3":2400000}
 });
 
 var MOCK_STATISTICS={
@@ -86,7 +122,7 @@ TotalImageSize:_moviesLib.ImageSize+_tvLib.ImageSize+_musicLib.ImageSize+_booksL
 TotalNfoSize:_moviesLib.NfoSize+_tvLib.NfoSize,
 TotalVideoFileCount:_moviesLib.VideoFileCount+_tvLib.VideoFileCount,
 TotalAudioFileCount:_musicLib.AudioFileCount,
-MovieRootPaths:["/data/movies"],TvShowRootPaths:["/data/tv"],MusicRootPaths:["/data/music"],OtherRootPaths:[]
+MovieRootPaths:["/data/movies"],TvShowRootPaths:["/data/tv"],MusicRootPaths:["/data/music"],BookRootPaths:["/data/books"],OtherRootPaths:[]
 };
 
 var MOCK_CONFIG={
