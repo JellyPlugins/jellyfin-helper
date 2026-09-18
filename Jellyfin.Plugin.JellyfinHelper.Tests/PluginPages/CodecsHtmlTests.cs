@@ -300,6 +300,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("codec-filter-bar", HtmlContent);
         Assert.Contains("codec-filter-pop", HtmlContent);
         Assert.Contains("codec-pill", HtmlContent);
+        Assert.Contains("codec-multi-chevron", HtmlContent);
         Assert.Contains("data-filter-dim", HtmlContent);
     }
 

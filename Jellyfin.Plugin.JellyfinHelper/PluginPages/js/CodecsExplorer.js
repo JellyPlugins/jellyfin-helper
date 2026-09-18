@@ -607,7 +607,7 @@ function buildCodecsExplorerMulti(dim) {
         + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-labelledby="codecMultiLabel_' + escAttr(dim.id) + '"'
         + (disabled ? ' disabled' : '') + '>';
     html += '<span class="codec-multi-summary">' + escHtml(explorerMultiSummary(selected)) + '</span>';
-    html += '<span class="codec-multi-chevron">' + mi('expand_more') + '</span></button>';
+    html += '<span class="codec-multi-chevron" aria-hidden="true">›</span></button>';
     html += '<div class="codec-multi-panel" data-multi-panel="' + escAttr(dim.id) + '"' + (open ? '' : ' hidden') + '>';
     for (let index = 0; index < visible.length; index++) {
         const option = visible[index];
@@ -646,7 +646,7 @@ function buildCodecsExplorerLibraryMulti() {
         + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-labelledby="codecMultiLabel_libraries"'
         + (disabled ? ' disabled' : '') + '>';
     html += '<span class="codec-multi-summary">' + escHtml(libraryMultiSummary(selected)) + '</span>';
-    html += '<span class="codec-multi-chevron">' + mi('expand_more') + '</span></button>';
+    html += '<span class="codec-multi-chevron" aria-hidden="true">›</span></button>';
     html += '<div class="codec-multi-panel" data-library-panel="1"' + (open ? '' : ' hidden') + '>';
     for (let index = 0; index < libs.length; index++) {
         const lib = libs[index];

@@ -395,6 +395,12 @@
     display: inline-flex;
     flex-shrink: 0;
     opacity: 0.7;
+    transition: transform 0.2s ease;
+}
+
+/* Open toggles point down, matching the row expanders elsewhere. */
+.codec-multi-toggle[aria-expanded="true"] .codec-multi-chevron {
+    transform: rotate(90deg);
 }
 
 .codec-multi-panel {
