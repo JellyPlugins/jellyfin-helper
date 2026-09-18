@@ -76,8 +76,12 @@ test('overview library row deep-links into the explorer with preset library', as
   await expect(page.locator('#codecExplorerToggle')).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
   // The scope panel starts closed; the checked box underneath still proves the preset.
   await page.locator('[data-library-toggle]').click();
-  const box = page.locator(`[data-library-option="${libName ?? ''}"]`);
-  await expect(box).toBeChecked({ timeout: 5_000 });
+  // Match by input value, not by attribute selector: data-library-option is a
+  // marker flag ("1") while the library name rides along in value.
+  const options = page.locator('[data-library-option]');
+  const values = await options.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
+  expect(values).toContain(libName);
+  await expect(options.nth(values.indexOf(libName ?? ''))).toBeChecked({ timeout: 5_000 });
 });
 
 test('overview movies card deep-links into the explorer with scoped libraries', async ({ page }) => {
