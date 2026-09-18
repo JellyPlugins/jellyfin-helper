@@ -754,10 +754,17 @@ public class MediaStatisticsService : IMediaStatisticsService
             FileSystemHelper.AddPath(stats.VideoAudioCodecPaths, audioCodec, filePath);
         }
 
-        // Bitrate tier: prefer the measured video-stream bitrate; fall back to the container's
-        // average bitrate (size over duration) so files without a per-stream value still land in a
-        // real tier instead of Unknown. Nothing is invented. Unknown is used only when both fail.
-        var bitrateTier = ClassifyBitrateTier(videoStream?.BitRate, fileSize, item?.RunTimeTicks);
+        // Bitrate feeds two shapes at once. Tiers stay for the donut overview while the
+        // measured value is kept per file so the explorer can filter by absolute range.
+        // The container average from size over duration covers files without stream
+        // metadata. Nothing is invented. Unknown is used only when both fail.
+        var bitrateMbps = ComputeBitrateMbps(videoStream?.BitRate, fileSize, item?.RunTimeTicks);
+        var bitrateTier = bitrateMbps.HasValue ? ClassifyBitrateValue(bitrateMbps.Value) : UnknownLabel;
+        if (bitrateMbps.HasValue)
+        {
+            stats.VideoBitrates[filePath] = Math.Round(bitrateMbps.Value, 2);
+        }
+
         FileSystemHelper.IncrementCount(stats.VideoBitrateTiers, bitrateTier);
         FileSystemHelper.AccumulateValue(stats.VideoBitrateTierSizes, bitrateTier, fileSize);
         FileSystemHelper.AddPath(stats.VideoBitrateTierPaths, bitrateTier, filePath);
@@ -1102,17 +1109,16 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Classifies a video file into a bitrate tier. Uses the measured video-stream bitrate when
-    ///     available, otherwise estimates the container's average bitrate from file size and runtime.
-    ///     Both sources share the same tiers: the measured value describes the video stream while
-    ///     the estimate describes the whole container, so estimates skew slightly high on
-    ///     subtitle-rich files. Tiers are coarse enough that this rarely changes the bucket.
+    ///     Computes the measured video bitrate in Mbps. Uses the measured video stream bitrate when
+    ///     available, otherwise estimates the container average bitrate from file size and runtime.
+    ///     The estimate describes the whole container, so estimates skew slightly high on
+    ///     subtitle rich files. Returns null when neither source yields a value.
     /// </summary>
     /// <param name="streamBitrate">The video stream bitrate in bits per second, or <c>null</c> if unknown.</param>
     /// <param name="fileSize">The file size in bytes (used for the size-over-duration fallback).</param>
     /// <param name="runTimeTicks">The item runtime in 100ns ticks, or <c>null</c> if unknown.</param>
-    /// <returns>A tier label such as "8–16 Mbps", or "Unknown" when no bitrate can be determined.</returns>
-    internal static string ClassifyBitrateTier(int? streamBitrate, long fileSize, long? runTimeTicks)
+    /// <returns>The bitrate in Mbps, or <c>null</c> when no bitrate can be determined.</returns>
+    internal static double? ComputeBitrateMbps(int? streamBitrate, long fileSize, long? runTimeTicks)
     {
         double bitsPerSecond;
 
@@ -1128,11 +1134,19 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
         else
         {
-            return UnknownLabel;
+            return null;
         }
 
-        var mbps = bitsPerSecond / 1_000_000d;
+        return bitsPerSecond / 1_000_000d;
+    }
 
+    /// <summary>
+    ///     Maps a measured bitrate to its tier label for the donut overview.
+    /// </summary>
+    /// <param name="mbps">The measured bitrate in Mbps.</param>
+    /// <returns>A tier label such as "8–16 Mbps".</returns>
+    private static string ClassifyBitrateValue(double mbps)
+    {
         if (mbps < BitrateTier2Mbps)
         {
             return BitrateBelow2;
@@ -1164,6 +1178,30 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
 
         return BitrateAbove60;
+    }
+
+    /// <summary>
+    ///     Classifies a video file into a bitrate tier. Uses the measured video-stream bitrate when
+    ///     available, otherwise estimates the container's average bitrate from file size and runtime.
+    ///     Both sources share the same tiers: the measured value describes the video stream while
+    ///     the estimate describes the whole container, so estimates skew slightly high on
+    ///     subtitle-rich files. Tiers are coarse enough that this rarely changes the bucket.
+    ///     The measured value behind the tier is stored per file in
+    ///     <see cref="LibraryStatistics.VideoBitrates"/> so the explorer can filter by absolute range.
+    /// </summary>
+    /// <param name="streamBitrate">The video stream bitrate in bits per second, or <c>null</c> if unknown.</param>
+    /// <param name="fileSize">The file size in bytes (used for the size-over-duration fallback).</param>
+    /// <param name="runTimeTicks">The item runtime in 100ns ticks, or <c>null</c> if unknown.</param>
+    /// <returns>A tier label such as "8–16 Mbps", or "Unknown" when no bitrate can be determined.</returns>
+    internal static string ClassifyBitrateTier(int? streamBitrate, long fileSize, long? runTimeTicks)
+    {
+        var mbps = ComputeBitrateMbps(streamBitrate, fileSize, runTimeTicks);
+        if (!mbps.HasValue)
+        {
+            return UnknownLabel;
+        }
+
+        return ClassifyBitrateValue(mbps.Value);
     }
 
     /// <summary>

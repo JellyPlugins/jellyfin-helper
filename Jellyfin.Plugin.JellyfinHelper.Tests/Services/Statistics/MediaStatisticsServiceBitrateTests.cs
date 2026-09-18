@@ -4,7 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Statistics;
 
 /// <summary>
-/// Tests for the new bitrate tier thresholds and legacy mapping.
+/// Tests for bitrate tier thresholds, absolute measurement, and legacy mapping.
 /// </summary>
 public class MediaStatisticsServiceBitrateTests
 {
@@ -67,6 +67,34 @@ public class MediaStatisticsServiceBitrateTests
     [InlineData(0, 1_000_000L, 0L)]
     public void ClassifyBitrateTier_InvalidInput_ReturnsUnknown(int? bitrate, long size, long? ticks)
         => Assert.Equal("Unknown", MediaStatisticsService.ClassifyBitrateTier(bitrate, size, ticks));
+
+    [Theory]
+    [InlineData(25_000_000, 25.0)]
+    [InlineData(1_000_000, 1.0)]
+    public void ComputeBitrateMbps_StreamBitrate_ReturnsMbps(int bitrate, double expected)
+        => Assert.Equal(expected, MediaStatisticsService.ComputeBitrateMbps(bitrate, 999_999_999L, 1L));
+
+    [Fact]
+    public void ComputeBitrateMbps_NullBitrateWithDuration_ComputesFromSizeAndDuration()
+    {
+        // 5 MB over 8s = 5 Mbps average container bitrate.
+        Assert.Equal(5.0, MediaStatisticsService.ComputeBitrateMbps(null, 5_000_000L, 80_000_000L));
+    }
+
+    [Theory]
+    [InlineData(null, 0L, null)]
+    [InlineData(0, 1_000_000L, 0L)]
+    public void ComputeBitrateMbps_InvalidInput_ReturnsNull(int? bitrate, long size, long? ticks)
+        => Assert.Null(MediaStatisticsService.ComputeBitrateMbps(bitrate, size, ticks));
+
+    [Fact]
+    public void ComputeBitrateMbps_MatchesClassifyBitrateTierSource()
+    {
+        // Tier label and stored value must describe the same measurement:
+        // 34 Mbps lands in the 32-60 bucket on both paths.
+        Assert.Equal("32–60 Mbps", MediaStatisticsService.ClassifyBitrateTier(34_000_000, 0L, null));
+        Assert.Equal(34.0, MediaStatisticsService.ComputeBitrateMbps(34_000_000, 0L, null));
+    }
 
     [Theory]
     [InlineData("2-5 Mbps", "2–4 Mbps")]

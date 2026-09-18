@@ -3,11 +3,21 @@
 // Library Explorer (Codecs tab): Collapsible targeted file filter; charts stay static.
 // - Faceted filtering: Hides 0-result options (active selections stay toggleable).
 // - Scope-aware: Disables empty dimensions; multi-select libraries (OR logic, null = all).
-const _codecsExplorerState = {libraries: null, filters: {}, expanded: false, scope: null};
+const _codecsExplorerState = {libraries: null, filters: {}, expanded: false, scope: null, bitrateRange: null};
 
 // Which multi-dropdown panel is currently open (one at a time). Restored across
 // control rebuilds so choosing values does not collapse the panel.
 let _codecMultiOpen = null;
+
+// Which filter popover view is open. Null hides it, add lists dimensions,
+// a dimension id or bitrate shows its editor. Search text narrows long option lists.
+let _codecFilterOpen = null;
+let _codecFilterSearch = '';
+
+// Bitrate facet id used by the popover, pills, and range state. Buckets stay donut only.
+const CODEC_BITRATE_DIM = 'bitrate';
+const CODEC_BITRATE_HISTOGRAM_BIN = 4;
+const CODEC_BITRATE_HISTOGRAM_MAX = 80;
 
 // Guard: the deep-link and panel-close handlers are registered once at document level.
 let _codecExploreLinkBound = false;
@@ -28,14 +38,13 @@ CODEC_EXPLORER_TYPE_GROUPS[CODEC_EXPLORER_TYPE_TVSHOWS] = 'tvshows';
 CODEC_EXPLORER_TYPE_GROUPS[CODEC_EXPLORER_TYPE_MUSIC] = 'music';
 CODEC_EXPLORER_TYPE_GROUPS[CODEC_EXPLORER_TYPE_BOOKS] = 'books';
 
-// Explorer dimensions in display order. Dropdown dimensions allow multiple values (OR
-// within the dimension, e.g. German + English audio); the rest take a single value.
-// Paths reuse the Codecs tab maps so the explorer always agrees with the donuts below.
+// Explorer dimensions in display order. Categorical dims match exact values while
+// bitrate lives outside this list as an absolute range over measured values.
+// Groups reuse the Codecs tab maps so the explorer always agrees with the donuts below.
 const CODEC_EXPLORER_DIMENSIONS = [
     {id: 'resolutions', pathsProp: 'ResolutionPaths', countProp: 'Resolutions', groups: ['movies', 'tvshows', 'other'], labelKey: 'resolutions', fallback: 'Resolution'},
     {id: 'videoCodecs', pathsProp: 'VideoCodecPaths', countProp: 'VideoCodecs', groups: ['movies', 'tvshows', 'other'], labelKey: 'videoCodecs', fallback: 'Video codec'},
     {id: 'videoAudioCodecs', pathsProp: 'VideoAudioCodecPaths', countProp: 'VideoAudioCodecs', groups: ['movies', 'tvshows', 'other'], labelKey: 'videoAudioCodecs', fallback: 'Audio codec'},
-    {id: 'videoBitrate', pathsProp: 'VideoBitrateTierPaths', countProp: 'VideoBitrateTiers', groups: ['movies', 'tvshows', 'other'], labelKey: 'videoBitrate', fallback: 'Video bitrate'},
     {id: 'dynamicRanges', pathsProp: 'DynamicRangePaths', countProp: 'DynamicRanges', groups: ['movies', 'tvshows', 'other'], labelKey: 'dynamicRange', fallback: 'Dynamic range'},
     {id: 'audioLanguages', pathsProp: 'AudioLanguagePaths', countProp: 'AudioLanguages', groups: ['movies', 'tvshows', 'other'], labelKey: 'audioLanguages', fallback: 'Audio language', multi: true},
     {id: 'subtitleLanguages', pathsProp: 'SubtitleLanguagePaths', countProp: 'SubtitleLanguages', groups: ['movies', 'tvshows', 'other'], labelKey: 'subtitleLanguages', fallback: 'Subtitle language', multi: true},
@@ -181,6 +190,125 @@ function countWatchedUniverse(scoped) {
     return universe;
 }
 
+// Merged measured bitrates of the scoped video libraries. Scoping mirrors the video
+// groups of the categorical dims so slider and results always agree.
+function getBitrateMap() {
+    const map = {};
+    const selected = _codecsExplorerState.libraries;
+    const groups = ['movies', 'tvshows', 'other'];
+    for (const group of groups) {
+        for (const lib of getCodecsExplorerGroupLibraries(group)) {
+            if (selected !== null && !selected.includes(lib.LibraryName)) {
+                continue;
+            }
+            const rates = lib.VideoBitrates || {};
+            for (const path of Object.keys(rates)) {
+                if (typeof rates[path] === 'number') {
+                    map[path] = rates[path];
+                }
+            }
+        }
+    }
+    return map;
+}
+
+// Stable slider bounds from the scoped map. Bounds ignore the remaining filters so the
+// thumbs never jump while the user refines the other facets.
+function getBitrateBounds() {
+    const map = getBitrateMap();
+    let min = Infinity;
+    let max = -Infinity;
+    let count = 0;
+    for (const path of Object.keys(map)) {
+        const value = map[path];
+        if (value < min) {
+            min = value;
+        }
+        if (value > max) {
+            max = value;
+        }
+        count++;
+    }
+    if (count === 0) {
+        return null;
+    }
+    const lo = Math.floor(min);
+    let hi = Math.ceil(max);
+    if (hi <= lo) {
+        hi = lo + 1;
+    }
+    return {min: lo, max: hi, count: count};
+}
+
+// Whether an absolute bitrate range currently narrows the result.
+function hasActiveBitrateRange() {
+    return _codecsExplorerState.bitrateRange !== null;
+}
+
+// Files of a path set whose measured bitrate falls inside the range.
+// Files without a measured value never match an active range.
+function applyBitrateRange(set, range) {
+    const map = getBitrateMap();
+    const next = {};
+    for (const path of Object.keys(set)) {
+        const value = map[path];
+        if (typeof value === 'number' && value >= range.min && value <= range.max) {
+            next[path] = true;
+        }
+    }
+    return next;
+}
+
+// Histogram over the subset that ignores the range itself. Counts follow the remaining
+// filters so the bars preview what the range would keep.
+function getBitrateHistogram() {
+    const subset = computePathsExcluding(CODEC_BITRATE_DIM);
+    const edges = Math.ceil(CODEC_BITRATE_HISTOGRAM_MAX / CODEC_BITRATE_HISTOGRAM_BIN);
+    const bins = [];
+    for (let i = 0; i <= edges; i++) {
+        bins.push(0);
+    }
+    const map = getBitrateMap();
+    const keys = subset === null ? Object.keys(map) : Object.keys(subset);
+    for (const path of keys) {
+        const value = map[path];
+        if (typeof value !== 'number') {
+            continue;
+        }
+        let index = Math.floor(value / CODEC_BITRATE_HISTOGRAM_BIN);
+        if (index < 0) {
+            index = 0;
+        }
+        if (index >= bins.length) {
+            index = bins.length - 1;
+        }
+        bins[index]++;
+    }
+    return bins;
+}
+
+// Measured bitrate of one file, or null when the scan predates per file values.
+function getExplorerFileBitrate(path) {
+    const value = getBitrateMap()[path];
+    return typeof value === 'number' ? value : null;
+}
+
+// Short pill text for an active range relative to the data bounds.
+function formatBitrateRange(range, bounds) {
+    const lo = Math.round(range.min);
+    const hi = Math.round(range.max);
+    if (bounds !== null && lo <= bounds.min && hi >= bounds.max) {
+        return T('explorerAny', 'Any');
+    }
+    if (bounds !== null && lo <= bounds.min) {
+        return '≤ ' + hi + ' Mbps';
+    }
+    if (bounds !== null && hi >= bounds.max) {
+        return '≥ ' + lo + ' Mbps';
+    }
+    return lo + '–' + hi + ' Mbps';
+}
+
 // Selected values of a dimension, always as an array (single-selects hold at most one).
 function getCodecsExplorerSelection(dimId) {
     const value = _codecsExplorerState.filters[dimId];
@@ -291,6 +419,14 @@ function computePathsExcluding(exceptDimId) {
         return _explorerSubsetCache[exceptDimId];
     }
     const subset = scopeExplorerPaths(intersectExplorerFilters(getCodecsExplorerActiveDims(exceptDimId)));
+    // The range is orthogonal to every categorical dim, so it narrows each facet
+    // subset. The histogram asks with the bitrate id to see the uncut distribution.
+    if (exceptDimId !== CODEC_BITRATE_DIM && hasActiveBitrateRange()) {
+        const ranged = applyBitrateRange(subset, _codecsExplorerState.bitrateRange);
+        _explorerSubsetCache[exceptDimId] = ranged;
+        return ranged;
+    }
+
     _explorerSubsetCache[exceptDimId] = subset;
     return subset;
 }
@@ -328,25 +464,50 @@ function collectScopePaths() {
 
 // Full result: intersection of all active filters, scoped. A bare scope without
 // filters lists the scope files; no scope and no filters show the idle hint.
+// A lone range starts from every measured file, or from the scope files when scoped.
 function computeCodecsExplorerPaths() {
     const active = getCodecsExplorerActiveDims(null);
+    const rangeActive = hasActiveBitrateRange();
+    if (active.length === 0 && !rangeActive) {
+        return {paths: collectScopePaths(), active: active, bitrateActive: false};
+    }
+    let scoped = null;
     if (active.length === 0) {
-        return {paths: collectScopePaths(), active: active};
+        scoped = {};
+        if (_codecsExplorerState.libraries === null) {
+            const map = getBitrateMap();
+            for (const path of Object.keys(map)) {
+                scoped[path] = true;
+            }
+        } else {
+            for (const path of collectScopePaths()) {
+                scoped[path] = true;
+            }
+        }
+    } else {
+        const intersected = intersectExplorerFilters(active);
+        if (intersected === null) {
+            return {paths: [], active: active, bitrateActive: rangeActive};
+        }
+        scoped = scopeExplorerPaths(intersected);
     }
-    const intersected = intersectExplorerFilters(active);
-    if (intersected === null) {
-        return {paths: [], active: active};
+    if (rangeActive) {
+        scoped = applyBitrateRange(scoped, _codecsExplorerState.bitrateRange);
     }
-    const scoped = scopeExplorerPaths(intersected);
     const paths = Object.keys(scoped);
     paths.sort(function (a, b) {
         return a.localeCompare(b);
     });
-    return {paths: paths, active: active};
+    return {paths: paths, active: active, bitrateActive: rangeActive};
 }
 
-// Whether any dimension other than one holds an active selection.
+// Whether any facet other than one narrows the result. The absolute range counts
+// as a facet, so option counts stay narrowed while only it is active.
 function hasOtherActiveFilters(exceptDimId) {
+    if (exceptDimId !== CODEC_BITRATE_DIM && hasActiveBitrateRange()) {
+        return true;
+    }
+
     return getCodecsExplorerActiveDims(exceptDimId).length > 0;
 }
 
@@ -501,10 +662,150 @@ function libraryMultiSummary(selected) {
 }
 
 function buildCodecsExplorerControls() {
-    let html = buildCodecsExplorerLibraryMulti();
-    for (const dim of CODEC_EXPLORER_DIMENSIONS) {
-        html += dim.multi ? buildCodecsExplorerMulti(dim) : buildCodecsExplorerSelect(dim);
+    let html = '<div class="codec-filter-bar">';
+    html += buildCodecsExplorerLibraryMulti();
+    html += buildCodecsExplorerFilterAdd();
+    html += buildCodecsExplorerPills();
+    html += '</div>';
+    return html;
+}
+
+// Add filter button with its popover. The popover shows either the dimension list or
+// the editor of the picked dimension, so the bar itself always stays a single row.
+function buildCodecsExplorerFilterAdd() {
+    const open = _codecFilterOpen !== null;
+    let html = '<div class="codec-filter-add" data-filter-add="1">';
+    html += '<button type="button" class="codec-filter-add-btn" id="codecFilterAddBtn" data-filter-add-btn="1"'
+        + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-haspopup="true">'
+        + mi('movie_filter') + '<span>' + escHtml(T('explorerAddFilter', 'Add filter')) + '</span></button>';
+    if (open) {
+        html += '<div class="codec-filter-pop" data-filter-pop="1" role="dialog">';
+        html += _codecFilterOpen === 'add' ? buildCodecsExplorerDimList() : buildCodecsExplorerDimEditor();
+        html += '</div>';
     }
+    html += '</div>';
+    return html;
+}
+
+// Dimension picker rows with live summaries. A single open editor keeps long value
+// lists from pushing each other off screen.
+function buildCodecsExplorerDimList() {
+    let html = '<div class="codec-filter-dimlist">';
+    for (const dim of CODEC_EXPLORER_DIMENSIONS) {
+        const selected = getCodecsExplorerSelection(dim.id);
+        const summary = selected.length > 0 ? selected.join(', ') : T('explorerAny', 'Any');
+        html += '<button type="button" class="codec-filter-dim" data-filter-dim="' + escAttr(dim.id) + '">'
+            + '<span class="codec-filter-dim-name">' + escHtml(T(dim.labelKey, dim.fallback)) + '</span>'
+            + '<span class="codec-filter-dim-summary">' + escHtml(summary) + '</span>'
+            + '<span class="codec-filter-dim-go">›</span></button>';
+    }
+    const bounds = getBitrateBounds();
+    const bitrateSummary = hasActiveBitrateRange()
+        ? formatBitrateRange(_codecsExplorerState.bitrateRange, bounds)
+        : T('explorerAny', 'Any');
+    html += '<button type="button" class="codec-filter-dim" data-filter-dim="' + CODEC_BITRATE_DIM + '">'
+        + '<span class="codec-filter-dim-name">' + escHtml(T('videoBitrate', 'Video bitrate')) + '</span>'
+        + '<span class="codec-filter-dim-summary">' + escHtml(bitrateSummary) + '</span>'
+        + '<span class="codec-filter-dim-go">›</span></button>';
+    html += '</div>';
+    return html;
+}
+
+// Editor of the picked dimension with a step back to the list. Multi dims reuse the
+// existing option widget forced open so counts and toggle logic stay in one place.
+function buildCodecsExplorerDimEditor() {
+    const dimId = _codecFilterOpen;
+    let title = '';
+    let body = '';
+    if (dimId === CODEC_BITRATE_DIM) {
+        title = T('videoBitrate', 'Video bitrate');
+        body = buildBitrateEditor();
+    } else {
+        const dim = getCodecsExplorerDimension(dimId);
+        if (!dim) {
+            return '';
+        }
+        title = T(dim.labelKey, dim.fallback);
+        if (dim.multi) {
+            _codecMultiOpen = dim.id;
+            body = '<input type="search" id="codecFilterSearch" class="codec-filter-search" autocomplete="off"'
+                + ' placeholder="' + escAttr(T('explorerSearchValues', 'Search values...')) + '"'
+                + ' value="' + escAttr(_codecFilterSearch) + '">'
+                + buildCodecsExplorerMulti(dim);
+        } else {
+            body = buildCodecsExplorerSelect(dim);
+        }
+    }
+    let html = '<div class="codec-filter-editor">';
+    html += '<div class="codec-filter-editor-head"><button type="button" class="codec-filter-back" id="codecFilterBack" data-filter-back="1"'
+        + ' aria-label="' + escAttr(T('explorerBack', 'Back')) + '">‹</button>'
+        + '<span class="codec-filter-editor-title">' + escHtml(title) + '</span></div>';
+    html += '<div class="codec-filter-editor-body">' + body + '</div>';
+    html += '</div>';
+    return html;
+}
+
+// Active filters as removable pills. One pill per dimension keeps the bar to one line
+// no matter how many values hide behind a multi select.
+function buildCodecsExplorerPills() {
+    return '<div class="codec-filter-pills" id="codecFilterPills">' + buildCodecsExplorerPillsInner() + '</div>';
+}
+
+// Inner pills without the container. Live previews swap this markup alone so the
+// surrounding bar and its handlers survive slider drags.
+function buildCodecsExplorerPillsInner() {
+    let html = '';
+    for (const dim of CODEC_EXPLORER_DIMENSIONS) {
+        const selected = getCodecsExplorerSelection(dim.id);
+        if (selected.length === 0) {
+            continue;
+        }
+        html += '<span class="codec-pill"><span class="codec-pill-label">'
+            + escHtml(T(dim.labelKey, dim.fallback) + ': ' + selected.join(', '))
+            + '</span><button type="button" class="codec-pill-remove" data-pill-clear="' + escAttr(dim.id) + '"'
+            + ' aria-label="' + escAttr(T('remove', 'Remove')) + '">×</button></span>';
+    }
+    if (hasActiveBitrateRange()) {
+        html += '<span class="codec-pill"><span class="codec-pill-label">'
+            + escHtml(T('videoBitrate', 'Video bitrate') + ': ' + formatBitrateRange(_codecsExplorerState.bitrateRange, getBitrateBounds()))
+            + '</span><button type="button" class="codec-pill-remove" data-pill-clear-bitrate="1"'
+            + ' aria-label="' + escAttr(T('remove', 'Remove')) + '">×</button></span>';
+    }
+    return html;
+}
+
+// Absolute range editor with a distribution preview. Numbers allow exact jumps like
+// 30 while sliders give quick sweeps, so both edit the same range.
+function buildBitrateEditor() {
+    const bounds = getBitrateBounds();
+    if (bounds === null) {
+        return '<p class="codec-explorer-none">' + escHtml(T('explorerBitrateNoData', 'No bitrate data yet. Run a fresh scan to enable absolute bitrate filtering.')) + '</p>';
+    }
+    const range = _codecsExplorerState.bitrateRange || {min: bounds.min, max: bounds.max};
+    const bins = getBitrateHistogram();
+    let peak = 1;
+    for (const count of bins) {
+        if (count > peak) {
+            peak = count;
+        }
+    }
+    let html = '<div class="codec-bitrate" data-bitrate-editor="1">';
+    html += '<div class="codec-bitrate-hist" aria-hidden="true">';
+    for (let i = 0; i < bins.length; i++) {
+        const pct = Math.max(2, Math.round(bins[i] / peak * 100));
+        const edge = i * CODEC_BITRATE_HISTOGRAM_BIN;
+        html += '<span class="codec-bitrate-bar" style="height:' + pct + '%" title="' + escAttr(edge + ' Mbps: ' + bins[i]) + '"></span>';
+    }
+    html += '</div>';
+    html += '<div class="codec-bitrate-row"><label for="codecBitrateMin">' + escHtml(T('explorerBitrateMin', 'Min (Mbps)')) + '</label>'
+        + '<input type="range" id="codecBitrateMinRange" data-bitrate="minRange" min="' + bounds.min + '" max="' + bounds.max + '" step="1" value="' + range.min + '">'
+        + '<input type="number" id="codecBitrateMin" data-bitrate="min" min="' + bounds.min + '" max="' + bounds.max + '" step="1" value="' + range.min + '"></div>';
+    html += '<div class="codec-bitrate-row"><label for="codecBitrateMax">' + escHtml(T('explorerBitrateMax', 'Max (Mbps)')) + '</label>'
+        + '<input type="range" id="codecBitrateMaxRange" data-bitrate="maxRange" min="' + bounds.min + '" max="' + bounds.max + '" step="1" value="' + range.max + '">'
+        + '<input type="number" id="codecBitrateMax" data-bitrate="max" min="' + bounds.min + '" max="' + bounds.max + '" step="1" value="' + range.max + '"></div>';
+    html += '<div class="codec-bitrate-actions"><button type="button" class="codec-explorer-reset" data-bitrate-clear="1">'
+        + escHtml(T('explorerAny', 'Any')) + '</button></div>';
+    html += '</div>';
     return html;
 }
 
@@ -620,7 +921,7 @@ function buildExplorerFileDetail(path) {
     if (Object.hasOwn(_explorerDetailCache, path)) {
         return _explorerDetailCache[path];
     }
-    const singleDims = ['videoCodecs', 'containers', 'resolutions', 'videoBitrate', 'dynamicRanges',
+    const singleDims = ['videoCodecs', 'containers', 'resolutions', 'dynamicRanges',
         'videoAudioCodecs', 'musicAudioCodecs', 'bookFormats'];
     const multiDims = ['audioLanguages', 'subtitleLanguages'];
     let html = '<div class="codec-file-detail">';
@@ -628,6 +929,10 @@ function buildExplorerFileDetail(path) {
     const size = getExplorerFileSize(path);
     if (size !== null) {
         html += explorerDetailRow(T('explorerFileSize', 'Size'), formatBytes(size));
+    }
+    const bitrate = getExplorerFileBitrate(path);
+    if (bitrate !== null) {
+        html += explorerDetailRow(T('videoBitrate', 'Video bitrate'), bitrate.toFixed(1) + ' Mbps');
     }
     for (const dimId of singleDims) {
         const dim = getCodecsExplorerDimension(dimId);
@@ -728,12 +1033,16 @@ function runCodecsExplorerSearch() {
     }
     const outcome = computeCodecsExplorerPaths();
     const scoped = _codecsExplorerState.libraries !== null;
-    if (outcome.active.length === 0 && !scoped) {
+    if (outcome.active.length === 0 && !outcome.bitrateActive && !scoped) {
         host.innerHTML = '<p class="codec-explorer-empty">' + escHtml(T('explorerPickFilter', 'Pick at least one filter above to list matching files.')) + '</p>';
         return;
     }
     const summary = outcome.paths.length + ' ' + (outcome.paths.length === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files')));
-    const labels = explorerSummaryLabels(outcome.active);    const scope = _codecsExplorerState.libraries;
+    const labels = explorerSummaryLabels(outcome.active);
+    if (outcome.bitrateActive) {
+        labels.push(T('videoBitrate', 'Video bitrate') + ': ' + formatBitrateRange(_codecsExplorerState.bitrateRange, getBitrateBounds()));
+    }
+    const scope = _codecsExplorerState.libraries;
     if (scope !== null && scope.length > 0) {
         labels.unshift(scope.join(', '));
     }
@@ -776,6 +1085,14 @@ function describeActiveExplorerControl() {
     if (active.dataset.libraryOption !== undefined && active.value !== undefined) {
         return {libraries: active.value};
     }
+    // Popover controls rebuild around the user, so remember them by intent:
+    // dim buttons refocus the editor, pill buttons return to the add button.
+    if (active.dataset.filterDim !== undefined) {
+        return {filterDim: active.dataset.filterDim};
+    }
+    if (active.dataset.pillClear !== undefined || active.dataset.pillClearBitrate !== undefined) {
+        return {filterAdd: true};
+    }
     const dim = active.dataset.explorerDim || active.dataset.multiDim || active.dataset.multiToggle;
     if (!dim) {
         return null;
@@ -793,6 +1110,25 @@ function describeActiveExplorerControl() {
 
 function restoreExplorerFocus(descriptor) {
     if (!descriptor) {
+        return;
+    }
+    if (descriptor.filterAdd) {
+        document.getElementById('codecFilterAddBtn')?.focus({preventScroll: true});
+        return;
+    }
+    if (descriptor.filterDim) {
+        const editorSearch = document.getElementById('codecFilterSearch');
+        if (_codecFilterOpen === descriptor.filterDim && editorSearch) {
+            editorSearch.focus({preventScroll: true});
+            return;
+        }
+        const back = document.getElementById('codecFilterBack');
+        if (_codecFilterOpen === descriptor.filterDim && back) {
+            back.focus({preventScroll: true});
+            return;
+        }
+        const dimBtn = document.querySelector('[data-filter-dim="' + descriptor.filterDim + '"]');
+        dimBtn?.focus({preventScroll: true});
         return;
     }
     let target = null;
@@ -907,6 +1243,15 @@ function closeExplorerMultis() {
     setMultiPanelOpen(null, false);
 }
 
+// Closes the add filter popover after an outside pick. Guarded so result rerenders
+// never collapse the editor while the user is still picking values.
+function closeFilterPop() {
+    if (_codecFilterOpen !== null) {
+        _codecFilterOpen = null;
+        refreshCodecsExplorerControls();
+    }
+}
+
 function bindCodecsExplorerControlHandlers() {
     const libToggle = document.querySelector('[data-library-toggle]');
     if (libToggle) {
@@ -938,6 +1283,171 @@ function bindCodecsExplorerControlHandlers() {
             };
         }
     }
+    bindCodecsExplorerFilterHandlers();
+}
+
+function bindCodecsExplorerFilterHandlers() {
+    const addBtn = document.querySelector('[data-filter-add-btn]');
+    if (addBtn) {
+        addBtn.onclick = function () {
+            _codecFilterOpen = _codecFilterOpen === null ? 'add' : null;
+            refreshCodecsExplorerControls();
+        };
+    }
+    for (const dimBtn of document.querySelectorAll('[data-filter-dim]')) {
+        dimBtn.onclick = function () {
+            _codecFilterOpen = dimBtn.dataset.filterDim;
+            _codecFilterSearch = '';
+            refreshCodecsExplorerControls();
+        };
+    }
+    const backBtn = document.querySelector('[data-filter-back]');
+    if (backBtn) {
+        backBtn.onclick = function () {
+            _codecFilterOpen = 'add';
+            refreshCodecsExplorerControls();
+        };
+    }
+    bindPillHandlers();
+    bindBitrateEditorHandlers();
+    bindFilterSearchHandler();
+}
+
+function bindPillHandlers() {
+    for (const pill of document.querySelectorAll('[data-pill-clear]')) {
+        pill.onclick = function () {
+            delete _codecsExplorerState.filters[pill.dataset.pillClear];
+            refreshCodecsExplorerControls();
+        };
+    }
+    const bitratePill = document.querySelector('[data-pill-clear-bitrate]');
+    if (bitratePill) {
+        bitratePill.onclick = function () {
+            _codecsExplorerState.bitrateRange = null;
+            refreshCodecsExplorerControls();
+        };
+    }
+}
+
+// Reads the editor inputs as one normalized range. Partial input falls back to the
+// data bounds so typing never traps the user in an empty result.
+function readBitrateEditor() {
+    const bounds = getBitrateBounds();
+    const minInput = document.getElementById('codecBitrateMin');
+    const maxInput = document.getElementById('codecBitrateMax');
+    let min = minInput ? parseFloat(minInput.value) : bounds.min;
+    let max = maxInput ? parseFloat(maxInput.value) : bounds.max;
+    if (!Number.isFinite(min)) {
+        min = bounds.min;
+    }
+    if (!Number.isFinite(max)) {
+        max = bounds.max;
+    }
+    if (min < bounds.min) {
+        min = bounds.min;
+    }
+    if (max > bounds.max) {
+        max = bounds.max;
+    }
+    if (min > max) {
+        min = max;
+    }
+    return {min: min, max: max};
+}
+
+// Live preview without a control rebuild. Pills and results follow the thumbs at
+// once while the editor keeps grab and focus until commit.
+function previewBitrateRange() {
+    _codecsExplorerState.bitrateRange = readBitrateEditor();
+    const pills = document.getElementById('codecFilterPills');
+    if (pills) {
+        pills.innerHTML = buildCodecsExplorerPillsInner();
+        bindPillHandlers();
+    }
+    runCodecsExplorerSearch();
+}
+
+// Commits the range on release. A range that spans everything equals Any,
+// so it collapses back to null instead of filtering nothing.
+function commitBitrateRange() {
+    const bounds = getBitrateBounds();
+    const range = readBitrateEditor();
+    if (bounds !== null && range.min <= bounds.min && range.max >= bounds.max) {
+        _codecsExplorerState.bitrateRange = null;
+    } else {
+        _codecsExplorerState.bitrateRange = range;
+    }
+    refreshCodecsExplorerControls();
+}
+
+function bindBitrateEditorHandlers() {
+    const editor = document.querySelector('[data-bitrate-editor]');
+    if (!editor || getBitrateBounds() === null) {
+        return;
+    }
+    const minRange = document.getElementById('codecBitrateMinRange');
+    const maxRange = document.getElementById('codecBitrateMaxRange');
+    const minInput = document.getElementById('codecBitrateMin');
+    const maxInput = document.getElementById('codecBitrateMax');
+    if (minRange && minInput) {
+        minRange.oninput = function () {
+            minInput.value = minRange.value;
+            previewBitrateRange();
+        };
+        minRange.onchange = function () {
+            commitBitrateRange();
+        };
+    }
+    if (maxRange && maxInput) {
+        maxRange.oninput = function () {
+            maxInput.value = maxRange.value;
+            previewBitrateRange();
+        };
+        maxRange.onchange = function () {
+            commitBitrateRange();
+        };
+    }
+    if (minInput) {
+        minInput.onchange = function () {
+            commitBitrateRange();
+        };
+    }
+    if (maxInput) {
+        maxInput.onchange = function () {
+            commitBitrateRange();
+        };
+    }
+    const clear = editor.querySelector('[data-bitrate-clear]');
+    if (clear) {
+        clear.onclick = function () {
+            _codecsExplorerState.bitrateRange = null;
+            refreshCodecsExplorerControls();
+        };
+    }
+}
+
+// Narrows the open multi option list as the user types. Pure DOM filtering keeps
+// focus in the box, which a control rebuild would steal on every keystroke.
+function bindFilterSearchHandler() {
+    const search = document.getElementById('codecFilterSearch');
+    if (!search) {
+        return;
+    }
+    search.value = _codecFilterSearch;
+    search.oninput = function () {
+        _codecFilterSearch = search.value;
+        const query = _codecFilterSearch.toLowerCase();
+        const editor = search.closest('.codec-filter-editor');
+        const items = editor ? editor.querySelectorAll('.codec-multi-item') : [];
+        for (const item of items) {
+            const name = item.querySelector('.codec-multi-name');
+            const text = name ? name.textContent.toLowerCase() : '';
+            item.style.display = text.includes(query) ? '' : 'none';
+        }
+    };
+    if (_codecFilterSearch) {
+        search.oninput();
+    }
 }
 
 function attachCodecsExplorerHandlers() {
@@ -960,6 +1470,10 @@ function attachCodecsExplorerHandlers() {
             _codecsExplorerState.scope = null;
             _codecsExplorerState.libraries = null;
             _codecsExplorerState.filters = {};
+            _codecsExplorerState.bitrateRange = null;
+            _codecFilterOpen = null;
+            _codecFilterSearch = '';
+            _codecMultiOpen = null;
             refreshCodecsExplorerControls();
         };
     }
@@ -972,6 +1486,13 @@ function attachCodecsExplorerHandlers() {
             if (!multi && !libraries) {
                 closeExplorerMultis();
             }
+            // Pills stay interactive without collapsing the editor, so removing
+            // several filters never forces the popover through reopen hops.
+            const filterArea = evt.target?.closest?.('[data-filter-add]');
+            const pillArea = evt.target?.closest?.('#codecFilterPills');
+            if (!filterArea && !pillArea) {
+                closeFilterPop();
+            }
             const target = evt.target?.closest?.('[data-codec-explore-library]');
             if (target && !target.disabled) {
                 openCodecsExplorer(target.dataset.codecExploreLibrary || '');
@@ -980,6 +1501,7 @@ function attachCodecsExplorerHandlers() {
         document.addEventListener('keydown', function (evt) {
             if (evt.key === 'Escape') {
                 closeExplorerMultis();
+                closeFilterPop();
                 return;
             }
             if (evt.key !== 'Enter' && evt.key !== ' ') {
@@ -1022,6 +1544,9 @@ function openCodecsExplorer(scope) {
     _codecsExplorerState.scope = scope || null;
     _codecsExplorerState.libraries = resolveExplorerScope(scope);
     _codecsExplorerState.filters = {};
+    _codecsExplorerState.bitrateRange = null;
+    _codecFilterOpen = null;
+    _codecFilterSearch = '';
     _codecsExplorerState.expanded = true;
     const tabBtn = document.querySelector('.tab-btn[data-tab="codecs"]');
     tabBtn?.click();
@@ -1046,6 +1571,36 @@ function pruneCodecsExplorerState() {
     for (const dim of CODEC_EXPLORER_DIMENSIONS) {
         pruneExplorerDimSelection(dim);
     }
+    // The tier dimension retired in favor of the absolute range. Stale tier picks
+    // from older state shapes must vanish instead of filtering by phantom values.
+    if (_codecsExplorerState.filters.videoBitrate !== undefined) {
+        delete _codecsExplorerState.filters.videoBitrate;
+    }
+    pruneBitrateRange();
+}
+
+// Clamps the absolute range into fresh bounds after rescan or scope change.
+// A range without any measured files cannot match, so it is dropped.
+function pruneBitrateRange() {
+    const range = _codecsExplorerState.bitrateRange;
+    if (range === null) {
+        return;
+    }
+    const bounds = getBitrateBounds();
+    if (bounds === null) {
+        _codecsExplorerState.bitrateRange = null;
+        return;
+    }
+    let min = Math.min(Math.max(range.min, bounds.min), bounds.max);
+    let max = Math.min(Math.max(range.max, bounds.min), bounds.max);
+    if (min > max) {
+        min = max;
+    }
+    if (min === bounds.min && max === bounds.max) {
+        _codecsExplorerState.bitrateRange = null;
+        return;
+    }
+    _codecsExplorerState.bitrateRange = {min: min, max: max};
 }
 
 function pruneExplorerScopeNames(libs, names) {

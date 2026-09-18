@@ -286,4 +286,34 @@ public class CodecsHtmlTests : ConfigPageTestBase
             @"chartId\s*===\s*'resolutions'\s*\?\s*collectResolutionDimensions\(_lastCodecData\)",
             HtmlContent);
     }
+
+    [Fact]
+    public void Html_LibraryExplorer_RendersFilterBarWithAddFilter()
+    {
+        // The explorer opens clean: library scope plus a single Add filter entry
+        // instead of a full dropdown grid. Dimensions open on demand in the popover.
+        Assert.Contains("function buildCodecsExplorerFilterAdd", HtmlContent);
+        Assert.Contains("function buildCodecsExplorerPills", HtmlContent);
+        Assert.Contains("function buildCodecsExplorerDimList", HtmlContent);
+        Assert.Contains("function buildCodecsExplorerDimEditor", HtmlContent);
+        Assert.Contains("codec-filter-bar", HtmlContent);
+        Assert.Contains("codec-filter-pop", HtmlContent);
+        Assert.Contains("codec-pill", HtmlContent);
+        Assert.Contains("data-filter-dim", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_LibraryExplorer_BitrateFiltersByAbsoluteRange()
+    {
+        // Bitrate filtering uses measured per file values with a slider editor,
+        // independent of the donut tier buckets.
+        Assert.Contains("function buildBitrateEditor", HtmlContent);
+        Assert.Contains("function getBitrateMap", HtmlContent);
+        Assert.Contains("function getBitrateBounds", HtmlContent);
+        Assert.Contains("function getBitrateHistogram", HtmlContent);
+        Assert.Contains("function formatBitrateRange", HtmlContent);
+        Assert.Contains("function applyBitrateRange", HtmlContent);
+        Assert.Contains("VideoBitrates", HtmlContent);
+        Assert.Contains("codec-bitrate-hist", HtmlContent);
+    }
 }

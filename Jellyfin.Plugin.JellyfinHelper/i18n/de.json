@@ -421,5 +421,11 @@
   "explorerNeverWatched": "Nie gesehen",
   "explorerFileSize": "Größe",
   "explorerOnePlay": "1 Wiedergabe",
-  "explorerManyPlays": "{count} Wiedergaben"
+  "explorerManyPlays": "{count} Wiedergaben",
+  "explorerAddFilter": "Filter hinzufügen",
+  "explorerSearchValues": "Werte suchen...",
+  "explorerBack": "Zurück",
+  "explorerBitrateMin": "Min (Mbps)",
+  "explorerBitrateMax": "Max (Mbps)",
+  "explorerBitrateNoData": "Noch keine Bitratendaten. Starte einen neuen Scan, um absolut nach Bitrate zu filtern."
 }

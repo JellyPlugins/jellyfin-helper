@@ -453,6 +453,275 @@
     font-size: 0.85em;
 }
 
+/* Filter bar: library scope plus add filter plus active pills in one wrapping row. */
+.codec-explorer-controls {
+    display: block;
+}
+
+.codec-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6em;
+    align-items: flex-start;
+    margin-bottom: 0.8em;
+}
+
+.codec-filter-bar .codec-multi {
+    min-width: 180px;
+}
+
+.codec-filter-add {
+    position: relative;
+}
+
+.codec-filter-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.55em 0.9em;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-md, 8px);
+    color: inherit;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.codec-filter-add-btn:hover {
+    border-color: var(--color-primary);
+}
+
+.codec-filter-add-btn:focus-visible,
+.codec-filter-dim:focus-visible,
+.codec-pill-remove:focus-visible,
+.codec-filter-back:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.codec-filter-pop {
+    position: absolute;
+    z-index: 20;
+    top: 100%;
+    left: 0;
+    margin-top: 0.3em;
+    min-width: 280px;
+    max-width: min(360px, calc(100vw - 2em));
+    max-height: min(420px, calc(100vh - 4em));
+    overflow-y: auto;
+    background: rgba(30, 30, 30, 0.98);
+    border: 1px solid var(--color-border-strong, rgba(255, 255, 255, 0.15));
+    border-radius: var(--radius-sm, 6px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    padding: 0.4em;
+}
+
+.codec-filter-dim {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    width: 100%;
+    padding: 0.5em 0.6em;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm, 6px);
+    color: inherit;
+    font-size: 0.88em;
+    cursor: pointer;
+    text-align: left;
+}
+
+.codec-filter-dim:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.codec-filter-dim-name {
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.codec-filter-dim-summary {
+    flex: 1;
+    min-width: 0;
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+}
+
+.codec-filter-dim-go {
+    opacity: 0.4;
+    flex-shrink: 0;
+}
+
+.codec-filter-editor-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.3em 0.4em 0.5em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 0.5em;
+}
+
+.codec-filter-back {
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-sm, 6px);
+    color: inherit;
+    font-size: 1em;
+    line-height: 1;
+    padding: 0.15em 0.5em 0.3em;
+    cursor: pointer;
+}
+
+.codec-filter-back:hover {
+    border-color: var(--color-primary);
+}
+
+.codec-filter-editor-title {
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+.codec-filter-editor-body {
+    padding: 0 0.2em 0.2em;
+}
+
+.codec-filter-editor-body .codec-explorer-field {
+    margin-bottom: 0.2em;
+}
+
+/* The reused option widget renders inline inside the editor, never as a second popover. */
+.codec-filter-editor .codec-multi {
+    position: static;
+}
+
+.codec-filter-editor .codec-multi-panel {
+    position: static;
+    margin-top: 0.4em;
+    border: none;
+    background: none;
+    max-height: 240px;
+    padding: 0;
+}
+
+.codec-filter-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 0.5em;
+    padding: 0.5em 0.6em;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-sm, 6px);
+    color: inherit;
+    font-size: 0.88em;
+}
+
+.codec-filter-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4em;
+    align-items: center;
+    flex: 1;
+    min-width: 120px;
+}
+
+.codec-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    max-width: 100%;
+    padding: 0.3em 0.35em 0.3em 0.7em;
+    background: rgba(0, 164, 220, 0.12);
+    border: 1px solid var(--color-primary);
+    border-radius: 999px;
+    font-size: 0.82em;
+}
+
+.codec-pill-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.codec-pill-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5em;
+    height: 1.5em;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 999px;
+    color: inherit;
+    font-size: 1em;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.codec-pill-remove:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.codec-bitrate-hist {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 64px;
+    padding: 0.4em 0.2em 0;
+}
+
+.codec-bitrate-bar {
+    flex: 1;
+    min-width: 0;
+    background: var(--color-primary);
+    opacity: 0.65;
+    border-radius: 2px 2px 0 0;
+}
+
+.codec-bitrate-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    padding: 0.4em 0.2em;
+}
+
+.codec-bitrate-row label {
+    font-size: 0.8em;
+    font-weight: 600;
+    opacity: 0.7;
+    min-width: 5.5em;
+    flex-shrink: 0;
+}
+
+.codec-bitrate-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--color-primary);
+}
+
+.codec-bitrate-row input[type="number"] {
+    width: 5em;
+    flex-shrink: 0;
+    padding: 0.4em 0.5em;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-sm, 6px);
+    color: inherit;
+    font-size: 0.88em;
+}
+
+.codec-bitrate-actions {
+    padding: 0.2em;
+}
+
 /* Per-file detail card inside explorer results (toggle by clicking the file row). */
 #codecExplorerResults .tree-leaf {
     cursor: pointer;
@@ -559,8 +828,20 @@
 }
 
 @media (max-width: 700px) {
-    .codec-explorer-controls {
-        grid-template-columns: 1fr 1fr;
+    /* The popover becomes a bottom sheet so thumbs and lists stay reachable. */
+    .codec-filter-pop {
+        position: fixed;
+        left: 1em;
+        right: 1em;
+        top: auto;
+        bottom: 1em;
+        max-width: none;
+        max-height: 70vh;
+    }
+
+    .codec-filter-bar .codec-multi {
+        min-width: 0;
+        flex: 1;
     }
 
     .codec-explorer-field select {
@@ -636,5 +917,35 @@
         background: rgba(255, 255, 255, 0.98);
         color: #111111;
         border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-filter-pop {
+        background: #ffffff;
+        border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-filter-dim:hover {
+        background: rgba(0, 0, 0, 0.04);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-filter-add-btn,
+    .codec-filter-search,
+    .codec-filter-back,
+    .codec-bitrate-row input[type="number"] {
+        background-color: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-filter-editor-head {
+        border-color: rgba(0, 0, 0, 0.1);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-pill {
+        background-color: rgba(0, 164, 220, 0.1);
     }
 }

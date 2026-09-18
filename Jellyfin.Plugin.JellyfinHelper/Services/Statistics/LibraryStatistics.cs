@@ -250,6 +250,13 @@ public class LibraryStatistics
     public Dictionary<string, Collection<string>> VideoBitrateTierPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Gets the measured video bitrate in Mbps for each video file.
+    /// Stored per file so the explorer can filter by absolute range without bucket limits.
+    /// Older cached scans predate this map and simply report no values until the next scan.
+    /// </summary>
+    public Dictionary<string, double> VideoBitrates { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Gets or sets the number of video files without any subtitle file in the same directory.
     /// </summary>
     public int VideosWithoutSubtitles { get; set; }

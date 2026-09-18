@@ -242,6 +242,20 @@ public class StatisticsCacheServiceTests : IDisposable
     }
 
     [Fact]
+    public void LoadLatestResult_CacheWithoutVideoBitrates_LoadsWithEmptyMap()
+    {
+        // Caches written before per file bitrates existed carry no VideoBitrates key.
+        // Loading them must yield an empty map instead of failing, so the explorer
+        // can show its rescan hint until the next scan fills the values.
+        var legacyJson = "{\"LibraryName\":\"Movies\",\"VideoBitrateTiers\":{\"8–16 Mbps\":1}}";
+        var lib = System.Text.Json.JsonSerializer.Deserialize<LibraryStatistics>(legacyJson);
+
+        Assert.NotNull(lib);
+        Assert.NotNull(lib!.VideoBitrates);
+        Assert.Empty(lib.VideoBitrates);
+    }
+
+    [Fact]
     public void LoadLatestResult_TwoLegacyBitrateTiers_MergeIntoSameNewTier()
     {
         // "5-10 Mbps" and legacy overlap must accumulate rather than overwrite when they land in

@@ -421,5 +421,11 @@
   "explorerNeverWatched": "Aldrig tittat",
   "explorerFileSize": "Storlek",
   "explorerOnePlay": "1 visning",
-  "explorerManyPlays": "{count} visningar"
+  "explorerManyPlays": "{count} visningar",
+  "explorerAddFilter": "Lägg till filter",
+  "explorerSearchValues": "Sök värden...",
+  "explorerBack": "Tillbaka",
+  "explorerBitrateMin": "Min (Mbps)",
+  "explorerBitrateMax": "Max (Mbps)",
+  "explorerBitrateNoData": "Ingen bitratedata ännu. Kör en ny skanning för att filtrera på absolut bitrate."
 }
