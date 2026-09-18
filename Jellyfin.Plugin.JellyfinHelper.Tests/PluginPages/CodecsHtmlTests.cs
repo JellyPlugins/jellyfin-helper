@@ -296,6 +296,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("function buildCodecsExplorerPills", HtmlContent);
         Assert.Contains("function buildCodecsExplorerDimList", HtmlContent);
         Assert.Contains("function buildCodecsExplorerDimEditor", HtmlContent);
+        Assert.Contains("function hasVisibleExplorerOptions", HtmlContent);
         Assert.Contains("codec-filter-bar", HtmlContent);
         Assert.Contains("codec-filter-pop", HtmlContent);
         Assert.Contains("codec-pill", HtmlContent);

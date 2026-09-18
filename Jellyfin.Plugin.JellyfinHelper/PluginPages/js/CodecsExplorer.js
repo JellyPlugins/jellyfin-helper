@@ -694,11 +694,23 @@ function buildCodecsExplorerFilterAdd() {
     return html;
 }
 
+// Whether a dimension offers any option right now. Empty facets stay out of the
+// picker, so a book scope offers book facets only instead of rows without matches.
+function hasVisibleExplorerOptions(dim) {
+    const selected = getCodecsExplorerSelection(dim.id);
+    return visibleExplorerOptions(countExplorerOptions(dim), selected).length > 0;
+}
+
 // Dimension picker rows with live summaries. A single open editor keeps long value
 // lists from pushing each other off screen.
 function buildCodecsExplorerDimList() {
     let html = '<div class="codec-filter-dimlist">';
+    let shown = 0;
     for (const dim of CODEC_EXPLORER_DIMENSIONS) {
+        if (!hasVisibleExplorerOptions(dim)) {
+            continue;
+        }
+        shown++;
         const selected = getCodecsExplorerSelection(dim.id);
         const summary = selected.length > 0 ? selected.join(', ') : T('explorerAny', 'Any');
         html += '<button type="button" class="codec-filter-dim" data-filter-dim="' + escAttr(dim.id) + '">'
@@ -707,13 +719,19 @@ function buildCodecsExplorerDimList() {
             + '<span class="codec-filter-dim-go">›</span></button>';
     }
     const bounds = getBitrateBounds();
-    const bitrateSummary = hasActiveBitrateRange()
-        ? formatBitrateRange(_codecsExplorerState.bitrateRange, bounds)
-        : T('explorerAny', 'Any');
-    html += '<button type="button" class="codec-filter-dim" data-filter-dim="' + CODEC_BITRATE_DIM + '">'
-        + '<span class="codec-filter-dim-name">' + escHtml(T('videoBitrate', 'Video bitrate')) + '</span>'
-        + '<span class="codec-filter-dim-summary">' + escHtml(bitrateSummary) + '</span>'
-        + '<span class="codec-filter-dim-go">›</span></button>';
+    if (bounds !== null) {
+        shown++;
+        const bitrateSummary = hasActiveBitrateRange()
+            ? formatBitrateRange(_codecsExplorerState.bitrateRange, bounds)
+            : T('explorerAny', 'Any');
+        html += '<button type="button" class="codec-filter-dim" data-filter-dim="' + CODEC_BITRATE_DIM + '">'
+            + '<span class="codec-filter-dim-name">' + escHtml(T('videoBitrate', 'Video bitrate')) + '</span>'
+            + '<span class="codec-filter-dim-summary">' + escHtml(bitrateSummary) + '</span>'
+            + '<span class="codec-filter-dim-go">›</span></button>';
+    }
+    if (shown === 0) {
+        html += '<span class="codec-explorer-none">' + escHtml(T('explorerNoOptions', 'No matching options.')) + '</span>';
+    }
     html += '</div>';
     return html;
 }

@@ -137,6 +137,24 @@ test('language multi-dropdown selects several values and lists all in the summar
   await expect(resultSummary).toContainText(second);
 });
 
+test('dimension picker hides facets without options in the picked scope', async ({ page }) => {
+  await openExplorer(page);
+  // Scope to Books: video facets have no options there and must vanish from
+  // the picker instead of offering empty rows.
+  await page.locator('[data-library-toggle]').click();
+  const book = page.locator('[data-library-option][value="Books"]');
+  await expect(book).toHaveCount(1);
+  await book.check();
+  await page.locator('#codecFilterAddBtn').click();
+  const pop = page.locator('[data-filter-pop]');
+  await expect(pop).toBeVisible({ timeout: 5_000 });
+  await expect(pop.locator('[data-filter-dim="bookFormats"]')).toHaveCount(1);
+  await expect(pop.locator('[data-filter-dim="dynamicRanges"]')).toHaveCount(0);
+  await expect(pop.locator('[data-filter-dim="resolutions"]')).toHaveCount(0);
+  await expect(pop.locator('[data-filter-dim="videoCodecs"]')).toHaveCount(0);
+  await expect(pop.locator('[data-filter-dim="bitrate"]')).toHaveCount(0);
+});
+
 test('bitrate editor offers an absolute range with a distribution preview', async ({ page }) => {
   await openExplorer(page);
   await openDimEditor(page, 'bitrate');
