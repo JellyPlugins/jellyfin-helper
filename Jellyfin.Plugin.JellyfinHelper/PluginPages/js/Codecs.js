@@ -326,8 +326,8 @@ function collectResolutionDimensions(data) {
 // (one entry per file per watching user); the file totals behind them may overlap.
 function countWatchedUsers(libraries) {
     var counts = {};
-    for (var i = 0; i < libraries.length; i++) {
-        var byUser = libraries[i].WatchedByUserPaths;
+    for (const lib of libraries) {
+        var byUser = lib.WatchedByUserPaths;
         if (!byUser) {
             continue;
         }
@@ -345,19 +345,19 @@ function countWatchedUsers(libraries) {
 // shared donut renderer needs no watched-specific branch.
 function buildWatchedTooltipLibraries(videoLibraries) {
     var rows = [];
-    for (var i = 0; i < videoLibraries.length; i++) {
+    for (const lib of videoLibraries) {
         var merged = {};
-        var tiers = videoLibraries[i].WatchedTiers || {};
+        var tiers = lib.WatchedTiers || {};
         if (tiers['Never watched'] > 0) {
             merged['Never watched'] = tiers['Never watched'];
         }
-        var byUser = videoLibraries[i].WatchedByUserPaths || {};
+        var byUser = lib.WatchedByUserPaths || {};
         for (var user in byUser) {
             if (Object.hasOwn(byUser, user) && byUser[user] && byUser[user].length > 0) {
                 merged[user] = byUser[user].length;
             }
         }
-        rows.push({LibraryName: videoLibraries[i].LibraryName, WatchedTooltip: merged});
+        rows.push({LibraryName: lib.LibraryName, WatchedTooltip: merged});
     }
     return rows;
 }

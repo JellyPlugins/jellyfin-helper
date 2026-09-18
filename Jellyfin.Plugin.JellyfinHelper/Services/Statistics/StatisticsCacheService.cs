@@ -214,6 +214,17 @@ public class StatisticsCacheService : IStatisticsCacheService
             DrainWatchedBucket(k, tiers, tierPaths, tierSizes, ref watchedCount, watchedPaths, ref watchedSize);
         }
 
+        StoreWatchedBucket(tiers, tierPaths, tierSizes, watchedCount, watchedPaths, watchedSize);
+    }
+
+    private static void StoreWatchedBucket(
+        Dictionary<string, int> tiers,
+        Dictionary<string, Collection<string>> tierPaths,
+        Dictionary<string, long> tierSizes,
+        int watchedCount,
+        Collection<string> watchedPaths,
+        long watchedSize)
+    {
         if (watchedCount > 0)
         {
             tiers[WatchedBucket] = tiers.TryGetValue(WatchedBucket, out var existing) ? existing + watchedCount : watchedCount;

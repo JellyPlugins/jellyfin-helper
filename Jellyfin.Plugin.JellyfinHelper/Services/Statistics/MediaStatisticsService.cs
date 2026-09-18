@@ -186,22 +186,9 @@ public class MediaStatisticsService : IMediaStatisticsService
                     $"Scanning library location: {location} (type: {collectionType})",
                     _logger);
 
-                // Pre-compute the resolved absolute trash path once per library root so it
+                // The resolved absolute trash path is computed once per library root so it
                 // is not re-derived on every recursive directory call.
-                string? resolvedFullTrashPath = null;
-                try
-                {
-                    resolvedFullTrashPath = Path.GetFullPath(_configHelper.GetTrashPath(location))
-                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                }
-                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-                {
-                    _pluginLog.LogWarning(
-                        LogCategory,
-                        $"Could not resolve trash path for library root: {location}",
-                        ex,
-                        _logger);
-                }
+                var resolvedFullTrashPath = ResolveLibraryTrashPath(location);
 
                 AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, location, skipHealth, resolvedFullTrashPath));
             }
@@ -632,6 +619,29 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
+    ///     Resolves the normalized absolute trash path for one library root.
+    /// </summary>
+    /// <param name="location">The library root path.</param>
+    /// <returns>The trash path, or <c>null</c> when it cannot be resolved.</returns>
+    private string? ResolveLibraryTrashPath(string location)
+    {
+        try
+        {
+            return Path.GetFullPath(_configHelper.GetTrashPath(location))
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _pluginLog.LogWarning(
+                LogCategory,
+                $"Could not resolve trash path for library root: {location}",
+                ex,
+                _logger);
+            return null;
+        }
+    }
+
+    /// <summary>
     ///     Resolves the Jellyfin library item for a given file path by first checking the pre-built batch lookup, then falling back to a per-file FindByPath call.
     /// </summary>
     /// <param name="filePath">Full path to the media file.</param>
@@ -752,42 +762,49 @@ public class MediaStatisticsService : IMediaStatisticsService
         FileSystemHelper.AccumulateValue(stats.VideoBitrateTierSizes, bitrateTier, fileSize);
         FileSystemHelper.AddPath(stats.VideoBitrateTierPaths, bitrateTier, filePath);
 
-        // Audio languages: one increment per file per distinct language. Files without
-        // readable streams land in Unknown so language totals reconcile with the file
-        // counts of the other breakdowns.
-        if (streams == null)
-        {
-            RecordUnknownLanguages(stats, filePath, fileSize);
-        }
-        else
-        {
-            var seenAudioLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Audio).Select(s => NormalizeIso639Language(s.Language)).OfType<string>())
-            {
-                if (seenAudioLanguages.Add(lang))
-                {
-                    FileSystemHelper.IncrementCount(stats.AudioLanguages, lang);
-                    FileSystemHelper.AccumulateValue(stats.AudioLanguageSizes, lang, fileSize);
-                    FileSystemHelper.AddPath(stats.AudioLanguagePaths, lang, filePath);
-                }
-            }
-
-            // Subtitle languages: embedded tracks only; external sidecars are excluded.
-            var seenSubtitleLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal).Select(s => NormalizeIso639Language(s.Language)).OfType<string>())
-            {
-                if (seenSubtitleLanguages.Add(lang))
-                {
-                    FileSystemHelper.IncrementCount(stats.SubtitleLanguages, lang);
-                    FileSystemHelper.AccumulateValue(stats.SubtitleLanguageSizes, lang, fileSize);
-                    FileSystemHelper.AddPath(stats.SubtitleLanguagePaths, lang, filePath);
-                }
-            }
-        }
+        // Audio and subtitle languages land in Unknown for files without readable
+        // streams, so language totals reconcile with the other breakdowns.
+        ExtractLanguageMetadata(streams, filePath, fileSize, stats);
 
         ExtractWatchedStatus(filePath, fileSize, stats, item, userContext);
 
         return streams;
+    }
+
+    /// <summary>
+    ///     Extracts audio/subtitle language metadata from media streams.
+    /// </summary>
+    /// <param name="streams">The media streams, or <c>null</c> when unavailable.</param>
+    /// <param name="filePath">Full path to the video file.</param>
+    /// <param name="fileSize">Size of the video file in bytes.</param>
+    /// <param name="stats">The statistics accumulator.</param>
+    private static void ExtractLanguageMetadata(
+        IReadOnlyList<MediaStream>? streams,
+        string filePath,
+        long fileSize,
+        LibraryStatistics stats)
+    {
+        if (streams == null)
+        {
+            RecordUnknownLanguages(stats, filePath, fileSize);
+            return;
+        }
+
+        // Audio languages: one increment per file per distinct language.
+        foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Audio).Select(s => NormalizeIso639Language(s.Language)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            FileSystemHelper.IncrementCount(stats.AudioLanguages, lang);
+            FileSystemHelper.AccumulateValue(stats.AudioLanguageSizes, lang, fileSize);
+            FileSystemHelper.AddPath(stats.AudioLanguagePaths, lang, filePath);
+        }
+
+        // Subtitle languages: embedded tracks only; external sidecars are excluded.
+        foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal).Select(s => NormalizeIso639Language(s.Language)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            FileSystemHelper.IncrementCount(stats.SubtitleLanguages, lang);
+            FileSystemHelper.AccumulateValue(stats.SubtitleLanguageSizes, lang, fileSize);
+            FileSystemHelper.AddPath(stats.SubtitleLanguagePaths, lang, filePath);
+        }
     }
 
     /// <summary>
@@ -889,21 +906,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
 
         return BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
-            batchCall: () =>
-            {
-                var batch = _userDataManager.GetUserDataBatch(items, user);
-                if (batch is null)
-                {
-                    return null;
-                }
-
-                if (batch is IReadOnlyDictionary<Guid, UserItemData> readOnly)
-                {
-                    return readOnly;
-                }
-
-                return new Dictionary<Guid, UserItemData>(batch);
-            },
+            batchCall: () => _userDataManager.GetUserDataBatch(items, user),
             fallbackValue: null,
             onFailure: ex => _pluginLog.LogWarning(
                 LogCategory,
