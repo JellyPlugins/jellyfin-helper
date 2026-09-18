@@ -121,11 +121,11 @@ public class PluginConfigurationService : IPluginConfigurationService
     }
 
     /// <summary>
-    ///     Persists the configuration, retrying transient file-lock collisions.
+    ///     Persists the configuration and retries transient file lock collisions.
     /// </summary>
     private void SaveWithRetry()
     {
-        for (var attempt = 0; ; attempt++)
+        for (var attempt = 0; attempt <= SaveRetryDelays.Length; attempt++)
         {
             try
             {
