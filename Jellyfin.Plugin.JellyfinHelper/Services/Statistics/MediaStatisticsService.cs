@@ -119,17 +119,10 @@ public class MediaStatisticsService : IMediaStatisticsService
             $"Pre-loaded {itemLookup.Count} library items for metadata lookup",
             _logger);
 
-        // Resolve the enabled users once for the whole scan (watched-status extraction
-        // needs them per video file) and pre-fetch their watch data in one batch call per
-        // user, so the scan performs dictionary lookups instead of per-file database queries.
-        // BuildItemLookup must retain audio items for audio metadata extraction, but
-        // watched status is only extracted for video files; filtering the batch input to
-        // video items avoids sending audio items to GetUserDataBatch even though they are
-        // never looked up. Filter by file-path extension (covers Mock<BaseItem> in tests
-        // where MediaType is unset) and by Video type for real items; WatchLookups is
-        // intentionally retained for the whole recursive scan – its per-user maps are
-        // bounded by distinct video items and user count and are released when the scan
-        // completes (no per-library retention needed).
+        // Resolve enabled users once, batch‑fetch watch data only for video items, 
+        // and keep audio items out of GetUserDataBatch. 
+        // This lets the scan use dictionary lookups instead of per‑file DB queries. 
+        // The per‑user maps in WatchLookups persist for the whole recursive scan but are released afterward.
         var userContext = new ScanUserContext(ResolveScanUsers(), new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>());
         var distinctItems = itemLookup
             .Where(static kvp => kvp.Value is Video || MediaExtensions.VideoExtensions.Contains(Path.GetExtension(kvp.Key)))
