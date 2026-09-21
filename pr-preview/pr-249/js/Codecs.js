@@ -543,15 +543,15 @@ function attachDonutHoverTooltips() {
             }
             // Keyboard: segments are focusable buttons mirroring the rows below.
             var segments = container.querySelectorAll('.donut-segment');
-            for (var s = 0; s < segments.length; s++) {
-                (function (seg) {
-                    seg.addEventListener('keydown', function (e) {
+            for (const seg of segments) {
+                (function (s) {
+                    s.addEventListener('keydown', function (e) {
                         if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            triggerCodecRowForSegment(seg);
+                            triggerCodecRowForSegment(s);
                         }
                     });
-                })(segments[s]);
+                })(seg);
             }
         })(charts[c]);
     }

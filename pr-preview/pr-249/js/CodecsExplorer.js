@@ -115,8 +115,8 @@ function codecExplorerIsWindowsPath(path) {
     return path.length > 1 && path[0] === '\\' && path[1] === '\\';
 }
 
-function codecExplorerTrimRoot(root) {
-    let trimmed = root || '';
+function codecExplorerTrimRoot(root = '') {
+    let trimmed = root === null ? '' : root;
     while (trimmed.endsWith('/') || trimmed.endsWith('\\')) {
         trimmed = trimmed.slice(0, -1);
     }
@@ -206,57 +206,71 @@ function getCachedExplorerMaps() {
     if (_explorerMapCache.key === key && _explorerMapCache.data === _lastCodecData && _explorerMapCache.bitrates) {
         return _explorerMapCache;
     }
-    const bitrates = {};
-    const audioLabels = {};
-    const subLabels = {};
-    const sizes = {};
-    const watchers = {};
-    const selected = _codecsExplorerState.libraries;
-    const inScope = function (lib) {
-        return selected === null || selected.includes(lib.LibraryName);
+    _explorerMapCache = {
+        data: _lastCodecData,
+        key: key,
+        bitrates: mergeVideoMap('VideoBitrates', true),
+        audioLabels: mergeVideoMap('AudioTrackLabels', false),
+        subLabels: mergeVideoMap('SubtitleTrackLabels', false),
+        sizes: mergeLibraryMap(),
+        watchers: mergeWatcherMap(),
     };
+    return _explorerMapCache;
+}
+
+// Merges one per file map across the scoped video libraries. Numeric entries keep
+// only numbers, first library wins on duplicates.
+function mergeVideoMap(prop, numericOnly) {
+    const merged = {};
+    const selected = _codecsExplorerState.libraries;
     for (const group of ['movies', 'tvshows', 'other']) {
         for (const lib of getCodecsExplorerGroupLibraries(group)) {
-            if (!inScope(lib)) {
+            if (selected !== null && !selected.includes(lib.LibraryName)) {
                 continue;
             }
-            const rates = lib.VideoBitrates || {};
-            for (const path of Object.keys(rates)) {
-                if (!Object.hasOwn(bitrates, path) && typeof rates[path] === 'number') {
-                    bitrates[path] = rates[path];
-                }
-            }
-            const audio = lib.AudioTrackLabels || {};
-            for (const path of Object.keys(audio)) {
-                if (!Object.hasOwn(audioLabels, path)) {
-                    audioLabels[path] = audio[path];
-                }
-            }
-            const subs = lib.SubtitleTrackLabels || {};
-            for (const path of Object.keys(subs)) {
-                if (!Object.hasOwn(subLabels, path)) {
-                    subLabels[path] = subs[path];
+            const source = lib[prop] || {};
+            for (const path of Object.keys(source)) {
+                if (!Object.hasOwn(merged, path) && (!numericOnly || typeof source[path] === 'number')) {
+                    merged[path] = source[path];
                 }
             }
         }
     }
+    return merged;
+}
+
+// Merges file sizes across all scoped libraries, first library wins on duplicates.
+function mergeLibraryMap() {
+    const merged = {};
+    const selected = _codecsExplorerState.libraries;
     for (const lib of getCodecsExplorerLibraries()) {
-        if (!inScope(lib)) {
+        if (selected !== null && !selected.includes(lib.LibraryName)) {
             continue;
         }
-        const libSizes = lib.FileSizes || {};
-        for (const path of Object.keys(libSizes)) {
-            if (!Object.hasOwn(sizes, path)) {
-                sizes[path] = libSizes[path];
+        const sizes = lib.FileSizes || {};
+        for (const path of Object.keys(sizes)) {
+            if (!Object.hasOwn(merged, path)) {
+                merged[path] = sizes[path];
             }
+        }
+    }
+    return merged;
+}
+
+// Merges watch details across all scoped libraries, concatenating shared files.
+function mergeWatcherMap() {
+    const merged = {};
+    const selected = _codecsExplorerState.libraries;
+    for (const lib of getCodecsExplorerLibraries()) {
+        if (selected !== null && !selected.includes(lib.LibraryName)) {
+            continue;
         }
         const details = lib.WatchedDetails || {};
         for (const path of Object.keys(details)) {
-            watchers[path] = (watchers[path] || []).concat(details[path] || []);
+            merged[path] = (merged[path] || []).concat(details[path] || []);
         }
     }
-    _explorerMapCache = {data: _lastCodecData, key: key, bitrates: bitrates, audioLabels: audioLabels, subLabels: subLabels, sizes: sizes, watchers: watchers};
-    return _explorerMapCache;
+    return merged;
 }
 
 // Merged measured bitrates of the scoped video libraries. Scoping mirrors the video
@@ -268,7 +282,7 @@ function getBitrateMap() {
 // Stable slider bounds from the scoped map. Bounds ignore the remaining filters so the
 // thumbs never jump while the user refines the other facets.
 function getBitrateBounds() {
-    const map = getBitrateMap();
+    const map = getBitrateMap() || {};
     let min = Infinity;
     let max = -Infinity;
     let count = 0;
@@ -301,7 +315,7 @@ function hasActiveBitrateRange() {
 // Files of a path set whose measured bitrate falls inside the range.
 // Files without a measured value never match an active range.
 function applyBitrateRange(set, range) {
-    const map = getBitrateMap();
+    const map = getBitrateMap() || {};
     const next = {};
     for (const path of Object.keys(set)) {
         const value = map[path];
@@ -317,7 +331,7 @@ function applyBitrateRange(set, range) {
 // and the last bin honestly overflows instead of hiding the high bitrate tail.
 function getBitrateHistogram() {
     const subset = computePathsExcluding(CODEC_BITRATE_DIM);
-    const map = getBitrateMap();
+    const map = getBitrateMap() || {};
     const keys = subset === null ? Object.keys(map) : Object.keys(subset);
     let peak = 0;
     for (const path of keys) {
@@ -1008,13 +1022,14 @@ function findExplorerDimValues(dim, path) {
 }
 
 function getExplorerFileSize(path) {
-    const sizes = getCachedExplorerMaps().sizes;
+    const sizes = getCachedExplorerMaps().sizes || {};
     return Object.hasOwn(sizes, path) ? sizes[path] : null;
 }
 
 // Watchers of one file with play counts, or null when never watched.
 function getExplorerWatchers(path) {
-    return getCachedExplorerMaps().watchers[path] || [];
+    const watchers = getCachedExplorerMaps().watchers || {};
+    return watchers[path] || [];
 }
 
 function explorerDetailRow(label, value) {
@@ -1477,7 +1492,7 @@ function bindCodecsExplorerFilterHandlers() {
             // Multi editors render their option panel open; set here so builders
             // stay pure and the open state survives control rebuilds.
             const dim = getCodecsExplorerDimension(_codecFilterOpen);
-            if (dim && dim.multi) {
+            if (dim?.multi) {
                 _codecMultiOpen = dim.id;
             }
             refreshCodecsExplorerControls();
