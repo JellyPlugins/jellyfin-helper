@@ -12,13 +12,14 @@ public class PluginConfigurationService : IPluginConfigurationService
 {
     private readonly IPluginAccessor _accessor;
 
-    // Guards the read-mutate-save triple in ReadAndMutate so concurrent callers
-    // cannot interleave their own mutations on the shared PluginConfiguration object.
+    // Guards the read-mutate step in ReadAndMutate so concurrent callers cannot
+    // interleave mutations on the shared PluginConfiguration object.
     // Static so the guard holds process-wide even if more than one service instance
     // ever exists (a second DI container, a manually constructed service, or parallel
-    // test hosts): concurrent saves serialize to Jellyfin's FileShare.None config
-    // file instead of colliding with a sharing-violation IOException that surfaces
-    // as a 500 on otherwise valid concurrent writes.
+    // test hosts). The persistence (SaveWithRetry) runs outside the lock;
+    // concurrent saves may therefore collide on Jellyfin's FileShare.None config
+    // file and are then handled by the retry loop instead of surfacing as a
+    // sharing-violation 500.
     private static readonly Lock MutateLock = new();
 
     // Bounded retries for the config-file save inside ReadAndMutate. The save opens
