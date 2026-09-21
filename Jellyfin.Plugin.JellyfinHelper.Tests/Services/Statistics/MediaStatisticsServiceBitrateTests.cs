@@ -46,11 +46,12 @@ public class MediaStatisticsServiceBitrateTests
     [InlineData(32_000_000, "32–60 Mbps")]
     [InlineData(50_000_000, "32–60 Mbps")]
     [InlineData(59_999_999, "32–60 Mbps")]
+    [InlineData(60_000_000, "32–60 Mbps")]
     public void ClassifyBitrateTier_32To60_Returns32To60Mbps(int bitrate, string expected)
         => Assert.Equal(expected, MediaStatisticsService.ClassifyBitrateTier(bitrate, 999_999_999L, 1L));
 
     [Theory]
-    [InlineData(60_000_000, "> 60 Mbps")]
+    [InlineData(60_000_001, "> 60 Mbps")]
     [InlineData(100_000_000, "> 60 Mbps")]
     public void ClassifyBitrateTier_Above60_ReturnsGt60Mbps(int bitrate, string expected)
         => Assert.Equal(expected, MediaStatisticsService.ClassifyBitrateTier(bitrate, 999_999_999L, 1L));

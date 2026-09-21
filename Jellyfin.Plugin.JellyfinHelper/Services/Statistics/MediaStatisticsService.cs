@@ -45,39 +45,6 @@ public class MediaStatisticsService : IMediaStatisticsService
     private const string WatchedNever = "Never watched";
     private const string Watched = "Watched";
 
-    // ISO 639-2/B codes are what Jellyfin stores in MediaStream.Language.
-    // The display names here are chosen to match what Jellyfin shows in the UI.
-    private static readonly Dictionary<string, string> _iso639DisplayNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["eng"] = "English", ["en"] = "English",
-        ["deu"] = "German", ["ger"] = "German", ["de"] = "German",
-        ["fra"] = "French", ["fre"] = "French", ["fr"] = "French",
-        ["spa"] = "Spanish", ["es"] = "Spanish",
-        ["ita"] = "Italian", ["it"] = "Italian",
-        ["jpn"] = "Japanese", ["ja"] = "Japanese",
-        ["kor"] = "Korean", ["ko"] = "Korean",
-        ["rus"] = "Russian", ["ru"] = "Russian",
-        ["zho"] = "Chinese", ["chi"] = "Chinese", ["zh"] = "Chinese",
-        ["por"] = "Portuguese", ["pt"] = "Portuguese",
-        ["nld"] = "Dutch", ["dut"] = "Dutch", ["nl"] = "Dutch",
-        ["pol"] = "Polish", ["pl"] = "Polish",
-        ["tur"] = "Turkish", ["tr"] = "Turkish",
-        ["ara"] = "Arabic", ["ar"] = "Arabic",
-        ["hin"] = "Hindi", ["hi"] = "Hindi",
-        ["swe"] = "Swedish", ["sv"] = "Swedish",
-        ["nor"] = "Norwegian", ["no"] = "Norwegian", ["nob"] = "Norwegian",
-        ["dan"] = "Danish", ["da"] = "Danish",
-        ["fin"] = "Finnish", ["fi"] = "Finnish",
-        ["ell"] = "Greek", ["gre"] = "Greek", ["el"] = "Greek",
-        ["ces"] = "Czech", ["cze"] = "Czech", ["cs"] = "Czech",
-        ["hun"] = "Hungarian", ["hu"] = "Hungarian",
-        ["tha"] = "Thai", ["th"] = "Thai",
-        ["vie"] = "Vietnamese", ["vi"] = "Vietnamese",
-        ["ukr"] = "Ukrainian", ["uk"] = "Ukrainian",
-        ["heb"] = "Hebrew", ["he"] = "Hebrew",
-        ["ron"] = "Romanian", ["rum"] = "Romanian", ["ro"] = "Romanian"
-    };
-
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IFileSystem _fileSystem;
     private readonly ILibraryManager _libraryManager;
@@ -797,20 +764,69 @@ public class MediaStatisticsService : IMediaStatisticsService
             return;
         }
 
-        // Audio languages: one increment per file per distinct language.
-        foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Audio).Select(s => NormalizeIso639Language(s.Language)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+        // Audio languages: one increment per file per distinct language. Track labels keep
+        // variants such as forced tracks visible per file while the counts collapse them.
+        // An empty Language falls back to the track title, which never invents facets.
+        var audioLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var audioLabels = new List<string>();
+        foreach (var track in streams.Where(s => s.Type == MediaStreamType.Audio))
+        {
+            var audioLanguage = NormalizeIso639Language(track.Language) ?? LanguageFromTitle(track.Title);
+            if (audioLanguage == null)
+            {
+                continue;
+            }
+
+            audioLanguages.Add(audioLanguage);
+            var audioLabel = FormatAudioTrackLabel(audioLanguage, track);
+            if (!audioLabels.Contains(audioLabel))
+            {
+                audioLabels.Add(audioLabel);
+            }
+        }
+
+        foreach (var lang in audioLanguages)
         {
             FileSystemHelper.IncrementCount(stats.AudioLanguages, lang);
             FileSystemHelper.AccumulateValue(stats.AudioLanguageSizes, lang, fileSize);
             FileSystemHelper.AddPath(stats.AudioLanguagePaths, lang, filePath);
         }
 
+        if (audioLabels.Count > 0)
+        {
+            stats.AudioTrackLabels[filePath] = new Collection<string>(audioLabels);
+        }
+
         // Subtitle languages: embedded tracks only; external sidecars are excluded.
-        foreach (var lang in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal).Select(s => NormalizeIso639Language(s.Language)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+        // An empty Language falls back to the track title, which never invents facets.
+        var subtitleLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var subtitleLabels = new List<string>();
+        foreach (var track in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal))
+        {
+            var subtitleLanguage = NormalizeIso639Language(track.Language) ?? LanguageFromTitle(track.Title);
+            if (subtitleLanguage == null)
+            {
+                continue;
+            }
+
+            subtitleLanguages.Add(subtitleLanguage);
+            var subtitleLabel = FormatSubtitleTrackLabel(subtitleLanguage, track);
+            if (!subtitleLabels.Contains(subtitleLabel))
+            {
+                subtitleLabels.Add(subtitleLabel);
+            }
+        }
+
+        foreach (var lang in subtitleLanguages)
         {
             FileSystemHelper.IncrementCount(stats.SubtitleLanguages, lang);
             FileSystemHelper.AccumulateValue(stats.SubtitleLanguageSizes, lang, fileSize);
             FileSystemHelper.AddPath(stats.SubtitleLanguagePaths, lang, filePath);
+        }
+
+        if (subtitleLabels.Count > 0)
+        {
+            stats.SubtitleTrackLabels[filePath] = new Collection<string>(subtitleLabels);
         }
     }
 
@@ -1172,7 +1188,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             return Bitrate16To32;
         }
 
-        if (mbps < BitrateTier60Mbps)
+        if (mbps <= BitrateTier60Mbps)
         {
             return Bitrate32To60;
         }
@@ -1231,22 +1247,17 @@ public class MediaStatisticsService : IMediaStatisticsService
         user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
 
     /// <summary>
-    /// Normalizes an ISO 639 language code from MediaStream to a human-readable display name.
-    /// Region subtags (en-US, pt-BR) are stripped to the base code before lookup.
+    /// Normalizes an ISO 639 language tag from MediaStream to a human-readable display name.
+    /// Identity resolution lives in LanguageIdentity (codes, names in any author locale,
+    /// UI locale exonyms); this facade keeps the facet contract: undetermined and pure
+    /// flag tags yield null, unresolvable tags pass through uppercased.
     /// </summary>
-    /// <param name="code">The language code (e.g. "eng", "de", "ger", "en-US").</param>
-    /// <returns>The display name (e.g. "English"), the uppercased raw code for unknown codes, or <c>null</c> when the input is empty or undetermined (und, mis, mul, zxx).</returns>
+    /// <param name="code">The language tag (e.g. "eng", "deutsch", "German (Forced)").</param>
+    /// <returns>The display name (e.g. "English"), the uppercased cleaned tag for unknown codes, or <c>null</c> when the input is empty, undetermined (und, mis, mul, zxx) or flag only.</returns>
     internal static string? NormalizeIso639Language(string? code)
     {
-        if (string.IsNullOrWhiteSpace(code))
-        {
-            return null;
-        }
-
-        var trimmed = code.Trim();
-        var separator = trimmed.IndexOfAny(['-', '_']);
-        var basis = separator > 0 ? trimmed.Substring(0, separator) : trimmed;
-        if (basis.Length == 0
+        var basis = LanguageIdentity.CleanLanguageTag(code);
+        if (basis == null
             || basis.Equals("und", StringComparison.OrdinalIgnoreCase)
             || basis.Equals("mis", StringComparison.OrdinalIgnoreCase)
             || basis.Equals("mul", StringComparison.OrdinalIgnoreCase)
@@ -1255,13 +1266,85 @@ public class MediaStatisticsService : IMediaStatisticsService
             return null;
         }
 
-        if (_iso639DisplayNames.TryGetValue(basis, out var display))
+        var iso = LanguageIdentity.GetIso6391Code(code);
+        if (iso != null)
         {
-            return display;
+            return LanguageIdentity.DisplayNameForCode(iso);
+        }
+
+        if (LanguageIdentity.IsFlagOnlyTag(basis))
+        {
+            return null;
         }
 
         return basis.ToUpperInvariant();
     }
+
+    /// <summary>
+    ///     Resolves a track title to a language display name when the container left
+    ///     Language empty. Titles never invent facets: only a clean hit counts.
+    /// </summary>
+    /// <param name="title">The track title, or <c>null</c>.</param>
+    /// <returns>The display name, or <c>null</c>.</returns>
+    internal static string? LanguageFromTitle(string? title)
+    {
+        var iso = LanguageIdentity.GetIso6391Code(title);
+        if (iso == null)
+        {
+            return null;
+        }
+
+        return LanguageIdentity.DisplayNameForCode(iso);
+    }
+
+    /// <summary>
+    ///     Formats one audio track for per file display: the language plus the forced
+    ///     flag when set. The flag lives on the stream, so the facet name stays clean.
+    /// </summary>
+    /// <param name="language">The normalized language display name.</param>
+    /// <param name="track">The audio MediaStream.</param>
+    /// <returns>A label such as "German" or "German (Forced)".</returns>
+    internal static string FormatAudioTrackLabel(string language, MediaStream track) =>
+        track.IsForced ? language + " (Forced)" : language;
+
+    /// <summary>
+    ///     Formats one subtitle track for per file display: the language plus format
+    ///     and flags (forced, SDH) when known. Unknown formats stay invisible.
+    /// </summary>
+    /// <param name="language">The normalized language display name.</param>
+    /// <param name="track">The subtitle MediaStream.</param>
+    /// <returns>A label such as "German", "German (PGS, Forced)" or "English (SRT)".</returns>
+    internal static string FormatSubtitleTrackLabel(string language, MediaStream track)
+    {
+        var tags = new List<string>();
+        var format = NormalizeSubtitleFormat(track.Codec);
+        if (format != null)
+        {
+            tags.Add(format);
+        }
+
+        if (track.IsForced)
+        {
+            tags.Add("Forced");
+        }
+
+        if (track.IsHearingImpaired)
+        {
+            tags.Add("SDH");
+        }
+
+        return tags.Count == 0 ? language : language + " (" + string.Join(", ", tags) + ")";
+    }
+
+    private static string? NormalizeSubtitleFormat(string? codec) => codec?.ToUpperInvariant() switch
+    {
+        "SUBRIP" or "SRT" => "SRT",
+        "PGSSUB" or "PGS" => "PGS",
+        "ASS" => "ASS",
+        "SSA" => "SSA",
+        "VTT" or "WEBVTT" => "VTT",
+        _ => null,
+    };
 
     /// <summary>
     ///     Classifies the dynamic range of a video stream into a display label.

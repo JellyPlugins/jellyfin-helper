@@ -758,6 +758,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `AtomicFileTests.cs`
 - `BatchFallbackHelperTests.cs`
 - `ExceptionExtensionsTests.cs`
+- `LanguageIdentityTests.cs` - Tests canonical code resolution, display names, and tag cleaning
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/ConfigAccess/`
 
@@ -1080,6 +1081,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `AtomicFile.cs`
 - `BatchFallbackHelper.cs`
 - `ExceptionExtensions.cs`
+- `LanguageIdentity.cs` - Shared media language identity: track tags to canonical ISO 639-1 codes and stable English display names (codes, endonyms, UI locale exonyms, diacritic folding)
 
 `Jellyfin.Plugin.JellyfinHelper/Services/ConfigAccess/`
 

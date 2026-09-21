@@ -47,13 +47,13 @@ test('combining two filters narrows the result and shows both values', async ({ 
   await openExplorer(page);
 
   await openDimEditor(page, 'resolutions');
-  const resolution = page.locator('.codec-filter-editor select[data-explorer-dim="resolutions"]');
-  // gen-media.sh writes multiple resolutions and codecs; a single placeholder option
+  const resOptions = page.locator('.codec-filter-editor [data-single-option="resolutions"]');
+  // gen-media.sh writes multiple resolutions and codecs; a lone Any row
   // means the scan or the stats pipeline broke - fail instead of skipping.
-  expect(await resolution.locator('option').count(), 'resolution filter must offer fixture data').toBeGreaterThan(1);
-  const firstValue = (await resolution.locator('option').nth(1).getAttribute('value')) ?? '';
+  expect(await resOptions.count(), 'resolution filter must offer fixture data').toBeGreaterThan(1);
+  const firstValue = (await resOptions.nth(1).getAttribute('data-single-value')) ?? '';
   expect(firstValue.length, 'resolution option must carry a value').toBeGreaterThan(0);
-  await resolution.selectOption({ index: 1 });
+  await resOptions.nth(1).click();
   // A single pick collapses the popover back to the bar with a removable pill.
   await expect(page.locator('[data-filter-pop]')).toHaveCount(0);
   await expect(page.locator('.codec-pill')).toContainText(firstValue, { timeout: 5_000 });
@@ -63,11 +63,11 @@ test('combining two filters narrows the result and shows both values', async ({ 
   const firstCount = await countFromSummary(summary);
 
   await openDimEditor(page, 'videoCodecs');
-  const codec = page.locator('.codec-filter-editor select[data-explorer-dim="videoCodecs"]');
-  expect(await codec.locator('option').count(), 'video codec filter must offer fixture data').toBeGreaterThan(1);
-  const secondValue = (await codec.locator('option').nth(1).getAttribute('value')) ?? '';
+  const codecOptions = page.locator('.codec-filter-editor [data-single-option="videoCodecs"]');
+  expect(await codecOptions.count(), 'video codec filter must offer fixture data').toBeGreaterThan(1);
+  const secondValue = (await codecOptions.nth(1).getAttribute('data-single-value')) ?? '';
   expect(secondValue.length, 'codec option must carry a value').toBeGreaterThan(0);
-  await codec.selectOption({ index: 1 });
+  await codecOptions.nth(1).click();
   await expect(summary).toContainText(secondValue, { timeout: 5_000 });
   const combinedCount = await countFromSummary(summary);
 
@@ -135,6 +135,16 @@ test('language multi-dropdown selects several values and lists all in the summar
   const resultSummary = page.locator('.codec-explorer-summary');
   await expect(resultSummary).toContainText(first);
   await expect(resultSummary).toContainText(second);
+  // Result rows expose their expansion state for assistive technology.
+  // Dismiss the still open editor first: any outside click would rebuild
+  // the results and collapse the tree right after expanding it.
+  await page.keyboard.press('Escape');
+  await page.locator('#codecExplorerResults [data-tree-action="expand"]').click();
+  const leaf = page.locator('#codecExplorerResults .tree-leaf[title]').first();
+  await expect(leaf).toBeVisible({ timeout: 5_000 });
+  await leaf.click();
+  await expect(page.locator('#codecExplorerResults .codec-file-detail')).toBeVisible({ timeout: 5_000 });
+  await expect(leaf).toHaveAttribute('aria-expanded', 'true');
 });
 
 test('dimension picker hides facets without options in the picked scope', async ({ page }) => {
@@ -180,9 +190,9 @@ test('bitrate editor offers an absolute range with a distribution preview', asyn
 test('reset clears filters and scope, showing the idle hint again', async ({ page }) => {
   await openExplorer(page);
   await openDimEditor(page, 'resolutions');
-  const resolution = page.locator('.codec-filter-editor select[data-explorer-dim="resolutions"]');
-  expect(await resolution.locator('option').count(), 'resolution filter must offer fixture data').toBeGreaterThan(1);
-  await resolution.selectOption({ index: 1 });
+  const resetOptions = page.locator('.codec-filter-editor [data-single-option="resolutions"]');
+  expect(await resetOptions.count(), 'resolution filter must offer fixture data').toBeGreaterThan(1);
+  await resetOptions.nth(1).click();
   await expect(page.locator('.codec-explorer-summary')).toBeVisible({ timeout: 5_000 });
   await page.locator('#codecExplorerReset').click();
   await expect(page.locator('#codecExplorerResults')).toContainText(/at least one filter/i, { timeout: 5_000 });

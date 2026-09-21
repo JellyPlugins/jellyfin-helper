@@ -256,6 +256,22 @@ public class StatisticsCacheServiceTests : IDisposable
     }
 
     [Fact]
+    public void LoadLatestResult_CacheWithoutTrackLabels_LoadsWithEmptyMaps()
+    {
+        // Caches written before per file track labels existed carry neither key.
+        // Loading them must yield empty maps instead of failing, so the detail
+        // cards fall back to the plain language lists until the next scan.
+        var legacyJson = "{\"LibraryName\":\"Movies\",\"AudioLanguages\":{\"German\":1}}";
+        var lib = System.Text.Json.JsonSerializer.Deserialize<LibraryStatistics>(legacyJson);
+
+        Assert.NotNull(lib);
+        Assert.NotNull(lib!.AudioTrackLabels);
+        Assert.Empty(lib.AudioTrackLabels);
+        Assert.NotNull(lib.SubtitleTrackLabels);
+        Assert.Empty(lib.SubtitleTrackLabels);
+    }
+
+    [Fact]
     public void LoadLatestResult_TwoLegacyBitrateTiers_MergeIntoSameNewTier()
     {
         // "5-10 Mbps" and legacy overlap must accumulate rather than overwrite when they land in

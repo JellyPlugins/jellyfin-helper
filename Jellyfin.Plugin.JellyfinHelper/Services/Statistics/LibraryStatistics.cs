@@ -329,6 +329,17 @@ public class LibraryStatistics
     public Dictionary<string, Collection<string>> SubtitleLanguagePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Gets the per file audio track labels (file path -> labels like "German (Forced)").
+    /// Variants of one language stay visible per file while the facet counts collapse them.
+    /// </summary>
+    public Dictionary<string, Collection<string>> AudioTrackLabels { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Gets the per file subtitle track labels (file path -> labels like "German (PGS, Forced)").
+    /// </summary>
+    public Dictionary<string, Collection<string>> SubtitleTrackLabels { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Gets the watched status breakdown (Watched vs Never watched).
     /// Kept for the simple donut; per-user filtering uses <see cref="WatchedByUserPaths"/> instead of buckets.
     /// </summary>

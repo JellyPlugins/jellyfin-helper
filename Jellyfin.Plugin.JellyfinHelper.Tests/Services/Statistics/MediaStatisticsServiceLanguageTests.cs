@@ -2,6 +2,7 @@ using System.IO;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
@@ -228,6 +229,267 @@ public class MediaStatisticsServiceLanguageTests
     [InlineData("en_us", "English")]
     public void NormalizeIso639Language_RegionSubtag_StrippedToBase(string code, string expected)
         => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+
+    [Theory]
+    [InlineData("german", "German")]
+    [InlineData("GERMAN", "German")]
+    [InlineData("deutsch", "German")]
+    [InlineData("Deutsch", "German")]
+    [InlineData("english", "English")]
+    [InlineData("französisch", "French")]
+    [InlineData("svenska", "Swedish")]
+    [InlineData("français", "French")]
+    [InlineData("francais", "French")]
+    [InlineData("español", "Spanish")]
+    [InlineData("espanol", "Spanish")]
+    [InlineData("italiano", "Italian")]
+    [InlineData("日本語", "Japanese")]
+    [InlineData("한국어", "Korean")]
+    [InlineData("русский", "Russian")]
+    [InlineData("中文", "Chinese")]
+    [InlineData("português", "Portuguese")]
+    [InlineData("portugues", "Portuguese")]
+    [InlineData("nederlands", "Dutch")]
+    [InlineData("polski", "Polish")]
+    [InlineData("türkçe", "Turkish")]
+    [InlineData("turkce", "Turkish")]
+    [InlineData("العربية", "Arabic")]
+    [InlineData("हिन्दी", "Hindi")]
+    [InlineData("norsk", "Norwegian")]
+    [InlineData("nb", "Norwegian")]
+    [InlineData("nn", "Norwegian")]
+    [InlineData("iw", "Hebrew")]
+    [InlineData("dansk", "Danish")]
+    [InlineData("suomi", "Finnish")]
+    [InlineData("ελληνικά", "Greek")]
+    [InlineData("čeština", "Czech")]
+    [InlineData("cestina", "Czech")]
+    [InlineData("magyar", "Hungarian")]
+    [InlineData("ไทย", "Thai")]
+    [InlineData("vietnam", "Vietnamese")]
+    [InlineData("українська", "Ukrainian")]
+    [InlineData("עברית", "Hebrew")]
+    [InlineData("română", "Romanian")]
+    [InlineData("romana", "Romanian")]
+    [InlineData("fr-FR", "French")]
+    [InlineData("sv-SE", "Swedish")]
+    [InlineData("zh-Hant", "Chinese")]
+    public void NormalizeIso639Language_SpellingVariant_ResolvesLikeCode(string code, string expected)
+        => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+
+    [Theory]
+    [InlineData("sr", "Serbian")]
+    [InlineData("srp", "Serbian")]
+    [InlineData("hr", "Croatian")]
+    [InlineData("fa", "Persian")]
+    [InlineData("id", "Indonesian")]
+    [InlineData("in", "Indonesian")]
+    [InlineData("ca", "Catalan")]
+    [InlineData("ji", "Yiddish")]
+    [InlineData("mo", "Romanian")]
+    [InlineData("español (Colombia)", "Spanish")]
+    public void NormalizeIso639Language_UnlistedLanguage_ResolvesThroughCultures(string code, string expected)
+        => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+
+    public static TheoryData<string, string> LanguageExonymCases()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var row in LanguageIdentity.LanguageExonyms)
+        {
+            if (row == null)
+            {
+                continue;
+            }
+
+            var display = row[0];
+            if (string.IsNullOrEmpty(display))
+            {
+                continue;
+            }
+
+            foreach (var exonym in row.Skip(1))
+            {
+                if (!string.IsNullOrEmpty(exonym))
+                {
+                    data.Add(exonym, display);
+                }
+            }
+        }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(LanguageExonymCases))]
+    public void NormalizeIso639Language_Exonym_ResolvesToDisplay(string exonym, string expected)
+        => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(exonym));
+
+    [Theory]
+    [InlineData("German (Forced)", "German")]
+    [InlineData("deutsch [forced]", "German")]
+    [InlineData("eng (commentary)", "English")]
+    public void NormalizeIso639Language_TrackQualifier_StrippedToBase(string code, string expected)
+        => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+
+    [Theory]
+    [InlineData("GERMAN Forced SRT by TSCC", "German")]
+    [InlineData("eng commentary", "English")]
+    [InlineData("swe commentary", "Swedish")]
+    [InlineData("allemand", "German")]
+    [InlineData("tyska", "German")]
+    [InlineData("sueco", "Swedish")]
+    public void NormalizeIso639Language_MessyTag_ResolvesFirstToken(string code, string expected)
+        => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+
+    [Theory]
+    [InlineData("Full SDH (PGS)")]
+    [InlineData("SDH Hörgeschädigt")]
+    [InlineData("Forced (SRT)")]
+    [InlineData("Forced")]
+    [InlineData("commentary")]
+    [InlineData("malentendant")]
+    [InlineData("Erzwungen")]
+    public void NormalizeIso639Language_FlagOnlyTag_YieldsNull(string code)
+        => Assert.Null(MediaStatisticsService.NormalizeIso639Language(code));
+
+    [Theory]
+    [InlineData("German (Forced)", "German")]
+    [InlineData("Forced (SRT)", null)]
+    [InlineData(null, null)]
+    public void LanguageFromTitle_EmptyLanguage_ResolvesHitOnly(string? title, string? expected)
+        => Assert.Equal(expected, MediaStatisticsService.LanguageFromTitle(title));
+
+    [Fact]
+    public void FormatAudioTrackLabel_PlainTrack_ReturnsLanguage()
+        => Assert.Equal("German", MediaStatisticsService.FormatAudioTrackLabel("German", new MediaStream { Type = MediaStreamType.Audio }));
+
+    [Fact]
+    public void FormatAudioTrackLabel_ForcedTrack_AppendsFlag()
+        => Assert.Equal("German (Forced)", MediaStatisticsService.FormatAudioTrackLabel("German", new MediaStream { Type = MediaStreamType.Audio, IsForced = true }));
+
+    [Theory]
+    [InlineData(null, false, false, "German")]
+    [InlineData("vorbis", false, false, "German")]
+    [InlineData("subrip", false, false, "German (SRT)")]
+    [InlineData("pgssub", true, false, "German (PGS, Forced)")]
+    [InlineData("ass", false, true, "German (ASS, SDH)")]
+    [InlineData("srt", true, true, "German (SRT, Forced, SDH)")]
+    public void FormatSubtitleTrackLabel_FormatsAndFlags_RenderedAsTags(string? codec, bool forced, bool sdh, string expected)
+    {
+        var track = new MediaStream { Type = MediaStreamType.Subtitle, Codec = codec, IsForced = forced, IsHearingImpaired = sdh };
+        Assert.Equal(expected, MediaStatisticsService.FormatSubtitleTrackLabel("German", track));
+    }
+
+    [Fact]
+    public void AudioLanguage_SpellingVariants_CollapseToOneFacetWithTrackLabels()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        var streams = new List<MediaStream>
+        {
+            new() { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 },
+            new() { Type = MediaStreamType.Audio, Codec = "aac", Language = "ger" },
+            new() { Type = MediaStreamType.Audio, Codec = "ac3", Language = "ger", IsForced = true },
+            new() { Type = MediaStreamType.Audio, Codec = "aac", Language = "deutsch" }
+        };
+        SetupLibraryWithVideo(path, streams);
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+        Assert.Equal(1, stats.AudioLanguages["German"]);
+        Assert.Equal(["German", "German (Forced)"], stats.AudioTrackLabels[path]);
+    }
+
+    [Fact]
+    public void AudioLanguage_NativeNameAndCode_CollapseToOneFacet()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        var streams = new List<MediaStream>
+        {
+            new() { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 },
+            new() { Type = MediaStreamType.Audio, Codec = "aac", Language = "swe" },
+            new() { Type = MediaStreamType.Audio, Codec = "ac3", Language = "svenska" }
+        };
+        SetupLibraryWithVideo(path, streams);
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+        Assert.Equal(1, stats.AudioLanguages["Swedish"]);
+        Assert.Equal(["Swedish"], stats.AudioTrackLabels[path]);
+    }
+
+    [Fact]
+    public void SubtitleLanguage_VariantTracks_RecordLabelsWithFormatAndFlags()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        var streams = new List<MediaStream>
+        {
+            new() { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 },
+            new() { Type = MediaStreamType.Subtitle, Codec = "subrip", Language = "eng", IsExternal = false },
+            new() { Type = MediaStreamType.Subtitle, Codec = "pgssub", Language = "ger", IsExternal = false, IsForced = true }
+        };
+        SetupLibraryWithVideo(path, streams);
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+        Assert.Equal(1, stats.SubtitleLanguages["English"]);
+        Assert.Equal(1, stats.SubtitleLanguages["German"]);
+        Assert.Equal(["English (SRT)", "German (PGS, Forced)"], stats.SubtitleTrackLabels[path]);
+    }
+
+    [Fact]
+    public void SubtitleLanguage_EmptyLanguageWithTitle_FallsBackToTitleHit()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        var streams = new List<MediaStream>
+        {
+            new() { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 },
+            new() { Type = MediaStreamType.Subtitle, Codec = "subrip", Language = null, Title = "German (Forced)", IsExternal = false }
+        };
+        SetupLibraryWithVideo(path, streams);
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+        Assert.Equal(1, stats.SubtitleLanguages["German"]);
+        Assert.Equal(["German (SRT)"], stats.SubtitleTrackLabels[path]);
+    }
+
+    [Fact]
+    public void SubtitleLanguage_FlagOnlyTitleWithoutLanguage_IsSkipped()
+    {
+        var path = TestPath("media", "movies", "Film.mkv");
+        var streams = new List<MediaStream>
+        {
+            new() { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 },
+            new() { Type = MediaStreamType.Subtitle, Codec = "pgssub", Language = null, Title = "Full SDH (PGS)", IsExternal = false }
+        };
+        SetupLibraryWithVideo(path, streams);
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+        Assert.Empty(stats.SubtitleLanguages);
+        Assert.Empty(stats.SubtitleTrackLabels);
+    }
+
+    [Fact]
+    public void SubtitleLanguage_SixGermanVariants_CollapseToOneFacetWithLabels()
+    {
+        // Six German subtitle tracks in the wild: codes, names, flags, formats and
+        // one pure flag tag. The facet counts the file once, the labels keep every
+        // variant, and the flag noise vanishes instead of opening stray facets.
+        var path = TestPath("media", "movies", "Film.mkv");
+        var streams = new List<MediaStream>
+        {
+            new() { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 },
+            new() { Type = MediaStreamType.Subtitle, Codec = "subrip", Language = "ger", IsExternal = false },
+            new() { Type = MediaStreamType.Subtitle, Codec = "pgssub", Language = "ger", IsExternal = false, IsForced = true },
+            new() { Type = MediaStreamType.Subtitle, Codec = "subrip", Language = "German", IsExternal = false },
+            new() { Type = MediaStreamType.Subtitle, Codec = "ass", Language = "deutsch", IsExternal = false },
+            new() { Type = MediaStreamType.Subtitle, Codec = "subrip", Language = "ger", IsExternal = false, IsHearingImpaired = true },
+            new() { Type = MediaStreamType.Subtitle, Codec = "pgssub", Language = "Full SDH", IsExternal = false }
+        };
+        SetupLibraryWithVideo(path, streams);
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+        Assert.Equal(1, stats.SubtitleLanguages["German"]);
+        Assert.Equal(
+            ["German (SRT)", "German (PGS, Forced)", "German (ASS)", "German (SRT, SDH)"],
+            stats.SubtitleTrackLabels[path]);
+    }
 
     private sealed class TestableMediaStatisticsService(
         ILibraryManager libraryManager,

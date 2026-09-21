@@ -2494,7 +2494,8 @@ public class ClassifyMethodTests
     [InlineData(31_999_999, "16–32 Mbps")]
     [InlineData(32_000_000, "32–60 Mbps")]
     [InlineData(59_999_999, "32–60 Mbps")]
-    [InlineData(60_000_000, "> 60 Mbps")]
+    [InlineData(60_000_000, "32–60 Mbps")]
+    [InlineData(60_000_001, "> 60 Mbps")]
     [InlineData(80_000_000, "> 60 Mbps")]
     public void ClassifyBitrateTier_StreamBitrate_MapsToTier(int streamBitrate, string expected)
     {

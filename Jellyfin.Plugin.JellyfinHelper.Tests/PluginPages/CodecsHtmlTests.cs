@@ -282,9 +282,9 @@ public class CodecsHtmlTests : ConfigPageTestBase
         // each file shows its true pixel size (e.g. 1920x800) behind the tier label.
         Assert.Contains("function collectResolutionDimensions", HtmlContent);
         Assert.Contains("ResolutionDimensions", HtmlContent);
-        Assert.Matches(
-            @"chartId\s*===\s*'resolutions'\s*\?\s*collectResolutionDimensions\(_lastCodecData\)",
-            HtmlContent);
+        Assert.Contains("function collectDrilldownMeta", HtmlContent);
+        Assert.Contains("function collectTrackLabelMeta", HtmlContent);
+        Assert.Contains("renderFileTree(result, codecName, collectDrilldownMeta(chartId))", HtmlContent);
     }
 
     [Fact]
@@ -302,6 +302,18 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("codec-pill", HtmlContent);
         Assert.Contains("codec-multi-chevron", HtmlContent);
         Assert.Contains("data-filter-dim", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_LibraryExplorer_SingleListScopeNullAndAriaState()
+    {
+        // Single dims render as inline radio rows (no OS popup on phones).
+        Assert.Contains("function buildCodecsExplorerSingleList", HtmlContent);
+        Assert.Contains("data-single-option", HtmlContent);
+        // File detail toggles report their expansion state.
+        Assert.Contains("setAttribute('aria-expanded', 'false')", HtmlContent);
+        // A pruned scope without survivors lifts back to all libraries.
+        Assert.Contains("kept.length > 0 ? kept : null", HtmlContent);
     }
 
     [Fact]
