@@ -752,7 +752,7 @@ function buildCodecsExplorerLibraryMulti() {
     for (let index = 0; index < libs.length; index++) {
         const lib = libs[index];
         const inputId = 'codecLibrary_' + index;
-        var libType = lib.CollectionType || lib.collectionType || '';
+        const libType = lib.CollectionType || lib.collectionType || '';
         html += '<label class="codec-multi-item" for="' + escAttr(inputId) + '">'
             + '<input type="checkbox" id="' + escAttr(inputId) + '" value="' + escAttr(lib.LibraryName) + '"'
             + (selected.includes(lib.LibraryName) ? ' checked' : '') + ' data-library-option="1">'
