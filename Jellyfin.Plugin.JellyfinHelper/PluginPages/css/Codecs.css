@@ -255,7 +255,6 @@
 /* Library Explorer: collapsible combinable-filter search above the donut grid. */
 .codec-explorer {
     margin: 0 0 1.5em 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
     padding-top: 0.5em;
 }
 
