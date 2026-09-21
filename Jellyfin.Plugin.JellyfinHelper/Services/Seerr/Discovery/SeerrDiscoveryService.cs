@@ -1579,6 +1579,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         (IReadOnlyList<SeerrUser> freshUsers, bool complete) = await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
 
         // The shared fetch has already written a successful, complete result to the cache before completing
         // (see StartSeerrUserFetchAsync), so once it settles the cache is warm and the fast path above catches
