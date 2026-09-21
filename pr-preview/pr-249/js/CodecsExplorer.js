@@ -292,6 +292,35 @@ function getExplorerFileBitrate(path) {
     return typeof value === 'number' ? value : null;
 }
 
+// Per file track labels of one kind across the scoped libraries. Kind is audio
+// for AudioTrackLabels and subs for SubtitleTrackLabels.
+function getTrackLabelMap(kind) {
+    const prop = kind === 'audio' ? 'AudioTrackLabels' : 'SubtitleTrackLabels';
+    const map = {};
+    const selected = _codecsExplorerState.libraries;
+    const groups = ['movies', 'tvshows', 'other'];
+    for (const group of groups) {
+        for (const lib of getCodecsExplorerGroupLibraries(group)) {
+            if (selected !== null && !selected.includes(lib.LibraryName)) {
+                continue;
+            }
+            const labels = lib[prop] || {};
+            for (const path of Object.keys(labels)) {
+                if (!map[path]) {
+                    map[path] = labels[path];
+                }
+            }
+        }
+    }
+    return map;
+}
+
+// Track labels of one file, or null when the scan predates per file labels.
+function getExplorerFileTrackLabels(kind, path) {
+    const labels = getTrackLabelMap(kind)[path];
+    return Array.isArray(labels) && labels.length > 0 ? labels : null;
+}
+
 // Short pill text for an active range relative to the data bounds.
 function formatBitrateRange(range, bounds) {
     const lo = Math.round(range.min);
@@ -561,22 +590,27 @@ function visibleExplorerOptions(counts, selected) {
     });
 }
 
-function buildCodecsExplorerSelect(dim) {
+// Single value editor as tappable rows. A native select opens an OS popup that
+// leaves the viewport on small phones, so every viewport shares this inline list.
+function buildCodecsExplorerSingleList(dim) {
     const counts = countExplorerOptions(dim);
     const selected = getCodecsExplorerSelection(dim.id);
     const current = selected.length > 0 ? selected[0] : '';
     const visible = visibleExplorerOptions(counts, selected);
-    const disabled = visible.length === 0;
-    let html = '<div class="codec-explorer-field' + (disabled ? ' codec-explorer-field--disabled' : '') + '">';
-    html += '<label for="codecExplorer_' + escAttr(dim.id) + '">' + escHtml(T(dim.labelKey, dim.fallback)) + '</label>';
-    html += '<select id="codecExplorer_' + escAttr(dim.id) + '" data-explorer-dim="' + escAttr(dim.id) + '"'
-        + (disabled ? ' disabled' : '') + '>';
-    html += '<option value="">' + escHtml(T('explorerAny', 'Any')) + '</option>';
+    let html = '<div class="codec-single" role="radiogroup"'
+        + ' aria-label="' + escAttr(T(dim.labelKey, dim.fallback)) + '">';
+    html += '<button type="button" class="codec-single-option" role="radio"'
+        + ' aria-checked="' + (current === '' ? 'true' : 'false') + '"'
+        + ' data-single-option="' + escAttr(dim.id) + '" data-single-value="">'
+        + '<span class="codec-single-name">' + escHtml(T('explorerAny', 'Any')) + '</span></button>';
     for (const option of visible) {
-        html += '<option value="' + escAttr(option) + '"' + (option === current ? ' selected' : '') + '>'
-            + escHtml(option) + ' (' + counts[option] + ')</option>';
+        html += '<button type="button" class="codec-single-option" role="radio"'
+            + ' aria-checked="' + (option === current ? 'true' : 'false') + '"'
+            + ' data-single-option="' + escAttr(dim.id) + '" data-single-value="' + escAttr(option) + '">'
+            + '<span class="codec-single-name">' + escHtml(option) + '</span>'
+            + '<span class="codec-single-count">(' + counts[option] + ')</span></button>';
     }
-    html += '</select></div>';
+    html += '</div>';
     return html;
 }
 
@@ -755,7 +789,7 @@ function buildCodecsExplorerDimEditor() {
             _codecMultiOpen = dim.id;
             body = buildCodecsExplorerMulti(dim);
         } else {
-            body = buildCodecsExplorerSelect(dim);
+            body = buildCodecsExplorerSingleList(dim);
         }
     }
     let html = '<div class="codec-filter-editor">';
@@ -967,7 +1001,11 @@ function buildExplorerFileDetail(path) {
         const dim = getCodecsExplorerDimension(dimId);
         const values = findExplorerDimValues(dim, path);
         if (values.length > 0) {
-            html += explorerDetailRow(T(dim.labelKey, dim.fallback), values.join(', '));
+            // Track labels name the variants behind the collapsed facet value,
+            // so two German subtitle tracks read as German plus German (PGS, Forced).
+            const kind = dimId === 'audioLanguages' ? 'audio' : 'subs';
+            const labels = getExplorerFileTrackLabels(kind, path);
+            html += explorerDetailRow(T(dim.labelKey, dim.fallback), labels ? labels.join(', ') : values.join(', '));
         }
     }
     html += explorerWatchedDetail(getExplorerWatchers(path));
@@ -981,6 +1019,7 @@ function toggleExplorerFileDetail(leaf) {
     if (next?.classList.contains('codec-file-detail')) {
         next.remove();
         leaf.classList.remove('codec-file-open');
+        leaf.setAttribute('aria-expanded', 'false');
         return;
     }
     const path = leaf.title || '';
@@ -991,6 +1030,7 @@ function toggleExplorerFileDetail(leaf) {
     tmp.innerHTML = buildExplorerFileDetail(path);
     leaf.parentNode.insertBefore(tmp.firstChild, next);
     leaf.classList.add('codec-file-open');
+    leaf.setAttribute('aria-expanded', 'true');
 }
 
 function bindExplorerFileDetails(host) {
@@ -1001,6 +1041,7 @@ function bindExplorerFileDetails(host) {
         leaf.dataset.detailBound = '1';
         leaf.setAttribute('tabindex', '0');
         leaf.setAttribute('role', 'button');
+        leaf.setAttribute('aria-expanded', 'false');
         leaf.addEventListener('click', function () {
             toggleExplorerFileDetail(leaf);
         });
@@ -1115,7 +1156,7 @@ function describeActiveExplorerControl() {
     if (active.dataset.pillClear !== undefined || active.dataset.pillClearBitrate !== undefined) {
         return {filterAdd: true};
     }
-    const dim = active.dataset.explorerDim || active.dataset.multiDim || active.dataset.multiToggle;
+    const dim = active.dataset.multiDim || active.dataset.multiToggle;
     if (!dim) {
         return null;
     }
@@ -1218,10 +1259,10 @@ function onExplorerLibrariesChanged() {
     refreshCodecsExplorerControls();
 }
 
-function onExplorerSelectChanged(select) {
-    const dimId = select.dataset.explorerDim;
-    if (select.value) {
-        _codecsExplorerState.filters[dimId] = select.value;
+function onExplorerSingleChanged(dimId, value) {
+    const current = getCodecsExplorerSelection(dimId);
+    if (value && (current.length === 0 || current[0] !== value)) {
+        _codecsExplorerState.filters[dimId] = value;
     } else {
         delete _codecsExplorerState.filters[dimId];
     }
@@ -1229,6 +1270,7 @@ function onExplorerSelectChanged(select) {
     // bar. Multi editors stay open for picking further values.
     _codecFilterOpen = null;
     refreshCodecsExplorerControls();
+    document.getElementById('codecFilterAddBtn')?.focus({preventScroll: true});
 }
 
 function onExplorerMultiChanged(dimId) {
@@ -1291,7 +1333,16 @@ function bindCodecsExplorerControlHandlers() {
     const libToggle = document.querySelector('[data-library-toggle]');
     if (libToggle) {
         libToggle.onclick = function () {
-            setMultiPanelOpen('libraries', _codecMultiOpen !== 'libraries');
+            const willOpen = _codecMultiOpen !== 'libraries';
+            // The scope panel and the filter popover never share the screen, so
+            // opening one collapses the other instead of stacking them.
+            if (willOpen && _codecFilterOpen !== null) {
+                _codecFilterOpen = null;
+                _codecMultiOpen = 'libraries';
+                refreshCodecsExplorerControls();
+                return;
+            }
+            setMultiPanelOpen('libraries', willOpen);
         };
     }
     for (const box of document.querySelectorAll('[data-library-option]')) {
@@ -1299,9 +1350,9 @@ function bindCodecsExplorerControlHandlers() {
             onExplorerLibrariesChanged();
         };
     }
-    for (const select of document.querySelectorAll('#codecExplorerControls select[data-explorer-dim]')) {
-        select.onchange = function () {
-            onExplorerSelectChanged(select);
+    for (const option of document.querySelectorAll('[data-single-option]')) {
+        option.onclick = function () {
+            onExplorerSingleChanged(option.dataset.singleOption, option.dataset.singleValue);
         };
     }
     for (const toggle of document.querySelectorAll('[data-multi-toggle]')) {
@@ -1325,7 +1376,14 @@ function bindCodecsExplorerFilterHandlers() {
     const addBtn = document.querySelector('[data-filter-add-btn]');
     if (addBtn) {
         addBtn.onclick = function () {
-            _codecFilterOpen = _codecFilterOpen === null ? 'add' : null;
+            // Opening the popover collapses the scope panel for the same reason
+            // the scope toggle collapses the popover: never stack both.
+            if (_codecFilterOpen === null) {
+                _codecMultiOpen = null;
+                _codecFilterOpen = 'add';
+            } else {
+                _codecFilterOpen = null;
+            }
             refreshCodecsExplorerControls();
         };
     }
@@ -1584,8 +1642,14 @@ function openCodecsExplorer(scope) {
 // never filters by phantom values while the controls show "All libraries" or "Any".
 function pruneCodecsExplorerState() {
     if (_codecsExplorerState.libraries !== null) {
-        _codecsExplorerState.libraries = pruneExplorerScopeNames(
+        const kept = pruneExplorerScopeNames(
             getCodecsExplorerLibraries(), _codecsExplorerState.libraries);
+        // An empty survivor list means every picked library vanished. Null lifts
+        // the scope back to all libraries instead of matching no files at all.
+        _codecsExplorerState.libraries = kept.length > 0 ? kept : null;
+        if (_codecsExplorerState.libraries === null) {
+            _codecsExplorerState.scope = null;
+        }
     }
     for (const dim of CODEC_EXPLORER_DIMENSIONS) {
         pruneExplorerDimSelection(dim);

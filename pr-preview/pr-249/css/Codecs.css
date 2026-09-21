@@ -328,25 +328,51 @@
     opacity: 0.45;
 }
 
-.codec-explorer-field select:disabled,
-.codec-explorer-checks:disabled {
-    cursor: not-allowed;
+/* Single value options as tappable rows. A native select is avoided on purpose:
+   its OS popup leaves the viewport on small phones instead of staying in the sheet. */
+.codec-single {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
-.codec-explorer-field select {
+.codec-single-option {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
     width: 100%;
-    padding: 0.55em 0.6em;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: var(--radius-md, 8px);
+    min-height: 32px;
+    padding: 0.4em 0.6em;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm, 6px);
     color: inherit;
-    font-size: 0.9em;
+    font-size: 0.88em;
+    cursor: pointer;
+    text-align: left;
 }
 
-/* noinspection CssUnusedSymbol */
-.codec-explorer-field select option {
-    background: #2b2b2b;
-    color: #e0e0e0;
+.codec-single-option:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.codec-single-option[aria-checked="true"] {
+    background: rgba(0, 164, 220, 0.12);
+    border-color: var(--color-primary);
+}
+
+.codec-single-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.codec-single-count {
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
 }
 
 .codec-explorer-actions {
@@ -496,7 +522,8 @@
 .codec-filter-add-btn:focus-visible,
 .codec-filter-dim:focus-visible,
 .codec-pill-remove:focus-visible,
-.codec-filter-back:focus-visible {
+.codec-filter-back:focus-visible,
+.codec-single-option:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
 }
@@ -828,13 +855,12 @@
     }
 
     .codec-filter-bar .codec-multi {
+        flex: 1 1 100%;
         min-width: 0;
-        flex: 1;
     }
 
-    .codec-explorer-field select {
-        font-size: 16px;
-        padding: 0.6em;
+    .codec-single-option {
+        min-height: 44px;
     }
 
     .codec-multi-toggle {
@@ -858,18 +884,6 @@
 }
 
 @media (prefers-color-scheme: light) {
-    /* noinspection CssUnusedSymbol */
-    .codec-explorer-field select {
-        background-color: rgba(0, 0, 0, 0.05);
-        border-color: rgba(0, 0, 0, 0.15);
-    }
-
-    /* noinspection CssUnusedSymbol */
-    .codec-explorer-field select option {
-        background: #ffffff;
-        color: #111111;
-    }
-
     /* noinspection CssUnusedSymbol */
     .codec-multi-toggle {
         background-color: rgba(0, 0, 0, 0.05);

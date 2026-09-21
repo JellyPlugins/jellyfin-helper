@@ -301,6 +301,43 @@ function collectCodecPaths(data, pathsProp, codecName, categories) {
     };
 }
 
+// Merge the per file language track labels into one lookup, so the audio and
+// subtitle drill downs can name the variants behind each collapsed facet value,
+// the same way the resolution drill down shows true pixel sizes.
+function collectTrackLabelMeta(data, kind) {
+    var prop = kind === 'audio' ? 'AudioTrackLabels' : 'SubtitleTrackLabels';
+    var merged = {};
+    var groups = [data.Movies, data.TvShows, data.Other];
+    for (var group of groups) {
+        var libs = group || [];
+        for (var lib of libs) {
+            var labels = lib?.[prop];
+            if (!labels) continue;
+            for (var path in labels) {
+                if (Object.hasOwn(labels, path) && !merged[path]) {
+                    merged[path] = labels[path].join(', ');
+                }
+            }
+        }
+    }
+    return merged;
+}
+
+// Meta map for a drill down panel: true pixel sizes behind resolution tiers,
+// track variants behind collapsed language facets, nothing elsewhere.
+function collectDrilldownMeta(chartId) {
+    if (chartId === 'resolutions') {
+        return collectResolutionDimensions(_lastCodecData);
+    }
+    if (chartId === 'audioLanguages') {
+        return collectTrackLabelMeta(_lastCodecData, 'audio');
+    }
+    if (chartId === 'subtitleLanguages') {
+        return collectTrackLabelMeta(_lastCodecData, 'subs');
+    }
+    return null;
+}
+
 // Merge the per-library ResolutionDimensions maps (file path -> "1920x800") from every
 // video library into one lookup, so the resolution drill-down can label each file with
 // its true pixel size regardless of which library it came from.
@@ -419,12 +456,7 @@ function attachCodecClickHandlers() {
             var categories = CODEC_CATEGORY_MAP[chartId];
             var result = collectCodecPaths(_lastCodecData, pathsProp, codecName,
                 categories);
-            // The resolution drill-down shows the true pixel size behind each tier label,
-            // so a 1920x800 cinemascope file explains why it sits under 1080p.
-            var meta = chartId === 'resolutions'
-                ? collectResolutionDimensions(_lastCodecData)
-                : null;
-            return renderFileTree(result, codecName, meta);
+            return renderFileTree(result, codecName, collectDrilldownMeta(chartId));
         }
     });
 }
