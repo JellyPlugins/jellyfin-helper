@@ -123,12 +123,15 @@ public class MediaStatisticsService : IMediaStatisticsService
         // needs them per video file) and pre-fetch their watch data in one batch call per
         // user, so the scan performs dictionary lookups instead of per-file database queries.
         // BuildItemLookup must retain audio items for audio metadata extraction, but
-        // watched status is only extracted for video files; filtering here avoids
-        // sending audio items to GetUserDataBatch even though they are never looked up.
+        // watched status is only extracted for video files; filtering the batch input to
+        // video file paths avoids sending audio items to GetUserDataBatch even though
+        // they are never looked up (distinct by object identity, filtered by file-path
+        // extension so Mock<BaseItem> in tests with a null Path is still handled via its
+        // dictionary key).
         var userContext = new ScanUserContext(ResolveScanUsers(), new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>());
-        var distinctItems = itemLookup.Values.Distinct()
-            .Where(static i => i.Path == null || MediaExtensions.VideoExtensions.Contains(Path.GetExtension(i.Path)))
-            .ToList();
+        var distinctItems = itemLookup
+            .Where(static kvp => MediaExtensions.VideoExtensions.Contains(Path.GetExtension(kvp.Key)))
+            .Select(static kvp => kvp.Value).Distinct().ToList();
         foreach (var u in userContext.Users)
         {
             userContext.WatchLookups[u.Id] = TryLoadUserWatchBatch(u, distinctItems);
