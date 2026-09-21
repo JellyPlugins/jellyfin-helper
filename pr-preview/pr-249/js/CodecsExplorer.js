@@ -198,7 +198,7 @@ let _explorerMapCache = {data: null, key: null, bitrates: null, audioLabels: nul
 
 function explorerMapCacheKey() {
     const selected = _codecsExplorerState.libraries;
-    return selected === null ? '*' : selected.join('');
+    return selected === null ? '*' : selected.join('\u0000');
 }
 
 function getCachedExplorerMaps() {
@@ -1320,6 +1320,7 @@ function refreshCodecsExplorerControls() {
         return;
     }
     _explorerSubsetCache = {};
+    _explorerDetailCache = {};
     const focus = describeActiveExplorerControl();
     controls.innerHTML = buildCodecsExplorerControls();
     bindCodecsExplorerControlHandlers();
