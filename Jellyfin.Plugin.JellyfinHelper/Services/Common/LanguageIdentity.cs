@@ -31,7 +31,7 @@ internal static class LanguageIdentity
         ["de", "deu", "ger", "de"],
         ["en", "eng", "en"],
         ["fr", "fra", "fre", "fr"],
-        ["es", "spa", "es"],
+        ["es", "spa", "es", "español", "espanol"],
         ["it", "ita", "it"],
         ["ja", "jpn", "ja"],
         ["ko", "kor", "ko"],
@@ -71,6 +71,8 @@ internal static class LanguageIdentity
     ];
 
     // Stable English display per canonical code for the curated languages above.
+    // Includes every canonical code from _languageCodeAliases so DisplayNameForCode
+    // never falls back to uppercased codes when NeutralLanguageCultures is empty.
     private static readonly string[][] _languageCodeDisplays =
     [
         ["de", "German"],
@@ -100,6 +102,19 @@ internal static class LanguageIdentity
         ["uk", "Ukrainian"],
         ["he", "Hebrew"],
         ["ro", "Romanian"],
+        ["id", "Indonesian"],
+        ["ms", "Malay"],
+        ["hr", "Croatian"],
+        ["sr", "Serbian"],
+        ["sk", "Slovak"],
+        ["sl", "Slovenian"],
+        ["bg", "Bulgarian"],
+        ["ca", "Catalan"],
+        ["et", "Estonian"],
+        ["lv", "Latvian"],
+        ["lt", "Lithuanian"],
+        ["fa", "Persian"],
+        ["ur", "Urdu"],
     ];
 
     // Exonyms per display name in the plugin UI locales (de, es, fr, pt, sv, tr, zh),

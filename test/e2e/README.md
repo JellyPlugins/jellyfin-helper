@@ -72,10 +72,10 @@ ffmpeg needed.** Media is generated inside the Jellyfin container.
 
 ## Why the image tag is pinned
 
-The plugin targets ABI `12.0.0.0` (built against `Jellyfin.Controller
+The plugin targets ABI `12.1.0.0` (built against `Jellyfin.Controller
 12.1.0`). Jellyfin 12 is currently **release-candidate only**: the
 stable `latest` / `10.x` line would refuse to load the plugin. `compose.yml`
-pins `jellyfin/jellyfin:12.0`.
+pins `jellyfin/jellyfin:12.1`.
 
 ## CI
 
