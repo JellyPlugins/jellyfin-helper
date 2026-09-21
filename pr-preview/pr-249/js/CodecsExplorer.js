@@ -116,7 +116,7 @@ function codecExplorerIsWindowsPath(path) {
 }
 
 function codecExplorerTrimRoot(root = '') {
-    let trimmed = root === null ? '' : root;
+    let trimmed = root ?? '';
     while (trimmed.endsWith('/') || trimmed.endsWith('\\')) {
         trimmed = trimmed.slice(0, -1);
     }
@@ -752,10 +752,12 @@ function buildCodecsExplorerLibraryMulti() {
     for (let index = 0; index < libs.length; index++) {
         const lib = libs[index];
         const inputId = 'codecLibrary_' + index;
+        var libType = lib.CollectionType || lib.collectionType || '';
         html += '<label class="codec-multi-item" for="' + escAttr(inputId) + '">'
             + '<input type="checkbox" id="' + escAttr(inputId) + '" value="' + escAttr(lib.LibraryName) + '"'
             + (selected.includes(lib.LibraryName) ? ' checked' : '') + ' data-library-option="1">'
             + '<span class="codec-multi-name">' + escHtml(lib.LibraryName) + '</span>'
+            + (libType ? '<span class="library-type-badge">' + escHtml(libType) + '</span>' : '')
             + '<span class="codec-multi-count">(' + countLibraryFiles(lib) + ')</span></label>';
     }
     html += '</div></div>';
