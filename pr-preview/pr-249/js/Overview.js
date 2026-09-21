@@ -48,7 +48,7 @@ function buildBarSegments(data) {
 
     barHtml += '<div class="legend">';
     for (const cat of categories) {
-        var label = T(cat.labelKey, cat.labelFallback) + ' (' + formatBytes(cat.bytes) + ')';
+        var label = escHtml(T(cat.labelKey, cat.labelFallback)) + ' (' + formatBytes(cat.bytes) + ')';
         barHtml += '<div class="legend-item"><div class="legend-dot ' + cat.cls + '"></div>' + label + '</div>';
     }
     barHtml += '</div>';
@@ -71,7 +71,7 @@ function loadCleanupStats() {
             stats.LastCleanupTimestamp !== '0001-01-01T00:00:00' &&
             !Number.isNaN(parsedTs.getTime());
         var lastTs = hasValidTs ? parsedTs.toLocaleString() : T('never', 'Never');
-        h += '<p class="stat-detail">' + escHtml(T('lastCleanup', 'Last cleanup')) + ': ' + escHtml(lastTs) + '</p></div>';
+        h += '<p class="stat-detail">' + escHtml(T('lastCleanup', 'Last Cleanup')) + ': ' + escHtml(lastTs) + '</p></div>';
         h += '</div>';
         cleanupContainer.innerHTML = h;
     }, function () {
@@ -166,9 +166,14 @@ function fillOverviewData(data) {
         overviewHtml += '<tr>';
         // The library name links into the Codecs Library Explorer pre-scoped to
         // that library. Dimensions without data for its media type render greyed out.
-        overviewHtml += '<td><button class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '"'
-            + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
-            + escHtml(lib.LibraryName) + '</button></td>';
+        // Nameless rows render plain text: an empty button would be clickable void.
+        if (lib.LibraryName) {
+            overviewHtml += '<td><button type="button" class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '"'
+                + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
+                + escHtml(lib.LibraryName) + '</button></td>';
+        } else {
+            overviewHtml += '<td></td>';
+        }
         overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.VideoSize) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.AudioSize) + '</td>';

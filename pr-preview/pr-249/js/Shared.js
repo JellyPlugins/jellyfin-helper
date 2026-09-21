@@ -794,7 +794,15 @@ function removeDialogById(id) {
 function attachTogglePanelHandlers(opts) {
     // Optional CSS scope limiting which panels close each other (e.g. Codecs drill-down
     // panels must not wipe the Library Explorer results). Defaults to the document.
-    var scope = opts.panelScope ? document.querySelector(opts.panelScope) || document : document;
+    // An invalid selector falls back instead of breaking every toggle binding.
+    var scope = document;
+    if (opts.panelScope) {
+        try {
+            scope = document.querySelector(opts.panelScope) || document;
+        } catch {
+            // Invalid selector: keep the document scope.
+        }
+    }
     var items = document.querySelectorAll(opts.itemSelector);
     for (var i = 0; i < items.length; i++) {
         if (items[i].dataset.toggleBound) continue;

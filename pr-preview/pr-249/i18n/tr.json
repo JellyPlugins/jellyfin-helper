@@ -426,5 +426,7 @@
   "explorerBack": "Geri",
   "explorerBitrateMin": "Min (Mbps)",
   "explorerBitrateMax": "Maks (Mbps)",
-  "explorerBitrateNoData": "Henüz bit hızı verisi yok. Mutlak bit hızına göre filtrelemek için yeni tarama çalıştırın."
+  "explorerBitrateNoData": "Henüz bit hızı verisi yok. Mutlak bit hızına göre filtrelemek için yeni tarama çalıştırın.",
+  "explorerRemoveFilter": "{label} filtresini kaldır",
+  "explorerNoMatchingLibraries": "Eşleşen kütüphane yok"
 }

@@ -154,7 +154,7 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
         }
     }
     if (total === 0) {
-        return '<p style="opacity:0.5;">' + T('noData', 'No data') + '</p>';
+        return '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
     }
 
     entries.sort(function (a, b) {
@@ -213,7 +213,8 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
         var arcPath = describeArc(cx, cy, outerR, innerR, startAngle, endAngle);
 
         donutContainer += '<g class="donut-segment" data-segment-id="' + escAttr(segId) + '"'
-            + ' data-codec="' + escAttr(entries[i].label) + '">';
+            + ' data-codec="' + escAttr(entries[i].label) + '"'
+            + ' tabindex="0" role="button" aria-label="' + escAttr(entries[i].label) + '">';
         donutContainer += '<path d="' + arcPath + '" fill="' + color + '"/>';
         donutContainer += '</g>';
 
@@ -253,7 +254,7 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
         html += '<div class="codec-row-color" style="background:' + color + '"></div>';
         html += '<div class="codec-row-info">';
         html += '<span class="codec-row-name">' + escHtml(entries[i].label) + '</span>';
-        html += '<span class="codec-row-stats">' + entries[i].count + ' ' + T('files', 'files') + ' · '
+        html += '<span class="codec-row-stats">' + entries[i].count + ' ' + escHtml(T('files', 'files')) + ' · '
             + pct + '% · ' + formatBytes(entries[i].size) + '</span>';
         html += '</div>';
         html += '<div class="codec-row-bar"><div class="codec-row-bar-fill" style="width:' + pct + '%;background:'
@@ -314,7 +315,7 @@ function collectTrackLabelMeta(data, kind) {
             var labels = lib?.[prop];
             if (!labels) continue;
             for (var path in labels) {
-                if (Object.hasOwn(labels, path) && !merged[path]) {
+                if (Object.hasOwn(labels, path) && !merged[path] && Array.isArray(labels[path])) {
                     merged[path] = labels[path].join(', ');
                 }
             }
@@ -540,6 +541,18 @@ function attachDonutHoverTooltips() {
                     }
                 });
             }
+            // Keyboard: segments are focusable buttons mirroring the rows below.
+            var segments = container.querySelectorAll('.donut-segment');
+            for (var s = 0; s < segments.length; s++) {
+                (function (seg) {
+                    seg.addEventListener('keydown', function (e) {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            triggerCodecRowForSegment(seg);
+                        }
+                    });
+                })(segments[s]);
+            }
         })(charts[c]);
     }
 
@@ -625,76 +638,80 @@ function fillCodecsData(data) {
 
     var codecsHtml = '<div class="charts-row">';
     if (hasContainers) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('inventory_2') + T('containerFormats', 'Container Formats') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('inventory_2') + escHtml(T('containerFormats', 'Container Formats')) + '</h4>';
         codecsHtml += renderDonutChart(containers, containerSizes, 'containers', data.Libraries, 'ContainerFormats');
         codecsHtml += '</div>';
     }
     if (hasResolutions) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('straighten') + T('resolutions', 'Resolutions') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('straighten') + escHtml(T('resolutions', 'Resolutions')) + '</h4>';
         codecsHtml += renderDonutChart(resolutions, resolutionSizes, 'resolutions', videoLibraries, 'Resolutions');
         codecsHtml += '</div>';
     }
     if (hasDynamicRanges) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('palette') + T('dynamicRange', 'Dynamic Range') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('palette') + escHtml(T('dynamicRange', 'Dynamic Range')) + '</h4>';
         codecsHtml += renderDonutChart(dynamicRanges, dynamicRangeSizes, 'dynamicRanges', videoLibraries, 'DynamicRanges');
         codecsHtml += '</div>';
     }
     if (hasVideoCodecs) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('movie') + T('videoCodecs', 'Video Codecs') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('movie') + escHtml(T('videoCodecs', 'Video Codecs')) + '</h4>';
         codecsHtml += renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs', videoLibraries, 'VideoCodecs');
         codecsHtml += '</div>';
     }
     if (hasVideoAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('volume_up') + T('videoAudioCodecs', 'Video Audio Codecs') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('volume_up') + escHtml(T('videoAudioCodecs', 'Video Audio Codecs')) + '</h4>';
         codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes, 'videoAudioCodecs', videoLibraries,
             'VideoAudioCodecs');
         codecsHtml += '</div>';
     }
     if (hasMusicAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('music_note') + T('musicAudioCodecs', 'Music Audio Codecs') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('music_note') + escHtml(T('musicAudioCodecs', 'Music Audio Codecs')) + '</h4>';
         codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries,
             'MusicAudioCodecs');
         codecsHtml += '</div>';
     }
     if (hasVideoBitrate) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('high_quality') + T('videoBitrate', 'Video Bitrate') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('high_quality') + escHtml(T('videoBitrate', 'Video Bitrate')) + '</h4>';
         codecsHtml += renderDonutChart(videoBitrate, videoBitrateSizes, 'videoBitrate', videoLibraries,
             'VideoBitrateTiers');
         codecsHtml += '</div>';
     }
     if (hasAudioLanguages) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('description') + T('audioLanguages', 'Audio Languages') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('description') + escHtml(T('audioLanguages', 'Audio Languages')) + '</h4>';
         codecsHtml += renderDonutChart(audioLanguages, audioLanguageSizes, 'audioLanguages', videoLibraries,
             'AudioLanguages');
         codecsHtml += '</div>';
     }
     if (hasSubtitleLanguages) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('edit_note') + T('subtitleLanguages', 'Subtitle Languages') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('edit_note') + escHtml(T('subtitleLanguages', 'Subtitle Languages')) + '</h4>';
         codecsHtml += renderDonutChart(subtitleLanguages, subtitleLanguageSizes, 'subtitleLanguages', videoLibraries,
             'SubtitleLanguages');
         codecsHtml += '</div>';
     }
     if (hasWatched) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + T('watched', 'Watched') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + escHtml(T('watched', 'Watched')) + '</h4>';
         codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', buildWatchedTooltipLibraries(videoLibraries), 'WatchedTooltip');
         codecsHtml += '</div>';
     }
     if (hasBookFormats) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('library_books') + T('bookFormats', 'Book Formats') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('library_books') + escHtml(T('bookFormats', 'Book Formats')) + '</h4>';
         codecsHtml += renderDonutChart(bookFormats, bookFormatSizes, 'bookFormats', bookLibraries,
             'BookFormats');
         codecsHtml += '</div>';
     }
     if (!hasAnyCharts) {
-        codecsHtml += '<div class="chart-box"><p style="opacity:0.5;">' + T('noData', 'No data') + '</p></div>';
+        codecsHtml += '<div class="chart-box"><p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p></div>';
     }
     codecsHtml += '</div>';
 
     var codecsContainer = document.getElementById('codecsContent');
     if (codecsContainer) {
+        // A background rescan replaces the whole tab: keep the scroll position so
+        // readers do not lose their place when fresh data arrives.
+        var scrollY = window.scrollY;
         codecsContainer.innerHTML = codecsHtml;
         attachCodecClickHandlers();
         attachDonutHoverTooltips();
         renderCodecsExplorer(codecsContainer);
+        window.scrollTo(0, scrollY);
     }
 }

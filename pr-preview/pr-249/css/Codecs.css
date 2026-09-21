@@ -54,6 +54,16 @@
     transform: scale(1.05);
 }
 
+/* Keyboard focus mirrors the hover highlight for old engines without :has. */
+.donut-svg .donut-segment:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.donut-svg .donut-segment:focus-visible path {
+    filter: brightness(1.2);
+}
+
 /* -- Donut Tooltip -- */
 
 .donut-tooltip {
@@ -73,6 +83,7 @@
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
     white-space: nowrap;
     min-width: 120px;
+    max-width: calc(100vw - 2em);
 }
 
 .donut-tooltip.visible {
@@ -523,7 +534,10 @@
 .codec-filter-dim:focus-visible,
 .codec-pill-remove:focus-visible,
 .codec-filter-back:focus-visible,
-.codec-single-option:focus-visible {
+.codec-single-option:focus-visible,
+.codec-explore-link:focus-visible,
+.codec-multi-toggle:focus-visible,
+.codec-bitrate-row input:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
 }
@@ -859,6 +873,26 @@
         min-width: 0;
     }
 
+    /* Long option panels become sheets too, or library lists run below the fold. */
+    .codec-filter-bar > .codec-multi .codec-multi-panel {
+        position: fixed;
+        left: 1em;
+        right: 1em;
+        top: auto;
+        bottom: 1em;
+        max-width: none;
+        max-height: 50vh;
+    }
+
+    .codec-bitrate-row {
+        flex-wrap: wrap;
+    }
+
+    .codec-bitrate-row input[type="range"] {
+        flex: 1 1 100%;
+        order: 3;
+    }
+
     .codec-single-option {
         min-height: 44px;
     }
@@ -948,5 +982,27 @@
     /* noinspection CssUnusedSymbol */
     .codec-pill {
         background-color: rgba(0, 164, 220, 0.1);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-single-option[aria-checked="true"] {
+        background-color: rgba(0, 164, 220, 0.1);
+        border-color: var(--color-primary);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-single-option:hover {
+        background: rgba(0, 0, 0, 0.04);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-file-detail {
+        background-color: rgba(0, 0, 0, 0.03);
+        border-color: rgba(0, 0, 0, 0.1);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-bitrate-bar {
+        opacity: 0.85;
     }
 }

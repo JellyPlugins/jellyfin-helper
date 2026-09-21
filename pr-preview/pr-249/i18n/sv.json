@@ -426,5 +426,7 @@
   "explorerBack": "Tillbaka",
   "explorerBitrateMin": "Min (Mbps)",
   "explorerBitrateMax": "Max (Mbps)",
-  "explorerBitrateNoData": "Ingen bitratedata ännu. Kör en ny skanning för att filtrera på absolut bitrate."
+  "explorerBitrateNoData": "Ingen bitratedata ännu. Kör en ny skanning för att filtrera på absolut bitrate.",
+  "explorerRemoveFilter": "Ta bort filtret {label}",
+  "explorerNoMatchingLibraries": "Inga matchande bibliotek"
 }

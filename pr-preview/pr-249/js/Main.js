@@ -90,7 +90,6 @@ function loadLatestStatistics() {
         // loadStatistics() will call loadTrendData(true) and loadInsightsData()
         // on its own success path, so do not issue those calls here too.
         window.JellyfinHelper._latestStatsAuthRetries = 0;
-        console.log('Jellyfin Helper: No persisted statistics (204), triggering initial scan...');
         loadStatistics();
     }, function (err) {
         // On refresh this can fire before the ApiClient token is ready (transient
