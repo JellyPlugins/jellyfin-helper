@@ -119,9 +119,9 @@ public class MediaStatisticsService : IMediaStatisticsService
             $"Pre-loaded {itemLookup.Count} library items for metadata lookup",
             _logger);
 
-        // Resolve enabled users once, batch‑fetch watch data only for video items, 
-        // and keep audio items out of GetUserDataBatch. 
-        // This lets the scan use dictionary lookups instead of per‑file DB queries. 
+        // Resolve enabled users once, batch‑fetch watch data only for video items,
+        // and keep audio items out of GetUserDataBatch.
+        // This lets the scan use dictionary lookups instead of per‑file DB queries.
         // The per‑user maps in WatchLookups persist for the whole recursive scan but are released afterward.
         var userContext = new ScanUserContext(ResolveScanUsers(), new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>());
         var distinctItems = itemLookup
