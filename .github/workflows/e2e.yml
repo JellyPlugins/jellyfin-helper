@@ -63,7 +63,7 @@ jobs:
       # Codecov Test Analytics (NOT coverage): uploads the Playwright JUnit results so the Codecov UI surfaces e2e failures + flaky-test detection on the PR.
       - name: Upload E2E test results to Codecov
         if: always()
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           report_type: test_results
