@@ -179,19 +179,25 @@ internal static class LanguageIdentity
     internal static string? GetIso6391Code(string? tag)
     {
         var cleaned = CleanLanguageTag(tag);
-        if (cleaned == null)
+        var trimmed = tag?.Trim();
+        if (cleaned == null || trimmed == null)
         {
             return null;
         }
 
-        var derived = !string.Equals(cleaned, tag?.Trim(), StringComparison.Ordinal);
-        if (_codeAliases.TryGetValue(FoldDiacritics(cleaned.ToLowerInvariant()), out var code))
+        var derived = !string.Equals(cleaned, trimmed, StringComparison.Ordinal);
+        if (!IsUndetermined(cleaned) && _codeAliases.TryGetValue(FoldDiacritics(cleaned.ToLowerInvariant()), out var code))
         {
             return code;
         }
 
         foreach (var part in SplitTagSegments(cleaned))
         {
+            if (IsUndetermined(part))
+            {
+                continue;
+            }
+
             var folded = FoldDiacritics(part.ToLowerInvariant());
             if (_codeAliases.TryGetValue(folded, out var partCode))
             {
@@ -200,6 +206,7 @@ internal static class LanguageIdentity
 
             var first = FirstToken(part);
             if (!first.Equals(part, StringComparison.Ordinal)
+                && !IsUndetermined(first)
                 && _codeAliases.TryGetValue(FoldDiacritics(first.ToLowerInvariant()), out var firstCode))
             {
                 return firstCode;
@@ -207,6 +214,7 @@ internal static class LanguageIdentity
 
             if ((derived || !part.Equals(cleaned, StringComparison.Ordinal))
                 && LastToken(part) is string last
+                && !IsUndetermined(last)
                 && _codeAliases.TryGetValue(FoldDiacritics(last.ToLowerInvariant()), out var lastCode))
             {
                 return lastCode;
@@ -214,6 +222,25 @@ internal static class LanguageIdentity
         }
 
         return null;
+    }
+
+    // Undetermined content markers carry no language and contribute nothing, so
+    // compounds like "zxx - commentary" resolve through their real parts instead
+    // of leaking an uppercase facet.
+    private static bool IsUndetermined(string value) =>
+        value.Equals("und", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("mis", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("mul", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("zxx", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Reports whether a cleaned tag is ignorable: every token is undetermined
+    ///     content or a track flag word. Such tags yield no facet instead of noise.
+    /// </summary>
+    private static bool IsFlagWord(string token)
+    {
+        var folded = FoldDiacritics(token.ToLowerInvariant());
+        return TrackFlagWords.Contains(folded);
     }
 
     /// <summary>
@@ -227,15 +254,26 @@ internal static class LanguageIdentity
     internal static bool IsFlagOnlyTag(string basis)
     {
         var tokens = basis.Split([' ', '\t', '/', '|', ',', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
+        return tokens.Length != 0 && tokens.All(static token => IsFlagWord(token));
+    }
+
+    /// <summary>
+    ///     Reports whether a cleaned tag is ignorable: every token is undetermined
+    ///     content or a track flag word. Such tags yield no facet instead of noise.
+    /// </summary>
+    /// <param name="basis">The cleaned tag basis.</param>
+    /// <returns>True when the tag carries no language.</returns>
+    internal static bool IsIgnorableTag(string basis)
+    {
+        var tokens = basis.Split([' ', '\t', '/', '|', ',', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length == 0)
         {
-            return false;
+            return true;
         }
 
         foreach (var token in tokens)
         {
-            var folded = FoldDiacritics(token.ToLowerInvariant());
-            if (!TrackFlagWords.Contains(folded))
+            if (!IsUndetermined(token) && !IsFlagWord(token))
             {
                 return false;
             }
@@ -319,6 +357,11 @@ internal static class LanguageIdentity
         aliases["in"] = "id";
         aliases["ji"] = "yi";
         aliases["mo"] = "ro";
+        // Cantonese and Mandarin have no ISO 639-1 code; some ICU builds expose a
+        // neutral yue culture while others do not. Both collapse into Chinese so the
+        // facet is identical on every host.
+        aliases["yue"] = "zh";
+        aliases["cmn"] = "zh";
         foreach (var row in LanguageExonyms)
         {
             if (row == null)
@@ -377,14 +420,23 @@ internal static class LanguageIdentity
 
     // Neutral cultures, shortest name first so "sr" wins over "sr-Latn" when both
     // describe one language. Region free by construction; built once per process.
-    // Cultures with incomplete identity are skipped: OS culture data varies by
-    // platform and must never break the static initializer.
-    private static List<CultureInfo> NeutralLanguageCultures() => CultureInfo
-        .GetCultures(CultureTypes.NeutralCultures)
-        .Where(static c => HasLanguageIdentity(c))
-        .OrderBy(static c => c.Name.Length)
-        .ThenBy(static c => c.Name, StringComparer.Ordinal)
-        .ToList();
+    // A failing enumeration degrades to the curated tables instead of killing the
+    // static initializer and every caller with it.
+    private static List<CultureInfo> NeutralLanguageCultures()
+    {
+        try
+        {
+            return CultureInfo.GetCultures(CultureTypes.NeutralCultures)
+                .Where(static c => HasLanguageIdentity(c))
+                .OrderBy(static c => c.Name.Length)
+                .ThenBy(static c => c.Name, StringComparer.Ordinal)
+                .ToList();
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return new List<CultureInfo>();
+        }
+    }
 
     private static bool HasLanguageIdentity(CultureInfo culture)
     {
@@ -439,17 +491,8 @@ internal static class LanguageIdentity
     /// </summary>
     /// <param name="value">The lowercase lookup input.</param>
     /// <returns>The input without combining marks.</returns>
-    private static string FoldDiacritics(string value)
-    {
-        var folded = new StringBuilder(value.Length);
-        foreach (var c in value.Normalize(NormalizationForm.FormD))
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-            {
-                folded.Append(c);
-            }
-        }
-
-        return folded.ToString();
-    }
+    private static string FoldDiacritics(string value) =>
+        new(value.Normalize(NormalizationForm.FormD)
+            .Where(static c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+            .ToArray());
 }

@@ -153,11 +153,15 @@ public class MediaStatisticsService : IMediaStatisticsService
                     $"Scanning library location: {location} (type: {collectionType})",
                     _logger);
 
+                // One visited set per library: symlink cycles terminate instead of
+                // recursing until the stack overflows, and bind-mounted duplicates count once.
+                var visitedDirectories = new HashSet<string>(StringComparer.Ordinal);
+
                 // The resolved absolute trash path is computed once per library root so it
                 // is not re-derived on every recursive directory call.
                 var resolvedFullTrashPath = ResolveLibraryTrashPath(location);
 
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, location, skipHealth, resolvedFullTrashPath));
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, location, skipHealth, resolvedFullTrashPath, visitedDirectories));
             }
 
             _pluginLog.LogDebug(
@@ -241,29 +245,82 @@ public class MediaStatisticsService : IMediaStatisticsService
 
     private long CalculateTrickplaySize(string directoryPath)
     {
+        // Iterative over an explicit stack with a visited set: symlink cycles terminate
+        // instead of recursing until the stack overflows. Matches FileSystemHelper sizing.
         long total = 0;
-        try
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var stack = new Stack<string>();
+        stack.Push(directoryPath);
+        while (stack.Count > 0)
         {
-            foreach (var file in _fileSystem.GetFiles(directoryPath, false))
+            var current = stack.Pop();
+            if (!TryEnterDirectory(visited, current))
             {
-                total += file.Length;
+                continue;
             }
 
-            foreach (var sub in _fileSystem.GetDirectories(directoryPath, false))
+            try
             {
-                total += CalculateTrickplaySize(sub.FullName);
+                foreach (var file in _fileSystem.GetFiles(current, false))
+                {
+                    total += file.Length;
+                }
+
+                foreach (var sub in _fileSystem.GetDirectories(current, false))
+                {
+                    stack.Push(sub.FullName);
+                }
             }
-        }
-        catch (IOException)
-        {
-            // Intentionally empty: an unreadable path is skipped (best-effort trickplay size scan).
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Intentionally empty: an inaccessible path is skipped (best-effort trickplay size scan).
+            catch (IOException)
+            {
+                // Intentionally empty: an unreadable path is skipped (best-effort trickplay size scan).
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Intentionally empty: an inaccessible path is skipped (best-effort trickplay size scan).
+            }
         }
 
         return total;
+    }
+
+    /// <summary>
+    ///     Normalizes a directory path for cycle detection. Paths that cannot be
+    ///     normalized (invalid characters, unsupported format, overlong) never
+    ///     enter a traversal instead of aborting the scan.
+    /// </summary>
+    /// <param name="fullName">The directory path.</param>
+    /// <param name="normalized">The normalized path, or empty when unusable.</param>
+    /// <returns>True when the path is usable.</returns>
+    private static bool TryNormalizeDirectory(string fullName, out string normalized)
+    {
+        try
+        {
+            normalized = Path.GetFullPath(fullName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            normalized = string.Empty;
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Enters a directory into a traversal set. Re-entries (symlink cycles,
+    ///     bind-mounted duplicates) and unusable paths report false so the caller skips them.
+    /// </summary>
+    /// <param name="visited">Normalized paths already traversed.</param>
+    /// <param name="fullName">The directory path.</param>
+    /// <returns>True on first usable visit.</returns>
+    private static bool TryEnterDirectory(HashSet<string> visited, string fullName)
+    {
+        if (!TryNormalizeDirectory(fullName, out var normalized))
+        {
+            return false;
+        }
+
+        return visited.Add(normalized);
     }
 
     /// <summary>
@@ -281,6 +338,13 @@ public class MediaStatisticsService : IMediaStatisticsService
         ScanUserContext userContext,
         SubdirectoryScanContext scanContext)
     {
+        // Symlink cycles and bind-mounted duplicates terminate here instead of
+        // recursing until the stack overflows.
+        if (!TryEnterDirectory(scanContext.VisitedDirectories, directoryPath))
+        {
+            return false;
+        }
+
         var containsVideo = false;
         try
         {
@@ -464,8 +528,12 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         foreach (var subDir in subDirs)
         {
-            var normalizedSubDirFullName = Path.GetFullPath(subDir.FullName)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            // Invalid paths never reach the trash checks or the recursion below;
+            // both would otherwise abort or overflow the scan.
+            if (!TryNormalizeDirectory(subDir.FullName, out var normalizedSubDirFullName))
+            {
+                continue;
+            }
 
             if (string.Equals(
                     subDir.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
@@ -1249,19 +1317,16 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <summary>
     /// Normalizes an ISO 639 language tag from MediaStream to a human-readable display name.
     /// Identity resolution lives in LanguageIdentity (codes, names in any author locale,
-    /// UI locale exonyms); this facade keeps the facet contract: undetermined and pure
-    /// flag tags yield null, unresolvable tags pass through uppercased.
+    /// UI locale exonyms); this facade keeps the facet contract: ignorable tags (empty,
+    /// undetermined, flag only) yield null, unresolvable tags pass through uppercased
+    /// and capped so stray probe strings cannot become unbounded cache keys.
     /// </summary>
     /// <param name="code">The language tag (e.g. "eng", "deutsch", "German (Forced)").</param>
-    /// <returns>The display name (e.g. "English"), the uppercased cleaned tag for unknown codes, or <c>null</c> when the input is empty, undetermined (und, mis, mul, zxx) or flag only.</returns>
+    /// <returns>The display name (e.g. "English"), the uppercased cleaned tag for unknown codes, or <c>null</c> when the input carries no language.</returns>
     internal static string? NormalizeIso639Language(string? code)
     {
         var basis = LanguageIdentity.CleanLanguageTag(code);
-        if (basis == null
-            || basis.Equals("und", StringComparison.OrdinalIgnoreCase)
-            || basis.Equals("mis", StringComparison.OrdinalIgnoreCase)
-            || basis.Equals("mul", StringComparison.OrdinalIgnoreCase)
-            || basis.Equals("zxx", StringComparison.OrdinalIgnoreCase))
+        if (basis == null || LanguageIdentity.IsIgnorableTag(basis))
         {
             return null;
         }
@@ -1272,12 +1337,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             return LanguageIdentity.DisplayNameForCode(iso);
         }
 
-        if (LanguageIdentity.IsFlagOnlyTag(basis))
-        {
-            return null;
-        }
-
-        return basis.ToUpperInvariant();
+        return basis.Length > 64 ? basis.Substring(0, 64).ToUpperInvariant() : basis.ToUpperInvariant();
     }
 
     /// <summary>
@@ -1516,11 +1576,13 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="LibraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="SkipHealthChecks">When true, skip health check counters.</param>
     /// <param name="ResolvedFullTrashPath">The normalized absolute trash path for this library root.</param>
+    /// <param name="VisitedDirectories">Normalized visited directories of this library scan; symlink cycles terminate on re-entry.</param>
     private readonly record struct SubdirectoryScanContext(
         string ResolvedTrashFolderName,
         string? LibraryRoot,
         bool SkipHealthChecks,
-        string? ResolvedFullTrashPath);
+        string? ResolvedFullTrashPath,
+        HashSet<string> VisitedDirectories);
 
     /// <summary>
     ///     Users plus their pre-fetched watch data, resolved once per scan and threaded through

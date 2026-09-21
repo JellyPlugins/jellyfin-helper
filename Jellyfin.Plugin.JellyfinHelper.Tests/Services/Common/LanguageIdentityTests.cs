@@ -21,6 +21,8 @@ public class LanguageIdentityTests
     [InlineData("srp", "sr")]
     [InlineData("per", "fa")]
     [InlineData("hrv", "hr")]
+    [InlineData("yue", "zh")]
+    [InlineData("cmn", "zh")]
     public void GetIso6391Code_KnownCodes_ResolveToCanonical(string tag, string expected)
         => Assert.Equal(expected, LanguageIdentity.GetIso6391Code(tag));
 
