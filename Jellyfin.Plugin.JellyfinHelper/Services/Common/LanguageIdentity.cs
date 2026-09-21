@@ -206,7 +206,7 @@ internal static class LanguageIdentity
         // the language: strip them, then resolve the remainder. Bare flags resolve
         // nothing by themselves, and resolution-first keeps real codes like "hi" intact.
         if (StripLeadingFlags(cleaned) is string unflagged
-            && ResolveTagPart(unflagged, cleaned, true) is string unflaggedCode)
+            && ResolveTagPart(unflagged, true) is string unflaggedCode)
         {
             return unflaggedCode;
         }
@@ -218,7 +218,7 @@ internal static class LanguageIdentity
                 continue;
             }
 
-            if (ResolveTagPart(part, cleaned, derived || !part.Equals(cleaned, StringComparison.Ordinal)) is string partCode)
+            if (ResolveTagPart(part, derived || !part.Equals(cleaned, StringComparison.Ordinal)) is string partCode)
             {
                 return partCode;
             }
@@ -229,7 +229,7 @@ internal static class LanguageIdentity
 
     // Resolves one segment: whole value, then first token, then (when allowed) the
     // last token. Undetermined markers contribute nothing at every level.
-    private static string? ResolveTagPart(string part, string cleaned, bool allowLastToken)
+    private static string? ResolveTagPart(string part, bool allowLastToken)
     {
         if (_codeAliases.TryGetValue(FoldDiacritics(part.ToLowerInvariant()), out var partCode))
         {
@@ -297,20 +297,7 @@ internal static class LanguageIdentity
     internal static bool IsIgnorableTag(string basis)
     {
         var tokens = basis.Split([' ', '\t', '/', '|', ',', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length == 0)
-        {
-            return true;
-        }
-
-        foreach (var token in tokens)
-        {
-            if (!IsUndetermined(token) && !IsFlagWord(token))
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return tokens.Length == 0 || tokens.All(static token => IsUndetermined(token) || IsFlagWord(token));
     }
 
     private static string? StripLeadingFlags(string basis)

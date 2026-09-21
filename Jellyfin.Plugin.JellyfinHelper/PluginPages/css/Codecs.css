@@ -452,6 +452,7 @@
     background: rgba(30, 30, 30, 0.98);
     max-height: 220px;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 0.3em 0;
 }
 
@@ -557,6 +558,7 @@
     border-radius: var(--radius-sm, 6px);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
     padding: 0.4em;
+    overscroll-behavior: contain;
 }
 
 .codec-filter-dim {
@@ -857,31 +859,9 @@
 }
 
 @media (max-width: 700px) {
-    /* The popover becomes a bottom sheet so thumbs and lists stay reachable. */
-    .codec-filter-pop {
-        position: fixed;
-        left: 1em;
-        right: 1em;
-        top: auto;
-        bottom: 1em;
-        max-width: none;
-        max-height: 70vh;
-    }
-
     .codec-filter-bar .codec-multi {
         flex: 1 1 100%;
         min-width: 0;
-    }
-
-    /* Long option panels become sheets too, or library lists run below the fold. */
-    .codec-filter-bar > .codec-multi .codec-multi-panel {
-        position: fixed;
-        left: 1em;
-        right: 1em;
-        top: auto;
-        bottom: 1em;
-        max-width: none;
-        max-height: 50vh;
     }
 
     .codec-bitrate-row {

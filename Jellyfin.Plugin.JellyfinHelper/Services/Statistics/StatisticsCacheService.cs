@@ -19,6 +19,7 @@ public class StatisticsCacheService : IStatisticsCacheService
 {
     private const string LatestResultFileName = "jellyfin-helper-statistics-latest.json";
     private const string WatchedBucket = "Watched";
+    private const string LogCategory = "StatisticsCache";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private static readonly string[] _legacyWatchedKeys = ["1 user", "2–3 users", "4+ users", "2-3 users"];
@@ -63,7 +64,7 @@ public class StatisticsCacheService : IStatisticsCacheService
         catch (JsonException ex)
         {
             _pluginLog.LogWarning(
-                "StatisticsCache",
+                LogCategory,
                 $"Could not save latest statistics result to {_latestResultFilePath}",
                 ex,
                 _logger);
@@ -84,7 +85,7 @@ public class StatisticsCacheService : IStatisticsCacheService
                 AtomicFile.WriteAllText(_latestResultFilePath, json);
 
                 _pluginLog.LogDebug(
-                    "StatisticsCache",
+                    LogCategory,
                     $"Saved latest statistics result to {_latestResultFilePath}",
                     _logger);
             }
@@ -98,7 +99,7 @@ public class StatisticsCacheService : IStatisticsCacheService
                                          or JsonException)
             {
                 _pluginLog.LogWarning(
-                    "StatisticsCache",
+                    LogCategory,
                     $"Could not save latest statistics result to {_latestResultFilePath}",
                     ex,
                     _logger);
@@ -142,7 +143,7 @@ public class StatisticsCacheService : IStatisticsCacheService
                                      or JsonException)
         {
             _pluginLog.LogWarning(
-                "StatisticsCache",
+                LogCategory,
                 $"Could not load latest statistics result from {_latestResultFilePath}",
                 ex,
                 _logger);
