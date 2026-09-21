@@ -71,8 +71,9 @@ test('combining two filters narrows the result and shows both values', async ({ 
   await expect(summary).toContainText(secondValue, { timeout: 5_000 });
   const combinedCount = await countFromSummary(summary);
 
-  // The combined result cannot be larger than the single-filter result.
-  expect(combinedCount).toBeLessThanOrEqual(firstCount);
+  // Combining a second filter must strictly narrow the non-empty result.
+  expect(combinedCount).toBeGreaterThan(0);
+  expect(combinedCount).toBeLessThan(firstCount);
 });
 
 async function countFromSummary(summary: Locator): Promise<number> {
@@ -110,7 +111,9 @@ test('overview movies card deep-links into the explorer with scoped libraries', 
   await card.first().click();
   await expect(page.locator('#tab-codecs')).toHaveClass(/active/, { timeout: 15_000 });
   await page.locator('[data-library-toggle]').click();
-  await expect(page.locator('[data-library-option]:checked').first()).toBeChecked({ timeout: 5_000 });
+  const checkedValues = await page.locator('[data-library-option]:checked')
+    .evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value).sort());
+  expect(checkedValues).toEqual(['Movies']);
 });
 
 test('language multi-dropdown selects several values and lists all in the summary', async ({ page }) => {

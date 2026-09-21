@@ -12,10 +12,11 @@ public class PluginConfigurationService : IPluginConfigurationService
 {
     private readonly IPluginAccessor _accessor;
 
-    // Guarantees exclusive access to the shared PluginConfiguration during the read‑mutate step of ReadAndMutate.
-    // The static lock works process‑wide, covering multiple service instances or test hosts.
-    // Saving (SaveWithRetry) occurs outside the lock, so concurrent saves may conflict on Jellyfin’s FileShare.
-    // None config file; the retry loop handles any sharing‑violation errors.
+    // Guarantees exclusive access to the shared PluginConfiguration during the
+    // read-mutate-save cycle of ReadAndMutate. The static lock works process-wide,
+    // covering multiple service instances or test hosts, and is held across
+    // SaveWithRetry (including its bounded retries) so serialization sees a
+    // consistent snapshot.
     private static readonly Lock MutateLock = new();
 
     // Bounded retries for the config-file save inside ReadAndMutate. The save opens
@@ -100,10 +101,9 @@ public class PluginConfigurationService : IPluginConfigurationService
     {
         ArgumentNullException.ThrowIfNull(mutate);
 
-        PluginConfiguration? config;
         lock (MutateLock)
         {
-            config = _accessor.Configuration;
+            var config = _accessor.Configuration;
             if (config == null)
             {
                 // Plugin not initialised: no configuration object exists to mutate or
@@ -112,15 +112,14 @@ public class PluginConfigurationService : IPluginConfigurationService
                 return;
             }
 
-            // Run the mutation exactly once under the lock; only the persistence below
-            // retries, outside the lock. Re-running mutate could double-apply
-            // non-idempotent edits such as the cleanup-totals increments in
-            // CleanupTrackingService, while holding the lock across retry sleeps
-            // would block every concurrent writer.
+            // Mutation and serialization must be atomic: Jellyfin 12.1 serializes the
+            // live Configuration object without a snapshot, so a concurrent mutation
+            // during SaveConfiguration would persist mixed state. Holding the lock
+            // across the save (including retries) guarantees one consistent snapshot;
+            // the bounded retry (50ms + 100ms) keeps the hold short.
             mutate(config);
+            SaveWithRetry();
         }
-
-        SaveWithRetry();
     }
 
     /// <summary>

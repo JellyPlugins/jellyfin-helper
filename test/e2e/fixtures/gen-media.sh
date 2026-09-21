@@ -35,9 +35,9 @@ make_clip() {
 make_embedded_subs() {
   local out="$1" w="$2" h="$3"; shift 3
   mkdir -p "$(dirname "$out")"
-  # Scratch subs live next to the generator script and are removed right after
-  # muxing: stray sidecars under /media would read as orphaned subtitles.
-  local gendir="$ROOT/.gen"
+  local gendir
+  gendir=$(mktemp -d)
+  trap 'rm -rf "$gendir"' RETURN
   printf '1\n00:00:00,000 --> 00:00:01,000\nHello\n' > "$gendir/e2e-sub-en.srt"
   printf '1\n00:00:00,000 --> 00:00:01,000\nHallo\n' > "$gendir/e2e-sub-de.srt"
   "$FFMPEG" -nostdin -loglevel error -y \
@@ -49,7 +49,6 @@ make_embedded_subs() {
     -metadata:s:a:0 language=eng \
     -metadata:s:s:0 language=eng -metadata:s:s:1 language=deu \
     -shortest "$@" "$out"
-  rm -f "$gendir/e2e-sub-en.srt" "$gendir/e2e-sub-de.srt"
   echo "[gen-media]   wrote $(basename "$out") (${w}x${h}, embedded en+de subs)"
 }
 
