@@ -147,6 +147,26 @@ test('language multi-dropdown selects several values and lists all in the summar
   await expect(leaf).toHaveAttribute('aria-expanded', 'true');
 });
 
+test('subtitle multi-dropdown selects a value and lists it in the summary', async ({ page }) => {
+  await openExplorer(page);
+  await openDimEditor(page, 'subtitleLanguages');
+  const toggle = page.locator('.codec-filter-editor [data-multi-toggle="subtitleLanguages"]');
+  // Polyglot Clip carries embedded English + German subtitles; external sidecars
+  // are excluded by design, so only embedded tracks may appear here.
+  expect(await toggle.count(), 'subtitle filter must exist').toBeGreaterThan(0);
+  expect(await toggle.isDisabled(), 'subtitle filter must be enabled on the fixture library').toBe(false);
+  const panel = page.locator('.codec-filter-editor [data-multi-panel="subtitleLanguages"]');
+  await expect(panel).toBeVisible({ timeout: 5_000 });
+  const boxes = panel.locator('input[type="checkbox"]');
+  expect(await boxes.count(), 'fixture must provide embedded subtitle languages').toBeGreaterThanOrEqual(2);
+  await boxes.nth(0).check();
+  const first = await boxes.nth(0).inputValue();
+  const summary = page.locator('.codec-filter-editor [data-multi-toggle="subtitleLanguages"] .codec-multi-summary');
+  await expect(summary).toContainText(first, { timeout: 5_000 });
+  const resultSummary = page.locator('.codec-explorer-summary');
+  await expect(resultSummary).toContainText(first);
+});
+
 test('dimension picker hides facets without options in the picked scope', async ({ page }) => {
   await openExplorer(page);
   // Scope to Books: video facets have no options there and must vanish from

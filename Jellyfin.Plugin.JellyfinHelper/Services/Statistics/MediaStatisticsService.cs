@@ -45,6 +45,11 @@ public class MediaStatisticsService : IMediaStatisticsService
     private const string WatchedNever = "Never watched";
     private const string Watched = "Watched";
 
+    // Trash folder matching follows the filesystem: case-sensitive systems must not
+    // skip differently-cased directories that merely look like the trash folder.
+    private static readonly StringComparison TrashNameComparison =
+        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IFileSystem _fileSystem;
     private readonly ILibraryManager _libraryManager;
@@ -118,9 +123,10 @@ public class MediaStatisticsService : IMediaStatisticsService
         // needs them per video file) and pre-fetch their watch data in one batch call per
         // user, so the scan performs dictionary lookups instead of per-file database queries.
         var userContext = new ScanUserContext(ResolveScanUsers(), new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>());
+        var distinctItems = itemLookup.Values.Distinct().ToList();
         foreach (var u in userContext.Users)
         {
-            userContext.WatchLookups[u.Id] = TryLoadUserWatchBatch(u, itemLookup.Values.Distinct().ToList());
+            userContext.WatchLookups[u.Id] = TryLoadUserWatchBatch(u, distinctItems);
         }
 
         foreach (var vf in virtualFolders)
@@ -161,7 +167,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 // is not re-derived on every recursive directory call.
                 var resolvedFullTrashPath = ResolveLibraryTrashPath(location);
 
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, location, skipHealth, resolvedFullTrashPath, visitedDirectories));
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, skipHealth, resolvedFullTrashPath, visitedDirectories));
             }
 
             _pluginLog.LogDebug(
@@ -538,11 +544,11 @@ public class MediaStatisticsService : IMediaStatisticsService
             if (string.Equals(
                     subDir.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                     scanContext.ResolvedTrashFolderName,
-                    StringComparison.OrdinalIgnoreCase)
+                    TrashNameComparison)
                 || (scanContext.ResolvedFullTrashPath != null && string.Equals(
                     normalizedSubDirFullName,
                     scanContext.ResolvedFullTrashPath,
-                    StringComparison.OrdinalIgnoreCase)))
+                    TrashNameComparison)))
             {
                 continue;
             }
@@ -832,13 +838,31 @@ public class MediaStatisticsService : IMediaStatisticsService
             return;
         }
 
-        // Audio languages: one increment per file per distinct language. Track labels keep
-        // variants such as forced tracks visible per file while the counts collapse them.
-        // An empty Language falls back to the track title, which never invents facets.
+        ExtractAudioLanguages(streams.Where(s => s.Type == MediaStreamType.Audio), filePath, fileSize, stats);
+        ExtractSubtitleLanguages(streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal), filePath, fileSize, stats);
+    }
+
+    /// <summary>
+    ///     Records audio languages: one increment per file per distinct language. Track labels keep
+    ///     variants such as forced tracks visible per file while the counts collapse them.
+    ///     An empty Language falls back to the track title, which never invents facets.
+    /// </summary>
+    /// <param name="tracks">The audio tracks.</param>
+    /// <param name="filePath">Full path to the video file.</param>
+    /// <param name="fileSize">Size of the video file in bytes.</param>
+    /// <param name="stats">The statistics accumulator.</param>
+    private static void ExtractAudioLanguages(
+        IEnumerable<MediaStream> tracks,
+        string filePath,
+        long fileSize,
+        LibraryStatistics stats)
+    {
         var audioLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var audioLabels = new List<string>();
-        foreach (var track in streams.Where(s => s.Type == MediaStreamType.Audio))
+        var hasAudioTracks = false;
+        foreach (var track in tracks)
         {
+            hasAudioTracks = true;
             var audioLanguage = NormalizeIso639Language(track.Language) ?? LanguageFromTitle(track.Title);
             if (audioLanguage == null)
             {
@@ -860,17 +884,37 @@ public class MediaStatisticsService : IMediaStatisticsService
             FileSystemHelper.AddPath(stats.AudioLanguagePaths, lang, filePath);
         }
 
+        if (hasAudioTracks && audioLanguages.Count == 0)
+        {
+            RecordUnknownAudioLanguage(stats, filePath, fileSize);
+        }
+
         if (audioLabels.Count > 0)
         {
             stats.AudioTrackLabels[filePath] = new Collection<string>(audioLabels);
         }
+    }
 
-        // Subtitle languages: embedded tracks only; external sidecars are excluded.
-        // An empty Language falls back to the track title, which never invents facets.
+    /// <summary>
+    ///     Records embedded subtitle languages; external sidecars are excluded.
+    ///     An empty Language falls back to the track title, which never invents facets.
+    /// </summary>
+    /// <param name="tracks">The embedded subtitle tracks.</param>
+    /// <param name="filePath">Full path to the video file.</param>
+    /// <param name="fileSize">Size of the video file in bytes.</param>
+    /// <param name="stats">The statistics accumulator.</param>
+    private static void ExtractSubtitleLanguages(
+        IEnumerable<MediaStream> tracks,
+        string filePath,
+        long fileSize,
+        LibraryStatistics stats)
+    {
         var subtitleLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var subtitleLabels = new List<string>();
-        foreach (var track in streams.Where(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal))
+        var hasSubtitleTracks = false;
+        foreach (var track in tracks)
         {
+            hasSubtitleTracks = true;
             var subtitleLanguage = NormalizeIso639Language(track.Language) ?? LanguageFromTitle(track.Title);
             if (subtitleLanguage == null)
             {
@@ -892,6 +936,11 @@ public class MediaStatisticsService : IMediaStatisticsService
             FileSystemHelper.AddPath(stats.SubtitleLanguagePaths, lang, filePath);
         }
 
+        if (hasSubtitleTracks && subtitleLanguages.Count == 0)
+        {
+            RecordUnknownSubtitleLanguage(stats, filePath, fileSize);
+        }
+
         if (subtitleLabels.Count > 0)
         {
             stats.SubtitleTrackLabels[filePath] = new Collection<string>(subtitleLabels);
@@ -903,9 +952,25 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// </summary>
     private static void RecordUnknownLanguages(LibraryStatistics stats, string filePath, long fileSize)
     {
+        RecordUnknownAudioLanguage(stats, filePath, fileSize);
+        RecordUnknownSubtitleLanguage(stats, filePath, fileSize);
+    }
+
+    /// <summary>
+    ///     Records an Unknown audio language entry for tracks that name no language.
+    /// </summary>
+    private static void RecordUnknownAudioLanguage(LibraryStatistics stats, string filePath, long fileSize)
+    {
         FileSystemHelper.IncrementCount(stats.AudioLanguages, UnknownLabel);
         FileSystemHelper.AccumulateValue(stats.AudioLanguageSizes, UnknownLabel, fileSize);
         FileSystemHelper.AddPath(stats.AudioLanguagePaths, UnknownLabel, filePath);
+    }
+
+    /// <summary>
+    ///     Records an Unknown subtitle language entry for tracks that name no language.
+    /// </summary>
+    private static void RecordUnknownSubtitleLanguage(LibraryStatistics stats, string filePath, long fileSize)
+    {
         FileSystemHelper.IncrementCount(stats.SubtitleLanguages, UnknownLabel);
         FileSystemHelper.AccumulateValue(stats.SubtitleLanguageSizes, UnknownLabel, fileSize);
         FileSystemHelper.AddPath(stats.SubtitleLanguagePaths, UnknownLabel, filePath);
@@ -1573,13 +1638,11 @@ public class MediaStatisticsService : IMediaStatisticsService
     ///     Groups the trash-resolution and recursion context threaded through ScanSubdirectories and the recursive analysis, keeping the parameter count within bounds without changing behaviour.
     /// </summary>
     /// <param name="ResolvedTrashFolderName">The resolved trash folder name (empty when unset).</param>
-    /// <param name="LibraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="SkipHealthChecks">When true, skip health check counters.</param>
     /// <param name="ResolvedFullTrashPath">The normalized absolute trash path for this library root.</param>
     /// <param name="VisitedDirectories">Normalized visited directories of this library scan; symlink cycles terminate on re-entry.</param>
     private readonly record struct SubdirectoryScanContext(
         string ResolvedTrashFolderName,
-        string? LibraryRoot,
         bool SkipHealthChecks,
         string? ResolvedFullTrashPath,
         HashSet<string> VisitedDirectories);

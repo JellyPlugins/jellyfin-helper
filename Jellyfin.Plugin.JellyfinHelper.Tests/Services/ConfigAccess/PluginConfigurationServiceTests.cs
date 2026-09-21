@@ -227,6 +227,26 @@ public class PluginConfigurationServiceTests
     }
 
     [Fact]
+    public void ReadAndMutate_RetriesSave_WhenAccessorThrowsTransientUnauthorizedAccess()
+    {
+        // AV scanners and indexers surface transient locks as access denials too.
+        var accessor = new FakePluginAccessor { Configuration = new PluginConfiguration { Language = "en" } };
+        accessor.FailNextSaves(new UnauthorizedAccessException("locked"), 2);
+        var sut = new PluginConfigurationService(accessor);
+
+        var mutateCount = 0;
+        sut.ReadAndMutate(c =>
+        {
+            mutateCount++;
+            c.Language = "fr";
+        });
+
+        Assert.Equal(1, mutateCount);
+        Assert.Equal("fr", accessor.Configuration!.Language);
+        Assert.Equal(3, accessor.SaveCallCount);
+    }
+
+    [Fact]
     public void ReadAndMutate_Rethrows_WhenSaveKeepsFailing()
     {
         // Retries are bounded: a persistently locked file must surface instead of looping forever.

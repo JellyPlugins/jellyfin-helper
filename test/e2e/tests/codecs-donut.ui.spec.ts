@@ -58,7 +58,10 @@ test.describe('codec donut touch tap', () => {
     const tooltip = segment.locator('xpath=ancestor::div[contains(@class,"donut-container")]')
       .locator('.donut-tooltip.visible');
     await expect(tooltip.first()).toBeVisible({ timeout: 5_000 });
-    expect(errors, errors.join('\n')).toHaveLength(0);
+    // Background tabs (Discover) may 403 on this stack; that noise is unrelated
+    // to the donut under test, same as in the explorer spec.
+    const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, scriptErrors.join('\n')).toHaveLength(0);
   });
 
   test('second tap on same segment hides the tooltip', async ({ page }) => {
@@ -75,6 +78,7 @@ test.describe('codec donut touch tap', () => {
     // Second tap on the same segment takes the tap-again branch and hides the tooltip.
     await tapPath(segment);
     await expect(tooltip).toHaveCount(0, { timeout: 5_000 });
-    expect(errors, errors.join('\n')).toHaveLength(0);
+    const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, scriptErrors.join('\n')).toHaveLength(0);
   });
 });

@@ -294,4 +294,29 @@ public sealed class WatchHistoryServiceLanguageProfileTests
     {
         return new Jellyfin.Database.Implementations.Entities.User(username, "default", "default") { Id = Guid.NewGuid() };
     }
+
+    [Fact]
+    public void BuildProfile_PartialBatchMiss_FallsBackToPerItemLookup()
+    {
+        // A present batch map missing one item must not silently drop the interaction:
+        // the miss falls back to the per-item call instead.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Id = Guid.NewGuid();
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(new List<MediaStream>
+        {
+            new() { Index = 1, Type = MediaStreamType.Audio, Language = "eng" }
+        });
+        SetupSingleVideoItem(mockItem.Object);
+        _mockUserDataManager.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user))
+            .Returns(new Dictionary<Guid, UserItemData>());
+        _mockUserDataManager.Setup(m => m.GetUserData(user, mockItem.Object))
+            .Returns(new UserItemData { Key = "k", Played = true, PlayCount = 1 });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.True(profile!.LanguageProfile.ContainsKey("en"));
+    }
 }

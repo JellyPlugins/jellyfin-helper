@@ -221,6 +221,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── AtomicFileTests.cs             # UTF-8 no-BOM, temp-file cleanup, transient-IO retry, async CancellationToken
 │   │   ├── BatchFallbackHelperTests.cs    # try-batch/fall-back: cancellation propagates, non-fatal exceptions degrade gracefully
 │   │   ├── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
+│   │   ├── LanguageIdentityTests.cs       # Canonical code resolution, display names, tag cleaning, flag words
 │   │   ├── HttpResponseReaderTests.cs     # Size-bounded read: under/at/over limit (EOF probe at exact limit), Content-Length fast-reject, null, cancellation
 │   │   ├── LimitedStreamTests.cs          # Direct stream tests: capability flags, sync/async read paths, over-limit throw, NotSupported members
 │   │   ├── SsrfGuardTests.cs              # Cloud metadata hosts blocked (incl. IPv6/case-insensitive); LAN/loopback/public allowed
@@ -271,6 +272,15 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip
 │   ├── Statistics/                # Statistics service tests
+│   │   ├── MediaStatisticsResultTests.cs # Aggregate totals and dictionary rollups
+│   │   ├── MediaStatisticsResultLanguageTests.cs # Audio/subtitle language and watched aggregates
+│   │   ├── MediaStatisticsServiceTests.cs # Library scanning, trickplay sizing, cycle guards
+│   │   ├── MediaStatisticsServiceBitrateTests.cs # Bitrate tier thresholds, absolute measurement, legacy mapping
+│   │   ├── MediaStatisticsServiceLanguageTests.cs # Audio/subtitle language extraction, track labels, variant collapsing
+│   │   ├── MediaStatisticsServiceTvShowTests.cs # TV show structure and orphaned-metadata handling
+│   │   ├── MediaStatisticsServiceWatchedTests.cs # Watched status extraction (disabled users excluded)
+│   │   ├── StatisticsCacheServiceTests.cs # Persisting and loading cached statistics results
+│   │   ├── WatchedUserDetailTests.cs # WatchedUserDetail DTO defaults and JSON round-trip
 │   │   └── MediaStatisticsServiceTrashPathResolutionTests.cs # Trash-path resolution and BuildItemLookup case-insensitive keying / empty-path skip
 │   ├── Timeline/                  # Growth timeline tests
 │   │   ├── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks
@@ -468,6 +478,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── BackupSanitizer.cs         # Clamp/normalize values
 │   ├── Common/                      # Shared cross-service helpers
 │   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
+│   │   ├── LanguageIdentity.cs      # Shared media language identity: tags to ISO 639-1 codes and stable display names
 │   │   ├── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
 │   │   ├── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
 │   │   ├── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses

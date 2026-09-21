@@ -16,7 +16,6 @@ let _codecFilterOpen = null;
 // Bitrate facet id used by the popover, pills, and range state. Buckets stay donut only.
 const CODEC_BITRATE_DIM = 'bitrate';
 const CODEC_BITRATE_HISTOGRAM_BIN = 4;
-const CODEC_BITRATE_HISTOGRAM_MAX = 80;
 
 // Guard: the deep-link and panel-close handlers are registered once at document level.
 let _codecExploreLinkBound = false;
@@ -110,11 +109,14 @@ function getCodecsExplorerSelectedRoots() {
 }
 
 function codecExplorerIsWindowsPath(path) {
-    return path.length > 2 && path[1] === ':' && (path[2] === '/' || path[2] === '\\');
+    if (path.length > 2 && path[1] === ':' && (path[2] === '/' || path[2] === '\\')) {
+        return true;
+    }
+    return path.length > 1 && path[0] === '\\' && path[1] === '\\';
 }
 
-function codecExplorerTrimRoot(root = '') {
-    let trimmed = root;
+function codecExplorerTrimRoot(root) {
+    let trimmed = root || '';
     while (trimmed.endsWith('/') || trimmed.endsWith('\\')) {
         trimmed = trimmed.slice(0, -1);
     }
@@ -135,8 +137,9 @@ function codecExplorerPathInRoots(path, roots) {
             continue;
         }
         // Case follows the root style (mirrors PathComparison server-side):
-        // Windows-style roots compare insensitively, POSIX roots ordinally.
-        const probe = root.includes('\\') || codecExplorerIsWindowsPath(root);
+        // drive letter and UNC roots compare insensitively, POSIX roots ordinally.
+        // A backslash inside a POSIX name never flips the comparison by itself.
+        const probe = codecExplorerIsWindowsPath(root);
         const mine = probe ? target.toLowerCase() : target;
         const theirs = probe ? root.toLowerCase() : root;
         if (mine === theirs || mine.startsWith(theirs + '/') || mine.startsWith(theirs + '\\')) {
@@ -189,26 +192,77 @@ function countWatchedUniverse(scoped) {
     return universe;
 }
 
-// Merged measured bitrates of the scoped video libraries. Scoping mirrors the video
-// groups of the categorical dims so slider and results always agree.
-function getBitrateMap() {
-    const map = {};
+// Merged per file maps, built once per scope and scan data. Bounds, histograms,
+// pills, and detail cards share them instead of rescanning every library on each call.
+let _explorerMapCache = {data: null, key: null, bitrates: null, audioLabels: null, subLabels: null, sizes: null, watchers: null};
+
+function explorerMapCacheKey() {
     const selected = _codecsExplorerState.libraries;
-    const groups = ['movies', 'tvshows', 'other'];
-    for (const group of groups) {
+    return selected === null ? '*' : selected.join('');
+}
+
+function getCachedExplorerMaps() {
+    const key = explorerMapCacheKey();
+    if (_explorerMapCache.key === key && _explorerMapCache.data === _lastCodecData && _explorerMapCache.bitrates) {
+        return _explorerMapCache;
+    }
+    const bitrates = {};
+    const audioLabels = {};
+    const subLabels = {};
+    const sizes = {};
+    const watchers = {};
+    const selected = _codecsExplorerState.libraries;
+    const inScope = function (lib) {
+        return selected === null || selected.includes(lib.LibraryName);
+    };
+    for (const group of ['movies', 'tvshows', 'other']) {
         for (const lib of getCodecsExplorerGroupLibraries(group)) {
-            if (selected !== null && !selected.includes(lib.LibraryName)) {
+            if (!inScope(lib)) {
                 continue;
             }
             const rates = lib.VideoBitrates || {};
             for (const path of Object.keys(rates)) {
-                if (typeof rates[path] === 'number') {
-                    map[path] = rates[path];
+                if (!Object.hasOwn(bitrates, path) && typeof rates[path] === 'number') {
+                    bitrates[path] = rates[path];
+                }
+            }
+            const audio = lib.AudioTrackLabels || {};
+            for (const path of Object.keys(audio)) {
+                if (!Object.hasOwn(audioLabels, path)) {
+                    audioLabels[path] = audio[path];
+                }
+            }
+            const subs = lib.SubtitleTrackLabels || {};
+            for (const path of Object.keys(subs)) {
+                if (!Object.hasOwn(subLabels, path)) {
+                    subLabels[path] = subs[path];
                 }
             }
         }
     }
-    return map;
+    for (const lib of getCodecsExplorerLibraries()) {
+        if (!inScope(lib)) {
+            continue;
+        }
+        const libSizes = lib.FileSizes || {};
+        for (const path of Object.keys(libSizes)) {
+            if (!Object.hasOwn(sizes, path)) {
+                sizes[path] = libSizes[path];
+            }
+        }
+        const details = lib.WatchedDetails || {};
+        for (const path of Object.keys(details)) {
+            watchers[path] = (watchers[path] || []).concat(details[path] || []);
+        }
+    }
+    _explorerMapCache = {data: _lastCodecData, key: key, bitrates: bitrates, audioLabels: audioLabels, subLabels: subLabels, sizes: sizes, watchers: watchers};
+    return _explorerMapCache;
+}
+
+// Merged measured bitrates of the scoped video libraries. Scoping mirrors the video
+// groups of the categorical dims so slider and results always agree.
+function getBitrateMap() {
+    return getCachedExplorerMaps().bitrates;
 }
 
 // Stable slider bounds from the scoped map. Bounds ignore the remaining filters so the
@@ -259,16 +313,24 @@ function applyBitrateRange(set, range) {
 }
 
 // Histogram over the subset that ignores the range itself. Counts follow the remaining
-// filters so the bars preview what the range would keep.
+// filters so the bars preview what the range would keep. Edges grow from the data,
+// and the last bin honestly overflows instead of hiding the high bitrate tail.
 function getBitrateHistogram() {
     const subset = computePathsExcluding(CODEC_BITRATE_DIM);
-    const edges = Math.ceil(CODEC_BITRATE_HISTOGRAM_MAX / CODEC_BITRATE_HISTOGRAM_BIN);
-    const bins = [];
-    for (let i = 0; i <= edges; i++) {
-        bins.push(0);
-    }
     const map = getBitrateMap();
     const keys = subset === null ? Object.keys(map) : Object.keys(subset);
+    let peak = 0;
+    for (const path of keys) {
+        const value = map[path];
+        if (typeof value === 'number' && value > peak) {
+            peak = value;
+        }
+    }
+    const binCount = Math.max(4, Math.ceil(peak / CODEC_BITRATE_HISTOGRAM_BIN));
+    const bins = [];
+    for (let i = 0; i < binCount; i++) {
+        bins.push(0);
+    }
     for (const path of keys) {
         const value = map[path];
         if (typeof value !== 'number') {
@@ -283,7 +345,7 @@ function getBitrateHistogram() {
         }
         bins[index]++;
     }
-    return bins;
+    return {bins: bins, binWidth: CODEC_BITRATE_HISTOGRAM_BIN, maxEdge: binCount * CODEC_BITRATE_HISTOGRAM_BIN};
 }
 
 // Measured bitrate of one file, or null when the scan predates per file values.
@@ -295,24 +357,8 @@ function getExplorerFileBitrate(path) {
 // Per file track labels of one kind across the scoped libraries. Kind is audio
 // for AudioTrackLabels and subs for SubtitleTrackLabels.
 function getTrackLabelMap(kind) {
-    const prop = kind === 'audio' ? 'AudioTrackLabels' : 'SubtitleTrackLabels';
-    const map = {};
-    const selected = _codecsExplorerState.libraries;
-    const groups = ['movies', 'tvshows', 'other'];
-    for (const group of groups) {
-        for (const lib of getCodecsExplorerGroupLibraries(group)) {
-            if (selected !== null && !selected.includes(lib.LibraryName)) {
-                continue;
-            }
-            const labels = lib[prop] || {};
-            for (const path of Object.keys(labels)) {
-                if (!map[path]) {
-                    map[path] = labels[path];
-                }
-            }
-        }
-    }
-    return map;
+    const maps = getCachedExplorerMaps();
+    return kind === 'audio' ? maps.audioLabels : maps.subLabels;
 }
 
 // Track labels of one file, or null when the scan predates per file labels.
@@ -446,7 +492,12 @@ function computePathsExcluding(exceptDimId) {
     if (Object.hasOwn(_explorerSubsetCache, exceptDimId)) {
         return _explorerSubsetCache[exceptDimId];
     }
-    const subset = scopeExplorerPaths(intersectExplorerFilters(getCodecsExplorerActiveDims(exceptDimId)));
+    // The shared base covers the lone range case, so the histogram sees the
+    // range filtered scope instead of an empty set.
+    const subset = baseExplorerPaths(getCodecsExplorerActiveDims(exceptDimId));
+    if (subset === null) {
+        return null;
+    }
     // The range is orthogonal to every categorical dim, so it narrows each facet
     // subset. The histogram asks with the bitrate id to see the uncut distribution.
     if (exceptDimId !== CODEC_BITRATE_DIM && hasActiveBitrateRange()) {
@@ -572,13 +623,13 @@ function countExplorerOptions(dim) {
         return counts;
     }
     for (const option of options) {
-        let count = 0;
+        const hits = {};
         for (const path of collectExplorerValuePaths(dim, option)) {
             if (subset[path]) {
-                count++;
+                hits[path] = true;
             }
         }
-        counts[option] = count;
+        counts[option] = Object.keys(hits).length;
     }
     return counts;
 }
@@ -622,7 +673,7 @@ function explorerMultiSummary(selected) {
     if (selected.length <= 3) {
         return selected.join(', ');
     }
-    return selected.slice(0, 2).join(', ') + ' +' + (selected.length - 2);
+    return selected.slice(0, 3).join(', ') + ' +' + (selected.length - 3);
 }
 
 // Multi-value dropdown mirroring the Settings library multi-select: a toggle button
@@ -665,8 +716,10 @@ function countLibraryFiles(lib) {
     return (lib.VideoFileCount || 0) + (lib.AudioFileCount || 0) + (lib.BookFileCount || 0);
 }
 
-// Library scope as a multi-dropdown: empty means all libraries, otherwise the
-// selected libraries are combined. Mirrors the dimension multi-dropdowns.
+// Library scope as a multi-dropdown: no selection means all libraries, otherwise the
+// selected libraries are combined. An explicitly empty scope (pruned names) shows
+// its own state instead of pretending to be all libraries.
+// Mirrors the dimension multi-dropdowns.
 function buildCodecsExplorerLibraryMulti() {
     const libs = getCodecsExplorerLibraries();
     const selected = _codecsExplorerState.libraries || [];
@@ -679,7 +732,7 @@ function buildCodecsExplorerLibraryMulti() {
     html += '<button type="button" class="codec-multi-toggle" id="codecMultiToggle_libraries" data-library-toggle="1"'
         + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-labelledby="codecMultiLabel_libraries"'
         + (disabled ? ' disabled' : '') + '>';
-    html += '<span class="codec-multi-summary">' + escHtml(libraryMultiSummary(selected)) + '</span>';
+    html += '<span class="codec-multi-summary">' + escHtml(libraryMultiSummary(selected, _codecsExplorerState.libraries !== null && selected.length === 0)) + '</span>';
     html += '<span class="codec-multi-chevron" aria-hidden="true">›</span></button>';
     html += '<div class="codec-multi-panel" data-library-panel="1"' + (open ? '' : ' hidden') + '>';
     for (let index = 0; index < libs.length; index++) {
@@ -695,7 +748,10 @@ function buildCodecsExplorerLibraryMulti() {
     return html;
 }
 
-function libraryMultiSummary(selected) {
+function libraryMultiSummary(selected, isEmptyScope) {
+    if (isEmptyScope) {
+        return T('explorerNoMatchingLibraries', 'No matching libraries');
+    }
     if (selected.length === 0) {
         return T('explorerAllLibraries', 'All libraries');
     }
@@ -759,7 +815,7 @@ function buildCodecsExplorerDimList() {
             ? formatBitrateRange(_codecsExplorerState.bitrateRange, bounds)
             : T('explorerAny', 'Any');
         html += '<button type="button" class="codec-filter-dim" data-filter-dim="' + CODEC_BITRATE_DIM + '">'
-            + '<span class="codec-filter-dim-name">' + escHtml(T('videoBitrate', 'Video bitrate')) + '</span>'
+            + '<span class="codec-filter-dim-name">' + escHtml(T('videoBitrate', 'Video Bitrate')) + '</span>'
             + '<span class="codec-filter-dim-summary">' + escHtml(bitrateSummary) + '</span>'
             + '<span class="codec-filter-dim-go">›</span></button>';
     }
@@ -777,7 +833,7 @@ function buildCodecsExplorerDimEditor() {
     let title = '';
     let body = '';
     if (dimId === CODEC_BITRATE_DIM) {
-        title = T('videoBitrate', 'Video bitrate');
+        title = T('videoBitrate', 'Video Bitrate');
         body = buildBitrateEditor();
     } else {
         const dim = getCodecsExplorerDimension(dimId);
@@ -786,7 +842,6 @@ function buildCodecsExplorerDimEditor() {
         }
         title = T(dim.labelKey, dim.fallback);
         if (dim.multi) {
-            _codecMultiOpen = dim.id;
             body = buildCodecsExplorerMulti(dim);
         } else {
             body = buildCodecsExplorerSingleList(dim);
@@ -816,16 +871,19 @@ function buildCodecsExplorerPillsInner() {
         if (selected.length === 0) {
             continue;
         }
+        const label = T(dim.labelKey, dim.fallback) + ': ' + selected.join(', ');
+        const removeLabel = T('explorerRemoveFilter', 'Remove {label} filter').replace('{label}', T(dim.labelKey, dim.fallback));
         html += '<span class="codec-pill"><span class="codec-pill-label">'
-            + escHtml(T(dim.labelKey, dim.fallback) + ': ' + selected.join(', '))
+            + escHtml(label)
             + '</span><button type="button" class="codec-pill-remove" data-pill-clear="' + escAttr(dim.id) + '"'
-            + ' aria-label="' + escAttr(T('remove', 'Remove')) + '">×</button></span>';
+            + ' aria-label="' + escAttr(removeLabel) + '">×</button></span>';
     }
     if (hasActiveBitrateRange()) {
+        const removeBitrate = T('explorerRemoveFilter', 'Remove {label} filter').replace('{label}', T('videoBitrate', 'Video Bitrate'));
         html += '<span class="codec-pill"><span class="codec-pill-label">'
-            + escHtml(T('videoBitrate', 'Video bitrate') + ': ' + formatBitrateRange(_codecsExplorerState.bitrateRange, getBitrateBounds()))
+            + escHtml(T('videoBitrate', 'Video Bitrate') + ': ' + formatBitrateRange(_codecsExplorerState.bitrateRange, getBitrateBounds()))
             + '</span><button type="button" class="codec-pill-remove" data-pill-clear-bitrate="1"'
-            + ' aria-label="' + escAttr(T('remove', 'Remove')) + '">×</button></span>';
+            + ' aria-label="' + escAttr(removeBitrate) + '">×</button></span>';
     }
     return html;
 }
@@ -838,7 +896,8 @@ function buildBitrateEditor() {
         return '<p class="codec-explorer-none">' + escHtml(T('explorerBitrateNoData', 'No bitrate data yet. Run a fresh scan to enable absolute bitrate filtering.')) + '</p>';
     }
     const range = _codecsExplorerState.bitrateRange || {min: bounds.min, max: bounds.max};
-    const bins = getBitrateHistogram();
+    const histogram = getBitrateHistogram();
+    const bins = histogram.bins;
     let peak = 1;
     for (const count of bins) {
         if (count > peak) {
@@ -849,8 +908,12 @@ function buildBitrateEditor() {
     html += '<div class="codec-bitrate-hist" aria-hidden="true">';
     for (let i = 0; i < bins.length; i++) {
         const pct = Math.max(2, Math.round(bins[i] / peak * 100));
-        const edge = i * CODEC_BITRATE_HISTOGRAM_BIN;
-        html += '<span class="codec-bitrate-bar" style="height:' + pct + '%" title="' + escAttr(edge + ' Mbps: ' + bins[i]) + '"></span>';
+        const edge = i * histogram.binWidth;
+        const isLast = i === bins.length - 1;
+        const title = isLast
+            ? edge + '+ Mbps: ' + bins[i]
+            : edge + '–' + (edge + histogram.binWidth) + ' Mbps: ' + bins[i];
+        html += '<span class="codec-bitrate-bar" style="height:' + pct + '%" title="' + escAttr(title) + '"></span>';
     }
     html += '</div>';
     html += '<div class="codec-bitrate-row"><label for="codecBitrateMin">' + escHtml(T('explorerBitrateMin', 'Min (Mbps)')) + '</label>'
@@ -894,59 +957,64 @@ function explorerSummaryLabels(active) {
 // matching codec/language value plus a Watched expander listing who watched it.
 let _explorerDetailCache = {};
 
-// First dimension value whose paths contain the file, or null.
-function findExplorerDimValue(dim, path) {
+// Inverted per dimension file index, built once per scope and scan data. Detail cards
+// resolve one file per dimension instead of rescanning every option on each click.
+let _explorerDimIndexCache = {data: null, key: null, dims: {}};
+
+function getDimPathIndex(dimId) {
+    const key = explorerMapCacheKey();
+    if (_explorerDimIndexCache.key !== key || _explorerDimIndexCache.data !== _lastCodecData) {
+        _explorerDimIndexCache = {data: _lastCodecData, key: key, dims: {}};
+    }
+    if (!Object.hasOwn(_explorerDimIndexCache.dims, dimId)) {
+        _explorerDimIndexCache.dims[dimId] = buildDimPathIndex(getCodecsExplorerDimension(dimId));
+    }
+    return _explorerDimIndexCache.dims[dimId];
+}
+
+function buildDimPathIndex(dim) {
+    const single = {};
+    const multi = {};
+    if (!dim) {
+        return {single: single, multi: multi};
+    }
     const scoped = getCodecsExplorerScopedLibraries(dim);
     const universe = getExplorerUniverse(dim, scoped);
     for (const option of Object.keys(universe)) {
-        const paths = collectExplorerValuePaths(dim, option);
-        for (const candidate of paths) {
-            if (candidate === path) {
-                return option;
+        for (const path of collectExplorerValuePaths(dim, option)) {
+            if (single[path] === undefined) {
+                single[path] = option;
+            }
+            if (multi[path] === undefined) {
+                multi[path] = [];
+            }
+            if (!multi[path].includes(option)) {
+                multi[path].push(option);
             }
         }
     }
-    return null;
+    return {single: single, multi: multi};
+}
+
+// First dimension value whose paths contain the file, or null.
+function findExplorerDimValue(dim, path) {
+    const found = getDimPathIndex(dim.id).single[path];
+    return found === undefined ? null : found;
 }
 
 // Every matching value (for multi-valued dimensions like languages).
 function findExplorerDimValues(dim, path) {
-    const scoped = getCodecsExplorerScopedLibraries(dim);
-    const universe = getExplorerUniverse(dim, scoped);
-    const hits = [];
-    for (const option of Object.keys(universe)) {
-        const paths = collectExplorerValuePaths(dim, option);
-        for (const candidate of paths) {
-            if (candidate === path) {
-                hits.push(option);
-                break;
-            }
-        }
-    }
-    return hits;
+    return getDimPathIndex(dim.id).multi[path] || [];
 }
 
 function getExplorerFileSize(path) {
-    for (const lib of getCodecsExplorerLibraries()) {
-        const sizes = lib.FileSizes || {};
-        if (Object.hasOwn(sizes, path)) {
-            return sizes[path];
-        }
-    }
-    return null;
+    const sizes = getCachedExplorerMaps().sizes;
+    return Object.hasOwn(sizes, path) ? sizes[path] : null;
 }
 
 // Watchers of one file with play counts, or null when never watched.
 function getExplorerWatchers(path) {
-    const watchers = [];
-    for (const lib of getCodecsExplorerLibraries()) {
-        const details = lib.WatchedDetails || {};
-        const entries = details[path] || [];
-        for (const entry of entries) {
-            watchers.push(entry);
-        }
-    }
-    return watchers;
+    return getCachedExplorerMaps().watchers[path] || [];
 }
 
 function explorerDetailRow(label, value) {
@@ -960,9 +1028,10 @@ function explorerWatchedDetail(watchers) {
     }
     let inner = '';
     for (const watcher of watchers) {
-        const plays = watcher.PlayCount === 1
+        const playCount = Number.isFinite(watcher.PlayCount) ? watcher.PlayCount : 0;
+        const plays = playCount === 1
             ? T('explorerOnePlay', '1 play')
-            : T('explorerManyPlays', '{count} plays').replace('{count}', String(watcher.PlayCount));
+            : T('explorerManyPlays', '{count} plays').replace('{count}', String(playCount));
         let line = (watcher.Username || '?') + ' — ' + plays;
         if (watcher.LastPlayedDate) {
             line += ' · ' + new Date(watcher.LastPlayedDate).toLocaleString();
@@ -988,7 +1057,7 @@ function buildExplorerFileDetail(path) {
     }
     const bitrate = getExplorerFileBitrate(path);
     if (bitrate !== null) {
-        html += explorerDetailRow(T('videoBitrate', 'Video bitrate'), bitrate.toFixed(1) + ' Mbps');
+        html += explorerDetailRow(T('videoBitrate', 'Video Bitrate'), bitrate.toFixed(1) + ' Mbps');
     }
     for (const dimId of singleDims) {
         const dim = getCodecsExplorerDimension(dimId);
@@ -1103,7 +1172,7 @@ function runCodecsExplorerSearch() {
     const summary = outcome.paths.length + ' ' + (outcome.paths.length === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files')));
     const labels = explorerSummaryLabels(outcome.active);
     if (outcome.bitrateActive) {
-        labels.push(T('videoBitrate', 'Video bitrate') + ': ' + formatBitrateRange(_codecsExplorerState.bitrateRange, getBitrateBounds()));
+        labels.push(T('videoBitrate', 'Video Bitrate') + ': ' + formatBitrateRange(_codecsExplorerState.bitrateRange, getBitrateBounds()));
     }
     const scope = _codecsExplorerState.libraries;
     if (scope !== null && scope.length > 0) {
@@ -1156,13 +1225,12 @@ function describeActiveExplorerControl() {
     if (active.dataset.pillClear !== undefined || active.dataset.pillClearBitrate !== undefined) {
         return {filterAdd: true};
     }
-    const dim = active.dataset.multiDim || active.dataset.multiToggle;
-    if (!dim) {
-        return null;
-    }
-    // Checkboxes are located by value: option order follows live match counts and
+    // Stable element ids refocus directly, including bitrate inputs and toggles.
+    // Checkboxes resolve by value first: their ids follow live match counts and
     // may reshuffle between rebuilds, so element ids are not stable for them.
-    if (active.type === 'checkbox' && active.value !== undefined) {
+    const widget = active.closest('[data-multi-dim]');
+    const dim = active.dataset.multiDim || active.dataset.multiToggle || (widget ? widget.dataset.multiDim : null);
+    if (dim && active.type === 'checkbox' && active.value !== undefined) {
         return {dim: dim, value: active.value};
     }
     if (active.id) {
@@ -1242,6 +1310,20 @@ function refreshCodecsExplorerControls() {
     runCodecsExplorerSearch();
 }
 
+// Debounced rebuild for rapid checkbox picks. Checking several boxes fires one
+// refresh instead of one per box, while discrete picks stay immediate.
+let _explorerRefreshTimer = null;
+
+function refreshCodecsExplorerControlsDebounced() {
+    if (_explorerRefreshTimer !== null) {
+        clearTimeout(_explorerRefreshTimer);
+    }
+    _explorerRefreshTimer = setTimeout(function () {
+        _explorerRefreshTimer = null;
+        refreshCodecsExplorerControls();
+    }, 150);
+}
+
 function onExplorerLibrariesChanged() {
     const widget = document.querySelector('[data-library-widget]');
     const values = [];
@@ -1256,7 +1338,7 @@ function onExplorerLibrariesChanged() {
     _codecsExplorerState.scope = values.length > 0 ? values : null;
     _codecsExplorerState.libraries = values.length > 0 ? values : null;
     pruneCodecsExplorerState();
-    refreshCodecsExplorerControls();
+    refreshCodecsExplorerControlsDebounced();
 }
 
 function onExplorerSingleChanged(dimId, value) {
@@ -1286,13 +1368,15 @@ function onExplorerMultiChanged(dimId) {
     } else {
         delete _codecsExplorerState.filters[dimId];
     }
-    refreshCodecsExplorerControls();
+    refreshCodecsExplorerControlsDebounced();
 }
 
 function setMultiPanelOpen(dimId, open) {
     if (open) {
         _codecMultiOpen = dimId;
-    } else if (_codecMultiOpen === dimId) {
+    } else if (dimId === null || _codecMultiOpen === dimId) {
+        // Closing from outside clears every stale open marker, so the next
+        // toggle opens on first click instead of needing two.
         _codecMultiOpen = null;
     }
     for (const widget of document.querySelectorAll('[data-multi-dim]')) {
@@ -1390,6 +1474,12 @@ function bindCodecsExplorerFilterHandlers() {
     for (const dimBtn of document.querySelectorAll('[data-filter-dim]')) {
         dimBtn.onclick = function () {
             _codecFilterOpen = dimBtn.dataset.filterDim;
+            // Multi editors render their option panel open; set here so builders
+            // stay pure and the open state survives control rebuilds.
+            const dim = getCodecsExplorerDimension(_codecFilterOpen);
+            if (dim && dim.multi) {
+                _codecMultiOpen = dim.id;
+            }
             refreshCodecsExplorerControls();
         };
     }
@@ -1424,6 +1514,9 @@ function bindPillHandlers() {
 // data bounds so typing never traps the user in an empty result.
 function readBitrateEditor() {
     const bounds = getBitrateBounds();
+    if (bounds === null) {
+        return _codecsExplorerState.bitrateRange || {min: 0, max: 0};
+    }
     const minInput = document.getElementById('codecBitrateMin');
     const maxInput = document.getElementById('codecBitrateMax');
     let min = minInput ? Number.parseFloat(minInput.value) : bounds.min;
@@ -1449,7 +1542,7 @@ function readBitrateEditor() {
 // Live preview without a control rebuild. Pills and results follow the thumbs at
 // once while the editor keeps grab and focus until commit.
 function previewBitrateRange() {
-    _codecsExplorerState.bitrateRange = readBitrateEditor();
+    _codecsExplorerState.bitrateRange = normalizeBitrateRange(readBitrateEditor(), getBitrateBounds());
     const pills = document.getElementById('codecFilterPills');
     if (pills) {
         pills.innerHTML = buildCodecsExplorerPillsInner();
@@ -1466,16 +1559,19 @@ function commitBitrateOnEnter(evt) {
     }
 }
 
+// Normalizes a range against the data bounds. A range that spans everything
+// equals Any, so preview and commit agree instead of diverging.
+function normalizeBitrateRange(range, bounds) {
+    if (bounds !== null && range.min <= bounds.min && range.max >= bounds.max) {
+        return null;
+    }
+    return range;
+}
+
 // Commits the range on release. A range that spans everything equals Any,
 // so it collapses back to null instead of filtering nothing.
 function commitBitrateRange() {
-    const bounds = getBitrateBounds();
-    const range = readBitrateEditor();
-    if (bounds !== null && range.min <= bounds.min && range.max >= bounds.max) {
-        _codecsExplorerState.bitrateRange = null;
-    } else {
-        _codecsExplorerState.bitrateRange = range;
-    }
+    _codecsExplorerState.bitrateRange = normalizeBitrateRange(readBitrateEditor(), getBitrateBounds());
     refreshCodecsExplorerControls();
 }
 
@@ -1624,6 +1720,7 @@ function openCodecsExplorer(scope) {
     _codecsExplorerState.filters = {};
     _codecsExplorerState.bitrateRange = null;
     _codecFilterOpen = null;
+    _codecMultiOpen = null;
     _codecsExplorerState.expanded = true;
     const tabBtn = document.querySelector('.tab-btn[data-tab="codecs"]');
     tabBtn?.click();
@@ -1639,17 +1736,12 @@ function openCodecsExplorer(scope) {
 }
 
 // Drops scope/filter selections that no longer exist after a rescan, so the search
-// never filters by phantom values while the controls show "All libraries" or "Any".
+// never filters by phantom values. An empty survivor list stays an explicit empty
+// scope (shown as such) instead of silently lifting back to all libraries.
 function pruneCodecsExplorerState() {
     if (_codecsExplorerState.libraries !== null) {
-        const kept = pruneExplorerScopeNames(
+        _codecsExplorerState.libraries = pruneExplorerScopeNames(
             getCodecsExplorerLibraries(), _codecsExplorerState.libraries);
-        // An empty survivor list means every picked library vanished. Null lifts
-        // the scope back to all libraries instead of matching no files at all.
-        _codecsExplorerState.libraries = kept.length > 0 ? kept : null;
-        if (_codecsExplorerState.libraries === null) {
-            _codecsExplorerState.scope = null;
-        }
     }
     for (const dim of CODEC_EXPLORER_DIMENSIONS) {
         pruneExplorerDimSelection(dim);
@@ -1726,11 +1818,13 @@ function renderCodecsExplorer(container) {
     }
     pruneCodecsExplorerState();
     _explorerDetailCache = {};
+    const focus = describeActiveExplorerControl();
     const existing = container.querySelector('.codec-explorer');
     existing?.remove();
     const tmp = document.createElement('div');
     tmp.innerHTML = buildCodecsExplorerHtml();
     container.insertBefore(tmp.firstChild, container.firstChild);
     attachCodecsExplorerHandlers();
+    restoreExplorerFocus(focus);
     runCodecsExplorerSearch();
 }

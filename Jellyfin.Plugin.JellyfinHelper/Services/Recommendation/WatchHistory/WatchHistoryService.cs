@@ -1118,7 +1118,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary but falling back to a per-item GetUserData call when the batch was not available for this user (batch returned null due to an exception upstream).
+    ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary but falling back to a per-item GetUserData call when the batch was not available for this user (batch returned null due to an exception upstream) or lacks this item (partial batch).
     /// </summary>
     /// <param name="lookup">The batch lookup, or <c>null</c> if the batch failed.</param>
     /// <param name="item">The item whose user data to fetch.</param>
@@ -1129,9 +1129,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
         BaseItem item,
         Jellyfin.Database.Implementations.Entities.User user)
     {
-        if (lookup is not null)
+        // A partial batch drops single items silently without this: a present map
+        // missing one key falls back to the per-item call instead of losing the interaction.
+        if (lookup is not null && lookup.TryGetValue(item.Id, out var found))
         {
-            lookup.TryGetValue(item.Id, out var found);
             return found;
         }
 

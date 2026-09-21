@@ -111,8 +111,10 @@ public class MediaStatisticsServiceLanguageTests
     }
 
     [Fact]
-    public void AudioLanguage_NullLanguageStream_IsSkipped()
+    public void AudioLanguage_NullLanguageStream_RecordsUnknown()
     {
+        // A present but unreadable audio track keeps the facet totals reconciled
+        // instead of silently dropping the file.
         var path = TestPath("media", "movies", "Film.mkv");
         var streams = new List<MediaStream>
         {
@@ -122,11 +124,14 @@ public class MediaStatisticsServiceLanguageTests
         SetupLibraryWithVideo(path, streams);
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
-        Assert.Empty(stats.AudioLanguages);
+        Assert.Equal(1, stats.AudioLanguages["Unknown"]);
+        Assert.Equal(1_000_000_000, stats.AudioLanguageSizes["Unknown"]);
+        Assert.Contains(path, stats.AudioLanguagePaths["Unknown"]);
+        Assert.Empty(stats.AudioTrackLabels);
     }
 
     [Fact]
-    public void AudioLanguage_UndLanguage_IsSkipped()
+    public void AudioLanguage_UndLanguage_RecordsUnknown()
     {
         var path = TestPath("media", "movies", "Film.mkv");
         var streams = new List<MediaStream>
@@ -137,7 +142,7 @@ public class MediaStatisticsServiceLanguageTests
         SetupLibraryWithVideo(path, streams);
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
-        Assert.Empty(stats.AudioLanguages);
+        Assert.Equal(1, stats.AudioLanguages["Unknown"]);
     }
 
     [Fact]
@@ -283,13 +288,38 @@ public class MediaStatisticsServiceLanguageTests
     [InlineData("hr", "Croatian")]
     [InlineData("fa", "Persian")]
     [InlineData("id", "Indonesian")]
-    [InlineData("in", "Indonesian")]
     [InlineData("ca", "Catalan")]
-    [InlineData("ji", "Yiddish")]
-    [InlineData("mo", "Romanian")]
     [InlineData("español (Colombia)", "Spanish")]
     public void NormalizeIso639Language_UnlistedLanguage_ResolvesThroughCultures(string code, string expected)
         => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+
+    [Theory]
+    [InlineData("in", "IN")]
+    [InlineData("ji", "JI")]
+    [InlineData("mo", "MO")]
+    public void NormalizeIso639Language_RetiredAmbiguousCodes_PassThroughVisible(string code, string expected)
+    {
+        // Retired codes that collide with ordinary words stay visible instead of
+        // risking a silently wrong language ("in English" is not Indonesian).
+        Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+    }
+
+    [Theory]
+    [InlineData("zxx - commentary", null)]
+    [InlineData("en, und", "English")]
+    public void NormalizeIso639Language_UndeterminedCompounds_ResolveRealParts(string code, string? expected)
+    {
+        // Undetermined markers contribute nothing; the real parts still resolve,
+        // and a compound without any language stays silent instead of leaking.
+        if (expected == null)
+        {
+            Assert.Null(MediaStatisticsService.NormalizeIso639Language(code));
+        }
+        else
+        {
+            Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+        }
+    }
 
     public static TheoryData<string, string> LanguageExonymCases()
     {
@@ -450,7 +480,7 @@ public class MediaStatisticsServiceLanguageTests
     }
 
     [Fact]
-    public void SubtitleLanguage_FlagOnlyTitleWithoutLanguage_IsSkipped()
+    public void SubtitleLanguage_FlagOnlyTitleWithoutLanguage_RecordsUnknown()
     {
         var path = TestPath("media", "movies", "Film.mkv");
         var streams = new List<MediaStream>
@@ -461,7 +491,7 @@ public class MediaStatisticsServiceLanguageTests
         SetupLibraryWithVideo(path, streams);
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
-        Assert.Empty(stats.SubtitleLanguages);
+        Assert.Equal(1, stats.SubtitleLanguages["Unknown"]);
         Assert.Empty(stats.SubtitleTrackLabels);
     }
 

@@ -55,7 +55,7 @@
   "lastScan": "Scan",
   "items": "items",
   "trashContents": "Trash Contents",
-  "trashItems": "items in trash",
+  "trashItems": "Items in Trash",
   "trashEmpty": "Trash is empty.",
   "trashTotalSize": "Trash Size",
   "trashRetentionDays": "Retention",
@@ -426,5 +426,7 @@
   "explorerBack": "Back",
   "explorerBitrateMin": "Min (Mbps)",
   "explorerBitrateMax": "Max (Mbps)",
-  "explorerBitrateNoData": "No bitrate data yet. Run a fresh scan to enable absolute bitrate filtering."
+  "explorerBitrateNoData": "No bitrate data yet. Run a fresh scan to enable absolute bitrate filtering.",
+  "explorerRemoveFilter": "Remove {label} filter",
+  "explorerNoMatchingLibraries": "No matching libraries"
 }

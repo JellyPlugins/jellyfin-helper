@@ -44,6 +44,27 @@ public class LanguageIdentityTests
         => Assert.Equal(expected, LanguageIdentity.GetIso6391Code(tag));
 
     [Theory]
+    [InlineData("Forced German", "de")]
+    [InlineData("HI English", "en")]
+    [InlineData("SDH Deutsch", "de")]
+    [InlineData("commentary German", "de")]
+    [InlineData("Forced Audio German", "de")]
+    public void GetIso6391Code_PrefixFlags_StrippedBeforeResolve(string tag, string expected)
+        => Assert.Equal(expected, LanguageIdentity.GetIso6391Code(tag));
+
+    [Theory]
+    [InlineData("-en", "en")]
+    [InlineData("_de", "de")]
+    public void GetIso6391Code_LeadingSeparators_Trimmed(string tag, string expected)
+        => Assert.Equal(expected, LanguageIdentity.GetIso6391Code(tag));
+
+    [Theory]
+    [InlineData("English–German", "en")]
+    [InlineData("German—English", "de")]
+    public void GetIso6391Code_BareDashes_SplitSegments(string tag, string expected)
+        => Assert.Equal(expected, LanguageIdentity.GetIso6391Code(tag));
+
+    [Theory]
     [InlineData("Simplified, Mandarin Chinese", "zh")]
     [InlineData("Traditional, Mandarin Chinese", "zh")]
     [InlineData("Traditional, Yue Chinese", "zh")]
@@ -59,6 +80,13 @@ public class LanguageIdentityTests
     [InlineData("Brazilian Portuguese")]
     public void GetIso6391Code_NoiseWithoutLanguage_ReturnsNull(string tag)
         => Assert.Null(LanguageIdentity.GetIso6391Code(tag));
+
+    [Theory]
+    [InlineData("zxx - commentary", null)]
+    [InlineData("en, und", "en")]
+    [InlineData("und", null)]
+    public void GetIso6391Code_UndeterminedSegments_Skipped(string tag, string? expected)
+        => Assert.Equal(expected, LanguageIdentity.GetIso6391Code(tag));
 
     [Fact]
     public void TrackFlagWords_AllFlagged()

@@ -155,6 +155,17 @@ public class ComposeConfigPage : Task
             valid = false;
         }
 
+        // CodecsExplorer builds on Codecs tab state (_lastCodecData, drill-down maps).
+        // All cross-module calls happen at runtime after full evaluation, but the order
+        // documents the dependency so future top-level wiring cannot silently invert it.
+        var codecsIndex = jsList.FindIndex(js => IsFile(js, "Codecs.js"));
+        var explorerIndex = jsList.FindIndex(js => IsFile(js, "CodecsExplorer.js"));
+        if (codecsIndex >= 0 && explorerIndex >= 0 && codecsIndex > explorerIndex)
+        {
+            Log.LogError("Codecs.js must come before CodecsExplorer.js but was at position {0} of {1}. JS order: {2}", codecsIndex + 1, jsList.Count, FileNames(jsList));
+            valid = false;
+        }
+
         return valid;
     }
 

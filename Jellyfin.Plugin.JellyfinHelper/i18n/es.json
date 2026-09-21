@@ -426,5 +426,7 @@
   "explorerBack": "Atrás",
   "explorerBitrateMin": "Mín (Mbps)",
   "explorerBitrateMax": "Máx (Mbps)",
-  "explorerBitrateNoData": "Aún no hay datos de tasa de bits. Ejecuta un nuevo análisis para filtrar por tasa absoluta."
+  "explorerBitrateNoData": "Aún no hay datos de tasa de bits. Ejecuta un nuevo análisis para filtrar por tasa absoluta.",
+  "explorerRemoveFilter": "Eliminar el filtro {label}",
+  "explorerNoMatchingLibraries": "Ninguna biblioteca coincidente"
 }

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -15,8 +17,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 /// </summary>
 internal static class LanguageIdentity
 {
-    // Canonical codes with their aliases. The first entry is the ISO 639-1 code;
-    // the rest are 639-2/T, 639-2/B and retired codes seen in real containers.
+    // Shared word for Hindi across locales, kept in one place.
+    private const string HindiExonym = "hindi";
+
+    // Bounded fold cache, keyed by exact input. Declared before every table: all
+    // builders fold through it during initialization. Concurrent scans share it safely.
+    private static readonly ConcurrentDictionary<string, string> FoldCache = new(StringComparer.Ordinal);
+
+    // Canonical codes with their aliases. Every row starts with the ISO 639-1 code
+    // and continues with the three letter and retired variants from real containers.
     private static readonly string[][] _languageCodeAliases =
     [
         ["de", "deu", "ger", "de"],
@@ -113,7 +122,7 @@ internal static class LanguageIdentity
         ["Polish", "polnisch", "polaco", "polonais", "polonês", "polska", "Lehçe", "波兰语"],
         ["Turkish", "türkisch", "turco", "turc", "turco", "turkiska", null, "土耳其语"],
         ["Arabic", "arabisch", "árabe", "arabe", "árabe", "arabiska", "Arapça", "阿拉伯语"],
-        ["Hindi", "hindi", "hindi", "hindi", "hindi", "hindi", "Hintçe", "印地语"],
+        ["Hindi", HindiExonym, HindiExonym, HindiExonym, HindiExonym, HindiExonym, "Hintçe", "印地语"],
         ["Swedish", "schwedisch", "sueco", "suédois", "sueco", null, "İsveççe", "瑞典语"],
         ["Norwegian", "norwegisch", "noruego", "norvégien", "norueguês", "norska", "Norveççe", "挪威语"],
         ["Danish", "dänisch", "danés", "danois", "dinamarquês", "danska", "Danca", "丹麦语"],
@@ -136,8 +145,8 @@ internal static class LanguageIdentity
 
     // Flag words per locale for flag-only detection, stored folded like the lookups.
     // Resolution always runs first, so no entry here can ever shadow a real language.
-    // Exposed for tests so every word stays pinned.
-    internal static readonly HashSet<string> TrackFlagWords = BuildTrackFlagWords();
+    // Exposed for tests so every word stays pinned. Frozen: safe for concurrent scans.
+    internal static readonly FrozenSet<string> TrackFlagWords = BuildTrackFlagWords();
 
     /// <summary>
     ///     Cleans a raw track tag for lookup: trims, cuts parenthetical qualifiers
@@ -163,6 +172,8 @@ internal static class LanguageIdentity
             basis = separator > 0 ? basis.Substring(0, separator) : basis;
         }
 
+        // Leading separators are never meaningful ("-en" still names English).
+        basis = basis.Trim('-', '_', ' ', '\t');
         return basis.Length == 0 ? null : basis;
     }
 
@@ -191,6 +202,15 @@ internal static class LanguageIdentity
             return code;
         }
 
+        // Leading flag words ("Forced German", "HI English") describe the track, not
+        // the language: strip them, then resolve the remainder. Bare flags resolve
+        // nothing by themselves, and resolution-first keeps real codes like "hi" intact.
+        if (StripLeadingFlags(cleaned) is string unflagged
+            && ResolveTagPart(unflagged, cleaned, true) is string unflaggedCode)
+        {
+            return unflaggedCode;
+        }
+
         foreach (var part in SplitTagSegments(cleaned))
         {
             if (IsUndetermined(part))
@@ -198,27 +218,38 @@ internal static class LanguageIdentity
                 continue;
             }
 
-            var folded = FoldDiacritics(part.ToLowerInvariant());
-            if (_codeAliases.TryGetValue(folded, out var partCode))
+            if (ResolveTagPart(part, cleaned, derived || !part.Equals(cleaned, StringComparison.Ordinal)) is string partCode)
             {
                 return partCode;
             }
+        }
 
-            var first = FirstToken(part);
-            if (!first.Equals(part, StringComparison.Ordinal)
-                && !IsUndetermined(first)
-                && _codeAliases.TryGetValue(FoldDiacritics(first.ToLowerInvariant()), out var firstCode))
-            {
-                return firstCode;
-            }
+        return null;
+    }
 
-            if ((derived || !part.Equals(cleaned, StringComparison.Ordinal))
-                && LastToken(part) is string last
-                && !IsUndetermined(last)
-                && _codeAliases.TryGetValue(FoldDiacritics(last.ToLowerInvariant()), out var lastCode))
-            {
-                return lastCode;
-            }
+    // Resolves one segment: whole value, then first token, then (when allowed) the
+    // last token. Undetermined markers contribute nothing at every level.
+    private static string? ResolveTagPart(string part, string cleaned, bool allowLastToken)
+    {
+        if (_codeAliases.TryGetValue(FoldDiacritics(part.ToLowerInvariant()), out var partCode))
+        {
+            return partCode;
+        }
+
+        var first = FirstToken(part);
+        if (!first.Equals(part, StringComparison.Ordinal)
+            && !IsUndetermined(first)
+            && _codeAliases.TryGetValue(FoldDiacritics(first.ToLowerInvariant()), out var firstCode))
+        {
+            return firstCode;
+        }
+
+        if (allowLastToken
+            && LastToken(part) is string last
+            && !IsUndetermined(last)
+            && _codeAliases.TryGetValue(FoldDiacritics(last.ToLowerInvariant()), out var lastCode))
+        {
+            return lastCode;
         }
 
         return null;
@@ -282,14 +313,43 @@ internal static class LanguageIdentity
         return true;
     }
 
+    private static string? StripLeadingFlags(string basis)
+    {
+        var rest = basis;
+        while (true)
+        {
+            var end = rest.IndexOfAny([' ', '\t']);
+            if (end <= 0)
+            {
+                return rest.Equals(basis, StringComparison.Ordinal) ? null : rest;
+            }
+
+            if (!IsFlagWord(rest.Substring(0, end)))
+            {
+                return rest.Equals(basis, StringComparison.Ordinal) ? null : rest;
+            }
+
+            rest = rest.Substring(end + 1).TrimStart(' ', '\t');
+            if (rest.Length == 0)
+            {
+                return null;
+            }
+        }
+    }
+
     private static IEnumerable<string> SplitTagSegments(string basis)
     {
         // Long dashes first so splits never leave stray hyphens behind.
         foreach (var chunk in basis.Split([" - ", " – ", " — "], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            foreach (var part in chunk.Split([',', '/', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            // Bare dashes split too ("English–German"); compact region tags never reach
+            // this point because cleaning already stripped them.
+            foreach (var dash in chunk.Split(['-', '–', '—'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                yield return part;
+                foreach (var part in dash.Split([',', '/', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    yield return part;
+                }
             }
         }
     }
@@ -347,16 +407,16 @@ internal static class LanguageIdentity
         }
 
         // Curated exceptions no culture carries: colloquial short forms and retired
-        // codes still seen in old containers.
+        // codes still seen in old containers. Retired "in"/"ji"/"mo" stay out on
+        // purpose: as first tokens they collide with ordinary English words, and
+        // their modern codes ("id"/"yi"/"ro") cover the languages. Visible junk
+        // beats a silently wrong language.
         aliases[FoldDiacritics("holländisch")] = "nl";
         aliases["norsk"] = "no";
         aliases["vietnam"] = "vi";
         aliases["nb"] = "no";
         aliases["nn"] = "no";
         aliases["iw"] = "he";
-        aliases["in"] = "id";
-        aliases["ji"] = "yi";
-        aliases["mo"] = "ro";
         // Cantonese and Mandarin have no ISO 639-1 code; some ICU builds expose a
         // neutral yue culture while others do not. Both collapse into Chinese so the
         // facet is identical on every host.
@@ -463,7 +523,7 @@ internal static class LanguageIdentity
         return cut > 0 ? name.Substring(0, cut) : name;
     }
 
-    private static HashSet<string> BuildTrackFlagWords()
+    private static FrozenSet<string> BuildTrackFlagWords()
     {
         var words = new HashSet<string>(MediaExtensions.SubtitleFlags, StringComparer.OrdinalIgnoreCase);
         foreach (var word in new[]
@@ -482,7 +542,7 @@ internal static class LanguageIdentity
             words.Add(FoldDiacritics(word.ToLowerInvariant()));
         }
 
-        return words;
+        return words.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -491,8 +551,24 @@ internal static class LanguageIdentity
     /// </summary>
     /// <param name="value">The lowercase lookup input.</param>
     /// <returns>The input without combining marks.</returns>
-    private static string FoldDiacritics(string value) =>
-        new(value.Normalize(NormalizationForm.FormD)
+    private static string FoldDiacritics(string value)
+    {
+        // Tags repeat heavily per scan (same languages on every file); the small
+        // bounded cache avoids re-normalizing them. Only short tags are cached so
+        // pathological probe strings cannot grow it without bound.
+        if (value.Length <= 32 && FoldCache.TryGetValue(value, out var cached))
+        {
+            return cached;
+        }
+
+        var folded = new string(value.Normalize(NormalizationForm.FormD)
             .Where(static c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
             .ToArray());
+        if (value.Length <= 32)
+        {
+            FoldCache.TryAdd(value, folded);
+        }
+
+        return folded;
+    }
 }

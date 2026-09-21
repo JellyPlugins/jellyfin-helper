@@ -297,6 +297,10 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("function buildCodecsExplorerDimList", HtmlContent);
         Assert.Contains("function buildCodecsExplorerDimEditor", HtmlContent);
         Assert.Contains("function hasVisibleExplorerOptions", HtmlContent);
+        Assert.Contains("function getCachedExplorerMaps", HtmlContent);
+        Assert.Contains("function getDimPathIndex", HtmlContent);
+        Assert.Contains("function closeFilterPop", HtmlContent);
+        Assert.Contains("role=\"radio\"", HtmlContent);
         Assert.Contains("codec-filter-bar", HtmlContent);
         Assert.Contains("codec-filter-pop", HtmlContent);
         Assert.Contains("codec-pill", HtmlContent);
@@ -312,8 +316,13 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("data-single-option", HtmlContent);
         // File detail toggles report their expansion state.
         Assert.Contains("setAttribute('aria-expanded', 'false')", HtmlContent);
-        // A pruned scope without survivors lifts back to all libraries.
-        Assert.Contains("kept.length > 0 ? kept : null", HtmlContent);
+        // A pruned scope without survivors stays an explicit empty scope with
+        // its own label instead of pretending to be all libraries.
+        Assert.Contains("explorerNoMatchingLibraries", HtmlContent);
+        // Preview and commit share one normalization so they never diverge.
+        Assert.Contains("function normalizeBitrateRange", HtmlContent);
+        // Rapid checkbox picks share one debounced rebuild.
+        Assert.Contains("function refreshCodecsExplorerControlsDebounced", HtmlContent);
     }
 
     [Fact]

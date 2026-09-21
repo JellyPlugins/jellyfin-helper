@@ -52,6 +52,24 @@ public class StatisticsCacheService : IStatisticsCacheService
     /// <param name="result">The statistics result to persist.</param>
     public void SaveLatestResult(MediaStatisticsResult result)
     {
+        string json;
+        try
+        {
+            // Serialize outside the lock: big results take a while and concurrent
+            // readers must not wait for string building. The payload is complete
+            // either way, so last move wins without torn reads (atomic replace).
+            json = JsonSerializer.Serialize(result, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            _pluginLog.LogWarning(
+                "StatisticsCache",
+                $"Could not save latest statistics result to {_latestResultFilePath}",
+                ex,
+                _logger);
+            return;
+        }
+
         lock (_fileLock)
         {
             try
@@ -61,8 +79,6 @@ public class StatisticsCacheService : IStatisticsCacheService
                 {
                     Directory.CreateDirectory(directory);
                 }
-
-                var json = JsonSerializer.Serialize(result, JsonOptions);
 
                 // Use AtomicFile so a transient sharing violation on the final File.Move (typical when an AV scanner or the Search indexer briefly holds the file handle) gets a bounded retry with backoff.
                 AtomicFile.WriteAllText(_latestResultFilePath, json);
@@ -75,11 +91,11 @@ public class StatisticsCacheService : IStatisticsCacheService
 
             // Broader filter than plain IOException / UnauthorizedAccessException because AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException, ArgumentException (malformed path characters from OS layer), and JsonException (serializer).
             catch (Exception ex) when (ex is IOException
-                                        or UnauthorizedAccessException
-                                        or System.Security.SecurityException
-                                        or NotSupportedException
-                                        or ArgumentException
-                                        or JsonException)
+                                         or UnauthorizedAccessException
+                                         or System.Security.SecurityException
+                                         or NotSupportedException
+                                         or ArgumentException
+                                         or JsonException)
             {
                 _pluginLog.LogWarning(
                     "StatisticsCache",
@@ -119,9 +135,11 @@ public class StatisticsCacheService : IStatisticsCacheService
             return result;
         }
         catch (Exception ex) when (ex is IOException
-                                    or UnauthorizedAccessException
-                                    or System.Security.SecurityException
-                                    or JsonException)
+                                     or UnauthorizedAccessException
+                                     or System.Security.SecurityException
+                                     or NotSupportedException
+                                     or ArgumentException
+                                     or JsonException)
         {
             _pluginLog.LogWarning(
                 "StatisticsCache",

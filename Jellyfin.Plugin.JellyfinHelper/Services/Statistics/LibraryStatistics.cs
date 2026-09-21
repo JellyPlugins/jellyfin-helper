@@ -304,6 +304,8 @@ public class LibraryStatistics
 
     /// <summary>
     /// Gets the audio language size breakdown (language -> total bytes) for video files.
+    /// Attribution semantics: a multi language file counts fully toward every language
+    /// it carries, so grouped totals may exceed disk usage.
     /// </summary>
     public Dictionary<string, long> AudioLanguageSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -320,6 +322,8 @@ public class LibraryStatistics
 
     /// <summary>
     /// Gets the subtitle language size breakdown (language -> total bytes) for embedded subtitle tracks.
+    /// Attribution semantics: a multi language file counts fully toward every language
+    /// it carries, so grouped totals may exceed disk usage.
     /// </summary>
     public Dictionary<string, long> SubtitleLanguageSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -363,6 +367,8 @@ public class LibraryStatistics
 
     /// <summary>
     /// Gets the per-user watched size breakdown (username -> total bytes of files watched by that user).
+    /// Attribution semantics: a file watched by several users counts fully toward each
+    /// of them, so grouped totals may exceed disk usage.
     /// </summary>
     public Dictionary<string, long> WatchedByUserSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 

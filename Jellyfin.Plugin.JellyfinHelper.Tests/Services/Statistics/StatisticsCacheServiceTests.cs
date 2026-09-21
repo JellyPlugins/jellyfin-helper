@@ -84,6 +84,21 @@ public class StatisticsCacheServiceTests : IDisposable
     }
 
     [Fact]
+    public void LoadLatestResult_InvalidDataPath_ReturnsNullInsteadOfThrowing()
+    {
+        // A DataPath the OS rejects (embedded null) must degrade to null like Save does.
+        var appPaths = new Mock<IApplicationPaths>();
+        appPaths.Setup(ap => ap.DataPath).Returns("\0invalid");
+
+        var service = new StatisticsCacheService(
+            appPaths.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<StatisticsCacheService>().Object);
+
+        Assert.Null(service.LoadLatestResult());
+    }
+
+    [Fact]
     public void SaveLatestResult_CreatesDirectoryIfMissing()
     {
         var nestedDir = Path.Join(_tempDir, "nested", "deep");

@@ -103,25 +103,32 @@ public class PluginConfigurationService : IPluginConfigurationService
     {
         ArgumentNullException.ThrowIfNull(mutate);
 
+        PluginConfiguration? config;
         lock (MutateLock)
         {
-            var config = _accessor.Configuration;
+            config = _accessor.Configuration;
             if (config == null)
             {
-                // Plugin not initialised - nothing to mutate or save.
+                // Plugin not initialised: no configuration object exists to mutate or
+                // persist. Callers observe an uninitialized plugin through IsInitialized;
+                // throwing here would turn early startup races into 500s.
                 return;
             }
 
-            // Run the mutation exactly once; only the persistence below retries.
-            // Re-running mutate could double-apply non-idempotent edits such as the
-            // cleanup-totals increments in CleanupTrackingService.
+            // Run the mutation exactly once under the lock; only the persistence below
+            // retries, outside the lock. Re-running mutate could double-apply
+            // non-idempotent edits such as the cleanup-totals increments in
+            // CleanupTrackingService, while holding the lock across retry sleeps
+            // would block every concurrent writer.
             mutate(config);
-            SaveWithRetry();
         }
+
+        SaveWithRetry();
     }
 
     /// <summary>
-    ///     Persists the configuration and retries transient file lock collisions.
+    ///     Persists the configuration, retrying transient file lock collisions
+    ///     and transient access denials (AV/indexer locks surface as either).
     /// </summary>
     private void SaveWithRetry()
     {
@@ -133,6 +140,10 @@ public class PluginConfigurationService : IPluginConfigurationService
                 return;
             }
             catch (IOException) when (attempt < SaveRetryDelays.Length)
+            {
+                Thread.Sleep(SaveRetryDelays[attempt]);
+            }
+            catch (UnauthorizedAccessException) when (attempt < SaveRetryDelays.Length)
             {
                 Thread.Sleep(SaveRetryDelays[attempt]);
             }
