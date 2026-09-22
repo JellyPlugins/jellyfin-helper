@@ -162,6 +162,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("codec-show-more", HtmlContent);
         Assert.Contains("function toggleCodecBreakdown", HtmlContent);
         Assert.Contains("data-breakdown-toggle", HtmlContent);
+        Assert.Contains("_codecRowSyncBound", HtmlContent);
     }
 
     [Fact]
