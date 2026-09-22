@@ -11,7 +11,7 @@ cat > "$OUT_DIR/meta.json" <<JSON
   "name": "Jellyfin Helper",
   "overview": "E2E test build",
   "owner": "JellyPlugins",
-  "targetAbi": "12.0.0.0",
+  "targetAbi": "12.1.0.0",
   "version": "${VERSION}",
   "status": "Active",
   "autoUpdate": false,

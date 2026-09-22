@@ -45,4 +45,33 @@ public class OverviewHtmlTests : ConfigPageTestBase
         // via the stat-card-full class, so the last grid row has no gap.
         Assert.Contains("stat-card-full", HtmlContent);
     }
+
+    [Fact]
+    public void Html_LibraryRows_LinkIntoCodecsExplorer()
+    {
+        // Each library name is a link that opens the Codecs tab
+        // Library Explorer pre-scoped to that library.
+        Assert.Contains("data-codec-explore-library", HtmlContent);
+        Assert.Contains("codec-explore-link", HtmlContent);
+        Assert.Contains("explorerOpenTooltip", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_MovieAndTvCards_LinkIntoCodecsExplorer()
+    {
+        // The Movies and TV stat cards act as links into the explorer,
+        // pre-scoped to all libraries of that type.
+        Assert.Contains("stat-card-link", HtmlContent);
+        Assert.Contains("CODEC_EXPLORER_TYPE_MOVIES", HtmlContent);
+        Assert.Contains("CODEC_EXPLORER_TYPE_TVSHOWS", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_MusicAndBookCards_LinkIntoCodecsExplorer()
+    {
+        // Music and Books cards link into the explorer with their type scope,
+        // where their dedicated codec dimensions stay enabled.
+        Assert.Contains("CODEC_EXPLORER_TYPE_MUSIC", HtmlContent);
+        Assert.Contains("CODEC_EXPLORER_TYPE_BOOKS", HtmlContent);
+    }
 }

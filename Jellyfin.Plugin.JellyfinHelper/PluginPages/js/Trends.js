@@ -533,7 +533,7 @@ function applyTrendFrame(svgEl, frame, colors) {
 
 function renderTrendChart(timeline) {
     if (!timeline || !timeline.dataPoints || timeline.dataPoints.length < 2) {
-        return { html: '<div class="trend-empty">' + T('trendEmpty', 'Not enough data yet. Growth timeline is computed during each scheduled scan.') + '</div>', chartState: null };
+        return { html: '<div class="trend-empty">' + escHtml(T('trendEmpty', 'Not enough historical data yet. Trend data is collected with each scan.')) + '</div>', chartState: null };
     }
 
     // Storage is daily and lossless. Interpolate the deduped gaps back to a dense daily array
@@ -558,7 +558,7 @@ function renderTrendChart(timeline) {
     if (startIndex > 0) fullDaily = fullDaily.slice(startIndex);
 
     if (fullDaily.length < 2) {
-        return { html: '<div class="trend-empty">' + T('trendEmpty', 'Not enough data yet. Growth timeline is computed during each scheduled scan.') + '</div>', chartState: null };
+        return { html: '<div class="trend-empty">' + escHtml(T('trendEmpty', 'Not enough historical data yet. Trend data is collected with each scan.')) + '</div>', chartState: null };
     }
 
     var dailyMin = new Date(fullDaily[0].date).getTime();
@@ -1156,7 +1156,7 @@ function loadInsightsData() {
 
     var container = document.getElementById('insightsContainer');
     if (container) {
-        container.innerHTML = '<div class="trend-empty">' + T('loadingInsights', 'Loading insights…') + '</div>';
+        container.innerHTML = '<div class="trend-empty">' + escHtml(T('loadingInsights', 'Loading insights…')) + '</div>';
     }
 
     apiGet('JellyfinHelper/LibraryInsights', function (data) {
@@ -1166,7 +1166,7 @@ function loadInsightsData() {
         if (seq !== _insightsLoadSeq) return;
         _apiDefaultError('GET', 'JellyfinHelper/LibraryInsights')(err);
         var c = document.getElementById('insightsContainer');
-        if (c) c.innerHTML = '<div class="trend-empty">' + T('insightsError', 'Could not load insights.') + '</div>';
+        if (c) c.innerHTML = '<div class="trend-empty">' + escHtml(T('insightsError', 'Could not load insights.')) + '</div>';
     });
 }
 
@@ -1182,13 +1182,13 @@ function renderInsightCards(data) {
     html += '<button class="insight-card" id="insightLargestBtn" type="button" aria-expanded="false">';
     html += '<span class="insight-icon">' + mi('save') + '</span>';
     html += '<span class="insight-value">' + formatBytes(data.LargestTotalSize) + '</span>';
-    html += '<span class="insight-label">' + T('insightLargest', 'Largest') + '</span>';
+    html += '<span class="insight-label">' + escHtml(T('insightLargest', 'Largest')) + '</span>';
     html += '</button>';
 
     html += '<button class="insight-card" id="insightRecentBtn" type="button" aria-expanded="false">';
     html += '<span class="insight-icon">' + mi('schedule') + '</span>';
     html += '<span class="insight-value">' + data.RecentTotalCount + '</span>';
-    html += '<span class="insight-label">' + T('insightRecent', 'Recently') + '</span>';
+    html += '<span class="insight-label">' + escHtml(T('insightRecent', 'Recently')) + '</span>';
     html += '</button>';
 
     html += '</div>';
@@ -1235,7 +1235,7 @@ function toggleInsightPanel(showId, hideId, activeBtn, otherBtn) {
  */
 function buildLargestTree(data) {
     if (!data.Largest || data.Largest.length === 0) {
-        return '<div class="trend-empty">' + T('insightNoData', 'No data available.') + '</div>';
+        return '<div class="trend-empty">' + escHtml(T('insightNoData', 'No data available.')) + '</div>';
     }
 
     var grouped = groupByLibrary(data.Largest);
@@ -1305,7 +1305,7 @@ function buildRecentItemRow(e) {
  */
 function buildRecentTree(data) {
     if (!data.Recent || data.Recent.length === 0) {
-        return '<div class="trend-empty">' + T('insightNoRecent', 'No recent changes found.') + '</div>';
+        return '<div class="trend-empty">' + escHtml(T('insightNoRecent', 'No recent changes found.')) + '</div>';
     }
 
     var grouped = groupByLibrary(data.Recent);
@@ -1403,7 +1403,7 @@ function loadTrendData(forceRefresh) {
         _apiDefaultError('GET', path)(err);
         var container = document.getElementById('trendChartContainer');
         if (container) {
-            container.innerHTML = '<div class="trend-empty">' + T('trendError', 'Could not load trend data.') + '</div>';
+            container.innerHTML = '<div class="trend-empty">' + escHtml(T('trendError', 'Could not load trend data.')) + '</div>';
         }
     });
 }

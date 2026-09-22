@@ -1,4 +1,5 @@
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
@@ -314,6 +315,205 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_TrickplaySymlinkCycle_TerminatesAndCountsOnce()
+    {
+        // A link inside a .trickplay folder pointing back at it must terminate
+        // instead of recursing until the stack overflows; files count once.
+        var libraryPath = TestPath("media", "movies");
+        var trickplayPath = TestPath("media", "movies", "Film.trickplay");
+        var linkPath = TestPath("media", "movies", "Film.trickplay", "loop");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = trickplayPath, Name = "Film.trickplay", IsDirectory = true }
+        ]);
+
+        var tile = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "movies", "Film.trickplay", "001.jpg"),
+            Name = "001.jpg",
+            Length = 10_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath)).Returns([tile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath)).Returns([
+            new FileSystemMetadata { FullName = linkPath, Name = "loop", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(linkPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(linkPath)).Returns([
+            new FileSystemMetadata { FullName = trickplayPath, Name = "Film.trickplay", IsDirectory = true }
+        ]);
+
+        var result = _service.CalculateStatistics();
+
+        Assert.Equal(10_000, result.TotalTrickplaySize);
+        Assert.Equal(1, result.Libraries[0].TrickplayFolderCount);
+    }
+
+    [Fact]
+    public void CalculateStatistics_DirectorySymlinkCycle_TerminatesAndCountsOnce()
+    {
+        // A subdirectory linking back at its parent must terminate instead of
+        // recursing until the stack overflows; the video counts once.
+        var libraryPath = TestPath("media", "movies");
+        var subPath = TestPath("media", "movies", "Season");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var video = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "movies", "Film.mkv"),
+            Name = "Film.mkv",
+            Length = 1_000_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([video]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = subPath, Name = "Season", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(subPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(subPath)).Returns([
+            new FileSystemMetadata { FullName = libraryPath, Name = "movies", IsDirectory = true }
+        ]);
+
+        var result = _service.CalculateStatistics();
+
+        Assert.Equal(1, result.Libraries[0].VideoFileCount);
+        Assert.Equal(1_000_000_000, result.Libraries[0].VideoSize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InvalidSubdirectoryPath_SkippedWithoutAbortingScan()
+    {
+        // Un-normalizable directory names (embedded null) never reach the trash
+        // checks or the recursion; the rest of the library still scans.
+        var libraryPath = TestPath("media", "movies");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var video = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "movies", "Film.mkv"),
+            Name = "Film.mkv",
+            Length = 1_000_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([video]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = libraryPath + Path.DirectorySeparatorChar + "\0bad", Name = "bad", IsDirectory = true }
+        ]);
+
+        var result = _service.CalculateStatistics();
+
+        Assert.Equal(1, result.Libraries[0].VideoFileCount);
+        Assert.Equal(1_000_000_000, result.Libraries[0].VideoSize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_TrashFolderNameCase_RespectsOsCaseSensitivity()
+    {
+        // Linux filesystems are case-sensitive: a differently-cased directory holds
+        // real media instead of trash. Windows stays case-insensitive.
+        var libraryPath = TestPath("media", "movies");
+        var oddDir = TestPath("media", "movies", ".JELLYFIN-TRASH");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var video = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "movies", ".JELLYFIN-TRASH", "Film.mkv"),
+            Name = "Film.mkv",
+            Length = 1_000_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = oddDir, Name = ".JELLYFIN-TRASH", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(oddDir)).Returns([video]);
+        _fileSystemMock.Setup(f => f.GetDirectories(oddDir)).Returns([]);
+
+        var configHelperMock = TestMockFactory.CreateCleanupConfigHelper(
+            new PluginConfiguration { TrashFolderPath = ".jellyfin-trash" });
+        var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
+        var service = new MediaStatisticsService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            loggerMock.Object,
+            configHelperMock.Object);
+
+        var result = service.CalculateStatistics();
+
+        if (OperatingSystem.IsLinux())
+        {
+            Assert.Equal(1, result.Libraries[0].VideoFileCount);
+        }
+        else
+        {
+            Assert.Equal(0, result.Libraries[0].VideoFileCount);
+        }
+    }
+
+    [Fact]
+    public void CalculateStatistics_StrmStub_UnknownBitrateNotLowTier()
+    {
+        // A .strm link is a bytes-long text stub, not media: without a stream bitrate
+        // or runtime it lands in Unknown instead of polluting the lowest tier.
+        var libraryPath = TestPath("media", "movies");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var stub = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "movies", "Remote.mkv.strm"),
+            Name = "Remote.mkv.strm",
+            Length = 120,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([stub]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        Assert.Equal(1, result.Libraries[0].VideoFileCount);
+        Assert.Equal(1, result.Libraries[0].VideoBitrateTiers["Unknown"]);
+        Assert.Equal(1, result.Libraries[0].ContainerFormats["STRM"]);
+    }
+
+    [Fact]
     public void CalculateStatistics_UnrecognizedFiles_CountedAsOther()
     {
         var libraryPath = TestPath("media", "movies");
@@ -344,6 +544,66 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_FileSizes_TracksVideoFilesButNotSubtitlesOrImages()
+    {
+        // FileSizes drives the Statistics tab's "largest files" curated view. It must contain every
+        // video file (so a 4K remux actually surfaces as "largest"), and must NOT contain subtitle
+        // or image files - broadening this to every file type would silently double the in-memory
+        // footprint on large libraries for a dimension nothing ever reads.
+        var libraryPath = TestPath("media", "movies");
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var videoPath = TestPath("media", "movies", "Film.mkv");
+        var subtitlePath = TestPath("media", "movies", "Film.srt");
+        var imagePath = TestPath("media", "movies", "poster.jpg");
+
+        var files = new[]
+        {
+            new FileSystemMetadata { FullName = videoPath, Name = "Film.mkv", Length = 4_000_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = subtitlePath, Name = "Film.srt", Length = 50_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = imagePath, Name = "poster.jpg", Length = 200_000, IsDirectory = false },
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var stats = _service.CalculateStatistics().Libraries[0];
+
+        Assert.Equal(4_000_000_000, stats.FileSizes[videoPath]);
+        Assert.False(stats.FileSizes.ContainsKey(subtitlePath));
+        Assert.False(stats.FileSizes.ContainsKey(imagePath));
+    }
+
+    [Fact]
+    public void CalculateStatistics_FileSizes_TracksAudioFiles()
+    {
+        var libraryPath = TestPath("media", "music");
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Music",
+            CollectionType = CollectionTypeOptions.music,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var audioPath = TestPath("media", "music", "Song.flac");
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = audioPath, Name = "Song.flac", Length = 30_000_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var stats = _service.CalculateStatistics().Libraries[0];
+
+        Assert.Equal(30_000_000, stats.FileSizes[audioPath]);
+    }
+
+    [Fact]
     public void CalculateStatistics_EbookFiles_CountedAsBooksNotOther()
     {
         var libraryPath = TestPath("media", "books");
@@ -368,6 +628,7 @@ public class MediaStatisticsServiceTests
         var lib = result.Libraries[0];
         Assert.Equal(3, lib.BookFileCount);
         Assert.Equal(10_000, lib.BookSize);
+        Assert.Equal(2_000, lib.FileSizes[TestPath("media", "books", "novel.epub")]);
         // eBooks must NOT land in the generic Other bucket.
         Assert.Equal(0, lib.OtherFileCount);
         Assert.Equal(0, lib.OtherSize);
@@ -2419,6 +2680,61 @@ public class ClassifyMethodTests
         Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
     }
 
+    // Stream bitrate (bps) is authoritative when present; file size and runtime are ignored.
+    [Theory]
+    [InlineData(1_500_000, "< 2 Mbps")]
+    [InlineData(1_999_999, "< 2 Mbps")]
+    [InlineData(2_000_000, "2–4 Mbps")]
+    [InlineData(3_999_999, "2–4 Mbps")]
+    [InlineData(4_000_000, "4–8 Mbps")]
+    [InlineData(7_999_999, "4–8 Mbps")]
+    [InlineData(8_000_000, "8–16 Mbps")]
+    [InlineData(15_999_999, "8–16 Mbps")]
+    [InlineData(16_000_000, "16–32 Mbps")]
+    [InlineData(31_999_999, "16–32 Mbps")]
+    [InlineData(32_000_000, "32–60 Mbps")]
+    [InlineData(59_999_999, "32–60 Mbps")]
+    [InlineData(60_000_000, "32–60 Mbps")]
+    [InlineData(60_000_001, "> 60 Mbps")]
+    [InlineData(80_000_000, "> 60 Mbps")]
+    public void ClassifyBitrateTier_StreamBitrate_MapsToTier(int streamBitrate, string expected)
+    {
+        // File size and runtime must be ignored while a positive stream bitrate is present.
+        Assert.Equal(expected, MediaStatisticsService.ClassifyBitrateTier(streamBitrate, 999_999_999L, 1L));
+    }
+
+    // When the stream bitrate is missing, the tier is estimated from size over runtime.
+    // TimeSpan.TicksPerSecond is 10,000,000, so an 8s clip uses 80,000,000 ticks.
+    [Theory]
+    [InlineData(1_000_000L, 100_000_000L, "< 2 Mbps")]  // 1 MB over 10s = 0.8 Mbps
+    [InlineData(5_000_000L, 80_000_000L, "4–8 Mbps")]  // 5 MB over 8s = 5 Mbps
+    [InlineData(25_000_000L, 80_000_000L, "16–32 Mbps")] // 25 MB over 8s = 25 Mbps
+    public void ClassifyBitrateTier_NullStream_EstimatesFromSizeAndRuntime(long fileSize, long runTimeTicks, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyBitrateTier(null, fileSize, runTimeTicks));
+    }
+
+    // A zero or negative stream bitrate is not usable and must defer to the size/runtime estimate.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(-5_000_000)]
+    public void ClassifyBitrateTier_NonPositiveStream_FallsBackToEstimate(int streamBitrate)
+    {
+        // 5 MB over 8s = 5 Mbps, proving the estimate ran instead of using the invalid stream value.
+        Assert.Equal("4–8 Mbps", MediaStatisticsService.ClassifyBitrateTier(streamBitrate, 5_000_000L, 80_000_000L));
+    }
+
+    [Theory]
+    [InlineData(null, 0L, null)]        // No stream bitrate, no size, no runtime
+    [InlineData(0, 1_000_000L, 0L)]     // Zero stream bitrate and zero runtime cannot be estimated
+    [InlineData(null, 0L, 80_000_000L)] // Runtime known but zero size yields no estimate
+    [InlineData(null, 1_000_000L, null)] // Size known but no runtime yields no estimate
+    public void ClassifyBitrateTier_NoUsableData_ReturnsUnknown(int? streamBitrate, long fileSize, long? runTimeTicks)
+    {
+        Assert.Equal("Unknown", MediaStatisticsService.ClassifyBitrateTier(streamBitrate, fileSize, runTimeTicks));
+    }
+
     // Values sitting right on each class boundary, checked just above and just below, prove the
     // tiers partition every resolution with no gap and no overlap. The long-edge thresholds are
     // 6000 (8K), 3200 (4K), 1600 (1080p), 1120 (720p), 940 (576p), 720 (480p).
@@ -2865,7 +3181,7 @@ public class MetadataExtractionTests
         mockItem1.Object.Path = hevcPath;
         mockItem1.Setup(i => i.GetMediaStreams()).Returns(
         [
-            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160 },
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160, BitRate = 25_000_000 },
             new MediaStream { Type = MediaStreamType.Audio, Codec = "dts", Profile = "DTS-HD MA" }
         ]);
 
@@ -2874,16 +3190,16 @@ public class MetadataExtractionTests
         mockItem2.Object.Path = h264Path;
         mockItem2.Setup(i => i.GetMediaStreams()).Returns(
         [
-            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080 },
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 8_000_000 },
             new MediaStream { Type = MediaStreamType.Audio, Codec = "aac", Profile = "LC" }
         ]);
 
-        // AV1 4K Dolby Vision
+        // AV1 4K Dolby Vision — use 3 Mbps to land in a distinct 2–4 tier
         var mockItem3 = new Mock<BaseItem>();
         mockItem3.Object.Path = av1Path;
         mockItem3.Setup(i => i.GetMediaStreams()).Returns(
         [
-            new MediaStream { Type = MediaStreamType.Video, Codec = "av1", Width = 3840, Height = 2160 },
+            new MediaStream { Type = MediaStreamType.Video, Codec = "av1", Width = 3840, Height = 2160, BitRate = 3_000_000 },
             new MediaStream { Type = MediaStreamType.Audio, Codec = "truehd", Profile = "Atmos" }
         ]);
 
@@ -2925,6 +3241,12 @@ public class MetadataExtractionTests
         Assert.Equal(5_000_000_000, stats.VideoCodecSizes["HEVC"]);
         Assert.Equal(2_000_000_000, stats.VideoCodecSizes["H.264"]);
         Assert.Equal(3_000_000_000, stats.VideoCodecSizes["AV1"]);
+
+        // Bitrate tiers from the measured video-stream bitrate (25 / 8 / 3 Mbps)
+        Assert.Equal(1, stats.VideoBitrateTiers["16–32 Mbps"]);
+        Assert.Equal(1, stats.VideoBitrateTiers["8–16 Mbps"]);
+        Assert.Equal(1, stats.VideoBitrateTiers["2–4 Mbps"]);
+        Assert.Equal(5_000_000_000, stats.VideoBitrateTierSizes["16–32 Mbps"]);
     }
 
     [Fact]
@@ -3110,6 +3432,8 @@ public class MetadataExtractionTests
         Assert.Equal(1, stats.VideoCodecs["Unknown"]);
         Assert.Equal(1, stats.Resolutions["Unknown"]);
         Assert.Equal(1, stats.DynamicRanges["Unknown"]);
+        // No stream bitrate and no mocked runtime -> the bitrate tier is also Unknown
+        Assert.Equal(1, stats.VideoBitrateTiers["Unknown"]);
         // Audio codec "Unknown" is NOT tracked in VideoAudioCodecs (by design)
         Assert.Empty(stats.VideoAudioCodecs);
 

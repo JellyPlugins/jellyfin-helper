@@ -30,28 +30,86 @@ make_clip() {
   echo "[gen-media]   wrote $(basename "$out") (${w}x${h}, $vcodec)"
 }
 
+# make_embedded_subs <output> <width> <height>
+# Generates a clip with two embedded mov_text subtitle tracks (English + German).
+make_embedded_subs() {
+  local out="$1" w="$2" h="$3"; shift 3
+  mkdir -p "$(dirname "$out")"
+  # Scratch subs live outside the media root, so leftovers never read as orphaned subtitles.
+  local gendir
+  gendir=$(mktemp -d)
+  printf '1\n00:00:00,000 --> 00:00:01,000\nHello\n' > "$gendir/e2e-sub-en.srt"
+  printf '1\n00:00:00,000 --> 00:00:01,000\nHallo\n' > "$gendir/e2e-sub-de.srt"
+  "$FFMPEG" -nostdin -loglevel error -y \
+    -f lavfi -i "testsrc=size=${w}x${h}:rate=24:duration=1" \
+    -f lavfi -i "sine=frequency=440:duration=1" \
+    -i "$gendir/e2e-sub-en.srt" -i "$gendir/e2e-sub-de.srt" \
+    -map 0:v -map 1:a -map 2 -map 3 \
+    -c:v libx264 -c:a aac -c:s mov_text \
+    -metadata:s:a:0 language=eng \
+    -metadata:s:s:0 language=eng -metadata:s:s:1 language=deu \
+    -shortest "$@" "$out"
+  rm -rf "$gendir"
+  echo "[gen-media]   wrote $(basename "$out") (${w}x${h}, embedded en+de subs)"
+}
+
+# make_dual_audio <output> <width> <height>
+# Generates a clip with two audio tracks (English + German).
+make_dual_audio() {
+  local out="$1" w="$2" h="$3"; shift 3
+  mkdir -p "$(dirname "$out")"
+  "$FFMPEG" -nostdin -loglevel error -y \
+    -f lavfi -i "testsrc=size=${w}x${h}:rate=24:duration=1" \
+    -f lavfi -i "sine=frequency=440:duration=1" \
+    -f lavfi -i "sine=frequency=880:duration=1" \
+    -map 0:v -map 1:a -map 2:a \
+    -c:v libx264 -c:a aac \
+    -metadata:s:a:0 language=eng -metadata:s:a:1 language=deu \
+    -shortest "$@" "$out"
+  echo "[gen-media]   wrote $(basename "$out") (${w}x${h}, dual audio en+de)"
+}
+
 # ---- Movies: varied codecs / resolutions / dynamic range ------------------
 # Names follow Jellyfin's expected "Title (Year)/Title (Year).ext" layout.
+# Audio tracks carry language tags on purpose: the Codecs explorer's audio-language
+# multi-select needs at least two distinct languages, and untagged tracks would leave
+# it empty (its tests must fail loudly then, not skip).
 
-# 1080p H.264 SDR
-make_clip "$MOVIES/Aurora Skies (2019)/Aurora Skies (2019).mkv" 1920 1080 libx264
+# 1080p H.264 SDR, English audio
+make_clip "$MOVIES/Aurora Skies (2019)/Aurora Skies (2019).mkv" 1920 1080 libx264 \
+  -metadata:s:a:0 language=eng
 
-# 4K HEVC HDR10 (real HDR metadata so DynamicRange analysis has something)
+# 4K HEVC HDR10 (real HDR metadata so DynamicRange analysis has something), English audio
 make_clip "$MOVIES/Nebula Drift (2021)/Nebula Drift (2021).mkv" 3840 2160 libx265 \
   -pix_fmt yuv420p10le \
-  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc
+  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+  -metadata:s:a:0 language=eng
 
-# 720p H.264 SDR, WITH an external subtitle that has a matching video (valid, must NOT be cleaned)
-make_clip "$MOVIES/Copper Canyon (2015)/Copper Canyon (2015).mkv" 1280 720 libx264
+# 720p H.264 SDR, German audio, WITH an external subtitle that has a matching video (valid, must NOT be cleaned)
+make_clip "$MOVIES/Copper Canyon (2015)/Copper Canyon (2015).mkv" 1280 720 libx264 \
+  -metadata:s:a:0 language=deu
 printf '1\n00:00:00,000 --> 00:00:01,000\nHello\n' \
   > "$MOVIES/Copper Canyon (2015)/Copper Canyon (2015).en.srt"
+printf 'WEBVTT\n\n00:00.000 --> 00:01.000\nHallo\n' \
+  > "$MOVIES/Copper Canyon (2015)/Copper Canyon (2015).de.vtt"
 
 # 480p MPEG-4 SDR (codec variety for the Codecs donut)
 make_clip "$MOVIES/Old Reel (1998)/Old Reel (1998).mp4" 640 480 mpeg4
 
+# 1080p H.264 with TWO audio tracks (English + German): the audio-language
+# multi-select needs a file carrying several languages at once.
+make_dual_audio "$MOVIES/Bilingual (2020)/Bilingual (2020).mkv" 1920 1080
+
+# 720p H.264 with EMBEDDED English + German subtitles (mov_text): external
+# sidecars are excluded from the subtitle facet, so the subtitle multi-select
+# needs embedded tracks. Codec tag deliberately sloppy ("deu" style).
+make_embedded_subs "$MOVIES/Polyglot Clip (2022)/Polyglot Clip (2022).mp4" 1280 720
+
 # ---- Shows: a couple of episodes -----------------------------------------
-make_clip "$SHOWS/Test Show/Season 01/Test Show S01E01.mkv" 1920 1080 libx264
-make_clip "$SHOWS/Test Show/Season 01/Test Show S01E02.mkv" 1280 720 libx265
+make_clip "$SHOWS/Test Show/Season 01/Test Show S01E01.mkv" 1920 1080 libx264 \
+  -metadata:s:a:0 language=eng
+make_clip "$SHOWS/Test Show/Season 01/Test Show S01E02.mkv" 1280 720 libx265 \
+  -metadata:s:a:0 language=eng
 
 # ---- Cleanup fixtures (deliberately broken/orphaned) ----------------------
 

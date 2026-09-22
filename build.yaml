@@ -1,26 +1,28 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "3.0.0.2"
+version: "3.0.0.3"
 targetAbi: ""
 framework: "net10.0"
-overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
+overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis and Library Explorer search, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
 description: >
-  A Jellyfin plugin providing automated cleanup tasks (trickplay, empty folders, subtitles, link repair for .strm files and symlinks), media library statistics with codec/resolution/dynamic-range/health analysis via MediaStream metadata, ML-powered smart recommendations with ensemble scoring strategy (heuristic + learned + neural MLP blend) and per-user watch profiles, user activity insights with play count and completion tracking, library insights (largest directories & recent changes), historical trends, trash/recycle bin, multi-instance Arr stack integration (Radarr/Sonarr), plugin-specific log viewer with download and filtering, backup/restore data, and a multi-language 8-tab dashboard.
+  A Jellyfin plugin providing automated cleanup tasks (trickplay, empty folders, subtitles, link repair for .strm files and symlinks), media library statistics with codec/resolution/bitrate/language/dynamic-range/health analysis and Library Explorer search via MediaStream metadata, ML-powered smart recommendations with ensemble scoring strategy (heuristic + learned + neural MLP blend) and per-user watch profiles, user activity insights with play count and completion tracking, library insights (largest directories & recent changes), historical trends, trash/recycle bin, multi-instance Arr stack integration (Radarr/Sonarr), plugin-specific log viewer with download and filtering, backup/restore data, and a multi-language 8-tab dashboard.
 
 category: "General"
 owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.0.0.2 - Log tab, save bar, resolution and touch fixes
+  v3.0.0.3 - Library Explorer, new Codecs breakdowns, disabled users ignored
 
-  - Clearing the plugin log no longer briefly shows a false "Failed to clear logs." error: the Clear button now confirms success immediately and refreshes the view right away
-  - Genuine clear failures (e.g. expired session or server error) now write a structured diagnostic to the browser console with the HTTP status and error kind, alongside the visible red button feedback, so a real problem is never silent
-  - Save bar no longer crowds on phones: the unsaved-changes label and Save button now stack on narrow screens, so long translations like the German "Nicht gespeichert" are no longer cut off
-  - Widescreen films are counted at their real resolution: cinemascope masters like 1920x800 or 1920x1040 are now correctly shown as 1080p instead of 720p in the Codecs tab, decided by whichever axis reaches a resolution class
-  - The resolution drill-down now lists each file's exact pixel dimensions (e.g. 1920x800) next to its name, readable on desktop and phones
-  - Chart tooltips work reliably on touch: the first tap on the Trends chart or a Codecs ring now shows and keeps the tooltip instead of flashing it away, and a second tap on the same Codecs segment closes it
-  - The save confirmation only appears after a real save: reverting a setting back to its original value no longer briefly shows "All changes saved"
-  - Tested by 5535 unit tests and 320 end-to-end tests
-  - Requires Jellyfin 12.0 - if you are on Jellyfin 10.x, stay on v2.1.0.6
+  - The Codecs tab now has a Library Explorer: combine resolution, codecs, bitrate, languages, watched users and formats into one search, scoped to the libraries you pick in its multi-select, so you can find e.g. all 4K films with low bitrate
+  - Options with zero matches under the other filters are hidden automatically, dimensions without matches stay greyed out, and multi-value dropdowns accept several audio languages, subtitle languages or users at once
+  - Every active filter is shown in the result header and a Reset button clears the whole search; results arrive as the familiar grouped file tree with Movies, TV Shows and other sections
+  - Jump straight into the search from the Overview: each library name and all four media cards open the Explorer pre-filtered to that scope
+  - Every categorical filter can be negated with Includes/Excludes, so you can search e.g. audio languages that are not German; excluded picks show as ≠ pills and counts preview what stays
+  - Four new breakdowns in the Codecs tab, each with drill-down to the exact files: Video Bitrate (7 tiers from < 2 to > 60 Mbps), Audio Languages, Subtitle Languages and Watched (by username plus Never watched)
+  - Each bitrate tier uses what Jellyfin measured for the video stream; when a file has no per-stream value the average is estimated from its size and runtime, so almost every file lands in a real tier instead of Unknown
+  - Disabled Jellyfin users no longer skew results: their old plays are excluded from Smart Recommendations, watch history and the new Watched breakdown
+  - Long breakdowns start collapsed behind a Show-all toggle with Unknown always last, and unreadable language tags fold into Unknown instead of junk entries
+  - Tested by 6081 unit tests and 331 end-to-end tests
+  - Requires Jellyfin 12.1 - if you are on Jellyfin 10.x, stay on v2.1.0.6

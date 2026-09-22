@@ -62,10 +62,12 @@ test.describe.serial('cleanup never escapes the media library', () => {
 
   test('an orphan-looking folder containing a symlink out of the library does not delete the target', async () => {
     // A folder whose only "content" is a symlink to an external dir. Whatever the cleanup decides about the folder, the EXTERNAL target's data must survive.
-    test.skip(
-      !containerFileExists('/config/jfh-external/secret.mkv'),
-      '/config/jfh-external not writable in this environment - cannot seed the external target',
-    );
+    // beforeEach seeds this file (and the docker gate in ensureCanariesPlanted skips
+    // without a container); a missing seed means the setup broke - fail, don't skip.
+    expect(
+      containerFileExists('/config/jfh-external/secret.mkv'),
+      '/config/jfh-external must be writable to seed the external target',
+    ).toBe(true);
 
     containerMkdir(`${M}/Symlink Trap (2020)`);
     const linkRes = execInContainer(`ln -s /config/jfh-external "${M}/Symlink Trap (2020)/external"`);

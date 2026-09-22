@@ -300,7 +300,9 @@ test('timeline round-trips: exported data points come back via GET GrowthTimelin
 
   const backup = await exportBackup(true);
   const points = backup.growthTimeline?.dataPoints ?? backup.growthTimeline?.DataPoints;
-  test.skip(!Array.isArray(points) || points.length === 0, 'no timeline data points to round-trip yet');
+  // global-setup seeds and verifies the growth timeline, so an empty export means the
+  // seed or the export broke - failing here instead of skipping keeps that visible.
+  expect(Array.isArray(points) && points.length > 0, 'global-setup must have seeded timeline data points').toBe(true);
 
   const res = await importBackup(backup);
   expect(res.ok(), `import failed: ${res.status()}`).toBeTruthy();

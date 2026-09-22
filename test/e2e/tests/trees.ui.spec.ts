@@ -10,6 +10,11 @@ test('Codecs tab: clicking a breakdown row opens a file tree that expands/collap
   await openDashboard(page);
   await switchTab(page, 'codecs');
 
+  // Breakdowns start collapsed, so expand the first chart before touching a row.
+  const firstToggle = page.locator('[data-breakdown-toggle]').first();
+  await expect(firstToggle).toBeVisible({ timeout: 20_000 });
+  await firstToggle.click();
+
   // Requires scan data; wait for at least one clickable codec row.
   const row = page.locator('.codec-row.codec-clickable').first();
   await expect(row).toBeVisible({ timeout: 20_000 });
@@ -68,6 +73,10 @@ test('Codecs tab: clicking a book format shows the book file tree, not an empty 
   // The e2e fixture always provisions a Books library (EPUB+PDF), so the
   // bookFormats breakdown must render. Do not skip on absence, or this regression
   // guard would pass without ever exercising the book file-tree path.
+  // The bookFormats breakdown starts collapsed like every other chart.
+  const bookBox = page.locator('.chart-box').filter({ has: page.locator('.codec-row.codec-clickable[data-chart="bookFormats"]') });
+  await bookBox.locator('[data-breakdown-toggle]').click();
+
   const bookRow = page.locator('.codec-row.codec-clickable[data-chart="bookFormats"]').first();
   await expect(bookRow, 'bookFormats breakdown row must render from the Books fixture').toBeVisible({ timeout: 20_000 });
   await bookRow.click();

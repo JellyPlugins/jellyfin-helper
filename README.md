@@ -23,15 +23,15 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 
 [![Quality gate](https://img.shields.io/sonar/quality_gate/JellyPlugins_jellyfin-helper?server=https%3A%2F%2Fsonarcloud.io&style=flat-square&logo=sonarcloud&logoColor=white&labelColor=2d333b)](https://sonarcloud.io/summary/new_code?id=JellyPlugins_jellyfin-helper)<br>
 [![codecov](https://img.shields.io/codecov/c/github/JellyPlugins/jellyfin-helper?style=flat-square&logo=codecov&logoColor=white&labelColor=2d333b)](https://codecov.io/gh/JellyPlugins/jellyfin-helper)<br>
-[![Tests](https://img.shields.io/badge/unit%20tests-5551-2ea043?style=flat-square&logo=checkmarx&logoColor=white&labelColor=2d333b)](Jellyfin.Plugin.JellyfinHelper.Tests/)<br>
-[![E2E](https://img.shields.io/badge/e2e%20tests-320-2ea043?style=flat-square&logo=docker&logoColor=white&labelColor=2d333b)](test/e2e/)
+[![Tests](https://img.shields.io/badge/unit%20tests-6081-2ea043?style=flat-square&logo=checkmarx&logoColor=white&labelColor=2d333b)](Jellyfin.Plugin.JellyfinHelper.Tests/)<br>
+[![E2E](https://img.shields.io/badge/e2e%20tests-331-2ea043?style=flat-square&logo=docker&logoColor=white&labelColor=2d333b)](test/e2e/)
 
 </td>
 <td style="vertical-align: top; text-align: center;">
 
 **Stack**
 
-[![Jellyfin](https://img.shields.io/badge/Jellyfin-12.0+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white&labelColor=2d333b)](https://jellyfin.org/)<br>
+[![Jellyfin](https://img.shields.io/badge/Jellyfin-12.1+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white&labelColor=2d333b)](https://jellyfin.org/)<br>
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white&labelColor=2d333b)](https://dotnet.microsoft.com/)<br>
 [![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square&logo=gnu&logoColor=white&labelColor=2d333b)](LICENSE)
 
@@ -76,9 +76,9 @@ Explore the full 8-tab dashboard with realistic sample data. No Jellyfin server 
 
 All tasks default to **Dry Run** mode. Nothing is deleted until you explicitly activate them.
 
-**Compatibility:** Jellyfin **12.0+** · .NET **10.0**
+**Compatibility:** Jellyfin **12.1+** · .NET **10.0**
 
-> **Using Jellyfin 10.x?** Stay on plugin version **v2.1.0.6**, which remains available in the repository. Version 3.x targets Jellyfin 12.0 and will not install on older servers.
+> **Using Jellyfin 10.x?** Stay on plugin version **v2.1.0.6**, which remains available in the repository. Version 3.x targets Jellyfin 12.x and will not install on older servers.
 
 ---
 

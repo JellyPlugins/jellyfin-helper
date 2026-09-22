@@ -1063,10 +1063,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Normalizes ISO 639-2/B (3-letter) and ISO 639-3 language codes to ISO 639-1 (2-letter) for consistent cross-item comparison.
+    ///     Normalizes language tags to ISO 639-1 (2-letter) for consistent cross-item comparison.
+    ///     Identity resolution lives in LanguageIdentity (codes, names in any author locale,
+    ///     UI locale exonyms), so training and inference collapse spelling variants alike.
+    ///     Unresolvable tags pass through lowercased, preserving the previous contract.
     /// </summary>
-    /// <param name="language">The raw language code from the media stream metadata.</param>
-    /// <returns>A normalized 2-letter language code, or null if the input is invalid.</returns>
+    /// <param name="language">The raw language tag from the media stream metadata.</param>
+    /// <returns>A normalized 2-letter language code, the lowercased tag when unresolvable, or null if the input is invalid.</returns>
     internal static string? NormalizeLanguage(string? language)
     {
         if (string.IsNullOrWhiteSpace(language))
@@ -1074,53 +1077,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             return null;
         }
 
-        var lower = language.Trim().ToLowerInvariant();
-
-        return lower switch
-        {
-            "ger" or "deu" => "de",
-            "eng" => "en",
-            "jpn" => "ja",
-            "fre" or "fra" => "fr",
-            "spa" => "es",
-            "ita" => "it",
-            "por" => "pt",
-            "rus" => "ru",
-            "chi" or "zho" => "zh",
-            "kor" => "ko",
-            "dut" or "nld" => "nl",
-            "pol" => "pl",
-            "tur" => "tr",
-            "ara" => "ar",
-            "hin" => "hi",
-            "swe" => "sv",
-            "dan" => "da",
-            "nor" or "nob" or "nno" => "no",
-            "fin" => "fi",
-            "hun" => "hu",
-            "ces" or "cze" => "cs",
-            "ron" or "rum" => "ro",
-            "tha" => "th",
-            "vie" => "vi",
-            "ukr" => "uk",
-            "heb" => "he",
-            "ell" or "gre" => "el",
-            "ind" => "id",
-            "msa" or "may" => "ms",
-            "hrv" => "hr",
-            "srp" => "sr",
-            "slk" or "slo" => "sk",
-            "slv" => "sl",
-            "bul" => "bg",
-            "cat" => "ca",
-            "est" => "et",
-            "lav" => "lv",
-            "lit" => "lt",
-            "fas" or "per" => "fa",
-            "urd" => "ur",
-            _ when lower.Length == 2 => lower, // Already ISO 639-1
-            _ => lower // Keep unmapped 3-letter codes as-is
-        };
+        return LanguageIdentity.GetIso6391Code(language) ?? language.Trim().ToLowerInvariant();
     }
 
     /// <summary>
@@ -1161,7 +1118,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary but falling back to a per-item GetUserData call when the batch was not available for this user (batch returned null due to an exception upstream).
+    ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary but falling back to a per-item GetUserData call when the batch was not available for this user (batch returned null due to an exception upstream) or lacks this item (partial batch).
     /// </summary>
     /// <param name="lookup">The batch lookup, or <c>null</c> if the batch failed.</param>
     /// <param name="item">The item whose user data to fetch.</param>
@@ -1172,9 +1129,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
         BaseItem item,
         Jellyfin.Database.Implementations.Entities.User user)
     {
-        if (lookup is not null)
+        // A partial batch drops single items silently without this: a present map
+        // missing one key falls back to the per-item call instead of losing the interaction.
+        if (lookup is not null && lookup.TryGetValue(item.Id, out var found))
         {
-            lookup.TryGetValue(item.Id, out var found);
             return found;
         }
 

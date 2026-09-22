@@ -64,7 +64,9 @@ test.describe.serial('recommendations playlist create → purge', () => {
     await sleep(2000); // let Jellyfin persist the playlist items
 
     const created = await managedPlaylistCount();
-    test.skip(created === 0, 'engine produced no recommendation playlists on this library - purge assertion would be vacuous');
+    // The Activate run above must produce playlists on the fixture library; zero means
+    // the engine or the sync broke and the purge assertion below would pass vacuously.
+    expect(created, 'engine must produce recommendation playlists on the fixture library').toBeGreaterThan(0);
 
     // Deactivate -> the purge branch must remove every managed playlist.
     await putConfig({ RecommendationsTaskMode: 'Deactivate' });

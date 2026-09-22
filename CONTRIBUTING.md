@@ -22,7 +22,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 ### Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- [Jellyfin Server 12.0.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
+- [Jellyfin Server 12.1.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
 - Recommended: [JetBrains Rider](https://www.jetbrains.com/rider/) or [Visual Studio 2022+](https://visualstudio.microsoft.com/)
 - Recommended: [Node.js 20+](https://nodejs.org/) (for JavaScript linting; E2E Playwright requires 20+)
 
@@ -221,6 +221,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── AtomicFileTests.cs             # UTF-8 no-BOM, temp-file cleanup, transient-IO retry, async CancellationToken
 │   │   ├── BatchFallbackHelperTests.cs    # try-batch/fall-back: cancellation propagates, non-fatal exceptions degrade gracefully
 │   │   ├── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
+│   │   ├── LanguageIdentityTests.cs       # Canonical code resolution, display names, tag cleaning, flag words
 │   │   ├── HttpResponseReaderTests.cs     # Size-bounded read: under/at/over limit (EOF probe at exact limit), Content-Length fast-reject, null, cancellation
 │   │   ├── LimitedStreamTests.cs          # Direct stream tests: capability flags, sync/async read paths, over-limit throw, NotSupported members
 │   │   ├── SsrfGuardTests.cs              # Cloud metadata hosts blocked (incl. IPv6/case-insensitive); LAN/loopback/public allowed
@@ -271,6 +272,15 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip
 │   ├── Statistics/                # Statistics service tests
+│   │   ├── MediaStatisticsResultTests.cs # Aggregate totals and dictionary rollups
+│   │   ├── MediaStatisticsResultLanguageTests.cs # Audio/subtitle language and watched aggregates
+│   │   ├── MediaStatisticsServiceTests.cs # Library scanning, trickplay sizing, cycle guards
+│   │   ├── MediaStatisticsServiceBitrateTests.cs # Bitrate tier thresholds, absolute measurement, legacy mapping
+│   │   ├── MediaStatisticsServiceLanguageTests.cs # Audio/subtitle language extraction, track labels, variant collapsing
+│   │   ├── MediaStatisticsServiceTvShowTests.cs # TV show structure and orphaned-metadata handling
+│   │   ├── MediaStatisticsServiceWatchedTests.cs # Watched status extraction (disabled users excluded)
+│   │   ├── StatisticsCacheServiceTests.cs # Persisting and loading cached statistics results
+│   │   ├── WatchedUserDetailTests.cs # WatchedUserDetail DTO defaults and JSON round-trip
 │   │   └── MediaStatisticsServiceTrashPathResolutionTests.cs # Trash-path resolution and BuildItemLookup case-insensitive keying / empty-path skip
 │   ├── Timeline/                  # Growth timeline tests
 │   │   ├── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks
@@ -468,6 +478,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── BackupSanitizer.cs         # Clamp/normalize values
 │   ├── Common/                      # Shared cross-service helpers
 │   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
+│   │   ├── LanguageIdentity.cs      # Shared media language identity: tags to ISO 639-1 codes and stable display names
 │   │   ├── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
 │   │   ├── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
 │   │   ├── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses
@@ -758,6 +769,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `AtomicFileTests.cs`
 - `BatchFallbackHelperTests.cs`
 - `ExceptionExtensionsTests.cs`
+- `LanguageIdentityTests.cs` - Tests canonical code resolution, display names, and tag cleaning
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/ConfigAccess/`
 
@@ -888,8 +900,13 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Statistics/`
 
 - `MediaStatisticsResultTests.cs` - Unit tests for MediaStatisticsResult aggregate totals and dictionary rollups
+- `MediaStatisticsResultLanguageTests.cs` - Unit tests for MediaStatisticsResult audio/subtitle language and watched aggregates
 - `MediaStatisticsServiceTests.cs` - Unit tests for MediaStatisticsService library scanning and statistics calculation
 - `MediaStatisticsServiceTvShowTests.cs` - Unit tests for MediaStatisticsService TV show structure and orphaned-metadata handling
+- `MediaStatisticsServiceBitrateTests.cs` - Unit tests for MediaStatisticsService bitrate tier thresholds and legacy mapping
+- `MediaStatisticsServiceLanguageTests.cs` - Unit tests for MediaStatisticsService audio/subtitle language extraction
+- `MediaStatisticsServiceWatchedTests.cs` - Unit tests for MediaStatisticsService watched status extraction (disabled users excluded)
+- `WatchedUserDetailTests.cs` - Unit tests for the WatchedUserDetail DTO defaults and JSON round-trip
 - `StatisticsCacheServiceTests.cs` - Unit tests for StatisticsCacheService persisting and loading cached statistics results
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Timeline/`
@@ -994,11 +1011,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper/PluginPages/js/`
 
-- `ArrIntegration.js`
-- `Codecs.js`
-- `FolderBrowser.js`
-- `Health.js`
-- `Logs.js`
+  - `ArrIntegration.js`
+  - `Codecs.js`
+  - `CodecsExplorer.js`
+  - `FolderBrowser.js`
+  - `Health.js`
+  - `Logs.js`
 - `Main.js`
 - `Overview.js`
 - `Recommendations.js`
@@ -1074,6 +1092,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `AtomicFile.cs`
 - `BatchFallbackHelper.cs`
 - `ExceptionExtensions.cs`
+- `LanguageIdentity.cs` - Shared media language identity: track tags to canonical ISO 639-1 codes and stable English display names (codes, endonyms, UI locale exonyms, diacritic folding)
 
 `Jellyfin.Plugin.JellyfinHelper/Services/ConfigAccess/`
 
@@ -1231,6 +1250,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `LibraryStatistics.cs` - Per-library statistics model: file sizes/counts, codec/quality breakdowns, health checks
 - `MediaStatisticsResult.cs` - Aggregated media scan result grouping libraries by type with computed totals
 - `MediaStatisticsService.cs` - Recursively scans libraries computing size, codec, resolution, and health statistics
+- `WatchedUserDetail.cs` - Per-file per-user watch detail DTO (username, play count, last played)
 - `StatisticsCacheService.cs` - Persists the latest statistics result to disk as JSON via atomic write
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Timeline/`
@@ -1437,7 +1457,7 @@ Trends.css, Settings.css, ArrIntegration.css,
 Recommendations.css, Logs.css
 
 # JS order (csproj JsModule items)
-Shared.js, Overview.js, Codecs.js, Health.js,
+Shared.js, Overview.js, Codecs.js, CodecsExplorer.js, Health.js,
 Trends.js, Settings.js, ArrIntegration.js,
 Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```

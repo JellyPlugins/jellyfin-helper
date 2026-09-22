@@ -195,8 +195,8 @@ function loadTrashHealthSection() {
 
 function fillHealthData(data) {
     var healthHtml = '<div class="health-card" id="healthChecksCard">';
-    healthHtml += '<div class="section-title">' + T('healthChecks',
-        'Library Health Checks') + '</div>';
+    healthHtml += '<div class="section-title">' + escHtml(T('healthChecks',
+        'Library Health Checks')) + '</div>';
     healthHtml += renderHealthChecks(data);
     healthHtml += '</div>';
 

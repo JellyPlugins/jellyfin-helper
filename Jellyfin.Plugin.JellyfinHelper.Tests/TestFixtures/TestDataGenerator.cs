@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
@@ -134,6 +135,8 @@ public static class TestDataGenerator
         lib.VideoAudioCodecs["DTS"] = 100;
         lib.VideoAudioCodecs["AAC"] = 200;
         lib.MusicAudioCodecs["FLAC"] = 10;
+        lib.VideoBitrateTiers["8–16 Mbps"] = 200;
+        lib.VideoBitrateTiers["16–32 Mbps"] = 100;
 
         // Codec sizes
         lib.ContainerSizes["MKV"] = 700_000_000_000L;
@@ -146,6 +149,44 @@ public static class TestDataGenerator
         lib.VideoAudioCodecSizes["DTS"] = 400_000_000_000L;
         lib.VideoAudioCodecSizes["AAC"] = 600_000_000_000L;
         lib.MusicAudioCodecSizes["FLAC"] = 5_000_000_000L;
+        lib.VideoBitrateTierSizes["8–16 Mbps"] = 500_000_000_000L;
+        lib.VideoBitrateTierSizes["16–32 Mbps"] = 500_000_000_000L;
+        lib.DynamicRanges["SDR"] = 250;
+        lib.DynamicRanges["HDR10"] = 50;
+        lib.DynamicRangeSizes["SDR"] = 800_000_000_000L;
+        lib.DynamicRangeSizes["HDR10"] = 200_000_000_000L;
+        lib.AudioLanguages["English"] = 250;
+        lib.AudioLanguages["German"] = 80;
+        lib.AudioLanguageSizes["English"] = 800_000_000_000L;
+        lib.AudioLanguageSizes["German"] = 200_000_000_000L;
+        lib.SubtitleLanguages["English"] = 200;
+        lib.SubtitleLanguages["German"] = 60;
+        lib.SubtitleLanguageSizes["English"] = 700_000_000_000L;
+        lib.SubtitleLanguageSizes["German"] = 150_000_000_000L;
+        lib.WatchedTiers["Watched"] = 180;
+        lib.WatchedTiers["Never watched"] = 120;
+        lib.WatchedTierSizes["Watched"] = 600_000_000_000L;
+        lib.WatchedTierSizes["Never watched"] = 400_000_000_000L;
+
+        // Per file maps so serialization roundtrips cover them, not just empty dicts.
+        var samplePath = TestPath("media", "movies", "Sample.mkv");
+        lib.FileSizes[samplePath] = 8_000_000_000L;
+        lib.VideoBitrates[samplePath] = 12.5;
+        lib.ResolutionDimensions[samplePath] = "1920x800";
+        lib.VideoCodecPaths["H.264"] = new Collection<string> { samplePath };
+        lib.VideoAudioCodecPaths["AAC"] = new Collection<string> { samplePath };
+        lib.ContainerFormatPaths["MKV"] = new Collection<string> { samplePath };
+        lib.ResolutionPaths["1080p"] = new Collection<string> { samplePath };
+        lib.DynamicRangePaths["SDR"] = new Collection<string> { samplePath };
+        lib.VideoBitrateTierPaths["8–16 Mbps"] = new Collection<string> { samplePath };
+        lib.AudioLanguagePaths["English"] = new Collection<string> { samplePath };
+        lib.SubtitleLanguagePaths["English"] = new Collection<string> { samplePath };
+        lib.WatchedTierPaths["Watched"] = new Collection<string> { samplePath };
+        lib.AudioTrackLabels[samplePath] = new Collection<string> { "English", "German (Forced)" };
+        lib.SubtitleTrackLabels[samplePath] = new Collection<string> { "English (SRT)" };
+        lib.WatchedByUserPaths["Alice"] = new Collection<string> { samplePath };
+        lib.WatchedByUserSizes["Alice"] = 8_000_000_000L;
+        lib.WatchedDetails[samplePath] = new Collection<WatchedUserDetail> { new() { Username = "Alice", PlayCount = 3 } };
 
         // Health check paths
         lib.VideosWithoutSubtitlesPaths.Add(TestPath("media", "movies", "NoSub1.mkv"));
@@ -229,6 +270,32 @@ public static class TestDataGenerator
         musicLib.ResolutionSizes.Clear();
         musicLib.VideoCodecSizes.Clear();
         musicLib.VideoAudioCodecSizes.Clear();
+        musicLib.VideoBitrateTiers.Clear();
+        musicLib.VideoBitrateTierSizes.Clear();
+        musicLib.VideoBitrateTierPaths.Clear();
+        musicLib.DynamicRanges.Clear();
+        musicLib.DynamicRangeSizes.Clear();
+        musicLib.DynamicRangePaths.Clear();
+        musicLib.VideoCodecPaths.Clear();
+        musicLib.VideoAudioCodecPaths.Clear();
+        musicLib.ContainerFormatPaths.Clear();
+        musicLib.ResolutionPaths.Clear();
+        musicLib.ResolutionDimensions.Clear();
+        musicLib.VideoBitrates.Clear();
+        musicLib.AudioLanguages.Clear();
+        musicLib.AudioLanguageSizes.Clear();
+        musicLib.AudioLanguagePaths.Clear();
+        musicLib.SubtitleLanguages.Clear();
+        musicLib.SubtitleLanguageSizes.Clear();
+        musicLib.SubtitleLanguagePaths.Clear();
+        musicLib.AudioTrackLabels.Clear();
+        musicLib.SubtitleTrackLabels.Clear();
+        musicLib.WatchedTiers.Clear();
+        musicLib.WatchedTierSizes.Clear();
+        musicLib.WatchedTierPaths.Clear();
+        musicLib.WatchedByUserPaths.Clear();
+        musicLib.WatchedByUserSizes.Clear();
+        musicLib.WatchedDetails.Clear();
         musicLib.VideosWithoutSubtitles = 0;
         musicLib.VideosWithoutImages = 0;
         musicLib.VideosWithoutNfo = 0;

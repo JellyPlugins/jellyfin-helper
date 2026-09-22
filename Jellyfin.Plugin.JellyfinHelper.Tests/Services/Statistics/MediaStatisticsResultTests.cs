@@ -153,6 +153,45 @@ public class MediaStatisticsResultTests
     }
 
     [Fact]
+    public void TotalVideoBitrateTiers_AggregatesVideoOnly()
+    {
+        var result = new MediaStatisticsResult();
+        var movie = new LibraryStatistics();
+        movie.VideoBitrateTiers["10-20 Mbps"] = 10;
+        var tv = new LibraryStatistics();
+        tv.VideoBitrateTiers["10-20 Mbps"] = 5;
+        var musicOnly = new LibraryStatistics();
+        musicOnly.VideoBitrateTiers["< 2 Mbps"] = 99;
+
+        result.Libraries.Add(movie);
+        result.Libraries.Add(tv);
+        result.Libraries.Add(musicOnly);
+        result.Movies.Add(movie);
+        result.TvShows.Add(tv);
+
+        var totals = result.TotalVideoBitrateTiers;
+        Assert.Equal(15, totals["10-20 Mbps"]);
+        Assert.False(totals.ContainsKey("< 2 Mbps"), "Music-only entry must not appear in video-only TotalVideoBitrateTiers");
+    }
+
+    [Fact]
+    public void TotalVideoBitrateTierSizes_AggregatesVideoOnly()
+    {
+        var result = new MediaStatisticsResult();
+        var movie = new LibraryStatistics();
+        movie.VideoBitrateTierSizes["10-20 Mbps"] = 2000L;
+        var musicOnly = new LibraryStatistics();
+        musicOnly.VideoBitrateTierSizes["< 2 Mbps"] = 500L;
+
+        result.Libraries.Add(movie);
+        result.Libraries.Add(musicOnly);
+        result.Movies.Add(movie);
+
+        Assert.Equal(2000L, result.TotalVideoBitrateTierSizes["10-20 Mbps"]);
+        Assert.False(result.TotalVideoBitrateTierSizes.ContainsKey("< 2 Mbps"), "Music-only entry must not appear in video-only TotalVideoBitrateTierSizes");
+    }
+
+    [Fact]
     public void TotalVideoAudioCodecs_AggregatesDictionaries()
     {
         var result = new MediaStatisticsResult();
@@ -401,15 +440,30 @@ public class MediaStatisticsResultTests
         Assert.Equal(0, result.TotalNfoSize);
         Assert.Equal(0, result.TotalVideoFileCount);
         Assert.Equal(0, result.TotalAudioFileCount);
+        Assert.Equal(0, result.TotalBookSize);
+        Assert.Equal(0, result.TotalBookFileCount);
         Assert.Equal(0, result.TotalVideosWithoutSubtitles);
         Assert.Equal(0, result.TotalVideosWithoutImages);
         Assert.Equal(0, result.TotalVideosWithoutNfo);
         Assert.Equal(0, result.TotalOrphanedMetadataDirectories);
+        Assert.Empty(result.TotalBookFormats);
         Assert.Empty(result.TotalContainerFormats);
         Assert.Empty(result.TotalResolutions);
         Assert.Empty(result.TotalVideoCodecs);
         Assert.Empty(result.TotalVideoAudioCodecs);
         Assert.Empty(result.TotalMusicAudioCodecs);
+        Assert.Empty(result.TotalDynamicRanges);
+        Assert.Empty(result.TotalDynamicRangeSizes);
+        Assert.Empty(result.TotalVideoBitrateTiers);
+        Assert.Empty(result.TotalVideoBitrateTierSizes);
+        Assert.Empty(result.TotalAudioLanguages);
+        Assert.Empty(result.TotalAudioLanguageSizes);
+        Assert.Empty(result.TotalSubtitleLanguages);
+        Assert.Empty(result.TotalSubtitleLanguageSizes);
+        Assert.Empty(result.TotalWatchedTiers);
+        Assert.Empty(result.TotalWatchedTierSizes);
+        Assert.Empty(result.TotalWatchedByUser);
+        Assert.Empty(result.TotalWatchedByUserSizes);
         Assert.Empty(result.TotalContainerSizes);
         Assert.Empty(result.TotalResolutionSizes);
         Assert.Empty(result.TotalVideoCodecSizes);

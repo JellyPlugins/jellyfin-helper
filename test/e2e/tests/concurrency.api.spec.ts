@@ -68,7 +68,10 @@ test('racing PUT /Configuration/LogLevel between two valid levels leaves exactly
   );
   const results = await Promise.all(puts);
   for (const r of results) {
-    expect(r.status(), `each racing LogLevel PUT succeeds (got ${r.status()})`).toBe(200);
+    // Read the body into the assertion message: a 500 here once hid its server-side
+    // cause behind a bare status, costing a full CI cycle to diagnose.
+    const body = r.ok() ? '' : ` body=${(await r.text()).slice(0, 300)}`;
+    expect(r.status(), `each racing LogLevel PUT succeeds (got ${r.status()}${body})`).toBe(200);
   }
 
   const cfgRes = await ctx.get(p('Configuration'));
