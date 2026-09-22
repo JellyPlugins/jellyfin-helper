@@ -15,6 +15,9 @@ var _touchOutsideListenerAttached = false;
 // Timestamp of last touchend - used to suppress touch-originated click events cross-browser
 var _lastTouchEndTime = 0;
 
+// Guard so the row sync listener registers once
+var _codecRowSyncBound = false;
+
 // SVG donut tooltip - reads rich data from _donutTooltipData
 function showDonutTooltip(container, evt, segment) {
     var tooltip = container.querySelector('.donut-tooltip');
@@ -483,6 +486,22 @@ function attachCodecClickHandlers() {
                 e.preventDefault();
                 toggleCodecBreakdown(this);
             }
+        });
+    }
+    // Collapsed visibility follows panel state, so the last closed row hides again.
+    if (!_codecRowSyncBound) {
+        _codecRowSyncBound = true;
+        document.addEventListener('click', function (evt) {
+            var row = evt.target && evt.target.closest ? evt.target.closest('.codec-breakdown .codec-clickable') : null;
+            if (!row) {
+                return;
+            }
+            var breakdown = row.closest('.codec-breakdown');
+            var toggle = breakdown ? breakdown.querySelector('[data-breakdown-toggle]') : null;
+            if (!toggle || toggle.dataset.expanded !== 'false') {
+                return;
+            }
+            row.style.display = row.classList.contains('codec-row-active') ? '' : 'none';
         });
     }
     attachTogglePanelHandlers({
