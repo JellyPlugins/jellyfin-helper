@@ -65,12 +65,30 @@ test('combining two filters narrows the result and shows both values', async ({ 
   await openDimEditor(page, 'videoCodecs');
   const codecOptions = page.locator('.codec-filter-editor [data-single-option="videoCodecs"]');
   expect(await codecOptions.count(), 'video codec filter must offer fixture data').toBeGreaterThan(1);
-  const secondValue = (await codecOptions.nth(1).getAttribute('data-single-value')) ?? '';
-  expect(secondValue.length, 'codec option must carry a value').toBeGreaterThan(0);
-  await codecOptions.nth(1).click();
-  await expect(summary).toContainText(secondValue, { timeout: 5_000 });
-  const combinedCount = await countFromSummary(summary);
-
+  // Find a codec that actually narrows the first filter's result (fixture has
+  // correlated most-frequent values, so first+first can be equal).
+  let combinedCount = 0;
+  let secondValue = '';
+  const codecCount = await codecOptions.count();
+  for (let i = 1; i < codecCount; i++) {
+    const opt = page.locator('.codec-filter-editor [data-single-option="videoCodecs"]').nth(i);
+    const val = (await opt.getAttribute('data-single-value')) ?? '';
+    if (!val) continue;
+    await opt.click();
+    await expect(page.locator('[data-filter-pop]')).toHaveCount(0);
+    await expect(summary).toContainText(val, { timeout: 5_000 });
+    const c = await countFromSummary(summary);
+    if (c > 0 && c < firstCount) {
+      combinedCount = c;
+      secondValue = val;
+      break;
+    }
+    // Try next codec – clear the current pill and reopen the editor.
+    const clear = page.locator('[data-pill-clear="videoCodecs"]');
+    if (await clear.count()) await clear.click();
+    await openDimEditor(page, 'videoCodecs');
+  }
+  expect(secondValue.length, 'no codec narrowed the first filter – fixture lacks intersecting pair').toBeGreaterThan(0);
   // Combining a second filter must strictly narrow the non-empty result.
   expect(combinedCount).toBeGreaterThan(0);
   expect(combinedCount).toBeLessThan(firstCount);
