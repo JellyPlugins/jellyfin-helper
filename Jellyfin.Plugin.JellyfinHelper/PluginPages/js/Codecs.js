@@ -290,6 +290,25 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
     return html;
 }
 
+// Collapsed lists mirror the active row, so switching segments never piles up visible rows.
+function syncCollapsedBreakdownRows(evt) {
+    var row = evt.target?.closest?.('.codec-breakdown .codec-clickable');
+    if (!row) {
+        return;
+    }
+    var breakdowns = document.querySelectorAll('.codec-breakdown');
+    for (const box of breakdowns) {
+        var toggle = box.querySelector('[data-breakdown-toggle]');
+        if (!toggle || toggle.dataset.expanded !== 'false') {
+            continue;
+        }
+        var hidden = box.querySelectorAll('[data-breakdown-hidden]');
+        for (const r of hidden) {
+            r.style.display = r.classList.contains('codec-row-active') ? '' : 'none';
+        }
+    }
+}
+
 function toggleCodecBreakdown(btn) {
     var breakdown = btn.closest ? btn.closest('.codec-breakdown') : null;
     if (!breakdown) return;
@@ -491,18 +510,7 @@ function attachCodecClickHandlers() {
     // Collapsed visibility follows panel state, so the last closed row hides again.
     if (!_codecRowSyncBound) {
         _codecRowSyncBound = true;
-        document.addEventListener('click', function (evt) {
-            var row = evt.target?.closest?.('.codec-breakdown .codec-clickable');
-            if (!row) {
-                return;
-            }
-            var breakdown = row.closest('.codec-breakdown');
-            var toggle = breakdown?.querySelector('[data-breakdown-toggle]');
-            if (!toggle || toggle.dataset.expanded !== 'false') {
-                return;
-            }
-            row.style.display = row.classList.contains('codec-row-active') ? '' : 'none';
-        });
+        document.addEventListener('click', syncCollapsedBreakdownRows);
     }
     attachTogglePanelHandlers({
         itemSelector: '.codec-clickable',

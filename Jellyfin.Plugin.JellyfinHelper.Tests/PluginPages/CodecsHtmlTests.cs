@@ -161,6 +161,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         // not stretch the card. The file-tree panel stays outside the list.
         Assert.Contains("codec-show-more", HtmlContent);
         Assert.Contains("function toggleCodecBreakdown", HtmlContent);
+        Assert.Contains("function syncCollapsedBreakdownRows", HtmlContent);
         Assert.Contains("data-breakdown-toggle", HtmlContent);
         Assert.Contains("_codecRowSyncBound", HtmlContent);
     }
