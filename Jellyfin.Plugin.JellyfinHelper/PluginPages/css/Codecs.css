@@ -815,7 +815,7 @@
     padding: 0.2em;
 }
 
-/* Explorer results: each section scrolls independently. */
+/* Explorer results: each section scrolls independently with blue scrollbars. */
 #codecExplorerResults .file-tree-panel.file-tree-panel-visible {
     max-height: none;
     overflow: visible;
@@ -854,10 +854,7 @@
 #codecExplorerResults .file-tree-section .tree-view {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-primary-scrollbar) transparent;
+    overflow: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: var(--color-primary-scrollbar) transparent;

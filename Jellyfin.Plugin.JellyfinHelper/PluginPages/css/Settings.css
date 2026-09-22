@@ -214,7 +214,10 @@
 /* noinspection CssUnusedSymbol */
 .arr-collapsible.arr-expanded > .arr-collapsible-body {
     max-height: 80vh;
-    overflow-y: auto;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     padding: 0.5em 1em 1em;
 }
 

@@ -316,6 +316,111 @@
     background: var(--color-primary-scrollbar-hover);
 }
 
+/* Unified scrollbar styles for consistent blue scrollbars across all tabs */
+.jfh-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
+    -webkit-overflow-scrolling: touch;
+}
+
+.jfh-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.jfh-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.jfh-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 3px;
+}
+
+.jfh-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
+}
+
+/* Horizontal-only scrollbar variant */
+.jfh-scrollbar-horizontal {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
+    -webkit-overflow-scrolling: touch;
+}
+
+.jfh-scrollbar-horizontal::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.jfh-scrollbar-horizontal::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.jfh-scrollbar-horizontal::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 3px;
+}
+
+.jfh-scrollbar-horizontal::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
+}
+
+/* Vertical-only scrollbar variant */
+.jfh-scrollbar-vertical {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
+    -webkit-overflow-scrolling: touch;
+}
+
+.jfh-scrollbar-vertical::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.jfh-scrollbar-vertical::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.jfh-scrollbar-vertical::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 3px;
+}
+
+.jfh-scrollbar-vertical::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
+}
+
+/* Both directions scrollbar variant */
+.jfh-scrollbar-both {
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
+    -webkit-overflow-scrolling: touch;
+}
+
+.jfh-scrollbar-both::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.jfh-scrollbar-both::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.jfh-scrollbar-both::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 3px;
+}
+
+.jfh-scrollbar-both::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
+}
+
 .tab-btn {
     display: flex;
     align-items: center;
@@ -495,8 +600,11 @@
     max-height: 500px;
     opacity: 1;
     margin-top: var(--spacing-md);
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--color-primary-border);
     border-radius: var(--radius-lg);

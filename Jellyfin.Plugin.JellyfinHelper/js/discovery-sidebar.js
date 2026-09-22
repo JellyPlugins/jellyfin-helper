@@ -202,10 +202,10 @@
             '.jfh-discovery-card-body { padding: 0.8em; flex: 1; display: flex; flex-direction: column; gap: 0.4em; }' +
             '.jfh-discovery-card-title { font-weight: 600; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
             '.jfh-discovery-card-meta { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow: hidden; }' +
-            '.jfh-discovery-card-genres { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }' +
-            '.jfh-discovery-card-genres::-webkit-scrollbar { height: 3px; }' +
+            '.jfh-discovery-card-genres { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar) transparent; }' +
+            '.jfh-discovery-card-genres::-webkit-scrollbar { height: 4px; }' +
             '.jfh-discovery-card-genres::-webkit-scrollbar-track { background: transparent; }' +
-            '.jfh-discovery-card-genres::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }' +
+            '.jfh-discovery-card-genres::-webkit-scrollbar-thumb { background: var(--color-primary-scrollbar); border-radius: 3px; }' +
             '.jfh-discovery-tag { background: rgba(255,255,255,0.1); border-radius: 4px; padding: 0.15em 0.5em; font-size: 0.75em; white-space: nowrap; flex-shrink: 0; }' +
             '.jfh-discovery-flip-links { display: flex; gap: 0.6em; margin-bottom: 0.8em; padding-bottom: 0.6em; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; }' +
             '.jfh-discovery-flip-link { display: inline-flex; align-items: center; gap: 0.3em; color: #00a4dc; text-decoration: none; font-size: 0.85em; font-weight: 500; padding: 0.3em 0.5em; border-radius: 4px; transition: background 0.2s, opacity 0.2s; opacity: 0.9; }' +

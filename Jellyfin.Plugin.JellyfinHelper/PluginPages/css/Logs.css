@@ -144,7 +144,10 @@
 /* Log entries table */
 .logs-table-wrapper {
     max-height: 520px;
-    overflow-y: auto;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     background: var(--color-surface-card);
