@@ -991,9 +991,9 @@
         gap: 0.5em;
     }
     .codec-filter-bar .codec-multi {
-        flex: 0 0 44%;
-        max-width: 44%;
-        min-width: 0;
+        flex: 1 1 auto;
+        max-width: 70%;
+        min-width: 140px;
     }
     .codec-filter-bar .codec-multi .codec-multi-summary {
         white-space: nowrap;
