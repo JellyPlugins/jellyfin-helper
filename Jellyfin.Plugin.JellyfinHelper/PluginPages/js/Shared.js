@@ -225,15 +225,15 @@ function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon) 
         + '</div></div>';
 }
 
-// Render a file list panel grouped by media type (movies, tvShows, music, books, other). result: { movies: string[], tvShows: string[], music: string[], books: string[], other: string[], rootPaths: {...} } title: string displayed in the header. Optional meta maps a file path to a short per-file label (e.g. "1920x800") shown next to the file name.
-function renderFileTree(result, title, meta) {
+// Render a file list panel grouped by media type (movies, tvShows, music, books, other). result: { movies: string[], tvShows: string[], music: string[], books: string[], other: string[], rootPaths: {...} } title: string displayed in the header. Optional meta maps a file path to a short per-file label (e.g. "1920x800") shown next to the file name. Optional otherIcon overrides the icon for the "other" category (e.g., folder icon for orphaned directories).
+function renderFileTree(result, title, meta, otherIcon) {
     var roots = result.rootPaths || {};
     var sections = [
         {files: result.movies, roots: roots.movies, badge: 'badge-movies', label: T('movies', 'Movies'), icon: mi('movie')},
         {files: result.tvShows, roots: roots.tvShows, badge: 'badge-tvshows', label: T('tvShows', 'TV Shows'), icon: mi('tv')},
         {files: result.music, roots: roots.music, badge: 'badge-music', label: T('music', 'Music'), icon: mi('music_note')},
         {files: result.books, roots: roots.books, badge: 'badge-books', label: T('books', 'Books'), icon: mi('description')},
-        {files: result.other, roots: roots.other, badge: 'badge-other', label: T('other', 'Other'), icon: mi('description')}
+        {files: result.other, roots: roots.other, badge: 'badge-other', label: T('other', 'Other'), icon: otherIcon || mi('description')}
     ];
 
     var totalFiles = 0;
