@@ -54,10 +54,12 @@
     transform: scale(1.05);
 }
 
-/* Keyboard focus mirrors the hover highlight for old engines without :has. */
+/* Keyboard focus mirrors the hover highlight. No outline box: on an SVG <g> it
+   renders as a rectangular frame around the circular chart.
+   Brightness plus scale already signal focus without the box. */
 .donut-svg .donut-segment:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
+    outline: none;
+    transform: scale(1.05);
 }
 
 .donut-svg .donut-segment:focus-visible path {
