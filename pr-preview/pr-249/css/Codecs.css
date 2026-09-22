@@ -54,9 +54,13 @@
     transform: scale(1.05);
 }
 
-/* Keyboard focus mirrors the hover highlight. No outline box: on an SVG <g> it
-   renders as a rectangular frame around the circular chart.
-   Brightness plus scale already signal focus without the box. */
+/* Focus never draws a box. Browsers paint a rect around SVG groups, so feedback
+   stays limited to scale and brightness. The plain focus rule covers mouse click. */
+.donut-svg .donut-segment:focus {
+    outline: none;
+    box-shadow: none;
+}
+
 .donut-svg .donut-segment:focus-visible {
     outline: none;
     transform: scale(1.05);
