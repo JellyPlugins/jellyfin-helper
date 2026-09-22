@@ -430,5 +430,7 @@
   "explorerRemoveFilter": "{label} filtresini kaldır",
   "explorerNoMatchingLibraries": "Eşleşen kütüphane yok",
   "codecShowMore": "Tümünü göster {count}",
-  "codecShowLess": "Daha az göster"
+  "codecShowLess": "Daha az göster",
+  "explorerIncludes": "İçerir",
+  "explorerExcludes": "İçermez"
 }

@@ -430,5 +430,7 @@
   "explorerRemoveFilter": "Ta bort filtret {label}",
   "explorerNoMatchingLibraries": "Inga matchande bibliotek",
   "codecShowMore": "Visa alla {count}",
-  "codecShowLess": "Visa mindre"
+  "codecShowLess": "Visa mindre",
+  "explorerIncludes": "Inkluderar",
+  "explorerExcludes": "Exkluderar"
 }

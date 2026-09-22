@@ -430,5 +430,7 @@
   "explorerRemoveFilter": "Remover o filtro {label}",
   "explorerNoMatchingLibraries": "Nenhuma biblioteca correspondente",
   "codecShowMore": "Mostrar tudo {count}",
-  "codecShowLess": "Mostrar menos"
+  "codecShowLess": "Mostrar menos",
+  "explorerIncludes": "Inclui",
+  "explorerExcludes": "Exclui"
 }
