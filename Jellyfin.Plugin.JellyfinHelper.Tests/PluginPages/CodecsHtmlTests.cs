@@ -236,6 +236,19 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_LibraryExplorer_DimensionEditorHasExcludeToggle()
+    {
+        // Each categorical dimension offers Includes/Excludes so filters negate
+        // without a second value state. Bitrate stays positive only by design.
+        Assert.Contains("data-exclude-toggle", HtmlContent);
+        Assert.Contains("function buildExcludeToggle", HtmlContent);
+        Assert.Contains("function onExplorerExcludeChanged", HtmlContent);
+        Assert.Contains("function isCodecsExplorerExcluded", HtmlContent);
+        Assert.Contains("function collectUniversePaths", HtmlContent);
+        Assert.Contains("explorerExcludes", HtmlContent);
+    }
+
+    [Fact]
     public void Html_CollectCodecPaths_AcceptsCategoriesParameter()
     {
         // collectCodecPaths should accept a categories parameter

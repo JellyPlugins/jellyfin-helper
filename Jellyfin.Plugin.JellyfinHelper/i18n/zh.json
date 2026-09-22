@@ -430,5 +430,7 @@
   "explorerRemoveFilter": "移除{label}筛选",
   "explorerNoMatchingLibraries": "没有匹配的媒体库",
   "codecShowMore": "显示全部 {count}",
-  "codecShowLess": "收起"
+  "codecShowLess": "收起",
+  "explorerIncludes": "包含",
+  "explorerExcludes": "不包含"
 }

@@ -169,6 +169,23 @@ test('language multi-dropdown selects several values and lists all in the summar
   await expect(leaf).toHaveAttribute('aria-expanded', 'true');
 });
 
+test('excluded filter shows negated pill and result header', async ({ page }) => {
+  await openExplorer(page);
+  await openDimEditor(page, 'audioLanguages');
+  const excludeBtn = page.locator('[data-exclude-toggle][data-exclude-value="1"]');
+  await expect(excludeBtn).toBeVisible({ timeout: 5_000 });
+  await excludeBtn.click();
+  const panel = page.locator('.codec-filter-editor [data-multi-panel="audioLanguages"]');
+  await expect(panel).toBeVisible({ timeout: 5_000 });
+  const boxes = panel.locator('input[type="checkbox"]');
+  expect(await boxes.count(), 'fixture must provide at least one audio language').toBeGreaterThanOrEqual(1);
+  await boxes.nth(0).check();
+  const first = await boxes.nth(0).inputValue();
+  await expect(page.locator('.codec-pill')).toContainText('≠', { timeout: 5_000 });
+  await expect(page.locator('.codec-pill')).toContainText(first);
+  await expect(page.locator('.codec-explorer-summary')).toContainText('≠', { timeout: 5_000 });
+});
+
 test('subtitle multi-dropdown selects a value and lists it in the summary', async ({ page }) => {
   await openExplorer(page);
   await openDimEditor(page, 'subtitleLanguages');

@@ -563,6 +563,7 @@
 }
 
 .codec-filter-add-btn:focus-visible,
+.codec-exclude-toggle button:focus-visible,
 .codec-filter-dim:focus-visible,
 .codec-pill-remove:focus-visible,
 .codec-filter-back:focus-visible,
@@ -663,6 +664,30 @@
 
 .codec-filter-editor-body {
     padding: 0 0.2em 0.2em;
+}
+
+/* Mode switch above the options. Quiet segmented pair, active side in primary. */
+.codec-exclude-toggle {
+    display: flex;
+    gap: 0.3em;
+    margin-bottom: 0.5em;
+}
+
+.codec-exclude-toggle button {
+    flex: 1;
+    padding: 0.4em 0.5em;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-sm, 6px);
+    color: inherit;
+    font-size: 0.82em;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.codec-exclude-toggle button[aria-pressed="true"] {
+    background: rgba(0, 164, 220, 0.12);
+    border-color: var(--color-primary);
 }
 
 .codec-filter-editor-body .codec-explorer-field {
@@ -986,9 +1011,15 @@
     /* noinspection CssUnusedSymbol */
     .codec-filter-add-btn,
     .codec-filter-back,
+    .codec-exclude-toggle button,
     .codec-bitrate-row input[type="number"] {
         background-color: rgba(0, 0, 0, 0.05);
         border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-exclude-toggle button[aria-pressed="true"] {
+        background-color: rgba(0, 164, 220, 0.1);
     }
 
     /* noinspection CssUnusedSymbol */

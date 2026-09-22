@@ -397,13 +397,19 @@ function formatBitrateRange(range, bounds) {
     return lo + '–' + hi + ' Mbps';
 }
 
-// Selected values of a dimension, always as an array (single-selects hold at most one).
+// Selected values of a dimension, always as an array.
 function getCodecsExplorerSelection(dimId) {
-    const value = _codecsExplorerState.filters[dimId];
-    if (value === undefined || value === null || value === '') {
+    const entry = _codecsExplorerState.filters[dimId];
+    if (!entry || !Array.isArray(entry.values)) {
         return [];
     }
-    return Array.isArray(value) ? value : [value];
+    return entry.values;
+}
+
+// True when the dimension subtracts its values instead of intersecting them.
+function isCodecsExplorerExcluded(dimId) {
+    const entry = _codecsExplorerState.filters[dimId];
+    return !!entry && entry.exclude === true;
 }
 
 // Active dimensions with values, optionally skipping one (for faceted counting).
@@ -415,7 +421,7 @@ function getCodecsExplorerActiveDims(exceptDimId) {
         }
         const values = getCodecsExplorerSelection(dim.id);
         if (values.length > 0) {
-            active.push({dim: dim, values: values});
+            active.push({dim: dim, values: values, exclude: isCodecsExplorerExcluded(dim.id)});
         }
     }
     return active;
@@ -455,6 +461,21 @@ function unionExplorerPaths(dim, values) {
     return union;
 }
 
+// Every file of the dimension groups, used as the base when NOT stands alone.
+function collectUniversePaths(dim) {
+    const coverage = {movies: 'ContainerFormatPaths', tvshows: 'ContainerFormatPaths', other: 'ContainerFormatPaths', music: 'MusicAudioCodecPaths', books: 'BookFormatPaths'};
+    let flat = [];
+    for (const group of dim.groups) {
+        for (const lib of getCodecsExplorerGroupLibraries(group)) {
+            const dict = lib[coverage[group]] || {};
+            for (const key of Object.keys(dict)) {
+                flat = flat.concat(dict[key] || []);
+            }
+        }
+    }
+    return flat;
+}
+
 function intersectPathMaps(first, second) {
     const next = {};
     for (const key of Object.keys(first)) {
@@ -470,11 +491,31 @@ function intersectExplorerFilters(active) {
         return null;
     }
     let result = null;
+    const excluded = [];
     for (const entry of active) {
         const union = unionExplorerPaths(entry.dim, entry.values);
-        result = result === null ? union : intersectPathMaps(result, union);
+        if (entry.exclude) {
+            excluded.push(union);
+        } else if (result === null) {
+            result = union;
+        } else {
+            result = intersectPathMaps(result, union);
+        }
     }
-    return result === null ? {} : result;
+    if (result === null) {
+        result = {};
+        for (const entry of active) {
+            for (const path of collectUniversePaths(entry.dim)) {
+                result[path] = true;
+            }
+        }
+    }
+    for (const union of excluded) {
+        for (const path of Object.keys(union)) {
+            delete result[path];
+        }
+    }
+    return result;
 }
 
 // Applies the library scope to an intersected path map. A selection without known
@@ -623,9 +664,29 @@ function countExplorerOptions(dim) {
         return universe[b] - universe[a];
     });
     const counts = {};
+    const excluded = isCodecsExplorerExcluded(dim.id);
     if (!hasOtherActiveFilters(dim.id)) {
+        if (!excluded) {
+            for (const option of options) {
+                counts[option] = universe[option];
+            }
+            return counts;
+        }
+        // Without other filters the rest is the scoped group universe minus the option.
+        const base = {};
+        for (const path of collectUniversePaths(dim)) {
+            base[path] = true;
+        }
+        const scoped = scopeExplorerPaths(base);
+        const size = Object.keys(scoped).length;
         for (const option of options) {
-            counts[option] = universe[option];
+            let hits = 0;
+            for (const path of collectExplorerValuePaths(dim, option)) {
+                if (scoped[path]) {
+                    hits++;
+                }
+            }
+            counts[option] = size - hits;
         }
         return counts;
     }
@@ -636,6 +697,8 @@ function countExplorerOptions(dim) {
         }
         return counts;
     }
+    // Exclude mode counts what stays, so picking another value previews the smaller rest.
+    const subsetSize = Object.keys(subset).length;
     for (const option of options) {
         const hits = {};
         for (const path of collectExplorerValuePaths(dim, option)) {
@@ -643,7 +706,8 @@ function countExplorerOptions(dim) {
                 hits[path] = true;
             }
         }
-        counts[option] = Object.keys(hits).length;
+        const count = Object.keys(hits).length;
+        counts[option] = excluded ? subsetSize - count : count;
     }
     return counts;
 }
@@ -680,14 +744,22 @@ function buildCodecsExplorerSingleList(dim) {
 }
 
 // Summary text for the multi-dropdown toggle: up to 3 names, then "+n".
-function explorerMultiSummary(selected) {
+function explorerMultiSummary(selected, excluded) {
     if (selected.length === 0) {
         return T('explorerAny', 'Any');
     }
-    if (selected.length <= 3) {
-        return selected.join(', ');
+    const text = selected.length <= 3 ? selected.join(', ') : selected.slice(0, 3).join(', ') + ' +' + (selected.length - 3);
+    return excluded ? '≠ ' + text : text;
+}
+
+// One helper keeps the list, the pills and the result header in sync.
+function explorerDimSummary(dim) {
+    const selected = getCodecsExplorerSelection(dim.id);
+    if (selected.length === 0) {
+        return T('explorerAny', 'Any');
     }
-    return selected.slice(0, 3).join(', ') + ' +' + (selected.length - 3);
+    const text = selected.join(', ');
+    return isCodecsExplorerExcluded(dim.id) ? '≠ ' + text : text;
 }
 
 // Multi-value dropdown mirroring the Settings library multi-select: a toggle button
@@ -705,7 +777,7 @@ function buildCodecsExplorerMulti(dim) {
     html += '<button type="button" class="codec-multi-toggle" id="codecMultiToggle_' + escAttr(dim.id) + '" data-multi-toggle="' + escAttr(dim.id) + '"'
         + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-labelledby="codecMultiLabel_' + escAttr(dim.id) + '"'
         + (disabled ? ' disabled' : '') + '>';
-    html += '<span class="codec-multi-summary">' + escHtml(explorerMultiSummary(selected)) + '</span>';
+    html += '<span class="codec-multi-summary">' + escHtml(explorerMultiSummary(selected, isCodecsExplorerExcluded(dim.id))) + '</span>';
     html += '<span class="codec-multi-chevron" aria-hidden="true">›</span></button>';
     html += '<div class="codec-multi-panel" data-multi-panel="' + escAttr(dim.id) + '"' + (open ? '' : ' hidden') + '>';
     for (let index = 0; index < visible.length; index++) {
@@ -817,8 +889,7 @@ function buildCodecsExplorerDimList() {
             continue;
         }
         shown++;
-        const selected = getCodecsExplorerSelection(dim.id);
-        const summary = selected.length > 0 ? selected.join(', ') : T('explorerAny', 'Any');
+        const summary = explorerDimSummary(dim);
         html += '<button type="button" class="codec-filter-dim" data-filter-dim="' + escAttr(dim.id) + '">'
             + '<span class="codec-filter-dim-name">' + escHtml(T(dim.labelKey, dim.fallback)) + '</span>'
             + '<span class="codec-filter-dim-summary">' + escHtml(summary) + '</span>'
@@ -838,6 +909,20 @@ function buildCodecsExplorerDimList() {
     if (shown === 0) {
         html += '<span class="codec-explorer-none">' + escHtml(T('explorerNoOptions', 'No matching options.')) + '</span>';
     }
+    html += '</div>';
+    return html;
+}
+
+// Mode switch above the options. Bitrate stays positive only by design.
+function buildExcludeToggle(dim) {
+    const excluded = isCodecsExplorerExcluded(dim.id);
+    let html = '<div class="codec-exclude-toggle" role="group" aria-label="' + escAttr(T(dim.labelKey, dim.fallback)) + '">';
+    html += '<button type="button" id="codecExcludeInclude_' + escAttr(dim.id) + '" data-exclude-toggle="' + escAttr(dim.id) + '" data-exclude-value="0"'
+        + ' aria-pressed="' + (!excluded ? 'true' : 'false') + '">'
+        + escHtml(T('explorerIncludes', 'Includes')) + '</button>';
+    html += '<button type="button" id="codecExcludeExclude_' + escAttr(dim.id) + '" data-exclude-toggle="' + escAttr(dim.id) + '" data-exclude-value="1"'
+        + ' aria-pressed="' + (excluded ? 'true' : 'false') + '">'
+        + escHtml(T('explorerExcludes', 'Excludes')) + '</button>';
     html += '</div>';
     return html;
 }
@@ -862,6 +947,7 @@ function buildCodecsExplorerDimEditor() {
         } else {
             body = buildCodecsExplorerSingleList(dim);
         }
+        body = buildExcludeToggle(dim) + body;
     }
     let html = '<div class="codec-filter-editor">';
     html += '<div class="codec-filter-editor-head"><button type="button" class="codec-filter-back" id="codecFilterBack" data-filter-back="1"'
@@ -887,7 +973,8 @@ function buildCodecsExplorerPillsInner() {
         if (selected.length === 0) {
             continue;
         }
-        const label = T(dim.labelKey, dim.fallback) + ': ' + selected.join(', ');
+        const sep = isCodecsExplorerExcluded(dim.id) ? ' ≠ ' : ': ';
+        const label = T(dim.labelKey, dim.fallback) + sep + selected.join(', ');
         const removeLabel = T('explorerRemoveFilter', 'Remove {label} filter').replace('{label}', T(dim.labelKey, dim.fallback));
         html += '<span class="codec-pill"><span class="codec-pill-label">'
             + escHtml(label)
@@ -964,7 +1051,8 @@ function buildCodecsExplorerHtml() {
 function explorerSummaryLabels(active) {
     const labels = [];
     for (const entry of active) {
-        labels.push(T(entry.dim.labelKey, entry.dim.fallback) + ': ' + entry.values.join(', '));
+        const sep = entry.exclude ? ' ≠ ' : ': ';
+        labels.push(T(entry.dim.labelKey, entry.dim.fallback) + sep + entry.values.join(', '));
     }
     return labels;
 }
@@ -1362,7 +1450,7 @@ function onExplorerLibrariesChanged() {
 function onExplorerSingleChanged(dimId, value) {
     const current = getCodecsExplorerSelection(dimId);
     if (value && (current.length === 0 || current[0] !== value)) {
-        _codecsExplorerState.filters[dimId] = value;
+        _codecsExplorerState.filters[dimId] = {values: [value], exclude: isCodecsExplorerExcluded(dimId)};
     } else {
         delete _codecsExplorerState.filters[dimId];
     }
@@ -1382,11 +1470,22 @@ function onExplorerMultiChanged(dimId) {
         }
     }
     if (values.length > 0) {
-        _codecsExplorerState.filters[dimId] = values;
+        _codecsExplorerState.filters[dimId] = {values: values, exclude: isCodecsExplorerExcluded(dimId)};
     } else {
         delete _codecsExplorerState.filters[dimId];
     }
     refreshCodecsExplorerControlsDebounced();
+}
+
+// The flag survives empty values so toggling first still applies to the next pick.
+function onExplorerExcludeChanged(dimId, exclude) {
+    const values = getCodecsExplorerSelection(dimId);
+    if (values.length > 0 || exclude) {
+        _codecsExplorerState.filters[dimId] = {values: values, exclude: exclude};
+    } else {
+        delete _codecsExplorerState.filters[dimId];
+    }
+    refreshCodecsExplorerControls();
 }
 
 function setMultiPanelOpen(dimId, open) {
@@ -1506,6 +1605,11 @@ function bindCodecsExplorerFilterHandlers() {
         backBtn.onclick = function () {
             _codecFilterOpen = 'add';
             refreshCodecsExplorerControls();
+        };
+    }
+    for (const modeBtn of document.querySelectorAll('[data-exclude-toggle]')) {
+        modeBtn.onclick = function () {
+            onExplorerExcludeChanged(modeBtn.dataset.excludeToggle, modeBtn.dataset.excludeValue === '1');
         };
     }
     bindPillHandlers();
@@ -1819,10 +1923,8 @@ function pruneExplorerDimSelection(dim) {
     });
     if (kept.length === 0) {
         delete _codecsExplorerState.filters[dim.id];
-    } else if (dim.multi) {
-        _codecsExplorerState.filters[dim.id] = kept;
     } else {
-        _codecsExplorerState.filters[dim.id] = kept[0];
+        _codecsExplorerState.filters[dim.id] = {values: dim.multi ? kept : [kept[0]], exclude: isCodecsExplorerExcluded(dim.id)};
     }
 }
 
