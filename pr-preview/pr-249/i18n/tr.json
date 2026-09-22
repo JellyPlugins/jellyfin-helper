@@ -428,5 +428,7 @@
   "explorerBitrateMax": "Maks (Mbps)",
   "explorerBitrateNoData": "Henüz bit hızı verisi yok. Mutlak bit hızına göre filtrelemek için yeni tarama çalıştırın.",
   "explorerRemoveFilter": "{label} filtresini kaldır",
-  "explorerNoMatchingLibraries": "Eşleşen kütüphane yok"
+  "explorerNoMatchingLibraries": "Eşleşen kütüphane yok",
+  "codecShowMore": "Tümünü göster {count}",
+  "codecShowLess": "Daha az göster"
 }

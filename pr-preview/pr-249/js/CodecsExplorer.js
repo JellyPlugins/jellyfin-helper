@@ -1186,7 +1186,7 @@ function runCodecsExplorerSearch() {
         host.innerHTML = '<p class="codec-explorer-empty">' + escHtml(T('explorerPickFilter', 'Pick at least one filter above to list matching files.')) + '</p>';
         return;
     }
-    const summary = outcome.paths.length + ' ' + (outcome.paths.length === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files')));
+    const summary = outcome.paths.length + ' ' + (outcome.paths.length === 1 ? T('file', 'file') : T('files', 'files'));
     const labels = explorerSummaryLabels(outcome.active);
     if (outcome.bitrateActive) {
         labels.push(T('videoBitrate', 'Video Bitrate') + ': ' + formatBitrateRange(_codecsExplorerState.bitrateRange, getBitrateBounds()));

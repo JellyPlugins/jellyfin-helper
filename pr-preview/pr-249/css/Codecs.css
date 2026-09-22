@@ -159,6 +159,24 @@
     padding-top: 0.6em;
 }
 
+/* Show all toggle for long breakdowns (languages with 20+ rows). Full-width
+   text button so the card stays compact without nesting a tree collapsible. */
+.codec-show-more {
+    width: 100%;
+    margin-top: 0.4em;
+    padding: 0.5em;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-md, 8px);
+    color: inherit;
+    font-size: 0.85em;
+    cursor: pointer;
+}
+
+.codec-show-more:hover {
+    border-color: var(--color-primary);
+}
+
 .codec-row {
     display: flex;
     align-items: center;
@@ -537,6 +555,7 @@
 .codec-single-option:focus-visible,
 .codec-explore-link:focus-visible,
 .codec-multi-toggle:focus-visible,
+.codec-show-more:focus-visible,
 .codec-bitrate-row input:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
@@ -891,7 +910,8 @@
     }
 
     .codec-explorer-toggle,
-    .codec-explorer-reset {
+    .codec-explorer-reset,
+    .codec-show-more {
         min-height: 44px;
     }
 }
@@ -916,7 +936,8 @@
 
     /* noinspection CssUnusedSymbol */
     .codec-explorer-toggle,
-    .codec-explorer-reset {
+    .codec-explorer-reset,
+    .codec-show-more {
         background-color: rgba(0, 0, 0, 0.03);
         border-color: rgba(0, 0, 0, 0.15);
     }

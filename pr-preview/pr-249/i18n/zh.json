@@ -428,5 +428,7 @@
   "explorerBitrateMax": "最大 (Mbps)",
   "explorerBitrateNoData": "暂无码率数据。运行新的扫描以按绝对码率筛选。",
   "explorerRemoveFilter": "移除{label}筛选",
-  "explorerNoMatchingLibraries": "没有匹配的媒体库"
+  "explorerNoMatchingLibraries": "没有匹配的媒体库",
+  "codecShowMore": "显示全部 {count}",
+  "codecShowLess": "收起"
 }

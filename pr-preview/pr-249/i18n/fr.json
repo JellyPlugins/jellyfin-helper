@@ -428,5 +428,7 @@
   "explorerBitrateMax": "Max (Mbps)",
   "explorerBitrateNoData": "Aucune donnée de débit. Lancez une nouvelle analyse pour filtrer par débit absolu.",
   "explorerRemoveFilter": "Supprimer le filtre {label}",
-  "explorerNoMatchingLibraries": "Aucune bibliothèque correspondante"
+  "explorerNoMatchingLibraries": "Aucune bibliothèque correspondante",
+  "codecShowMore": "Tout afficher {count}",
+  "codecShowLess": "Afficher moins"
 }

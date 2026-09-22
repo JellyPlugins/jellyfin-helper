@@ -428,5 +428,7 @@
   "explorerBitrateMax": "Max (Mbps)",
   "explorerBitrateNoData": "Ingen bitratedata ännu. Kör en ny skanning för att filtrera på absolut bitrate.",
   "explorerRemoveFilter": "Ta bort filtret {label}",
-  "explorerNoMatchingLibraries": "Inga matchande bibliotek"
+  "explorerNoMatchingLibraries": "Inga matchande bibliotek",
+  "codecShowMore": "Visa alla {count}",
+  "codecShowLess": "Visa mindre"
 }

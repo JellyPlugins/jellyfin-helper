@@ -158,6 +158,9 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
     }
 
     entries.sort(function (a, b) {
+        var aUnknown = (a.label || '').toLowerCase() === 'unknown';
+        var bUnknown = (b.label || '').toLowerCase() === 'unknown';
+        if (aUnknown !== bUnknown) return aUnknown ? 1 : -1;
         return b.value - a.value;
     });
 
@@ -226,7 +229,10 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
     return donutContainer;
 }
 
-// Build the clickable codec breakdown table below the donut
+// Build the clickable codec breakdown table below the donut.
+// Long lists collapse after a few rows with a Show all toggle so language
+// facets with 20+ entries do not stretch the card. The file-tree panel stays
+// outside the list, so expanding rows never nests a tree inside a collapsible.
 function renderCodecBreakdown(countDict, sizeDict, chartId) {
     var entries = [];
     var total = 0;
@@ -242,15 +248,23 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
     }
 
     entries.sort(function (a, b) {
+        var aUnknown = (a.label || '').toLowerCase() === 'unknown';
+        var bUnknown = (b.label || '').toLowerCase() === 'unknown';
+        if (aUnknown !== bUnknown) return aUnknown ? 1 : -1;
         return b.count - a.count;
     });
+
+    var collapseThreshold = 8;
+    var visibleCount = 6;
+    var collapsible = entries.length > collapseThreshold;
 
     var html = '<div class="codec-breakdown">';
     for (var i = 0; i < entries.length; i++) {
         var color = DONUT_COLORS[i % DONUT_COLORS.length];
         var pct = (entries[i].count / total * 100).toFixed(1);
+        var hidden = collapsible && i >= visibleCount ? ' style="display:none;" data-breakdown-hidden="1"' : '';
         html += '<div class="codec-row codec-clickable" data-chart="' + escAttr(chartId) + '"' +
-            ' data-codec="' + escAttr(entries[i].label) + '" role="button" tabindex="0">';
+            ' data-codec="' + escAttr(entries[i].label) + '" role="button" tabindex="0"' + hidden + '>';
         html += '<div class="codec-row-color" style="background:' + color + '"></div>';
         html += '<div class="codec-row-info">';
         html += '<span class="codec-row-name">' + escHtml(entries[i].label) + '</span>';
@@ -262,12 +276,33 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
         html += '<div class="codec-row-arrow">›</div>';
         html += '</div>';
     }
+    if (collapsible) {
+        var moreLabel = T('codecShowMore', 'Show all {count}').replace('{count}', String(entries.length));
+        html += '<button type="button" class="codec-show-more" data-breakdown-toggle="1" data-expanded="false" data-total="' + entries.length + '">' + escHtml(moreLabel) + '</button>';
+    }
     html += '</div>';
 
     // Detail panel placeholder
     html += '<div class="file-tree-panel" id="codecDetail_' + chartId + '"></div>';
 
     return html;
+}
+
+function toggleCodecBreakdown(btn) {
+    var breakdown = btn.closest ? btn.closest('.codec-breakdown') : null;
+    if (!breakdown) return;
+    var expanded = btn.getAttribute('data-expanded') === 'true';
+    var hiddenRows = breakdown.querySelectorAll('[data-breakdown-hidden]');
+    for (var i = 0; i < hiddenRows.length; i++) {
+        hiddenRows[i].style.display = expanded ? 'none' : '';
+    }
+    btn.setAttribute('data-expanded', expanded ? 'false' : 'true');
+    if (expanded) {
+        var total = btn.getAttribute('data-total') || '';
+        btn.textContent = T('codecShowMore', 'Show all {count}').replace('{count}', total);
+    } else {
+        btn.textContent = T('codecShowLess', 'Show less');
+    }
 }
 
 // Render a full chart box with donut + breakdown
@@ -433,6 +468,20 @@ var CODEC_CATEGORY_MAP = {
 // Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers.
 // The panel scope keeps donut drill-downs from wiping the Library Explorer results.
 function attachCodecClickHandlers() {
+    var toggles = document.querySelectorAll('[data-breakdown-toggle]');
+    for (var t = 0; t < toggles.length; t++) {
+        if (toggles[t].dataset.toggleBound) continue;
+        toggles[t].dataset.toggleBound = '1';
+        toggles[t].addEventListener('click', function () {
+            toggleCodecBreakdown(this);
+        });
+        toggles[t].addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleCodecBreakdown(this);
+            }
+        });
+    }
     attachTogglePanelHandlers({
         itemSelector: '.codec-clickable',
         panelScope: '#tab-codecs .charts-row',
@@ -663,16 +712,15 @@ function fillCodecsData(data) {
             'VideoAudioCodecs');
         codecsHtml += '</div>';
     }
-    if (hasMusicAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('music_note') + escHtml(T('musicAudioCodecs', 'Music Audio Codecs')) + '</h4>';
-        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries,
-            'MusicAudioCodecs');
-        codecsHtml += '</div>';
-    }
     if (hasVideoBitrate) {
         codecsHtml += '<div class="chart-box"><h4>' + mi('high_quality') + escHtml(T('videoBitrate', 'Video Bitrate')) + '</h4>';
         codecsHtml += renderDonutChart(videoBitrate, videoBitrateSizes, 'videoBitrate', videoLibraries,
             'VideoBitrateTiers');
+        codecsHtml += '</div>';
+    }
+    if (hasWatched) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + escHtml(T('watched', 'Watched')) + '</h4>';
+        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', buildWatchedTooltipLibraries(videoLibraries), 'WatchedTooltip');
         codecsHtml += '</div>';
     }
     if (hasAudioLanguages) {
@@ -687,9 +735,10 @@ function fillCodecsData(data) {
             'SubtitleLanguages');
         codecsHtml += '</div>';
     }
-    if (hasWatched) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + escHtml(T('watched', 'Watched')) + '</h4>';
-        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', buildWatchedTooltipLibraries(videoLibraries), 'WatchedTooltip');
+    if (hasMusicAudio) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('music_note') + escHtml(T('musicAudioCodecs', 'Music Audio Codecs')) + '</h4>';
+        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries,
+            'MusicAudioCodecs');
         codecsHtml += '</div>';
     }
     if (hasBookFormats) {
