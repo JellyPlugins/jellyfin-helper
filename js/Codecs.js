@@ -15,6 +15,9 @@ var _touchOutsideListenerAttached = false;
 // Timestamp of last touchend - used to suppress touch-originated click events cross-browser
 var _lastTouchEndTime = 0;
 
+// Guard so the row sync listener registers once
+var _codecRowSyncBound = false;
+
 // SVG donut tooltip - reads rich data from _donutTooltipData
 function showDonutTooltip(container, evt, segment) {
     var tooltip = container.querySelector('.donut-tooltip');
@@ -154,10 +157,13 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
         }
     }
     if (total === 0) {
-        return '<p style="opacity:0.5;">' + T('noData', 'No data') + '</p>';
+        return '<p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p>';
     }
 
     entries.sort(function (a, b) {
+        var aUnknown = (a.label || '').toLowerCase() === 'unknown';
+        var bUnknown = (b.label || '').toLowerCase() === 'unknown';
+        if (aUnknown !== bUnknown) return aUnknown ? 1 : -1;
         return b.value - a.value;
     });
 
@@ -213,7 +219,8 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
         var arcPath = describeArc(cx, cy, outerR, innerR, startAngle, endAngle);
 
         donutContainer += '<g class="donut-segment" data-segment-id="' + escAttr(segId) + '"'
-            + ' data-codec="' + escAttr(entries[i].label) + '">';
+            + ' data-codec="' + escAttr(entries[i].label) + '"'
+            + ' tabindex="0" role="button" aria-label="' + escAttr(entries[i].label) + '">';
         donutContainer += '<path d="' + arcPath + '" fill="' + color + '"/>';
         donutContainer += '</g>';
 
@@ -225,7 +232,10 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
     return donutContainer;
 }
 
-// Build the clickable codec breakdown table below the donut
+// Build the clickable codec breakdown table below the donut.
+// Long lists collapse after a few rows with a Show all toggle so language
+// facets with 20+ entries do not stretch the card. The file-tree panel stays
+// outside the list, so expanding rows never nests a tree inside a collapsible.
 function renderCodecBreakdown(countDict, sizeDict, chartId) {
     var entries = [];
     var total = 0;
@@ -241,19 +251,26 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
     }
 
     entries.sort(function (a, b) {
+        var aUnknown = (a.label || '').toLowerCase() === 'unknown';
+        var bUnknown = (b.label || '').toLowerCase() === 'unknown';
+        if (aUnknown !== bUnknown) return aUnknown ? 1 : -1;
         return b.count - a.count;
     });
+
+    var collapsible = entries.length > 0;
+    var visibleCount = 0;
 
     var html = '<div class="codec-breakdown">';
     for (var i = 0; i < entries.length; i++) {
         var color = DONUT_COLORS[i % DONUT_COLORS.length];
         var pct = (entries[i].count / total * 100).toFixed(1);
+        var hidden = collapsible && i >= visibleCount ? ' style="display:none;" data-breakdown-hidden="1"' : '';
         html += '<div class="codec-row codec-clickable" data-chart="' + escAttr(chartId) + '"' +
-            ' data-codec="' + escAttr(entries[i].label) + '" role="button" tabindex="0">';
+            ' data-codec="' + escAttr(entries[i].label) + '" role="button" tabindex="0"' + hidden + '>';
         html += '<div class="codec-row-color" style="background:' + color + '"></div>';
         html += '<div class="codec-row-info">';
         html += '<span class="codec-row-name">' + escHtml(entries[i].label) + '</span>';
-        html += '<span class="codec-row-stats">' + entries[i].count + ' ' + T('files', 'files') + ' · '
+        html += '<span class="codec-row-stats">' + entries[i].count + ' ' + escHtml(T('files', 'files')) + ' · '
             + pct + '% · ' + formatBytes(entries[i].size) + '</span>';
         html += '</div>';
         html += '<div class="codec-row-bar"><div class="codec-row-bar-fill" style="width:' + pct + '%;background:'
@@ -261,12 +278,56 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
         html += '<div class="codec-row-arrow">›</div>';
         html += '</div>';
     }
+    if (collapsible) {
+        var moreLabel = T('codecShowMore', 'Show all {count}').replace('{count}', String(entries.length));
+        html += '<button type="button" class="codec-show-more" data-breakdown-toggle="1" data-expanded="false" data-total="' + entries.length + '">' + escHtml(moreLabel) + '</button>';
+    }
     html += '</div>';
 
     // Detail panel placeholder
     html += '<div class="file-tree-panel" id="codecDetail_' + chartId + '"></div>';
 
     return html;
+}
+
+// Collapsed lists mirror the active row, so switching segments never piles up visible rows.
+function syncCollapsedBreakdownRows(evt) {
+    var row = evt.target?.closest?.('.codec-breakdown .codec-clickable');
+    if (!row) {
+        return;
+    }
+    var breakdowns = document.querySelectorAll('.codec-breakdown');
+    for (const box of breakdowns) {
+        var toggle = box.querySelector('[data-breakdown-toggle]');
+        if (toggle?.dataset.expanded !== 'false') {
+            continue;
+        }
+        var hidden = box.querySelectorAll('[data-breakdown-hidden]');
+        for (const r of hidden) {
+            r.style.display = r.classList.contains('codec-row-active') ? '' : 'none';
+        }
+    }
+}
+
+function toggleCodecBreakdown(btn) {
+    var breakdown = btn.closest ? btn.closest('.codec-breakdown') : null;
+    if (!breakdown) return;
+    var expanded = btn.dataset.expanded === 'true';
+    var hiddenRows = breakdown.querySelectorAll('[data-breakdown-hidden]');
+    for (const row of hiddenRows) {
+        // The open row stays visible while collapsed so its tree still closes with one click.
+        if (expanded && row.classList.contains('codec-row-active')) {
+            continue;
+        }
+        row.style.display = expanded ? 'none' : '';
+    }
+    btn.dataset.expanded = expanded ? 'false' : 'true';
+    if (expanded) {
+        var total = btn.dataset.total || '';
+        btn.textContent = T('codecShowMore', 'Show all {count}').replace('{count}', total);
+    } else {
+        btn.textContent = T('codecShowLess', 'Show less');
+    }
 }
 
 // Render a full chart box with donut + breakdown
@@ -301,6 +362,43 @@ function collectCodecPaths(data, pathsProp, codecName, categories) {
     };
 }
 
+// Merge the per file language track labels into one lookup, so the audio and
+// subtitle drill downs can name the variants behind each collapsed facet value,
+// the same way the resolution drill down shows true pixel sizes.
+function collectTrackLabelMeta(data, kind) {
+    var prop = kind === 'audio' ? 'AudioTrackLabels' : 'SubtitleTrackLabels';
+    var merged = {};
+    var groups = [data.Movies, data.TvShows, data.Other];
+    for (var group of groups) {
+        var libs = group || [];
+        for (var lib of libs) {
+            var labels = lib?.[prop];
+            if (!labels) continue;
+            for (var path in labels) {
+                if (Object.hasOwn(labels, path) && !merged[path] && Array.isArray(labels[path])) {
+                    merged[path] = labels[path].join(', ');
+                }
+            }
+        }
+    }
+    return merged;
+}
+
+// Meta map for a drill down panel: true pixel sizes behind resolution tiers,
+// track variants behind collapsed language facets, nothing elsewhere.
+function collectDrilldownMeta(chartId) {
+    if (chartId === 'resolutions') {
+        return collectResolutionDimensions(_lastCodecData);
+    }
+    if (chartId === 'audioLanguages') {
+        return collectTrackLabelMeta(_lastCodecData, 'audio');
+    }
+    if (chartId === 'subtitleLanguages') {
+        return collectTrackLabelMeta(_lastCodecData, 'subs');
+    }
+    return null;
+}
+
 // Merge the per-library ResolutionDimensions maps (file path -> "1920x800") from every
 // video library into one lookup, so the resolution drill-down can label each file with
 // its true pixel size regardless of which library it came from.
@@ -320,6 +418,46 @@ function collectResolutionDimensions(data) {
         }
     }
     return merged;
+}
+
+// Per-user watched file counts across libraries. Usernames come from WatchedByUserPaths
+// (one entry per file per watching user); the file totals behind them may overlap.
+function countWatchedUsers(libraries) {
+    var counts = {};
+    for (const lib of libraries) {
+        var byUser = lib.WatchedByUserPaths;
+        if (!byUser) {
+            continue;
+        }
+        for (var user in byUser) {
+            if (Object.hasOwn(byUser, user) && byUser[user] && byUser[user].length > 0) {
+                counts[user] = (counts[user] || 0) + byUser[user].length;
+            }
+        }
+    }
+    return counts;
+}
+
+// Per-library tooltip counts for the watched chart: Never watched comes from
+// WatchedTiers, usernames from WatchedByUserPaths. Passed as lightweight rows so the
+// shared donut renderer needs no watched-specific branch.
+function buildWatchedTooltipLibraries(videoLibraries) {
+    var rows = [];
+    for (const lib of videoLibraries) {
+        var merged = {};
+        var tiers = lib.WatchedTiers || {};
+        if (tiers['Never watched'] > 0) {
+            merged['Never watched'] = tiers['Never watched'];
+        }
+        var byUser = lib.WatchedByUserPaths || {};
+        for (var user in byUser) {
+            if (Object.hasOwn(byUser, user) && byUser[user] && byUser[user].length > 0) {
+                merged[user] = byUser[user].length;
+            }
+        }
+        rows.push({LibraryName: lib.LibraryName, WatchedTooltip: merged});
+    }
+    return rows;
 }
 
 // Map chart IDs to their corresponding path property names
@@ -343,7 +481,7 @@ var CODEC_CATEGORY_MAP = {
     'videoAudioCodecs': {movies: true, tvShows: true, music: false, other: true},
     'musicAudioCodecs': {movies: false, tvShows: false, music: true, other: false},
     'bookFormats': {movies: false, tvShows: false, music: false, other: false, books: true},
-    'containers': {movies: true, tvShows: true, music: true, other: true},
+    'containers': {movies: true, tvShows: true, music: true, books: true, other: true},
     'resolutions': {movies: true, tvShows: true, music: false, other: true},
     'dynamicRanges': {movies: true, tvShows: true, music: false, other: true},
     'videoBitrate': {movies: true, tvShows: true, music: false, other: true},
@@ -352,10 +490,31 @@ var CODEC_CATEGORY_MAP = {
     'watched': {movies: true, tvShows: true, music: false, other: true}
 };
 
-// Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers
+// Attach click handlers to codec rows - delegates to shared attachTogglePanelHandlers.
+// The panel scope keeps donut drill-downs from wiping the Library Explorer results.
 function attachCodecClickHandlers() {
+    var toggles = document.querySelectorAll('[data-breakdown-toggle]');
+    for (const toggle of toggles) {
+        if (toggle.dataset.toggleBound) continue;
+        toggle.dataset.toggleBound = '1';
+        toggle.addEventListener('click', function () {
+            toggleCodecBreakdown(this);
+        });
+        toggle.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleCodecBreakdown(this);
+            }
+        });
+    }
+    // Collapsed visibility follows panel state, so the last closed row hides again.
+    if (!_codecRowSyncBound) {
+        _codecRowSyncBound = true;
+        document.addEventListener('click', syncCollapsedBreakdownRows);
+    }
     attachTogglePanelHandlers({
         itemSelector: '.codec-clickable',
+        panelScope: '#tab-codecs .charts-row',
         activeClass: 'codec-row-active',
         groupAttr: 'data-chart',
         typeAttr: 'data-codec',
@@ -369,15 +528,15 @@ function attachCodecClickHandlers() {
             var chartId = item.dataset.chart;
             var codecName = item.dataset.codec;
             var pathsProp = CODEC_PATH_MAP[chartId];
+            // Watched slices span two maps: Never watched lives in WatchedTierPaths,
+            // usernames in WatchedByUserPaths.
+            if (chartId === 'watched' && codecName !== 'Never watched') {
+                pathsProp = 'WatchedByUserPaths';
+            }
             var categories = CODEC_CATEGORY_MAP[chartId];
             var result = collectCodecPaths(_lastCodecData, pathsProp, codecName,
                 categories);
-            // The resolution drill-down shows the true pixel size behind each tier label,
-            // so a 1920x800 cinemascope file explains why it sits under 1080p.
-            var meta = chartId === 'resolutions'
-                ? collectResolutionDimensions(_lastCodecData)
-                : null;
-            return renderFileTree(result, codecName, meta);
+            return renderFileTree(result, codecName, collectDrilldownMeta(chartId));
         }
     });
 }
@@ -461,6 +620,18 @@ function attachDonutHoverTooltips() {
                     }
                 });
             }
+            // Keyboard: segments are focusable buttons mirroring the rows below.
+            var segments = container.querySelectorAll('.donut-segment');
+            for (const seg of segments) {
+                (function (s) {
+                    s.addEventListener('keydown', function (e) {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            triggerCodecRowForSegment(s);
+                        }
+                    });
+                })(seg);
+            }
         })(charts[c]);
     }
 
@@ -506,7 +677,12 @@ function fillCodecsData(data) {
     var videoBitrate = aggregateDict(videoLibraries, 'VideoBitrateTiers');
     var audioLanguages = aggregateDict(videoLibraries, 'AudioLanguages');
     var subtitleLanguages = aggregateDict(videoLibraries, 'SubtitleLanguages');
-    var watched = aggregateDict(videoLibraries, 'WatchedTiers');
+    // Watched shows who watched: one slice per username plus Never watched.
+    var watched = countWatchedUsers(videoLibraries);
+    var neverWatchedCount = aggregateDict(videoLibraries, 'WatchedTiers')['Never watched'] || 0;
+    if (neverWatchedCount > 0) {
+        watched['Never watched'] = neverWatchedCount;
+    }
 
     var videoCodecSizes = aggregateDict(videoLibraries, 'VideoCodecSizes');
     var videoAudioCodecSizes = aggregateDict(videoLibraries, 'VideoAudioCodecSizes');
@@ -518,7 +694,11 @@ function fillCodecsData(data) {
     var videoBitrateSizes = aggregateDict(videoLibraries, 'VideoBitrateTierSizes');
     var audioLanguageSizes = aggregateDict(videoLibraries, 'AudioLanguageSizes');
     var subtitleLanguageSizes = aggregateDict(videoLibraries, 'SubtitleLanguageSizes');
-    var watchedSizes = aggregateDict(videoLibraries, 'WatchedTierSizes');
+    var watchedSizes = aggregateDict(videoLibraries, 'WatchedByUserSizes');
+    var neverWatchedSize = aggregateDict(videoLibraries, 'WatchedTierSizes')['Never watched'] || 0;
+    if (neverWatchedSize > 0) {
+        watchedSizes['Never watched'] = neverWatchedSize;
+    }
 
     var hasContainers = Object.keys(containers).length > 0;
     var hasResolutions = Object.keys(resolutions).length > 0;
@@ -537,76 +717,80 @@ function fillCodecsData(data) {
 
     var codecsHtml = '<div class="charts-row">';
     if (hasContainers) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('inventory_2') + T('containerFormats', 'Container Formats') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('inventory_2') + escHtml(T('containerFormats', 'Container Formats')) + '</h4>';
         codecsHtml += renderDonutChart(containers, containerSizes, 'containers', data.Libraries, 'ContainerFormats');
         codecsHtml += '</div>';
     }
     if (hasResolutions) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('straighten') + T('resolutions', 'Resolutions') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('straighten') + escHtml(T('resolutions', 'Resolutions')) + '</h4>';
         codecsHtml += renderDonutChart(resolutions, resolutionSizes, 'resolutions', videoLibraries, 'Resolutions');
         codecsHtml += '</div>';
     }
     if (hasDynamicRanges) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('palette') + T('dynamicRange', 'Dynamic Range') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('palette') + escHtml(T('dynamicRange', 'Dynamic Range')) + '</h4>';
         codecsHtml += renderDonutChart(dynamicRanges, dynamicRangeSizes, 'dynamicRanges', videoLibraries, 'DynamicRanges');
         codecsHtml += '</div>';
     }
     if (hasVideoCodecs) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('movie') + T('videoCodecs', 'Video Codecs') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('movie') + escHtml(T('videoCodecs', 'Video Codecs')) + '</h4>';
         codecsHtml += renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs', videoLibraries, 'VideoCodecs');
         codecsHtml += '</div>';
     }
     if (hasVideoAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('volume_up') + T('videoAudioCodecs', 'Video Audio Codecs') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('volume_up') + escHtml(T('videoAudioCodecs', 'Video Audio Codecs')) + '</h4>';
         codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes, 'videoAudioCodecs', videoLibraries,
             'VideoAudioCodecs');
         codecsHtml += '</div>';
     }
-    if (hasMusicAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('music_note') + T('musicAudioCodecs', 'Music Audio Codecs') + '</h4>';
-        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries,
-            'MusicAudioCodecs');
-        codecsHtml += '</div>';
-    }
     if (hasVideoBitrate) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('high_quality') + T('videoBitrate', 'Video Bitrate') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('high_quality') + escHtml(T('videoBitrate', 'Video Bitrate')) + '</h4>';
         codecsHtml += renderDonutChart(videoBitrate, videoBitrateSizes, 'videoBitrate', videoLibraries,
             'VideoBitrateTiers');
         codecsHtml += '</div>';
     }
+    if (hasWatched) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + escHtml(T('watched', 'Watched')) + '</h4>';
+        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', buildWatchedTooltipLibraries(videoLibraries), 'WatchedTooltip');
+        codecsHtml += '</div>';
+    }
     if (hasAudioLanguages) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('description') + T('audioLanguages', 'Audio Languages') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('description') + escHtml(T('audioLanguages', 'Audio Languages')) + '</h4>';
         codecsHtml += renderDonutChart(audioLanguages, audioLanguageSizes, 'audioLanguages', videoLibraries,
             'AudioLanguages');
         codecsHtml += '</div>';
     }
     if (hasSubtitleLanguages) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('edit_note') + T('subtitleLanguages', 'Subtitle Languages') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('edit_note') + escHtml(T('subtitleLanguages', 'Subtitle Languages')) + '</h4>';
         codecsHtml += renderDonutChart(subtitleLanguages, subtitleLanguageSizes, 'subtitleLanguages', videoLibraries,
             'SubtitleLanguages');
         codecsHtml += '</div>';
     }
-    if (hasWatched) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + T('watched', 'Watched') + '</h4>';
-        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', videoLibraries, 'WatchedTiers');
+    if (hasMusicAudio) {
+        codecsHtml += '<div class="chart-box"><h4>' + mi('music_note') + escHtml(T('musicAudioCodecs', 'Music Audio Codecs')) + '</h4>';
+        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries,
+            'MusicAudioCodecs');
         codecsHtml += '</div>';
     }
     if (hasBookFormats) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('library_books') + T('bookFormats', 'Book Formats') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>' + mi('library_books') + escHtml(T('bookFormats', 'Book Formats')) + '</h4>';
         codecsHtml += renderDonutChart(bookFormats, bookFormatSizes, 'bookFormats', bookLibraries,
             'BookFormats');
         codecsHtml += '</div>';
     }
     if (!hasAnyCharts) {
-        codecsHtml += '<div class="chart-box"><p style="opacity:0.5;">' + T('noData', 'No data') + '</p></div>';
+        codecsHtml += '<div class="chart-box"><p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p></div>';
     }
     codecsHtml += '</div>';
 
     var codecsContainer = document.getElementById('codecsContent');
     if (codecsContainer) {
+        // A background rescan replaces the whole tab: keep the scroll position so
+        // readers do not lose their place when fresh data arrives.
+        var scrollY = window.scrollY;
         codecsContainer.innerHTML = codecsHtml;
         attachCodecClickHandlers();
         attachDonutHoverTooltips();
         renderCodecsExplorer(codecsContainer);
+        window.scrollTo(0, scrollY);
     }
 }
