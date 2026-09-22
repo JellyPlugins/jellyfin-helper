@@ -299,6 +299,18 @@ function toggleCodecBreakdown(btn) {
     if (expanded) {
         var total = btn.dataset.total || '';
         btn.textContent = T('codecShowMore', 'Show all {count}').replace('{count}', total);
+        // Collapsing also closes an open drill-down: its row is hidden again,
+        // so without this the tree would stay open with no row left to close it.
+        var chartBox = btn.closest ? btn.closest('.chart-box') : null;
+        var activeRows = breakdown.querySelectorAll('.codec-row-active');
+        for (const row of activeRows) {
+            row.classList.remove('codec-row-active');
+        }
+        var panel = chartBox ? chartBox.querySelector('.file-tree-panel') : null;
+        if (panel) {
+            panel.innerHTML = '';
+            panel.classList.remove('file-tree-panel-visible');
+        }
     } else {
         btn.textContent = T('codecShowLess', 'Show less');
     }

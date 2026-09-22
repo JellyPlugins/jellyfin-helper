@@ -161,22 +161,34 @@
     padding-top: 0.6em;
 }
 
-/* Show all toggle for long breakdowns (languages with 20+ rows). Full-width
-   text button so the card stays compact without nesting a tree collapsible. */
+/* Show all toggle below the breakdown. Subtle centered pill link instead of a
+   full-width box, so collapsed cards stay quiet. The chevron follows the state. */
 .codec-show-more {
-    width: 100%;
-    margin-top: 0.4em;
-    padding: 0.5em;
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: var(--radius-md, 8px);
-    color: inherit;
-    font-size: 0.85em;
+    display: block;
+    margin: 0.3em auto 0;
+    padding: 0.35em 1.1em;
+    background: none;
+    border: none;
+    border-radius: 999px;
+    color: var(--color-primary);
+    font-size: 0.82em;
+    font-weight: 600;
     cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.2s, background 0.2s;
 }
 
 .codec-show-more:hover {
-    border-color: var(--color-primary);
+    opacity: 1;
+    background: rgba(0, 164, 220, 0.08);
+}
+
+.codec-show-more::after {
+    content: " \25BE";
+}
+
+.codec-show-more[data-expanded="true"]::after {
+    content: " \25B4";
 }
 
 .codec-row {
@@ -912,8 +924,7 @@
     }
 
     .codec-explorer-toggle,
-    .codec-explorer-reset,
-    .codec-show-more {
+    .codec-explorer-reset {
         min-height: 44px;
     }
 }
@@ -938,10 +949,14 @@
 
     /* noinspection CssUnusedSymbol */
     .codec-explorer-toggle,
-    .codec-explorer-reset,
-    .codec-show-more {
+    .codec-explorer-reset {
         background-color: rgba(0, 0, 0, 0.03);
         border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-show-more:hover {
+        background-color: rgba(0, 164, 220, 0.1);
     }
 
     /* noinspection CssUnusedSymbol */
