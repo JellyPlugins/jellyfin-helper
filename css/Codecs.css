@@ -574,6 +574,7 @@
 .codec-single-option:focus-visible,
 .codec-explore-link:focus-visible,
 .codec-multi-toggle:focus-visible,
+.codec-explorer-reset:focus-visible,
 .codec-show-more:focus-visible,
 .codec-bitrate-row input:focus-visible {
     outline: 2px solid var(--color-primary);
@@ -868,18 +869,22 @@
     padding: 0.15em 0 0.15em 1em;
     opacity: 0.85;
 }
+/* Quiet pill link. Reset is secondary, so it stays out of the way as text. */
 .codec-explorer-reset {
-    padding: 0.5em 1em;
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: var(--radius-md, 8px);
-    color: inherit;
-    font-size: 0.85em;
+    padding: 0.35em 0.9em;
+    background: none;
+    border: none;
+    border-radius: 999px;
+    color: var(--color-primary);
+    font-size: 0.82em;
+    font-weight: 600;
     cursor: pointer;
+    opacity: 0.85;
 }
 
 .codec-explorer-reset:hover {
-    border-color: var(--color-primary);
+    opacity: 1;
+    background: rgba(0, 164, 220, 0.08);
 }
 
 .codec-explorer-summary {
@@ -920,6 +925,7 @@
 }
 
 @media (max-width: 700px) {
+    /* Full width keeps long summaries like Alle Bibliotheken free of cropping. */
     .codec-filter-bar .codec-multi {
         flex: 1 1 100%;
         min-width: 0;
@@ -938,9 +944,9 @@
         min-height: 44px;
     }
 
+    /* Buttons never trigger auto zoom, so the toggle keeps its desktop size. */
     .codec-multi-toggle {
-        min-height: 44px;
-        font-size: 16px;
+        min-height: 40px;
     }
 
     .codec-multi-item {
@@ -952,8 +958,7 @@
         gap: 0;
     }
 
-    .codec-explorer-toggle,
-    .codec-explorer-reset {
+    .codec-explorer-toggle {
         min-height: 44px;
     }
 }
@@ -977,10 +982,14 @@
     }
 
     /* noinspection CssUnusedSymbol */
-    .codec-explorer-toggle,
-    .codec-explorer-reset {
+    .codec-explorer-toggle {
         background-color: rgba(0, 0, 0, 0.03);
         border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .codec-explorer-reset:hover {
+        background-color: rgba(0, 164, 220, 0.1);
     }
 
     /* noinspection CssUnusedSymbol */
