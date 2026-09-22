@@ -1309,7 +1309,6 @@ function runCodecsExplorerSearch() {
     // independently. The previous 300-global slice hid whole libraries
     // alphabetically.
     const split = groupExplorerResults(outcome.paths);
-    const truncated = false;
     html += '<div class="file-tree-panel file-tree-panel-visible">';
     html += renderFileTree(
         {movies: split.grouped.movies, tvShows: split.grouped.tvShows, music: split.grouped.music, books: split.grouped.books, other: split.grouped.other, rootPaths: split.roots},
