@@ -492,12 +492,12 @@ function attachCodecClickHandlers() {
     if (!_codecRowSyncBound) {
         _codecRowSyncBound = true;
         document.addEventListener('click', function (evt) {
-            var row = evt.target && evt.target.closest ? evt.target.closest('.codec-breakdown .codec-clickable') : null;
+            var row = evt.target?.closest?.('.codec-breakdown .codec-clickable');
             if (!row) {
                 return;
             }
             var breakdown = row.closest('.codec-breakdown');
-            var toggle = breakdown ? breakdown.querySelector('[data-breakdown-toggle]') : null;
+            var toggle = breakdown?.querySelector('[data-breakdown-toggle]');
             if (!toggle || toggle.dataset.expanded !== 'false') {
                 return;
             }
