@@ -815,6 +815,31 @@
     padding: 0.2em;
 }
 
+/* Explorer results scroll per section instead of one shared panel scroll, so
+   Movies, Shows and Books side by side each keep their own scroll position. */
+#codecExplorerResults .file-tree-panel-visible {
+    max-height: none;
+    overflow: visible;
+}
+
+#codecExplorerResults .file-tree-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 320px;
+}
+
+#codecExplorerResults .file-tree-section-header {
+    flex-shrink: 0;
+}
+
+#codecExplorerResults .file-tree-section .tree-view {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
 /* Per-file detail card inside explorer results (toggle by clicking the file row). */
 #codecExplorerResults .tree-leaf {
     cursor: pointer;
@@ -944,9 +969,11 @@
         min-height: 44px;
     }
 
-    /* Buttons never trigger auto zoom, so the toggle keeps its desktop size. */
+    /* Buttons never trigger auto zoom, so the toggle stays slim on phones. */
     .codec-multi-toggle {
-        min-height: 40px;
+        min-height: 38px;
+        padding: 0.35em 0.6em;
+        font-size: 0.85em;
     }
 
     .codec-multi-item {

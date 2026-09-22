@@ -297,6 +297,15 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_ExplorerResultSectionsScrollIndependently()
+    {
+        // Each explorer result column (Movies, Shows, Books) scrolls on its own
+        // instead of sharing one panel scroll with the other columns.
+        Assert.Contains("#codecExplorerResults .file-tree-section", HtmlContent);
+        Assert.Contains("#codecExplorerResults .file-tree-section .tree-view", HtmlContent);
+    }
+
+    [Fact]
     public void Html_ContainsDonutTooltipFunctions()
     {
         Assert.Contains("function showDonutTooltip", HtmlContent);
