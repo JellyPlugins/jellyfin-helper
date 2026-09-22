@@ -860,6 +860,21 @@
     background: var(--color-primary-scrollbar-hover);
 }
 
+/* One column can hold a tall single-section tree (e.g. a type-scoped library).
+   Capping the wrapper keeps it scrollable like the drill downs. */
+#codecExplorerResults .file-tree-panel-visible {
+    max-height: 500px;
+}
+
+#codecExplorerResults .file-tree-columns {
+    display: block;
+}
+
+#codecExplorerResults .file-tree-columns.file-tree-multi {
+    display: grid;
+    align-items: stretch;
+}
+
 /* Per-file detail card inside explorer results (toggle by clicking the file row). */
 #codecExplorerResults .tree-leaf {
     cursor: pointer;
@@ -991,9 +1006,9 @@
 
     /* Buttons never trigger auto zoom, so the toggle stays slim on phones. */
     .codec-multi-toggle {
-        min-height: 38px;
-        padding: 0.35em 0.6em;
-        font-size: 0.85em;
+        min-height: 32px;
+        padding: 0.24em 0.55em;
+        font-size: 0.82em;
     }
 
     .codec-multi-item {
