@@ -814,10 +814,14 @@ function countLibraryFiles(lib) {
 
 // Library scope as a multi-dropdown: no selection means all libraries, otherwise the
 // selected libraries are combined. An explicitly empty scope (pruned names) shows
-// its own state instead of pretending to be all libraries.
+// its own state instead of pretending to be all libraries. Boxsets
+// are never a useful scope for codec search and stay hidden.
 // Mirrors the dimension multi-dropdowns.
 function buildCodecsExplorerLibraryMulti() {
-    const libs = getCodecsExplorerLibraries();
+    const allLibs = getCodecsExplorerLibraries();
+    const libs = allLibs.filter(function (lib) {
+        return (lib.CollectionType || lib.collectionType || '').toLowerCase() !== 'boxsets';
+    });
     const selected = _codecsExplorerState.libraries || [];
     const disabled = libs.length === 0;
     const open = _codecMultiOpen === 'libraries' && !disabled;
@@ -1301,13 +1305,11 @@ function runCodecsExplorerSearch() {
         host.innerHTML = html;
         return;
     }
-    const truncated = outcome.paths.length > CODEC_EXPLORER_MAX_FILES;
-    const shown = truncated ? outcome.paths.slice(0, CODEC_EXPLORER_MAX_FILES) : outcome.paths;
-    if (truncated) {
-        html += '<p class="codec-explorer-truncated">' + escHtml(T('explorerTruncated', 'Showing first {count} matches — refine filters to narrow down.')
-            .replace('{count}', String(CODEC_EXPLORER_MAX_FILES))) + '</p>';
-    }
-    const split = groupExplorerResults(shown);
+    // No global cap – each section shows its full filtered list and scrolls
+    // independently. The previous 300-global slice hid whole libraries
+    // alphabetically.
+    const split = groupExplorerResults(outcome.paths);
+    const truncated = false;
     html += '<div class="file-tree-panel file-tree-panel-visible">';
     html += renderFileTree(
         {movies: split.grouped.movies, tvShows: split.grouped.tvShows, music: split.grouped.music, books: split.grouped.books, other: split.grouped.other, rootPaths: split.roots},

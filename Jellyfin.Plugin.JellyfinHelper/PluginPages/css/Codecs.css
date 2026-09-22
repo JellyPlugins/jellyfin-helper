@@ -815,18 +815,36 @@
     padding: 0.2em;
 }
 
-/* Explorer results scroll per section instead of one shared panel scroll, so
-   Movies, Shows and Books side by side each keep their own scroll position. */
-#codecExplorerResults .file-tree-panel-visible {
+/* Explorer results: each section scrolls independently. */
+#codecExplorerResults .file-tree-panel.file-tree-panel-visible {
     max-height: none;
     overflow: visible;
+}
+
+#codecExplorerResults .file-tree-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.8em;
+    align-items: start;
+}
+
+#codecExplorerResults .file-tree-columns.file-tree-multi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.8em;
+    align-items: start;
 }
 
 #codecExplorerResults .file-tree-section {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    max-height: 320px;
+    max-height: 400px;
+    overflow: hidden;
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-md);
+    background: rgba(255,255,255,0.02);
+    padding: 0.4em;
 }
 
 #codecExplorerResults .file-tree-section-header {
@@ -840,9 +858,11 @@
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: var(--color-primary-scrollbar) transparent;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
-/* Same slim look as the drill down panels, so all trees match. */
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar {
     width: 6px;
 }
@@ -858,21 +878,6 @@
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-thumb:hover {
     background: var(--color-primary-scrollbar-hover);
-}
-
-/* One column can hold a tall single-section tree (e.g. a type-scoped library).
-   Capping the wrapper keeps it scrollable like the drill downs. */
-#codecExplorerResults .file-tree-panel-visible {
-    max-height: 500px;
-}
-
-#codecExplorerResults .file-tree-columns {
-    display: block;
-}
-
-#codecExplorerResults .file-tree-columns.file-tree-multi {
-    display: grid;
-    align-items: stretch;
 }
 
 /* Per-file detail card inside explorer results (toggle by clicking the file row). */
@@ -985,10 +990,32 @@
 }
 
 @media (max-width: 700px) {
-    /* Full width keeps long summaries like Alle Bibliotheken free of cropping. */
+    .codec-filter-bar {
+        gap: 0.5em;
+    }
     .codec-filter-bar .codec-multi {
-        flex: 1 1 100%;
+        flex: 0 0 44%;
+        max-width: 44%;
         min-width: 0;
+    }
+    .codec-filter-bar .codec-multi .codec-multi-summary {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .codec-filter-add {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+    }
+
+    .codec-filter-add-btn {
+        min-height: 34px;
+        padding: 0.32em 0.9em;
+        font-size: 0.8em;
+        display: inline-flex;
+        align-items: center;
+        line-height: 1.2;
     }
 
     .codec-bitrate-row {
@@ -1004,11 +1031,33 @@
         min-height: 44px;
     }
 
-    /* Buttons never trigger auto zoom, so the toggle stays slim on phones. */
+    /* Library picker: compact but vertically centered. */
     .codec-multi-toggle {
-        min-height: 32px;
-        padding: 0.24em 0.55em;
-        font-size: 0.82em;
+        min-height: 34px;
+        padding: 0.32em 0.6em;
+        font-size: 0.8em;
+        line-height: 1.2;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.4em;
+    }
+
+    .codec-multi-toggle .codec-multi-summary {
+        line-height: 1.2;
+        display: flex;
+        align-items: center;
+    }
+
+    .codec-multi-summary {
+        font-size: 0.9em;
+        opacity: 0.9;
+    }
+
+    .codec-multi-chevron {
+        font-size: 0.85em;
+        opacity: 0.6;
     }
 
     .codec-multi-item {
