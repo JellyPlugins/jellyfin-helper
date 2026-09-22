@@ -254,9 +254,8 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
         return b.count - a.count;
     });
 
-    var collapseThreshold = 8;
-    var visibleCount = 6;
-    var collapsible = entries.length > collapseThreshold;
+    var collapsible = entries.length > 0;
+    var visibleCount = 0;
 
     var html = '<div class="codec-breakdown">';
     for (var i = 0; i < entries.length; i++) {
@@ -291,14 +290,14 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
 function toggleCodecBreakdown(btn) {
     var breakdown = btn.closest ? btn.closest('.codec-breakdown') : null;
     if (!breakdown) return;
-    var expanded = btn.getAttribute('data-expanded') === 'true';
+    var expanded = btn.dataset.expanded === 'true';
     var hiddenRows = breakdown.querySelectorAll('[data-breakdown-hidden]');
-    for (var i = 0; i < hiddenRows.length; i++) {
-        hiddenRows[i].style.display = expanded ? 'none' : '';
+    for (const row of hiddenRows) {
+        row.style.display = expanded ? 'none' : '';
     }
-    btn.setAttribute('data-expanded', expanded ? 'false' : 'true');
+    btn.dataset.expanded = expanded ? 'false' : 'true';
     if (expanded) {
-        var total = btn.getAttribute('data-total') || '';
+        var total = btn.dataset.total || '';
         btn.textContent = T('codecShowMore', 'Show all {count}').replace('{count}', total);
     } else {
         btn.textContent = T('codecShowLess', 'Show less');
@@ -469,13 +468,13 @@ var CODEC_CATEGORY_MAP = {
 // The panel scope keeps donut drill-downs from wiping the Library Explorer results.
 function attachCodecClickHandlers() {
     var toggles = document.querySelectorAll('[data-breakdown-toggle]');
-    for (var t = 0; t < toggles.length; t++) {
-        if (toggles[t].dataset.toggleBound) continue;
-        toggles[t].dataset.toggleBound = '1';
-        toggles[t].addEventListener('click', function () {
+    for (const toggle of toggles) {
+        if (toggle.dataset.toggleBound) continue;
+        toggle.dataset.toggleBound = '1';
+        toggle.addEventListener('click', function () {
             toggleCodecBreakdown(this);
         });
-        toggles[t].addEventListener('keydown', function (e) {
+        toggle.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 toggleCodecBreakdown(this);

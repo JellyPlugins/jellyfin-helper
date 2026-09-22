@@ -203,17 +203,7 @@ internal static class LanguageIdentity
         }
 
         // Punctuation-only residue (e.g. "''") carries no language.
-        var hasLetter = false;
-        foreach (var c in basis)
-        {
-            if (char.IsLetter(c))
-            {
-                hasLetter = true;
-                break;
-            }
-        }
-
-        return hasLetter ? basis : null;
+        return basis.Any(char.IsLetter) ? basis : null;
     }
 
     /// <summary>
