@@ -52,7 +52,7 @@ function renderHealthChecks(data) {
     html += '<div class="health-item health-clickable" data-health-type="orphaned" role="button" tabindex="0"><div class="health-value '
         + (totalOrphaned > 0 ? 'health-bad' : 'health-ok') + '">' + totalOrphaned
         + '</div>';
-    html += '<div class="health-label">' + mi('folder') + ' ' + escHtml(T('orphanedDirs',
+    html += '<div class="health-label">' + escHtml(T('orphanedDirs',
         'Orphaned metadata dirs')) + '</div></div>';
 
     html += '</div>';
@@ -99,7 +99,8 @@ function attachHealthClickHandlers() {
                 return '';
             }
             var result = collectHealthPaths(_lastScanResult, mapping.prop);
-            return renderFileTree(result, T(mapping.titleKey, mapping.titleFallback));
+            var otherIcon = type === 'orphaned' ? mi('folder') : undefined;
+            return renderFileTree(result, T(mapping.titleKey, mapping.titleFallback), undefined, otherIcon);
         }
     });
 }
