@@ -303,6 +303,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         // instead of sharing one panel scroll with the other columns.
         Assert.Contains("#codecExplorerResults .file-tree-section", HtmlContent);
         Assert.Contains("#codecExplorerResults .file-tree-section .tree-view", HtmlContent);
+        Assert.Contains("#codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar", HtmlContent);
     }
 
     [Fact]

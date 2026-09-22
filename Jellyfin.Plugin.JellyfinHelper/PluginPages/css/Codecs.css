@@ -838,6 +838,26 @@
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
+}
+
+/* Same slim look as the drill down panels, so all trees match. */
+#codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar {
+    width: 6px;
+}
+
+#codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 3px;
+}
+
+#codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
 }
 
 /* Per-file detail card inside explorer results (toggle by clicking the file row). */
