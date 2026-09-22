@@ -182,6 +182,8 @@ const sharedModuleGlobals = {
     baseExplorerPaths: 'writable',
     hasOtherActiveFilters: 'writable',
     countExplorerOptions: 'writable',
+    countRemainingInUniverse: 'writable',
+    countAgainstSubset: 'writable',
     visibleExplorerOptions: 'writable',
     hasVisibleExplorerOptions: 'writable',
     buildCodecsExplorerSingleList: 'writable',

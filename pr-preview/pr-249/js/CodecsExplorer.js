@@ -672,23 +672,7 @@ function countExplorerOptions(dim) {
             }
             return counts;
         }
-        // Without other filters the rest is the scoped group universe minus the option.
-        const base = {};
-        for (const path of collectUniversePaths(dim)) {
-            base[path] = true;
-        }
-        const scoped = scopeExplorerPaths(base);
-        const size = Object.keys(scoped).length;
-        for (const option of options) {
-            let hits = 0;
-            for (const path of collectExplorerValuePaths(dim, option)) {
-                if (scoped[path]) {
-                    hits++;
-                }
-            }
-            counts[option] = size - hits;
-        }
-        return counts;
+        return countRemainingInUniverse(dim, options);
     }
     const subset = computePathsExcluding(dim.id);
     if (subset === null) {
@@ -697,7 +681,33 @@ function countExplorerOptions(dim) {
         }
         return counts;
     }
-    // Exclude mode counts what stays, so picking another value previews the smaller rest.
+    return countAgainstSubset(dim, options, subset, excluded);
+}
+
+// Lone NOT needs a base, so the scoped group universe stands in for the missing subset.
+function countRemainingInUniverse(dim, options) {
+    const base = {};
+    for (const path of collectUniversePaths(dim)) {
+        base[path] = true;
+    }
+    const scoped = scopeExplorerPaths(base);
+    const size = Object.keys(scoped).length;
+    const counts = {};
+    for (const option of options) {
+        let hits = 0;
+        for (const path of collectExplorerValuePaths(dim, option)) {
+            if (scoped[path]) {
+                hits++;
+            }
+        }
+        counts[option] = size - hits;
+    }
+    return counts;
+}
+
+// Counts preview the result, so NOT mode reports what stays instead of what matches.
+function countAgainstSubset(dim, options, subset, excluded) {
+    const counts = {};
     const subsetSize = Object.keys(subset).length;
     for (const option of options) {
         const hits = {};
