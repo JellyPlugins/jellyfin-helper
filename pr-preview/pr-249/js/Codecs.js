@@ -299,7 +299,7 @@ function syncCollapsedBreakdownRows(evt) {
     var breakdowns = document.querySelectorAll('.codec-breakdown');
     for (const box of breakdowns) {
         var toggle = box.querySelector('[data-breakdown-toggle]');
-        if (!toggle || toggle.dataset.expanded !== 'false') {
+        if (toggle?.dataset.expanded !== 'false') {
             continue;
         }
         var hidden = box.querySelectorAll('[data-breakdown-hidden]');
