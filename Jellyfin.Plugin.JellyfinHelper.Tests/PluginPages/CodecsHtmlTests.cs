@@ -129,6 +129,42 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_FillCodecsData_MusicChartRendersBeforeBooks()
+    {
+        // Order: Bitrate, Watched, Audio, Subtitle, Music, Books. Video charts
+        // stay together on top, music/books close the grid as separate types.
+        var bitrateAt = HtmlContent.IndexOf("renderDonutChart(videoBitrate,", StringComparison.Ordinal);
+        var watchedAt = HtmlContent.IndexOf("renderDonutChart(watched,", StringComparison.Ordinal);
+        var audioAt = HtmlContent.IndexOf("renderDonutChart(audioLanguages,", StringComparison.Ordinal);
+        var subsAt = HtmlContent.IndexOf("renderDonutChart(subtitleLanguages,", StringComparison.Ordinal);
+        var musicAt = HtmlContent.IndexOf("renderDonutChart(musicAudioCodecs,", StringComparison.Ordinal);
+        var booksAt = HtmlContent.IndexOf("renderDonutChart(bookFormats,", StringComparison.Ordinal);
+        Assert.True(bitrateAt >= 0 && watchedAt >= 0 && audioAt >= 0 && subsAt >= 0 && musicAt >= 0 && booksAt >= 0);
+        Assert.True(bitrateAt < watchedAt);
+        Assert.True(watchedAt < audioAt);
+        Assert.True(audioAt < subsAt);
+        Assert.True(subsAt < musicAt);
+        Assert.True(musicAt < booksAt);
+    }
+
+    [Fact]
+    public void Html_CodecBreakdown_UnknownSortsLast()
+    {
+        // Unknown is a bucket, not a language; it always sorts after real facets.
+        Assert.Contains("toLowerCase() === 'unknown'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecBreakdown_LongListsCollapse()
+    {
+        // Long breakdowns collapse with a Show all toggle so language facets do
+        // not stretch the card. The file-tree panel stays outside the list.
+        Assert.Contains("codec-show-more", HtmlContent);
+        Assert.Contains("function toggleCodecBreakdown", HtmlContent);
+        Assert.Contains("data-breakdown-toggle", HtmlContent);
+    }
+
+    [Fact]
     public void Html_FillCodecsData_RendersLibraryExplorer()
     {
         Assert.Contains("renderCodecsExplorer(codecsContainer)", HtmlContent);

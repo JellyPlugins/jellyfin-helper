@@ -100,6 +100,7 @@ const sharedModuleGlobals = {
 
         // Codecs.js
     _lastCodecData: 'writable',    _donutTooltipData: 'writable',
+    toggleCodecBreakdown: 'writable',
     _activeTooltipSegmentId: 'writable',
     _touchOutsideListenerAttached: 'writable',
     _lastTouchEndTime: 'writable',

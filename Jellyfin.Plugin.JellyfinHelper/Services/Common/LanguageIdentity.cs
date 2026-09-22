@@ -58,7 +58,8 @@ internal static class LanguageIdentity
         ["id", "ind", "id"],
         ["ms", "msa", "may", "ms"],
         ["hr", "hrv", "hr"],
-        ["sr", "srp", "sr"],
+        ["sr", "srp", "scc", "sr"],
+        ["sh", "scr", "hbs", "sh"],
         ["sk", "slk", "slo", "sk"],
         ["sl", "slv", "sl"],
         ["bg", "bul", "bg"],
@@ -106,6 +107,7 @@ internal static class LanguageIdentity
         ["ms", "Malay"],
         ["hr", "Croatian"],
         ["sr", "Serbian"],
+        ["sh", "Serbo-Croatian"],
         ["sk", "Slovak"],
         ["sl", "Slovenian"],
         ["bg", "Bulgarian"],
@@ -150,6 +152,9 @@ internal static class LanguageIdentity
         ["Ukrainian", "ukrainisch", "ucraniano", "ukrainien", "ucraniano", "ukrainska", "Ukraynaca", "乌克兰语"],
         ["Hebrew", "hebräisch", "hebreo", "hébreu", "hebraico", "hebreiska", "İbranice", "希伯来语"],
         ["Romanian", "rumänisch", "rumano", "roumain", "romeno", "rumänska", "Rumence", "罗马尼亚语"],
+        ["Serbian", "serbisch", "serbio", "serbe", "sérvio", "serbiska", "Sırpça", "塞尔维亚语"],
+        ["Croatian", "kroatisch", "croata", "croate", "croata", "kroatiska", "Hırvatça", "克罗地亚语"],
+        ["Serbo-Croatian", "serbokroatisch", "serbocroata", null, "servocroata", "serbokroatiska", null, null],
     ];
 
     // Alias to canonical code, built from the tables above plus neutral cultures.
@@ -167,7 +172,9 @@ internal static class LanguageIdentity
     ///     Cleans a raw track tag for lookup: trims, cuts parenthetical qualifiers
     ///     ("German (Forced)") and compact region subtags ("en-US"). Spaced compounds
     ///     keep their dashes ("United states - English"), the segment engine splits
-    ///     those. Returns null when empty.
+    ///     those. Surrounding quotes from broken muxers ("''", '"German"') are stripped.
+    ///     Returns null when empty or when no letters remain (punctuation-only junk
+    ///     like "''" never names a language).
     /// </summary>
     /// <param name="tag">The raw language tag, or <c>null</c>.</param>
     /// <returns>The cleaned basis, or <c>null</c> when nothing remains.</returns>
@@ -188,8 +195,25 @@ internal static class LanguageIdentity
         }
 
         // Leading separators are never meaningful ("-en" still names English).
-        basis = basis.Trim('-', '_', ' ', '\t');
-        return basis.Length == 0 ? null : basis;
+        // Surrounding quotes are muxer artifacts, never part of a language code.
+        basis = basis.Trim('-', '_', ' ', '\t', '\'', '"', '`', '‘', '’', '“', '”');
+        if (basis.Length == 0)
+        {
+            return null;
+        }
+
+        // Punctuation-only residue (e.g. "''") carries no language.
+        var hasLetter = false;
+        foreach (var c in basis)
+        {
+            if (char.IsLetter(c))
+            {
+                hasLetter = true;
+                break;
+            }
+        }
+
+        return hasLetter ? basis : null;
     }
 
     /// <summary>

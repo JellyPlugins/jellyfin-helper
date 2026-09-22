@@ -428,5 +428,7 @@
   "explorerBitrateMax": "Máx (Mbps)",
   "explorerBitrateNoData": "Sem dados de bitrate. Execute uma nova verificação para filtrar por bitrate absoluto.",
   "explorerRemoveFilter": "Remover o filtro {label}",
-  "explorerNoMatchingLibraries": "Nenhuma biblioteca correspondente"
+  "explorerNoMatchingLibraries": "Nenhuma biblioteca correspondente",
+  "codecShowMore": "Mostrar tudo {count}",
+  "codecShowLess": "Mostrar menos"
 }

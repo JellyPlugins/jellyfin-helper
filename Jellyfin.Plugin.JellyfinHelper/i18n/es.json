@@ -428,5 +428,7 @@
   "explorerBitrateMax": "Máx (Mbps)",
   "explorerBitrateNoData": "Aún no hay datos de tasa de bits. Ejecuta un nuevo análisis para filtrar por tasa absoluta.",
   "explorerRemoveFilter": "Eliminar el filtro {label}",
-  "explorerNoMatchingLibraries": "Ninguna biblioteca coincidente"
+  "explorerNoMatchingLibraries": "Ninguna biblioteca coincidente",
+  "codecShowMore": "Mostrar todo {count}",
+  "codecShowLess": "Mostrar menos"
 }

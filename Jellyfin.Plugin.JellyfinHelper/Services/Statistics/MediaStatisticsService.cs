@@ -1385,12 +1385,13 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <summary>
     /// Normalizes an ISO 639 language tag from MediaStream to a human-readable display name.
     /// Identity resolution lives in LanguageIdentity (codes, names in any author locale,
-    /// UI locale exonyms); this facade keeps the facet contract: ignorable tags (empty,
-    /// undetermined, flag only) yield null, unresolvable tags pass through uppercased
-    /// and capped so stray probe strings cannot become unbounded cache keys.
+    /// UI locale exonyms, neutral cultures); this facade keeps the facet contract:
+    /// ignorable tags (empty, punctuation-only, undetermined, flag only) and
+    /// unresolvable tags (no alias, no culture) yield null so the caller records
+    /// Unknown instead of inventing junk facets like "''" or "NEW".
     /// </summary>
     /// <param name="code">The language tag (e.g. "eng", "deutsch", "German (Forced)").</param>
-    /// <returns>The display name (e.g. "English"), the uppercased cleaned tag for unknown codes, or <c>null</c> when the input carries no language.</returns>
+    /// <returns>The display name (e.g. "English"), or <c>null</c> when the input carries no resolvable language.</returns>
     internal static string? NormalizeIso639Language(string? code)
     {
         var basis = LanguageIdentity.CleanLanguageTag(code);
@@ -1405,7 +1406,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             return LanguageIdentity.DisplayNameForCode(iso);
         }
 
-        return basis.Length > 64 ? basis.Substring(0, 64).ToUpperInvariant() : basis.ToUpperInvariant();
+        return null;
     }
 
     /// <summary>

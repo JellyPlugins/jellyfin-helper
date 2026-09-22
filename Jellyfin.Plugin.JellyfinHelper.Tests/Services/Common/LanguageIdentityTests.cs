@@ -19,8 +19,12 @@ public class LanguageIdentityTests
     [InlineData("nob", "no")]
     [InlineData("nno", "no")]
     [InlineData("srp", "sr")]
+    [InlineData("scc", "sr")]
     [InlineData("per", "fa")]
     [InlineData("hrv", "hr")]
+    [InlineData("scr", "sh")]
+    [InlineData("hbs", "sh")]
+    [InlineData("SCR", "sh")]
     [InlineData("yue", "zh")]
     [InlineData("cmn", "zh")]
     public void GetIso6391Code_KnownCodes_ResolveToCanonical(string tag, string expected)
@@ -128,6 +132,7 @@ public class LanguageIdentityTests
     [InlineData("en", "English")]
     [InlineData("sr", "Serbian")]
     [InlineData("hr", "Croatian")]
+    [InlineData("sh", "Serbo-Croatian")]
     [InlineData("no", "Norwegian")]
     public void DisplayNameForCode_KnownCodes_ReturnDisplay(string code, string expected)
         => Assert.Equal(expected, LanguageIdentity.DisplayNameForCode(code));
@@ -143,6 +148,10 @@ public class LanguageIdentityTests
     [InlineData("United states - English - Subrip", "United states - English - Subrip")]
     [InlineData(null, null)]
     [InlineData("   ", null)]
+    [InlineData("''", null)]
+    [InlineData("\"\"", null)]
+    [InlineData("'German'", "German")]
+    [InlineData("\"eng\"", "eng")]
     public void CleanLanguageTag_TrimsQualifiersAndRegions(string? tag, string? expected)
         => Assert.Equal(expected, LanguageIdentity.CleanLanguageTag(tag));
 }

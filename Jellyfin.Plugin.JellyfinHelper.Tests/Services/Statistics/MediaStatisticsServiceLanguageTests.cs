@@ -146,7 +146,7 @@ public class MediaStatisticsServiceLanguageTests
     }
 
     [Fact]
-    public void AudioLanguage_UnknownIso639Code_RecordedAsUpperCaseCode()
+    public void AudioLanguage_UnknownIso639Code_FoldsIntoUnknown()
     {
         var path = TestPath("media", "movies", "Film.mkv");
         var streams = new List<MediaStream>
@@ -157,7 +157,7 @@ public class MediaStatisticsServiceLanguageTests
         SetupLibraryWithVideo(path, streams);
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
-        Assert.Equal(1, stats.AudioLanguages["XYZ"]);
+        Assert.Equal(1, stats.AudioLanguages["Unknown"]);
     }
 
     [Fact]
@@ -200,8 +200,8 @@ public class MediaStatisticsServiceLanguageTests
     }
 
     [Fact]
-    public void NormalizeIso639Language_UnknownCode_ReturnsUpperCasedCode()
-        => Assert.Equal("XYZ", MediaStatisticsService.NormalizeIso639Language("xyz"));
+    public void NormalizeIso639Language_UnknownCode_ReturnsNull()
+        => Assert.Null(MediaStatisticsService.NormalizeIso639Language("xyz"));
 
     [Fact]
     public void NormalizeIso639Language_NullInput_ReturnsNull()
@@ -285,7 +285,11 @@ public class MediaStatisticsServiceLanguageTests
     [Theory]
     [InlineData("sr", "Serbian")]
     [InlineData("srp", "Serbian")]
+    [InlineData("scc", "Serbian")]
     [InlineData("hr", "Croatian")]
+    [InlineData("scr", "Serbo-Croatian")]
+    [InlineData("SCR", "Serbo-Croatian")]
+    [InlineData("hbs", "Serbo-Croatian")]
     [InlineData("fa", "Persian")]
     [InlineData("id", "Indonesian")]
     [InlineData("ca", "Catalan")]
@@ -294,14 +298,20 @@ public class MediaStatisticsServiceLanguageTests
         => Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
 
     [Theory]
-    [InlineData("in", "IN")]
-    [InlineData("ji", "JI")]
-    [InlineData("mo", "MO")]
-    public void NormalizeIso639Language_RetiredAmbiguousCodes_PassThroughVisible(string code, string expected)
+    [InlineData("in")]
+    [InlineData("ji")]
+    [InlineData("mo")]
+    [InlineData("xyz")]
+    [InlineData("new")]
+    [InlineData("NEW")]
+    [InlineData("''")]
+    [InlineData("\"\"")]
+    public void NormalizeIso639Language_UnresolvableCodes_FoldIntoUnknown(string code)
     {
-        // Retired codes that collide with ordinary words stay visible instead of
-        // risking a silently wrong language ("in English" is not Indonesian).
-        Assert.Equal(expected, MediaStatisticsService.NormalizeIso639Language(code));
+        // Retired or unknown codes that collide with ordinary words fold into
+        // Unknown instead of inventing junk facets ("in English" is not
+        // Indonesian, "NEW" is not a language, "''" is muxer punctuation).
+        Assert.Null(MediaStatisticsService.NormalizeIso639Language(code));
     }
 
     [Theory]
@@ -519,6 +529,51 @@ public class MediaStatisticsServiceLanguageTests
         Assert.Equal(
             ["German (SRT)", "German (PGS, Forced)", "German (ASS)", "German (SRT, SDH)"],
             stats.SubtitleTrackLabels[path]);
+    }
+
+    [Theory]
+    [InlineData("''")]
+    [InlineData("\"\"")]
+    [InlineData("new")]
+    [InlineData("NEW")]
+    [InlineData("xyz")]
+    public void AudioLanguage_JunkTags_FoldIntoUnknown(string junk)
+    {
+        // Muxer punctuation ("''") and unresolvable codes ("NEW", "xyz") must not
+        // invent facets; the file lands in Unknown instead.
+        var path = TestPath("media", "movies", "Film.mkv");
+        var streams = new List<MediaStream>
+        {
+            new() { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 },
+            new() { Type = MediaStreamType.Audio, Codec = "aac", Language = junk }
+        };
+        SetupLibraryWithVideo(path, streams);
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+        Assert.Equal(1, stats.AudioLanguages["Unknown"]);
+        Assert.DoesNotContain(junk, stats.AudioLanguages.Keys);
+        Assert.Empty(stats.AudioTrackLabels);
+    }
+
+    [Theory]
+    [InlineData("''")]
+    [InlineData("new")]
+    [InlineData("NEW")]
+    public void SubtitleLanguage_JunkTags_FoldIntoUnknown(string junk)
+    {
+        // Same contract for embedded subtitles: junk never opens a facet.
+        var path = TestPath("media", "movies", "Film.mkv");
+        var streams = new List<MediaStream>
+        {
+            new() { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080, BitRate = 5_000_000 },
+            new() { Type = MediaStreamType.Subtitle, Codec = "subrip", Language = junk, IsExternal = false }
+        };
+        SetupLibraryWithVideo(path, streams);
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+        Assert.Equal(1, stats.SubtitleLanguages["Unknown"]);
+        Assert.DoesNotContain(junk, stats.SubtitleLanguages.Keys);
+        Assert.Empty(stats.SubtitleTrackLabels);
     }
 
     private sealed class TestableMediaStatisticsService(
