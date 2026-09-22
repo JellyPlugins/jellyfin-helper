@@ -1671,6 +1671,24 @@ function readBitrateEditor() {
     return {min: min, max: max};
 }
 
+// Slider drags emit many input events; one coalesced preview per frame keeps the
+// drag responsive while the commit on release stays exact.
+let _explorerPreviewTimer = null;
+
+function previewBitrateRangeCoalesced() {
+    if (_explorerPreviewTimer !== null) {
+        return;
+    }
+    if (typeof requestAnimationFrame !== 'function') {
+        previewBitrateRange();
+        return;
+    }
+    _explorerPreviewTimer = requestAnimationFrame(function () {
+        _explorerPreviewTimer = null;
+        previewBitrateRange();
+    });
+}
+
 // Live preview without a control rebuild. Pills and results follow the thumbs at
 // once while the editor keeps grab and focus until commit.
 function previewBitrateRange() {
@@ -1703,6 +1721,10 @@ function normalizeBitrateRange(range, bounds) {
 // Commits the range on release. A range that spans everything equals Any,
 // so it collapses back to null instead of filtering nothing.
 function commitBitrateRange() {
+    if (_explorerPreviewTimer !== null) {
+        cancelAnimationFrame(_explorerPreviewTimer);
+        _explorerPreviewTimer = null;
+    }
     _codecsExplorerState.bitrateRange = normalizeBitrateRange(readBitrateEditor(), getBitrateBounds());
     refreshCodecsExplorerControls();
 }
@@ -1719,7 +1741,7 @@ function bindBitrateEditorHandlers() {
     if (minRange && minInput) {
         minRange.oninput = function () {
             minInput.value = minRange.value;
-            previewBitrateRange();
+            previewBitrateRangeCoalesced();
         };
         minRange.onchange = function () {
             commitBitrateRange();
@@ -1728,7 +1750,7 @@ function bindBitrateEditorHandlers() {
     if (maxRange && maxInput) {
         maxRange.oninput = function () {
             maxInput.value = maxRange.value;
-            previewBitrateRange();
+            previewBitrateRangeCoalesced();
         };
         maxRange.onchange = function () {
             commitBitrateRange();
