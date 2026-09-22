@@ -382,6 +382,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         // Bitrate filtering uses measured per file values with a slider editor,
         // independent of the donut tier buckets.
         Assert.Contains("function buildBitrateEditor", HtmlContent);
+        Assert.Contains("function previewBitrateRangeCoalesced", HtmlContent);
         Assert.Contains("function getBitrateMap", HtmlContent);
         Assert.Contains("function getBitrateBounds", HtmlContent);
         Assert.Contains("function getBitrateHistogram", HtmlContent);
