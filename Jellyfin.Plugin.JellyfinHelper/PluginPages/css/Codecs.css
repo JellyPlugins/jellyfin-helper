@@ -854,6 +854,7 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
     max-height: 400px;
     overflow: hidden;
     border: 1px solid var(--color-border-light);
@@ -871,6 +872,7 @@
     min-height: 0;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     scrollbar-width: thin;
     scrollbar-color: var(--color-primary-scrollbar) transparent;
     scrollbar-gutter: stable;
@@ -881,14 +883,25 @@
     height: 6px;
 }
 
-/* Long names ellipsize instead of breaking the grid on narrow viewports. The
-   full path stays available via the leaf title tooltip and the detail card. */
+/* Long names keep their full width and scroll horizontally inside the section,
+   like the drill-down trees. min-width: 0 on the section above keeps the grid
+   intact on narrow viewports; tooltips and detail cards carry the full path
+   where hover exists. */
 #codecExplorerResults .tree-leaf-file-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
     white-space: nowrap;
-    flex-shrink: 1;
-    min-width: 0;
+    flex-shrink: 0;
+}
+
+#codecExplorerResults .tree-view .tree-name {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+}
+
+#codecExplorerResults .tree-view .tree-leaf {
+    width: max-content;
+    min-width: 100%;
 }
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-track {

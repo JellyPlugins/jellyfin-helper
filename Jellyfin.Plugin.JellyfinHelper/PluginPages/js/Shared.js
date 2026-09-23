@@ -342,14 +342,15 @@ function expandOneTreeNode(node) {
     return 1 + ensureTreeChildren(node);
 }
 
-function runTreeAction(container, action) {
+function runTreeAction(container, action, scope) {
+    const root = scope && scope.querySelectorAll ? scope : container;
     if (action !== 'expand') {
-        collapseAllTreeNodes(container);
+        collapseAllTreeNodes(root);
         setTreeCappedNote(container, false);
         return;
     }
     const queue = [];
-    for (const node of container.querySelectorAll('.tree-node:not(.tree-expanded)')) {
+    for (const node of root.querySelectorAll('.tree-node:not(.tree-expanded)')) {
         queue.push(node);
     }
     let used = 0;
@@ -414,7 +415,9 @@ function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon, 
         lazy = {render: treeCtx.render, section: treeCtx.section, trail: []};
     }
     return '<div class="file-tree-section">'
-        + '<div class="file-tree-section-header"><span class="badge ' + badgeClass + '">' + escHtml(label) + '</span> <span class="file-tree-section-count">(' + files.length + ')</span></div>'
+        + '<div class="file-tree-section-header"><span class="badge ' + badgeClass + '">' + escHtml(label) + '</span> <span class="file-tree-section-count">(' + files.length + ')</span>'
+        + '<span class="file-tree-section-actions"><button class="tree-action-btn" data-tree-action="expand">' + escHtml(T('expandAll', 'Expand All')) + '</button>'
+        + '<button class="tree-action-btn" data-tree-action="collapse">' + escHtml(T('collapseAll', 'Collapse All')) + '</button></span></div>'
         + '<div class="tree-view">'
         + renderTreeLevel(tree, 0, icon, lazy)
         + '</div></div>';
@@ -450,8 +453,6 @@ function renderFileTree(result, title, meta, otherIcon) {
     var html = '<div class="file-tree-header" data-tree-total="' + totalFiles + '">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
-    html += '<button class="tree-action-btn" data-tree-action="expand">' + escHtml(T('expandAll', 'Expand All')) + '</button>';
-    html += '<button class="tree-action-btn" data-tree-action="collapse">' + escHtml(T('collapseAll', 'Collapse All')) + '</button>';
     html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</span>';
     html += '<span class="file-tree-capped" hidden></span>';
     html += '</div></div>';
@@ -482,7 +483,7 @@ function bindFileTreeHandlers(container) {
         }
         var action = e.target?.closest?.('[data-tree-action]') ?? null;
         if (action && container.contains(action)) {
-            runTreeAction(container, action.dataset.treeAction);
+            runTreeAction(container, action.dataset.treeAction, action.closest('.file-tree-section'));
         }
     });
     container.addEventListener('keydown', function (e) {

@@ -161,7 +161,7 @@ test('language multi-dropdown selects several values and lists all in the summar
   // Dismiss the still open editor first: any outside click would rebuild
   // the results and collapse the tree right after expanding it.
   await page.keyboard.press('Escape');
-  await page.locator('#codecExplorerResults [data-tree-action="expand"]').click();
+  await page.locator('#codecExplorerResults .file-tree-section').first().locator('[data-tree-action="expand"]').click();
   const leaf = page.locator('#codecExplorerResults .tree-leaf[title]').first();
   await expect(leaf).toBeVisible({ timeout: 5_000 });
   await leaf.click();

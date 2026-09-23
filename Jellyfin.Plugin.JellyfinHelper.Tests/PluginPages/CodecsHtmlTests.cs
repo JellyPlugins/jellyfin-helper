@@ -258,6 +258,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         // with truthful totals and without continuation buttons.
         Assert.Contains("FILE_TREE_EXPAND_BUDGET", HtmlContent);
         Assert.Contains("data-tree-key", HtmlContent);
+        Assert.Contains("file-tree-section-actions", HtmlContent);
         Assert.Contains("function ensureTreeChildren", HtmlContent);
         Assert.Contains("function toggleTreeNode", HtmlContent);
         Assert.Contains("function runTreeAction", HtmlContent);

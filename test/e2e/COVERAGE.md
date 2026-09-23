@@ -286,7 +286,7 @@ plugin stays Active after every call).
 | Trends **growth chart** → wheel zoom refines level, drag pan moves window, pinch zoom, tap tooltip, no label overlap | `trends-chart.ui.spec.ts` |
 | Codec **donut** (touch) → first tap shows the segment tooltip, second tap on the same segment hides it (compat-mouse guard) | `codecs-donut.ui.spec.ts` |
 | Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; language multi-dropdown selects several values; reset clears filters and scope; Overview library row and Movies card deep-link into the explorer | `codecs-explorer.ui.spec.ts` |
-| Codecs **Library Explorer lazy tree** → 250 stubbed files render as collapsed shells with truthful totals and no continuation control; expanding one folder materializes only its leaf; Expand All shows every file; Collapse All hides the tree again; 2200 files stop Expand All at the node budget with a visible capped note; special-character folders expand via mouse and keyboard | `explorer-lazy-tree.ui.spec.ts` |
+| Codecs **Library Explorer lazy tree** → 250 stubbed files (+6 TV episodes) render as collapsed shells with truthful totals and no continuation control; expanding one folder materializes only its leaf; per-section Expand/Collapse act independently per library; 2200 files stop Expand All at the node budget with a visible capped note; special-character folders expand via mouse and keyboard; long names scroll horizontally inside their section | `explorer-lazy-tree.ui.spec.ts` |
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
 Endpoints that smoke only *routed* or hardening only *tolerated a status class*

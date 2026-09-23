@@ -331,12 +331,15 @@ public class MediaStatisticsResult
             byName.TryAdd(lib.LibraryName, lib);
         }
 
-        foreach (var name in LibraryOrder.Where(static name => !string.IsNullOrEmpty(name)))
+        // Duplicate order entries resolve once: GetValueOrDefault keeps the lookup
+        // side-effect free, OfType drops unresolvable names, Distinct drops repeats.
+        foreach (var lib in LibraryOrder
+            .Where(static name => !string.IsNullOrEmpty(name))
+            .Select(name => byName.GetValueOrDefault(name))
+            .OfType<LibraryStatistics>()
+            .Distinct())
         {
-            if (byName.Remove(name, out var lib))
-            {
-                Libraries.Add(lib);
-            }
+            Libraries.Add(lib);
         }
 
         foreach (var lib in AllGroupedLibraries().Where(lib => !Libraries.Contains(lib)))

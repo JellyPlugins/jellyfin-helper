@@ -34,9 +34,9 @@ test('Codecs tab: clicking a breakdown row opens a file tree that expands/collap
     await toggle.click();
     await expect(node).toHaveClass(/tree-expanded/);
 
-    // Expand All / Collapse All buttons.
-    const expandAll = panel.locator('[data-tree-action="expand"]');
-    const collapseAll = panel.locator('[data-tree-action="collapse"]');
+    // Expand All / Collapse All buttons (per section).
+    const expandAll = panel.locator('.file-tree-section').first().locator('[data-tree-action="expand"]');
+    const collapseAll = panel.locator('.file-tree-section').first().locator('[data-tree-action="collapse"]');
     if (await expandAll.count()) {
       await expandAll.click();
       await expect(panel.locator('.tree-node.tree-expanded').first()).toBeVisible();
@@ -99,7 +99,7 @@ test('Codecs tab: clicking a book format shows the book file tree, not an empty 
     'collapsed folders must be lazy shells',
   ).toBeGreaterThan(0);
   const leaves = panel.locator('.tree-leaf, .tree-leaf-file-name');
-  const expandAll = panel.locator('[data-tree-action="expand"]');
+  const expandAll = panel.locator('.file-tree-section').first().locator('[data-tree-action="expand"]');
   await expect(expandAll).toHaveCount(1);
   await expandAll.click();
   await expect.poll(async () => leaves.count(), { timeout: 10_000 }).toBeGreaterThan(0);

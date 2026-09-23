@@ -15,7 +15,12 @@ import { openDashboard, switchTab } from './_ui-helpers.ts';
 const FILE_COUNT = 250;
 const BUDGET_FILE_COUNT = 2200;
 
-const SPECIAL_NAMES = ['Film%20 007', 'Müller & Söhne (2020)', 'Qu"oted (2021)'];
+const SPECIAL_NAMES = [
+  'Film%20 007',
+  'Müller & Söhne (2020)',
+  'Qu"oted (2021)',
+  'A Very Long Film Title That Keeps Scrolling On Touch Devices Extended Collectors Edition Part Two (2024)',
+];
 
 function fileName(i: number): string {
   if (i <= SPECIAL_NAMES.length) {
@@ -24,7 +29,9 @@ function fileName(i: number): string {
   return `Film${String(i).padStart(3, '0')}`;
 }
 
-function buildStubStatistics(count: number): object {
+const TV_EPISODES = 6;
+
+function buildStubStatistics(count: number, includeTv = false): object {
   const paths: string[] = [];
   let videoSize = 0;
   for (let i = 1; i <= count; i++) {
@@ -32,6 +39,68 @@ function buildStubStatistics(count: number): object {
     paths.push(`/media/Movies/${name}/${name}.mkv`);
     videoSize += 1_000_000_000 + i;
   }
+  const tvPaths: string[] = [];
+  let tvSize = 0;
+  if (includeTv) {
+    for (let e = 1; e <= TV_EPISODES; e++) {
+      tvPaths.push(`/media/TV/Mini (2024)/Season 01/Mini S01E0${e} [Bluray-1080p][AAC 2.0][x264]-scene.mkv`);
+      tvSize += 2_000_000_000 + e;
+    }
+  }
+  const tvLib = {
+    LibraryName: 'TV Shows',
+    CollectionType: 'tvshows',
+    RootPaths: ['/media/TV'],
+    VideoSize: tvSize,
+    VideoFileCount: tvPaths.length,
+    SubtitleSize: 0,
+    SubtitleFileCount: 0,
+    ImageSize: 0,
+    ImageFileCount: 0,
+    NfoSize: 0,
+    NfoFileCount: 0,
+    AudioSize: 0,
+    AudioFileCount: 0,
+    BookSize: 0,
+    BookFileCount: 0,
+    TrickplaySize: 0,
+    TrickplayFolderCount: 0,
+    OtherSize: 0,
+    TotalSize: tvSize,
+    ContainerFormats: { MKV: tvPaths.length },
+    ContainerSizes: { MKV: tvSize },
+    ContainerFormatPaths: { MKV: [...tvPaths] },
+    VideoCodecs: { 'H.264': tvPaths.length },
+    VideoCodecSizes: { 'H.264': tvSize },
+    VideoCodecPaths: { 'H.264': [...tvPaths] },
+    Resolutions: { '1080p': tvPaths.length },
+    ResolutionSizes: { '1080p': tvSize },
+    ResolutionPaths: { '1080p': [...tvPaths] },
+    DynamicRanges: { SDR: tvPaths.length },
+    DynamicRangeSizes: { SDR: tvSize },
+    DynamicRangePaths: { SDR: [...tvPaths] },
+    VideoAudioCodecs: {},
+    AudioLanguages: { English: tvPaths.length },
+    AudioLanguageSizes: { English: tvSize },
+    AudioLanguagePaths: { English: [...tvPaths] },
+    SubtitleLanguages: { English: tvPaths.length },
+    SubtitleLanguageSizes: { English: tvSize },
+    SubtitleLanguagePaths: { English: [...tvPaths] },
+    VideoBitrateTiers: {},
+    WatchedTiers: { 'Never watched': tvPaths.length },
+    WatchedTierSizes: { 'Never watched': tvSize },
+    WatchedTierPaths: { 'Never watched': [...tvPaths] },
+    WatchedByUserPaths: {},
+    WatchedByUserSizes: {},
+    VideosWithoutSubtitles: 0,
+    VideosWithoutSubtitlesPaths: [],
+    VideosWithoutImages: 0,
+    VideosWithoutImagesPaths: [],
+    VideosWithoutNfo: 0,
+    VideosWithoutNfoPaths: [],
+    OrphanedMetadataDirectories: 0,
+    OrphanedMetadataDirectoriesPaths: [],
+  };
   const lib = {
     LibraryName: 'Movies',
     CollectionType: 'movies',
@@ -89,17 +158,17 @@ function buildStubStatistics(count: number): object {
   // Wire shape: typed groups are canonical, Libraries is omitted (the page
   // rebuilds the union at intake).
   return {
-    LibraryOrder: ['Movies'],
+    LibraryOrder: includeTv ? ['Movies', 'TV Shows'] : ['Movies'],
     Movies: [lib],
-    TvShows: [],
+    TvShows: includeTv ? [tvLib] : [],
     Music: [],
     Books: [],
     Other: [],
     ScanTimestamp: new Date().toISOString(),
-    TotalVideoFileCount: count,
+    TotalVideoFileCount: count + tvPaths.length,
     TotalAudioFileCount: 0,
     TotalMovieVideoSize: videoSize,
-    TotalTvShowVideoSize: 0,
+    TotalTvShowVideoSize: tvSize,
     TotalMusicAudioSize: 0,
     TotalBookFileCount: 0,
     TotalBookSize: 0,
@@ -117,7 +186,7 @@ test('explorer renders a lazy tree with truthful totals and no paging', async ({
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(buildStubStatistics(FILE_COUNT)),
+      body: JSON.stringify(buildStubStatistics(FILE_COUNT, true)),
     });
   });
 
@@ -140,44 +209,57 @@ test('explorer renders a lazy tree with truthful totals and no paging', async ({
   await options.nth(1).click();
 
   const results = page.locator('#codecExplorerResults');
+  const moviesSection = results.locator('.file-tree-section:has(.badge-movies)');
+  const tvSection = results.locator('.file-tree-section:has(.badge-tvshows)');
+  const total = FILE_COUNT + TV_EPISODES;
   const summary = results.locator('.codec-explorer-summary');
   await expect(summary).toBeVisible({ timeout: 5_000 });
   await expect(summary.locator('[data-explorer-count]')).toHaveAttribute(
     'data-explorer-count',
-    String(FILE_COUNT),
+    String(total),
   );
 
   // Truthful totals with a bounded DOM: every film is a collapsed shell, no
-  // leaf is rendered yet, and no continuation control exists.
-  const headerCount = results.locator('.file-tree-section-count');
-  await expect(headerCount).toContainText(`(${FILE_COUNT})`);
+  // leaf is rendered yet, and each section carries its own action buttons.
+  await expect(moviesSection.locator('.file-tree-section-count')).toContainText(`(${FILE_COUNT})`);
+  await expect(tvSection.locator('.file-tree-section-count')).toContainText(`(${TV_EPISODES})`);
+  await expect(moviesSection.locator('[data-tree-action="expand"]')).toHaveCount(1);
+  await expect(tvSection.locator('[data-tree-action="expand"]')).toHaveCount(1);
   const folders = results.locator('.tree-node');
-  await expect.poll(async () => folders.count(), { timeout: 10_000 }).toBe(FILE_COUNT);
+  await expect.poll(async () => folders.count(), { timeout: 10_000 }).toBe(FILE_COUNT + 1);
   await expect(results.locator('.tree-leaf')).toHaveCount(0);
-  await expect(results.locator('[data-section-more], #codecSectionMore_movies')).toHaveCount(0);
 
   // Expanding one folder materializes exactly its own leaf; totals unchanged.
-  await results.locator('[data-tree-toggle]').first().click();
-  await expect.poll(async () => results.locator('.tree-leaf').count(), { timeout: 10_000 }).toBe(1);
-  await expect(headerCount).toContainText(`(${FILE_COUNT})`);
+  await moviesSection.locator('[data-tree-toggle]').first().click();
+  await expect.poll(async () => moviesSection.locator('.tree-leaf').count(), { timeout: 10_000 }).toBe(1);
+  await expect(tvSection.locator('.tree-leaf')).toHaveCount(0);
   await expect(summary.locator('[data-explorer-count]')).toHaveAttribute(
     'data-explorer-count',
-    String(FILE_COUNT),
+    String(total),
   );
 
-  // Expand All stays within budget on this size and shows every file.
-  await results.locator('[data-tree-action="expand"]').click();
+  // Per-section Expand All: movies expand fully without touching TV Shows.
+  await moviesSection.locator('[data-tree-action="expand"]').click();
   await expect
-    .poll(async () => results.locator('.tree-leaf').count(), { timeout: 10_000 })
+    .poll(async () => moviesSection.locator('.tree-leaf').count(), { timeout: 10_000 })
     .toBe(FILE_COUNT);
-  await expect(headerCount).toContainText(`(${FILE_COUNT})`);
+  await expect(tvSection.locator('.tree-leaf')).toHaveCount(0);
+  await expect(tvSection.locator('.tree-node.tree-expanded')).toHaveCount(0);
 
-  // Collapse All hides the tree again without losing the result.
-  await results.locator('[data-tree-action="collapse"]').click();
-  await expect(results.locator('.tree-node.tree-expanded')).toHaveCount(0);
+  // The TV section expands independently afterwards.
+  await tvSection.locator('[data-tree-action="expand"]').click();
+  await expect
+    .poll(async () => tvSection.locator('.tree-leaf').count(), { timeout: 10_000 })
+    .toBe(TV_EPISODES);
+
+  // Collapse All is scoped too: movies collapse while the TV section keeps
+  // its expanded show and season nodes.
+  await moviesSection.locator('[data-tree-action="collapse"]').click();
+  await expect(moviesSection.locator('.tree-node.tree-expanded')).toHaveCount(0);
+  await expect(tvSection.locator('.tree-node.tree-expanded')).toHaveCount(2);
   await expect(summary.locator('[data-explorer-count]')).toHaveAttribute(
     'data-explorer-count',
-    String(FILE_COUNT),
+    String(total),
   );
 });
 
@@ -235,7 +317,7 @@ test('expand all stops at the node budget with a visible capped note', async ({
   await expect(note).toBeVisible({ timeout: 5_000 });
   await expect(note).toContainText(String(BUDGET_FILE_COUNT));
   // Manually expanding the rest clears the note once everything is shown.
-  await expect(results.locator('.tree-node:not(.tree-expanded)').count()).toBeGreaterThan(0);
+  await expect(results.locator('.tree-node:not(.tree-expanded)')).not.toHaveCount(0);
 });
 
 test('special-character folders expand via mouse and keyboard', async ({
@@ -263,4 +345,32 @@ test('special-character folders expand via mouse and keyboard', async ({
   await quotedLeaf.focus();
   await page.keyboard.press('Enter');
   await expect(results.locator('.codec-file-detail')).toBeVisible({ timeout: 5_000 });
+});
+
+test('long names scroll horizontally inside their section', async ({
+  page,
+}) => {
+  const results = await openExplorerWithCount(page, FILE_COUNT);
+  const moviesSection = results.locator('.file-tree-section:has(.badge-movies)');
+  const treeView = moviesSection.locator('.tree-view');
+  await expect(treeView).toBeVisible({ timeout: 5_000 });
+
+  // Sections scroll on both axes like the drill-down trees.
+  await expect(treeView).toHaveCSS('overflow-x', 'auto');
+  await expect(treeView).toHaveCSS('overflow-y', 'auto');
+
+  // The long folder keeps its full width instead of truncating: expanding it
+  // must make the section content wider than its viewport.
+  const longToggle = moviesSection.locator('[data-tree-toggle]').filter({ hasText: 'Touch Devices' });
+  await expect(longToggle).toHaveCount(1);
+  await longToggle.click();
+  await expect
+    .poll(
+      async () =>
+        treeView.evaluate(
+          (el) => (el as HTMLElement).scrollWidth > (el as HTMLElement).clientWidth,
+        ),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 });
