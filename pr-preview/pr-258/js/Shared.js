@@ -346,7 +346,7 @@ function expandOneTreeNode(node) {
 }
 
 function runTreeAction(container, action, scope) {
-    const root = scope && scope.querySelectorAll ? scope : container;
+    const root = scope?.querySelectorAll ? scope : container;
     if (action !== 'expand') {
         collapseAllTreeNodes(root);
         setTreeCappedNote(container, false);
