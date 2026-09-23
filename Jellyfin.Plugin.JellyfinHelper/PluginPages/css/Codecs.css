@@ -883,26 +883,7 @@
     height: 6px;
 }
 
-/* Long names keep their full width and scroll horizontally inside the section,
-   like the drill-down trees. min-width: 0 on the section above keeps the grid
-   intact on narrow viewports; tooltips and detail cards carry the full path
-   where hover exists. */
-#codecExplorerResults .tree-leaf-file-name {
-    overflow: visible;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
 
-#codecExplorerResults .tree-view .tree-name {
-    overflow: visible;
-    text-overflow: clip;
-    white-space: nowrap;
-}
-
-#codecExplorerResults .tree-view .tree-leaf {
-    width: max-content;
-    min-width: 100%;
-}
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-track {
     background: transparent;

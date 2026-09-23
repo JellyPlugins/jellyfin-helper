@@ -26,6 +26,8 @@ test('Codecs tab: clicking a breakdown row opens a file tree that expands/collap
   const panel = page.locator(`#codecDetail_${chart}`);
   await expect(panel).toHaveClass(/file-tree-panel-visible/);
   await expect(panel.locator('.tree-view, .file-tree-section').first()).toBeVisible();
+  // Every tree scrolls on both axes like the explorer sections.
+  await expect(panel.locator('.tree-view').first()).toHaveCSS('overflow-x', 'auto');
 
   // Expand a folder node if present.
   const toggle = panel.locator('[data-tree-toggle]').first();

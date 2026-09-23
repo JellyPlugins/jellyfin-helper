@@ -255,8 +255,11 @@ function renderTreeFolder(childNode, level, icon, lazy) {
 }
 
 function renderTreeLeaf(item, icon) {
+    // Directory entries (e.g. orphaned metadata dirs) keep a folder icon even
+    // inside media sections, where the section icon would suggest a playable file.
+    var leafIcon = item.fullPath?.endsWith('/') ? mi('folder') : icon;
     var html = '<div class="tree-leaf" title="' + escAttr(item.fullPath) + '">'
-        + '<span class="tree-leaf-icon">' + icon + '</span>'
+        + '<span class="tree-leaf-icon">' + leafIcon + '</span>'
         + '<span class="tree-leaf-file-name">' + escHtml(item.name) + '</span>';
     if (item.meta) {
         html += '<span class="tree-leaf-meta">' + escHtml(item.meta) + '</span>';

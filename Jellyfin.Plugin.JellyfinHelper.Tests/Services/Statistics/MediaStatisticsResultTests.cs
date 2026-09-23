@@ -15,6 +15,25 @@ public class MediaStatisticsResultTests
     }
 
     [Fact]
+    public void RehydrateLibraryUnion_PopulatedUnion_StaysUntouched()
+    {
+        // Legacy payloads carry the union alongside the groups; rehydration must
+        // neither reorder, duplicate, nor merge anything in that case.
+        var result = new MediaStatisticsResult();
+        var tv = new LibraryStatistics { LibraryName = "TV" };
+        var movies = new LibraryStatistics { LibraryName = "Movies" };
+        result.Libraries.Add(tv);
+        result.Libraries.Add(movies);
+        result.Movies.Add(movies);
+
+        result.RehydrateLibraryUnion();
+
+        Assert.Equal(2, result.Libraries.Count);
+        Assert.Same(tv, result.Libraries[0]);
+        Assert.Same(movies, result.Libraries[1]);
+    }
+
+    [Fact]
     public void TotalTvShowVideoSize_SumsAllTvShowLibraries()
     {
         var result = new MediaStatisticsResult();
