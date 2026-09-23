@@ -609,10 +609,47 @@
     flex-shrink: 0;
 }
 
-/* Tree View Styles */
+/* Tree View Styles. Every tree scrolls on both axes like the drill-downs:
+   names never wrap, so touch devices can always scroll to the full name. */
 .tree-view {
     font-family: monospace;
     text-align: left;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
+}
+
+.tree-view::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.tree-view::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tree-view::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 3px;
+}
+
+.tree-view::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
+}
+
+.tree-view .tree-name {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+}
+
+.tree-leaf-file-name {
+    white-space: nowrap;
+}
+
+.tree-view .tree-leaf {
+    width: max-content;
+    min-width: 100%;
 }
 
 .file-tree-empty {
