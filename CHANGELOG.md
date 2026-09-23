@@ -13,12 +13,15 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Explore links in the Overview.** Each library name and all four media stat cards (Movies, TV, Music, Books) jump to the Codecs tab and open the Explorer pre-filtered to that scope, so you can go from "how big is this library" to "what exactly is in it" in one click.
 - **Negatable Explorer filters.** Every categorical filter now offers Includes and Excludes, so you can search for e.g. audio languages that are *not* German. Excluded picks show as `≠` pills and every count previews what stays instead of what matches.
 - **Four new breakdowns in the Codecs tab.** Video Bitrate (7 tiers from `< 2` to `> 60 Mbps`), Audio Languages, Subtitle Languages and Watched each get their own chart with drill-down to the exact files. Watched breaks down by username plus Never watched, so you can see who watched what. The charts themselves stay static while you explore, so colors and percentages never shift under you.
+- Added responsive, independently scrollable library result cards.
+- Added consistent themed scrollbar styling across plugin panels and lists.
 
 ### Improved
 
 - **Disabled users no longer skew results.** Plays from deactivated Jellyfin accounts used to linger in recommendations and watch statistics. They are now excluded from Smart Recommendations, watch history and the new Watched breakdown, matching what you see in Jellyfin itself.
 - **Measured bitrates first, estimated as a fallback.** Each file is placed by the bitrate Jellyfin measured for its video stream. When a file has no per-stream bitrate, the average is estimated from its size and runtime, so almost every file lands in a real tier instead of Unknown.
 - **Compact breakdown lists.** Long breakdowns start collapsed behind a Show-all toggle and Unknown always sorts last, so language facets with dozens of entries no longer stretch the card.
+- Improved compact layouts for mobile controls.
 
 ### Tests
 
