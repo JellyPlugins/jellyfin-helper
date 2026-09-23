@@ -187,8 +187,8 @@ function pruneFileTreeRegistry() {
     }
     var live = {};
     var holders = document.querySelectorAll('[data-tree-render]');
-    for (var i = 0; i < holders.length; i++) {
-        live[holders[i].getAttribute('data-tree-render')] = true;
+    for (const holder of holders) {
+        live[holder.dataset.treeRender] = true;
     }
     for (const id of Object.keys(_fileTreeRegistry)) {
         if (!live[id]) {
@@ -201,8 +201,8 @@ function pruneFileTreeRegistry() {
 // any level resolves from the in-memory model without node references in the DOM.
 function encodeTreeKey(segments) {
     var parts = [];
-    for (var i = 0; i < segments.length; i++) {
-        parts.push(encodeURIComponent(segments[i]));
+    for (const segment of segments) {
+        parts.push(encodeURIComponent(segment));
     }
     return parts.join('/');
 }
@@ -213,8 +213,8 @@ function resolveTreeNode(tree, key) {
         return target;
     }
     var segments = key.split('/');
-    for (var i = 0; i < segments.length; i++) {
-        var name = decodeURIComponent(segments[i]);
+    for (const segment of segments) {
+        const name = decodeURIComponent(segment);
         target = target.children[name];
         if (!target) {
             return null;
@@ -283,13 +283,12 @@ function ensureTreeChildren(nodeEl) {
         return 0;
     }
     var holder = nodeEl.children[1];
-    if (!holder || !holder.classList || !holder.classList.contains('tree-children')
-        || holder.getAttribute('data-populated') === '1') {
+    if (!holder?.classList?.contains('tree-children') || holder.dataset.populated === '1') {
         return 0;
     }
-    var renderId = nodeEl.getAttribute('data-tree-render');
-    var sectionKey = nodeEl.getAttribute('data-tree-section');
-    var key = nodeEl.getAttribute('data-tree-key') || '';
+    var renderId = nodeEl.dataset.treeRender;
+    var sectionKey = nodeEl.dataset.treeSection;
+    var key = nodeEl.dataset.treeKey || '';
     var entry = renderId && sectionKey && _fileTreeRegistry[renderId]
         ? _fileTreeRegistry[renderId].sections[sectionKey] : null;
     if (!entry) {
@@ -302,7 +301,7 @@ function ensureTreeChildren(nodeEl) {
     var trail = key === '' ? [] : key.split('/').map(function (s) { return decodeURIComponent(s); });
     holder.innerHTML = renderTreeLevel(target, 0, entry.icon,
         {render: renderId, section: sectionKey, trail: trail});
-    holder.setAttribute('data-populated', '1');
+    holder.dataset.populated = '1';
     if (typeof CustomEvent === 'function' && typeof holder.dispatchEvent === 'function') {
         holder.dispatchEvent(new CustomEvent('jfTreeChildren', {bubbles: true}));
     }
@@ -311,7 +310,7 @@ function ensureTreeChildren(nodeEl) {
 
 function toggleTreeNode(toggle) {
     var node = toggle ? toggle.parentElement : null;
-    if (!node || !node.classList || !node.classList.contains('tree-node')) {
+    if (!node?.classList?.contains('tree-node')) {
         return;
     }
     var expand = !node.classList.contains('tree-expanded');
@@ -325,42 +324,39 @@ function toggleTreeNode(toggle) {
 // Expand All walks document order and stops at the node budget, so even a
 // 20k-file result stays interactive. Collapse All keeps rendered children, so
 // re-expanding is free.
+function collapseAllTreeNodes(container) {
+    for (const node of container.querySelectorAll('.tree-node')) {
+        node.classList.remove('tree-expanded');
+        node.firstElementChild?.setAttribute('aria-expanded', 'false');
+    }
+}
+
+function expandOneTreeNode(node) {
+    node.classList.add('tree-expanded');
+    node.firstElementChild?.setAttribute('aria-expanded', 'true');
+    return 1 + ensureTreeChildren(node);
+}
+
 function runTreeAction(container, action) {
-    var nodes = container.querySelectorAll('.tree-node');
     if (action !== 'expand') {
-        for (var c = 0; c < nodes.length; c++) {
-            nodes[c].classList.remove('tree-expanded');
-            var collapseToggle = nodes[c].firstElementChild;
-            if (collapseToggle && collapseToggle.setAttribute) {
-                collapseToggle.setAttribute('aria-expanded', 'false');
-            }
-        }
+        collapseAllTreeNodes(container);
         return;
     }
-    var queue = [];
-    for (var q = 0; q < nodes.length; q++) {
-        if (!nodes[q].classList.contains('tree-expanded')) {
-            queue.push(nodes[q]);
-        }
+    const queue = [];
+    for (const node of container.querySelectorAll('.tree-node:not(.tree-expanded)')) {
+        queue.push(node);
     }
-    var used = 0;
+    let used = 0;
     while (queue.length > 0 && used < FILE_TREE_EXPAND_BUDGET) {
-        var node = queue.shift();
+        const node = queue.shift();
         if (node.classList.contains('tree-expanded')) {
             continue;
         }
-        node.classList.add('tree-expanded');
-        var toggle = node.firstElementChild;
-        if (toggle && toggle.setAttribute) {
-            toggle.setAttribute('aria-expanded', 'true');
-        }
-        used += 1;
-        used += ensureTreeChildren(node);
-        var holder = node.children[1];
-        if (holder && holder.querySelectorAll) {
-            var fresh = holder.querySelectorAll('.tree-node:not(.tree-expanded)');
-            for (var f = 0; f < fresh.length; f++) {
-                queue.push(fresh[f]);
+        used += expandOneTreeNode(node);
+        const holder = node.children[1];
+        if (holder?.querySelectorAll) {
+            for (const fresh of holder.querySelectorAll('.tree-node:not(.tree-expanded)')) {
+                queue.push(fresh);
             }
         }
     }
@@ -439,12 +435,12 @@ function bindFileTreeHandlers(container) {
 
     // Folder toggle buttons (current and future).
     container.addEventListener('click', function (e) {
-        var target = e.target && e.target.closest ? e.target.closest('[data-tree-toggle]') : null;
+        var target = e.target?.closest?.('[data-tree-toggle]') ?? null;
         if (target && container.contains(target)) {
             toggleTreeNode(target);
             return;
         }
-        var action = e.target && e.target.closest ? e.target.closest('[data-tree-action]') : null;
+        var action = e.target?.closest?.('[data-tree-action]') ?? null;
         if (action && container.contains(action)) {
             runTreeAction(container, action.dataset.treeAction);
         }
@@ -453,12 +449,36 @@ function bindFileTreeHandlers(container) {
         if (e.key !== 'Enter' && e.key !== ' ') {
             return;
         }
-        var target = e.target && e.target.closest ? e.target.closest('[data-tree-toggle]') : null;
+        var target = e.target?.closest?.('[data-tree-toggle]') ?? null;
         if (target && container.contains(target)) {
             e.preventDefault();
             toggleTreeNode(target);
         }
     });
+}
+
+// Wire shape: the typed groups are canonical and Libraries is omitted from the
+// payload (dedup). Rebuilds the union once at intake so every tab keeps reading
+// data.Libraries. Tolerates both shapes: payloads that still carry Libraries,
+// stubs, and group-only responses.
+function normalizeStatisticsLibraries(data) {
+    if (!data || Array.isArray(data.Libraries)) {
+        return data;
+    }
+    const libs = [];
+    const groups = [data.Movies, data.TvShows, data.Music, data.Books, data.Other];
+    for (const group of groups) {
+        if (!Array.isArray(group)) {
+            continue;
+        }
+        for (const lib of group) {
+            if (lib && libs.indexOf(lib) < 0) {
+                libs.push(lib);
+            }
+        }
+    }
+    data.Libraries = libs;
+    return data;
 }
 
 // Aggregate dictionaries across libraries

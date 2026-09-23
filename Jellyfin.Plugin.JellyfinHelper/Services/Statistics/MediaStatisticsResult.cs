@@ -13,9 +13,20 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 public class MediaStatisticsResult
 {
     /// <summary>
-    /// Gets the list of all library statistics.
+    ///     Gets the list of all library statistics.
+    ///     In-memory union of the typed groups below, populated by the scan. Excluded from the
+    ///     JSON payload: every library is already serialized once inside its typed group, so
+    ///     serializing this union again would double the transfer size. Wire readers rebuild it
+    ///     from the groups (see LibraryOrder); the disk cache rehydrates it on load.
     /// </summary>
+    [JsonIgnore]
     public Collection<LibraryStatistics> Libraries { get; } = new();
+
+    /// <summary>
+    ///     Gets the library names in scan order. Serialized alongside the typed groups so the
+    ///     in-memory union can be rebuilt in exact order after a disk round-trip.
+    /// </summary>
+    public Collection<string> LibraryOrder { get; } = new();
 
     /// <summary>
     /// Gets the list of movie library statistics.

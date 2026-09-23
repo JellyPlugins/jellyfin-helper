@@ -258,7 +258,7 @@ FileSizes:_bookSizes
 
 var MOCK_STATISTICS={
 ScanTimestamp:new Date(Date.now()-300000).toISOString(),
-Libraries:[_moviesLib,_tvLib,_musicLib,_booksLib],
+LibraryOrder:["Movies","TV Shows","Music","Books"],
 Movies:[_moviesLib],TvShows:[_tvLib],Music:[_musicLib],Books:[_booksLib],Other:[],
 TotalMovieVideoSize:_moviesLib.VideoSize,
 TotalTvShowVideoSize:_tvLib.VideoSize,

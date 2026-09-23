@@ -9,7 +9,17 @@ interface Stats {
   TotalVideoFileCount: number;
   TotalVideosWithoutSubtitles: number;
   TotalVideosWithoutSubtitlesPaths: string[];
-  Libraries: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
+  Movies: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
+  TvShows: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
+  Music: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
+  Books: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
+  Other: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
+  LibraryOrder: string[];
+}
+
+/** Wire shape: typed groups are canonical, Libraries is omitted (dedup). */
+function allLibraries(stats: Stats) {
+  return [...stats.Movies, ...stats.TvShows, ...stats.Music, ...stats.Books, ...stats.Other];
 }
 
 let ctx: APIRequestContext;
@@ -82,9 +92,11 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
 
   test('per-library totals are coherent with the aggregate video count', async () => {
     const stats = await getStats();
-    const perLibVideo = stats.Libraries.reduce((a, l) => a + l.VideoFileCount, 0);
+    const libs = allLibraries(stats);
+    expect(libs.length, 'libraries arrive through the typed groups').toBeGreaterThan(0);
+    const perLibVideo = libs.reduce((a, l) => a + l.VideoFileCount, 0);
     expect(perLibVideo, 'per-library video counts sum to the total').toBe(stats.TotalVideoFileCount);
-    for (const lib of stats.Libraries) {
+    for (const lib of libs) {
       expect(lib.TotalSize, `${lib.LibraryName} size non-negative`).toBeGreaterThanOrEqual(0);
     }
   });

@@ -1246,15 +1246,15 @@ function bindExplorerFileDetails(host) {
     // Leaves materialized later by on-demand tree expansion arrive keyboard-
     // ready through the bubbled render notification.
     host.addEventListener('jfTreeChildren', function (evt) {
-        var holder = evt.target;
-        if (holder && holder.querySelectorAll) {
+        const holder = evt.target;
+        if (holder?.querySelectorAll) {
             for (const leaf of holder.querySelectorAll('.tree-leaf')) {
                 prepareExplorerLeaf(leaf);
             }
         }
     });
     host.addEventListener('click', function (evt) {
-        const leaf = evt.target && evt.target.closest ? evt.target.closest('.tree-leaf') : null;
+        const leaf = evt.target?.closest?.('.tree-leaf') ?? null;
         if (leaf && host.contains(leaf)) {
             prepareExplorerLeaf(leaf);
             toggleExplorerFileDetail(leaf);
@@ -1264,7 +1264,7 @@ function bindExplorerFileDetails(host) {
         if (evt.key !== 'Enter' && evt.key !== ' ') {
             return;
         }
-        const leaf = evt.target && evt.target.closest ? evt.target.closest('.tree-leaf') : null;
+        const leaf = evt.target?.closest?.('.tree-leaf') ?? null;
         if (leaf && host.contains(leaf)) {
             evt.preventDefault();
             prepareExplorerLeaf(leaf);

@@ -75,8 +75,10 @@ function buildStubStatistics(): object {
     OrphanedMetadataDirectories: 0,
     OrphanedMetadataDirectoriesPaths: [],
   };
+  // Wire shape: typed groups are canonical, Libraries is omitted (the page
+  // rebuilds the union at intake).
   return {
-    Libraries: [lib],
+    LibraryOrder: ['Movies'],
     Movies: [lib],
     TvShows: [],
     Music: [],
