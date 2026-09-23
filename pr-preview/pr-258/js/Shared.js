@@ -497,6 +497,7 @@ function bindFileTreeHandlers(container) {
         if (target && container.contains(target)) {
             e.preventDefault();
             toggleTreeNode(target);
+            refreshTreeCappedNote(container);
         }
     });
 }

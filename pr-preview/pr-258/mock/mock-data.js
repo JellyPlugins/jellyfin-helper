@@ -15,7 +15,7 @@ function _mimdb(){var id;do{id="tt"+(1000000+_mri(9000000));}while(_musedIds[id]
 function _brTier(br){return br<2?"< 2 Mbps":(br<4?"2–4 Mbps":(br<8?"4–8 Mbps":(br<16?"8–16 Mbps":(br<32?"16–32 Mbps":(br<60?"32–60 Mbps":"> 60 Mbps")))));}
 function _sumSizes(files){var s=0;for(var i=0;i<files.length;i++){s+=files[i].s;}return s;}
 
-var _movieTitles=["Inception (2010)","Interstellar (2014)","The Matrix (1999)","Oppenheimer (2023)","Dune Part Two (2024)","Your Name (2016)","Pans Labyrinth (2006)","Big Buck Bunny (2008)","Blade Runner 2049 (2017)","The Dark Knight (2008)","Pulp Fiction (1994)","Forrest Gump (1994)","Fight Club (1999)","Gladiator (2000)","Titanic (1997)","Avatar (2009)","Avengers Endgame (2019)","Joker (2019)","Parasite (2019)","La La Land (2016)","Whiplash (2014)","Mad Max Fury Road (2015)","The Revenant (2015)","Gravity (2013)","Arrival (2016)","Ex Machina (2014)","The Martian (2015)","Tenet (2020)","Dunkirk (2017)","1917 (2019)","Jojo Rabbit (2019)","Knives Out (2019)","Get Out (2017)","A Quiet Place (2018)","Dune (2021)","Nope (2022)","Everything Everywhere All at Once Extended Ultimate Remastered Collectors Edition Part Two The Complete Saga Anthology Box Set (2022)","The Batman (2022)","Top Gun Maverick (2022)","John Wick 4 (2023)","Barbie (2023)","Poor Things (2023)","Killers of the Flower Moon (2023)","The Holdovers (2023)","Past Lives (2023)","Anatomy of a Fall (2023)","The Zone of Interest (2023)","Godzilla Minus One (2023)","Civil War (2024)","Furiosa (2024)","The Fall Guy (2024)","Inside Out 2 (2024)","Deadpool and Wolverine (2024)","Alien Romulus (2024)","The Wild Robot (2024)","Nosferatu (2024)","Wicked (2024)","Anora (2024)","The Brutalist (2024)","Conclave (2024)","Sinners (2025)","Mickey 17 (2025)","F1 (2025)","Superman (2025)","Müller (2020)","The Silence of the Lambs (1991)","Se7en (1995)","Braveheart (1995)","Fargo (1996)","The Big Lebowski (1998)","Saving Private Ryan (1998)","American Beauty (1999)","The Green Mile (1999)","American Psycho (2000)","Memento (2000)","A Beautiful Mind (2001)","LOTR Fellowship (2001)","LOTR Towers (2002)","LOTR Return (2003)","Finding Nemo (2003)","Kill Bill (2003)","Eternal Sunshine (2004)","The Incredibles (2004)","Batman Begins (2005)","V for Vendetta (2005)","The Departed (2006)","Children of Men (2006)","No Country (2007)","Ratatouille (2007)","WALL-E (2008)","Slumdog Millionaire (2008)","Inglourious Basterds (2009)","Up (2009)","The Social Network (2010)","Toy Story 3 (2010)","Black Swan (2010)","Hugo (2011)","Drive (2011)","Django Unchained (2012)","Life of Pi (2012)","Argo (2012)","12 Years a Slave (2013)","Her (2013)","The Wolf of Wall Street (2013)","Birdman (2014)","Gone Girl (2014)","The Grand Budapest Hotel (2014)","Spotlight (2015)","Room (2015)","Moonlight (2016)","Zootopia (2016)","Coco (2017)","Us (2019)","Spider-Man No Way Home (2021)","The Godfather (1972)","Shawshank Redemption (1994)","Pirates Caribbean (2003)","The Dark Knight Rises (2012)","Untitled Project","Alien (1979)"];
+var _movieTitles=["Inception (2010)","Interstellar (2014)","The Matrix (1999)","Oppenheimer (2023)","Dune Part Two (2024)","Your Name (2016)","Pans Labyrinth (2006)","Big Buck Bunny (2008)","Blade Runner 2049 (2017)","The Dark Knight (2008)","Pulp Fiction (1994)","Forrest Gump (1994)","Fight Club (1999)","Gladiator (2000)","Titanic (1997)","Avatar (2009)","Avengers Endgame (2019)","Joker (2019)","Parasite (2019)","La La Land (2016)","Whiplash (2014)","Mad Max Fury Road (2015)","The Revenant (2015)","Gravity (2013)","Arrival (2016)","Ex Machina (2014)","The Martian (2015)","Tenet (2020)","Dunkirk (2017)","1917 (2019)","Jojo Rabbit (2019)","Knives Out (2019)","Get Out (2017)","A Quiet Place (2018)","Dune (2021)","Nope (2022)","Everything Everywhere All at Once Extended Ultimate Remastered Collectors Edition Part Two The Complete Saga Anthology Box Set (2022)","The Batman (2022)","Top Gun Maverick (2022)","John Wick 4 (2023)","Barbie (2023)","Killers of the Flower Moon (2023)","The Holdovers (2023)","Past Lives (2023)","Anatomy of a Fall (2023)","Godzilla Minus One (2023)","Civil War (2024)","Furiosa (2024)","Inside Out 2 (2024)","Deadpool and Wolverine (2024)","Alien Romulus (2024)","The Wild Robot (2024)","Nosferatu (2024)","Wicked (2024)","Anora (2024)","The Brutalist (2024)","Conclave (2024)","Sinners (2025)","Mickey 17 (2025)","F1 (2025)","Superman (2025)","Müller (2020)","The Silence of the Lambs (1991)","Se7en (1995)","Braveheart (1995)","Fargo (1996)","The Big Lebowski (1998)","Saving Private Ryan (1998)","American Beauty (1999)","The Green Mile (1999)","American Psycho (2000)","Memento (2000)","A Beautiful Mind (2001)","LOTR Fellowship (2001)","LOTR Towers (2002)","LOTR Return (2003)","Finding Nemo (2003)","Kill Bill (2003)","Eternal Sunshine (2004)","The Incredibles (2004)","Batman Begins (2005)","V for Vendetta (2005)","The Departed (2006)","Children of Men (2006)","No Country (2007)","Ratatouille (2007)","WALL-E (2008)","Slumdog Millionaire (2008)","Inglourious Basterds (2009)","Up (2009)","The Social Network (2010)","Toy Story 3 (2010)","Black Swan (2010)","Hugo (2011)","Drive (2011)","Django Unchained (2012)","Life of Pi (2012)","Argo (2012)","12 Years a Slave (2013)","Her (2013)","The Wolf of Wall Street (2013)","Birdman (2014)","Gone Girl (2014)","The Grand Budapest Hotel (2014)","Spotlight (2015)","Room (2015)","Moonlight (2016)","Zootopia (2016)","Coco (2017)","Us (2019)","Spider-Man No Way Home (2021)","The Godfather (1972)","Shawshank Redemption (1994)","Pirates Caribbean (2003)","The Dark Knight Rises (2012)","Untitled Project","Alien (1979)"];
 var _vtag={"H.264":"x264","HEVC":"x265","AV1":"av1","VP9":"vp9","MPEG-2":"mpeg2"};
 var _atag={"AAC":"AAC 2.0","AC3":"DD 5.1","EAC3":"DD+ 5.1","DTS":"DTS 5.1","TrueHD":"TrueHD Atmos","Opus":"Opus 2.0"};
 var _movieFiles=[];
@@ -53,7 +53,8 @@ _movieFiles[6].sl=["Spanish"]; _movieFiles[6].slabels=["Spanish (SRT)"];
 })();
 var _movieSizes={}; for(var _mi=0;_mi<_movieFiles.length;_mi++){_movieSizes[_movieFiles[_mi].p]=_movieFiles[_mi].s;}
 var _movieWatchedA=[],_movieWatchedB=[];
-for(var _wi=0;_wi<70;_wi++){_movieWatchedA.push(_movieFiles[_wi].p);}
+var _recSkipA={8:1,24:1,25:1,26:1};
+for(var _wi=0;_wi<74;_wi++){if(!_recSkipA[_wi]){_movieWatchedA.push(_movieFiles[_wi].p);}}
 for(var _wj=0;_wj<13;_wj++){_movieWatchedB.push(_movieFiles[_wj].p);}
 var _movieWatched={}; for(var _wk=0;_wk<_movieWatchedA.length;_wk++){_movieWatched[_movieWatchedA[_wk]]=true;} for(var _wl=0;_wl<_movieWatchedB.length;_wl++){_movieWatched[_movieWatchedB[_wl]]=true;}
 var _movieWatchedList=Object.keys(_movieWatched);
@@ -90,7 +91,8 @@ var p="/SMB/media/tv/"+_shows[i][0]+" ("+_shows[i][1]+")/Season "+_mpad(s)+"/"+_
 _tvFiles.push({p:p,s:sz,cont:ext.toUpperCase(),res:res,w:w,h:h,vc:vc,ac:ac,al:al,sl:sl,br:Math.round(br*10)/10,tier:_brTier(Math.round(br*10)/10),range:range,show:i});
 }}
 }
-_tvFiles[0].p="/SMB/media/tv/Breaking Bad (2008) {imdb-tt0903747}/Season 01/Breaking Bad S01E01 [German DL] [Bluray-1080p][DD 5.1][x264]-release1.mkv";
+_tvFiles[0].p="/SMB/media/tv/Breaking Bad (2008)/Season 01/Breaking Bad S01E01 {imdb-tt0903747} [German DL] [Bluray-1080p][DD 5.1][x264]-release1.mkv";
+_tvFiles[0].cont="MKV"; _tvFiles[0].ac="AC3";
 _bbE01=_tvFiles[0].p;
 for(var _fi=0;_fi<_tvFiles.length;_fi++){if(_tvFiles[_fi].p.indexOf("/Friends (1994)/")>=0&&_tvFiles[_fi].p.indexOf("S01E01")>=0){_frE01=_tvFiles[_fi].p;break;}}
 for(var _pi=0;_pi<_tvFiles.length;_pi++){if(_tvFiles[_pi].p.indexOf("/Planet Earth III (2023)/")>=0&&_tvFiles[_pi].p.indexOf("S01E01")>=0){_peE01=_tvFiles[_pi].p;break;}}
@@ -106,6 +108,7 @@ if(_pex>=0){_tvFiles[_pex].sl=["English"]; _tvFiles[_pex].slabels=["English (SRT
 var _tvSizes={}; for(var _ti=0;_ti<_tvFiles.length;_ti++){_tvSizes[_tvFiles[_ti].p]=_tvFiles[_ti].s;}
 var _tvWatchedA=[],_tvWatchedC=[];
 for(var _tk=0;_tk<_tvFiles.length;_tk++){if(_tk%3===0){_tvWatchedA.push(_tvFiles[_tk].p);} if(_tk%11===0){_tvWatchedC.push(_tvFiles[_tk].p);}}
+if(_frE01&&_tvWatchedC.indexOf(_frE01)<0){_tvWatchedC.push(_frE01);}
 var _tvWatched={}; for(var _tl=0;_tl<_tvWatchedA.length;_tl++){_tvWatched[_tvWatchedA[_tl]]=true;} for(var _tm=0;_tm<_tvWatchedC.length;_tm++){_tvWatched[_tvWatchedC[_tm]]=true;}
 var _tvWatchedList=Object.keys(_tvWatched);
 var _tvNever=_tvFiles.map(function(f){return f.p;}).filter(function(p){return !_tvWatched[p];});
@@ -156,7 +159,7 @@ function _vDims(files){var d={};for(var i=0;i<files.length;i++){d[files[i].p]=fi
 var _moviesLib=_lib("Movies","movies",{
 RootPaths:["/SMB/media/movies"],
 VideoSize:_sumSizes(_movieFiles),ImageSize:640000,NfoSize:36000,TrickplaySize:826000000,OtherSize:0,SubtitleSize:_sumObj(_movieSubs),
-VideoFileCount:_movieFiles.length,ImageFileCount:2,NfoFileCount:1,TrickplayFolderCount:118,OtherFileCount:0,SubtitleFileCount:Object.keys(_movieSubs).length,
+VideoFileCount:_movieFiles.length,ImageFileCount:2,NfoFileCount:1,TrickplayFolderCount:115,OtherFileCount:0,SubtitleFileCount:Object.keys(_movieSubs).length,
 VideoCodecs:_vDict(_movieFiles,"vc"),
 VideoAudioCodecs:_vDict(_movieFiles,"ac"),
 ContainerFormats:_vDict(_movieFiles,"cont"),
@@ -201,7 +204,7 @@ OrphanedMetadataDirectoriesPaths:["/SMB/media/movies/Old Shorts/","/SMB/media/mo
 _moviesLib.WatchedDetails={};
 _moviesLib.WatchedDetails[_movieFiles[0].p]=[{"Username":"Alice","PlayCount":3,"LastPlayedDate":"2024-03-01T12:00:00Z","Played":true},{"Username":"Bob","PlayCount":1,"LastPlayedDate":"2024-02-14T20:00:00Z","Played":true}];
 _moviesLib.WatchedDetails[_movieFiles[1].p]=[{"Username":"Alice","PlayCount":1,"LastPlayedDate":"2024-01-05T21:00:00Z","Played":true}];
-_moviesLib.WatchedDetails[_movieFiles[8].p]=[{"Username":"Alice","PlayCount":2,"LastPlayedDate":"2024-05-11T21:30:00Z","Played":true}];
+_moviesLib.WatchedDetails[_movieFiles[9].p]=[{"Username":"Alice","PlayCount":2,"LastPlayedDate":"2024-05-11T21:30:00Z","Played":true}];
 
 var _tvLib=_lib("TV Shows","tvshows",{
 RootPaths:["/SMB/media/tv"],
@@ -238,8 +241,8 @@ SubtitleLanguagePaths:_vPaths(_tvFiles,"sl"),
 WatchedTiers:{"Watched":_tvWatchedList.length,"Never watched":_tvFiles.length-_tvWatchedList.length},
 WatchedTierSizes:(function(){var w=0;for(var i=0;i<_tvWatchedList.length;i++){w+=_tvSizes[_tvWatchedList[i]];}return {"Watched":w,"Never watched":_sumSizes(_tvFiles)-w};})(),
 WatchedTierPaths:{"Watched":_tvWatchedList.slice(),"Never watched":_tvNever.slice()},
-WatchedByUserPaths:{"Alice":_tvWatchedA.slice(),"Carol":_tvWatchedC.slice()},
-WatchedByUserSizes:(function(){var a=0,c=0;for(var i=0;i<_tvWatchedA.length;i++){a+=_tvSizes[_tvWatchedA[i]];}for(var j=0;j<_tvWatchedC.length;j++){c+=_tvSizes[_tvWatchedC[j]];}return {"Alice":a,"Carol":c};})(),
+WatchedByUserPaths:{"Alice":_tvWatchedA.slice(),"Bob":_tvWatchedC.slice()},
+WatchedByUserSizes:(function(){var a=0,b=0;for(var i=0;i<_tvWatchedA.length;i++){a+=_tvSizes[_tvWatchedA[i]];}for(var j=0;j<_tvWatchedC.length;j++){b+=_tvSizes[_tvWatchedC[j]];}return {"Alice":a,"Bob":b};})(),
 WatchedDetails:{},
 FileSizes:_tvSizes,
 VideosWithoutSubtitles:_tvNoSub.length,VideosWithoutImages:2,VideosWithoutNfo:1,OrphanedMetadataDirectories:2,
@@ -250,7 +253,7 @@ OrphanedMetadataDirectoriesPaths:["/SMB/media/tv/Cancelled Show/","/SMB/media/tv
 });
 _tvLib.WatchedDetails={};
 _tvLib.WatchedDetails[_bbE01]=[{"Username":"Alice","PlayCount":2,"LastPlayedDate":"2024-04-02T19:00:00Z","Played":true}];
-_tvLib.WatchedDetails[_frE01]=[{"Username":"Carol","PlayCount":1,"LastPlayedDate":"2024-05-11T21:30:00Z","Played":true}];
+_tvLib.WatchedDetails[_frE01]=[{"Username":"Bob","PlayCount":1,"LastPlayedDate":"2024-05-11T21:30:00Z","Played":true}];
 
 var _musicLib=_lib("Music","music",{
 RootPaths:["/SMB/media/music"],AudioSize:_sumSizes(_musicFiles),ImageSize:0,
@@ -443,7 +446,7 @@ var MOCK_RECOMMENDATIONS=[
 {UserId:_uid2,UserName:"Bob",Recommendations:[
 {Name:"The Grand Budapest Hotel",Score:0.92,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2014,Reason:"Directed by Wes Anderson",ReasonKey:"recsDirectorMatch"},
 {Name:"Lady Bird",Score:0.88,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2017,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
-{Name:"Pans Labyrinth",Score:0.86,ItemType:"Movie",Genres:["Drama","Thriller"],Year:2006,Reason:"Highly rated drama",ReasonKey:"recsHighlyRated"},
+{Name:"Parasite",Score:0.86,ItemType:"Movie",Genres:["Drama","Thriller"],Year:2019,Reason:"Highly rated drama",ReasonKey:"recsHighlyRated"},
 {Name:"Jojo Rabbit",Score:0.83,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2019,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"The Grand Budapest Hotel"},
 {Name:"The Office",Score:0.80,ItemType:"Series",Genres:["Comedy"],Year:2005,Reason:"Popular in Comedy",ReasonKey:"recsPopularGenre"}
 ]}
@@ -462,7 +465,7 @@ MOCK_USER_ACTIVITY[_uid1]=[
 {ItemName:"Dune Part Two",ItemType:"Movie",TotalPlayCount:2,MostRecentWatch:new Date(Date.now()-4*86400000).toISOString(),AverageCompletionPercent:100},
 {ItemName:"Breaking Bad",ItemType:"Series",TotalPlayCount:120,MostRecentWatch:new Date(Date.now()-5*86400000).toISOString(),AverageCompletionPercent:95},
 {ItemName:"Inception",ItemType:"Movie",TotalPlayCount:4,MostRecentWatch:new Date(Date.now()-25*86400000).toISOString(),AverageCompletionPercent:100},
-{ItemName:"Blade Runner 2049",ItemType:"Movie",TotalPlayCount:1,MostRecentWatch:new Date(Date.now()-8*86400000).toISOString(),AverageCompletionPercent:100}
+{ItemName:"The Dark Knight",ItemType:"Movie",TotalPlayCount:1,MostRecentWatch:new Date(Date.now()-8*86400000).toISOString(),AverageCompletionPercent:100}
 ];
 MOCK_USER_ACTIVITY[_uid2]=[
 {ItemName:"Pans Labyrinth",ItemType:"Movie",TotalPlayCount:2,MostRecentWatch:new Date(Date.now()-86400000).toISOString(),AverageCompletionPercent:100},

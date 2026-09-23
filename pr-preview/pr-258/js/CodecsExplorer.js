@@ -1976,11 +1976,19 @@ function pruneBitrateRange() {
 function pruneExplorerScopeNames(libs, names) {
     const known = [];
     for (const name of names) {
-        if (libs.some(function (lib) {
-            return lib.LibraryName === name;
-        })) {
-            known.push(name);
+        const lib = libs.find(function (candidate) {
+            return candidate.LibraryName === name;
+        });
+        if (!lib) {
+            continue;
         }
+        // Boxsets never appear in the scope picker, so a scope naming one
+        // (e.g. via an Overview deep link) would trap the search behind a
+        // checkbox that does not exist. Drop it, keep every other selection.
+        if ((lib.CollectionType || lib.collectionType || '').toLowerCase() === 'boxsets') {
+            continue;
+        }
+        known.push(name);
     }
     return known;
 }
