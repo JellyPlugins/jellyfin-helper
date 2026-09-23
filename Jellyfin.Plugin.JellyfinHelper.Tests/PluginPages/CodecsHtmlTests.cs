@@ -261,6 +261,8 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("function ensureTreeChildren", HtmlContent);
         Assert.Contains("function toggleTreeNode", HtmlContent);
         Assert.Contains("function runTreeAction", HtmlContent);
+        Assert.Contains("function setTreeCappedNote", HtmlContent);
+        Assert.Contains("treeExpandCapped", HtmlContent);
         Assert.Contains("jfTreeChildren", HtmlContent);
         Assert.DoesNotContain("CODEC_EXPLORER_SECTION_FILES", HtmlContent);
         Assert.DoesNotContain("appendSectionMoreButtons", HtmlContent);

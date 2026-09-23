@@ -432,5 +432,6 @@
   "codecShowMore": "显示全部 {count}",
   "codecShowLess": "收起",
   "explorerIncludes": "包含",
-  "explorerExcludes": "不包含"
+  "explorerExcludes": "不包含",
+  "treeExpandCapped": "共 {total} 个文件，显示 {shown} 个 - 展开文件夹查看更多"
 }

@@ -309,6 +309,48 @@ public class MediaStatisticsResult
     [JsonInclude]
     public HashSet<string> OtherRootPaths => AggregateRootPaths(Other);
 
+    /// <summary>
+    ///     Rebuilds the in-memory union from the typed groups. Libraries is excluded from the
+    ///     payload (every library already serializes once inside its typed group), so a fresh
+    ///     payload always arrives with an empty union. LibraryOrder restores exact scan order;
+    ///     payloads predating it (or with unresolvable names) fall back to grouped order, with
+    ///     stragglers appended. Called by StatisticsCacheService.LoadLatestResult, the only
+    ///     production deserialization path, so computed Totals aggregating over Libraries stay
+    ///     correct. Null or empty names never throw the whole union away.
+    /// </summary>
+    internal void RehydrateLibraryUnion()
+    {
+        if (Libraries.Count > 0)
+        {
+            return;
+        }
+
+        var byName = new Dictionary<string, LibraryStatistics>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lib in Movies.Concat(TvShows).Concat(Music).Concat(Books).Concat(Other))
+        {
+            if (!string.IsNullOrEmpty(lib.LibraryName))
+            {
+                byName.TryAdd(lib.LibraryName, lib);
+            }
+        }
+
+        foreach (var name in LibraryOrder)
+        {
+            if (!string.IsNullOrEmpty(name) && byName.Remove(name, out var lib))
+            {
+                Libraries.Add(lib);
+            }
+        }
+
+        foreach (var lib in Movies.Concat(TvShows).Concat(Music).Concat(Books).Concat(Other))
+        {
+            if (!Libraries.Contains(lib))
+            {
+                Libraries.Add(lib);
+            }
+        }
+    }
+
     private static HashSet<string> AggregateRootPaths(IEnumerable<LibraryStatistics> libraries)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

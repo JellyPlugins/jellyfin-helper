@@ -129,9 +129,9 @@ public class StatisticsCacheService : IStatisticsCacheService
             var result = JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
             if (result != null)
             {
+                result.RehydrateLibraryUnion();
                 MigrateLegacyBitrateTiers(result);
                 MigrateLegacyWatchedBuckets(result);
-                RehydrateLibraryUnion(result);
             }
 
             return result;
@@ -149,43 +149,6 @@ public class StatisticsCacheService : IStatisticsCacheService
                 ex,
                 _logger);
             return null;
-        }
-    }
-
-    private static void RehydrateLibraryUnion(MediaStatisticsResult result)
-    {
-        // Libraries is excluded from the payload (every library already serializes once
-        // inside its typed group), so a fresh payload always arrives with an empty union.
-        // Rebuild it so object-model consumers keep working. LibraryOrder restores exact
-        // scan order; payloads predating it (or with unresolvable names) fall back to
-        // grouped order, with stragglers appended.
-        if (result.Libraries.Count > 0)
-        {
-            return;
-        }
-
-        var byName = new Dictionary<string, LibraryStatistics>(StringComparer.Ordinal);
-        foreach (var lib in result.Movies.Concat(result.TvShows).Concat(result.Music)
-                     .Concat(result.Books).Concat(result.Other))
-        {
-            byName.TryAdd(lib.LibraryName, lib);
-        }
-
-        foreach (var name in result.LibraryOrder)
-        {
-            if (byName.Remove(name, out var lib))
-            {
-                result.Libraries.Add(lib);
-            }
-        }
-
-        foreach (var lib in result.Movies.Concat(result.TvShows).Concat(result.Music)
-                     .Concat(result.Books).Concat(result.Other))
-        {
-            if (!result.Libraries.Contains(lib))
-            {
-                result.Libraries.Add(lib);
-            }
         }
     }
 

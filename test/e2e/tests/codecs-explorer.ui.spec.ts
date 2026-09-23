@@ -84,7 +84,7 @@ test('combining two filters narrows the result and shows both values', async ({ 
       secondValue = val;
       break;
     }
-    // Try next codec – clear the current pill and reopen the editor.
+    // Try next codec - clear the current pill and reopen the editor.
     const clear = page.locator('[data-pill-clear="videoCodecs"]');
     if (await clear.count()) await clear.click();
     await openDimEditor(page, 'videoCodecs');

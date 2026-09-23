@@ -785,7 +785,8 @@ function buildCodecsExplorerMulti(dim) {
     html += '<button type="button" class="codec-multi-toggle" id="codecMultiToggle_' + escAttr(dim.id) + '" data-multi-toggle="' + escAttr(dim.id) + '"'
         + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-labelledby="codecMultiLabel_' + escAttr(dim.id) + '"'
         + (disabled ? ' disabled' : '') + '>';
-    html += '<span class="codec-multi-summary">' + escHtml(explorerMultiSummary(selected, isCodecsExplorerExcluded(dim.id))) + '</span>';
+    const dimSummary = explorerMultiSummary(selected, isCodecsExplorerExcluded(dim.id));
+    html += '<span class="codec-multi-summary" title="' + escAttr(dimSummary) + '">' + escHtml(dimSummary) + '</span>';
     html += '<span class="codec-multi-chevron" aria-hidden="true">›</span></button>';
     html += '<div class="codec-multi-panel" data-multi-panel="' + escAttr(dim.id) + '"' + (open ? '' : ' hidden') + '>';
     for (let index = 0; index < visible.length; index++) {
@@ -804,19 +805,12 @@ function buildCodecsExplorerMulti(dim) {
     return html;
 }
 
-// Total media files of one library, used as the scope option count. Mirrors exactly
-// what the scope listing can show (FileSizes covers video, audio and books only).
-// For each library type, show the relevant file count.
+// Total media files of one library, used as the scope option count. FileSizes
+// holds every classified video, music-audio, and eBook file, so its key count
+// mirrors exactly what the scope listing can show, for every library type.
 function countLibraryFiles(lib) {
-    const type = (lib.CollectionType || lib.collectionType || '').toLowerCase();
-    if (type === 'music') {
-        return lib.AudioFileCount || 0;
-    }
-    if (type === 'books') {
-        return lib.BookFileCount || 0;
-    }
-    // movies, tvshows, and other types use VideoFileCount (episodes for tvshows)
-    return lib.VideoFileCount || 0;
+    const sizes = lib.FileSizes || lib.fileSizes || {};
+    return Object.keys(sizes).length;
 }
 
 // Library scope as a multi-dropdown: no selection means all libraries, otherwise the
@@ -839,7 +833,8 @@ function buildCodecsExplorerLibraryMulti() {
     html += '<button type="button" class="codec-multi-toggle" id="codecMultiToggle_libraries" data-library-toggle="1"'
         + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-labelledby="codecMultiLabel_libraries"'
         + (disabled ? ' disabled' : '') + '>';
-    html += '<span class="codec-multi-summary">' + escHtml(libraryMultiSummary(selected, _codecsExplorerState.libraries !== null && selected.length === 0)) + '</span>';
+    const scopeSummary = libraryMultiSummary(selected, _codecsExplorerState.libraries !== null && selected.length === 0);
+    html += '<span class="codec-multi-summary" title="' + escAttr(scopeSummary) + '">' + escHtml(scopeSummary) + '</span>';
     html += '<span class="codec-multi-chevron" aria-hidden="true">›</span></button>';
     html += '<div class="codec-multi-panel" data-library-panel="1"' + (open ? '' : ' hidden') + '>';
     for (let index = 0; index < libs.length; index++) {

@@ -88,9 +88,16 @@ test('Codecs tab: clicking a book format shows the book file tree, not an empty 
   await expect(panel.locator('.file-tree-empty')).toHaveCount(0);
   // Book file paths are reachable through the tree (this is what
   // BookFormatPaths feeds). The tree renders lazily: collapsed folders are
-  // shells first, so expand the tree and then prove real leaves appear.
+  // shells first with no leaves in the DOM, so expand the tree and then prove
+  // real leaves appear.
   const shells = panel.locator('.tree-node');
   expect(await shells.count(), 'book folders must render as shells').toBeGreaterThan(0);
+  // Lazy pin: shells carry registry keys and start with empty children, so an
+  // eager-render regression (leaves present up front) fails here, not silently.
+  expect(
+    await panel.locator('.tree-node[data-tree-key] > .tree-children:empty').count(),
+    'collapsed folders must be lazy shells',
+  ).toBeGreaterThan(0);
   const leaves = panel.locator('.tree-leaf, .tree-leaf-file-name');
   const expandAll = panel.locator('[data-tree-action="expand"]');
   await expect(expandAll).toHaveCount(1);

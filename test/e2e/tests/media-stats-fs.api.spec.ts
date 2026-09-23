@@ -15,6 +15,7 @@ interface Stats {
   Books: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
   Other: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
   LibraryOrder: string[];
+  Libraries?: unknown;
 }
 
 /** Wire shape: typed groups are canonical, Libraries is omitted (dedup). */
@@ -92,8 +93,20 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
 
   test('per-library totals are coherent with the aggregate video count', async () => {
     const stats = await getStats();
+    // Wire shape: the union is omitted (dedup), groups are canonical.
+    expect(stats.Libraries, 'Libraries must be omitted from the payload').toBeUndefined();
     const libs = allLibraries(stats);
     expect(libs.length, 'libraries arrive through the typed groups').toBeGreaterThan(0);
+    // LibraryOrder names every library exactly once, in scan order.
+    const ordered = stats.LibraryOrder;
+    expect(Array.isArray(ordered), 'LibraryOrder must travel the wire').toBe(true);
+    expect([...ordered].sort(), 'LibraryOrder covers the union').toEqual(
+      libs.map((l) => l.LibraryName).sort(),
+    );
+    // Each typed group holds its own libraries (no cross-group duplication).
+    for (const group of [stats.Movies, stats.TvShows, stats.Music, stats.Books, stats.Other]) {
+      expect(Array.isArray(group), 'typed group must be an array').toBe(true);
+    }
     const perLibVideo = libs.reduce((a, l) => a + l.VideoFileCount, 0);
     expect(perLibVideo, 'per-library video counts sum to the total').toBe(stats.TotalVideoFileCount);
     for (const lib of libs) {

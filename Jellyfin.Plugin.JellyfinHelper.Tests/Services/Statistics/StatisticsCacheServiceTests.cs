@@ -106,9 +106,13 @@ public class StatisticsCacheServiceTests : IDisposable
         _service.SaveLatestResult(stats);
         var json = File.ReadAllText(Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json"));
 
-        Assert.DoesNotContain("\"libraries\":", json);
-        Assert.Contains("\"movies\":", json);
-        Assert.Contains("\"libraryOrder\":", json);
+        // Parsed, not substring-matched: independent of casing, indentation, and
+        // key order, and blind to lookalikes like libraryOrder.
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var names = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+        Assert.DoesNotContain(names, n => string.Equals(n, "libraries", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(names, n => string.Equals(n, "movies", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(names, n => string.Equals(n, "libraryOrder", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -167,6 +171,93 @@ public class StatisticsCacheServiceTests : IDisposable
 
         var result = _service.LoadLatestResult();
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyPayloadWithLibrariesKey_LosesNothing()
+    {
+        // Payloads written before the union left the wire carry the libraries array
+        // alongside the groups. The libraries key is ignored on read, but every
+        // production library also sits in its group, so the union rebuilds fully.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
+        File.WriteAllText(filePath, """
+            {
+              "libraries": [{ "libraryName": "Movies", "videoFileCount": 3 }],
+              "libraryOrder": [],
+              "movies": [{ "libraryName": "Movies", "videoFileCount": 3 }],
+              "tvShows": [{ "libraryName": "TV", "videoFileCount": 5 }],
+              "music": [], "books": [], "other": []
+            }
+            """);
+
+        var result = _service.LoadLatestResult();
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.Libraries.Count);
+        Assert.Equal(8, result.TotalVideoFileCount);
+    }
+
+    [Fact]
+    public void LoadLatestResult_NullNames_DoNotNukeTheCache()
+    {
+        // A null libraryName (corrupt/hand-edited file) must not throw the whole
+        // cache away: unresolvable entries still join the union via the fallback.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
+        File.WriteAllText(filePath, """
+            {
+              "libraryOrder": [null, "Movies"],
+              "movies": [{ "libraryName": null, "videoFileCount": 1 }, { "libraryName": "Movies", "videoFileCount": 2 }],
+              "tvShows": [], "music": [], "books": [], "other": []
+            }
+            """);
+
+        var result = _service.LoadLatestResult();
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.Libraries.Count);
+        Assert.Equal("Movies", result.Libraries[0].LibraryName);
+        Assert.Equal(3, result.TotalVideoFileCount);
+    }
+
+    [Fact]
+    public void LoadLatestResult_CaseVariantNames_AggregateConsistently()
+    {
+        // "Movies" vs "movies" stay separate union members (no silent loss) while the
+        // case-insensitive aggregates merge them, matching the live scan behavior.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
+        File.WriteAllText(filePath, """
+            {
+              "libraryOrder": ["Movies", "movies"],
+              "movies": [{ "libraryName": "Movies", "videoFileCount": 3 }, { "libraryName": "movies", "videoFileCount": 4 }],
+              "tvShows": [], "music": [], "books": [], "other": []
+            }
+            """);
+
+        var result = _service.LoadLatestResult();
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.Libraries.Count);
+        Assert.Equal(7, result.TotalVideoFileCount);
+    }
+
+    [Fact]
+    public void LoadLatestResult_GroupOnlyPayload_TotalsAreCorrect()
+    {
+        // The only production deserialization path (LoadLatestResult) rehydrates the
+        // union, so Totals aggregating over Libraries stay correct.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
+        File.WriteAllText(filePath, """
+            {
+              "movies": [{ "libraryName": "Movies", "videoFileCount": 6 }],
+              "tvShows": [], "music": [], "books": [], "other": []
+            }
+            """);
+
+        var result = _service.LoadLatestResult();
+
+        Assert.NotNull(result);
+        Assert.Single(result!.Libraries);
+        Assert.Equal(6, result.TotalVideoFileCount);
     }
 
     [Fact]
@@ -312,6 +403,46 @@ public class StatisticsCacheServiceTests : IDisposable
 
         var exception = Record.Exception(() => System.Threading.Tasks.Task.WaitAll(tasks));
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task ConcurrentReadWrite_LoadsStayInternallyConsistent()
+    {
+        // AtomicFile swaps whole files, so every load observes one complete save:
+        // the union always equals the groups and the totals match, never a mix.
+        var full = new MediaStatisticsResult();
+        var lib = new LibraryStatistics { LibraryName = "Movies", VideoFileCount = 5 };
+        full.Libraries.Add(lib);
+        full.LibraryOrder.Add("Movies");
+        full.Movies.Add(lib);
+
+        var seen = new System.Collections.Concurrent.ConcurrentBag<MediaStatisticsResult>();
+        var tasks = Enumerable.Range(0, 32).Select(i =>
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                if (i % 2 == 0)
+                {
+                    _service.SaveLatestResult(i % 4 == 0 ? full : new MediaStatisticsResult());
+                }
+                else
+                {
+                    var loaded = _service.LoadLatestResult();
+                    if (loaded != null)
+                    {
+                        seen.Add(loaded);
+                    }
+                }
+            })).ToArray();
+        await System.Threading.Tasks.Task.WhenAll(tasks);
+
+        Assert.NotEmpty(seen);
+        foreach (var loaded in seen)
+        {
+            var grouped = loaded.Movies.Concat(loaded.TvShows).Concat(loaded.Music)
+                .Concat(loaded.Books).Concat(loaded.Other).ToList();
+            Assert.Equal(grouped.Count, loaded.Libraries.Count);
+            Assert.Equal(grouped.Sum(l => l.VideoFileCount), loaded.TotalVideoFileCount);
+        }
     }
 
     [Fact]
