@@ -81,6 +81,7 @@ function updateLastScanBadge(utcTimestamp) {
 function loadLatestStatistics() {
     apiGetOptional('JellyfinHelper/MediaStatistics/Latest', function (data) {
         window.JellyfinHelper._latestStatsAuthRetries = 0;
+        normalizeStatisticsLibraries(data);
         if (data?.Libraries) {
             fillScanData(data);
             updateLastScanBadge(data.ScanTimestamp);
@@ -190,6 +191,7 @@ function renderShell() {
 
 // Fill scan-dependent tabs with data after a successful scan
 function fillScanData(data) {
+    normalizeStatisticsLibraries(data);
     fillOverviewData(data);
     fillCodecsData(data);
     fillHealthData(data);
