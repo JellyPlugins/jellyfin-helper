@@ -364,6 +364,9 @@ test('special-character folders expand via mouse and keyboard', async ({
 test('long names scroll horizontally inside their section', async ({
   page,
 }) => {
+  // Narrow viewport: single-column sections (~560px) against a ~870px name
+  // makes the overflow deterministic instead of viewport-dependent.
+  await page.setViewportSize({ width: 600, height: 800 });
   const results = await openExplorerWithCount(page, FILE_COUNT);
   const moviesSection = results.locator('.file-tree-section:has(.badge-movies)');
   const treeView = moviesSection.locator('.tree-view');
