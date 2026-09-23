@@ -602,6 +602,13 @@
     font-size: 0.85em;
 }
 
+.file-tree-section-actions {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 0.4em;
+    flex-shrink: 0;
+}
+
 /* Tree View Styles */
 .tree-view {
     font-family: monospace;
