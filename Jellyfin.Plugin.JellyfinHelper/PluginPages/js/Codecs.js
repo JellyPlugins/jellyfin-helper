@@ -6,7 +6,8 @@ var _lastCodecData = null;
 // Tooltip data store - avoids complex string parsing in DOM attributes
 var _donutTooltipData = {};
 
-// Track which segment currently shows a tooltip (for mobile tap-to-show, tap-again-to-click)
+// Track which segment currently shows a tooltip (cleared by tapping outside
+// any segment, switching segments, or rescanning)
 var _activeTooltipSegmentId = null;
 
 // Guard: prevent duplicate document-level touchstart listener registration
@@ -589,35 +590,27 @@ function attachDonutHoverTooltips() {
                     triggerCodecRowForSegment(this.closest('.donut-segment'));
                 });
 
-                // Mobile: first tap shows tooltip, second tap triggers click
+                // Mobile: one tap shows the tooltip and opens the drill-down together
                 paths[i].addEventListener('touchend', function (evt) {
                     evt.preventDefault();
                     _lastTouchEndTime = Date.now();
                     var seg = this.closest('.donut-segment');
                     var segId = seg.dataset.segmentId;
 
-                    if (_activeTooltipSegmentId === segId) {
-                        // Second tap on same segment - trigger the click action
-                        seg.classList.remove('donut-segment-hover');
-                        hideDonutTooltip(container);
-                        _activeTooltipSegmentId = null;
-                        triggerCodecRowForSegment(seg);
-                    } else {
-                        // First tap - show tooltip + highlight
-                        // Remove highlight from any previously highlighted segment
-                        var prevHighlighted = container.querySelectorAll('.donut-segment-hover');
-                        for (var h = 0; h < prevHighlighted.length; h++) {
-                            prevHighlighted[h].classList.remove('donut-segment-hover');
-                        }
-                        seg.classList.add('donut-segment-hover');
-                        // Create a synthetic position from touch coordinates
-                        var touch = evt.changedTouches?.[0];
-                        var syntheticEvt = touch
-                            ? {clientX: touch.clientX, clientY: touch.clientY}
-                            : evt;
-                        showDonutTooltip(container, syntheticEvt, seg);
-                        _activeTooltipSegmentId = segId;
+                    // Remove highlight from any previously highlighted segment
+                    var prevHighlighted = container.querySelectorAll('.donut-segment-hover');
+                    for (var h = 0; h < prevHighlighted.length; h++) {
+                        prevHighlighted[h].classList.remove('donut-segment-hover');
                     }
+                    seg.classList.add('donut-segment-hover');
+                    // Create a synthetic position from touch coordinates
+                    var touch = evt.changedTouches?.[0];
+                    var syntheticEvt = touch
+                        ? {clientX: touch.clientX, clientY: touch.clientY}
+                        : evt;
+                    showDonutTooltip(container, syntheticEvt, seg);
+                    _activeTooltipSegmentId = segId;
+                    triggerCodecRowForSegment(seg);
                 });
             }
             // Keyboard: segments are focusable buttons mirroring the rows below.

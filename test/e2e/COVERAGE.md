@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **335 tests** (API + UI) across 53 spec files
+every UI interaction. **336 tests** (API + UI) across 53 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -284,7 +284,7 @@ plugin stays Active after every call).
 | Settings **Export Backup** → file download | `interactions.ui.spec.ts` |
 | Settings **folder-browser** → opens overlay (enables UseTrash fieldset first) | `interactions.ui.spec.ts` |
 | Trends **growth chart** → wheel zoom refines level, drag pan moves window, pinch zoom, tap tooltip, no label overlap | `trends-chart.ui.spec.ts` |
-| Codec **donut** (touch) → first tap shows the segment tooltip, second tap on the same segment hides it (compat-mouse guard) | `codecs-donut.ui.spec.ts` |
+| Codec **donut** (touch) → one tap shows the segment tooltip and opens the drill-down together, second tap dismisses both (compat-mouse guard) | `codecs-donut.ui.spec.ts` |
 | Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; language multi-dropdown selects several values; reset clears filters and scope; Overview library row and Movies card deep-link into the explorer | `codecs-explorer.ui.spec.ts` |
 | Codecs **Library Explorer lazy tree** → 250 stubbed files (+6 TV episodes) render as collapsed shells with truthful totals and no continuation control; expanding one folder materializes only its leaf; per-section Expand/Collapse act independently per library; 2200 files stop Expand All at the node budget with a visible capped note; special-character folders expand via mouse and keyboard; long names scroll horizontally inside their section while short content shows no phantom scrollbar | `explorer-lazy-tree.ui.spec.ts` |
 

@@ -27,5 +27,5 @@ changelog: |-
   - Added responsive, independently scrollable library result cards.
   - Improved compact layouts for mobile controls.
   - Added consistent themed scrollbar styling across plugin panels and lists.
-  - Tested by 6094 unit tests and 335 end-to-end tests
+  - Tested by 6094 unit tests and 336 end-to-end tests
   - Requires Jellyfin 12.1 - if you are on Jellyfin 10.x, stay on v2.1.0.6
