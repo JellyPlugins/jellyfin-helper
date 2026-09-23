@@ -229,6 +229,20 @@ test('explorer renders a lazy tree with truthful totals and no paging', async ({
   await expect.poll(async () => folders.count(), { timeout: 10_000 }).toBe(FILE_COUNT + 1);
   await expect(results.locator('.tree-leaf')).toHaveCount(0);
 
+  // No phantom scrollbar: short content fits exactly, so the TV section has
+  // nothing to scroll. (Long names still scroll, pinned in the test below.)
+  const tvView = tvSection.locator('.tree-view');
+  await expect(tvView).toBeVisible({ timeout: 5_000 });
+  await expect
+    .poll(
+      async () =>
+        tvView.evaluate(
+          (el) => (el as HTMLElement).scrollWidth <= (el as HTMLElement).clientWidth + 1,
+        ),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+
   // Expanding one folder materializes exactly its own leaf; totals unchanged.
   await moviesSection.locator('[data-tree-toggle]').first().click();
   await expect.poll(async () => moviesSection.locator('.tree-leaf').count(), { timeout: 10_000 }).toBe(1);

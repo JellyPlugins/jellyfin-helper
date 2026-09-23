@@ -643,14 +643,7 @@
     white-space: nowrap;
 }
 
-.tree-leaf-file-name {
-    white-space: nowrap;
-}
 
-.tree-view .tree-leaf {
-    width: max-content;
-    min-width: 100%;
-}
 
 .file-tree-empty {
     text-align: center;
@@ -663,6 +656,11 @@
     margin-left: 1em;
     border-left: 1px solid var(--color-border-light);
     min-width: 0;
+    /* The indent must not spill past the container: with border-box the width
+       calc below lands exactly on the content edge under every box model, so a
+       scrollbar appears only for genuinely wide content, never for indentation. */
+    box-sizing: border-box;
+    width: calc(100% - 1em);
 }
 
 .tree-folder {
@@ -731,6 +729,11 @@
     border-left: 1px solid var(--color-border-light);
     font-size: 0.9em;
     min-width: 0;
+    /* Same indent compensation as .tree-node: nowrap file names still spill
+       visibly past this box and scroll the tree-view, but short rows never
+       force a scrollbar by themselves. */
+    box-sizing: border-box;
+    width: calc(100% - 1.2em);
 }
 
 .tree-leaf:hover {
@@ -746,9 +749,7 @@
 
 .tree-leaf-file-name {
     white-space: nowrap;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
 }
 
 /* Per-file detail (e.g. real pixel dimensions) shown at the end of a tree leaf. Sits to
