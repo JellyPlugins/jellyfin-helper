@@ -491,6 +491,16 @@
     padding: 0.3em 0;
 }
 
+/* Library names need room, so the panel grows past the toggle and only the
+   viewport caps it. Names crop only when space truly runs out. */
+[data-library-widget] .codec-multi-panel {
+    left: 0;
+    right: auto;
+    width: max-content;
+    min-width: 100%;
+    max-width: calc(100vw - 3em);
+}
+
 .codec-multi-item {
     display: flex;
     align-items: center;
@@ -862,6 +872,14 @@
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
+}
+
+/* Long names extend instead of truncating, so horizontal scroll reveals them. */
+#codecExplorerResults .tree-leaf-file-name {
+    overflow: visible;
+    text-overflow: clip;
+    flex-shrink: 0;
 }
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-track {

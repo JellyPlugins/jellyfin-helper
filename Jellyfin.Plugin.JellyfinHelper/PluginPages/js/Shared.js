@@ -170,10 +170,68 @@ function countTreeItems(node) {
     return count;
 }
 
-function renderTreeFolder(childNode, level, icon) {
+// Upper bound for nodes materialized by one Expand All. Manual toggles stay
+// unbounded: every result remains reachable, only the bulk action stays cheap.
+var FILE_TREE_EXPAND_BUDGET = 2000;
+
+// Render registry: renderId -> { sections: { sectionKey: { tree, icon } } }.
+// Folders render as shells and materialize their children on first expand, so
+// huge result sets never build the full DOM eagerly. Entries whose element left
+// the document are pruned on every render.
+var _fileTreeRegistry = {};
+var _fileTreeRenderSeq = 0;
+
+function pruneFileTreeRegistry() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) {
+        return;
+    }
+    var live = {};
+    var holders = document.querySelectorAll('[data-tree-render]');
+    for (var i = 0; i < holders.length; i++) {
+        live[holders[i].getAttribute('data-tree-render')] = true;
+    }
+    for (const id of Object.keys(_fileTreeRegistry)) {
+        if (!live[id]) {
+            delete _fileTreeRegistry[id];
+        }
+    }
+}
+
+// Identity of a folder inside its section tree: encoded relative segments, so
+// any level resolves from the in-memory model without node references in the DOM.
+function encodeTreeKey(segments) {
+    var parts = [];
+    for (var i = 0; i < segments.length; i++) {
+        parts.push(encodeURIComponent(segments[i]));
+    }
+    return parts.join('/');
+}
+
+function resolveTreeNode(tree, key) {
+    var target = tree;
+    if (!key) {
+        return target;
+    }
+    var segments = key.split('/');
+    for (var i = 0; i < segments.length; i++) {
+        var name = decodeURIComponent(segments[i]);
+        target = target.children[name];
+        if (!target) {
+            return null;
+        }
+    }
+    return target;
+}
+
+function renderTreeFolder(childNode, level, icon, lazy) {
     var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
 
-    var html = '<div class="tree-node">';
+    var html = '<div class="tree-node"';
+    if (lazy) {
+        html += ' data-tree-render="' + lazy.render + '" data-tree-section="' + escAttr(lazy.section)
+            + '" data-tree-key="' + escAttr(encodeTreeKey(lazy.trail.concat(childNode.name))) + '"';
+    }
+    html += '>';
     html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" data-tree-toggle="1"' : '"') + '>';
     html += '<span class="tree-icon tree-icon-closed">' + mi('folder') + '</span>';
     html += '<span class="tree-icon tree-icon-open">' + mi('folder_open') + '</span>';
@@ -181,7 +239,11 @@ function renderTreeFolder(childNode, level, icon) {
     html += '</div>';
 
     if (hasContent) {
-        html += '<div class="tree-children">' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
+        if (lazy) {
+            html += '<div class="tree-children"></div>';
+        } else {
+            html += '<div class="tree-children">' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
+        }
     }
     html += '</div>';
     return html;
@@ -198,12 +260,13 @@ function renderTreeLeaf(item, icon) {
     return html;
 }
 
-function renderTreeLevel(node, level, icon) {
+function renderTreeLevel(node, level, icon, lazy) {
     var html = '';
     var sortedChildren = Object.keys(node.children).sort(function (a, b) { return a.localeCompare(b); });
 
     for (var childName of sortedChildren) {
-        html += renderTreeFolder(node.children[childName], level, icon);
+        html += renderTreeFolder(node.children[childName], level, icon, lazy
+            ? {render: lazy.render, section: lazy.section, trail: lazy.trail} : null);
     }
 
     for (var item of node.items) {
@@ -213,15 +276,113 @@ function renderTreeLevel(node, level, icon) {
     return html;
 }
 
+// Materializes one collapsed folder from the registry. Returns the number of
+// added nodes, so bulk expansion can stop before the tab freezes.
+function ensureTreeChildren(nodeEl) {
+    if (!nodeEl) {
+        return 0;
+    }
+    var holder = nodeEl.children[1];
+    if (!holder || !holder.classList || !holder.classList.contains('tree-children')
+        || holder.getAttribute('data-populated') === '1') {
+        return 0;
+    }
+    var renderId = nodeEl.getAttribute('data-tree-render');
+    var sectionKey = nodeEl.getAttribute('data-tree-section');
+    var key = nodeEl.getAttribute('data-tree-key') || '';
+    var entry = renderId && sectionKey && _fileTreeRegistry[renderId]
+        ? _fileTreeRegistry[renderId].sections[sectionKey] : null;
+    if (!entry) {
+        return 0;
+    }
+    var target = resolveTreeNode(entry.tree, key);
+    if (!target) {
+        return 0;
+    }
+    var trail = key === '' ? [] : key.split('/').map(function (s) { return decodeURIComponent(s); });
+    holder.innerHTML = renderTreeLevel(target, 0, entry.icon,
+        {render: renderId, section: sectionKey, trail: trail});
+    holder.setAttribute('data-populated', '1');
+    if (typeof CustomEvent === 'function' && typeof holder.dispatchEvent === 'function') {
+        holder.dispatchEvent(new CustomEvent('jfTreeChildren', {bubbles: true}));
+    }
+    return Object.keys(target.children).length + target.items.length;
+}
+
+function toggleTreeNode(toggle) {
+    var node = toggle ? toggle.parentElement : null;
+    if (!node || !node.classList || !node.classList.contains('tree-node')) {
+        return;
+    }
+    var expand = !node.classList.contains('tree-expanded');
+    node.classList.toggle('tree-expanded');
+    toggle.setAttribute('aria-expanded', expand ? 'true' : 'false');
+    if (expand) {
+        ensureTreeChildren(node);
+    }
+}
+
+// Expand All walks document order and stops at the node budget, so even a
+// 20k-file result stays interactive. Collapse All keeps rendered children, so
+// re-expanding is free.
+function runTreeAction(container, action) {
+    var nodes = container.querySelectorAll('.tree-node');
+    if (action !== 'expand') {
+        for (var c = 0; c < nodes.length; c++) {
+            nodes[c].classList.remove('tree-expanded');
+            var collapseToggle = nodes[c].firstElementChild;
+            if (collapseToggle && collapseToggle.setAttribute) {
+                collapseToggle.setAttribute('aria-expanded', 'false');
+            }
+        }
+        return;
+    }
+    var queue = [];
+    for (var q = 0; q < nodes.length; q++) {
+        if (!nodes[q].classList.contains('tree-expanded')) {
+            queue.push(nodes[q]);
+        }
+    }
+    var used = 0;
+    while (queue.length > 0 && used < FILE_TREE_EXPAND_BUDGET) {
+        var node = queue.shift();
+        if (node.classList.contains('tree-expanded')) {
+            continue;
+        }
+        node.classList.add('tree-expanded');
+        var toggle = node.firstElementChild;
+        if (toggle && toggle.setAttribute) {
+            toggle.setAttribute('aria-expanded', 'true');
+        }
+        used += 1;
+        used += ensureTreeChildren(node);
+        var holder = node.children[1];
+        if (holder && holder.querySelectorAll) {
+            var fresh = holder.querySelectorAll('.tree-node:not(.tree-expanded)');
+            for (var f = 0; f < fresh.length; f++) {
+                queue.push(fresh[f]);
+            }
+        }
+    }
+}
+
 // Render one media-type section of the file tree, or '' when it has no files.
-function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon) {
+// The section tree is registered for on-demand expansion, so only top-level
+// shells reach the DOM no matter how many files matched.
+function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon, treeCtx) {
     if (!files || files.length === 0) {
         return '';
+    }
+    var tree = buildPathTree(files, rootPaths, meta);
+    var lazy = null;
+    if (treeCtx && treeCtx.render !== undefined && treeCtx.section) {
+        _fileTreeRegistry[treeCtx.render].sections[treeCtx.section] = {tree: tree, icon: icon};
+        lazy = {render: treeCtx.render, section: treeCtx.section, trail: []};
     }
     return '<div class="file-tree-section">'
         + '<div class="file-tree-section-header"><span class="badge ' + badgeClass + '">' + escHtml(label) + '</span> <span class="file-tree-section-count">(' + files.length + ')</span></div>'
         + '<div class="tree-view">'
-        + renderTreeLevel(buildPathTree(files, rootPaths, meta), 0, icon)
+        + renderTreeLevel(tree, 0, icon, lazy)
         + '</div></div>';
 }
 
@@ -229,11 +390,11 @@ function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon) 
 function renderFileTree(result, title, meta, otherIcon) {
     var roots = result.rootPaths || {};
     var sections = [
-        {files: result.movies, roots: roots.movies, badge: 'badge-movies', label: T('movies', 'Movies'), icon: mi('movie')},
-        {files: result.tvShows, roots: roots.tvShows, badge: 'badge-tvshows', label: T('tvShows', 'TV Shows'), icon: mi('tv')},
-        {files: result.music, roots: roots.music, badge: 'badge-music', label: T('music', 'Music'), icon: mi('music_note')},
-        {files: result.books, roots: roots.books, badge: 'badge-books', label: T('books', 'Books'), icon: mi('description')},
-        {files: result.other, roots: roots.other, badge: 'badge-other', label: T('other', 'Other'), icon: otherIcon || mi('description')}
+        {key: 'movies', files: result.movies, roots: roots.movies, badge: 'badge-movies', label: T('movies', 'Movies'), icon: mi('movie')},
+        {key: 'tvShows', files: result.tvShows, roots: roots.tvShows, badge: 'badge-tvshows', label: T('tvShows', 'TV Shows'), icon: mi('tv')},
+        {key: 'music', files: result.music, roots: roots.music, badge: 'badge-music', label: T('music', 'Music'), icon: mi('music_note')},
+        {key: 'books', files: result.books, roots: roots.books, badge: 'badge-books', label: T('books', 'Books'), icon: mi('description')},
+        {key: 'other', files: result.other, roots: roots.other, badge: 'badge-other', label: T('other', 'Other'), icon: otherIcon || mi('description')}
     ];
 
     var totalFiles = 0;
@@ -248,6 +409,10 @@ function renderFileTree(result, title, meta, otherIcon) {
         return '<div class="file-tree-empty">' + escHtml(T('noFilesFound', 'No files found.')) + '</div>';
     }
 
+    pruneFileTreeRegistry();
+    var renderId = String(++_fileTreeRenderSeq);
+    _fileTreeRegistry[renderId] = {sections: {}};
+
     var html = '<div class="file-tree-header">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
@@ -258,54 +423,42 @@ function renderFileTree(result, title, meta, otherIcon) {
 
     html += '<div class="file-tree-columns' + (sectionCount > 1 ? ' file-tree-multi' : '') + '">';
     for (var sec of sections) {
-        html += renderFileTreeSection(sec.files, sec.roots, meta, sec.badge, sec.label, sec.icon);
+        html += renderFileTreeSection(sec.files, sec.roots, meta, sec.badge, sec.label, sec.icon,
+            {render: renderId, section: sec.key});
     }
     html += '</div>';
     return html;
 }
 
-/** * Wire up event listeners for interactive elements rendered by renderFileTree / * renderTreeLevel. Must be called after the HTML returned by those functions * has been injected into the DOM. */
+/** * Wire up event listeners for interactive elements rendered by renderFileTree / * renderTreeLevel. Delegated from the container, so folders materialized later * by on-demand expansion work without rebinding. Idempotent per container. */
 function bindFileTreeHandlers(container) {
-    if (!container) return;
-
-    // Folder toggle buttons
-    var toggles = container.querySelectorAll('[data-tree-toggle]');
-    for (var i = 0; i < toggles.length; i++) {
-        (function (btn) {
-            btn.addEventListener('click', function () {
-                var node = btn.parentElement;
-                node.classList.toggle('tree-expanded');
-                btn.setAttribute('aria-expanded', node.classList.contains('tree-expanded'));
-            });
-            btn.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    btn.click();
-                }
-            });
-        })(toggles[i]);
+    if (!container || container.dataset.treeBound === '1') {
+        return;
     }
+    container.dataset.treeBound = '1';
 
-    // Expand All / Collapse All buttons
-    var actionBtns = container.querySelectorAll('[data-tree-action]');
-    for (var j = 0; j < actionBtns.length; j++) {
-        (function (btn) {
-            btn.addEventListener('click', function () {
-                var action = btn.dataset.treeAction;
-                var panel = btn.closest('.file-tree-panel');
-                var nodes = panel ? panel.querySelectorAll('.tree-node') : [];
-                for (var k = 0; k < nodes.length; k++) {
-                    if (action === 'expand') {
-                        nodes[k].classList.add('tree-expanded');
-                    } else {
-                        nodes[k].classList.remove('tree-expanded');
-                    }
-                    var toggle = nodes[k].querySelector('.tree-toggle');
-                    if (toggle) toggle.setAttribute('aria-expanded', action === 'expand');
-                }
-            });
-        })(actionBtns[j]);
-    }
+    // Folder toggle buttons (current and future).
+    container.addEventListener('click', function (e) {
+        var target = e.target && e.target.closest ? e.target.closest('[data-tree-toggle]') : null;
+        if (target && container.contains(target)) {
+            toggleTreeNode(target);
+            return;
+        }
+        var action = e.target && e.target.closest ? e.target.closest('[data-tree-action]') : null;
+        if (action && container.contains(action)) {
+            runTreeAction(container, action.dataset.treeAction);
+        }
+    });
+    container.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') {
+            return;
+        }
+        var target = e.target && e.target.closest ? e.target.closest('[data-tree-toggle]') : null;
+        if (target && container.contains(target)) {
+            e.preventDefault();
+            toggleTreeNode(target);
+        }
+    });
 }
 
 // Aggregate dictionaries across libraries

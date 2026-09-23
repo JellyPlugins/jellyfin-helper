@@ -86,16 +86,17 @@ test('Codecs tab: clicking a book format shows the book file tree, not an empty 
   // The books section must render (badge-books) and must NOT be the empty state.
   await expect(panel.locator('.file-tree-section .badge-books')).toBeVisible();
   await expect(panel.locator('.file-tree-empty')).toHaveCount(0);
-  // Book file paths are present in the tree (this is what BookFormatPaths feeds).
-  // They live inside collapsed folder nodes, so assert at least one exists, then
-  // expand the tree to prove a real leaf becomes visible - mirroring the codec test.
+  // Book file paths are reachable through the tree (this is what
+  // BookFormatPaths feeds). The tree renders lazily: collapsed folders are
+  // shells first, so expand the tree and then prove real leaves appear.
+  const shells = panel.locator('.tree-node');
+  expect(await shells.count(), 'book folders must render as shells').toBeGreaterThan(0);
   const leaves = panel.locator('.tree-leaf, .tree-leaf-file-name');
-  expect(await leaves.count(), 'book file leaves must be rendered').toBeGreaterThan(0);
   const expandAll = panel.locator('[data-tree-action="expand"]');
-  if (await expandAll.count()) {
-    await expandAll.click();
-    await expect(leaves.first()).toBeVisible();
-  }
+  await expect(expandAll).toHaveCount(1);
+  await expandAll.click();
+  await expect.poll(async () => leaves.count(), { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect(leaves.first()).toBeVisible();
 });
 
 test('Settings tab: the Excluded Libraries multi-select lists libraries', async ({ page }) => {
