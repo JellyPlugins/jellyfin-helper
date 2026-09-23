@@ -284,7 +284,7 @@ function renderTreeLevel(node, level, icon, lazy) {
 // Materializes one collapsed folder from the registry. Returns the number of
 // added nodes, so bulk expansion can stop before the tab freezes.
 function ensureTreeChildren(nodeEl) {
-    if (!nodeEl || !nodeEl.querySelector) {
+    if (!nodeEl?.querySelector) {
         return 0;
     }
     var holder = nodeEl.querySelector(':scope > .tree-children');
@@ -381,7 +381,7 @@ function setTreeCappedNote(container, show) {
         note.hidden = true;
         return;
     }
-    const total = parseInt(header.dataset.treeTotal || '0', 10) || 0;
+    const total = Number.parseInt(header.dataset.treeTotal || '0', 10) || 0;
     const shown = container.querySelectorAll('.tree-leaf').length;
     if (total > 0 && shown >= total) {
         note.hidden = true;
@@ -409,7 +409,7 @@ function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon, 
     }
     var tree = buildPathTree(files, rootPaths, meta);
     var lazy = null;
-    if (treeCtx && treeCtx.render !== undefined && treeCtx.section) {
+    if (treeCtx?.render !== undefined && treeCtx?.section) {
         _fileTreeRegistry[treeCtx.render].sections[treeCtx.section] = {tree: tree, icon: icon};
         lazy = {render: treeCtx.render, section: treeCtx.section, trail: []};
     }
@@ -505,51 +505,62 @@ function normalizeStatisticsLibraries(data) {
     if (!data || Array.isArray(data.Libraries)) {
         return data;
     }
-    const libs = [];
-    const seen = {};
-    const pushLib = function (lib) {
-        if (!lib) {
-            return;
-        }
-        const key = (lib.LibraryName || '') + '|' + (lib.CollectionType || '');
-        if (seen[key]) {
-            return;
-        }
-        seen[key] = true;
-        libs.push(lib);
-    };
     const groups = [data.Movies, data.TvShows, data.Music, data.Books, data.Other];
-    // LibraryOrder restores exact scan order; without it the union follows
-    // grouped order, with stragglers appended.
-    if (Array.isArray(data.LibraryOrder) && data.LibraryOrder.length > 0) {
-        const byName = {};
-        for (const group of groups) {
-            if (!Array.isArray(group)) {
-                continue;
-            }
-            for (const lib of group) {
-                if (lib && lib.LibraryName && !byName[lib.LibraryName]) {
-                    byName[lib.LibraryName] = lib;
-                }
+    const libs = orderLibrariesByName(groups, data.LibraryOrder);
+    appendMissingUnionLibraries(libs, groups);
+    data.Libraries = libs;
+    return data;
+}
+
+// Union members in LibraryOrder; stragglers and order-less payloads are
+// appended by appendMissingUnionLibraries.
+function orderLibrariesByName(groups, order) {
+    const ordered = [];
+    if (!Array.isArray(order) || order.length === 0) {
+        return ordered;
+    }
+    const byName = {};
+    for (const group of groups) {
+        if (!Array.isArray(group)) {
+            continue;
+        }
+        for (const lib of group) {
+            if (lib?.LibraryName && !byName[lib.LibraryName]) {
+                byName[lib.LibraryName] = lib;
             }
         }
-        for (const name of data.LibraryOrder) {
-            if (byName[name]) {
-                pushLib(byName[name]);
-                delete byName[name];
-            }
+    }
+    for (const name of order) {
+        if (byName[name]) {
+            ordered.push(byName[name]);
+            delete byName[name];
         }
+    }
+    return ordered;
+}
+
+// Group members missing from the ordered union join it keyed by
+// LibraryName|CollectionType, so separate JSON objects of one library dedup.
+function appendMissingUnionLibraries(libs, groups) {
+    const seen = {};
+    for (const lib of libs) {
+        seen[(lib.LibraryName || '') + '|' + (lib.CollectionType || '')] = true;
     }
     for (const group of groups) {
         if (!Array.isArray(group)) {
             continue;
         }
         for (const lib of group) {
-            pushLib(lib);
+            if (!lib) {
+                continue;
+            }
+            const key = (lib.LibraryName || '') + '|' + (lib.CollectionType || '');
+            if (!seen[key]) {
+                seen[key] = true;
+                libs.push(lib);
+            }
         }
     }
-    data.Libraries = libs;
-    return data;
 }
 
 // Aggregate dictionaries across libraries
