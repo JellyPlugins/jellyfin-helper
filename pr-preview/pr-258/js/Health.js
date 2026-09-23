@@ -102,9 +102,14 @@ function attachHealthClickHandlers() {
             if (type === 'orphaned') {
                 // Server paths carry no trailing separator, so mark directories
                 // explicitly: the leaf renderer picks the folder icon from it.
+                // Plain string ops instead of a regex: linear by construction.
                 ['movies', 'tvShows', 'other'].forEach(function (section) {
                     result[section] = (result[section] || []).map(function (path) {
-                        return path.replace(/[\\/]+$/, '') + '/';
+                        var normalized = path;
+                        while (normalized.endsWith('/') || normalized.endsWith('\\')) {
+                            normalized = normalized.slice(0, -1);
+                        }
+                        return normalized + '/';
                     });
                 });
             }

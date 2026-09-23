@@ -91,6 +91,24 @@ function hideDonutTooltip(container) {
     }
 }
 
+// Whether this segment's drill-down panel is currently open. DOM truth beats
+// the tooltip variable: any outside tap or rescan may have cleared the variable
+// while the panel stayed open, and only the row knows for sure.
+function isSegmentPanelOpen(segment) {
+    var chartBox = segment.closest ? segment.closest('.chart-box') : null;
+    if (!chartBox || !segment.dataset) {
+        return false;
+    }
+    var codecName = segment.dataset.codec;
+    var rows = chartBox.querySelectorAll('.codec-clickable');
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i].dataset.codec === codecName) {
+            return rows[i].classList.contains('codec-row-active');
+        }
+    }
+    return false;
+}
+
 // Trigger the matching codec-row click for a donut segment
 function triggerCodecRowForSegment(segment) {
     var chartBox = segment.closest('.chart-box');
@@ -590,13 +608,25 @@ function attachDonutHoverTooltips() {
                     triggerCodecRowForSegment(this.closest('.donut-segment'));
                 });
 
-                // Mobile: one tap shows the tooltip and opens the drill-down together
+                // Mobile: one tap shows the tooltip and opens the drill-down
+                // together - there is no hover on touch, so splitting them
+                // across two taps only confuses. Tapping its segment while
+                // open dismisses both (toggle off). The panel state decides,
+                // not the tooltip variable, so a cleared variable can never
+                // strand an open panel with a stuck tooltip.
                 paths[i].addEventListener('touchend', function (evt) {
                     evt.preventDefault();
                     _lastTouchEndTime = Date.now();
                     var seg = this.closest('.donut-segment');
                     var segId = seg.dataset.segmentId;
 
+                    if (isSegmentPanelOpen(seg)) {
+                        seg.classList.remove('donut-segment-hover');
+                        hideDonutTooltip(container);
+                        _activeTooltipSegmentId = null;
+                        triggerCodecRowForSegment(seg);
+                        return;
+                    }
                     // Remove highlight from any previously highlighted segment
                     var prevHighlighted = container.querySelectorAll('.donut-segment-hover');
                     for (var h = 0; h < prevHighlighted.length; h++) {
