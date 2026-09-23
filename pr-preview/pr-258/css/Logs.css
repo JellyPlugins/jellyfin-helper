@@ -234,6 +234,9 @@
     word-break: break-all;
     max-height: 120px;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     opacity: 0.8;
 }
 

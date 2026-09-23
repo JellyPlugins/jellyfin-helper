@@ -488,6 +488,8 @@
     max-height: 220px;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     padding: 0.3em 0;
 }
 
@@ -498,7 +500,8 @@
     right: auto;
     width: max-content;
     min-width: 100%;
-    max-width: calc(100vw - 3em);
+    max-width: min(22em, calc(100vw - 3em));
+    overflow-x: auto;
 }
 
 .codec-multi-item {
@@ -607,6 +610,8 @@
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
     padding: 0.4em;
     overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
 .codec-filter-dim {
@@ -838,11 +843,11 @@
     align-items: start;
 }
 
-#codecExplorerResults .file-tree-columns.file-tree-multi {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 0.8em;
-    align-items: start;
+@media (max-width: 700px) {
+    #codecExplorerResults .file-tree-columns,
+    #codecExplorerResults .file-tree-columns.file-tree-multi {
+        grid-template-columns: 1fr;
+    }
 }
 
 #codecExplorerResults .file-tree-section {
@@ -868,6 +873,7 @@
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: var(--color-primary-scrollbar) transparent;
+    scrollbar-gutter: stable;
 }
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar {
@@ -875,11 +881,14 @@
     height: 6px;
 }
 
-/* Long names extend instead of truncating, so horizontal scroll reveals them. */
+/* Long names ellipsize instead of breaking the grid on narrow viewports. The
+   full path stays available via the leaf title tooltip and the detail card. */
 #codecExplorerResults .tree-leaf-file-name {
-    overflow: visible;
-    text-overflow: clip;
-    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 1;
+    min-width: 0;
 }
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-track {
@@ -1100,6 +1109,12 @@
     .codec-multi-panel {
         background: #ffffff;
         border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    #codecExplorerResults .file-tree-section {
+        background: #ffffff;
+        border-color: rgba(0, 0, 0, 0.1);
     }
 
     /* noinspection CssUnusedSymbol */

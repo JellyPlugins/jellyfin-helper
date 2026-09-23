@@ -432,5 +432,6 @@
   "codecShowMore": "Visa alla {count}",
   "codecShowLess": "Visa mindre",
   "explorerIncludes": "Inkluderar",
-  "explorerExcludes": "Exkluderar"
+  "explorerExcludes": "Exkluderar",
+  "treeExpandCapped": "{shown} av {total} filer - expandera mappar för att se fler"
 }

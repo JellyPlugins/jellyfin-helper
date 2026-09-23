@@ -214,7 +214,12 @@ function resolveTreeNode(tree, key) {
     }
     var segments = key.split('/');
     for (const segment of segments) {
-        const name = decodeURIComponent(segment);
+        let name;
+        try {
+            name = decodeURIComponent(segment);
+        } catch {
+            return null;
+        }
         target = target.children[name];
         if (!target) {
             return null;
@@ -228,7 +233,7 @@ function renderTreeFolder(childNode, level, icon, lazy) {
 
     var html = '<div class="tree-node"';
     if (lazy) {
-        html += ' data-tree-render="' + lazy.render + '" data-tree-section="' + escAttr(lazy.section)
+        html += ' data-tree-render="' + escAttr(lazy.render) + '" data-tree-section="' + escAttr(lazy.section)
             + '" data-tree-key="' + escAttr(encodeTreeKey(lazy.trail.concat(childNode.name))) + '"';
     }
     html += '>';
@@ -279,11 +284,11 @@ function renderTreeLevel(node, level, icon, lazy) {
 // Materializes one collapsed folder from the registry. Returns the number of
 // added nodes, so bulk expansion can stop before the tab freezes.
 function ensureTreeChildren(nodeEl) {
-    if (!nodeEl) {
+    if (!nodeEl || !nodeEl.querySelector) {
         return 0;
     }
-    var holder = nodeEl.children[1];
-    if (!holder?.classList?.contains('tree-children') || holder.dataset.populated === '1') {
+    var holder = nodeEl.querySelector(':scope > .tree-children');
+    if (!holder || holder.dataset.populated === '1') {
         return 0;
     }
     var renderId = nodeEl.dataset.treeRender;
@@ -340,6 +345,7 @@ function expandOneTreeNode(node) {
 function runTreeAction(container, action) {
     if (action !== 'expand') {
         collapseAllTreeNodes(container);
+        setTreeCappedNote(container, false);
         return;
     }
     const queue = [];
@@ -353,12 +359,44 @@ function runTreeAction(container, action) {
             continue;
         }
         used += expandOneTreeNode(node);
-        const holder = node.children[1];
+        const holder = node.querySelector(':scope > .tree-children');
         if (holder?.querySelectorAll) {
             for (const fresh of holder.querySelectorAll('.tree-node:not(.tree-expanded)')) {
                 queue.push(fresh);
             }
         }
+    }
+    setTreeCappedNote(container, queue.length > 0);
+}
+
+// Expand All stops at the node budget instead of freezing the tab. The header
+// says so with live numbers instead of silently leaving folders collapsed.
+function setTreeCappedNote(container, show) {
+    const header = container.querySelector ? container.querySelector('.file-tree-header') : null;
+    const note = header ? header.querySelector('.file-tree-capped') : null;
+    if (!note) {
+        return;
+    }
+    if (!show) {
+        note.hidden = true;
+        return;
+    }
+    const total = parseInt(header.dataset.treeTotal || '0', 10) || 0;
+    const shown = container.querySelectorAll('.tree-leaf').length;
+    if (total > 0 && shown >= total) {
+        note.hidden = true;
+        return;
+    }
+    note.textContent = T('treeExpandCapped', 'Showing {shown} of {total} files – expand folders to see more')
+        .replace('{shown}', String(shown)).replace('{total}', String(total));
+    note.hidden = false;
+}
+
+function refreshTreeCappedNote(container) {
+    const header = container.querySelector ? container.querySelector('.file-tree-header') : null;
+    const note = header ? header.querySelector('.file-tree-capped') : null;
+    if (note && !note.hidden) {
+        setTreeCappedNote(container, true);
     }
 }
 
@@ -409,12 +447,13 @@ function renderFileTree(result, title, meta, otherIcon) {
     var renderId = String(++_fileTreeRenderSeq);
     _fileTreeRegistry[renderId] = {sections: {}};
 
-    var html = '<div class="file-tree-header">';
+    var html = '<div class="file-tree-header" data-tree-total="' + totalFiles + '">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
     html += '<button class="tree-action-btn" data-tree-action="expand">' + escHtml(T('expandAll', 'Expand All')) + '</button>';
     html += '<button class="tree-action-btn" data-tree-action="collapse">' + escHtml(T('collapseAll', 'Collapse All')) + '</button>';
     html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</span>';
+    html += '<span class="file-tree-capped" hidden></span>';
     html += '</div></div>';
 
     html += '<div class="file-tree-columns' + (sectionCount > 1 ? ' file-tree-multi' : '') + '">';
@@ -438,6 +477,7 @@ function bindFileTreeHandlers(container) {
         var target = e.target?.closest?.('[data-tree-toggle]') ?? null;
         if (target && container.contains(target)) {
             toggleTreeNode(target);
+            refreshTreeCappedNote(container);
             return;
         }
         var action = e.target?.closest?.('[data-tree-action]') ?? null;
@@ -466,15 +506,46 @@ function normalizeStatisticsLibraries(data) {
         return data;
     }
     const libs = [];
+    const seen = {};
+    const pushLib = function (lib) {
+        if (!lib) {
+            return;
+        }
+        const key = (lib.LibraryName || '') + '|' + (lib.CollectionType || '');
+        if (seen[key]) {
+            return;
+        }
+        seen[key] = true;
+        libs.push(lib);
+    };
     const groups = [data.Movies, data.TvShows, data.Music, data.Books, data.Other];
+    // LibraryOrder restores exact scan order; without it the union follows
+    // grouped order, with stragglers appended.
+    if (Array.isArray(data.LibraryOrder) && data.LibraryOrder.length > 0) {
+        const byName = {};
+        for (const group of groups) {
+            if (!Array.isArray(group)) {
+                continue;
+            }
+            for (const lib of group) {
+                if (lib && lib.LibraryName && !byName[lib.LibraryName]) {
+                    byName[lib.LibraryName] = lib;
+                }
+            }
+        }
+        for (const name of data.LibraryOrder) {
+            if (byName[name]) {
+                pushLib(byName[name]);
+                delete byName[name];
+            }
+        }
+    }
     for (const group of groups) {
         if (!Array.isArray(group)) {
             continue;
         }
         for (const lib of group) {
-            if (lib && libs.indexOf(lib) < 0) {
-                libs.push(lib);
-            }
+            pushLib(lib);
         }
     }
     data.Libraries = libs;

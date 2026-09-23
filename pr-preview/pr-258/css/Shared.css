@@ -1,4 +1,11 @@
 /* CSS custom properties */
+@media (prefers-color-scheme: light) {
+    :root {
+        --color-primary-scrollbar: rgba(0, 136, 184, 0.55);
+        --color-primary-scrollbar-hover: rgba(0, 136, 184, 0.75);
+    }
+}
+
 :root {
     /* Primary colors */
     --color-primary: #00a4dc;
@@ -297,6 +304,7 @@
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
 .tab-bar::-webkit-scrollbar {
@@ -313,111 +321,6 @@
 }
 
 .tab-bar::-webkit-scrollbar-thumb:hover {
-    background: var(--color-primary-scrollbar-hover);
-}
-
-/* Unified scrollbar styles for consistent blue scrollbars across all tabs */
-.jfh-scrollbar {
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-primary-scrollbar) transparent;
-    -webkit-overflow-scrolling: touch;
-}
-
-.jfh-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-.jfh-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.jfh-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--color-primary-scrollbar);
-    border-radius: 3px;
-}
-
-.jfh-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: var(--color-primary-scrollbar-hover);
-}
-
-/* Horizontal-only scrollbar variant */
-.jfh-scrollbar-horizontal {
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-primary-scrollbar) transparent;
-    -webkit-overflow-scrolling: touch;
-}
-
-.jfh-scrollbar-horizontal::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-.jfh-scrollbar-horizontal::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.jfh-scrollbar-horizontal::-webkit-scrollbar-thumb {
-    background: var(--color-primary-scrollbar);
-    border-radius: 3px;
-}
-
-.jfh-scrollbar-horizontal::-webkit-scrollbar-thumb:hover {
-    background: var(--color-primary-scrollbar-hover);
-}
-
-/* Vertical-only scrollbar variant */
-.jfh-scrollbar-vertical {
-    overflow-x: hidden;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-primary-scrollbar) transparent;
-    -webkit-overflow-scrolling: touch;
-}
-
-.jfh-scrollbar-vertical::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-.jfh-scrollbar-vertical::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.jfh-scrollbar-vertical::-webkit-scrollbar-thumb {
-    background: var(--color-primary-scrollbar);
-    border-radius: 3px;
-}
-
-.jfh-scrollbar-vertical::-webkit-scrollbar-thumb:hover {
-    background: var(--color-primary-scrollbar-hover);
-}
-
-/* Both directions scrollbar variant */
-.jfh-scrollbar-both {
-    overflow: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-primary-scrollbar) transparent;
-    -webkit-overflow-scrolling: touch;
-}
-
-.jfh-scrollbar-both::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-.jfh-scrollbar-both::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.jfh-scrollbar-both::-webkit-scrollbar-thumb {
-    background: var(--color-primary-scrollbar);
-    border-radius: 3px;
-}
-
-.jfh-scrollbar-both::-webkit-scrollbar-thumb:hover {
     background: var(--color-primary-scrollbar-hover);
 }
 
@@ -650,6 +553,12 @@
     background: rgba(255, 255, 255, 0.06);
     padding: 0.15em 0.5em;
     border-radius: 10px;
+}
+
+.file-tree-capped {
+    font-size: 0.8em;
+    opacity: 0.75;
+    padding: 0.15em 0.5em;
 }
 
 /* File List Columns (Movies / TV Shows / Music split) */

@@ -316,6 +316,9 @@
     background: rgba(30, 30, 30, 0.95);
     max-height: 200px;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     padding: 0.3em 0;
 }
 

@@ -83,7 +83,22 @@
 .library-table-wrapper {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     margin-top: 0.5em;
+}
+
+.library-table-wrapper::-webkit-scrollbar {
+    height: 6px;
+}
+
+.library-table-wrapper::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.library-table-wrapper::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 3px;
 }
 
 .library-table {

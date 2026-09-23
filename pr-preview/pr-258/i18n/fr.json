@@ -432,5 +432,6 @@
   "codecShowMore": "Tout afficher {count}",
   "codecShowLess": "Afficher moins",
   "explorerIncludes": "Inclut",
-  "explorerExcludes": "Exclut"
+  "explorerExcludes": "Exclut",
+  "treeExpandCapped": "{shown} sur {total} fichiers - dépliez les dossiers pour en voir plus"
 }
