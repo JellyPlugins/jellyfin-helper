@@ -408,6 +408,16 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public async Task ConcurrentReadWrite_LoadsStayInternallyConsistent()
     {
+        // Seed one complete save first: without it every load could win the race
+        // before any save lands, and the emptiness check below would fail for
+        // scheduling reasons instead of consistency reasons.
+        var seedLib = new LibraryStatistics { LibraryName = "Seed", VideoFileCount = 1 };
+        var seed = new MediaStatisticsResult();
+        seed.Libraries.Add(seedLib);
+        seed.LibraryOrder.Add("Seed");
+        seed.Movies.Add(seedLib);
+        _service.SaveLatestResult(seed);
+
         // AtomicFile swaps whole files, so every load observes one complete save:
         // the union always equals the groups and the totals match, never a mix.
         var full = new MediaStatisticsResult();

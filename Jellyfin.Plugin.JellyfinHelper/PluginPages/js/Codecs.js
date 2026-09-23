@@ -109,8 +109,9 @@ function isSegmentPanelOpen(segment) {
     return false;
 }
 
-// Trigger the matching codec-row click for a donut segment
-function triggerCodecRowForSegment(segment) {
+// Trigger the matching codec-row click for a donut segment. Touch passes
+// suppressScroll so the tooltip and the tapped segment stay in view.
+function triggerCodecRowForSegment(segment, suppressScroll) {
     var chartBox = segment.closest('.chart-box');
     if (!chartBox) {
         return;
@@ -120,11 +121,12 @@ function triggerCodecRowForSegment(segment) {
         return;
     }
     var rows = chartBox.querySelectorAll('.codec-clickable');
-    for (var i = 0; i < rows.length; i++) {
-        if (rows[i].dataset.codec === codecName) {
-            // Force scroll when triggered from donut (user clicked far above the panel)
-            _forceScrollOnPanelOpen = true;
-            rows[i].click();
+    for (const row of rows) {
+        if (row.dataset.codec === codecName) {
+            // Force scroll when triggered from donut (user clicked far above the panel),
+            // unless the touch path opts out to keep tooltip and segment in view.
+            _forceScrollOnPanelOpen = !suppressScroll;
+            row.click();
             return;
         }
     }
@@ -624,7 +626,7 @@ function attachDonutHoverTooltips() {
                         seg.classList.remove('donut-segment-hover');
                         hideDonutTooltip(container);
                         _activeTooltipSegmentId = null;
-                        triggerCodecRowForSegment(seg);
+                        triggerCodecRowForSegment(seg, true);
                         return;
                     }
                     // Remove highlight from any previously highlighted segment
@@ -640,7 +642,7 @@ function attachDonutHoverTooltips() {
                         : evt;
                     showDonutTooltip(container, syntheticEvt, seg);
                     _activeTooltipSegmentId = segId;
-                    triggerCodecRowForSegment(seg);
+                    triggerCodecRowForSegment(seg, true);
                 });
             }
             // Keyboard: segments are focusable buttons mirroring the rows below.
