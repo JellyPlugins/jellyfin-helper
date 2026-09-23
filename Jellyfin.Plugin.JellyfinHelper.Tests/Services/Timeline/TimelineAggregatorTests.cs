@@ -67,6 +67,21 @@ public sealed class TimelineAggregatorTests
     }
 
     [Fact]
+    public void ConsolidateToGranularity_ZeroOrOnePoint_ReturnsSameReference()
+    {
+        // Tiny inputs skip consolidation entirely and pass through untouched,
+        // so callers can rely on reference stability for the trivial cases.
+        var empty = new List<GrowthTimelinePoint>();
+        Assert.Same(empty, TimelineAggregator.ConsolidateToGranularity(empty, "weekly"));
+
+        var single = new List<GrowthTimelinePoint>
+        {
+            new() { Date = Now, CumulativeSize = 5, CumulativeFileCount = 1 }
+        };
+        Assert.Same(single, TimelineAggregator.ConsolidateToGranularity(single, "weekly"));
+    }
+
+    [Fact]
     public void GenerateBucketStarts_Daily_ProducesOneBucketPerDay()
     {
         var start = Now.AddDays(-3);

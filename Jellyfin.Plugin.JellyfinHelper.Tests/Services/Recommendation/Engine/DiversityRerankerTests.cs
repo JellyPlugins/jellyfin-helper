@@ -129,6 +129,23 @@ public class DiversityRerankerTests
     }
 
     [Fact]
+    public void ApplyDiversityReranking_NaNScores_TerminatesWithValidPicks()
+    {
+        // NaN relevance poisons every MMR comparison, so the greedy loop bails
+        // immediately; the exploration band still fills the requested count.
+        var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+        for (var i = 0; i < 10; i++)
+        {
+            candidates.Add((new Movie { Id = Guid.NewGuid(), Name = "N" + i }, double.NaN, string.Empty, string.Empty, null));
+        }
+
+        var result = DiversityReranker.ApplyDiversityReranking(candidates, 5, seed: 42);
+
+        Assert.Equal(5, result.Count);
+        Assert.Equal(5, result.Select(r => r.Item.Id).Distinct().Count());
+    }
+
+    [Fact]
     public void ApplyDiversityReranking_CandidatesLessThanOrEqualToCount_ReturnsAllSortedByScore()
     {
         // When there are fewer candidates than requested, the method must skip MMR entirely and just return everything sorted by score DESC.

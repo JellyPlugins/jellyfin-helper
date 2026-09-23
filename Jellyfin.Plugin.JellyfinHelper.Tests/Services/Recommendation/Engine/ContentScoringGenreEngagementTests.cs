@@ -82,6 +82,23 @@ public sealed class ContentScoringGenreEngagementTests
     }
 
     [Fact]
+    public void ComputeSeriesAffinityRaw_MovieCandidate_ReturnsZeroWithoutReadingContext()
+    {
+        // The training overload short-circuits non-series candidates before touching
+        // the context, so movies never pay for (or pollute) series-affinity math.
+        var context = new ContentScoring.SeriesAffinityContext(
+            new Dictionary<Guid, List<WatchedItemInfo>>(),
+            [Guid.NewGuid()]);
+        var result = ContentScoring.ComputeSeriesAffinity(
+            false,
+            Guid.NewGuid(),
+            ["Action"],
+            context,
+            new Dictionary<Guid, HashSet<string>>());
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
     public void ComputeSeriesAffinity_NoProgressingSeries_ReturnsZero()
     {
         var profile = new UserWatchProfile();

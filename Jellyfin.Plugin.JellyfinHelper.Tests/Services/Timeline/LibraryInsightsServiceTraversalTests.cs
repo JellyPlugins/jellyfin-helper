@@ -127,6 +127,27 @@ public sealed class LibraryInsightsServiceTraversalTests
     }
 
     [Fact]
+    public async Task ComputeInsightsAsync_PhantomChildDirectory_IsSkipped_WithoutFailing()
+    {
+        // A child reported by enumeration but gone from disk (TOCTOU race) fails the
+        // attribute probe; the walk skips it and still reports the real sibling.
+        using var temp = new TempDirectory();
+        var mediaDir = temp.CreateSubDirectory("Movie");
+        var phantomChild = Path.Join(mediaDir, "GhostSeason");
+
+        var fs = new ScriptedFileSystem();
+        fs.AddFile(mediaDir, "movie.mkv", length: 7_000, lastWriteUtc: DateTime.UtcNow.AddDays(-1));
+        fs.AddPhantomDirectory(mediaDir, phantomChild);
+
+        var service = CreateService(temp.Path, fs);
+
+        var result = await service.ComputeInsightsAsync(CancellationToken.None);
+
+        var entry = Assert.Single(result.Largest);
+        Assert.Equal(7_000, entry.Size);
+    }
+
+    [Fact]
     public async Task ComputeInsightsAsync_ChildDirectoryFailingAttributeProbe_IsSkipped_WithoutFailing()
     {
         // The size walk discovers a nested child that no longer exists on disk.
@@ -164,6 +185,61 @@ public sealed class LibraryInsightsServiceTraversalTests
 
         var entry = Assert.Single(result.Largest, e => e.Name == "Old Movie");
         Assert.True(entry.CreatedUtc.Year >= 1990);
+    }
+
+    [Fact]
+    public async Task ComputeInsightsAsync_DirectoryWithAncientTimestamps_NeverEmitsGarbageDates()
+    {
+        // Creation AND last-write pre-1990 (restored backup, broken clock): where the
+        // OS honors settable creation times the directory is skipped outright, and on
+        // every platform no entry may ever carry a pre-1990 date.
+        using var temp = new TempDirectory();
+        var mediaDir = temp.CreateSubDirectory("Old Movie");
+        temp.CreateFile("Old Movie/movie.mkv", 100_000);
+
+        var ancient = new DateTime(1980, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        Directory.SetCreationTimeUtc(mediaDir, ancient);
+        Directory.SetLastWriteTimeUtc(mediaDir, ancient);
+
+        var service = CreateRealIoService(temp.Path);
+
+        var result = await service.ComputeInsightsAsync(CancellationToken.None);
+
+        Assert.All(result.Largest, e => Assert.True(e.CreatedUtc.Year >= 1990));
+    }
+
+    [Fact]
+    public async Task ComputeInsightsAsync_LooseFileWithAncientTimestamps_NeverEmitsGarbageDates()
+    {
+        // Same guard for loose files: without any usable timestamp the file entry
+        // is dropped, and no entry may ever carry a pre-1990 date.
+        using var temp = new TempDirectory();
+        var filePath = temp.CreateFile("standalone.mkv", 100_000);
+
+        var ancient = new DateTime(1980, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetCreationTimeUtc(filePath, ancient);
+        File.SetLastWriteTimeUtc(filePath, ancient);
+
+        var service = CreateRealIoService(temp.Path);
+
+        var result = await service.ComputeInsightsAsync(CancellationToken.None);
+
+        Assert.All(result.Largest, e => Assert.True(e.CreatedUtc.Year >= 1990));
+    }
+
+    [Fact]
+    public async Task ComputeInsightsAsync_LooseNonMediaFile_IsSkipped()
+    {
+        // A loose .txt next to nothing contributes no insight entry: only
+        // recognised video/audio extensions qualify, so sidecars never pollute Largest.
+        using var temp = new TempDirectory();
+        temp.CreateFile("notes.txt", 1_000);
+
+        var service = CreateRealIoService(temp.Path);
+
+        var result = await service.ComputeInsightsAsync(CancellationToken.None);
+
+        Assert.Empty(result.Largest);
     }
 
     [Fact]

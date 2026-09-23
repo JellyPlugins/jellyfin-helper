@@ -29,6 +29,14 @@ public class PathValidatorTests
     }
 
     [Fact]
+    public void IsSafePath_ReturnsFalse_WhenPathExceedsOsLimit()
+    {
+        // 40k chars exceed every OS path limit: GetFullPath throws PathTooLongException
+        // internally and the validator must answer false instead of propagating.
+        Assert.False(PathValidator.IsSafePath(new string('a', 40000), Path.GetTempPath()));
+    }
+
+    [Fact]
     public void IsSafePath_ReturnsTrue_WhenPathIsWithinBase()
     {
         var basePath = Path.GetTempPath();

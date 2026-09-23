@@ -94,6 +94,31 @@ public class FileSystemHelperTests
     }
 
     [Fact]
+    public void CalculateDirectorySize_SymlinkedSubdirectory_SkippedWithoutDoubleCounting()
+    {
+        // Symlinks are never followed (cycle protection) and never counted twice:
+        // the file reachable directly and through the link counts exactly once.
+        var root = CreateTempDir();
+        try
+        {
+            WriteBytes(Path.Combine(root, "file.mkv"), 1000);
+            var sub = Directory.CreateDirectory(Path.Combine(root, "sub")).FullName;
+            WriteBytes(Path.Combine(sub, "file2.mkv"), 2000);
+            try
+            {
+                Directory.CreateSymbolicLink(Path.Combine(root, "linkdir"), sub);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                return;
+            }
+
+            Assert.Equal(3000, FileSystemHelper.CalculateDirectorySize(root));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public void CalculateDirectorySize_NonExistentRoot_ReturnsZero()
     {
         // A path that does not exist triggers IOException on GetFiles; should return 0.

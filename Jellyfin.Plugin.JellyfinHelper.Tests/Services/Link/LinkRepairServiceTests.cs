@@ -64,6 +64,54 @@ public class LinkRepairServiceTests
     }
 
     [Fact]
+    public void FindLinkFiles_SymlinkCycle_TerminatesAndFindsEachFileOnce()
+    {
+        // Mutual directory symlinks must not loop the traversal: the visited set
+        // stops the second visit, so each file is reported exactly once. The token
+        // only bounds the run if that guard ever regresses.
+        var root = Path.Join(Path.GetTempPath(), "JellyfinHelperLinkCycle_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var dirA = Path.Combine(root, "A");
+            var dirB = Path.Combine(root, "B");
+            Directory.CreateDirectory(dirA);
+            Directory.CreateDirectory(dirB);
+            File.WriteAllText(Path.Combine(dirA, "a.strm"), "target");
+            File.WriteAllText(Path.Combine(dirB, "b.strm"), "target");
+            try
+            {
+                Directory.CreateSymbolicLink(Path.Combine(dirA, "toB"), dirB);
+                Directory.CreateSymbolicLink(Path.Combine(dirB, "toA"), dirA);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                return;
+            }
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var realFs = new System.IO.Abstractions.FileSystem();
+            var service = new LinkRepairService(
+                realFs,
+                [new StrmLinkHandler(realFs), _symlinkHandler],
+                TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+            var result = service.FindLinkFiles([root], cts.Token);
+
+            Assert.Equal(2, result.Count);
+            Assert.Single(result, r => r.FilePath.EndsWith("a.strm", StringComparison.Ordinal));
+            Assert.Single(result, r => r.FilePath.EndsWith("b.strm", StringComparison.Ordinal));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
     public void FindLinkFiles_FindsSymlinkFiles()
     {
         var seriesDir = _fileSystem.Path.GetFullPath("/series");

@@ -88,6 +88,24 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ComputeTimelineAsync_EmptyLibrary_ReturnsEmptyDailyResult()
+    {
+        // A library with no files yields zero data points after processing: the
+        // service reports an empty daily result instead of null or stale data.
+        var libRoot = Path.Join(_dataPath, "emptylibrary");
+        Directory.CreateDirectory(libRoot);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Empty(result.DataPoints);
+        Assert.Equal("daily", result.Granularity);
+    }
+
+    [Fact]
     public async Task ComputeTimelineAsync_CanBeCancelled_BeforeAnyWork()
     {
         using var cts = new CancellationTokenSource();
@@ -145,6 +163,40 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         Assert.Equal(0, result.TotalDirectoriesScanned);
         // GetFiles on the trickplay dir must never happen (loop `continue`s before that).
         _fileSystemMock.Verify(f => f.GetFiles(trickplay), Times.Never);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_SkipsSymlinkedSubdirectory()
+    {
+        // A symlinked child must never be walked (cycle protection): its files
+        // stay out of the scan and GetFiles is never called on the link.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var realSub = Path.Join(libRoot, "Real");
+        Directory.CreateDirectory(realSub);
+        var linkSub = Path.Join(libRoot, "Link");
+        try
+        {
+            Directory.CreateSymbolicLink(linkSub, realSub);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([
+                new FileSystemMetadata { FullName = realSub, Name = "Real", IsDirectory = true },
+                new FileSystemMetadata { FullName = linkSub, Name = "Link", IsDirectory = true }
+            ]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        _fileSystemMock.Verify(f => f.GetFiles(linkSub), Times.Never);
     }
 
     [Fact]

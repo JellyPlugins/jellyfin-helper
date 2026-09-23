@@ -31,6 +31,24 @@ public sealed class SimilarityComputerTests
         => new() { Name = name, Type = kind };
 
     [Fact]
+    public void ComputeBillingWeightedPeople_ZeroAndBlankEntries_Skipped()
+    {
+        // Zero-billing and blank cast entries carry no signal: they must not
+        // dilute the budget or match anything, so only the real entry counts.
+        var candidateBilling = new Dictionary<string, double>
+        {
+            ["Star"] = 5.0,
+            ["Extra"] = 0.0,
+            [""] = 4.0
+        };
+        var preferred = new Dictionary<string, double> { ["Star"] = 2.0 };
+
+        var result = SimilarityComputer.ComputeBillingWeightedPeople(candidateBilling, preferred);
+
+        Assert.Equal(1.0, result);
+    }
+
+    [Fact]
     public void BuildCandidatePeopleLookup_EmptyCandidateList_ReturnsEmptyDictionary()
     {
         var (computer, _) = CreateSut();

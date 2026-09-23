@@ -18,6 +18,20 @@ public class TrainingFeatureComputerTests
     // BuildStudioPreferenceSetFromCache
 
     [Fact]
+    public void BuildBillingMapFromCache_BlankNames_Skipped()
+    {
+        // Blank cast entries carry no signal: they are dropped instead of creating
+        // empty-string keys that would poison people matching downstream.
+        var map = TrainingFeatureComputer.BuildBillingMapFromCache(
+            new[] { "Alice", "", "  ", "Bob" },
+            new[] { 3.0, 9.0, 9.0, 1.0 });
+
+        Assert.Equal(2, map.Count);
+        Assert.Equal(3.0, map["Alice"]);
+        Assert.Equal(1.0, map["Bob"]);
+    }
+
+    [Fact]
     public void BuildStudioPreferenceSetFromCache_EmptyProfile_ReturnsEmpty()
     {
         var profile = new UserWatchProfile();

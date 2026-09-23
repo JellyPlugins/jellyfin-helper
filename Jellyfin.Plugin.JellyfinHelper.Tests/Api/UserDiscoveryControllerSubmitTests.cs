@@ -291,6 +291,33 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     }
 
     [Fact]
+    public async Task SubmitMyRequest_MatchingProfileOverride_SubmitsWithOverride()
+    {
+        // The mirror of the mismatch case: an override matching the allowed profile
+        // exactly must pass validation and reach Seerr with the override values.
+        var userId = Guid.NewGuid();
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult
+            {
+                CanRequest = true,
+                Profiles = new List<AllowedQualityProfile> { new() { ServerId = 1, ProfileId = 10, RootFolder = "/movies/hd" } }
+            });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(100, "movie", 42, 1, 10, "/movies/hd", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "queued"));
+
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 1, ProfileId = 10, RootFolder = "/movies/hd" };
+        var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
+    }
+
+    [Fact]
     public async Task SubmitMyRequest_HappyPath_Returns201_AndRecordsFeedback()
     {
         var userId = Guid.NewGuid();

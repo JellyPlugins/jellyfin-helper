@@ -628,6 +628,31 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void BuildProfile_DuplicateItemId_ProcessedOnce()
+    {
+        // The same item id twice (overlapping movie/series queries) must not
+        // double-count people or genres.
+        var user = CreateTestUser("dupe");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var sharedId = Guid.NewGuid();
+        var movieA = new Movie { Id = sharedId, Name = "A", RunTimeTicks = 1 };
+        var movieB = new Movie { Id = sharedId, Name = "B", RunTimeTicks = 1 };
+        _mockLibraryManager.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { movieA, movieB });
+        _mockUserDataManager.Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "k", Played = true, PlayCount = 1 });
+        _mockLibraryManager.Setup(m => m.GetPeople(It.IsAny<BaseItem>())).Returns(new List<PersonInfo>
+        {
+            new() { Name = "Jane Smith", Type = PersonKind.Actor }
+        });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Equal(1, profile!.PeopleProfile["Jane Smith"]);
+    }
+
+    [Fact]
     public void BuildProfile_PeopleWithBlankOrDuplicateNames_AreDeduplicated()
     {
         // BUG SURFACE: a person credited twice under the same name (e.g. director AND producer with only one Director role) should count exactly once.

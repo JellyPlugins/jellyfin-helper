@@ -1241,6 +1241,67 @@ public class PreferenceBuilderTests
     // These exercise the direct-item and episode->parent-series branches of BuildStudioPreferenceSet / BuildTagPreferenceSet, including the whitespace filter that keeps blank Studios/Tags out of the returned set.
 
     [Fact]
+    public void BuildGenrePreferenceVector_UnplayedItems_FabricateNoTasteLinks()
+    {
+        // Co-occurrence links need two sightings: nine played Action rows plus one
+        // played Action/Horror row leave exactly one sub-threshold pair, and the two
+        // unplayed Comedy/Drama rows must not contribute any pair at all.
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 9; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"] });
+        }
+
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action", "Horror"] });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = null! });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Comedy", "Drama"] });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Comedy", "Drama"] });
+
+        var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+
+        Assert.Contains("Action", vector.Keys);
+        Assert.Contains("Horror", vector.Keys);
+        Assert.DoesNotContain("Comedy", vector.Keys);
+        Assert.DoesNotContain("Drama", vector.Keys);
+        Assert.Equal(2, vector.Count);
+    }
+
+    [Fact]
+    public void BuildStudioPreferenceSet_UnplayedItem_ContributesNothing()
+    {
+        // Studios follow the same eligibility as genres: an unplayed,
+        // non-favorite row must not seed studio taste.
+        var movieId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, BaseItem>
+        {
+            { movieId, new Movie { Id = Guid.NewGuid(), Studios = ["A24"] } }
+        };
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = false, Genres = ["Drama"] }]
+        };
+
+        Assert.Empty(PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup));
+    }
+
+    [Fact]
+    public void BuildTagPreferenceSet_UnplayedItem_ContributesNothing()
+    {
+        // Same eligibility gate as studios: no play evidence, no tags.
+        var movieId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, BaseItem>
+        {
+            { movieId, new Movie { Id = Guid.NewGuid(), Tags = ["heist"] } }
+        };
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = false, Genres = ["Drama"] }]
+        };
+
+        Assert.Empty(PreferenceBuilder.BuildTagPreferenceSet(profile, lookup));
+    }
+
+    [Fact]
     public void BuildStudioPreferenceSet_MovieDirectMatch_CollectsStudiosSkippingBlank()
     {
         var movieId = Guid.NewGuid();

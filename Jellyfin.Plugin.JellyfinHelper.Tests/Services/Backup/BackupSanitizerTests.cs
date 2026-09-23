@@ -30,6 +30,17 @@ public class BackupSanitizerTests
     }
 
     [Fact]
+    public void Sanitize_UnknownTaskModes_FallBackToDefaults()
+    {
+        // A backup carrying task-mode strings from a newer (or hand-edited) schema
+        // must degrade to the safe defaults instead of persisting unknown values.
+        var data = new BackupData { TrickplayTaskMode = "bogus", SeerrCleanupTaskMode = "bogus" };
+        BackupSanitizer.Sanitize(data);
+        Assert.Equal("DryRun", data.TrickplayTaskMode);
+        Assert.Equal("Deactivate", data.SeerrCleanupTaskMode);
+    }
+
+    [Fact]
     public void Sanitize_TimelineUnderLimit_NoPointsRemoved()
     {
         var data = MakeTimelineBackup(BackupValidator.MaxTimelineDataPoints);

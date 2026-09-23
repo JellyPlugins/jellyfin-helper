@@ -241,6 +241,26 @@ public class TemporalFeaturesTests
     // ComputeHourOfDayAffinity
 
     [Fact]
+    public void ComputeHourOfDayAffinity_UnplayedZeroRow_IsIgnored()
+    {
+        // A row with no play evidence must not dilute the bucket: the result with
+        // the dead row present equals the result without it.
+        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 10, new[] { "Action" });
+        var baseline = TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc);
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(),
+            Played = false,
+            PlayCount = 0,
+            PlaybackPositionTicks = 0,
+            LastPlayedDate = SaturdayNoonUtc,
+            Genres = new[] { "Horror" }
+        });
+        Assert.Equal(baseline, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
+    }
+
+    [Fact]
     public void ComputeHourOfDayAffinity_CandidateWithNoGenres_ReturnsNeutral()
     {
         var candidate = new Movie { Name = "NoGenre" };

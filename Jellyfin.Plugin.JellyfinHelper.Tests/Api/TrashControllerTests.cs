@@ -232,6 +232,24 @@ public class TrashControllerTests : IDisposable
     }
 
     [Fact]
+    public void DeleteTrashFolders_NonexistentTrashPath_CountsAsNeitherDeletedNorFailed()
+    {
+        // A trash path that vanished between listing and deletion is a no-op,
+        // not a failure: it must not inflate either counter.
+        var trashPath = Path.Join(_tempPath, "GoneTrash");
+        SetupConfig(new PluginConfiguration { TrashFolderPath = trashPath });
+        _configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns(new List<string>());
+
+        var result = _controller.DeleteTrashFolders();
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashDeleteResponse>(okResult.Value);
+        Assert.Equal(0, data.Deleted);
+        Assert.Equal(0, data.Failed);
+    }
+
+    [Fact]
     public void DeleteTrashFolders_TrashPathIsSymlink_RefusesAndDoesNotFollow()
     {
         // TOCTOU/symlink-swap guard: if the trash path is a reparse point (symlink/junction),
@@ -264,6 +282,91 @@ public class TrashControllerTests : IDisposable
         // The real target and its content must be untouched.
         Assert.True(File.Exists(keeper));
         Assert.Equal("precious", File.ReadAllText(keeper));
+    }
+
+    [Fact]
+    public void RelocateTrash_MissingOldTrash_SkipsWithoutCallingService()
+    {
+        // The old trash folder vanished (or was never created): relocation skips
+        // it silently with zero counters instead of failing the whole request.
+        var libDir = Path.Join(_tempPath, "LibRelocate");
+        Directory.CreateDirectory(libDir);
+
+        var (controller, _, configHelperMock, trashServiceMock) = ControllerTestFactory.CreateTrashController();
+        configHelperMock.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
+        configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns(new List<string> { libDir });
+        configHelperMock.Setup(c => c.GetExistingTrashFoldersForPath(It.IsAny<ILibraryManager>(), It.IsAny<string>()))
+            .Returns(new List<string>());
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = ".oldtrash", NewTrashPath = ".newtrash" });
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashRelocateResponse>(okResult.Value);
+        Assert.Equal(0, data.Moved);
+        Assert.Equal(0, data.Failed);
+        trashServiceMock.Verify(
+            s => s.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void RelocateTrash_AbsoluteOldInsideLibrary_PrefersContainingLibrary()
+    {
+        // An absolute source inside libB must relocate into libB, not libA: the
+        // containing library wins deterministically over enumeration order.
+        var libA = Path.Join(_tempPath, "LibRelocateA");
+        var libB = Path.Join(_tempPath, "LibRelocateB");
+        Directory.CreateDirectory(libA);
+        Directory.CreateDirectory(libB);
+        var oldTrash = Path.Join(libB, ".oldtrash");
+
+        var (controller, _, configHelperMock, trashServiceMock) = ControllerTestFactory.CreateTrashController();
+        configHelperMock.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
+        configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
+            .Returns(new List<string> { libA, libB });
+        trashServiceMock.Setup(s => s.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>()))
+            .Returns((2, 0));
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = oldTrash, NewTrashPath = ".newtrash" });
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var data = Assert.IsType<TrashRelocateResponse>(okResult.Value);
+        Assert.Equal(2, data.Moved);
+        trashServiceMock.Verify(
+            s => s.RelocateTrashContents(oldTrash, Path.Join(libB, ".newtrash"), It.IsAny<ILogger>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void HasReparsePointAncestor_SymlinkedAncestor_ReturnsTrue()
+    {
+        // A symlink anywhere in the ancestry must fail closed: the trash target
+        // cannot be proven free of redirection. Every ancestor up to the link
+        // exists, so the reparse check itself (not the missing-path catch) fires.
+        var realDir = Path.Join(_tempPath, "RealAncestor");
+        Directory.CreateDirectory(Path.Join(realDir, "sub"));
+        var linkDir = Path.Join(_tempPath, "LinkAncestor");
+        try
+        {
+            Directory.CreateSymbolicLink(linkDir, realDir);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        Assert.True(TrashController.HasReparsePointAncestor(Path.Join(linkDir, "sub", "trash")));
+    }
+
+    [Fact]
+    public void HasReparsePointAncestor_UninspectableAncestry_ReturnsTrue()
+    {
+        // An overlong path defeats every ancestor probe with PathTooLongException:
+        // fail closed rather than assume the ancestry is clean.
+        var absurd = Path.Join(new string('a', 20000), "b", new string('c', 20000));
+
+        Assert.True(TrashController.HasReparsePointAncestor(absurd));
     }
 
     [Fact]
