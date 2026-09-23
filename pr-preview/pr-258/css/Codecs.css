@@ -1011,12 +1011,12 @@
     .codec-filter-bar {
         gap: 0.5em;
     }
-    .codec-filter-bar .codec-multi {
+    .codec-filter-bar > [data-library-widget] {
         flex: 1 1 auto;
         max-width: 70%;
         min-width: 140px;
     }
-    .codec-filter-bar .codec-multi .codec-multi-summary {
+    .codec-filter-bar > [data-library-widget] .codec-multi-summary {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1049,8 +1049,9 @@
         min-height: 44px;
     }
 
-    /* Library picker: compact but vertically centered. */
-    .codec-multi-toggle {
+    /* Library picker: compact but vertically centered. Scoped to the bar widget
+       so popover editors keep their own sizing. */
+    .codec-filter-bar > [data-library-widget] .codec-multi-toggle {
         min-height: 34px;
         padding: 0.32em 0.6em;
         font-size: 0.8em;

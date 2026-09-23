@@ -1,11 +1,4 @@
 /* CSS custom properties */
-@media (prefers-color-scheme: light) {
-    :root {
-        --color-primary-scrollbar: rgba(0, 136, 184, 0.55);
-        --color-primary-scrollbar-hover: rgba(0, 136, 184, 0.75);
-    }
-}
-
 :root {
     /* Primary colors */
     --color-primary: #00a4dc;
@@ -73,6 +66,15 @@
     /* Layout */
     --max-width-page: 960px;
     --max-width-dialog: 550px;
+}
+
+/* Light scheme keeps the blue thumb visible on white. Declared after :root:
+   equal specificity means the later rule wins, so this must not move up. */
+@media (prefers-color-scheme: light) {
+    :root {
+        --color-primary-scrollbar: rgba(0, 136, 184, 0.55);
+        --color-primary-scrollbar-hover: rgba(0, 136, 184, 0.75);
+    }
 }
 
 /* Utility classes */

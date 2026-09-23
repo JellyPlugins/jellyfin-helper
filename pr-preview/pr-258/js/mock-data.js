@@ -12,6 +12,7 @@ function _mbytes(lo,hi){return Math.floor(lo+_mrnd()*(hi-lo));}
 function _mpad(n,l){var s=String(n);while(s.length<(l||2)){s="0"+s;}return s;}
 var _musedIds={};
 function _mimdb(){var id;do{id="tt"+(1000000+_mri(9000000));}while(_musedIds[id]);_musedIds[id]=true;return id;}
+function _brTier(br){return br<2?"< 2 Mbps":(br<4?"2–4 Mbps":(br<8?"4–8 Mbps":(br<16?"8–16 Mbps":(br<32?"16–32 Mbps":(br<60?"32–60 Mbps":"> 60 Mbps")))));}
 function _sumSizes(files){var s=0;for(var i=0;i<files.length;i++){s+=files[i].s;}return s;}
 
 var _movieTitles=["Inception (2010)","Interstellar (2014)","The Matrix (1999)","Oppenheimer (2023)","Dune Part Two (2024)","Your Name (2016)","Pans Labyrinth (2006)","Big Buck Bunny (2008)","Blade Runner 2049 (2017)","The Dark Knight (2008)","Pulp Fiction (1994)","Forrest Gump (1994)","Fight Club (1999)","Gladiator (2000)","Titanic (1997)","Avatar (2009)","Avengers Endgame (2019)","Joker (2019)","Parasite (2019)","La La Land (2016)","Whiplash (2014)","Mad Max Fury Road (2015)","The Revenant (2015)","Gravity (2013)","Arrival (2016)","Ex Machina (2014)","The Martian (2015)","Tenet (2020)","Dunkirk (2017)","1917 (2019)","Jojo Rabbit (2019)","Knives Out (2019)","Get Out (2017)","A Quiet Place (2018)","Dune (2021)","Nope (2022)","Everything Everywhere All at Once Extended Ultimate Remastered Collectors Edition Part Two The Complete Saga Anthology Box Set (2022)","The Batman (2022)","Top Gun Maverick (2022)","John Wick 4 (2023)","Barbie (2023)","Poor Things (2023)","Killers of the Flower Moon (2023)","The Holdovers (2023)","Past Lives (2023)","Anatomy of a Fall (2023)","The Zone of Interest (2023)","Godzilla Minus One (2023)","Civil War (2024)","Furiosa (2024)","The Fall Guy (2024)","Inside Out 2 (2024)","Deadpool and Wolverine (2024)","Alien Romulus (2024)","The Wild Robot (2024)","Nosferatu (2024)","Wicked (2024)","Anora (2024)","The Brutalist (2024)","Conclave (2024)","Sinners (2025)","Mickey 17 (2025)","F1 (2025)","Superman (2025)","Müller (2020)","The Silence of the Lambs (1991)","Se7en (1995)","Braveheart (1995)","Fargo (1996)","The Big Lebowski (1998)","Saving Private Ryan (1998)","American Beauty (1999)","The Green Mile (1999)","American Psycho (2000)","Memento (2000)","A Beautiful Mind (2001)","LOTR Fellowship (2001)","LOTR Towers (2002)","LOTR Return (2003)","Finding Nemo (2003)","Kill Bill (2003)","Eternal Sunshine (2004)","The Incredibles (2004)","Batman Begins (2005)","V for Vendetta (2005)","The Departed (2006)","Children of Men (2006)","No Country (2007)","Ratatouille (2007)","WALL-E (2008)","Slumdog Millionaire (2008)","Inglourious Basterds (2009)","Up (2009)","The Social Network (2010)","Toy Story 3 (2010)","Black Swan (2010)","Hugo (2011)","Drive (2011)","Django Unchained (2012)","Life of Pi (2012)","Argo (2012)","12 Years a Slave (2013)","Her (2013)","The Wolf of Wall Street (2013)","Birdman (2014)","Gone Girl (2014)","The Grand Budapest Hotel (2014)","Spotlight (2015)","Room (2015)","Moonlight (2016)","Zootopia (2016)","Coco (2017)","Us (2019)","Spider-Man No Way Home (2021)","The Godfather (1972)","Shawshank Redemption (1994)","Pirates Caribbean (2003)","The Dark Knight Rises (2012)","Untitled Project","Alien (1979)"];
@@ -37,7 +38,7 @@ var src=res==="4K"?(ext==="mkv"?"Bluray-2160p":"WEB-DL-2160p"):((ext==="mp4"||ex
 var tags=" ["+src+"]["+_atag[ac]+"]["+_vtag[vc]+"]-release1."+ext;
 if(al.indexOf("German")>=0){tags=" [German DL]"+tags;}
 var p="/SMB/media/movies/"+_movieTitles[i]+" {imdb-"+_mimdb()+"}"+tags;
-_movieFiles.push({p:p,s:s,cont:ext.toUpperCase(),res:res,w:w,h:h,vc:vc,ac:ac,al:al,sl:sl,br:Math.round(br*10)/10,range:range});
+_movieFiles.push({p:p,s:s,cont:ext.toUpperCase(),res:res,w:w,h:h,vc:vc,ac:ac,al:al,sl:sl,br:Math.round(br*10)/10,tier:_brTier(Math.round(br*10)/10),range:range});
 }
 _movieFiles[0].al=["English","German"]; _movieFiles[0].alabels=["English","German","German (Forced)"];
 _movieFiles[4].al=["English","German"];
@@ -86,7 +87,7 @@ var ac=ext==="mp4"?"AAC":(i%3===0?"AC3":(i%3===1?"AAC":"EAC3"));
 var src=res==="4K"?(ext==="mp4"?"WEB-DL-2160p":"Bluray-2160p"):(ext==="mp4"?"WEB-DL":(_mrnd()<0.15?"HDTV":"Bluray-1080p"));
 var tags=(al.indexOf("German")>=0?" [German DL]":"")+" ["+src+"]["+_atag[ac]+"]["+_vtag[vc]+"]-scene."+ext;
 var p="/SMB/media/tv/"+_shows[i][0]+" ("+_shows[i][1]+")/Season "+_mpad(s)+"/"+_shows[i][0]+" S"+_mpad(s)+"E"+_mpad(e)+tags;
-_tvFiles.push({p:p,s:sz,cont:ext.toUpperCase(),res:res,w:w,h:h,vc:vc,ac:ac,al:al,sl:sl,br:Math.round(br*10)/10,range:range,show:i});
+_tvFiles.push({p:p,s:sz,cont:ext.toUpperCase(),res:res,w:w,h:h,vc:vc,ac:ac,al:al,sl:sl,br:Math.round(br*10)/10,tier:_brTier(Math.round(br*10)/10),range:range,show:i});
 }}
 }
 _tvFiles[0].p="/SMB/media/tv/Breaking Bad (2008) {imdb-tt0903747}/Season 01/Breaking Bad S01E01 [German DL] [Bluray-1080p][DD 5.1][x264]-release1.mkv";
@@ -172,9 +173,9 @@ ResolutionDimensions:_vDims(_movieFiles),
 DynamicRanges:_vDict(_movieFiles,"range"),
 DynamicRangeSizes:_vSizes(_movieFiles,"range",_movieSizes),
 DynamicRangePaths:_vPaths(_movieFiles,"range"),
-VideoBitrateTiers:(function(){var d={};for(var i=0;i<_movieFiles.length;i++){var t=_movieFiles[i].br<2?"< 2 Mbps":(_movieFiles[i].br<4?"2–4 Mbps":(_movieFiles[i].br<8?"4–8 Mbps":(_movieFiles[i].br<16?"8–16 Mbps":(_movieFiles[i].br<32?"16–32 Mbps":(_movieFiles[i].br<60?"32–60 Mbps":"> 60 Mbps")))));d[t]=(d[t]||0)+1;}return d;})(),
-VideoBitrateTierSizes:(function(){var d={};for(var i=0;i<_movieFiles.length;i++){var t=_movieFiles[i].br<2?"< 2 Mbps":(_movieFiles[i].br<4?"2–4 Mbps":(_movieFiles[i].br<8?"4–8 Mbps":(_movieFiles[i].br<16?"8–16 Mbps":(_movieFiles[i].br<32?"16–32 Mbps":(_movieFiles[i].br<60?"32–60 Mbps":"> 60 Mbps")))));d[t]=(d[t]||0)+_movieSizes[_movieFiles[i].p];}return d;})(),
-VideoBitrateTierPaths:(function(){var d={};for(var i=0;i<_movieFiles.length;i++){var t=_movieFiles[i].br<2?"< 2 Mbps":(_movieFiles[i].br<4?"2–4 Mbps":(_movieFiles[i].br<8?"4–8 Mbps":(_movieFiles[i].br<16?"8–16 Mbps":(_movieFiles[i].br<32?"16–32 Mbps":(_movieFiles[i].br<60?"32–60 Mbps":"> 60 Mbps")))));if(!d[t]){d[t]=[];}d[t].push(_movieFiles[i].p);}return d;})(),
+VideoBitrateTiers:_vDict(_movieFiles,"tier"),
+VideoBitrateTierSizes:_vSizes(_movieFiles,"tier",_movieSizes),
+VideoBitrateTierPaths:_vPaths(_movieFiles,"tier"),
 VideoBitrates:(function(){var d={};for(var i=0;i<_movieFiles.length;i++){d[_movieFiles[i].p]=_movieFiles[i].br;}return d;})(),
 AudioTrackLabels:_vLabels(_movieFiles),
 SubtitleTrackLabels:(function(){var d={};for(var i=0;i<_movieFiles.length;i++){if(_movieFiles[i].slabels){d[_movieFiles[i].p]=_movieFiles[i].slabels;}}return d;})(),
@@ -222,9 +223,9 @@ ResolutionDimensions:_vDims(_tvFiles),
 DynamicRanges:_vDict(_tvFiles,"range"),
 DynamicRangeSizes:_vSizes(_tvFiles,"range",_tvSizes),
 DynamicRangePaths:_vPaths(_tvFiles,"range"),
-VideoBitrateTiers:(function(){var d={};for(var i=0;i<_tvFiles.length;i++){var t=_tvFiles[i].br<2?"< 2 Mbps":(_tvFiles[i].br<4?"2–4 Mbps":(_tvFiles[i].br<8?"4–8 Mbps":(_tvFiles[i].br<16?"8–16 Mbps":(_tvFiles[i].br<32?"16–32 Mbps":(_tvFiles[i].br<60?"32–60 Mbps":"> 60 Mbps")))));d[t]=(d[t]||0)+1;}return d;})(),
-VideoBitrateTierSizes:(function(){var d={};for(var i=0;i<_tvFiles.length;i++){var t=_tvFiles[i].br<2?"< 2 Mbps":(_tvFiles[i].br<4?"2–4 Mbps":(_tvFiles[i].br<8?"4–8 Mbps":(_tvFiles[i].br<16?"8–16 Mbps":(_tvFiles[i].br<32?"16–32 Mbps":(_tvFiles[i].br<60?"32–60 Mbps":"> 60 Mbps")))));d[t]=(d[t]||0)+_tvSizes[_tvFiles[i].p];}return d;})(),
-VideoBitrateTierPaths:(function(){var d={};for(var i=0;i<_tvFiles.length;i++){var t=_tvFiles[i].br<2?"< 2 Mbps":(_tvFiles[i].br<4?"2–4 Mbps":(_tvFiles[i].br<8?"4–8 Mbps":(_tvFiles[i].br<16?"8–16 Mbps":(_tvFiles[i].br<32?"16–32 Mbps":(_tvFiles[i].br<60?"32–60 Mbps":"> 60 Mbps")))));if(!d[t]){d[t]=[];}d[t].push(_tvFiles[i].p);}return d;})(),
+VideoBitrateTiers:_vDict(_tvFiles,"tier"),
+VideoBitrateTierSizes:_vSizes(_tvFiles,"tier",_tvSizes),
+VideoBitrateTierPaths:_vPaths(_tvFiles,"tier"),
 VideoBitrates:(function(){var d={};for(var i=0;i<_tvFiles.length;i++){d[_tvFiles[i].p]=_tvFiles[i].br;}return d;})(),
 AudioTrackLabels:_vLabels(_tvFiles),
 SubtitleTrackLabels:(function(){var d={};for(var i=0;i<_tvFiles.length;i++){if(_tvFiles[i].slabels){d[_tvFiles[i].p]=_tvFiles[i].slabels;}}return d;})(),
@@ -324,8 +325,8 @@ var MOCK_TRASH_FOLDERS_FOR_PATH=function(trashPath){
 
 var MOCK_ARR_COMPARE={
 InBoth:["Inception (2010)","Interstellar (2014)","Dune Part Two (2024)","Oppenheimer (2023)"],
-InArrOnly:["Arrival (2016)"],
-InArrOnlyMissing:["Tenet (2020)","The Batman (2022)"],
+InArrOnly:["Edge of Tomorrow (2014)"],
+InArrOnlyMissing:["Heat (1995)","Prisoners (2013)"],
 InJellyfinOnly:["Pans Labyrinth (2006)","Your Name (2016)"]
 };
 
@@ -416,7 +417,7 @@ var MOCK_DISCOVERY=[
 {TmdbId:840430,MediaType:"movie",Title:"The Holdovers",Year:2023,Score:0.90,Reason:"From a director you like",ReasonKey:"reasonStudioNamed",RelatedInfo:"Alexander Payne",Genres:["Comedy","Drama"],TmdbRating:7.9,PosterPath:"/VHSzNBTwxV8vh7wylo7O9CLdac.jpg",Overview:"A curmudgeonly instructor at a New England prep school is forced to remain on campus during Christmas break to babysit a handful of students with nowhere to go.",AlreadyRequested:false},
 {TmdbId:203737,MediaType:"tv",Title:"Ripley",Year:2024,Score:0.87,Reason:"Because you watched {0}",ReasonKey:"reasonGenreAndCollab",RelatedInfo:"Drama",Genres:["Crime","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/bkZpMfsMwfqRVEwfUn8i3qi2NDE.jpg",Overview:"Tom Ripley, a grifter in early 1960s New York, is hired by a wealthy man to travel to Italy to try to convince his vagabond son to return home.",AlreadyRequested:false},
 {TmdbId:792307,MediaType:"movie",Title:"Poor Things",Year:2023,Score:0.85,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Comedy","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/kCGlIMHnOm8JPXq3rXM6c5wMxcT.jpg",Overview:"Brought back to life by an unorthodox scientist, a young woman runs off with a debauched lawyer on a whirlwind adventure across the continents.",AlreadyRequested:false},
-{TmdbId:225545,MediaType:"tv",Title:"A Gentleman in Moscow",Year:2024,Score:0.82,Reason:"Matches your top genres",ReasonKey:"reasonGenre",RelatedInfo:"Drama",Genres:["Drama","History"],TmdbRating:7.1,PosterPath:"/hUu9zyZmDd8VZegKi1iK1Vk0RYS.jpg",Overview:"A Count is sentenced to house arrest in a grand Moscow hotel for decades. As Russia undergoes decades of tumultuous change, he must find purpose in an ever-shrinking world.",AlreadyRequested:false},
+{TmdbId:208942,MediaType:"tv",Title:"A Gentleman in Moscow",Year:2024,Score:0.82,Reason:"Matches your top genres",ReasonKey:"reasonGenre",RelatedInfo:"Drama",Genres:["Drama","History"],TmdbRating:7.1,PosterPath:"/aBU2mlyZT5BzvCkXXUewH7wfhkK.jpg",Overview:"A Count is sentenced to house arrest in a grand Moscow hotel for decades. As Russia undergoes decades of tumultuous change, he must find purpose in an ever-shrinking world.",AlreadyRequested:false},
 {TmdbId:467244,MediaType:"movie",Title:"The Zone of Interest",Year:2023,Score:0.79,Reason:"Highly rated drama",ReasonKey:"reasonHighlyRated",Genres:["Drama","History","War"],TmdbRating:7.1,PosterPath:"/hUu9zyZmDd8VZegKi1iK1Vk0RYS.jpg",Overview:"The commandant of Auschwitz, Rudolf H\u00f6ss, and his wife Hedwig, strive to build a dream life for their family in a house and garden next to the camp.",AlreadyRequested:false}
 ]}
 ];

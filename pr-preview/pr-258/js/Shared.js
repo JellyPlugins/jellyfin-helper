@@ -523,21 +523,23 @@ function orderLibrariesByName(groups, order) {
     if (!Array.isArray(order) || order.length === 0) {
         return ordered;
     }
-    const byName = {};
+    // Map, not a plain object: library names like "constructor" must not
+    // resolve to Object.prototype members.
+    const byName = new Map();
     for (const group of groups) {
         if (!Array.isArray(group)) {
             continue;
         }
         for (const lib of group) {
-            if (lib?.LibraryName && !byName[lib.LibraryName]) {
-                byName[lib.LibraryName] = lib;
+            if (lib?.LibraryName && !byName.has(lib.LibraryName)) {
+                byName.set(lib.LibraryName, lib);
             }
         }
     }
     for (const name of order) {
-        if (byName[name]) {
-            ordered.push(byName[name]);
-            delete byName[name];
+        if (byName.has(name)) {
+            ordered.push(byName.get(name));
+            byName.delete(name);
         }
     }
     return ordered;

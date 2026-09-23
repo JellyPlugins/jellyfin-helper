@@ -99,8 +99,16 @@ function attachHealthClickHandlers() {
                 return '';
             }
             var result = collectHealthPaths(_lastScanResult, mapping.prop);
-            var otherIcon = type === 'orphaned' ? mi('folder') : undefined;
-            return renderFileTree(result, T(mapping.titleKey, mapping.titleFallback), undefined, otherIcon);
+            if (type === 'orphaned') {
+                // Server paths carry no trailing separator, so mark directories
+                // explicitly: the leaf renderer picks the folder icon from it.
+                ['movies', 'tvShows', 'other'].forEach(function (section) {
+                    result[section] = (result[section] || []).map(function (path) {
+                        return path.replace(/[\\/]+$/, '') + '/';
+                    });
+                });
+            }
+            return renderFileTree(result, T(mapping.titleKey, mapping.titleFallback));
         }
     });
 }
