@@ -1027,6 +1027,18 @@
         align-items: center;
     }
 
+    /* The add button sits at the right edge of the bar on phones, so a
+       left-anchored popover spills past the viewport (280px min-width from
+       the button's left edge). Anchor it to the button's right edge instead
+       so it opens leftwards and stays on screen, in list and editor states. */
+    .codec-filter-pop {
+        left: auto;
+        right: 0;
+        min-width: 0;
+        width: max-content;
+        max-width: calc(100vw - 2em);
+    }
+
     .codec-filter-add-btn {
         min-height: 34px;
         padding: 0.32em 0.9em;

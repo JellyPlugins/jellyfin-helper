@@ -257,3 +257,37 @@ test('reset clears filters and scope, showing the idle hint again', async ({ pag
   await expect(page.locator('#codecExplorerResults')).toContainText(/at least one filter/i, { timeout: 5_000 });
   await expect(page.locator('[data-library-option]:checked')).toHaveCount(0);
 });
+
+test.describe('mobile filter popover', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  // The add button sits at the right edge of the bar on phones; a left-anchored
+  // popover used to spill past the viewport and clip the option list.
+  test('add-filter popover stays inside the viewport', async ({ page }) => {
+    await openExplorer(page);
+    await page.locator('#codecFilterAddBtn').click();
+    const pop = page.locator('[data-filter-pop]');
+    await expect(pop).toBeVisible({ timeout: 5_000 });
+    const box = await pop.boundingBox();
+    expect(box, 'filter popover must be measurable').not.toBeNull();
+    const viewport = page.viewportSize();
+    expect(viewport, 'viewport must be set').not.toBeNull();
+    expect(box!.x, 'popover must not start left of the viewport').toBeGreaterThanOrEqual(-1);
+    expect(box!.x + box!.width, 'popover must not overflow the viewport to the right')
+      .toBeLessThanOrEqual(viewport!.width + 1);
+  });
+
+  test('filter editor stays inside the viewport', async ({ page }) => {
+    await openExplorer(page);
+    await openDimEditor(page, 'videoCodecs');
+    const pop = page.locator('[data-filter-pop]');
+    await expect(pop).toBeVisible({ timeout: 5_000 });
+    const box = await pop.boundingBox();
+    expect(box, 'filter editor must be measurable').not.toBeNull();
+    const viewport = page.viewportSize();
+    expect(viewport, 'viewport must be set').not.toBeNull();
+    expect(box!.x, 'editor must not start left of the viewport').toBeGreaterThanOrEqual(-1);
+    expect(box!.x + box!.width, 'editor must not overflow the viewport to the right')
+      .toBeLessThanOrEqual(viewport!.width + 1);
+  });
+});
