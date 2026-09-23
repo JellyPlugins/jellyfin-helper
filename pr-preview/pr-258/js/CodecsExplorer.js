@@ -20,9 +20,7 @@ const CODEC_BITRATE_HISTOGRAM_BIN = 4;
 // Guard: the deep-link and panel-close handlers are registered once at document level.
 let _codecExploreLinkBound = false;
 
-// Upper bound for rendered result files. The tree renders every leaf eagerly, so an
-// unbounded 10k-file result would freeze low-end phones. The hint tells how to narrow down.
-const CODEC_EXPLORER_MAX_FILES = 300;
+
 
 // Library type scopes (used by Overview cards and the scope dropdown).
 const CODEC_EXPLORER_TYPE_MOVIES = 'type:movies';
@@ -808,8 +806,17 @@ function buildCodecsExplorerMulti(dim) {
 
 // Total media files of one library, used as the scope option count. Mirrors exactly
 // what the scope listing can show (FileSizes covers video, audio and books only).
+// For each library type, show the relevant file count.
 function countLibraryFiles(lib) {
-    return (lib.VideoFileCount || 0) + (lib.AudioFileCount || 0) + (lib.BookFileCount || 0);
+    const type = (lib.CollectionType || lib.collectionType || '').toLowerCase();
+    if (type === 'music') {
+        return lib.AudioFileCount || 0;
+    }
+    if (type === 'books') {
+        return lib.BookFileCount || 0;
+    }
+    // movies, tvshows, and other types use VideoFileCount (episodes for tvshows)
+    return lib.VideoFileCount || 0;
 }
 
 // Library scope as a multi-dropdown: no selection means all libraries, otherwise the
@@ -1221,24 +1228,60 @@ function toggleExplorerFileDetail(leaf) {
     leaf.setAttribute('aria-expanded', 'true');
 }
 
+// Delegated from the results host, so leaves materialized later by on-demand
+// tree expansion open detail cards without rebinding. Idempotent per host.
 function bindExplorerFileDetails(host) {
+    if (!host) {
+        return;
+    }
+    // Leaves of the current render arrive keyboard-ready right away; later
+    // renders repeat this while the listeners below attach only once.
     for (const leaf of host.querySelectorAll('.tree-leaf')) {
-        if (leaf.dataset.detailBound) {
-            continue;
-        }
-        leaf.dataset.detailBound = '1';
-        leaf.setAttribute('tabindex', '0');
-        leaf.setAttribute('role', 'button');
-        leaf.setAttribute('aria-expanded', 'false');
-        leaf.addEventListener('click', function () {
-            toggleExplorerFileDetail(leaf);
-        });
-        leaf.addEventListener('keydown', function (evt) {
-            if (evt.key === 'Enter' || evt.key === ' ') {
-                evt.preventDefault();
-                toggleExplorerFileDetail(leaf);
+        prepareExplorerLeaf(leaf);
+    }
+    if (host.dataset.detailBound === '1') {
+        return;
+    }
+    host.dataset.detailBound = '1';
+    // Leaves materialized later by on-demand tree expansion arrive keyboard-
+    // ready through the bubbled render notification.
+    host.addEventListener('jfTreeChildren', function (evt) {
+        var holder = evt.target;
+        if (holder && holder.querySelectorAll) {
+            for (const leaf of holder.querySelectorAll('.tree-leaf')) {
+                prepareExplorerLeaf(leaf);
             }
-        });
+        }
+    });
+    host.addEventListener('click', function (evt) {
+        const leaf = evt.target && evt.target.closest ? evt.target.closest('.tree-leaf') : null;
+        if (leaf && host.contains(leaf)) {
+            prepareExplorerLeaf(leaf);
+            toggleExplorerFileDetail(leaf);
+        }
+    });
+    host.addEventListener('keydown', function (evt) {
+        if (evt.key !== 'Enter' && evt.key !== ' ') {
+            return;
+        }
+        const leaf = evt.target && evt.target.closest ? evt.target.closest('.tree-leaf') : null;
+        if (leaf && host.contains(leaf)) {
+            evt.preventDefault();
+            prepareExplorerLeaf(leaf);
+            toggleExplorerFileDetail(leaf);
+        }
+    });
+}
+
+function prepareExplorerLeaf(leaf) {
+    if (!leaf || leaf.dataset.detailReady === '1') {
+        return;
+    }
+    leaf.dataset.detailReady = '1';
+    leaf.setAttribute('tabindex', '0');
+    leaf.setAttribute('role', 'button');
+    if (!leaf.hasAttribute('aria-expanded')) {
+        leaf.setAttribute('aria-expanded', 'false');
     }
 }
 
@@ -1305,9 +1348,9 @@ function runCodecsExplorerSearch() {
         host.innerHTML = html;
         return;
     }
-    // No global cap – each section shows its full filtered list and scrolls
-    // independently. The previous 300-global slice hid whole libraries
-    // alphabetically.
+    // The full filtered set renders as a lazy tree: only top-level shells reach
+    // the DOM, children materialize on expand. Counts are always truthful and
+    // every file stays reachable without continuation buttons.
     const split = groupExplorerResults(outcome.paths);
     html += '<div class="file-tree-panel file-tree-panel-visible">';
     html += renderFileTree(
@@ -1319,6 +1362,8 @@ function runCodecsExplorerSearch() {
     bindFileTreeHandlers(host);
     bindExplorerFileDetails(host);
 }
+
+
 
 // Remembers the focused control across the rebuild so keyboard and touch users keep
 // their place while option lists update around them.

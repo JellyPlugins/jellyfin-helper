@@ -600,8 +600,7 @@
     max-height: 500px;
     opacity: 1;
     margin-top: var(--spacing-md);
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: var(--color-primary-scrollbar) transparent;
