@@ -326,30 +326,27 @@ public class MediaStatisticsResult
         }
 
         var byName = new Dictionary<string, LibraryStatistics>(StringComparer.OrdinalIgnoreCase);
-        foreach (var lib in Movies.Concat(TvShows).Concat(Music).Concat(Books).Concat(Other))
+        foreach (var lib in AllGroupedLibraries().Where(static lib => !string.IsNullOrEmpty(lib.LibraryName)))
         {
-            if (!string.IsNullOrEmpty(lib.LibraryName))
-            {
-                byName.TryAdd(lib.LibraryName, lib);
-            }
+            byName.TryAdd(lib.LibraryName, lib);
         }
 
-        foreach (var name in LibraryOrder)
+        foreach (var name in LibraryOrder.Where(static name => !string.IsNullOrEmpty(name)))
         {
-            if (!string.IsNullOrEmpty(name) && byName.Remove(name, out var lib))
+            if (byName.Remove(name, out var lib))
             {
                 Libraries.Add(lib);
             }
         }
 
-        foreach (var lib in Movies.Concat(TvShows).Concat(Music).Concat(Books).Concat(Other))
+        foreach (var lib in AllGroupedLibraries().Where(lib => !Libraries.Contains(lib)))
         {
-            if (!Libraries.Contains(lib))
-            {
-                Libraries.Add(lib);
-            }
+            Libraries.Add(lib);
         }
     }
+
+    private IEnumerable<LibraryStatistics> AllGroupedLibraries() =>
+        Movies.Concat(TvShows).Concat(Music).Concat(Books).Concat(Other);
 
     private static HashSet<string> AggregateRootPaths(IEnumerable<LibraryStatistics> libraries)
     {

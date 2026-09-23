@@ -61,6 +61,8 @@ const sharedModuleGlobals = {
     allowSafeHtml: 'writable',
     getPathSegments: 'writable',
     normalizeStatisticsLibraries: 'readonly',
+    orderLibrariesByName: 'readonly',
+    appendMissingUnionLibraries: 'readonly',
     buildPathTree: 'writable',
     countTreeItems: 'writable',
     FILE_TREE_EXPAND_BUDGET: 'readonly',
