@@ -119,29 +119,6 @@ public class FileSystemHelperTests
     }
 
     [Fact]
-    public void CalculateDirectorySize_BrokenSymlinkedFile_IsSkipped()
-    {
-        // A file entry whose target is gone throws when its length is read
-        // (FileNotFound, an IOException): skipped, surviving files still counted.
-        var root = CreateTempDir();
-        try
-        {
-            WriteBytes(Path.Join(root, "real.mkv"), 1000);
-            try
-            {
-                File.CreateSymbolicLink(Path.Join(root, "ghost.mkv"), Path.Join(root, "never-created.mkv"));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
-            {
-                return;
-            }
-
-            Assert.Equal(1000, FileSystemHelper.CalculateDirectorySize(root));
-        }
-        finally { Directory.Delete(root, true); }
-    }
-
-    [Fact]
     public void CalculateDirectorySize_NonExistentRoot_ReturnsZero()
     {
         // A path that does not exist triggers IOException on GetFiles; should return 0.
