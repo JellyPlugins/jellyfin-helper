@@ -60,33 +60,50 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     }
 
     [Fact]
-    public void ApplyImprovementBoost_FullQuality_SnapsToTarget()
+    public void ApplyImprovementBoost_FullQuality_ReachesTarget()
     {
-        // Quality factor 1.0 (gate passed) boosted and capped: step = min(1, 1.15) = 1.0,
-        // so alpha closes fully onto the sigmoid target.
-        Assert.Equal(0.5, EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.75, 0.5, 1.0), 10);
+        // Quality factor 1.0 (gate passed) boosted and capped: min(1, 1.15) = 1.0,
+        // so alpha lands exactly on the sigmoid target.
+        Assert.Equal(0.5, EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.5, 1.0), 10);
     }
 
     [Fact]
-    public void ApplyImprovementBoost_ZeroQuality_LeavesAlphaUntouched()
+    public void ApplyImprovementBoost_ZeroQuality_StaysAtAlphaMin()
     {
         // A model at the loss ceiling earns no progression even with an improving trend.
-        Assert.Equal(0.4, EnsembleScoringStrategy.ApplyImprovementBoost(0.4, 0.75, 0.6, 0.0), 10);
+        Assert.Equal(0.3, EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.6, 0.0), 10);
     }
 
     [Fact]
-    public void ApplyImprovementBoost_PartialQuality_ClimbsProportionally()
+    public void ApplyImprovementBoost_PartialQuality_BoostsDampenedTarget()
     {
-        // Step = min(1, 0.5 × 1.15) = 0.575 of the remaining headroom toward the target.
-        Assert.Equal(0.55875, EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.75, 0.9, 0.5), 10);
+        // Boosted factor = min(1, 0.5 × 1.15) = 0.575: above the unboosted dampened
+        // position (0.3 + 0.6 × 0.5 = 0.6) would be wrong - the gate must hold, so the
+        // result stays well below the sigmoid target: 0.3 + 0.6 × 0.575 = 0.645.
+        var result = EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.9, 0.5);
+
+        Assert.Equal(0.645, result, 10);
+        Assert.True(result < 0.9, "Improving must not restore the denied sigmoid target.");
     }
 
     [Fact]
-    public void ApplyImprovementBoost_NeverExceedsSigmoidTarget()
+    public void ApplyImprovementBoost_RespectsDampenedGate()
     {
-        // Even a full step must stop at the target, never overshoot toward alphaMax.
-        Assert.Equal(0.71, EnsembleScoringStrategy.ApplyImprovementBoost(0.7, 0.75, 0.71, 1.0), 10);
-        Assert.Equal(0.4, EnsembleScoringStrategy.ApplyImprovementBoost(0.0, 1.0, 0.4, 1.0), 10);
+        // The exact gate-defeat scenario: loss 0.45 gives quality factor 0.5 and the
+        // gate positions alpha at 0.45 (min 0.3, target 0.6). An improving trend must
+        // accelerate to 0.4725, not snap back to the denied 0.6.
+        var result = EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.6, 0.5);
+
+        Assert.Equal(0.4725, result, 10);
+        Assert.True(result < 0.6, "The failed gate must keep an effect on the blend weight.");
+    }
+
+    [Fact]
+    public void ApplyImprovementBoost_BoostFactor_CappedAtOne()
+    {
+        // Quality factor 0.9 × 1.15 = 1.035 caps to 1.0: full target, never beyond.
+        Assert.Equal(0.6, EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.6, 0.9), 10);
+        Assert.Equal(0.4, EnsembleScoringStrategy.ApplyImprovementBoost(0.0, 0.4, 1.0), 10);
     }
 
     [Fact]

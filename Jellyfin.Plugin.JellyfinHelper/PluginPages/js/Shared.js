@@ -1080,6 +1080,13 @@ function attachTogglePanelHandlers(opts) {
             }
         });
         items[i].addEventListener('click', function () {
+            // One-shot scroll flags are consumed on every activation, including the
+            // toggle-close path below: a tap that only closes a panel must not leak
+            // a stale flag into the next unrelated panel open.
+            var forceScroll = !!_forceScrollOnPanelOpen;
+            var suppressScroll = !!_suppressScrollOnPanelOpen;
+            _forceScrollOnPanelOpen = false;
+            _suppressScrollOnPanelOpen = false;
             var panelId = opts.getPanelId(this);
             var panel = document.getElementById(panelId);
             if (!panel) return;
@@ -1128,12 +1135,8 @@ function attachTogglePanelHandlers(opts) {
 
             // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel),
             // unless the touch path opted out to keep tooltip and segment in view.
-            var forceScroll = !!_forceScrollOnPanelOpen;
-            if (forceScroll) {
-                _forceScrollOnPanelOpen = false;
-            }
-            var suppressScroll = !!_suppressScrollOnPanelOpen;
-            _suppressScrollOnPanelOpen = false;
+            // forceScroll/suppressScroll were snapshotted (and reset) at the top of
+            // this handler so the toggle-close path above cannot leak them.
             if ((!wasVisible || forceScroll) && !suppressScroll) {
                 var scrollPanel = panel;
                 setTimeout(function () {

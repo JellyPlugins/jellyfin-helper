@@ -35,13 +35,16 @@ public sealed class SimilarityComputerTests
     {
         // Zero-billing and blank cast entries carry no signal: they must not
         // dilute the budget or match anything, so only the real entry counts.
+        // The preference is deliberately 1.0, not 2.0: with 2.0 the leaked blank
+        // entry yields 10/9, which clamps to 1.0 and passes vacuously, while 1.0
+        // separates the correct 1.0 from the leaked 5/9.
         var candidateBilling = new Dictionary<string, double>
         {
             ["Star"] = 5.0,
             ["Extra"] = 0.0,
             [""] = 4.0
         };
-        var preferred = new Dictionary<string, double> { ["Star"] = 2.0 };
+        var preferred = new Dictionary<string, double> { ["Star"] = 1.0 };
 
         var result = SimilarityComputer.ComputeBillingWeightedPeople(candidateBilling, preferred);
 

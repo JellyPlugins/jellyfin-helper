@@ -918,32 +918,35 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
         else if (trend == MetricsTrend.Improving)
         {
-            // Faster alpha progression toward the sigmoid target (using adaptive midpoint):
-            // the gate's quality factor boosted and capped at 1.0, so a well-generalizing
-            // model climbs at full rate while a dampened one still progresses.
+            // Faster alpha progression toward the sigmoid target (using adaptive midpoint),
+            // scaled by the boosted quality factor so a dampened gate keeps its effect:
+            // an improving trend accelerates the climb but never restores the full
+            // target the gate just denied.
             var sigmoidTarget = ComputeSigmoidAlpha(
                 _trainingExampleCount,
                 DefaultSigmoidMidpoint + _sigmoidMidpointOffset,
                 _alphaMin,
                 _alphaMax);
-            _alpha = ApplyImprovementBoost(_alpha, _alphaMax, sigmoidTarget, qualityFactor);
+            _alpha = ApplyImprovementBoost(_alphaMin, sigmoidTarget, qualityFactor);
         }
     }
 
     /// <summary>
-    ///     Computes the boosted alpha step for an improving trend: the quality factor multiplied
-    ///     by <see cref="TrendImprovementBoost"/> and capped at 1.0, applied as the closing fraction
-    ///     toward the sigmoid target. Pure function so the blend math is directly unit-testable.
+    ///     Computes the boosted alpha for an improving trend: the standard dampened-target
+    ///     position, but with the quality factor multiplied by <see cref="TrendImprovementBoost"/>
+    ///     and capped at 1.0. A well-generalizing model still climbs at full rate while a
+    ///     dampened one keeps its dampening with only modest acceleration, so an improving
+    ///     trend can never erase the quality gate the way climbing toward the raw sigmoid
+    ///     target would. Pure function so the blend math is directly unit-testable.
     /// </summary>
-    /// <param name="alpha">The current blending factor.</param>
-    /// <param name="alphaMax">The maximum blending factor.</param>
+    /// <param name="alphaMin">The minimum blending factor.</param>
     /// <param name="sigmoidTarget">The sigmoid-curve target alpha.</param>
     /// <param name="qualityFactor">The validation-loss quality factor (1.0 when the gate passed).</param>
-    /// <returns>The boosted alpha, never exceeding <paramref name="sigmoidTarget"/>.</returns>
-    internal static double ApplyImprovementBoost(double alpha, double alphaMax, double sigmoidTarget, double qualityFactor)
+    /// <returns>The boosted alpha between <paramref name="alphaMin"/> and <paramref name="sigmoidTarget"/>.</returns>
+    internal static double ApplyImprovementBoost(double alphaMin, double sigmoidTarget, double qualityFactor)
     {
-        var step = Math.Min(1.0, qualityFactor * TrendImprovementBoost);
-        return Math.Min(sigmoidTarget, alpha + ((alphaMax - alpha) * step));
+        var boostedFactor = Math.Min(1.0, qualityFactor * TrendImprovementBoost);
+        return alphaMin + ((sigmoidTarget - alphaMin) * boostedFactor);
     }
 
     /// <summary>

@@ -1244,8 +1244,11 @@ public class PreferenceBuilderTests
     public void BuildGenrePreferenceVector_UnplayedItems_FabricateNoTasteLinks()
     {
         // Co-occurrence links need two sightings: nine played Action rows plus one
-        // played Action/Horror row leave exactly one sub-threshold pair, and the two
-        // unplayed Comedy/Drama rows must not contribute any pair at all.
+        // played Action/Horror row leave exactly one sub-threshold pair. The two
+        // unplayed rows use Action/Comedy on purpose: proximity expansion starts
+        // from known genres, so a leak counting unplayed rows would surface Comedy
+        // (Action's leaked neighbour) as a new key, while an all-unknown pair
+        // like Comedy/Drama would stay invisible and prove nothing.
         var profile = new UserWatchProfile();
         for (var i = 0; i < 9; i++)
         {
@@ -1254,8 +1257,8 @@ public class PreferenceBuilderTests
 
         profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action", "Horror"] });
         profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = null! });
-        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Comedy", "Drama"] });
-        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Comedy", "Drama"] });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Action", "Comedy"] });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Action", "Comedy"] });
 
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
 
