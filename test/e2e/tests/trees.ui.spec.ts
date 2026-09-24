@@ -26,6 +26,8 @@ test('Codecs tab: clicking a breakdown row opens a file tree that expands/collap
   const panel = page.locator(`#codecDetail_${chart}`);
   await expect(panel).toHaveClass(/file-tree-panel-visible/);
   await expect(panel.locator('.tree-view, .file-tree-section').first()).toBeVisible();
+  // Every tree scrolls on both axes like the explorer sections.
+  await expect(panel.locator('.tree-view').first()).toHaveCSS('overflow-x', 'auto');
 
   // Expand a folder node if present.
   const toggle = panel.locator('[data-tree-toggle]').first();
@@ -34,9 +36,9 @@ test('Codecs tab: clicking a breakdown row opens a file tree that expands/collap
     await toggle.click();
     await expect(node).toHaveClass(/tree-expanded/);
 
-    // Expand All / Collapse All buttons.
-    const expandAll = panel.locator('[data-tree-action="expand"]');
-    const collapseAll = panel.locator('[data-tree-action="collapse"]');
+    // Expand All / Collapse All buttons (per section).
+    const expandAll = panel.locator('.file-tree-section').first().locator('[data-tree-action="expand"]');
+    const collapseAll = panel.locator('.file-tree-section').first().locator('[data-tree-action="collapse"]');
     if (await expandAll.count()) {
       await expandAll.click();
       await expect(panel.locator('.tree-node.tree-expanded').first()).toBeVisible();
@@ -86,16 +88,24 @@ test('Codecs tab: clicking a book format shows the book file tree, not an empty 
   // The books section must render (badge-books) and must NOT be the empty state.
   await expect(panel.locator('.file-tree-section .badge-books')).toBeVisible();
   await expect(panel.locator('.file-tree-empty')).toHaveCount(0);
-  // Book file paths are present in the tree (this is what BookFormatPaths feeds).
-  // They live inside collapsed folder nodes, so assert at least one exists, then
-  // expand the tree to prove a real leaf becomes visible - mirroring the codec test.
+  // Book file paths are reachable through the tree (this is what
+  // BookFormatPaths feeds). The tree renders lazily: collapsed folders are
+  // shells first with no leaves in the DOM, so expand the tree and then prove
+  // real leaves appear.
+  const shells = panel.locator('.tree-node');
+  expect(await shells.count(), 'book folders must render as shells').toBeGreaterThan(0);
+  // Lazy pin: shells carry registry keys and start with empty children, so an
+  // eager-render regression (leaves present up front) fails here, not silently.
+  expect(
+    await panel.locator('.tree-node[data-tree-key] > .tree-children:empty').count(),
+    'collapsed folders must be lazy shells',
+  ).toBeGreaterThan(0);
   const leaves = panel.locator('.tree-leaf, .tree-leaf-file-name');
-  expect(await leaves.count(), 'book file leaves must be rendered').toBeGreaterThan(0);
-  const expandAll = panel.locator('[data-tree-action="expand"]');
-  if (await expandAll.count()) {
-    await expandAll.click();
-    await expect(leaves.first()).toBeVisible();
-  }
+  const expandAll = panel.locator('.file-tree-section').first().locator('[data-tree-action="expand"]');
+  await expect(expandAll).toHaveCount(1);
+  await expandAll.click();
+  await expect.poll(async () => leaves.count(), { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect(leaves.first()).toBeVisible();
 });
 
 test('Settings tab: the Excluded Libraries multi-select lists libraries', async ({ page }) => {

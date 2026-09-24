@@ -42,35 +42,125 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void SaveAndLoad_RoundTrips()
     {
+        // Production invariant: Libraries is the in-memory union of the typed groups
+        // (same instances). Only the groups serialize; the union rehydrates on load.
         var stats = new MediaStatisticsResult();
-        stats.Libraries.Add(new LibraryStatistics { VideoSize = 42, VideoFileCount = 3 });
-        stats.Movies.Add(new LibraryStatistics { VideoSize = 100 });
+        var movies = new LibraryStatistics { LibraryName = "Movies", VideoSize = 100 };
+        var tv = new LibraryStatistics { LibraryName = "TV", VideoSize = 42, VideoFileCount = 3 };
+        stats.Libraries.Add(movies);
+        stats.Libraries.Add(tv);
+        stats.LibraryOrder.Add("Movies");
+        stats.LibraryOrder.Add("TV");
+        stats.Movies.Add(movies);
+        stats.TvShows.Add(tv);
 
         _service.SaveLatestResult(stats);
         var loaded = _service.LoadLatestResult();
 
         Assert.NotNull(loaded);
-        Assert.Single(loaded!.Libraries);
-        Assert.Equal(42, loaded.Libraries[0].VideoSize);
-        Assert.Equal(3, loaded.Libraries[0].VideoFileCount);
+        Assert.Equal(2, loaded!.Libraries.Count);
+        Assert.Equal("Movies", loaded.Libraries[0].LibraryName);
+        Assert.Equal(100, loaded.Libraries[0].VideoSize);
+        Assert.Equal("TV", loaded.Libraries[1].LibraryName);
+        Assert.Equal(42, loaded.Libraries[1].VideoSize);
+        Assert.Equal(3, loaded.Libraries[1].VideoFileCount);
         Assert.Single(loaded.Movies);
         Assert.Equal(100, loaded.Movies[0].VideoSize);
+        Assert.Single(loaded.TvShows);
     }
 
     [Fact]
     public void SaveLatestResult_OverwritesPrevious()
     {
         var stats1 = new MediaStatisticsResult();
-        stats1.Libraries.Add(new LibraryStatistics { VideoSize = 1 });
+        var oldLib = new LibraryStatistics { LibraryName = "Movies", VideoSize = 1 };
+        stats1.Libraries.Add(oldLib);
+        stats1.LibraryOrder.Add("Movies");
+        stats1.Movies.Add(oldLib);
         _service.SaveLatestResult(stats1);
 
         var stats2 = new MediaStatisticsResult();
-        stats2.Libraries.Add(new LibraryStatistics { VideoSize = 2 });
+        var newLib = new LibraryStatistics { LibraryName = "Movies", VideoSize = 2 };
+        stats2.Libraries.Add(newLib);
+        stats2.LibraryOrder.Add("Movies");
+        stats2.Movies.Add(newLib);
         _service.SaveLatestResult(stats2);
 
         var loaded = _service.LoadLatestResult();
         Assert.NotNull(loaded);
-        Assert.Equal(2, loaded!.Libraries[0].VideoSize);
+        Assert.Single(loaded!.Libraries);
+        Assert.Equal(2, loaded.Libraries[0].VideoSize);
+    }
+
+    [Fact]
+    public void SaveLatestResult_WireShapeOmitsLibraryUnion()
+    {
+        // The union would double the payload (every library already serializes once
+        // inside its typed group), so only groups plus the order travel the wire.
+        var stats = new MediaStatisticsResult();
+        var movies = new LibraryStatistics { LibraryName = "Movies", VideoSize = 100 };
+        stats.Libraries.Add(movies);
+        stats.LibraryOrder.Add("Movies");
+        stats.Movies.Add(movies);
+
+        _service.SaveLatestResult(stats);
+        var json = File.ReadAllText(Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json"));
+
+        // Parsed, not substring-matched: independent of casing, indentation, and
+        // key order, and blind to lookalikes like libraryOrder.
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var names = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+        Assert.DoesNotContain(names, n => string.Equals(n, "libraries", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(names, n => string.Equals(n, "movies", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(names, n => string.Equals(n, "libraryOrder", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void LoadLatestResult_RehydratesUnionInExactScanOrder()
+    {
+        var stats = new MediaStatisticsResult();
+        var tv = new LibraryStatistics { LibraryName = "TV", VideoSize = 7 };
+        var movies = new LibraryStatistics { LibraryName = "Movies", VideoSize = 9 };
+        stats.TvShows.Add(tv);
+        stats.Movies.Add(movies);
+        stats.LibraryOrder.Add("TV");
+        stats.LibraryOrder.Add("Movies");
+
+        _service.SaveLatestResult(stats);
+        var loaded = _service.LoadLatestResult();
+
+        Assert.NotNull(loaded);
+        Assert.Equal(2, loaded!.Libraries.Count);
+        Assert.Same(loaded.TvShows[0], loaded.Libraries[0]);
+        Assert.Same(loaded.Movies[0], loaded.Libraries[1]);
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyPayloadWithoutOrder_FallsBackToGroupedOrder()
+    {
+        // Payloads written before LibraryOrder existed carry groups but no order.
+        var stats = new MediaStatisticsResult();
+        stats.Movies.Add(new LibraryStatistics { LibraryName = "Movies", VideoSize = 9 });
+        stats.Music.Add(new LibraryStatistics { LibraryName = "Music", AudioSize = 5 });
+
+        _service.SaveLatestResult(stats);
+        var loaded = _service.LoadLatestResult();
+
+        Assert.NotNull(loaded);
+        Assert.Equal(2, loaded!.Libraries.Count);
+        Assert.Equal("Movies", loaded.Libraries[0].LibraryName);
+        Assert.Equal("Music", loaded.Libraries[1].LibraryName);
+    }
+
+    [Fact]
+    public void LoadLatestResult_EmptyResult_StaysEmpty()
+    {
+        _service.SaveLatestResult(new MediaStatisticsResult());
+        var loaded = _service.LoadLatestResult();
+
+        Assert.NotNull(loaded);
+        Assert.Empty(loaded!.Libraries);
+        Assert.Empty(loaded.Movies);
     }
 
     [Fact]
@@ -81,6 +171,93 @@ public class StatisticsCacheServiceTests : IDisposable
 
         var result = _service.LoadLatestResult();
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void LoadLatestResult_LegacyPayloadWithLibrariesKey_LosesNothing()
+    {
+        // Payloads written before the union left the wire carry the libraries array
+        // alongside the groups. The libraries key is ignored on read, but every
+        // production library also sits in its group, so the union rebuilds fully.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
+        File.WriteAllText(filePath, """
+            {
+              "libraries": [{ "libraryName": "Movies", "videoFileCount": 3 }],
+              "libraryOrder": [],
+              "movies": [{ "libraryName": "Movies", "videoFileCount": 3 }],
+              "tvShows": [{ "libraryName": "TV", "videoFileCount": 5 }],
+              "music": [], "books": [], "other": []
+            }
+            """);
+
+        var result = _service.LoadLatestResult();
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.Libraries.Count);
+        Assert.Equal(8, result.TotalVideoFileCount);
+    }
+
+    [Fact]
+    public void LoadLatestResult_NullNames_DoNotNukeTheCache()
+    {
+        // A null libraryName (corrupt/hand-edited file) must not throw the whole
+        // cache away: unresolvable entries still join the union via the fallback.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
+        File.WriteAllText(filePath, """
+            {
+              "libraryOrder": [null, "Movies"],
+              "movies": [{ "libraryName": null, "videoFileCount": 1 }, { "libraryName": "Movies", "videoFileCount": 2 }],
+              "tvShows": [], "music": [], "books": [], "other": []
+            }
+            """);
+
+        var result = _service.LoadLatestResult();
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.Libraries.Count);
+        Assert.Equal("Movies", result.Libraries[0].LibraryName);
+        Assert.Equal(3, result.TotalVideoFileCount);
+    }
+
+    [Fact]
+    public void LoadLatestResult_CaseVariantNames_AggregateConsistently()
+    {
+        // "Movies" vs "movies" stay separate union members (no silent loss) while the
+        // case-insensitive aggregates merge them, matching the live scan behavior.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
+        File.WriteAllText(filePath, """
+            {
+              "libraryOrder": ["Movies", "movies"],
+              "movies": [{ "libraryName": "Movies", "videoFileCount": 3 }, { "libraryName": "movies", "videoFileCount": 4 }],
+              "tvShows": [], "music": [], "books": [], "other": []
+            }
+            """);
+
+        var result = _service.LoadLatestResult();
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.Libraries.Count);
+        Assert.Equal(7, result.TotalVideoFileCount);
+    }
+
+    [Fact]
+    public void LoadLatestResult_GroupOnlyPayload_TotalsAreCorrect()
+    {
+        // The only production deserialization path (LoadLatestResult) rehydrates the
+        // union, so Totals aggregating over Libraries stay correct.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
+        File.WriteAllText(filePath, """
+            {
+              "movies": [{ "libraryName": "Movies", "videoFileCount": 6 }],
+              "tvShows": [], "music": [], "books": [], "other": []
+            }
+            """);
+
+        var result = _service.LoadLatestResult();
+
+        Assert.NotNull(result);
+        Assert.Single(result!.Libraries);
+        Assert.Equal(6, result.TotalVideoFileCount);
     }
 
     [Fact]
@@ -162,7 +339,9 @@ public class StatisticsCacheServiceTests : IDisposable
         File.WriteAllText(filePath, "{ this is not valid json");
 
         var fresh = new MediaStatisticsResult();
-        fresh.Libraries.Add(new LibraryStatistics { VideoSize = 999 });
+        var freshLib = new LibraryStatistics { VideoSize = 999 };
+        fresh.Libraries.Add(freshLib);
+        fresh.Movies.Add(freshLib);
         _service.SaveLatestResult(fresh);
 
         // Must now be valid AND contain the new payload - no residue of the
@@ -178,7 +357,9 @@ public class StatisticsCacheServiceTests : IDisposable
     {
         // BUG GUARD: UTF-8 no-BOM (AtomicFile default) must not corrupt multi-byte sequences.
         var stats = new MediaStatisticsResult();
-        stats.Libraries.Add(new LibraryStatistics { VideoSize = 42 });
+        var unicodeLib = new LibraryStatistics { VideoSize = 42 };
+        stats.Libraries.Add(unicodeLib);
+        stats.Movies.Add(unicodeLib);
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
@@ -225,6 +406,56 @@ public class StatisticsCacheServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ConcurrentReadWrite_LoadsStayInternallyConsistent()
+    {
+        // Seed one complete save first: without it every load could win the race
+        // before any save lands, and the emptiness check below would fail for
+        // scheduling reasons instead of consistency reasons.
+        var seedLib = new LibraryStatistics { LibraryName = "Seed", VideoFileCount = 1 };
+        var seed = new MediaStatisticsResult();
+        seed.Libraries.Add(seedLib);
+        seed.LibraryOrder.Add("Seed");
+        seed.Movies.Add(seedLib);
+        _service.SaveLatestResult(seed);
+
+        // AtomicFile swaps whole files, so every load observes one complete save:
+        // the union always equals the groups and the totals match, never a mix.
+        var full = new MediaStatisticsResult();
+        var lib = new LibraryStatistics { LibraryName = "Movies", VideoFileCount = 5 };
+        full.Libraries.Add(lib);
+        full.LibraryOrder.Add("Movies");
+        full.Movies.Add(lib);
+
+        var seen = new System.Collections.Concurrent.ConcurrentBag<MediaStatisticsResult>();
+        var tasks = Enumerable.Range(0, 32).Select(i =>
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                if (i % 2 == 0)
+                {
+                    _service.SaveLatestResult(i % 4 == 0 ? full : new MediaStatisticsResult());
+                }
+                else
+                {
+                    var loaded = _service.LoadLatestResult();
+                    if (loaded != null)
+                    {
+                        seen.Add(loaded);
+                    }
+                }
+            })).ToArray();
+        await System.Threading.Tasks.Task.WhenAll(tasks);
+
+        Assert.NotEmpty(seen);
+        foreach (var loaded in seen)
+        {
+            var grouped = loaded.Movies.Concat(loaded.TvShows).Concat(loaded.Music)
+                .Concat(loaded.Books).Concat(loaded.Other).ToList();
+            Assert.Equal(grouped.Count, loaded.Libraries.Count);
+            Assert.Equal(grouped.Sum(l => l.VideoFileCount), loaded.TotalVideoFileCount);
+        }
+    }
+
+    [Fact]
     public void SaveLatestResult_WriteFails_SwallowsExceptionAndDoesNotThrow()
     {
         // A directory sitting at the exact target file name makes AtomicFile's final File.Move throw IOException.
@@ -244,6 +475,7 @@ public class StatisticsCacheServiceTests : IDisposable
         lib.VideoBitrateTierSizes["2-5 Mbps"] = 3_000;
         lib.VideoBitrateTierPaths["2-5 Mbps"] = new System.Collections.ObjectModel.Collection<string> { "/a.mkv", "/b.mkv" };
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
@@ -298,6 +530,7 @@ public class StatisticsCacheServiceTests : IDisposable
         lib.VideoBitrateTiers["8–16 Mbps"] = 5; // already-migrated data coexisting in the same cache
         lib.VideoBitrateTierSizes["8–16 Mbps"] = 5_000;
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
@@ -315,6 +548,7 @@ public class StatisticsCacheServiceTests : IDisposable
         var lib = new LibraryStatistics();
         lib.VideoBitrateTiers["4–8 Mbps"] = 9;
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
@@ -332,6 +566,7 @@ public class StatisticsCacheServiceTests : IDisposable
         lib.VideoBitrateTierPaths["10-20 Mbps"] = new System.Collections.ObjectModel.Collection<string> { "/legacy.mkv" };
         lib.VideoBitrateTierPaths["8–16 Mbps"] = new System.Collections.ObjectModel.Collection<string> { "/existing.mkv" };
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
@@ -357,6 +592,7 @@ public class StatisticsCacheServiceTests : IDisposable
         lib.WatchedTierPaths["1 user"] = new System.Collections.ObjectModel.Collection<string> { "/a.mkv" };
         lib.WatchedTierPaths["2–3 users"] = new System.Collections.ObjectModel.Collection<string> { "/b.mkv" };
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
@@ -382,6 +618,7 @@ public class StatisticsCacheServiceTests : IDisposable
         lib.WatchedTierPaths["Watched"] = new System.Collections.ObjectModel.Collection<string> { "/existing.mkv" };
         lib.WatchedTierPaths["1 user"] = new System.Collections.ObjectModel.Collection<string> { "/legacy.mkv" };
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
@@ -400,6 +637,7 @@ public class StatisticsCacheServiceTests : IDisposable
         var lib = new LibraryStatistics();
         lib.WatchedTiers["Never watched"] = 5;
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
@@ -411,23 +649,26 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void LoadLatestResult_LegacyBitrateTiers_MigratesEveryCategoryCollection()
     {
-        // Category collections deserialize into separate instances, so the migration
-        // must cover Movies/TvShows/etc. and not just Libraries.
+        // The migration must cover every category collection, not just the
+        // rehydrated union.
         var stats = new MediaStatisticsResult();
-        var lib = new LibraryStatistics();
+        var lib = new LibraryStatistics { LibraryName = "L1" };
         lib.VideoBitrateTiers["2-5 Mbps"] = 3;
-        var movies = new LibraryStatistics();
+        var movies = new LibraryStatistics { LibraryName = "L2" };
         movies.VideoBitrateTiers["> 40 Mbps"] = 2;
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         stats.Movies.Add(movies);
+        stats.LibraryOrder.Add("L1");
+        stats.LibraryOrder.Add("L2");
         _service.SaveLatestResult(stats);
 
         var loaded = _service.LoadLatestResult();
 
         Assert.False(loaded!.Libraries[0].VideoBitrateTiers.ContainsKey("2-5 Mbps"));
         Assert.Equal(3, loaded.Libraries[0].VideoBitrateTiers["2–4 Mbps"]);
-        Assert.False(loaded.Movies[0].VideoBitrateTiers.ContainsKey("> 40 Mbps"));
-        Assert.Equal(2, loaded.Movies[0].VideoBitrateTiers["32–60 Mbps"]);
+        Assert.False(loaded.Movies[1].VideoBitrateTiers.ContainsKey("> 40 Mbps"));
+        Assert.Equal(2, loaded.Movies[1].VideoBitrateTiers["32–60 Mbps"]);
     }
 
     [Fact]
@@ -439,6 +680,7 @@ public class StatisticsCacheServiceTests : IDisposable
         var tv = new LibraryStatistics();
         tv.WatchedTiers["2–3 users"] = 6;
         stats.Libraries.Add(lib);
+        stats.Movies.Add(lib);
         stats.TvShows.Add(tv);
         _service.SaveLatestResult(stats);
 

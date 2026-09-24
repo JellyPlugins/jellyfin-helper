@@ -248,9 +248,10 @@
     padding: var(--spacing-md) 1em;
     margin-top: 0.5em;
     max-height: 300px;
-    overflow-y: auto;
-    overflow-x: auto;
-    font-size: 0.85em;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
 .arr-list ul {

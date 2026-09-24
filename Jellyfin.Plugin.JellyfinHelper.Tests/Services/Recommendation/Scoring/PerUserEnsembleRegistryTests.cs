@@ -742,6 +742,222 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.Equal(0, evicted);
     }
 
+    [Fact]
+    public void GetOrCreateTrainableEnsembleForUser_EmptyUserId_ReturnsGlobal()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        // The empty user owns no model: training callers get the shared global
+        // ensemble instead of materializing a per-user instance for Guid.Empty.
+        Assert.Same(global, registry.GetOrCreateTrainableEnsembleForUser(Guid.Empty));
+    }
+
+    [Fact]
+    public void GetScoringStrategyForUser_EvictionRaceBetweenChecks_DiscardsStrayAndReturnsGlobal()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        var userId = Guid.NewGuid();
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+
+        // A concurrent eviction deletes the weights file between the read path's
+        // presence check and its post-build re-check: present, then gone.
+        var file = new Mock<IFile>();
+        file.SetupSequence(f => f.Exists(weightsFile))
+            .Returns(true)
+            .Returns(false)
+            .Returns(false)
+            .Returns(false);
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.File).Returns(file.Object);
+        fileSystem.SetupGet(fs => fs.Directory).Returns(new FileSystem().Directory);
+
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+
+        var resolved = registry.GetScoringStrategyForUser(userId);
+
+        Assert.Same(global, resolved);
+        Assert.False(registry.HasPerUserModel(userId));
+    }
+
+    [Fact]
+    public void PruneOrphans_NoDataPath_ReturnsWithoutTouchingFileSystem()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = new PerUserEnsembleRegistry(
+            global,
+            neural,
+            dataPath: null,
+            new EnsembleBlendBounds(
+                EnsembleScoringStrategy.DefaultAlphaMin,
+                EnsembleScoringStrategy.DefaultAlphaMax,
+                EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
+            _pluginLog.Object);
+
+        // In-memory-only mode has no directory to sweep: must return quietly.
+        var ex = Record.Exception(() => registry.PruneOrphans([Guid.NewGuid()]));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void PruneOrphans_EnumerateThrows_Swallowed()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+
+        // Same swallow contract as the stale-model sweep: a broken enumeration
+        // must not take down the caller.
+        var directory = new Mock<IDirectory>();
+        directory.Setup(d => d.Exists(_dataPath)).Returns(true);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json"))
+            .Throws(new IOException("enumeration failed"));
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
+        fileSystem.SetupGet(fs => fs.File).Returns(new FileSystem().File);
+
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+
+        var ex = Record.Exception(() => registry.PruneOrphans([Guid.NewGuid()]));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void EvictStaleModels_MalformedStateFilename_LeftUntouchedAndNotCounted()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        // Counterpart to the malformed weights case for the state-file sweep: a
+        // non-hex id fails the parse, so the file is skipped, not deleted.
+        var malformed = Path.Join(_dataPath, "ensemble_state_notahexid.json");
+        File.WriteAllText(malformed, "{}");
+
+        var evicted = registry.EvictStaleModels(DateTime.UtcNow);
+
+        Assert.Equal(0, evicted);
+        Assert.True(File.Exists(malformed));
+    }
+
+    [Fact]
+    public void EvictStaleModels_StateDeleteFails_SwallowedAndNotCounted()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        var userId = Guid.NewGuid();
+        var stateFile = Path.Join(_dataPath, $"ensemble_state_{userId:N}.json");
+        var weightsFile = Path.Join(_dataPath, $"ml_weights_{userId:N}.json");
+
+        // An orphaned state file (no companion weights) whose delete throws is
+        // left in place and never counted, mirroring the weights-delete-fails case.
+        var directory = new Mock<IDirectory>();
+        directory.Setup(d => d.Exists(_dataPath)).Returns(true);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json")).Returns([]);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ensemble_state_*.json")).Returns([stateFile]);
+        var file = new Mock<IFile>();
+        file.Setup(f => f.Exists(weightsFile)).Returns(false);
+        file.Setup(f => f.Delete(stateFile)).Throws(new UnauthorizedAccessException("locked"));
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
+        fileSystem.SetupGet(fs => fs.File).Returns(file.Object);
+
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+
+        var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(0, evicted);
+        file.Verify(f => f.Delete(stateFile), Times.Once);
+    }
+
+    [Fact]
+    public void PruneOrphans_DeleteThrows_SwallowedAndContinues()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        var liveId = Guid.NewGuid();
+        var orphanId = Guid.NewGuid();
+        var orphanWeights = Path.Join(_dataPath, $"ml_weights_{orphanId:N}.json");
+
+        // A locked orphan file must not abort the sweep: the failure is logged
+        // and swallowed, and the live user's (absent) files are never touched.
+        var directory = new Mock<IDirectory>();
+        directory.Setup(d => d.Exists(_dataPath)).Returns(true);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json")).Returns([orphanWeights]);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ensemble_state_*.json")).Returns([]);
+        var file = new Mock<IFile>();
+        file.Setup(f => f.Delete(orphanWeights)).Throws(new IOException("locked"));
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
+        fileSystem.SetupGet(fs => fs.File).Returns(file.Object);
+
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+
+        var ex = Record.Exception(() => registry.PruneOrphans([liveId]));
+
+        Assert.Null(ex);
+        file.Verify(f => f.Delete(orphanWeights), Times.Once);
+    }
+
+    [Fact]
+    public void GetScoringStrategyForUser_WeightsFilePresentAtBothChecks_ReturnsPerUserInstance()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        var userId = Guid.NewGuid();
+
+        // Train through one registry so the weights file exists, then resolve
+        // through a FRESH registry (empty session cache): the read path finds the
+        // file on both the presence check and the post-build re-check and returns
+        // the per-user instance rather than the global one (production restart shape).
+        using (var trainer = BuildRegistry(global, neural))
+        {
+            var perUser = trainer.GetOrCreateTrainableEnsembleForUser(userId);
+            Assert.True(perUser.LearnedStrategy.Train(GenerateExamples(30)));
+        }
+
+        using var registry = BuildRegistry(global, neural);
+
+        var resolved = registry.GetScoringStrategyForUser(userId);
+
+        Assert.NotSame(global, resolved);
+        Assert.True(registry.HasPerUserModel(userId));
+    }
+
+    [Fact]
+    public void PruneOrphans_OrphanStateFile_IsPruned()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        var liveId = Guid.NewGuid();
+        var orphanId = Guid.NewGuid();
+        var orphanState = Path.Join(_dataPath, $"ensemble_state_{orphanId:N}.json");
+        var orphanWeights = Path.Join(_dataPath, $"ml_weights_{orphanId:N}.json");
+
+        // The second sweep loop covers state files too: an orphaned state file
+        // (no companion weights) is deleted for a removed user.
+        var directory = new Mock<IDirectory>();
+        directory.Setup(d => d.Exists(_dataPath)).Returns(true);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ml_weights_*.json")).Returns([]);
+        directory.Setup(d => d.EnumerateFiles(_dataPath, "ensemble_state_*.json")).Returns([orphanState]);
+        var file = new Mock<IFile>();
+        file.Setup(f => f.Exists(orphanWeights)).Returns(false);
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.Directory).Returns(directory.Object);
+        fileSystem.SetupGet(fs => fs.File).Returns(file.Object);
+
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+
+        var ex = Record.Exception(() => registry.PruneOrphans([liveId]));
+
+        Assert.Null(ex);
+        file.Verify(f => f.Delete(orphanState), Times.Once);
+    }
+
     private EnsembleScoringStrategy BuildGlobal(NeuralScoringStrategy neural) =>
         new(
             new LearnedScoringStrategy(Path.Join(_dataPath, "ml_weights.json")),

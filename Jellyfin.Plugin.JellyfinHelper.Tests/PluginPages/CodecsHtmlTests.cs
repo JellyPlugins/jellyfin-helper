@@ -251,6 +251,26 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_LibraryExplorer_RendersLazyTreeWithoutSectionCaps()
+    {
+        // Results render as a lazy tree: only top-level shells reach the DOM and
+        // children materialize on expand, so huge libraries stay interactive
+        // with truthful totals and without continuation buttons.
+        Assert.Contains("FILE_TREE_EXPAND_BUDGET", HtmlContent);
+        Assert.Contains("data-tree-key", HtmlContent);
+        Assert.Contains("file-tree-section-actions", HtmlContent);
+        Assert.Contains("function ensureTreeChildren", HtmlContent);
+        Assert.Contains("function toggleTreeNode", HtmlContent);
+        Assert.Contains("function runTreeAction", HtmlContent);
+        Assert.Contains("function setTreeCappedNote", HtmlContent);
+        Assert.Contains("treeExpandCapped", HtmlContent);
+        Assert.Contains("jfTreeChildren", HtmlContent);
+        Assert.DoesNotContain("CODEC_EXPLORER_SECTION_FILES", HtmlContent);
+        Assert.DoesNotContain("appendSectionMoreButtons", HtmlContent);
+        Assert.DoesNotContain("explorerSectionMore", HtmlContent);
+    }
+
+    [Fact]
     public void Html_CollectCodecPaths_AcceptsCategoriesParameter()
     {
         // collectCodecPaths should accept a categories parameter

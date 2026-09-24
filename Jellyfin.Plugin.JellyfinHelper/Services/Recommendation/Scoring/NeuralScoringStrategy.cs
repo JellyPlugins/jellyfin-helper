@@ -270,6 +270,22 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
     }
 
+    /// <summary>
+    ///     Gets the Adam optimizer timestep (total per-example update count). Exposed for testing the
+    ///     bias-correction invariant: the timestep must keep counting across Train calls because the
+    ///     moments persist, otherwise the correction restarts and inflates early-round steps ~10x.
+    /// </summary>
+    internal int AdamTimestep
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _adamTimestep;
+            }
+        }
+    }
+
     /// <summary>Gets a copy of the input->hidden1 layer weights (for testing).</summary>
     /// <returns>A defensive copy of the input->hidden1 layer weights.</returns>
     internal double[] GetCurrentWeightsHidden()
@@ -815,7 +831,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             _rwLock.EnterWriteLock();
 
-            _adamTimestep = 0;
             EnsureAdamState(inputSize);
 
             var gen = _trainingGeneration;

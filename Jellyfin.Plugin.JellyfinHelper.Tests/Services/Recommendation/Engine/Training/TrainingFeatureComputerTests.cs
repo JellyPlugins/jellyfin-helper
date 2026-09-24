@@ -15,7 +15,25 @@ public class TrainingFeatureComputerTests
     // array on every loop iteration (Sonar S3887: prefer static readonly over repeated constant args).
     private static readonly string[] DramaGenre = ["Drama"];
 
+    // Shared billing-map fixture arrays (same S3887 rationale; BuildBillingMapFromCache never mutates its inputs).
+    private static readonly string[] BillingNamesWithBlanks = ["Alice", "", "  ", "Bob"];
+    private static readonly double[] BillingOrders = [3.0, 9.0, 9.0, 1.0];
+
     // BuildStudioPreferenceSetFromCache
+
+    [Fact]
+    public void BuildBillingMapFromCache_BlankNames_Skipped()
+    {
+        // Blank cast entries carry no signal: they are dropped instead of creating
+        // empty-string keys that would poison people matching downstream.
+        var map = TrainingFeatureComputer.BuildBillingMapFromCache(
+            BillingNamesWithBlanks,
+            BillingOrders);
+
+        Assert.Equal(2, map.Count);
+        Assert.Equal(3.0, map["Alice"]);
+        Assert.Equal(1.0, map["Bob"]);
+    }
 
     [Fact]
     public void BuildStudioPreferenceSetFromCache_EmptyProfile_ReturnsEmpty()

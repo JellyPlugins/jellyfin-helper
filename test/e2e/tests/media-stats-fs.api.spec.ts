@@ -2,6 +2,20 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, sleep } from '../setup/api-client.ts';
 
+interface LibrarySizes {
+  LibraryName: string;
+  VideoFileCount: number;
+  TotalSize: number;
+  VideoSize: number;
+  AudioSize: number;
+  SubtitleSize: number;
+  ImageSize: number;
+  TrickplaySize: number;
+  NfoSize: number;
+  BookSize: number;
+  OtherSize: number;
+}
+
 interface Stats {
   TotalVideoCodecs: Record<string, number>;
   TotalContainerFormats: Record<string, number>;
@@ -9,7 +23,18 @@ interface Stats {
   TotalVideoFileCount: number;
   TotalVideosWithoutSubtitles: number;
   TotalVideosWithoutSubtitlesPaths: string[];
-  Libraries: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
+  Movies: LibrarySizes[];
+  TvShows: LibrarySizes[];
+  Music: LibrarySizes[];
+  Books: LibrarySizes[];
+  Other: LibrarySizes[];
+  LibraryOrder: string[];
+  Libraries?: unknown;
+}
+
+/** Wire shape: typed groups are canonical, Libraries is omitted (dedup). */
+function allLibraries(stats: Stats) {
+  return [...stats.Movies, ...stats.TvShows, ...stats.Music, ...stats.Books, ...stats.Other];
 }
 
 let ctx: APIRequestContext;
@@ -82,10 +107,53 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
 
   test('per-library totals are coherent with the aggregate video count', async () => {
     const stats = await getStats();
-    const perLibVideo = stats.Libraries.reduce((a, l) => a + l.VideoFileCount, 0);
+    // Wire shape: the union is omitted (dedup), groups are canonical.
+    expect(stats.Libraries, 'Libraries must be omitted from the payload').toBeUndefined();
+    const libs = allLibraries(stats);
+    expect(libs.length, 'libraries arrive through the typed groups').toBeGreaterThan(0);
+    // LibraryOrder names every library exactly once, in scan order.
+    const ordered = stats.LibraryOrder;
+    expect(Array.isArray(ordered), 'LibraryOrder must travel the wire').toBe(true);
+    expect([...ordered].sort(), 'LibraryOrder covers the union').toEqual(
+      libs.map((l) => l.LibraryName).sort(),
+    );
+    // Each typed group holds its own libraries (no cross-group duplication).
+    for (const group of [stats.Movies, stats.TvShows, stats.Music, stats.Books, stats.Other]) {
+      expect(Array.isArray(group), 'typed group must be an array').toBe(true);
+    }
+    const perLibVideo = libs.reduce((a, l) => a + l.VideoFileCount, 0);
     expect(perLibVideo, 'per-library video counts sum to the total').toBe(stats.TotalVideoFileCount);
-    for (const lib of stats.Libraries) {
+    for (const lib of libs) {
       expect(lib.TotalSize, `${lib.LibraryName} size non-negative`).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  test('per-library TotalSize equals the sum of all eight size buckets', async () => {
+    // The overview table's Other column folds Nfo + Other (Books has its own
+    // column), so every row sums exactly to its Total; this pins that
+    // byte-coherence per library.
+    const stats = await getStats();
+    const libs = allLibraries(stats);
+    expect(libs.length, 'libraries present').toBeGreaterThan(0);
+    for (const lib of libs) {
+      const parts =
+        lib.VideoSize + lib.AudioSize + lib.SubtitleSize + lib.ImageSize +
+        lib.TrickplaySize + lib.NfoSize + lib.BookSize + lib.OtherSize;
+      expect(lib.TotalSize, `${lib.LibraryName} TotalSize is the bucket sum`).toBe(parts);
+    }
+  });
+
+  test('movies carry other-size from sidecar fixtures, books carry book-size', async () => {
+    // gen-media.sh seeds an off-allowlist .mxf and a notes.txt (both land in
+    // OtherSize; .strm files count as video) plus real EPUB/PDF books (BookSize)
+    // - the Other column is never vacuously zero on this fixture set.
+    const stats = await getStats();
+    const movies = stats.Movies.find((l) => l.LibraryName === 'Movies');
+    expect(movies, 'Movies library present').toBeDefined();
+    expect(movies!.OtherSize, 'Movies OtherSize covers .mxf/.txt fixtures').toBeGreaterThan(0);
+    expect(movies!.NfoSize, 'Movies NfoSize covers the movie.nfo fixture').toBeGreaterThan(0);
+    const books = stats.Books.find((l) => l.LibraryName === 'Books');
+    expect(books, 'Books library present').toBeDefined();
+    expect(books!.BookSize, 'Books BookSize covers EPUB/PDF fixtures').toBeGreaterThan(0);
   });
 });

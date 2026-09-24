@@ -88,6 +88,24 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ComputeTimelineAsync_EmptyLibrary_ReturnsEmptyDailyResult()
+    {
+        // A library with no files yields zero data points after processing: the
+        // service reports an empty daily result instead of null or stale data.
+        var libRoot = Path.Join(_dataPath, "emptylibrary");
+        Directory.CreateDirectory(libRoot);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Empty(result.DataPoints);
+        Assert.Equal("daily", result.Granularity);
+    }
+
+    [Fact]
     public async Task ComputeTimelineAsync_CanBeCancelled_BeforeAnyWork()
     {
         using var cts = new CancellationTokenSource();
@@ -145,6 +163,199 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         Assert.Equal(0, result.TotalDirectoriesScanned);
         // GetFiles on the trickplay dir must never happen (loop `continue`s before that).
         _fileSystemMock.Verify(f => f.GetFiles(trickplay), Times.Never);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_SkipsSymlinkedSubdirectory()
+    {
+        // A symlinked child must never be walked (cycle protection): its files
+        // stay out of the scan and GetFiles is never called on the link.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var realSub = Path.Join(libRoot, "Real");
+        Directory.CreateDirectory(realSub);
+        var linkSub = Path.Join(libRoot, "Link");
+        try
+        {
+            Directory.CreateSymbolicLink(linkSub, realSub);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([
+                new FileSystemMetadata { FullName = realSub, Name = "Real", IsDirectory = true },
+                new FileSystemMetadata { FullName = linkSub, Name = "Link", IsDirectory = true }
+            ]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        _fileSystemMock.Verify(f => f.GetFiles(linkSub), Times.Never);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_VanishedLibraryRoot_IsSkipped()
+    {
+        // A library location that no longer exists fails the reparse-point stat
+        // (DirectoryNotFound, an IOException): it is skipped with a debug log while
+        // the surviving location still produces its timeline.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2020)");
+        Directory.CreateDirectory(movieDir);
+        var vanished = Path.Join(_dataPath, "gone-library"); // never created
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [vanished, libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([
+                new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 5000 }
+            ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.NotEmpty(result.DataPoints);
+        Assert.Equal(1, result.TotalDirectoriesScanned);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_VanishedNestedSubdirectory_IsSkipped()
+    {
+        // A nested entry reported by the (mocked) enumeration but gone from disk
+        // fails the attribute probe with DirectoryNotFound: skipped, scan continues.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2020)");
+        Directory.CreateDirectory(movieDir);
+        var phantom = Path.Join(movieDir, "GhostSeason"); // never created
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([
+                new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 5000 }
+            ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir))
+            .Returns([new FileSystemMetadata { FullName = phantom, Name = "GhostSeason", IsDirectory = true }]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.NotEmpty(result.DataPoints);
+        Assert.Equal(1, result.TotalDirectoriesScanned);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_NestedSymlinkedSubdirectory_IsSkipped()
+    {
+        // Cycle protection below the top level: a link nested inside a real media
+        // directory is never descended into, so its target is not double-counted.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2020)");
+        Directory.CreateDirectory(movieDir);
+        var nestedLink = Path.Join(movieDir, "Link");
+        var linkTarget = Path.Join(_dataPath, "elsewhere");
+        Directory.CreateDirectory(linkTarget);
+        try
+        {
+            Directory.CreateSymbolicLink(nestedLink, linkTarget);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([
+                new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 5000 }
+            ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir))
+            .Returns([new FileSystemMetadata { FullName = nestedLink, Name = "Link", IsDirectory = true }]);
+
+        var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        _fileSystemMock.Verify(f => f.GetFiles(nestedLink), Times.Never);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_CancelledDuringBaselineSave_Propagates()
+    {
+        // The baseline path is blocked by a directory, so every save attempt fails
+        // transiently and the retry backoff is interruptible: cancellation during
+        // the backoff must propagate instead of being swallowed into a warning.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2020)");
+        Directory.CreateDirectory(movieDir);
+        Directory.CreateDirectory(Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"));
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([
+                new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 5000 }
+            ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(60));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _sut.ComputeTimelineAsync(cts.Token));
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_CancelledDuringTimelineSave_Propagates()
+    {
+        // Same cancellation contract for the timeline persist: baseline saves
+        // fine, the timeline path is blocked, cancellation during its retry
+        // backoff propagates.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2020)");
+        Directory.CreateDirectory(movieDir);
+        Directory.CreateDirectory(Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"));
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2020)", IsDirectory = true, CreationTimeUtc = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([
+                new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 5000 }
+            ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(60));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _sut.ComputeTimelineAsync(cts.Token));
     }
 
     [Fact]

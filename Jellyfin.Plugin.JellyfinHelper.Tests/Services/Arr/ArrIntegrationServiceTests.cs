@@ -1082,6 +1082,66 @@ public class ArrIntegrationServiceTests
     }
 
     [Fact]
+    public async Task GetRootFolders_ResponseExceeds100MB_ReturnsNull()
+    {
+        // An oversized rootfolder listing trips the shared size guard (ResponseTooLargeException):
+        // warn-and-null like the other fetchers instead of attempting to parse gigabytes of JSON.
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("[]")
+                };
+                response.Content.Headers.ContentLength = 101L * 1024 * 1024;
+                return response;
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey");
+
+        Assert.Null(folders);
+    }
+
+    [Fact]
+    public void CompareRadarr_MovieWithBlankPath_IsSkipped()
+    {
+        // Entries without a usable path (unmapped Radarr placeholder) carry no folder
+        // name and must be skipped rather than polluting any bucket.
+        var movies = new[]
+        {
+            new ArrMovie { Title = "Ghost Entry", Year = 2020, HasFile = true, Path = string.Empty },
+            new ArrMovie { Title = "The Matrix", Year = 1999, HasFile = true, Path = "/movies/The Matrix (1999)" }
+        };
+
+        var result = ArrIntegrationService.CompareRadarrWithJellyfin(movies, new HashSet<string>());
+
+        Assert.DoesNotContain("Ghost Entry", result.InBoth.Concat(result.InArrOnly).Concat(result.InArrOnlyMissing));
+        Assert.Contains("The Matrix", result.InArrOnly[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareSonarr_SeriesWithBlankPath_IsSkipped()
+    {
+        // Same skip contract on the Sonarr side: no path, no folder name, no bucket entry.
+        var series = new[]
+        {
+            new ArrSeries { Title = "Ghost Show", Path = string.Empty },
+            new ArrSeries { Title = "Breaking Bad", Year = 2008, Path = "/tv/Breaking Bad", EpisodeFileCount = 62, TotalEpisodeCount = 62 }
+        };
+
+        var result = ArrIntegrationService.CompareSonarrWithJellyfin(series, new HashSet<string>());
+
+        Assert.DoesNotContain("Ghost Show", result.InBoth.Concat(result.InArrOnly).Concat(result.InArrOnlyMissing));
+        Assert.Contains("Breaking Bad", result.InArrOnly[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetRootFolders_Timeout_ReturnsNull_AndLogsWarning()
     {
         var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);

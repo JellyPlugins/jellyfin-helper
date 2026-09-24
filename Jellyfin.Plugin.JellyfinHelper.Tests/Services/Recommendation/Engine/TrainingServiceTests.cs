@@ -61,6 +61,44 @@ public class TrainingServiceTests
         }
     }
 
+    /// <summary>Blocking strategy that holds the process-wide training gate until released.</summary>
+    private sealed class BlockingStrategy : IScoringStrategy, ITrainableStrategy
+    {
+        private readonly ManualResetEventSlim _entered;
+        private readonly ManualResetEventSlim _release;
+
+        public BlockingStrategy(ManualResetEventSlim entered, ManualResetEventSlim release)
+        {
+            _entered = entered;
+            _release = release;
+        }
+
+        public string Name => "Blocking";
+
+        public string NameKey => "strategyBlocking";
+
+        public double Score(CandidateFeatures features) => 0.5;
+
+        public ScoreExplanation ScoreWithExplanation(CandidateFeatures features) => new()
+        {
+            StrategyName = Name,
+            FinalScore = 0.5
+        };
+
+        public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, null);
+
+        public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
+        {
+            _entered.Set();
+            if (!_release.Wait(TimeSpan.FromSeconds(30)))
+            {
+                throw new TimeoutException("Test did not release the blocking training run.");
+            }
+
+            return true;
+        }
+    }
+
     /// <summary>Non-trainable strategy so we can prove the ITrainableStrategy branch is required.</summary>
     private sealed class NonTrainableStrategy : IScoringStrategy
     {
@@ -74,13 +112,95 @@ public class TrainingServiceTests
     public void Train_NoPreviousResults_SkipsAndReturnsFalse()
     {
         var strategy = new RecordingStrategy();
-        var sut = CreateSut();
+        using var sut = CreateSut();
 
         var result = sut.Train(strategy, previousResults: Array.Empty<RecommendationResult>());
 
         Assert.False(result);
         Assert.Equal(0, strategy.TrainInvocationCount);
         _watchHistoryMock.Verify(w => w.GetAllUserWatchProfiles(), Times.Never);
+    }
+
+    [Fact]
+    public async Task TrainPerUser_ConcurrentRun_ReturnsFalseWithoutTouchingRegistry()
+    {
+        // The gate is process-wide and shared with Train: while one run holds it,
+        // a second run must bail out before touching the registry.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, 30) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        using var sut = CreateSut();
+        var previous = new[] { CreateLargeResult(userId, 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
+
+        using var entered = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        var blocking = new BlockingStrategy(entered, release);
+        var background = Task.Run(() => sut.Train(blocking, previous));
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(30)), "Background training never started.");
+            var registryMock = new Mock<IPerUserEnsembleRegistry>(MockBehavior.Strict);
+            Assert.False(sut.TrainPerUser(registryMock.Object, previous));
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        Assert.True(await background);
+    }
+
+    [Fact]
+    public void TrainPerUser_EmptyUserGroup_SpawnsNoPerUserModel()
+    {
+        // Examples without an owning user stay folded into the global model: the
+        // empty group must never materialize a per-user model, while a real user
+        // with enough examples still gets one. The empty profile guarantees the
+        // empty group exists, so the Never assertion cannot pass vacuously.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile>
+        {
+            CreateLargeProfile(userId, 30),
+            CreateLargeProfile(Guid.Empty, 15)
+        };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var registryMock = new Mock<IPerUserEnsembleRegistry>();
+        using var globalEnsemble = new EnsembleScoringStrategy();
+        using var userEnsemble = new EnsembleScoringStrategy();
+        registryMock.Setup(r => r.GlobalEnsemble).Returns(globalEnsemble);
+        registryMock.Setup(r => r.GetOrCreateTrainableEnsembleForUser(It.IsAny<Guid>()))
+            .Returns(userEnsemble);
+
+        using var sut = CreateSut();
+        var previous = new[]
+        {
+            CreateLargeResult(userId, 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)),
+            CreateLargeResult(Guid.Empty, 5, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
+        };
+        sut.TrainPerUser(registryMock.Object, previous);
+
+        registryMock.Verify(r => r.GetOrCreateTrainableEnsembleForUser(Guid.Empty), Times.Never);
+        registryMock.Verify(r => r.GetOrCreateTrainableEnsembleForUser(userId), Times.Once);
+    }
+
+    [Fact]
+    public void Train_BareLearnedStrategy_TrainsStandalone()
+    {
+        // A learned strategy outside any ensemble must train end to end, proving
+        // the per-strategy feature-means branch instead of the null fallback.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, 30) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        using var sut = CreateSut();
+        var previous = new[] { CreateLargeResult(userId, 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
+
+        Assert.True(sut.Train(new LearnedScoringStrategy(), previous));
     }
 
     [Fact]
@@ -91,7 +211,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new NonTrainableStrategy();
 
         var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
@@ -106,7 +226,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
         var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
@@ -123,7 +243,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
 
         using var cts = new CancellationTokenSource();
@@ -141,7 +261,7 @@ public class TrainingServiceTests
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Throws(new IOException("boom"));
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
         var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
@@ -222,7 +342,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = true };
 
         var previous = new[] { CreateResultWithRecommendations(userId) };
@@ -244,7 +364,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var baselineStrategy = new RecordingStrategy();
         var previous = new[] { CreateResultWithRecommendations(userId) };
@@ -289,7 +409,7 @@ public class TrainingServiceTests
             }
         });
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var previous = new[] { CreateResultWithRecommendations(userId) };
 
@@ -466,7 +586,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = true };
         var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
@@ -498,7 +618,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
@@ -528,7 +648,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var previous = new[]
         {
@@ -599,7 +719,7 @@ public class TrainingServiceTests
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
         // Empty fixture => false; the point is that disposal of the prior SUT did not corrupt shared state.
@@ -617,7 +737,7 @@ public class TrainingServiceTests
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var previous = new[] { new RecommendationResult { UserId = Guid.NewGuid() } };
 
         ReentrantStrategy? strategy = null;
@@ -639,7 +759,7 @@ public class TrainingServiceTests
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Throws(new OperationCanceledException());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
 
         Assert.Throws<OperationCanceledException>(() =>
@@ -657,7 +777,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
         var baselineStrategy = new RecordingStrategy();

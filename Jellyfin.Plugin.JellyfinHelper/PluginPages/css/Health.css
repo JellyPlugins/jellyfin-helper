@@ -78,7 +78,10 @@
     padding: var(--spacing-md) 1em;
     margin-top: 0.5em;
     max-height: 400px;
-    overflow-y: auto;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     font-size: 0.85em;
 }
 

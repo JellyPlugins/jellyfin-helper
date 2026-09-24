@@ -15,6 +15,11 @@ public class TemporalFeaturesTests
     private static readonly DateTime FridayNoonUtc = new(2026, 1, 2, 12, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime SaturdayNoonUtc = new(2026, 1, 3, 12, 0, 0, DateTimeKind.Utc);
 
+    // Shared genre arrays: neither the helpers above nor TemporalFeatures mutates
+    // genre arrays in place, so sharing one instance is safe (Sonar S3887).
+    private static readonly string[] ActionGenre = ["Action"];
+    private static readonly string[] HorrorGenre = ["Horror"];
+
     [Fact]
     public void ResolveIsWeekend_UserProfileNull_Throws()
         => Assert.Throws<ArgumentNullException>(() => TemporalFeatures.ResolveIsWeekend(null!));
@@ -95,7 +100,7 @@ public class TemporalFeaturesTests
     public void ComputeDayOfWeekAffinity_CandidateWithNoGenres_ReturnsNeutral()
     {
         var candidate = new Movie { Name = "NoGenre" };
-        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 15, new[] { "Action" });
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 15, ActionGenre);
         Assert.Equal(0.5, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
     }
 
@@ -103,30 +108,30 @@ public class TemporalFeaturesTests
     public void ComputeDayOfWeekAffinity_CandidateWithEmptyGenres_ReturnsNeutral()
     {
         var candidate = new Movie { Name = "Empty", Genres = Array.Empty<string>() };
-        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 15, new[] { "Action" });
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 15, ActionGenre);
         Assert.Equal(0.5, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
     }
 
     [Fact]
     public void ComputeDayOfWeekAffinity_ProfileWithFewerThan10Items_ReturnsNeutral()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
-        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 9, new[] { "Action" });
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 9, ActionGenre);
         Assert.Equal(0.5, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
     }
 
     [Fact]
     public void ComputeDayOfWeekAffinity_LessThan3ItemsOnSameDay_ReturnsNeutral()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
         var profile = new UserWatchProfile();
         // 2 items on Saturday
-        profile.WatchedItems.Add(WI(SaturdayNoonUtc, new[] { "Action" }));
-        profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(30), new[] { "Action" }));
+        profile.WatchedItems.Add(WI(SaturdayNoonUtc, ActionGenre));
+        profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(30), ActionGenre));
         // 8 items on Friday
         for (int i = 0; i < 8; i++)
         {
-            profile.WatchedItems.Add(WI(FridayNoonUtc.AddMinutes(i * 10.0), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(FridayNoonUtc.AddMinutes(i * 10.0), ActionGenre));
         }
         Assert.Equal(0.5, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
     }
@@ -134,16 +139,16 @@ public class TemporalFeaturesTests
     [Fact]
     public void ComputeDayOfWeekAffinity_AllSameDayGenreMatch_Returns1()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
-        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 10, new[] { "Action" });
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 10, ActionGenre);
         Assert.Equal(1.0, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
     }
 
     [Fact]
     public void ComputeDayOfWeekAffinity_NoSameDayGenreMatch_Returns0()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Horror" } };
-        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 10, new[] { "Action" });
+        var candidate = new Movie { Name = "Test", Genres = HorrorGenre };
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 10, ActionGenre);
         Assert.Equal(0.0, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
     }
 
@@ -152,12 +157,12 @@ public class TemporalFeaturesTests
     {
         // Items lacking LastPlayedDate must be skipped entirely - not counted as
         // "same day zero-match" (that would erroneously drag the score toward 0).
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
         var profile = new UserWatchProfile();
         // 10 items with matching genre on Saturday -> should still return 1.0
         for (int i = 0; i < 10; i++)
         {
-            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), ActionGenre));
         }
         // 5 "orphan" items without LastPlayedDate but with playCount / non-Action genres.
         for (int i = 0; i < 5; i++)
@@ -166,7 +171,7 @@ public class TemporalFeaturesTests
             {
                 Played = true,
                 LastPlayedDate = null,
-                Genres = new[] { "Horror" }
+                Genres = HorrorGenre
             });
         }
         Assert.Equal(1.0, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
@@ -176,12 +181,12 @@ public class TemporalFeaturesTests
     public void ComputeDayOfWeekAffinity_IgnoresItemsWithoutPlaybackActivity()
     {
         // Favorite-only items (no play data) must be excluded from temporal signal.
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
         var profile = new UserWatchProfile();
         // 10 real playback items on Saturday, matching Action -> should return 1.0.
         for (int i = 0; i < 10; i++)
         {
-            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), ActionGenre));
         }
         // 5 favorite-only (no playback activity) items with a non-matching genre - must be ignored.
         for (int i = 0; i < 5; i++)
@@ -193,7 +198,7 @@ public class TemporalFeaturesTests
                 PlaybackPositionTicks = 0,
                 IsFavorite = true,
                 LastPlayedDate = SaturdayNoonUtc.AddMinutes(30 + i),
-                Genres = new[] { "Horror" }
+                Genres = HorrorGenre
             });
         }
         Assert.Equal(1.0, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
@@ -203,15 +208,15 @@ public class TemporalFeaturesTests
     public void ComputeDayOfWeekAffinity_MixedGenres_ReturnsFraction()
     {
         // 10 items on Saturday: 4 Action, 6 Horror. Candidate is Action -> 0.4.
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
         var profile = new UserWatchProfile();
         for (int i = 0; i < 4; i++)
         {
-            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), ActionGenre));
         }
         for (int i = 0; i < 6; i++)
         {
-            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(10 + i), new[] { "Horror" }));
+            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(10 + i), HorrorGenre));
         }
         var result = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc);
         Assert.Equal(0.4, result, precision: 5);
@@ -232,8 +237,8 @@ public class TemporalFeaturesTests
     {
         // The `now` parameter defaults to DateTime.UtcNow. We can't pin that,
         // but we can verify it does not throw and returns a valid score in [0,1].
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
-        var profile = BuildProfileWithItemsOn(DateTime.UtcNow, 15, new[] { "Action" });
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
+        var profile = BuildProfileWithItemsOn(DateTime.UtcNow, 15, ActionGenre);
         var result = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile);
         Assert.InRange(result, 0.0, 1.0);
     }
@@ -241,18 +246,38 @@ public class TemporalFeaturesTests
     // ComputeHourOfDayAffinity
 
     [Fact]
+    public void ComputeHourOfDayAffinity_UnplayedZeroRow_IsIgnored()
+    {
+        // A row with no play evidence must not dilute the bucket: the result with
+        // the dead row present equals the result without it.
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 10, ActionGenre);
+        var baseline = TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc);
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(),
+            Played = false,
+            PlayCount = 0,
+            PlaybackPositionTicks = 0,
+            LastPlayedDate = SaturdayNoonUtc,
+            Genres = HorrorGenre
+        });
+        Assert.Equal(baseline, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
+    }
+
+    [Fact]
     public void ComputeHourOfDayAffinity_CandidateWithNoGenres_ReturnsNeutral()
     {
         var candidate = new Movie { Name = "NoGenre" };
-        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 15, new[] { "Action" });
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 15, ActionGenre);
         Assert.Equal(0.5, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
     }
 
     [Fact]
     public void ComputeHourOfDayAffinity_ProfileWithFewerThan10Items_ReturnsNeutral()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
-        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 9, new[] { "Action" });
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
+        var profile = BuildProfileWithItemsOn(SaturdayNoonUtc, 9, ActionGenre);
         Assert.Equal(0.5, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
     }
 
@@ -260,15 +285,15 @@ public class TemporalFeaturesTests
     public void ComputeHourOfDayAffinity_LessThan3ItemsInBucket_ReturnsNeutral()
     {
         // 12:00 UTC = afternoon bucket (12-17). Only 2 items in that bucket -> neutral.
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
         var profile = new UserWatchProfile();
-        profile.WatchedItems.Add(WI(SaturdayNoonUtc, new[] { "Action" }));           // afternoon
-        profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(30), new[] { "Action" })); // afternoon
+        profile.WatchedItems.Add(WI(SaturdayNoonUtc, ActionGenre));           // afternoon
+        profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(30), ActionGenre)); // afternoon
         // 8 items in a different bucket (night, hour 0)
         var night = new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc);
         for (int i = 0; i < 8; i++)
         {
-            profile.WatchedItems.Add(WI(night.AddMinutes(i * 5.0), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(night.AddMinutes(i * 5.0), ActionGenre));
         }
         Assert.Equal(0.5, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
     }
@@ -276,12 +301,12 @@ public class TemporalFeaturesTests
     [Fact]
     public void ComputeHourOfDayAffinity_AllSameBucketGenreMatch_Returns1()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
         var profile = new UserWatchProfile();
         // All 10 items in the afternoon bucket (12-17)
         for (int i = 0; i < 10; i++)
         {
-            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), ActionGenre));
         }
         Assert.Equal(1.0, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
     }
@@ -289,11 +314,11 @@ public class TemporalFeaturesTests
     [Fact]
     public void ComputeHourOfDayAffinity_NoSameBucketGenreMatch_Returns0()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Horror" } };
+        var candidate = new Movie { Name = "Test", Genres = HorrorGenre };
         var profile = new UserWatchProfile();
         for (int i = 0; i < 10; i++)
         {
-            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), ActionGenre));
         }
         Assert.Equal(0.0, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
     }
@@ -301,11 +326,11 @@ public class TemporalFeaturesTests
     [Fact]
     public void ComputeHourOfDayAffinity_IgnoresItemsWithoutPlayedDate()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
         var profile = new UserWatchProfile();
         for (int i = 0; i < 10; i++)
         {
-            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(SaturdayNoonUtc.AddMinutes(i), ActionGenre));
         }
         for (int i = 0; i < 5; i++)
         {
@@ -313,7 +338,7 @@ public class TemporalFeaturesTests
             {
                 Played = true,
                 LastPlayedDate = null,
-                Genres = new[] { "Horror" }
+                Genres = HorrorGenre
             });
         }
         Assert.Equal(1.0, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
@@ -324,16 +349,16 @@ public class TemporalFeaturesTests
     {
         // Items at hours 12, 14, 17 all fall into afternoon bucket (12-17).
         // Item at hour 18 falls into evening bucket -> must be excluded.
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
         var profile = new UserWatchProfile();
         // 3 afternoon items with match
-        profile.WatchedItems.Add(WI(new DateTime(2026, 1, 3, 12, 0, 0, DateTimeKind.Utc), new[] { "Action" }));
-        profile.WatchedItems.Add(WI(new DateTime(2026, 1, 3, 14, 0, 0, DateTimeKind.Utc), new[] { "Action" }));
-        profile.WatchedItems.Add(WI(new DateTime(2026, 1, 3, 17, 59, 0, DateTimeKind.Utc), new[] { "Action" }));
+        profile.WatchedItems.Add(WI(new DateTime(2026, 1, 3, 12, 0, 0, DateTimeKind.Utc), ActionGenre));
+        profile.WatchedItems.Add(WI(new DateTime(2026, 1, 3, 14, 0, 0, DateTimeKind.Utc), ActionGenre));
+        profile.WatchedItems.Add(WI(new DateTime(2026, 1, 3, 17, 59, 0, DateTimeKind.Utc), ActionGenre));
         // 7 items in evening bucket - must NOT be counted for a noon reference.
         for (int i = 0; i < 7; i++)
         {
-            profile.WatchedItems.Add(WI(new DateTime(2026, 1, 3, 20, i, 0, DateTimeKind.Utc), new[] { "Horror" }));
+            profile.WatchedItems.Add(WI(new DateTime(2026, 1, 3, 20, i, 0, DateTimeKind.Utc), HorrorGenre));
         }
 
         var result = TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc);
@@ -344,8 +369,8 @@ public class TemporalFeaturesTests
     [Fact]
     public void ComputeHourOfDayAffinity_UsesUtcNowWhenNowIsNull()
     {
-        var candidate = new Movie { Name = "Test", Genres = new[] { "Action" } };
-        var profile = BuildProfileWithItemsOn(DateTime.UtcNow, 15, new[] { "Action" });
+        var candidate = new Movie { Name = "Test", Genres = ActionGenre };
+        var profile = BuildProfileWithItemsOn(DateTime.UtcNow, 15, ActionGenre);
         var result = TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile);
         Assert.InRange(result, 0.0, 1.0);
     }

@@ -656,7 +656,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 var effectiveMidpoint = DefaultSigmoidMidpoint + _sigmoidMidpointOffset;
                 var sigmoidAlpha = ComputeSigmoidAlpha(_trainingExampleCount, effectiveMidpoint, _alphaMin, _alphaMax);
 
-                UpdateAlphaFromQualityGate(qualityGatePassed, validationLoss, sigmoidAlpha);
+                var qualityFactor = UpdateAlphaFromQualityGate(qualityGatePassed, validationLoss, sigmoidAlpha);
 
                 UpdateNeuralBeta(neuralTrained, examples.Count);
 
@@ -665,7 +665,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 // Analyze trend from the updated history
                 trend = AnalyzeTrend(_metricsHistory);
 
-                ApplyTrendAdjustments(trend);
+                ApplyTrendAdjustments(trend, qualityFactor);
             }
 
             if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
@@ -719,28 +719,29 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Updates _alpha and the quality-gate freeze flag from the sigmoid target. Caller must hold _syncRoot.
     /// </summary>
-    private void UpdateAlphaFromQualityGate(bool qualityGatePassed, double validationLoss, double sigmoidAlpha)
+    /// <returns>The quality factor applied (1.0 when the gate passed), reused by trend adjustments.</returns>
+    private double UpdateAlphaFromQualityGate(bool qualityGatePassed, double validationLoss, double sigmoidAlpha)
     {
         if (qualityGatePassed)
         {
             // Good generalization - let alpha progress at full sigmoid rate
             _alpha = sigmoidAlpha;
             _qualityGateFrozen = false;
+            return 1.0;
         }
-        else
-        {
-            // Soft damping: alpha still advances but is proportionally dampened based on how far the validation loss exceeds the threshold.
-            var qualityFactor = double.IsNaN(validationLoss)
-                ? 0.5 // NaN (no validation split) -> use half progression
-                : Math.Clamp(
-                    1.0 - ((validationLoss - ValidationLossThreshold)
-                           / (ValidationLossCeiling - ValidationLossThreshold)),
-                    0.0,
-                    1.0);
 
-            _alpha = _alphaMin + ((sigmoidAlpha - _alphaMin) * qualityFactor);
-            _qualityGateFrozen = qualityFactor < 0.01;
-        }
+        // Soft damping: alpha still advances but is proportionally dampened based on how far the validation loss exceeds the threshold.
+        var qualityFactor = double.IsNaN(validationLoss)
+            ? 0.5 // NaN (no validation split) -> use half progression
+            : Math.Clamp(
+                1.0 - ((validationLoss - ValidationLossThreshold)
+                       / (ValidationLossCeiling - ValidationLossThreshold)),
+                0.0,
+                1.0);
+
+        _alpha = _alphaMin + ((sigmoidAlpha - _alphaMin) * qualityFactor);
+        _qualityGateFrozen = qualityFactor < 0.01;
+        return qualityFactor;
     }
 
     /// <summary>
@@ -895,7 +896,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Applies trend-driven alpha/beta adjustments after the trend is analyzed. Caller must hold _syncRoot.
     /// </summary>
-    private void ApplyTrendAdjustments(MetricsTrend trend)
+    /// <param name="trend">The detected metrics trend.</param>
+    /// <param name="qualityFactor">The validation-loss quality factor from the gate (1.0 when it passed).</param>
+    private void ApplyTrendAdjustments(MetricsTrend trend, double qualityFactor)
     {
         // Apply trend-driven alpha/beta adjustments
         if (trend == MetricsTrend.Degrading)
@@ -915,14 +918,35 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
         else if (trend == MetricsTrend.Improving)
         {
-            // Allow faster alpha progression toward sigmoid target (using adaptive midpoint)
+            // Faster alpha progression toward the sigmoid target (using adaptive midpoint),
+            // scaled by the boosted quality factor so a dampened gate keeps its effect:
+            // an improving trend accelerates the climb but never restores the full
+            // target the gate just denied.
             var sigmoidTarget = ComputeSigmoidAlpha(
                 _trainingExampleCount,
                 DefaultSigmoidMidpoint + _sigmoidMidpointOffset,
                 _alphaMin,
                 _alphaMax);
-            _alpha = Math.Min(sigmoidTarget, _alpha + ((_alphaMax - _alpha) * (1.0 - TrendDegradationDamping)));
+            _alpha = ApplyImprovementBoost(_alphaMin, sigmoidTarget, qualityFactor);
         }
+    }
+
+    /// <summary>
+    ///     Computes the boosted alpha for an improving trend: the standard dampened-target
+    ///     position, but with the quality factor multiplied by <see cref="TrendImprovementBoost"/>
+    ///     and capped at 1.0. A well-generalizing model still climbs at full rate while a
+    ///     dampened one keeps its dampening with only modest acceleration, so an improving
+    ///     trend can never erase the quality gate the way climbing toward the raw sigmoid
+    ///     target would. Pure function so the blend math is directly unit-testable.
+    /// </summary>
+    /// <param name="alphaMin">The minimum blending factor.</param>
+    /// <param name="sigmoidTarget">The sigmoid-curve target alpha.</param>
+    /// <param name="qualityFactor">The validation-loss quality factor (1.0 when the gate passed).</param>
+    /// <returns>The boosted alpha between <paramref name="alphaMin"/> and <paramref name="sigmoidTarget"/>.</returns>
+    internal static double ApplyImprovementBoost(double alphaMin, double sigmoidTarget, double qualityFactor)
+    {
+        var boostedFactor = Math.Min(1.0, qualityFactor * TrendImprovementBoost);
+        return alphaMin + ((sigmoidTarget - alphaMin) * boostedFactor);
     }
 
     /// <summary>

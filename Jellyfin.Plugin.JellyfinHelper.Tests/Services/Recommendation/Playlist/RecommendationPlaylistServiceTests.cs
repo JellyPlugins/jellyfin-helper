@@ -415,6 +415,42 @@ public class RecommendationPlaylistServiceTests
     }
 
     [Fact]
+    public async Task UpdatePlaylists_DisabledUserLookupCancelled_Propagates()
+    {
+        // Cancellation during disabled-user cleanup must propagate rather than
+        // masquerade as a failed removal, or the sync would report success.
+        var userId = Guid.NewGuid();
+        var user = new Jellyfin.Database.Implementations.Entities.User("Disabled", "default", "default") { Id = userId };
+        user.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { user });
+        _userManagerMock.Setup(m => m.GetUserById(userId)).Throws(new OperationCanceledException());
+
+        var sut = CreateSut();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            sut.UpdatePlaylistsForAllUsersAsync(
+                new List<RecommendationResult> { CreateResult(userId, "Disabled", 2) },
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_RosterUnavailableAndLookupCancelled_Propagates()
+    {
+        // Without a roster every result resolves against the live user record; a
+        // cancelled lookup there must propagate instead of degrading to a skip.
+        var userId = Guid.NewGuid();
+        _userManagerMock.Setup(m => m.GetUsers()).Returns((IEnumerable<Jellyfin.Database.Implementations.Entities.User>)null!);
+        _userManagerMock.Setup(m => m.GetUserById(userId)).Throws(new OperationCanceledException());
+
+        var sut = CreateSut();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            sut.UpdatePlaylistsForAllUsersAsync(
+                new List<RecommendationResult> { CreateResult(userId, "Alice", 2) },
+                CancellationToken.None));
+    }
+
+    [Fact]
     public async Task UpdatePlaylists_DisabledUserWithResults_RemovesStalePlaylistsAndSkipsCreation()
     {
         var userId = Guid.NewGuid();

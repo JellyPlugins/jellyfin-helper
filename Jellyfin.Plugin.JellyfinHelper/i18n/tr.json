@@ -432,5 +432,6 @@
   "codecShowMore": "Tümünü göster {count}",
   "codecShowLess": "Daha az göster",
   "explorerIncludes": "İçerir",
-  "explorerExcludes": "İçermez"
+  "explorerExcludes": "İçermez",
+  "treeExpandCapped": "{total} dosyadan {shown} gösteriliyor - daha fazlası için klasörleri genişletin"
 }

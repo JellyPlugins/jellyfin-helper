@@ -111,6 +111,18 @@ public class ConfigurationControllerTests
     }
 
     [Fact]
+    public async Task UpdateConfiguration_EscapingTrashPath_ReturnsBadRequest()
+    {
+        // A relative trash path escaping upward must be rejected outright, not
+        // saved with a warning: the strict validator runs before any warning
+        // path and refuses '.' and '..' segments.
+        var request = new ConfigurationUpdateRequest { UseTrash = true, TrashFolderPath = "../escape" };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_PluginLogLevel_MatchingCurrent_NoWarning()
     {
         _config.PluginLogLevel = "WARN";

@@ -7,6 +7,10 @@ var DONUT_COLORS = [
 ];
 // Flag: force scroll-into-view on next panel open (set by Codecs donut click, consumed by attachTogglePanelHandlers)
 var _forceScrollOnPanelOpen = false;
+// Flag: suppress scroll-into-view on next panel open (set by Codecs touch tap,
+// consumed by the same handler). Touch keeps tooltip and segment in view, so the
+// fresh-panel scroll must not run even though the panel was not visible before.
+var _suppressScrollOnPanelOpen = false;
 
 // Returns an inline SVG icon. No external font/CDN required.
 var _mi = {"assignment":"M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z","bar_chart":"M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z","check_circle":"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z","cleaning_services":"M16 11h-1V3c0-1.1-.9-2-2-2h-2c-1.1 0-2 .9-2 2v8H8c-2.76 0-5 2.24-5 5v7h18v-7c0-2.76-2.24-5-5-5z","dashboard":"M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z","delete":"M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z","description":"M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zM13 9V3.5L18.5 9H13z","download":"M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z","edit_note":"M3 10h11v2H3v-2zm0-2h11V6H3v2zm0 8h7v-2H3v2zm15.01-3.13l.71-.71c.39-.39 1.02-.39 1.41 0l.71.71c.39.39.39 1.02 0 1.41l-.71.71-2.12-2.12zm-.71.71l-5.3 5.3V21h2.12l5.3-5.3-2.12-2.12z","error":"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z","expand_less":"M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z","expand_more":"M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z","extension":"M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-2 .9-2 2v3.8h1.5c1.52 0 2.75 1.23 2.75 2.75S5.02 16.3 3.5 16.3H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.52 1.23-2.75 2.75-2.75s2.75 1.23 2.75 2.75V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z","folder":"M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z","folder_open":"M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z","group":"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z","health_and_safety":"M10.5 13H8v-3h2.5V7.5h3V10H16v3h-2.5v2.5h-3V13zM12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z","image":"M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z","inventory_2":"M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z","library_books":"M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z","link":"M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z","logout":"M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z","movie":"M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z","movie_filter":"M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4zM11.25 15.25L10 18l-1.25-2.75L6 14l2.75-1.25L10 10l1.25 2.75L14 14l-2.75 1.25zm5.69-3.31L16 14l-.94-2.06L13 11l2.06-.94L16 8l.94 2.06L19 11l-2.06.94z","music_note":"M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z","palette":"M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10c1.38 0 2.5-1.12 2.5-2.5 0-.61-.23-1.2-.64-1.67-.08-.1-.13-.21-.13-.33 0-.28.22-.5.5-.5H16c3.31 0 6-2.69 6-6 0-4.96-4.49-9-10-9zM6.5 13c-.83 0-1.5-.67-1.5-1.5S5.67 10 6.5 10s1.5.67 1.5 1.5S7.33 13 6.5 13zm3-4C8.67 9 8 8.33 8 7.5S8.67 6 9.5 6s1.5.67 1.5 1.5S10.33 9 9.5 9zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 6 14.5 6s1.5.67 1.5 1.5S15.33 9 14.5 9zm3 4c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z","save":"M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z","schedule":"M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z","search":"M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z","settings":"M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z","smart_toy":"M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7.5 11.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5S9.83 13 9 13s-1.5-.67-1.5-1.5zM16 17H8v-2h8v2zm-1-4c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13z","star":"M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z","storage":"M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z","straighten":"M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4z","track_changes":"M19.07 4.93l-1.41 1.41C19.1 7.79 20 9.79 20 12c0 4.42-3.58 8-8 8s-8-3.58-8-8c0-4.08 3.05-7.44 7-7.93v2.02C8.16 6.57 6 9.03 6 12c0 3.31 2.69 6 6 6s6-2.69 6-6c0-1.66-.67-3.16-1.76-4.24l-1.41 1.41C15.55 9.9 16 10.9 16 12c0 2.21-1.79 4-4 4s-4-1.79-4-4c0-1.86 1.28-3.41 3-3.86v2.14c-.6.35-1 .98-1 1.72 0 1.1.9 2 2 2s2-.9 2-2c0-.74-.4-1.38-1-1.72V2h-1C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10c0-2.76-1.12-5.26-2.93-7.07z","trending_up":"M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z","tv":"M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z","upload":"M5 4v2h14V4H5zm0 10h4v6h6v-6h4l-7-7-7 7z","volume_up":"M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z","warning":"M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z","explore":"M12 10.9c-.61 0-1.1.49-1.1 1.1s.49 1.1 1.1 1.1c.61 0 1.1-.49 1.1-1.1s-.49-1.1-1.1-1.1zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm2.19 12.19L6 18l3.81-8.19L18 6l-3.81 8.19z","cloud_download":"M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z","high_quality":"M19 4H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 11H9.5v-2h-2v2H6V9h1.5v2.5h2V9H11v6zm7-1c0 .55-.45 1-1 1h-.75v1.5h-1.5V15H14c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v4zm-3.5-.5h2v-3h-2v3z"};
@@ -170,10 +174,73 @@ function countTreeItems(node) {
     return count;
 }
 
-function renderTreeFolder(childNode, level, icon) {
+// Upper bound for nodes materialized by one Expand All. Manual toggles stay
+// unbounded: every result remains reachable, only the bulk action stays cheap.
+var FILE_TREE_EXPAND_BUDGET = 2000;
+
+// Render registry: renderId -> { sections: { sectionKey: { tree, icon } } }.
+// Folders render as shells and materialize their children on first expand, so
+// huge result sets never build the full DOM eagerly. Entries whose element left
+// the document are pruned on every render.
+var _fileTreeRegistry = {};
+var _fileTreeRenderSeq = 0;
+
+function pruneFileTreeRegistry() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) {
+        return;
+    }
+    var live = {};
+    var holders = document.querySelectorAll('[data-tree-render]');
+    for (const holder of holders) {
+        live[holder.dataset.treeRender] = true;
+    }
+    for (const id of Object.keys(_fileTreeRegistry)) {
+        if (!live[id]) {
+            delete _fileTreeRegistry[id];
+        }
+    }
+}
+
+// Identity of a folder inside its section tree: encoded relative segments, so
+// any level resolves from the in-memory model without node references in the DOM.
+function encodeTreeKey(segments) {
+    var parts = [];
+    for (const segment of segments) {
+        parts.push(encodeURIComponent(segment));
+    }
+    return parts.join('/');
+}
+
+function resolveTreeNode(tree, key) {
+    var target = tree;
+    if (!key) {
+        return target;
+    }
+    var segments = key.split('/');
+    for (const segment of segments) {
+        let name;
+        try {
+            name = decodeURIComponent(segment);
+        } catch {
+            return null;
+        }
+        target = target.children[name];
+        if (!target) {
+            return null;
+        }
+    }
+    return target;
+}
+
+function renderTreeFolder(childNode, level, icon, lazy) {
     var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
 
-    var html = '<div class="tree-node">';
+    var html = '<div class="tree-node"';
+    if (lazy) {
+        html += ' data-tree-render="' + escAttr(lazy.render) + '" data-tree-section="' + escAttr(lazy.section)
+            + '" data-tree-key="' + escAttr(encodeTreeKey(lazy.trail.concat(childNode.name))) + '"';
+    }
+    html += '>';
     html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" data-tree-toggle="1"' : '"') + '>';
     html += '<span class="tree-icon tree-icon-closed">' + mi('folder') + '</span>';
     html += '<span class="tree-icon tree-icon-open">' + mi('folder_open') + '</span>';
@@ -181,15 +248,22 @@ function renderTreeFolder(childNode, level, icon) {
     html += '</div>';
 
     if (hasContent) {
-        html += '<div class="tree-children">' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
+        if (lazy) {
+            html += '<div class="tree-children"></div>';
+        } else {
+            html += '<div class="tree-children">' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
+        }
     }
     html += '</div>';
     return html;
 }
 
 function renderTreeLeaf(item, icon) {
+    // Directory entries (e.g. orphaned metadata dirs) keep a folder icon even
+    // inside media sections, where the section icon would suggest a playable file.
+    var leafIcon = item.fullPath?.endsWith('/') ? mi('folder') : icon;
     var html = '<div class="tree-leaf" title="' + escAttr(item.fullPath) + '">'
-        + '<span class="tree-leaf-icon">' + icon + '</span>'
+        + '<span class="tree-leaf-icon">' + leafIcon + '</span>'
         + '<span class="tree-leaf-file-name">' + escHtml(item.name) + '</span>';
     if (item.meta) {
         html += '<span class="tree-leaf-meta">' + escHtml(item.meta) + '</span>';
@@ -198,12 +272,13 @@ function renderTreeLeaf(item, icon) {
     return html;
 }
 
-function renderTreeLevel(node, level, icon) {
+function renderTreeLevel(node, level, icon, lazy) {
     var html = '';
     var sortedChildren = Object.keys(node.children).sort(function (a, b) { return a.localeCompare(b); });
 
     for (var childName of sortedChildren) {
-        html += renderTreeFolder(node.children[childName], level, icon);
+        html += renderTreeFolder(node.children[childName], level, icon, lazy
+            ? {render: lazy.render, section: lazy.section, trail: lazy.trail} : null);
     }
 
     for (var item of node.items) {
@@ -213,27 +288,157 @@ function renderTreeLevel(node, level, icon) {
     return html;
 }
 
+// Materializes one collapsed folder from the registry. Returns the number of
+// added nodes, so bulk expansion can stop before the tab freezes.
+function ensureTreeChildren(nodeEl) {
+    if (!nodeEl?.querySelector) {
+        return 0;
+    }
+    var holder = nodeEl.querySelector(':scope > .tree-children');
+    if (!holder || holder.dataset.populated === '1') {
+        return 0;
+    }
+    var renderId = nodeEl.dataset.treeRender;
+    var sectionKey = nodeEl.dataset.treeSection;
+    var key = nodeEl.dataset.treeKey || '';
+    var entry = renderId && sectionKey && _fileTreeRegistry[renderId]
+        ? _fileTreeRegistry[renderId].sections[sectionKey] : null;
+    if (!entry) {
+        return 0;
+    }
+    var target = resolveTreeNode(entry.tree, key);
+    if (!target) {
+        return 0;
+    }
+    var trail = key === '' ? [] : key.split('/').map(function (s) { return decodeURIComponent(s); });
+    holder.innerHTML = renderTreeLevel(target, 0, entry.icon,
+        {render: renderId, section: sectionKey, trail: trail});
+    holder.dataset.populated = '1';
+    if (typeof CustomEvent === 'function' && typeof holder.dispatchEvent === 'function') {
+        holder.dispatchEvent(new CustomEvent('jfTreeChildren', {bubbles: true}));
+    }
+    return Object.keys(target.children).length + target.items.length;
+}
+
+function toggleTreeNode(toggle) {
+    var node = toggle ? toggle.parentElement : null;
+    if (!node?.classList?.contains('tree-node')) {
+        return;
+    }
+    var expand = !node.classList.contains('tree-expanded');
+    node.classList.toggle('tree-expanded');
+    toggle.setAttribute('aria-expanded', expand ? 'true' : 'false');
+    if (expand) {
+        ensureTreeChildren(node);
+    }
+}
+
+// Expand All walks document order and stops at the node budget, so even a
+// 20k-file result stays interactive. Collapse All keeps rendered children, so
+// re-expanding is free.
+function collapseAllTreeNodes(container) {
+    for (const node of container.querySelectorAll('.tree-node')) {
+        node.classList.remove('tree-expanded');
+        node.firstElementChild?.setAttribute('aria-expanded', 'false');
+    }
+}
+
+function expandOneTreeNode(node) {
+    node.classList.add('tree-expanded');
+    node.firstElementChild?.setAttribute('aria-expanded', 'true');
+    return 1 + ensureTreeChildren(node);
+}
+
+function runTreeAction(container, action, scope) {
+    const root = scope?.querySelectorAll ? scope : container;
+    if (action !== 'expand') {
+        collapseAllTreeNodes(root);
+        setTreeCappedNote(container, false);
+        return;
+    }
+    const queue = [];
+    for (const node of root.querySelectorAll('.tree-node:not(.tree-expanded)')) {
+        queue.push(node);
+    }
+    let used = 0;
+    while (queue.length > 0 && used < FILE_TREE_EXPAND_BUDGET) {
+        const node = queue.shift();
+        if (node.classList.contains('tree-expanded')) {
+            continue;
+        }
+        used += expandOneTreeNode(node);
+        const holder = node.querySelector(':scope > .tree-children');
+        if (holder?.querySelectorAll) {
+            for (const fresh of holder.querySelectorAll('.tree-node:not(.tree-expanded)')) {
+                queue.push(fresh);
+            }
+        }
+    }
+    setTreeCappedNote(container, queue.length > 0);
+}
+
+// Expand All stops at the node budget instead of freezing the tab. The header
+// says so with live numbers instead of silently leaving folders collapsed.
+function setTreeCappedNote(container, show) {
+    const header = container.querySelector ? container.querySelector('.file-tree-header') : null;
+    const note = header ? header.querySelector('.file-tree-capped') : null;
+    if (!note) {
+        return;
+    }
+    if (!show) {
+        note.hidden = true;
+        return;
+    }
+    const total = Number.parseInt(header.dataset.treeTotal || '0', 10) || 0;
+    const shown = container.querySelectorAll('.tree-leaf').length;
+    if (total > 0 && shown >= total) {
+        note.hidden = true;
+        return;
+    }
+    note.textContent = T('treeExpandCapped', 'Showing {shown} of {total} files – expand folders to see more')
+        .replace('{shown}', String(shown)).replace('{total}', String(total));
+    note.hidden = false;
+}
+
+function refreshTreeCappedNote(container) {
+    const header = container.querySelector ? container.querySelector('.file-tree-header') : null;
+    const note = header ? header.querySelector('.file-tree-capped') : null;
+    if (note && !note.hidden) {
+        setTreeCappedNote(container, true);
+    }
+}
+
 // Render one media-type section of the file tree, or '' when it has no files.
-function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon) {
+// The section tree is registered for on-demand expansion, so only top-level
+// shells reach the DOM no matter how many files matched.
+function renderFileTreeSection(files, rootPaths, meta, badgeClass, label, icon, treeCtx) {
     if (!files || files.length === 0) {
         return '';
     }
+    var tree = buildPathTree(files, rootPaths, meta);
+    var lazy = null;
+    if (treeCtx?.render !== undefined && treeCtx?.section) {
+        _fileTreeRegistry[treeCtx.render].sections[treeCtx.section] = {tree: tree, icon: icon};
+        lazy = {render: treeCtx.render, section: treeCtx.section, trail: []};
+    }
     return '<div class="file-tree-section">'
-        + '<div class="file-tree-section-header"><span class="badge ' + badgeClass + '">' + escHtml(label) + '</span> <span class="file-tree-section-count">(' + files.length + ')</span></div>'
+        + '<div class="file-tree-section-header"><span class="badge ' + badgeClass + '">' + escHtml(label) + '</span> <span class="file-tree-section-count">(' + files.length + ')</span>'
+        + '<span class="file-tree-section-actions"><button class="tree-action-btn" data-tree-action="expand">' + escHtml(T('expandAll', 'Expand All')) + '</button>'
+        + '<button class="tree-action-btn" data-tree-action="collapse">' + escHtml(T('collapseAll', 'Collapse All')) + '</button></span></div>'
         + '<div class="tree-view">'
-        + renderTreeLevel(buildPathTree(files, rootPaths, meta), 0, icon)
+        + renderTreeLevel(tree, 0, icon, lazy)
         + '</div></div>';
 }
 
-// Render a file list panel grouped by media type (movies, tvShows, music, books, other). result: { movies: string[], tvShows: string[], music: string[], books: string[], other: string[], rootPaths: {...} } title: string displayed in the header. Optional meta maps a file path to a short per-file label (e.g. "1920x800") shown next to the file name.
-function renderFileTree(result, title, meta) {
+// Render a file list panel grouped by media type (movies, tvShows, music, books, other). result: { movies: string[], tvShows: string[], music: string[], books: string[], other: string[], rootPaths: {...} } title: string displayed in the header. Optional meta maps a file path to a short per-file label (e.g. "1920x800") shown next to the file name. Optional otherIcon overrides the icon for the "other" category (e.g., folder icon for orphaned directories).
+function renderFileTree(result, title, meta, otherIcon) {
     var roots = result.rootPaths || {};
     var sections = [
-        {files: result.movies, roots: roots.movies, badge: 'badge-movies', label: T('movies', 'Movies'), icon: mi('movie')},
-        {files: result.tvShows, roots: roots.tvShows, badge: 'badge-tvshows', label: T('tvShows', 'TV Shows'), icon: mi('tv')},
-        {files: result.music, roots: roots.music, badge: 'badge-music', label: T('music', 'Music'), icon: mi('music_note')},
-        {files: result.books, roots: roots.books, badge: 'badge-books', label: T('books', 'Books'), icon: mi('description')},
-        {files: result.other, roots: roots.other, badge: 'badge-other', label: T('other', 'Other'), icon: mi('description')}
+        {key: 'movies', files: result.movies, roots: roots.movies, badge: 'badge-movies', label: T('movies', 'Movies'), icon: mi('movie')},
+        {key: 'tvShows', files: result.tvShows, roots: roots.tvShows, badge: 'badge-tvshows', label: T('tvShows', 'TV Shows'), icon: mi('tv')},
+        {key: 'music', files: result.music, roots: roots.music, badge: 'badge-music', label: T('music', 'Music'), icon: mi('music_note')},
+        {key: 'books', files: result.books, roots: roots.books, badge: 'badge-books', label: T('books', 'Books'), icon: mi('description')},
+        {key: 'other', files: result.other, roots: roots.other, badge: 'badge-other', label: T('other', 'Other'), icon: otherIcon || mi('description')}
     ];
 
     var totalFiles = 0;
@@ -248,63 +453,124 @@ function renderFileTree(result, title, meta) {
         return '<div class="file-tree-empty">' + escHtml(T('noFilesFound', 'No files found.')) + '</div>';
     }
 
-    var html = '<div class="file-tree-header">';
+    pruneFileTreeRegistry();
+    var renderId = String(++_fileTreeRenderSeq);
+    _fileTreeRegistry[renderId] = {sections: {}};
+
+    var html = '<div class="file-tree-header" data-tree-total="' + totalFiles + '">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
-    html += '<button class="tree-action-btn" data-tree-action="expand">' + escHtml(T('expandAll', 'Expand All')) + '</button>';
-    html += '<button class="tree-action-btn" data-tree-action="collapse">' + escHtml(T('collapseAll', 'Collapse All')) + '</button>';
     html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</span>';
+    html += '<span class="file-tree-capped" hidden></span>';
     html += '</div></div>';
 
     html += '<div class="file-tree-columns' + (sectionCount > 1 ? ' file-tree-multi' : '') + '">';
     for (var sec of sections) {
-        html += renderFileTreeSection(sec.files, sec.roots, meta, sec.badge, sec.label, sec.icon);
+        html += renderFileTreeSection(sec.files, sec.roots, meta, sec.badge, sec.label, sec.icon,
+            {render: renderId, section: sec.key});
     }
     html += '</div>';
     return html;
 }
 
-/** * Wire up event listeners for interactive elements rendered by renderFileTree / * renderTreeLevel. Must be called after the HTML returned by those functions * has been injected into the DOM. */
+/** * Wire up event listeners for interactive elements rendered by renderFileTree / * renderTreeLevel. Delegated from the container, so folders materialized later * by on-demand expansion work without rebinding. Idempotent per container. */
 function bindFileTreeHandlers(container) {
-    if (!container) return;
-
-    // Folder toggle buttons
-    var toggles = container.querySelectorAll('[data-tree-toggle]');
-    for (var i = 0; i < toggles.length; i++) {
-        (function (btn) {
-            btn.addEventListener('click', function () {
-                var node = btn.parentElement;
-                node.classList.toggle('tree-expanded');
-                btn.setAttribute('aria-expanded', node.classList.contains('tree-expanded'));
-            });
-            btn.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    btn.click();
-                }
-            });
-        })(toggles[i]);
+    if (!container || container.dataset.treeBound === '1') {
+        return;
     }
+    container.dataset.treeBound = '1';
 
-    // Expand All / Collapse All buttons
-    var actionBtns = container.querySelectorAll('[data-tree-action]');
-    for (var j = 0; j < actionBtns.length; j++) {
-        (function (btn) {
-            btn.addEventListener('click', function () {
-                var action = btn.dataset.treeAction;
-                var panel = btn.closest('.file-tree-panel');
-                var nodes = panel ? panel.querySelectorAll('.tree-node') : [];
-                for (var k = 0; k < nodes.length; k++) {
-                    if (action === 'expand') {
-                        nodes[k].classList.add('tree-expanded');
-                    } else {
-                        nodes[k].classList.remove('tree-expanded');
-                    }
-                    var toggle = nodes[k].querySelector('.tree-toggle');
-                    if (toggle) toggle.setAttribute('aria-expanded', action === 'expand');
-                }
-            });
-        })(actionBtns[j]);
+    // Folder toggle buttons (current and future).
+    container.addEventListener('click', function (e) {
+        var target = e.target?.closest?.('[data-tree-toggle]') ?? null;
+        if (target && container.contains(target)) {
+            toggleTreeNode(target);
+            refreshTreeCappedNote(container);
+            return;
+        }
+        var action = e.target?.closest?.('[data-tree-action]') ?? null;
+        if (action && container.contains(action)) {
+            runTreeAction(container, action.dataset.treeAction, action.closest('.file-tree-section'));
+        }
+    });
+    container.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') {
+            return;
+        }
+        var target = e.target?.closest?.('[data-tree-toggle]') ?? null;
+        if (target && container.contains(target)) {
+            e.preventDefault();
+            toggleTreeNode(target);
+            refreshTreeCappedNote(container);
+        }
+    });
+}
+
+// Wire shape: the typed groups are canonical and Libraries is omitted from the
+// payload (dedup). Rebuilds the union once at intake so every tab keeps reading
+// data.Libraries. Tolerates both shapes: payloads that still carry Libraries,
+// stubs, and group-only responses.
+function normalizeStatisticsLibraries(data) {
+    if (!data || Array.isArray(data.Libraries)) {
+        return data;
+    }
+    const groups = [data.Movies, data.TvShows, data.Music, data.Books, data.Other];
+    const libs = orderLibrariesByName(groups, data.LibraryOrder);
+    appendMissingUnionLibraries(libs, groups);
+    data.Libraries = libs;
+    return data;
+}
+
+// Union members in LibraryOrder; stragglers and order-less payloads are
+// appended by appendMissingUnionLibraries.
+function orderLibrariesByName(groups, order) {
+    const ordered = [];
+    if (!Array.isArray(order) || order.length === 0) {
+        return ordered;
+    }
+    // Map, not a plain object: library names like "constructor" must not
+    // resolve to Object.prototype members.
+    const byName = new Map();
+    for (const group of groups) {
+        if (!Array.isArray(group)) {
+            continue;
+        }
+        for (const lib of group) {
+            if (lib?.LibraryName && !byName.has(lib.LibraryName)) {
+                byName.set(lib.LibraryName, lib);
+            }
+        }
+    }
+    for (const name of order) {
+        if (byName.has(name)) {
+            ordered.push(byName.get(name));
+            byName.delete(name);
+        }
+    }
+    return ordered;
+}
+
+// Group members missing from the ordered union join it keyed by
+// LibraryName|CollectionType, so separate JSON objects of one library dedup.
+function appendMissingUnionLibraries(libs, groups) {
+    const seen = {};
+    for (const lib of libs) {
+        seen[(lib.LibraryName || '') + '|' + (lib.CollectionType || '')] = true;
+    }
+    for (const group of groups) {
+        if (!Array.isArray(group)) {
+            continue;
+        }
+        for (const lib of group) {
+            if (!lib) {
+                continue;
+            }
+            const key = (lib.LibraryName || '') + '|' + (lib.CollectionType || '');
+            if (!seen[key]) {
+                seen[key] = true;
+                libs.push(lib);
+            }
+        }
     }
 }
 
@@ -814,6 +1080,13 @@ function attachTogglePanelHandlers(opts) {
             }
         });
         items[i].addEventListener('click', function () {
+            // One-shot scroll flags are consumed on every activation, including the
+            // toggle-close path below: a tap that only closes a panel must not leak
+            // a stale flag into the next unrelated panel open.
+            var forceScroll = !!_forceScrollOnPanelOpen;
+            var suppressScroll = !!_suppressScrollOnPanelOpen;
+            _forceScrollOnPanelOpen = false;
+            _suppressScrollOnPanelOpen = false;
             var panelId = opts.getPanelId(this);
             var panel = document.getElementById(panelId);
             if (!panel) return;
@@ -860,12 +1133,11 @@ function attachTogglePanelHandlers(opts) {
             if (typeof bindFileTreeHandlers === 'function') { bindFileTreeHandlers(panel); }
             panel.classList.add('file-tree-panel-visible');
 
-            // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel)
-            var forceScroll = !!_forceScrollOnPanelOpen;
-            if (forceScroll) {
-                _forceScrollOnPanelOpen = false;
-            }
-            if (!wasVisible || forceScroll) {
+            // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel),
+            // unless the touch path opted out to keep tooltip and segment in view.
+            // forceScroll/suppressScroll were snapshotted (and reset) at the top of
+            // this handler so the toggle-close path above cannot leak them.
+            if ((!wasVisible || forceScroll) && !suppressScroll) {
                 var scrollPanel = panel;
                 setTimeout(function () {
                     scrollPanel.scrollIntoView({behavior: 'smooth', block: 'nearest'});

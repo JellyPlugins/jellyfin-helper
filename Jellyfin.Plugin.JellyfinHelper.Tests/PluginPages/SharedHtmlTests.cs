@@ -459,6 +459,17 @@ public partial class SharedHtmlTests : ConfigPageTestBase
         Assert.Matches(TreeLeafMetaRegex(), HtmlContent);
     }
 
+    [Fact]
+    public void Html_RenderTreeLeaf_PrefersFolderIconForDirectories()
+    {
+        // Directory entries (e.g. orphaned metadata dirs) must keep a folder icon even
+        // inside media sections, where the section icon would suggest a playable file.
+        Assert.Matches(TreeLeafDirIconRegex(), HtmlContent);
+    }
+
     [GeneratedRegex(@"if\s*\(\s*item\.meta\s*\)[\s\S]*?tree-leaf-meta[\s\S]*?escHtml\(item\.meta\)")]
     private static partial Regex TreeLeafMetaRegex();
+
+    [GeneratedRegex(@"function\s+renderTreeLeaf[\s\S]*?endsWith\('/'\)[\s\S]*?mi\('folder'\)")]
+    private static partial Regex TreeLeafDirIconRegex();
 }

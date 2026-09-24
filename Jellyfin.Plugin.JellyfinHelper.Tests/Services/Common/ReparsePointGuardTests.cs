@@ -136,6 +136,48 @@ public sealed class ReparsePointGuardTests : IDisposable
     }
 
     [Fact]
+    public void DeleteLinkNode_DirectorySymlink_InvokesDeleteActionWithLinkInfo()
+    {
+        // Success path: a verified reparse point delegates the actual delete and
+        // reports the link itself (not its target) to the action.
+        if (!DirectorySymlinksSupported())
+        {
+            return;
+        }
+
+        var target = Path.Join(_tempDir, "target");
+        Directory.CreateDirectory(target);
+        var link = Path.Join(_tempDir, "link");
+        Directory.CreateSymbolicLink(link, target);
+
+        DirectoryInfo? seen = null;
+        var ex = Record.Exception(() => ReparsePointGuard.DeleteLinkNode(link, info => seen = info));
+
+        Assert.Null(ex);
+        Assert.NotNull(seen);
+        Assert.True(Directory.Exists(target), "The link target must survive; only the link may be removed by the action.");
+        Assert.True(Directory.Exists(link), "This test never deletes; the action only records.");
+    }
+
+    private bool DirectorySymlinksSupported()
+    {
+        var probeTarget = Path.Join(_tempDir, "probe-target");
+        var probeLink = Path.Join(_tempDir, "probe-link");
+        try
+        {
+            Directory.CreateDirectory(probeTarget);
+            Directory.CreateSymbolicLink(probeLink, probeTarget);
+            Directory.Delete(probeLink);
+            Directory.Delete(probeTarget);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    [Fact]
     public void DeleteLinkNode_RealDirectory_DeleteActionIsNeverInvoked()
     {
         var dir = Path.Join(_tempDir, "real");

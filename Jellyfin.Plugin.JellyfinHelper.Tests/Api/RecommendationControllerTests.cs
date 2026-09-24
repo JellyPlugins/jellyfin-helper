@@ -182,6 +182,36 @@ public class RecommendationControllerTests
     }
 
     [Fact]
+    public void GetEnsembleDiagnostics_PerUserNull_ReturnsUnavailable()
+    {
+        // A cold-start user has no diagnostics snapshot yet: honest Available=false
+        // instead of an empty or fabricated response.
+        var userId = Guid.NewGuid();
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId))
+            .Returns(((EnsembleDiagnostics?)null, false));
+
+        var result = _controller.GetEnsembleDiagnostics(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
+        Assert.False(data.Available);
+    }
+
+    [Fact]
+    public void GetEnsembleDiagnostics_UserNameLookupCancelled_Propagates()
+    {
+        // Cancellation is cooperative, never swallowed: unlike a failed lookup (which
+        // degrades to a null name), a cancelled one must propagate to the caller.
+        var userId = Guid.NewGuid();
+        _mockEngine.Setup(e => e.GetUserEnsembleDiagnostics(userId))
+            .Returns((new EnsembleDiagnostics(), true));
+        _mockWatchHistory.Setup(w => w.GetUserWatchProfile(userId))
+            .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => _controller.GetEnsembleDiagnostics(userId));
+    }
+
+    [Fact]
     public void GetEnsembleDiagnostics_UserNameLookupThrows_StillReturnsDiagnosticsWithNullName()
     {
         // The name lookup is a display-only extra layered on top of already-resolved diagnostics. A transient

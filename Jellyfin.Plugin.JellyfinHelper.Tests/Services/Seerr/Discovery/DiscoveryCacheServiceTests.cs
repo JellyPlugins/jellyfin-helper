@@ -416,6 +416,45 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoveItemAsync_CancelledDuringWriteRetry_RollsBackRemovalAndThrows()
+    {
+        // Cancellation inside AtomicFile's retry backoff (the destination is a
+        // directory, so every move attempt fails transiently): the OCE catch must
+        // roll the in-memory removal back and rethrow.
+        var userId = Guid.NewGuid();
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = userId,
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 99, MediaType = "movie" }]
+            }
+        ]);
+
+        SafeDelete(_cacheFilePath);
+        Directory.CreateDirectory(_cacheFilePath);
+
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            cts.CancelAfter(TimeSpan.FromMilliseconds(30));
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                _sut.RemoveItemAsync(99, "movie", userId, cts.Token));
+
+            var loaded = _sut.Load();
+            Assert.Single(loaded[0].Recommendations);
+            Assert.Equal(99, loaded[0].Recommendations[0].TmdbId);
+        }
+        finally
+        {
+            if (Directory.Exists(_cacheFilePath))
+            {
+                Directory.Delete(_cacheFilePath, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task MarkAsRequestedAsync_CancelledBeforeStart_ThrowsAndDoesNotMutate()
     {
         var userId = Guid.NewGuid();
@@ -436,6 +475,44 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         // Flag must NOT be flipped when the write was cancelled.
         var loaded = _sut.Load();
         Assert.False(loaded[0].Recommendations[0].AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task MarkAsRequestedAsync_CancelledDuringWriteRetry_RollsBackFlagAndThrows()
+    {
+        // Same rollback contract as the removal path: the flag is applied in memory
+        // before the atomic write, so a cancellation inside the write retry must
+        // reset it and rethrow.
+        var userId = Guid.NewGuid();
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = userId,
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 99, MediaType = "movie" }]
+            }
+        ]);
+
+        SafeDelete(_cacheFilePath);
+        Directory.CreateDirectory(_cacheFilePath);
+
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            cts.CancelAfter(TimeSpan.FromMilliseconds(30));
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                _sut.MarkAsRequestedAsync(99, "movie", cts.Token));
+
+            var loaded = _sut.Load();
+            Assert.False(loaded[0].Recommendations[0].AlreadyRequested);
+        }
+        finally
+        {
+            if (Directory.Exists(_cacheFilePath))
+            {
+                Directory.Delete(_cacheFilePath, recursive: true);
+            }
+        }
     }
 
     [Fact]

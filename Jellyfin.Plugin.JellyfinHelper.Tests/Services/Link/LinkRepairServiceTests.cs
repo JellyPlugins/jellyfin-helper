@@ -64,6 +64,56 @@ public class LinkRepairServiceTests
     }
 
     [Fact]
+    public void FindLinkFiles_SymlinkCycle_TerminatesAndFindsEachFileOnce()
+    {
+        // Mutual directory symlinks must not loop the traversal: the visited set
+        // stops the second visit, so each file is reported exactly once. The token
+        // only bounds the run if that guard ever regresses.
+        var root = Path.Join(Path.GetTempPath(), "JellyfinHelperLinkCycle_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var dirA = Path.Join(root, "A");
+            var dirB = Path.Join(root, "B");
+            Directory.CreateDirectory(dirA);
+            Directory.CreateDirectory(dirB);
+            File.WriteAllText(Path.Join(dirA, "a.strm"), "target");
+            File.WriteAllText(Path.Join(dirB, "b.strm"), "target");
+            try
+            {
+                Directory.CreateSymbolicLink(Path.Join(dirA, "toB"), dirB);
+                Directory.CreateSymbolicLink(Path.Join(dirB, "toA"), dirA);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                return;
+            }
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var realFs = new System.IO.Abstractions.FileSystem();
+            var service = new LinkRepairService(
+                realFs,
+                [new StrmLinkHandler(realFs), _symlinkHandler],
+                TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+            var result = service.FindLinkFiles([root], cts.Token);
+
+            Assert.Equal(2, result.Count);
+            Assert.Single(result, r => r.FilePath.EndsWith("a.strm", StringComparison.Ordinal));
+            Assert.Single(result, r => r.FilePath.EndsWith("b.strm", StringComparison.Ordinal));
+        }
+        finally
+        {
+            // Best-effort temp cleanup: the assertions above already ran, so a
+            // teardown failure must never fail the test.
+            try { Directory.Delete(root, true); }
+            catch (IOException) { /* Best-effort temp cleanup. */ }
+            catch (UnauthorizedAccessException) { /* Best-effort temp cleanup. */ }
+        }
+    }
+
+    [Fact]
     public void FindLinkFiles_FindsSymlinkFiles()
     {
         var seriesDir = _fileSystem.Path.GetFullPath("/series");

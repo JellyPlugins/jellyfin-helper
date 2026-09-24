@@ -447,6 +447,26 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
+    public void Train_AdamTimestepKeepsCountingAcrossRounds()
+    {
+        // Adam bias correction divides the moments by (1 - β^t): the timestep must
+        // keep counting across Train calls because the moments persist. Restarting it
+        // would inflate early-round steps ~10x (1 / (1 - β1)) against stale moments.
+        // With exactly MinTrainingExamples (30) early stopping is off (no room for a
+        // validation split), so each round performs exactly
+        // MaxEpochsWithoutEarlyStopping (20) × 30 updates.
+        using var strategy = new NeuralScoringStrategy();
+        Assert.Equal(0, strategy.AdamTimestep);
+
+        var examples = GenerateExamples(30);
+        Assert.True(strategy.Train(examples));
+        Assert.Equal(20 * 30, strategy.AdamTimestep);
+
+        Assert.True(strategy.Train(examples));
+        Assert.Equal(2 * 20 * 30, strategy.AdamTimestep);
+    }
+
+    [Fact]
     public void Train_SetsValidationLoss()
     {
         var strategy = new NeuralScoringStrategy();

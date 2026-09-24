@@ -179,6 +179,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 $"{libraryStats.SubtitleFileCount} subs, {libraryStats.TrickplayFolderCount} trickplay folders",
                 _logger);
             result.Libraries.Add(libraryStats);
+            result.LibraryOrder.Add(libraryStats.LibraryName);
 
             if (isTvShows)
             {

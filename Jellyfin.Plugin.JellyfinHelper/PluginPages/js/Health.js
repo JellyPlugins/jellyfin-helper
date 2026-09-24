@@ -99,6 +99,20 @@ function attachHealthClickHandlers() {
                 return '';
             }
             var result = collectHealthPaths(_lastScanResult, mapping.prop);
+            if (type === 'orphaned') {
+                // Server paths carry no trailing separator, so mark directories
+                // explicitly: the leaf renderer picks the folder icon from it.
+                // Plain string ops instead of a regex: linear by construction.
+                ['movies', 'tvShows', 'other'].forEach(function (section) {
+                    result[section] = (result[section] || []).map(function (path) {
+                        var normalized = path;
+                        while (normalized.endsWith('/') || normalized.endsWith('\\')) {
+                            normalized = normalized.slice(0, -1);
+                        }
+                        return normalized + '/';
+                    });
+                });
+            }
             return renderFileTree(result, T(mapping.titleKey, mapping.titleFallback));
         }
     });

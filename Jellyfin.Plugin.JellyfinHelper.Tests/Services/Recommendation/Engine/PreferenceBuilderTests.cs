@@ -1241,6 +1241,70 @@ public class PreferenceBuilderTests
     // These exercise the direct-item and episode->parent-series branches of BuildStudioPreferenceSet / BuildTagPreferenceSet, including the whitespace filter that keeps blank Studios/Tags out of the returned set.
 
     [Fact]
+    public void BuildGenrePreferenceVector_UnplayedItems_FabricateNoTasteLinks()
+    {
+        // Co-occurrence links need two sightings: nine played Action rows plus one
+        // played Action/Horror row leave exactly one sub-threshold pair. The two
+        // unplayed rows use Action/Comedy on purpose: proximity expansion starts
+        // from known genres, so a leak counting unplayed rows would surface Comedy
+        // (Action's leaked neighbour) as a new key, while an all-unknown pair
+        // like Comedy/Drama would stay invisible and prove nothing.
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 9; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"] });
+        }
+
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action", "Horror"] });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = null! });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Action", "Comedy"] });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Action", "Comedy"] });
+
+        var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+
+        Assert.Contains("Action", vector.Keys);
+        Assert.Contains("Horror", vector.Keys);
+        Assert.DoesNotContain("Comedy", vector.Keys);
+        Assert.DoesNotContain("Drama", vector.Keys);
+        Assert.Equal(2, vector.Count);
+    }
+
+    [Fact]
+    public void BuildStudioPreferenceSet_UnplayedItem_ContributesNothing()
+    {
+        // Studios follow the same eligibility as genres: an unplayed,
+        // non-favorite row must not seed studio taste.
+        var movieId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, BaseItem>
+        {
+            { movieId, new Movie { Id = Guid.NewGuid(), Studios = ["A24"] } }
+        };
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = false, Genres = ["Drama"] }]
+        };
+
+        Assert.Empty(PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup));
+    }
+
+    [Fact]
+    public void BuildTagPreferenceSet_UnplayedItem_ContributesNothing()
+    {
+        // Same eligibility gate as studios: no play evidence, no tags.
+        var movieId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, BaseItem>
+        {
+            { movieId, new Movie { Id = Guid.NewGuid(), Tags = ["heist"] } }
+        };
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = false, Genres = ["Drama"] }]
+        };
+
+        Assert.Empty(PreferenceBuilder.BuildTagPreferenceSet(profile, lookup));
+    }
+
+    [Fact]
     public void BuildStudioPreferenceSet_MovieDirectMatch_CollectsStudiosSkippingBlank()
     {
         var movieId = Guid.NewGuid();

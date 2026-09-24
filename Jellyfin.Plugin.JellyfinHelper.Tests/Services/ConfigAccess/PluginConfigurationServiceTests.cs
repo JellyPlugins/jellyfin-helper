@@ -54,6 +54,18 @@ public class PluginConfigurationServiceTests
     }
 
     [Fact]
+    public void GetConfiguration_ReturnsLiveConfiguration_WhenInitialized()
+    {
+        // Deterministic via the fake accessor: no Plugin.Instance singleton, so
+        // parallel suites can neither pollute nor null it mid-assertion.
+        var owned = new PluginConfiguration { Language = "de" };
+        var sut = new PluginConfigurationService(new FakePluginAccessor { IsInitialized = true, Configuration = owned });
+
+        Assert.Same(owned, sut.GetConfiguration());
+        Assert.Null(Record.Exception(() => sut.SaveConfiguration()));
+    }
+
+    [Fact]
     public void PluginVersion_ReturnsAccessorVersionWhenPresent()
     {
         var sut = new PluginConfigurationService(new FakePluginAccessor { Version = "1.2.3-test" });

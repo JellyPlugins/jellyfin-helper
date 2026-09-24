@@ -1,5 +1,6 @@
 /**
- * Donut chart touch handling: first tap shows the tooltip, second tap on the same segment hides it.
+ * Donut chart touch handling: one tap shows the tooltip and opens the
+ * drill-down together (no hover on touch, so splitting them was confusing).
  */
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { openDashboard, switchTab, trackConsoleErrors } from './_ui-helpers.ts';
@@ -64,7 +65,7 @@ test.describe('codec donut touch tap', () => {
     expect(scriptErrors, scriptErrors.join('\n')).toHaveLength(0);
   });
 
-  test('second tap on same segment hides the tooltip', async ({ page }) => {
+  test('tap opens the drill-down while the tooltip stays visible', async ({ page }) => {
     const errors = trackConsoleErrors(page);
     const segments = await openSegments(page);
     expect(await segments.count(), 'codec donut must have segments on the fixture library').toBeGreaterThan(0);
@@ -74,10 +75,57 @@ test.describe('codec donut touch tap', () => {
 
     await tapPath(segment);
     await expect(tooltip.first()).toBeVisible({ timeout: 5_000 });
+    // The same tap opens the drill-down panel instead of waiting for a second one.
+    await expect(page.locator('#codecsContent .file-tree-panel-visible').first()).toBeVisible({ timeout: 10_000 });
+    const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, scriptErrors.join('\n')).toHaveLength(0);
+  });
 
-    // Second tap on the same segment takes the tap-again branch and hides the tooltip.
+  test('second tap on the same segment dismisses tooltip and drill-down', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    const segments = await openSegments(page);
+    expect(await segments.count(), 'codec donut must have segments on the fixture library').toBeGreaterThan(0);
+
+    const segment = segments.first();
+    const tooltip = page.locator('#codecsContent .donut-tooltip.visible');
+    const panel = page.locator('#codecsContent .file-tree-panel-visible');
+
+    await tapPath(segment);
+    await expect(tooltip.first()).toBeVisible({ timeout: 5_000 });
+    await expect(panel.first()).toBeVisible({ timeout: 10_000 });
+
+    // Second tap toggles everything off again.
     await tapPath(segment);
     await expect(tooltip).toHaveCount(0, { timeout: 5_000 });
+    await expect(panel).toHaveCount(0, { timeout: 5_000 });
+    const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, scriptErrors.join('\n')).toHaveLength(0);
+  });
+
+  test('tap in another chart clears the first chart tooltip', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await openSegments(page);
+    const containers = page.locator('#codecsContent .donut-container');
+    const chartCount = await containers.count();
+    expect(chartCount, 'need at least two donut charts').toBeGreaterThan(1);
+    // Both charts must offer a segment; an empty second chart means the scan or
+    // the stats pipeline broke - fail instead of skipping into a vacuous pass.
+    for (let c = 0; c < 2; c++) {
+      expect(
+        await containers.nth(c).locator('.donut-segment path').count(),
+        `chart ${c} must have segments on the fixture library`,
+      ).toBeGreaterThan(0);
+    }
+
+    await tapPath(containers.nth(0).locator('.donut-segment path').first());
+    const tooltipA = containers.nth(0).locator('.donut-tooltip.visible');
+    await expect(tooltipA.first()).toBeVisible({ timeout: 5_000 });
+
+    // Tapping chart B must not strand chart A's tooltip while the shared panel
+    // handler closes A's drill-down.
+    await tapPath(containers.nth(1).locator('.donut-segment path').first());
+    await expect(tooltipA).toHaveCount(0, { timeout: 5_000 });
+    await expect(containers.nth(1).locator('.donut-tooltip.visible').first()).toBeVisible({ timeout: 5_000 });
     const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
     expect(scriptErrors, scriptErrors.join('\n')).toHaveLength(0);
   });

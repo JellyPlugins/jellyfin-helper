@@ -351,7 +351,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── RankingMetricsTests.cs
 │       │   ├── PerUserRankingMetricsTests.cs        # Per-user macro averaging: equal weight per user regardless of library size
 │       │   ├── ScoringAblationEvalTests.cs          # Offline ablation eval: synthetic taste-driven population, NDCG@10 with vs without genre-engagement + SeriesAffinity across Heuristic / Heuristic+Learned / full Ensemble tiers
-│       │   └── ScoringGoldenLockTests.cs            # Behavior-lock test: pins deterministic digest of Heuristic+Learned+Neural scoring output
+│       │   ├── ScoringGoldenLockTests.cs            # Behavior-lock test: pins deterministic digest of Heuristic+Learned+Neural scoring output
+│       │   └── ScoringParityTests.cs                # 38-feature parity pins: Score vs explanation agreement, weight-sum range, enum count
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
 │       │   ├── WatchHistoryServiceLanguageProfileTests.cs # Language-profile aggregation from watch history; NormalizeLanguage rows
@@ -857,6 +858,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `LearnedScoringStrategySeedTests.cs`
 - `ScoreExplanationTests.cs`
 - `ScoringAblationEvalTests.cs`
+- `ScoringParityTests.cs`
 - `ScoringStrategyTests.cs`
 - `StrategySelectorTests.cs`
 - `TrainingExampleTests.cs`

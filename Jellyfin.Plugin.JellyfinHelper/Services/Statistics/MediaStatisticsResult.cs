@@ -13,9 +13,20 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 public class MediaStatisticsResult
 {
     /// <summary>
-    /// Gets the list of all library statistics.
+    ///     Gets the list of all library statistics.
+    ///     In-memory union of the typed groups below, populated by the scan. Excluded from the
+    ///     JSON payload: every library is already serialized once inside its typed group, so
+    ///     serializing this union again would double the transfer size. Wire readers rebuild it
+    ///     from the groups (see LibraryOrder); the disk cache rehydrates it on load.
     /// </summary>
+    [JsonIgnore]
     public Collection<LibraryStatistics> Libraries { get; } = new();
+
+    /// <summary>
+    ///     Gets the library names in scan order. Serialized alongside the typed groups so the
+    ///     in-memory union can be rebuilt in exact order after a disk round-trip.
+    /// </summary>
+    public Collection<string> LibraryOrder { get; } = new();
 
     /// <summary>
     /// Gets the list of movie library statistics.
@@ -297,6 +308,48 @@ public class MediaStatisticsResult
     /// </summary>
     [JsonInclude]
     public HashSet<string> OtherRootPaths => AggregateRootPaths(Other);
+
+    /// <summary>
+    ///     Rebuilds the in-memory union from the typed groups. Libraries is excluded from the
+    ///     payload (every library already serializes once inside its typed group), so a fresh
+    ///     payload always arrives with an empty union. LibraryOrder restores exact scan order;
+    ///     payloads predating it (or with unresolvable names) fall back to grouped order, with
+    ///     stragglers appended. Called by StatisticsCacheService.LoadLatestResult, the only
+    ///     production deserialization path, so computed Totals aggregating over Libraries stay
+    ///     correct. Null or empty names never throw the whole union away.
+    /// </summary>
+    internal void RehydrateLibraryUnion()
+    {
+        if (Libraries.Count > 0)
+        {
+            return;
+        }
+
+        var byName = new Dictionary<string, LibraryStatistics>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lib in AllGroupedLibraries().Where(static lib => !string.IsNullOrEmpty(lib.LibraryName)))
+        {
+            byName.TryAdd(lib.LibraryName, lib);
+        }
+
+        // Duplicate order entries resolve once: GetValueOrDefault keeps the lookup
+        // side-effect free, OfType drops unresolvable names, Distinct drops repeats.
+        foreach (var lib in LibraryOrder
+            .Where(static name => !string.IsNullOrEmpty(name))
+            .Select(name => byName.GetValueOrDefault(name))
+            .OfType<LibraryStatistics>()
+            .Distinct())
+        {
+            Libraries.Add(lib);
+        }
+
+        foreach (var lib in AllGroupedLibraries().Where(lib => !Libraries.Contains(lib)))
+        {
+            Libraries.Add(lib);
+        }
+    }
+
+    private IEnumerable<LibraryStatistics> AllGroupedLibraries() =>
+        Movies.Concat(TvShows).Concat(Music).Concat(Books).Concat(Other);
 
     private static HashSet<string> AggregateRootPaths(IEnumerable<LibraryStatistics> libraries)
     {

@@ -129,6 +129,7 @@ public class StatisticsCacheService : IStatisticsCacheService
             var result = JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
             if (result != null)
             {
+                result.RehydrateLibraryUnion();
                 MigrateLegacyBitrateTiers(result);
                 MigrateLegacyWatchedBuckets(result);
             }
