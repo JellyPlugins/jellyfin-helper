@@ -73,16 +73,16 @@ public class LinkRepairServiceTests
         Directory.CreateDirectory(root);
         try
         {
-            var dirA = Path.Combine(root, "A");
-            var dirB = Path.Combine(root, "B");
+            var dirA = Path.Join(root, "A");
+            var dirB = Path.Join(root, "B");
             Directory.CreateDirectory(dirA);
             Directory.CreateDirectory(dirB);
-            File.WriteAllText(Path.Combine(dirA, "a.strm"), "target");
-            File.WriteAllText(Path.Combine(dirB, "b.strm"), "target");
+            File.WriteAllText(Path.Join(dirA, "a.strm"), "target");
+            File.WriteAllText(Path.Join(dirB, "b.strm"), "target");
             try
             {
-                Directory.CreateSymbolicLink(Path.Combine(dirA, "toB"), dirB);
-                Directory.CreateSymbolicLink(Path.Combine(dirB, "toA"), dirA);
+                Directory.CreateSymbolicLink(Path.Join(dirA, "toB"), dirB);
+                Directory.CreateSymbolicLink(Path.Join(dirB, "toA"), dirA);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
             {
@@ -105,9 +105,11 @@ public class LinkRepairServiceTests
         }
         finally
         {
+            // Best-effort temp cleanup: the assertions above already ran, so a
+            // teardown failure must never fail the test.
             try { Directory.Delete(root, true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (IOException) { /* Best-effort temp cleanup. */ }
+            catch (UnauthorizedAccessException) { /* Best-effort temp cleanup. */ }
         }
     }
 

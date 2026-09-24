@@ -112,7 +112,7 @@ public class TrainingServiceTests
     public void Train_NoPreviousResults_SkipsAndReturnsFalse()
     {
         var strategy = new RecordingStrategy();
-        var sut = CreateSut();
+        using var sut = CreateSut();
 
         var result = sut.Train(strategy, previousResults: Array.Empty<RecommendationResult>());
 
@@ -131,7 +131,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var previous = new[] { CreateLargeResult(userId, 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
         using var entered = new ManualResetEventSlim(false);
@@ -169,11 +169,13 @@ public class TrainingServiceTests
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
         var registryMock = new Mock<IPerUserEnsembleRegistry>();
-        registryMock.Setup(r => r.GlobalEnsemble).Returns(new EnsembleScoringStrategy());
+        using var globalEnsemble = new EnsembleScoringStrategy();
+        using var userEnsemble = new EnsembleScoringStrategy();
+        registryMock.Setup(r => r.GlobalEnsemble).Returns(globalEnsemble);
         registryMock.Setup(r => r.GetOrCreateTrainableEnsembleForUser(It.IsAny<Guid>()))
-            .Returns(new EnsembleScoringStrategy());
+            .Returns(userEnsemble);
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var previous = new[]
         {
             CreateLargeResult(userId, 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)),
@@ -195,7 +197,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var previous = new[] { CreateLargeResult(userId, 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
         Assert.True(sut.Train(new LearnedScoringStrategy(), previous));
@@ -209,7 +211,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new NonTrainableStrategy();
 
         var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
@@ -224,7 +226,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
         var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
@@ -241,7 +243,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
 
         using var cts = new CancellationTokenSource();
@@ -259,7 +261,7 @@ public class TrainingServiceTests
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Throws(new IOException("boom"));
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
         var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
@@ -340,7 +342,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = true };
 
         var previous = new[] { CreateResultWithRecommendations(userId) };
@@ -362,7 +364,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var baselineStrategy = new RecordingStrategy();
         var previous = new[] { CreateResultWithRecommendations(userId) };
@@ -407,7 +409,7 @@ public class TrainingServiceTests
             }
         });
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var previous = new[] { CreateResultWithRecommendations(userId) };
 
@@ -584,7 +586,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = true };
         var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
@@ -616,7 +618,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
@@ -646,7 +648,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var previous = new[]
         {
@@ -717,7 +719,7 @@ public class TrainingServiceTests
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
         // Empty fixture => false; the point is that disposal of the prior SUT did not corrupt shared state.
@@ -735,7 +737,7 @@ public class TrainingServiceTests
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var previous = new[] { new RecommendationResult { UserId = Guid.NewGuid() } };
 
         ReentrantStrategy? strategy = null;
@@ -757,7 +759,7 @@ public class TrainingServiceTests
             .Returns(new Collection<UserWatchProfile>());
         _feedbackStoreMock.Setup(s => s.LoadAll()).Throws(new OperationCanceledException());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var strategy = new RecordingStrategy();
 
         Assert.Throws<OperationCanceledException>(() =>
@@ -775,7 +777,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
-        var sut = CreateSut();
+        using var sut = CreateSut();
         var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
         var baselineStrategy = new RecordingStrategy();

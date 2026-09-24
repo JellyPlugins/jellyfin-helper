@@ -60,6 +60,36 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     }
 
     [Fact]
+    public void ApplyImprovementBoost_FullQuality_SnapsToTarget()
+    {
+        // Quality factor 1.0 (gate passed) boosted and capped: step = min(1, 1.15) = 1.0,
+        // so alpha closes fully onto the sigmoid target.
+        Assert.Equal(0.5, EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.75, 0.5, 1.0), 10);
+    }
+
+    [Fact]
+    public void ApplyImprovementBoost_ZeroQuality_LeavesAlphaUntouched()
+    {
+        // A model at the loss ceiling earns no progression even with an improving trend.
+        Assert.Equal(0.4, EnsembleScoringStrategy.ApplyImprovementBoost(0.4, 0.75, 0.6, 0.0), 10);
+    }
+
+    [Fact]
+    public void ApplyImprovementBoost_PartialQuality_ClimbsProportionally()
+    {
+        // Step = min(1, 0.5 × 1.15) = 0.575 of the remaining headroom toward the target.
+        Assert.Equal(0.55875, EnsembleScoringStrategy.ApplyImprovementBoost(0.3, 0.75, 0.9, 0.5), 10);
+    }
+
+    [Fact]
+    public void ApplyImprovementBoost_NeverExceedsSigmoidTarget()
+    {
+        // Even a full step must stop at the target, never overshoot toward alphaMax.
+        Assert.Equal(0.71, EnsembleScoringStrategy.ApplyImprovementBoost(0.7, 0.75, 0.71, 1.0), 10);
+        Assert.Equal(0.4, EnsembleScoringStrategy.ApplyImprovementBoost(0.0, 1.0, 0.4, 1.0), 10);
+    }
+
+    [Fact]
     public void Constructor_NullHeuristic_Throws()
     {
         var learned = new LearnedScoringStrategy();

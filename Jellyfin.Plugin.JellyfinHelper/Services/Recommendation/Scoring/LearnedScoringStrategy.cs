@@ -34,9 +34,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>Number of consecutive epochs without improvement before early stopping triggers.</summary>
     internal const int EarlyStoppingPatience = 3;
 
-    /// <summary>Minimum fraction of examples used for validation (rest is training).</summary>
-    internal const double ValidationSplitRatio = 0.2;
-
     /// <summary>Number of folds for k-fold cross-validation. Set to 1 to disable k-fold (simple split).</summary>
     internal const int KFoldCount = 3;
 

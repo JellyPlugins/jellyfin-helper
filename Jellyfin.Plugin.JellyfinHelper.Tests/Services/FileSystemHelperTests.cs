@@ -17,7 +17,7 @@ public class FileSystemHelperTests
     /// <summary>Creates a temp directory, runs the action, then deletes it.</summary>
     private static string CreateTempDir()
     {
-        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var path = Path.Join(Path.GetTempPath(), Path.GetRandomFileName());
         Directory.CreateDirectory(path);
         return path;
     }
@@ -45,9 +45,9 @@ public class FileSystemHelperTests
         var root = CreateTempDir();
         try
         {
-            WriteBytes(Path.Combine(root, "file1.mkv"), 1000);
-            WriteBytes(Path.Combine(root, "file2.srt"), 500);
-            WriteBytes(Path.Combine(root, "file3.nfo"), 200);
+            WriteBytes(Path.Join(root, "file1.mkv"), 1000);
+            WriteBytes(Path.Join(root, "file2.srt"), 500);
+            WriteBytes(Path.Join(root, "file3.nfo"), 200);
 
             var result = FileSystemHelper.CalculateDirectorySize(root);
 
@@ -62,10 +62,10 @@ public class FileSystemHelperTests
         var root = CreateTempDir();
         try
         {
-            WriteBytes(Path.Combine(root, "file.mkv"), 1000);
-            var sub = Directory.CreateDirectory(Path.Combine(root, "sub1")).FullName;
-            WriteBytes(Path.Combine(sub, "file2.mkv"), 2000);
-            WriteBytes(Path.Combine(sub, "file3.srt"), 300);
+            WriteBytes(Path.Join(root, "file.mkv"), 1000);
+            var sub = Directory.CreateDirectory(Path.Join(root, "sub1")).FullName;
+            WriteBytes(Path.Join(sub, "file2.mkv"), 2000);
+            WriteBytes(Path.Join(sub, "file3.srt"), 300);
 
             var result = FileSystemHelper.CalculateDirectorySize(root);
 
@@ -80,11 +80,11 @@ public class FileSystemHelperTests
         var root = CreateTempDir();
         try
         {
-            WriteBytes(Path.Combine(root, "a.mkv"), 100);
-            var sub = Directory.CreateDirectory(Path.Combine(root, "sub")).FullName;
-            WriteBytes(Path.Combine(sub, "b.mkv"), 200);
-            var subsub = Directory.CreateDirectory(Path.Combine(sub, "subsub")).FullName;
-            WriteBytes(Path.Combine(subsub, "c.mkv"), 300);
+            WriteBytes(Path.Join(root, "a.mkv"), 100);
+            var sub = Directory.CreateDirectory(Path.Join(root, "sub")).FullName;
+            WriteBytes(Path.Join(sub, "b.mkv"), 200);
+            var subsub = Directory.CreateDirectory(Path.Join(sub, "subsub")).FullName;
+            WriteBytes(Path.Join(subsub, "c.mkv"), 300);
 
             var result = FileSystemHelper.CalculateDirectorySize(root);
 
@@ -101,12 +101,12 @@ public class FileSystemHelperTests
         var root = CreateTempDir();
         try
         {
-            WriteBytes(Path.Combine(root, "file.mkv"), 1000);
-            var sub = Directory.CreateDirectory(Path.Combine(root, "sub")).FullName;
-            WriteBytes(Path.Combine(sub, "file2.mkv"), 2000);
+            WriteBytes(Path.Join(root, "file.mkv"), 1000);
+            var sub = Directory.CreateDirectory(Path.Join(root, "sub")).FullName;
+            WriteBytes(Path.Join(sub, "file2.mkv"), 2000);
             try
             {
-                Directory.CreateSymbolicLink(Path.Combine(root, "linkdir"), sub);
+                Directory.CreateSymbolicLink(Path.Join(root, "linkdir"), sub);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
             {
@@ -126,10 +126,10 @@ public class FileSystemHelperTests
         var root = CreateTempDir();
         try
         {
-            WriteBytes(Path.Combine(root, "real.mkv"), 1000);
+            WriteBytes(Path.Join(root, "real.mkv"), 1000);
             try
             {
-                File.CreateSymbolicLink(Path.Combine(root, "ghost.mkv"), Path.Combine(root, "never-created.mkv"));
+                File.CreateSymbolicLink(Path.Join(root, "ghost.mkv"), Path.Join(root, "never-created.mkv"));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
             {
@@ -145,7 +145,7 @@ public class FileSystemHelperTests
     public void CalculateDirectorySize_NonExistentRoot_ReturnsZero()
     {
         // A path that does not exist triggers IOException on GetFiles; should return 0.
-        var missing = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var missing = Path.Join(Path.GetTempPath(), Path.GetRandomFileName());
 
         var result = FileSystemHelper.CalculateDirectorySize(missing);
 
@@ -157,7 +157,7 @@ public class FileSystemHelperTests
     {
         // Same semantics as the old mock-based test: a path that cannot be enumerated returns 0.
         // On CI we simulate this with a non-existent path (IOException is caught identically).
-        var inaccessible = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var inaccessible = Path.Join(Path.GetTempPath(), Path.GetRandomFileName());
 
         var result = FileSystemHelper.CalculateDirectorySize(inaccessible);
 
@@ -172,8 +172,8 @@ public class FileSystemHelperTests
         {
             foreach (var (subName, size) in new[] { ("a", 100), ("b", 200), ("c", 300) })
             {
-                var sub = Directory.CreateDirectory(Path.Combine(root, subName)).FullName;
-                WriteBytes(Path.Combine(sub, $"{subName}.mkv"), size);
+                var sub = Directory.CreateDirectory(Path.Join(root, subName)).FullName;
+                WriteBytes(Path.Join(sub, $"{subName}.mkv"), size);
             }
 
             var result = FileSystemHelper.CalculateDirectorySize(root);
