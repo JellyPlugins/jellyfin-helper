@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
@@ -15,22 +16,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public sealed class ScoringParityTests
 {
-    public static TheoryData<CandidateFeatures> ParityBatteries()
+    private static IEnumerable<CandidateFeatures> ParityBatteries()
     {
-        var data = new TheoryData<CandidateFeatures>
-        {
-            new CandidateFeatures(),
-            AllOnesFeatures()
-        };
+        yield return new CandidateFeatures();
+        yield return AllOnesFeatures();
 
-        var rng = new Random(12345);
         for (var i = 0; i < 25; i++)
         {
-            data.Add(RandomFeatures(rng));
+            yield return PseudoRandomFeatures(i);
         }
-
-        return data;
     }
+
+    // Deterministic pseudo-random value in [0, 1) from an integer seed (fractional
+    // multiples of the golden ratio). A plain counter sequence is used instead of
+    // System.Random: the values only need to look arbitrary for parity probing, and
+    // Random triggers security-analyzer noise about insecure RNGs.
+    private static double PseudoRandom(int seed) => (seed * 0.618033988749895) % 1.0;
 
     [Fact]
     public void FeatureIndex_DistinctCount_MatchesFeatureCount()
@@ -54,28 +55,26 @@ public sealed class ScoringParityTests
         Assert.InRange(score, 0.7, 0.95);
     }
 
-    [Theory]
-    [MemberData(nameof(ParityBatteries))]
-    public void Heuristic_Score_MatchesExplanationFinalScore(CandidateFeatures features)
+    [Fact]
+    public void Heuristic_Score_MatchesExplanationFinalScore()
     {
         var heuristic = CreateHeuristic();
 
-        var score = heuristic.Score(features);
-        var explanation = heuristic.ScoreWithExplanation(features);
-
-        Assert.Equal(score, explanation.FinalScore, 10);
+        foreach (var features in ParityBatteries())
+        {
+            Assert.Equal(heuristic.Score(features), heuristic.ScoreWithExplanation(features).FinalScore, 10);
+        }
     }
 
-    [Theory]
-    [MemberData(nameof(ParityBatteries))]
-    public void LearnedUntrained_Score_MatchesExplanationFinalScore(CandidateFeatures features)
+    [Fact]
+    public void LearnedUntrained_Score_MatchesExplanationFinalScore()
     {
         var learned = new LearnedScoringStrategy();
 
-        var score = learned.Score(features);
-        var explanation = learned.ScoreWithExplanation(features);
-
-        Assert.Equal(score, explanation.FinalScore, 10);
+        foreach (var features in ParityBatteries())
+        {
+            Assert.Equal(learned.Score(features), learned.ScoreWithExplanation(features).FinalScore, 10);
+        }
     }
 
     private static HeuristicScoringStrategy CreateHeuristic() =>
@@ -122,48 +121,48 @@ public sealed class ScoringParityTests
             GenreStudioIdfPrior = 1.0
         };
 
-    private static CandidateFeatures RandomFeatures(Random rng)
+    private static CandidateFeatures PseudoRandomFeatures(int index)
     {
-        double Next() => rng.NextDouble();
-        bool NextBool() => rng.NextDouble() > 0.5;
+        double Next(int salt) => PseudoRandom(index * 64 + salt);
+        bool NextBool(int salt) => Next(salt) > 0.5;
 
         return new CandidateFeatures
         {
-            GenreSimilarity = Next(),
-            CollaborativeScore = Next(),
-            CombinedCriticScore = Next(),
-            RecencyScore = Next(),
-            YearProximityScore = Next(),
-            GenreCount = rng.Next(0, 9),
-            IsSeries = NextBool(),
-            UserRatingScore = Next(),
-            CompletionRatio = Next(),
-            IsAbandoned = Next(),
-            HasUserInteraction = NextBool(),
-            PeopleSimilarity = Next(),
-            StudioMatch = NextBool(),
-            SeriesAffinity = Next(),
-            SeriesProgressionBoost = Next(),
-            PopularityScore = Next(),
-            DayOfWeekAffinity = Next(),
-            HourOfDayAffinity = Next(),
-            IsWeekend = NextBool(),
-            TagSimilarity = Next(),
-            GenreUnderexposure = Next(),
-            GenreDominanceRatio = Next(),
-            GenreAffinityGap = Next(),
-            LibraryAddedRecency = Next(),
-            ContentNearestNeighborScore = Next(),
-            LanguageAffinity = Next(),
-            CollectionProgressionBoost = Next(),
-            SubtitleLanguageAffinity = Next(),
-            FranchiseAffinity = Next(),
-            ProductionLocationAffinity = Next(),
-            InheritedTagSimilarity = Next(),
-            SeriesCompletability = Next(),
-            WriterAffinity = Next(),
-            BillingWeightedPeople = Next(),
-            GenreStudioIdfPrior = Next()
+            GenreSimilarity = Next(1),
+            CollaborativeScore = Next(2),
+            CombinedCriticScore = Next(3),
+            RecencyScore = Next(4),
+            YearProximityScore = Next(5),
+            GenreCount = (int)(Next(6) * 9),
+            IsSeries = NextBool(7),
+            UserRatingScore = Next(8),
+            CompletionRatio = Next(9),
+            IsAbandoned = Next(10),
+            HasUserInteraction = NextBool(11),
+            PeopleSimilarity = Next(12),
+            StudioMatch = NextBool(13),
+            SeriesAffinity = Next(14),
+            SeriesProgressionBoost = Next(15),
+            PopularityScore = Next(16),
+            DayOfWeekAffinity = Next(17),
+            HourOfDayAffinity = Next(18),
+            IsWeekend = NextBool(19),
+            TagSimilarity = Next(20),
+            GenreUnderexposure = Next(21),
+            GenreDominanceRatio = Next(22),
+            GenreAffinityGap = Next(23),
+            LibraryAddedRecency = Next(24),
+            ContentNearestNeighborScore = Next(25),
+            LanguageAffinity = Next(26),
+            CollectionProgressionBoost = Next(27),
+            SubtitleLanguageAffinity = Next(28),
+            FranchiseAffinity = Next(29),
+            ProductionLocationAffinity = Next(30),
+            InheritedTagSimilarity = Next(31),
+            SeriesCompletability = Next(32),
+            WriterAffinity = Next(33),
+            BillingWeightedPeople = Next(34),
+            GenreStudioIdfPrior = Next(35)
         };
     }
 }
