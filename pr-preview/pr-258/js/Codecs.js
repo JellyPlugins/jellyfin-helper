@@ -19,6 +19,13 @@ var _lastTouchEndTime = 0;
 // Guard so the row sync listener registers once
 var _codecRowSyncBound = false;
 
+// Shared scroll flag owned by Shared.js (same IIFE scope after ComposeConfigPage
+// concatenation, so this bare redeclaration binds to the same variable and is a
+// no-op at runtime). Declared here so per-file analyzers see an explicit
+// declaration at the assignment site below. Must stay a bare `var`: `let` would
+// throw "already declared" once concatenated with Shared.js.
+var _forceScrollOnPanelOpen;
+
 // SVG donut tooltip - reads rich data from _donutTooltipData
 function showDonutTooltip(container, evt, segment) {
     var tooltip = container.querySelector('.donut-tooltip');
