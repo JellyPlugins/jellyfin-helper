@@ -628,10 +628,10 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
-    public void BuildProfile_DuplicateItemId_ProcessedOnce()
+    public void BuildProfile_DuplicateItemId_DeduplicatesPeople()
     {
         // The same item id twice (overlapping movie/series queries) must not
-        // double-count people or genres.
+        // double-count people. Only the people profile deduplicates by id.
         var user = CreateTestUser("dupe");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var sharedId = Guid.NewGuid();

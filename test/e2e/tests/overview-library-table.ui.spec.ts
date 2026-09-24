@@ -1,8 +1,8 @@
 /**
  * Per-Library Breakdown table: the Other column (NFO + unrecognized sidecars)
  * and the conditional Books column keep every row gapless against its Total.
- * Base columns: Library, Type, Video, Audio, Subtitles, Images, Trickplay,
- * Other, Total - plus Books right before Total when a book library exists.
+ * Column order: Library, Type, Video, Audio, Images, [Books,] Subtitles,
+ * Trickplay, Other, Total.
  */
 import { test, expect } from '@playwright/test';
 import { openDashboard, switchTab, trackConsoleErrors } from './_ui-helpers.ts';
@@ -59,6 +59,37 @@ test('breakdown table is gapless with conditional Books column', async ({ page }
   const booksCell = await booksRow.locator('td').nth(booksIdx).textContent();
   const totalCell = await booksRow.locator('td').last().textContent();
   expect(booksCell, 'Books cell holds the whole Books total').toBe(totalCell);
+
+  // Every row's displayed category cells sum to its displayed Total: catches a
+  // renderer mapping the wrong field into a cell (cell count alone would not).
+  // formatBytes rounds to 2 decimals, so each parsed value carries up to half a
+  // unit-step of error - the bound below is the worst-case sum of those steps,
+  // tight enough to catch any dropped non-trivial category.
+  const byteUnits: Record<string, number> = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4 };
+  const parseCell = async (row: number, cell: number): Promise<{ bytes: number; bound: number }> => {
+    const text = ((await rows.nth(row).locator('td').nth(cell).textContent()) ?? '').trim();
+    const m = text.match(/^([\d.]+)\s+([KMGT]?B)$/);
+    expect(m, `row ${row} cell ${cell} parses as bytes (got ${JSON.stringify(text)})`).not.toBeNull();
+    const bytes = parseFloat(m![1]) * byteUnits[m![2]];
+    return { bytes, bound: 0.005 * byteUnits[m![2]] };
+  };
+  const rowCount = await rows.count();
+  for (let r = 0; r < rowCount; r++) {
+    let sum = 0;
+    let bound = 0;
+    // Category cells run from Video (index 2) to the cell before Total.
+    for (let c = 2; c < headerCount - 1; c++) {
+      const part = await parseCell(r, c);
+      sum += part.bytes;
+      bound += part.bound;
+    }
+    const total = await parseCell(r, headerCount - 1);
+    bound += total.bound;
+    expect(
+      Math.abs(sum - total.bytes),
+      `row ${r} categories sum to Total (sum ${sum}, total ${total.bytes})`,
+    ).toBeLessThanOrEqual(bound);
+  }
 
   const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
   expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);

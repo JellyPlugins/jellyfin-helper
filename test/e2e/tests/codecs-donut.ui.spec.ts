@@ -101,4 +101,32 @@ test.describe('codec donut touch tap', () => {
     const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
     expect(scriptErrors, scriptErrors.join('\n')).toHaveLength(0);
   });
+
+  test('tap in another chart clears the first chart tooltip', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await openSegments(page);
+    const containers = page.locator('#codecsContent .donut-container');
+    const chartCount = await containers.count();
+    expect(chartCount, 'need at least two donut charts').toBeGreaterThan(1);
+    // Both charts must offer a segment; an empty second chart means the scan or
+    // the stats pipeline broke - fail instead of skipping into a vacuous pass.
+    for (let c = 0; c < 2; c++) {
+      expect(
+        await containers.nth(c).locator('.donut-segment path').count(),
+        `chart ${c} must have segments on the fixture library`,
+      ).toBeGreaterThan(0);
+    }
+
+    await tapPath(containers.nth(0).locator('.donut-segment path').first());
+    const tooltipA = containers.nth(0).locator('.donut-tooltip.visible');
+    await expect(tooltipA.first()).toBeVisible({ timeout: 5_000 });
+
+    // Tapping chart B must not strand chart A's tooltip while the shared panel
+    // handler closes A's drill-down.
+    await tapPath(containers.nth(1).locator('.donut-segment path').first());
+    await expect(tooltipA).toHaveCount(0, { timeout: 5_000 });
+    await expect(containers.nth(1).locator('.donut-tooltip.visible').first()).toBeVisible({ timeout: 5_000 });
+    const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, scriptErrors.join('\n')).toHaveLength(0);
+  });
 });
