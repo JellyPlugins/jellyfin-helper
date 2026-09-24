@@ -278,7 +278,7 @@ plugin stays Active after every call).
 | Arr dropdown → reachability (is-ok); Compare → **successful** comparison card | `arr.ui.spec.ts` |
 | Recommendations user selector → WatchProfile response (documented status); sections toggle | `recommendations.ui.spec.ts` |
 | Overview **Scan Libraries** button → ScanLibraries + button re-enable lifecycle | `interactions.ui.spec.ts` |
-| Per-Library Breakdown **Other column** → header + gapless rows (9 cells each); Movies Other is non-zero from sidecar fixtures | `overview-library-table.ui.spec.ts` |
+| Per-Library Breakdown **Other + Books columns** → header + gapless rows; Movies Other is non-zero from sidecar fixtures; Books column appears with the book fixture holding its total | `overview-library-table.ui.spec.ts` |
 | Settings task-mode change → **quiet auto-save** PUT (no unsaved band) | `interactions.ui.spec.ts` |
 | Trends **insight cards** → expand + mutual-collapse | `interactions.ui.spec.ts` |
 | Settings Seerr **Test Connection** → POST /Seerr/Test (expands section, fills inputs) | `interactions.ui.spec.ts` |

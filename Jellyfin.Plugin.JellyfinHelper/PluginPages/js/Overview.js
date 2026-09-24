@@ -159,7 +159,15 @@ function fillOverviewData(data) {
     overviewHtml += '<div class="section-title">' + mi('library_books') + escHtml(T('perLibraryBreakdown', 'Per-Library Breakdown')) + '</div>';
     overviewHtml += '<div class="library-table-wrapper"><table class="library-table">';
     overviewHtml += '<thead><tr>';
-    overviewHtml += '<th>' + escHtml(T('library', 'Library')) + '</th><th>' + escHtml(T('type', 'Type')) + '</th><th>' + escHtml(T('video', 'Video')) + '</th><th>' + escHtml(T('audio', 'Audio')) + '</th><th>' + escHtml(T('subtitles', 'Subtitles')) + '</th><th>' + escHtml(T('images', 'Images')) + '</th><th>' + escHtml(T('trickplay', 'Trickplay')) + '</th><th>' + escHtml(T('other', 'Other')) + '</th><th>' + escHtml(T('total', 'Total')) + '</th>';
+    // Books column only when a book library exists (same gate as the Books stat
+    // card above): everywhere else it would be an all-zero column, and book
+    // files must not hide inside Other when books are actually present.
+    var hasBooks = (data.TotalBookFileCount || 0) > 0;
+    overviewHtml += '<th>' + escHtml(T('library', 'Library')) + '</th><th>' + escHtml(T('type', 'Type')) + '</th><th>' + escHtml(T('video', 'Video')) + '</th><th>' + escHtml(T('audio', 'Audio')) + '</th><th>' + escHtml(T('subtitles', 'Subtitles')) + '</th><th>' + escHtml(T('images', 'Images')) + '</th><th>' + escHtml(T('trickplay', 'Trickplay')) + '</th><th>' + escHtml(T('other', 'Other')) + '</th>';
+    if (hasBooks) {
+        overviewHtml += '<th>' + escHtml(T('books', 'Books')) + '</th>';
+    }
+    overviewHtml += '<th>' + escHtml(T('total', 'Total')) + '</th>';
     overviewHtml += '</tr></thead><tbody>';
 
     for (const lib of libraries) {
@@ -180,10 +188,14 @@ function fillOverviewData(data) {
         overviewHtml += '<td>' + formatBytes(lib.SubtitleSize) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.ImageSize) + '</td>';
         overviewHtml += '<td>' + formatBytes(lib.TrickplaySize) + '</td>';
-        // Other folds in NFO metadata and eBooks so every row sums exactly to its
-        // Total: TotalSize already covers all eight buckets server-side.
-        var otherSize = (lib.OtherSize || 0) + (lib.NfoSize || 0) + (lib.BookSize || 0);
+        // Other folds in NFO metadata and unrecognized sidecars. eBooks get their own
+        // Books column (when present) instead of hiding inside Other, so every row
+        // still sums exactly to its Total: TotalSize already covers all buckets server-side.
+        var otherSize = (lib.OtherSize || 0) + (lib.NfoSize || 0);
         overviewHtml += '<td>' + formatBytes(otherSize) + '</td>';
+        if (hasBooks) {
+            overviewHtml += '<td>' + formatBytes(lib.BookSize || 0) + '</td>';
+        }
         overviewHtml += '<td><strong>' + formatBytes(lib.TotalSize) + '</strong></td>';
         overviewHtml += '</tr>';
     }
