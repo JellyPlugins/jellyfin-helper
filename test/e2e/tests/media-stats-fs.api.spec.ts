@@ -2,6 +2,20 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, sleep } from '../setup/api-client.ts';
 
+interface LibrarySizes {
+  LibraryName: string;
+  VideoFileCount: number;
+  TotalSize: number;
+  VideoSize: number;
+  AudioSize: number;
+  SubtitleSize: number;
+  ImageSize: number;
+  TrickplaySize: number;
+  NfoSize: number;
+  BookSize: number;
+  OtherSize: number;
+}
+
 interface Stats {
   TotalVideoCodecs: Record<string, number>;
   TotalContainerFormats: Record<string, number>;
@@ -9,11 +23,11 @@ interface Stats {
   TotalVideoFileCount: number;
   TotalVideosWithoutSubtitles: number;
   TotalVideosWithoutSubtitlesPaths: string[];
-  Movies: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
-  TvShows: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
-  Music: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
-  Books: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
-  Other: Array<{ LibraryName: string; VideoFileCount: number; TotalSize: number }>;
+  Movies: LibrarySizes[];
+  TvShows: LibrarySizes[];
+  Music: LibrarySizes[];
+  Books: LibrarySizes[];
+  Other: LibrarySizes[];
   LibraryOrder: string[];
   Libraries?: unknown;
 }
@@ -112,5 +126,33 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
     for (const lib of libs) {
       expect(lib.TotalSize, `${lib.LibraryName} size non-negative`).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  test('per-library TotalSize equals the sum of all eight size buckets', async () => {
+    // The overview table's Other column folds Nfo + Other + Book so that every row
+    // sums exactly to its Total; this pins that byte-coherence per library.
+    const stats = await getStats();
+    const libs = allLibraries(stats);
+    expect(libs.length, 'libraries present').toBeGreaterThan(0);
+    for (const lib of libs) {
+      const parts =
+        lib.VideoSize + lib.AudioSize + lib.SubtitleSize + lib.ImageSize +
+        lib.TrickplaySize + lib.NfoSize + lib.BookSize + lib.OtherSize;
+      expect(lib.TotalSize, `${lib.LibraryName} TotalSize is the bucket sum`).toBe(parts);
+    }
+  });
+
+  test('movies carry other-size from sidecar fixtures, books carry book-size', async () => {
+    // gen-media.sh seeds .strm link files and an off-allowlist .mxf (both land in
+    // OtherSize) plus real EPUB/PDF books (BookSize) - the Other column is never
+    // vacuously zero on this fixture set.
+    const stats = await getStats();
+    const movies = stats.Movies.find((l) => l.LibraryName === 'Movies');
+    expect(movies, 'Movies library present').toBeDefined();
+    expect(movies!.OtherSize, 'Movies OtherSize covers .strm/.mxf/.txt fixtures').toBeGreaterThan(0);
+    expect(movies!.NfoSize, 'Movies NfoSize covers the movie.nfo fixture').toBeGreaterThan(0);
+    const books = stats.Books.find((l) => l.LibraryName === 'Books');
+    expect(books, 'Books library present').toBeDefined();
+    expect(books!.BookSize, 'Books BookSize covers EPUB/PDF fixtures').toBeGreaterThan(0);
   });
 });

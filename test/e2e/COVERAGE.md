@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **336 tests** (API + UI) across 53 spec files
+every UI interaction. **341 tests** (API + UI) across 54 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -278,6 +278,7 @@ plugin stays Active after every call).
 | Arr dropdown → reachability (is-ok); Compare → **successful** comparison card | `arr.ui.spec.ts` |
 | Recommendations user selector → WatchProfile response (documented status); sections toggle | `recommendations.ui.spec.ts` |
 | Overview **Scan Libraries** button → ScanLibraries + button re-enable lifecycle | `interactions.ui.spec.ts` |
+| Per-Library Breakdown **Other column** → header + gapless rows (9 cells each); Movies Other is non-zero from sidecar fixtures | `overview-library-table.ui.spec.ts` |
 | Settings task-mode change → **quiet auto-save** PUT (no unsaved band) | `interactions.ui.spec.ts` |
 | Trends **insight cards** → expand + mutual-collapse | `interactions.ui.spec.ts` |
 | Settings Seerr **Test Connection** → POST /Seerr/Test (expands section, fills inputs) | `interactions.ui.spec.ts` |
@@ -351,7 +352,10 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
   per-user file is pruned on the next run while the global files survive.
 - **Media statistics** (`media-stats-fs.api.spec.ts`): codec / resolution / health
   breakdowns match the KNOWN fixtures: H.264 / HEVC / MPEG-4 keys with positive
-  counts, sub-less clips reflected in the no-subtitle health count.
+  counts, sub-less clips reflected in the no-subtitle health count; per-library
+  `TotalSize` is the exact 8-bucket sum (Video/Audio/Subtitles/Images/Trickplay/
+  Nfo/Book/Other), Movies `OtherSize`/`NfoSize` and Books `BookSize` are positive
+  from the sidecar/book fixtures.
 - **Book library protection** (`books-protection.api.spec.ts`): a Book (eBook)
   library is TRACKED but NEVER deleted. Stats expose `Books` / `TotalBookFileCount`
   / `TotalBookFormats` with the KNOWN fixtures' `EPUB`+`PDF` keys (per-format counts
