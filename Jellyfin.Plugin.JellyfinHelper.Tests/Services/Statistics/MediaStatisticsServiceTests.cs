@@ -635,6 +635,47 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_BookLibraryWithMixedSidecars_BucketsStaySeparate()
+    {
+        // A real book folder holds more than eBooks: the cover lands in Images,
+        // book.nfo in NFO and notes.txt in Other - each bucket byte-exact, so the
+        // Overview row (Images / Books / Other cells) shows truthful numbers and
+        // the Total is their exact sum.
+        var libraryPath = TestPath("media", "books");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Books",
+            CollectionType = CollectionTypeOptions.books,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var epub = new FileSystemMetadata { FullName = TestPath("media", "books", "novel.epub"), Name = "novel.epub", Length = 2_000, IsDirectory = false };
+        var pdf = new FileSystemMetadata { FullName = TestPath("media", "books", "manual.pdf"), Name = "manual.pdf", Length = 3_000, IsDirectory = false };
+        var cbz = new FileSystemMetadata { FullName = TestPath("media", "books", "comic.cbz"), Name = "comic.cbz", Length = 5_000, IsDirectory = false };
+        var cover = new FileSystemMetadata { FullName = TestPath("media", "books", "cover.jpg"), Name = "cover.jpg", Length = 1_000, IsDirectory = false };
+        var nfo = new FileSystemMetadata { FullName = TestPath("media", "books", "book.nfo"), Name = "book.nfo", Length = 500, IsDirectory = false };
+        var notes = new FileSystemMetadata { FullName = TestPath("media", "books", "notes.txt"), Name = "notes.txt", Length = 250, IsDirectory = false };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([epub, pdf, cbz, cover, nfo, notes]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        var lib = result.Libraries[0];
+        Assert.Equal(10_000, lib.BookSize);
+        Assert.Equal(3, lib.BookFileCount);
+        Assert.Equal(1_000, lib.ImageSize);
+        Assert.Equal(1, lib.ImageFileCount);
+        Assert.Equal(500, lib.NfoSize);
+        Assert.Equal(1, lib.NfoFileCount);
+        Assert.Equal(250, lib.OtherSize);
+        Assert.Equal(1, lib.OtherFileCount);
+        Assert.Equal(11_750, lib.TotalSize);
+    }
+
+    [Fact]
     public void CalculateStatistics_EbookFiles_ProduceFormatBreakdown()
     {
         var libraryPath = TestPath("media", "books");
