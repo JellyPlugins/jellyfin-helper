@@ -15,7 +15,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
 
     public FolderBrowserServiceTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), "jfh-fb-" + Path.GetRandomFileName());
+        _tempRoot = Path.Join(Path.GetTempPath(), "jfh-fb-" + Path.GetRandomFileName());
         Directory.CreateDirectory(_tempRoot);
         _service = new FolderBrowserService(TestMockFactory.CreateLogger<FolderBrowserService>().Object);
     }
@@ -159,7 +159,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_NameContainingDotsButNotTraversal_IsAllowed()
     {
-        var folder = Path.Combine(_tempRoot, "my..folder");
+        var folder = Path.Join(_tempRoot, "my..folder");
         Directory.CreateDirectory(folder);
         Assert.Null(_service.ValidatePath(folder));
     }
@@ -167,7 +167,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_NameStartingWithMultipleDots_IsAllowed()
     {
-        var folder = Path.Combine(_tempRoot, "...secret");
+        var folder = Path.Join(_tempRoot, "...secret");
         Directory.CreateDirectory(folder);
         Assert.Null(_service.ValidatePath(folder));
     }
@@ -175,8 +175,8 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_SingleDotSegment_IsAllowed()
     {
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "sub"));
-        var path = Path.Combine(_tempRoot, "sub", ".");
+        Directory.CreateDirectory(Path.Join(_tempRoot, "sub"));
+        var path = Path.Join(_tempRoot, "sub", ".");
         Assert.Null(_service.ValidatePath(path));
     }
 
@@ -248,14 +248,14 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_NonExistentDirectory_ReturnsDoesNotExistError()
     {
-        var path = Path.Combine(_tempRoot, "does-not-exist-" + Guid.NewGuid());
+        var path = Path.Join(_tempRoot, "does-not-exist-" + Guid.NewGuid());
         Assert.Equal("Directory does not exist.", _service.ValidatePath(path));
     }
 
     [Fact]
     public void ValidatePath_DeepNonExistentPath_ReturnsDoesNotExistError()
     {
-        var path = Path.Combine(_tempRoot, "a", "b", "c", "d", "gone");
+        var path = Path.Join(_tempRoot, "a", "b", "c", "d", "gone");
         Assert.Equal("Directory does not exist.", _service.ValidatePath(path));
     }
 
@@ -266,7 +266,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_ValidNestedDirectory_ReturnsNull()
     {
-        var nested = Path.Combine(_tempRoot, "a", "b", "c");
+        var nested = Path.Join(_tempRoot, "a", "b", "c");
         Directory.CreateDirectory(nested);
         Assert.Null(_service.ValidatePath(nested));
     }
@@ -274,7 +274,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_PathPointsToFile_ReturnsMustBeDirectoryError()
     {
-        var filePath = Path.Combine(_tempRoot, "file.txt");
+        var filePath = Path.Join(_tempRoot, "file.txt");
         File.WriteAllText(filePath, "hello");
         Assert.Equal("Path must point to a directory.", _service.ValidatePath(filePath));
     }
@@ -289,7 +289,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void ValidatePath_UnicodeCharactersInName_IsAllowed()
     {
-        var folder = Path.Combine(_tempRoot, "München-测试-🎬");
+        var folder = Path.Join(_tempRoot, "München-测试-🎬");
         Directory.CreateDirectory(folder);
         Assert.Null(_service.ValidatePath(folder));
     }
@@ -347,7 +347,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_NonExistentPath_ReturnsError()
     {
-        var path = Path.Combine(_tempRoot, "missing-" + Guid.NewGuid());
+        var path = Path.Join(_tempRoot, "missing-" + Guid.NewGuid());
         var result = _service.GetChildren(path);
         Assert.NotNull(result.Error);
     }
@@ -355,7 +355,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_PathPointsToFile_ReturnsError()
     {
-        var filePath = Path.Combine(_tempRoot, "file.txt");
+        var filePath = Path.Join(_tempRoot, "file.txt");
         File.WriteAllText(filePath, "x");
         var result = _service.GetChildren(filePath);
         Assert.NotNull(result.Error);
@@ -377,9 +377,9 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_WithSubdirectories_ReturnsThemSortedCaseInsensitive()
     {
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "zebra"));
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "Alpha"));
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "middle"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "zebra"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "Alpha"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "middle"));
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -393,9 +393,9 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_SubdirectoryWithChildren_HasChildrenTrue()
     {
-        var parent = Path.Combine(_tempRoot, "parent");
+        var parent = Path.Join(_tempRoot, "parent");
         Directory.CreateDirectory(parent);
-        Directory.CreateDirectory(Path.Combine(parent, "child"));
+        Directory.CreateDirectory(Path.Join(parent, "child"));
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -407,7 +407,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_SubdirectoryWithoutChildren_HasChildrenFalse()
     {
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "leaf"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "leaf"));
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -418,10 +418,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_SubdirectoryWithOnlyFiles_HasChildrenFalse()
     {
-        var parent = Path.Combine(_tempRoot, "parent");
+        var parent = Path.Join(_tempRoot, "parent");
         Directory.CreateDirectory(parent);
-        File.WriteAllText(Path.Combine(parent, "a.txt"), "");
-        File.WriteAllText(Path.Combine(parent, "b.txt"), "");
+        File.WriteAllText(Path.Join(parent, "a.txt"), "");
+        File.WriteAllText(Path.Join(parent, "b.txt"), "");
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -432,9 +432,9 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_FilesInDirectory_AreNotIncluded()
     {
-        File.WriteAllText(Path.Combine(_tempRoot, "a.txt"), "");
-        File.WriteAllText(Path.Combine(_tempRoot, "b.txt"), "");
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "sub"));
+        File.WriteAllText(Path.Join(_tempRoot, "a.txt"), "");
+        File.WriteAllText(Path.Join(_tempRoot, "b.txt"), "");
+        Directory.CreateDirectory(Path.Join(_tempRoot, "sub"));
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -445,7 +445,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_ParentPath_IsSetCorrectly()
     {
-        var sub = Path.Combine(_tempRoot, "sub");
+        var sub = Path.Join(_tempRoot, "sub");
         Directory.CreateDirectory(sub);
 
         var result = _service.GetChildren(sub);
@@ -457,7 +457,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_EntryPathIsAbsoluteAndFull()
     {
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "child"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "child"));
         var result = _service.GetChildren(_tempRoot);
 
         var entry = Assert.Single(result.Directories);
@@ -471,7 +471,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
         var names = Enumerable.Range(0, 50).Select(i => $"dir_{i:D2}").ToArray();
         foreach (var n in names)
         {
-            Directory.CreateDirectory(Path.Combine(_tempRoot, n));
+            Directory.CreateDirectory(Path.Join(_tempRoot, n));
         }
 
         var result = _service.GetChildren(_tempRoot);
@@ -486,7 +486,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     public void GetChildren_UnicodeSubdirectory_IsReturned()
     {
         var folderName = "München-测试-🎬";
-        Directory.CreateDirectory(Path.Combine(_tempRoot, folderName));
+        Directory.CreateDirectory(Path.Join(_tempRoot, folderName));
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -501,7 +501,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
         // This test covers the Windows-only path where only Hidden+System dirs are filtered.
         if (!OperatingSystem.IsWindows()) return;
 
-        var hidden = Path.Combine(_tempRoot, ".hidden-normal");
+        var hidden = Path.Join(_tempRoot, ".hidden-normal");
         Directory.CreateDirectory(hidden);
 
         var result = _service.GetChildren(_tempRoot);
@@ -514,7 +514,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     public void GetChildren_DisabledLogger_StillReturnsResult()
     {
         var svc = new FolderBrowserService(TestMockFactory.CreateDisabledLogger<FolderBrowserService>().Object);
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "child"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "child"));
 
         var result = svc.GetChildren(_tempRoot);
 
@@ -525,7 +525,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_TrailingSeparator_IsHandledCorrectly()
     {
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "sub"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "sub"));
         var pathWithSep = _tempRoot + Path.DirectorySeparatorChar;
 
         var result = _service.GetChildren(pathWithSep);
@@ -552,11 +552,11 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_MixOfDirectoriesAndFiles_OnlyDirsReturned()
     {
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "d1"));
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "d2"));
-        File.WriteAllText(Path.Combine(_tempRoot, "f1.dat"), "");
-        File.WriteAllText(Path.Combine(_tempRoot, "f2.dat"), "");
-        File.WriteAllText(Path.Combine(_tempRoot, "f3.dat"), "");
+        Directory.CreateDirectory(Path.Join(_tempRoot, "d1"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "d2"));
+        File.WriteAllText(Path.Join(_tempRoot, "f1.dat"), "");
+        File.WriteAllText(Path.Join(_tempRoot, "f2.dat"), "");
+        File.WriteAllText(Path.Join(_tempRoot, "f3.dat"), "");
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -569,10 +569,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
     public void GetChildren_SubdirectoryContainingOnlyFileAndEmptySubdir_HasChildrenTrue()
     {
         // HasChildren means "there is at least one visible child DIRECTORY", regardless of files.
-        var parent = Path.Combine(_tempRoot, "parent");
+        var parent = Path.Join(_tempRoot, "parent");
         Directory.CreateDirectory(parent);
-        Directory.CreateDirectory(Path.Combine(parent, "sub"));
-        File.WriteAllText(Path.Combine(parent, "somefile.txt"), "");
+        Directory.CreateDirectory(Path.Join(parent, "sub"));
+        File.WriteAllText(Path.Join(parent, "somefile.txt"), "");
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -584,8 +584,8 @@ public sealed class FolderBrowserServiceTests : IDisposable
     public void GetChildren_SymlinkToDirectory_IsListedIfSupportedByOs()
     {
         // Creating symlinks may require elevation on Windows. Skip gracefully if not supported.
-        var target = Path.Combine(_tempRoot, "target");
-        var link = Path.Combine(_tempRoot, "link");
+        var target = Path.Join(_tempRoot, "target");
+        var link = Path.Join(_tempRoot, "link");
         Directory.CreateDirectory(target);
 
         try
@@ -613,13 +613,13 @@ public sealed class FolderBrowserServiceTests : IDisposable
     public void GetChildren_BrokenSymlink_DoesNotAbortListing()
     {
         // A dangling symlink target should not crash the listing - other siblings must still show up.
-        var validSibling = Path.Combine(_tempRoot, "valid");
-        var brokenLink = Path.Combine(_tempRoot, "broken-link");
+        var validSibling = Path.Join(_tempRoot, "valid");
+        var brokenLink = Path.Join(_tempRoot, "broken-link");
         Directory.CreateDirectory(validSibling);
 
         try
         {
-            Directory.CreateSymbolicLink(brokenLink, Path.Combine(_tempRoot, "missing-target"));
+            Directory.CreateSymbolicLink(brokenLink, Path.Join(_tempRoot, "missing-target"));
         }
         catch (IOException)
         {
@@ -641,8 +641,8 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_CalledTwice_ReturnsSameContentButDifferentInstances()
     {
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "x"));
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "y"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "x"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "y"));
 
         var a = _service.GetChildren(_tempRoot);
         var b = _service.GetChildren(_tempRoot);
@@ -659,7 +659,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     public void GetChildren_UnnormalizedButValidPath_NormalizesCurrentPath()
     {
         // Path with redundant separators should be normalized in the returned CurrentPath.
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "sub"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "sub"));
         var doubled = _tempRoot + Path.DirectorySeparatorChar + Path.DirectorySeparatorChar;
 
         var result = _service.GetChildren(doubled);
@@ -748,8 +748,8 @@ public sealed class FolderBrowserServiceTests : IDisposable
     public void GetChildren_SymlinkToDeletedTarget_ReturnsDoesNotExistError()
     {
         // Create a symlink, delete its target, then browse the symlink path.
-        var target = Path.Combine(_tempRoot, "target");
-        var link = Path.Combine(_tempRoot, "link");
+        var target = Path.Join(_tempRoot, "target");
+        var link = Path.Join(_tempRoot, "link");
         Directory.CreateDirectory(target);
 
         try
@@ -783,9 +783,9 @@ public sealed class FolderBrowserServiceTests : IDisposable
     {
         if (!OperatingSystem.IsWindows()) return;
 
-        var restricted = Path.Combine(_tempRoot, "no-access");
+        var restricted = Path.Join(_tempRoot, "no-access");
         Directory.CreateDirectory(restricted);
-        Directory.CreateDirectory(Path.Combine(restricted, "child"));
+        Directory.CreateDirectory(Path.Join(restricted, "child"));
 
         if (!TryDenyReadAccess(restricted))
         {
@@ -812,7 +812,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
         if (!OperatingSystem.IsWindows()) return;
 
         // Create a directory the current user cannot enter, then ask ValidatePath about it.
-        var parent = Path.Combine(_tempRoot, "locked");
+        var parent = Path.Join(_tempRoot, "locked");
         Directory.CreateDirectory(parent);
 
         if (!TryDenyReadAccess(parent))
@@ -900,10 +900,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
         // known-safe trash prefixes stay visible so admins can pick them as trash targets.
         if (OperatingSystem.IsWindows()) return;
 
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "movies"));
-        Directory.CreateDirectory(Path.Combine(_tempRoot, ".ssh"));
-        Directory.CreateDirectory(Path.Combine(_tempRoot, ".jellyfin-trash"));
-        Directory.CreateDirectory(Path.Combine(_tempRoot, ".Trash-1000"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "movies"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, ".ssh"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, ".jellyfin-trash"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, ".Trash-1000"));
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -935,8 +935,8 @@ public sealed class FolderBrowserServiceTests : IDisposable
         // A directory link whose OWN name is innocuous but that resolves to a sensitive root (/etc) must be filtered out of the listing by IsSystemOrHiddenCritical's reparse-point resolution - otherwise browsing into it would expose /etc's contents.
         if (OperatingSystem.IsWindows()) return;
 
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "movies"));
-        var link = Path.Combine(_tempRoot, "peek");
+        Directory.CreateDirectory(Path.Join(_tempRoot, "movies"));
+        var link = Path.Join(_tempRoot, "peek");
 
         try
         {
@@ -965,7 +965,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
         // ValidatePath's lexical IsSensitiveSystemPath check cannot see through a link whose own path is innocuous; the ResolveLinkTarget guard must dereference the final target and refuse a browse INTO a link that lands on /etc.
         if (OperatingSystem.IsWindows()) return;
 
-        var link = Path.Combine(_tempRoot, "innocuous-link");
+        var link = Path.Join(_tempRoot, "innocuous-link");
 
         try
         {
@@ -993,9 +993,9 @@ public sealed class FolderBrowserServiceTests : IDisposable
         // the unresolvable entry as critical and hide it, never aborting the listing.
         if (OperatingSystem.IsWindows()) return;
 
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "movies"));
-        var loopA = Path.Combine(_tempRoot, "loop-a");
-        var loopB = Path.Combine(_tempRoot, "loop-b");
+        Directory.CreateDirectory(Path.Join(_tempRoot, "movies"));
+        var loopA = Path.Join(_tempRoot, "loop-a");
+        var loopB = Path.Join(_tempRoot, "loop-b");
 
         try
         {
@@ -1026,8 +1026,8 @@ public sealed class FolderBrowserServiceTests : IDisposable
         // The SafeHiddenPrefixes comparison uses StringComparison.OrdinalIgnoreCase, so an upper-cased ".JELLYFIN-TRASH" must remain visible just like the lower-case form.
         if (OperatingSystem.IsWindows()) return;
 
-        Directory.CreateDirectory(Path.Combine(_tempRoot, ".JELLYFIN-TRASH"));
-        Directory.CreateDirectory(Path.Combine(_tempRoot, ".ssh"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, ".JELLYFIN-TRASH"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, ".ssh"));
 
         var result = _service.GetChildren(_tempRoot);
 
@@ -1043,9 +1043,9 @@ public sealed class FolderBrowserServiceTests : IDisposable
         // SafeHasSubdirectories filters children through IsSystemOrHiddenCritical, so a parent whose ONLY child directory is a hidden dot-dir (.ssh) must report HasChildren=false - the child exists on disk but is not a *visible* subdirectory.
         if (OperatingSystem.IsWindows()) return;
 
-        var parent = Path.Combine(_tempRoot, "parent");
+        var parent = Path.Join(_tempRoot, "parent");
         Directory.CreateDirectory(parent);
-        Directory.CreateDirectory(Path.Combine(parent, ".ssh"));
+        Directory.CreateDirectory(Path.Join(parent, ".ssh"));
 
         var result = _service.GetChildren(_tempRoot);
 
