@@ -283,11 +283,11 @@ TotalMusicAudioSize:_musicLib.AudioSize,
 TotalBookSize:_booksLib.BookSize,
 TotalBookFileCount:_booksLib.BookFileCount,
 TotalBookFormats:_booksLib.BookFormats,
-TotalTrickplaySize:_moviesLib.TrickplaySize+_tvLib.TrickplaySize,
-TotalSubtitleSize:_moviesLib.SubtitleSize+_tvLib.SubtitleSize,
+TotalTrickplaySize:_moviesLib.TrickplaySize+_tvLib.TrickplaySize+_musicLib.TrickplaySize+_booksLib.TrickplaySize,
+TotalSubtitleSize:_moviesLib.SubtitleSize+_tvLib.SubtitleSize+_musicLib.SubtitleSize+_booksLib.SubtitleSize,
 TotalImageSize:_moviesLib.ImageSize+_tvLib.ImageSize+_musicLib.ImageSize+_booksLib.ImageSize,
-TotalNfoSize:_moviesLib.NfoSize+_tvLib.NfoSize,
-TotalVideoFileCount:_moviesLib.VideoFileCount+_tvLib.VideoFileCount,
+TotalNfoSize:_moviesLib.NfoSize+_tvLib.NfoSize+_musicLib.NfoSize+_booksLib.NfoSize,
+TotalVideoFileCount:_moviesLib.VideoFileCount+_tvLib.VideoFileCount+_musicLib.VideoFileCount+_booksLib.VideoFileCount,
 TotalAudioFileCount:_musicLib.AudioFileCount,
 MovieRootPaths:["/SMB/media/movies"],TvShowRootPaths:["/SMB/media/tv"],MusicRootPaths:["/SMB/media/music"],BookRootPaths:["/SMB/media/books"],OtherRootPaths:[]
 };
@@ -310,7 +310,7 @@ RecommendationsTaskMode:"Activate",DiscoveryUserAccessEnabled:true,ConfigVersion
 };
 
 var MOCK_CLEANUP_STATS={TotalBytesFreed:8589934592,TotalItemsDeleted:247,LastCleanupTimestamp:new Date(Date.now()-86400000).toISOString()};
-var MOCK_HISTORY=(function(){var s=[],now=Date.now(),ev=_moviesLib.VideoFileCount+_tvLib.VideoFileCount,ea=_musicLib.AudioFileCount,es=_moviesLib.SubtitleSize+_tvLib.SubtitleSize,eo=_moviesLib.OtherSize+_tvLib.OtherSize;for(var i=30;i>=0;i--){var d=new Date(now-i*86400000);s.push({Timestamp:d.toISOString(),TotalVideoSize:Math.round((_moviesLib.VideoSize+_tvLib.VideoSize)*(0.7+0.3*(30-i)/30)),TotalAudioSize:Math.round(_musicLib.AudioSize*(0.7+0.3*(30-i)/30)),TotalSubtitleSize:Math.round(es*(0.7+0.3*(30-i)/30)),TotalImageSize:720000,TotalNfoSize:36000,TotalTrickplaySize:Math.round((_moviesLib.TrickplaySize+_tvLib.TrickplaySize)*(0.7+0.3*(30-i)/30)),TotalOtherSize:Math.round(eo*(0.7+0.3*(30-i)/30)),TotalVideoFileCount:Math.round(ev*(0.7+0.3*(30-i)/30)),TotalAudioFileCount:Math.round(ea*(0.7+0.3*(30-i)/30)),TotalSize:Math.round((_moviesLib.TotalSize+_tvLib.TotalSize+_musicLib.TotalSize+_booksLib.TotalSize)*(0.7+0.3*(30-i)/30)),LibraryCount:4});}return s;})();
+var MOCK_HISTORY=(function(){var s=[],now=Date.now(),ev=_moviesLib.VideoFileCount+_tvLib.VideoFileCount,ea=_musicLib.AudioFileCount,es=_moviesLib.SubtitleSize+_tvLib.SubtitleSize+_musicLib.SubtitleSize+_booksLib.SubtitleSize,eo=_moviesLib.OtherSize+_tvLib.OtherSize+_musicLib.OtherSize+_booksLib.OtherSize,ei=_moviesLib.ImageSize+_tvLib.ImageSize+_musicLib.ImageSize+_booksLib.ImageSize,en=_moviesLib.NfoSize+_tvLib.NfoSize+_musicLib.NfoSize+_booksLib.NfoSize;for(var i=30;i>=0;i--){var d=new Date(now-i*86400000);s.push({Timestamp:d.toISOString(),TotalVideoSize:Math.round((_moviesLib.VideoSize+_tvLib.VideoSize)*(0.7+0.3*(30-i)/30)),TotalAudioSize:Math.round(_musicLib.AudioSize*(0.7+0.3*(30-i)/30)),TotalSubtitleSize:Math.round(es*(0.7+0.3*(30-i)/30)),TotalImageSize:Math.round(ei*(0.7+0.3*(30-i)/30)),TotalNfoSize:Math.round(en*(0.7+0.3*(30-i)/30)),TotalTrickplaySize:Math.round((_moviesLib.TrickplaySize+_tvLib.TrickplaySize)*(0.7+0.3*(30-i)/30)),TotalOtherSize:Math.round(eo*(0.7+0.3*(30-i)/30)),TotalVideoFileCount:Math.round(ev*(0.7+0.3*(30-i)/30)),TotalAudioFileCount:Math.round(ea*(0.7+0.3*(30-i)/30)),TotalSize:Math.round((_moviesLib.TotalSize+_tvLib.TotalSize+_musicLib.TotalSize+_booksLib.TotalSize)*(0.7+0.3*(30-i)/30)),LibraryCount:4});}return s;})();
 
 var MOCK_TRASH_CONTENTS={RetentionDays:30,Libraries:[
 {LibraryName:"Movies",Items:[{OriginalName:"Old Movie (1995)",Size:4294967296,TrashedDate:new Date(Date.now()-172800000).toISOString(),PurgeDate:new Date(Date.now()+2419200000).toISOString(),IsDirectory:true},{OriginalName:"Duplicate.mkv",Size:2147483648,TrashedDate:new Date(Date.now()-604800000).toISOString(),PurgeDate:new Date(Date.now()+1987200000).toISOString(),IsDirectory:false}]},
