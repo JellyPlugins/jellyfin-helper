@@ -68,6 +68,15 @@
     --max-width-dialog: 550px;
 }
 
+/* Light scheme keeps the blue thumb visible on white. Declared after :root:
+   equal specificity means the later rule wins, so this must not move up. */
+@media (prefers-color-scheme: light) {
+    :root {
+        --color-primary-scrollbar: rgba(0, 136, 184, 0.55);
+        --color-primary-scrollbar-hover: rgba(0, 136, 184, 0.75);
+    }
+}
+
 /* Utility classes */
 .color-primary {
     color: var(--color-primary);
@@ -297,6 +306,7 @@
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
 .tab-bar::-webkit-scrollbar {
@@ -497,6 +507,8 @@
     margin-top: var(--spacing-md);
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--color-primary-border);
     border-radius: var(--radius-lg);
@@ -545,6 +557,12 @@
     border-radius: 10px;
 }
 
+.file-tree-capped {
+    font-size: 0.8em;
+    opacity: 0.75;
+    padding: 0.15em 0.5em;
+}
+
 /* File List Columns (Movies / TV Shows / Music split) */
 .file-tree-columns {
     display: flex;
@@ -586,11 +604,48 @@
     font-size: 0.85em;
 }
 
-/* Tree View Styles */
+.file-tree-section-actions {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 0.4em;
+    flex-shrink: 0;
+}
+
+/* Tree View Styles. Every tree scrolls on both axes like the drill-downs:
+   names never wrap, so touch devices can always scroll to the full name. */
 .tree-view {
     font-family: monospace;
     text-align: left;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
+
+.tree-view::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.tree-view::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tree-view::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 3px;
+}
+
+.tree-view::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
+}
+
+.tree-view .tree-name {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+}
+
+
 
 .file-tree-empty {
     text-align: center;
@@ -603,6 +658,11 @@
     margin-left: 1em;
     border-left: 1px solid var(--color-border-light);
     min-width: 0;
+    /* The indent must not spill past the container: with border-box the width
+       calc below lands exactly on the content edge under every box model, so a
+       scrollbar appears only for genuinely wide content, never for indentation. */
+    box-sizing: border-box;
+    width: calc(100% - 1em);
 }
 
 .tree-folder {
@@ -671,6 +731,11 @@
     border-left: 1px solid var(--color-border-light);
     font-size: 0.9em;
     min-width: 0;
+    /* Same indent compensation as .tree-node: nowrap file names still spill
+       visibly past this box and scroll the tree-view, but short rows never
+       force a scrollbar by themselves. */
+    box-sizing: border-box;
+    width: calc(100% - 1.2em);
 }
 
 .tree-leaf:hover {
@@ -686,9 +751,7 @@
 
 .tree-leaf-file-name {
     white-space: nowrap;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
 }
 
 /* Per-file detail (e.g. real pixel dimensions) shown at the end of a tree leaf. Sits to

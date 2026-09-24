@@ -6,7 +6,8 @@ var _lastCodecData = null;
 // Tooltip data store - avoids complex string parsing in DOM attributes
 var _donutTooltipData = {};
 
-// Track which segment currently shows a tooltip (for mobile tap-to-show, tap-again-to-click)
+// Track which segment currently shows a tooltip (cleared by tapping outside
+// any segment, switching segments, or rescanning)
 var _activeTooltipSegmentId = null;
 
 // Guard: prevent duplicate document-level touchstart listener registration
@@ -17,6 +18,16 @@ var _lastTouchEndTime = 0;
 
 // Guard so the row sync listener registers once
 var _codecRowSyncBound = false;
+
+// Shared scroll flag owned by Shared.js (same IIFE scope after ComposeConfigPage
+// concatenation, so this bare redeclaration binds to the same variable and is a
+// no-op at runtime). Declared here so per-file analyzers see an explicit
+// declaration at the assignment site below. Must stay a bare `var`: `let` would
+// throw "already declared" once concatenated with Shared.js.
+var _forceScrollOnPanelOpen;
+// Touch companion to the flag above: skips the fresh-panel scroll so tooltip and
+// tapped segment stay in view. Same shared-scope mechanics and constraints.
+var _suppressScrollOnPanelOpen;
 
 // SVG donut tooltip - reads rich data from _donutTooltipData
 function showDonutTooltip(container, evt, segment) {
@@ -90,8 +101,27 @@ function hideDonutTooltip(container) {
     }
 }
 
-// Trigger the matching codec-row click for a donut segment
-function triggerCodecRowForSegment(segment) {
+// Whether this segment's drill-down panel is currently open. DOM truth beats
+// the tooltip variable: any outside tap or rescan may have cleared the variable
+// while the panel stayed open, and only the row knows for sure.
+function isSegmentPanelOpen(segment) {
+    var chartBox = segment.closest ? segment.closest('.chart-box') : null;
+    if (!chartBox || !segment.dataset) {
+        return false;
+    }
+    var codecName = segment.dataset.codec;
+    var rows = chartBox.querySelectorAll('.codec-clickable');
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i].dataset.codec === codecName) {
+            return rows[i].classList.contains('codec-row-active');
+        }
+    }
+    return false;
+}
+
+// Trigger the matching codec-row click for a donut segment. Touch passes
+// suppressScroll so the tooltip and the tapped segment stay in view.
+function triggerCodecRowForSegment(segment, suppressScroll) {
     var chartBox = segment.closest('.chart-box');
     if (!chartBox) {
         return;
@@ -101,11 +131,13 @@ function triggerCodecRowForSegment(segment) {
         return;
     }
     var rows = chartBox.querySelectorAll('.codec-clickable');
-    for (var i = 0; i < rows.length; i++) {
-        if (rows[i].dataset.codec === codecName) {
-            // Force scroll when triggered from donut (user clicked far above the panel)
-            _forceScrollOnPanelOpen = true;
-            rows[i].click();
+    for (const row of rows) {
+        if (row.dataset.codec === codecName) {
+            // Force scroll when triggered from donut (user clicked far above the panel),
+            // unless the touch path opts out to keep tooltip and segment in view.
+            _forceScrollOnPanelOpen = !suppressScroll;
+            _suppressScrollOnPanelOpen = !!suppressScroll;
+            row.click();
             return;
         }
     }
@@ -589,35 +621,47 @@ function attachDonutHoverTooltips() {
                     triggerCodecRowForSegment(this.closest('.donut-segment'));
                 });
 
-                // Mobile: first tap shows tooltip, second tap triggers click
+                // Mobile: one tap shows the tooltip and opens the drill-down
+                // together - there is no hover on touch, so splitting them
+                // across two taps only confuses. Tapping its segment while
+                // open dismisses both (toggle off). The panel state decides,
+                // not the tooltip variable, so a cleared variable can never
+                // strand an open panel with a stuck tooltip.
                 paths[i].addEventListener('touchend', function (evt) {
                     evt.preventDefault();
                     _lastTouchEndTime = Date.now();
                     var seg = this.closest('.donut-segment');
                     var segId = seg.dataset.segmentId;
 
-                    if (_activeTooltipSegmentId === segId) {
-                        // Second tap on same segment - trigger the click action
+                    if (isSegmentPanelOpen(seg)) {
                         seg.classList.remove('donut-segment-hover');
                         hideDonutTooltip(container);
                         _activeTooltipSegmentId = null;
-                        triggerCodecRowForSegment(seg);
-                    } else {
-                        // First tap - show tooltip + highlight
-                        // Remove highlight from any previously highlighted segment
-                        var prevHighlighted = container.querySelectorAll('.donut-segment-hover');
-                        for (var h = 0; h < prevHighlighted.length; h++) {
-                            prevHighlighted[h].classList.remove('donut-segment-hover');
-                        }
-                        seg.classList.add('donut-segment-hover');
-                        // Create a synthetic position from touch coordinates
-                        var touch = evt.changedTouches?.[0];
-                        var syntheticEvt = touch
-                            ? {clientX: touch.clientX, clientY: touch.clientY}
-                            : evt;
-                        showDonutTooltip(container, syntheticEvt, seg);
-                        _activeTooltipSegmentId = segId;
+                        triggerCodecRowForSegment(seg, true);
+                        return;
                     }
+                    // Remove highlight from any previously highlighted segment
+                    // Clear tooltip and highlight state from ALL charts first: tapping
+                    // here must not strand another chart's tooltip while the shared
+                    // panel handler closes its drill-down (the outside-tap listener
+                    // above only fires for taps outside any segment).
+                    var allDonutContainers = document.querySelectorAll('.donut-container');
+                    for (const donutContainer of allDonutContainers) {
+                        hideDonutTooltip(donutContainer);
+                        var prevHighlighted = donutContainer.querySelectorAll('.donut-segment-hover');
+                        for (const highlighted of prevHighlighted) {
+                            highlighted.classList.remove('donut-segment-hover');
+                        }
+                    }
+                    seg.classList.add('donut-segment-hover');
+                    // Create a synthetic position from touch coordinates
+                    var touch = evt.changedTouches?.[0];
+                    var syntheticEvt = touch
+                        ? {clientX: touch.clientX, clientY: touch.clientY}
+                        : evt;
+                    showDonutTooltip(container, syntheticEvt, seg);
+                    _activeTooltipSegmentId = segId;
+                    triggerCodecRowForSegment(seg, true);
                 });
             }
             // Keyboard: segments are focusable buttons mirroring the rows below.

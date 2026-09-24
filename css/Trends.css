@@ -279,7 +279,10 @@
     padding: 10px 16px 14px;
     border-color: rgba(255, 255, 255, 0.08);
     margin-top: 8px;
-    overflow-y: auto;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
 /* Tree inside panels */

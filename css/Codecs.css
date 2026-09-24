@@ -488,7 +488,20 @@
     max-height: 220px;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     padding: 0.3em 0;
+}
+
+/* Library names need room, so the panel grows past the toggle and only the
+   viewport caps it. Names crop only when space truly runs out. */
+[data-library-widget] .codec-multi-panel {
+    left: 0;
+    right: auto;
+    width: max-content;
+    min-width: 100%;
+    max-width: min(22em, calc(100vw - 3em));
+    overflow-x: auto;
 }
 
 .codec-multi-item {
@@ -597,6 +610,8 @@
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
     padding: 0.4em;
     overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
 .codec-filter-dim {
@@ -815,18 +830,37 @@
     padding: 0.2em;
 }
 
-/* Explorer results scroll per section instead of one shared panel scroll, so
-   Movies, Shows and Books side by side each keep their own scroll position. */
-#codecExplorerResults .file-tree-panel-visible {
+/* Explorer results: each section scrolls independently with blue scrollbars. */
+#codecExplorerResults .file-tree-panel.file-tree-panel-visible {
     max-height: none;
     overflow: visible;
+}
+
+#codecExplorerResults .file-tree-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.8em;
+    align-items: start;
+}
+
+@media (max-width: 700px) {
+    #codecExplorerResults .file-tree-columns,
+    #codecExplorerResults .file-tree-columns.file-tree-multi {
+        grid-template-columns: 1fr;
+    }
 }
 
 #codecExplorerResults .file-tree-section {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    max-height: 320px;
+    min-width: 0;
+    max-height: 400px;
+    overflow: hidden;
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-md);
+    background: rgba(255,255,255,0.02);
+    padding: 0.4em;
 }
 
 #codecExplorerResults .file-tree-section-header {
@@ -836,16 +870,20 @@
 #codecExplorerResults .file-tree-section .tree-view {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
+    overflow: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     scrollbar-width: thin;
     scrollbar-color: var(--color-primary-scrollbar) transparent;
+    scrollbar-gutter: stable;
 }
 
-/* Same slim look as the drill down panels, so all trees match. */
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
 }
+
+
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-track {
     background: transparent;
@@ -858,21 +896,6 @@
 
 #codecExplorerResults .file-tree-section .tree-view::-webkit-scrollbar-thumb:hover {
     background: var(--color-primary-scrollbar-hover);
-}
-
-/* One column can hold a tall single-section tree (e.g. a type-scoped library).
-   Capping the wrapper keeps it scrollable like the drill downs. */
-#codecExplorerResults .file-tree-panel-visible {
-    max-height: 500px;
-}
-
-#codecExplorerResults .file-tree-columns {
-    display: block;
-}
-
-#codecExplorerResults .file-tree-columns.file-tree-multi {
-    display: grid;
-    align-items: stretch;
 }
 
 /* Per-file detail card inside explorer results (toggle by clicking the file row). */
@@ -985,10 +1008,44 @@
 }
 
 @media (max-width: 700px) {
-    /* Full width keeps long summaries like Alle Bibliotheken free of cropping. */
-    .codec-filter-bar .codec-multi {
-        flex: 1 1 100%;
+    .codec-filter-bar {
+        gap: 0.5em;
+    }
+    .codec-filter-bar > [data-library-widget] {
+        flex: 1 1 auto;
+        max-width: 70%;
+        min-width: 140px;
+    }
+    .codec-filter-bar > [data-library-widget] .codec-multi-summary {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .codec-filter-add {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+    }
+
+    /* The add button sits at the right edge of the bar on phones, so a
+       left-anchored popover spills past the viewport (280px min-width from
+       the button's left edge). Anchor it to the button's right edge instead
+       so it opens leftwards and stays on screen, in list and editor states. */
+    .codec-filter-pop {
+        left: auto;
+        right: 0;
         min-width: 0;
+        width: max-content;
+        max-width: calc(100vw - 2em);
+    }
+
+    .codec-filter-add-btn {
+        min-height: 34px;
+        padding: 0.32em 0.9em;
+        font-size: 0.8em;
+        display: inline-flex;
+        align-items: center;
+        line-height: 1.2;
     }
 
     .codec-bitrate-row {
@@ -1004,11 +1061,34 @@
         min-height: 44px;
     }
 
-    /* Buttons never trigger auto zoom, so the toggle stays slim on phones. */
-    .codec-multi-toggle {
-        min-height: 32px;
-        padding: 0.24em 0.55em;
-        font-size: 0.82em;
+    /* Library picker: compact but vertically centered. Scoped to the bar widget
+       so popover editors keep their own sizing. */
+    .codec-filter-bar > [data-library-widget] .codec-multi-toggle {
+        min-height: 34px;
+        padding: 0.32em 0.6em;
+        font-size: 0.8em;
+        line-height: 1.2;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.4em;
+    }
+
+    .codec-multi-toggle .codec-multi-summary {
+        line-height: 1.2;
+        display: flex;
+        align-items: center;
+    }
+
+    .codec-multi-summary {
+        font-size: 0.9em;
+        opacity: 0.9;
+    }
+
+    .codec-multi-chevron {
+        font-size: 0.85em;
+        opacity: 0.6;
     }
 
     .codec-multi-item {
@@ -1036,6 +1116,12 @@
     .codec-multi-panel {
         background: #ffffff;
         border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    #codecExplorerResults .file-tree-section {
+        background: #ffffff;
+        border-color: rgba(0, 0, 0, 0.1);
     }
 
     /* noinspection CssUnusedSymbol */

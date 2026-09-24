@@ -20,9 +20,7 @@ const CODEC_BITRATE_HISTOGRAM_BIN = 4;
 // Guard: the deep-link and panel-close handlers are registered once at document level.
 let _codecExploreLinkBound = false;
 
-// Upper bound for rendered result files. The tree renders every leaf eagerly, so an
-// unbounded 10k-file result would freeze low-end phones. The hint tells how to narrow down.
-const CODEC_EXPLORER_MAX_FILES = 300;
+
 
 // Library type scopes (used by Overview cards and the scope dropdown).
 const CODEC_EXPLORER_TYPE_MOVIES = 'type:movies';
@@ -787,7 +785,8 @@ function buildCodecsExplorerMulti(dim) {
     html += '<button type="button" class="codec-multi-toggle" id="codecMultiToggle_' + escAttr(dim.id) + '" data-multi-toggle="' + escAttr(dim.id) + '"'
         + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-labelledby="codecMultiLabel_' + escAttr(dim.id) + '"'
         + (disabled ? ' disabled' : '') + '>';
-    html += '<span class="codec-multi-summary">' + escHtml(explorerMultiSummary(selected, isCodecsExplorerExcluded(dim.id))) + '</span>';
+    const dimSummary = explorerMultiSummary(selected, isCodecsExplorerExcluded(dim.id));
+    html += '<span class="codec-multi-summary" title="' + escAttr(dimSummary) + '">' + escHtml(dimSummary) + '</span>';
     html += '<span class="codec-multi-chevron" aria-hidden="true">›</span></button>';
     html += '<div class="codec-multi-panel" data-multi-panel="' + escAttr(dim.id) + '"' + (open ? '' : ' hidden') + '>';
     for (let index = 0; index < visible.length; index++) {
@@ -806,18 +805,24 @@ function buildCodecsExplorerMulti(dim) {
     return html;
 }
 
-// Total media files of one library, used as the scope option count. Mirrors exactly
-// what the scope listing can show (FileSizes covers video, audio and books only).
+// Total media files of one library, used as the scope option count. FileSizes
+// holds every classified video, music-audio, and eBook file, so its key count
+// mirrors exactly what the scope listing can show, for every library type.
 function countLibraryFiles(lib) {
-    return (lib.VideoFileCount || 0) + (lib.AudioFileCount || 0) + (lib.BookFileCount || 0);
+    const sizes = lib.FileSizes || lib.fileSizes || {};
+    return Object.keys(sizes).length;
 }
 
 // Library scope as a multi-dropdown: no selection means all libraries, otherwise the
 // selected libraries are combined. An explicitly empty scope (pruned names) shows
-// its own state instead of pretending to be all libraries.
+// its own state instead of pretending to be all libraries. Boxsets
+// are never a useful scope for codec search and stay hidden.
 // Mirrors the dimension multi-dropdowns.
 function buildCodecsExplorerLibraryMulti() {
-    const libs = getCodecsExplorerLibraries();
+    const allLibs = getCodecsExplorerLibraries();
+    const libs = allLibs.filter(function (lib) {
+        return (lib.CollectionType || lib.collectionType || '').toLowerCase() !== 'boxsets';
+    });
     const selected = _codecsExplorerState.libraries || [];
     const disabled = libs.length === 0;
     const open = _codecMultiOpen === 'libraries' && !disabled;
@@ -828,7 +833,8 @@ function buildCodecsExplorerLibraryMulti() {
     html += '<button type="button" class="codec-multi-toggle" id="codecMultiToggle_libraries" data-library-toggle="1"'
         + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-labelledby="codecMultiLabel_libraries"'
         + (disabled ? ' disabled' : '') + '>';
-    html += '<span class="codec-multi-summary">' + escHtml(libraryMultiSummary(selected, _codecsExplorerState.libraries !== null && selected.length === 0)) + '</span>';
+    const scopeSummary = libraryMultiSummary(selected, _codecsExplorerState.libraries !== null && selected.length === 0);
+    html += '<span class="codec-multi-summary" title="' + escAttr(scopeSummary) + '">' + escHtml(scopeSummary) + '</span>';
     html += '<span class="codec-multi-chevron" aria-hidden="true">›</span></button>';
     html += '<div class="codec-multi-panel" data-library-panel="1"' + (open ? '' : ' hidden') + '>';
     for (let index = 0; index < libs.length; index++) {
@@ -1217,24 +1223,60 @@ function toggleExplorerFileDetail(leaf) {
     leaf.setAttribute('aria-expanded', 'true');
 }
 
+// Delegated from the results host, so leaves materialized later by on-demand
+// tree expansion open detail cards without rebinding. Idempotent per host.
 function bindExplorerFileDetails(host) {
+    if (!host) {
+        return;
+    }
+    // Leaves of the current render arrive keyboard-ready right away; later
+    // renders repeat this while the listeners below attach only once.
     for (const leaf of host.querySelectorAll('.tree-leaf')) {
-        if (leaf.dataset.detailBound) {
-            continue;
-        }
-        leaf.dataset.detailBound = '1';
-        leaf.setAttribute('tabindex', '0');
-        leaf.setAttribute('role', 'button');
-        leaf.setAttribute('aria-expanded', 'false');
-        leaf.addEventListener('click', function () {
-            toggleExplorerFileDetail(leaf);
-        });
-        leaf.addEventListener('keydown', function (evt) {
-            if (evt.key === 'Enter' || evt.key === ' ') {
-                evt.preventDefault();
-                toggleExplorerFileDetail(leaf);
+        prepareExplorerLeaf(leaf);
+    }
+    if (host.dataset.detailBound === '1') {
+        return;
+    }
+    host.dataset.detailBound = '1';
+    // Leaves materialized later by on-demand tree expansion arrive keyboard-
+    // ready through the bubbled render notification.
+    host.addEventListener('jfTreeChildren', function (evt) {
+        const holder = evt.target;
+        if (holder?.querySelectorAll) {
+            for (const leaf of holder.querySelectorAll('.tree-leaf')) {
+                prepareExplorerLeaf(leaf);
             }
-        });
+        }
+    });
+    host.addEventListener('click', function (evt) {
+        const leaf = evt.target?.closest?.('.tree-leaf') ?? null;
+        if (leaf && host.contains(leaf)) {
+            prepareExplorerLeaf(leaf);
+            toggleExplorerFileDetail(leaf);
+        }
+    });
+    host.addEventListener('keydown', function (evt) {
+        if (evt.key !== 'Enter' && evt.key !== ' ') {
+            return;
+        }
+        const leaf = evt.target?.closest?.('.tree-leaf') ?? null;
+        if (leaf && host.contains(leaf)) {
+            evt.preventDefault();
+            prepareExplorerLeaf(leaf);
+            toggleExplorerFileDetail(leaf);
+        }
+    });
+}
+
+function prepareExplorerLeaf(leaf) {
+    if (!leaf || leaf.dataset.detailReady === '1') {
+        return;
+    }
+    leaf.dataset.detailReady = '1';
+    leaf.setAttribute('tabindex', '0');
+    leaf.setAttribute('role', 'button');
+    if (!leaf.hasAttribute('aria-expanded')) {
+        leaf.setAttribute('aria-expanded', 'false');
     }
 }
 
@@ -1301,13 +1343,10 @@ function runCodecsExplorerSearch() {
         host.innerHTML = html;
         return;
     }
-    const truncated = outcome.paths.length > CODEC_EXPLORER_MAX_FILES;
-    const shown = truncated ? outcome.paths.slice(0, CODEC_EXPLORER_MAX_FILES) : outcome.paths;
-    if (truncated) {
-        html += '<p class="codec-explorer-truncated">' + escHtml(T('explorerTruncated', 'Showing first {count} matches — refine filters to narrow down.')
-            .replace('{count}', String(CODEC_EXPLORER_MAX_FILES))) + '</p>';
-    }
-    const split = groupExplorerResults(shown);
+    // The full filtered set renders as a lazy tree: only top-level shells reach
+    // the DOM, children materialize on expand. Counts are always truthful and
+    // every file stays reachable without continuation buttons.
+    const split = groupExplorerResults(outcome.paths);
     html += '<div class="file-tree-panel file-tree-panel-visible">';
     html += renderFileTree(
         {movies: split.grouped.movies, tvShows: split.grouped.tvShows, music: split.grouped.music, books: split.grouped.books, other: split.grouped.other, rootPaths: split.roots},
@@ -1318,6 +1357,8 @@ function runCodecsExplorerSearch() {
     bindFileTreeHandlers(host);
     bindExplorerFileDetails(host);
 }
+
+
 
 // Remembers the focused control across the rebuild so keyboard and touch users keep
 // their place while option lists update around them.
@@ -1935,11 +1976,19 @@ function pruneBitrateRange() {
 function pruneExplorerScopeNames(libs, names) {
     const known = [];
     for (const name of names) {
-        if (libs.some(function (lib) {
-            return lib.LibraryName === name;
-        })) {
-            known.push(name);
+        const lib = libs.find(function (candidate) {
+            return candidate.LibraryName === name;
+        });
+        if (!lib) {
+            continue;
         }
+        // Boxsets never appear in the scope picker, so a scope naming one
+        // (e.g. via an Overview deep link) would trap the search behind a
+        // checkbox that does not exist. Drop it, keep every other selection.
+        if ((lib.CollectionType || lib.collectionType || '').toLowerCase() === 'boxsets') {
+            continue;
+        }
+        known.push(name);
     }
     return known;
 }

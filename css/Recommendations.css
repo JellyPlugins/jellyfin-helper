@@ -235,6 +235,9 @@
     opacity: 1;
     padding: 0.8em 0.5em;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
 /* Read-only shared-model state, rendered as a small unobtrusive footnote at the bottom of the tab. */
@@ -768,7 +771,10 @@
     display: flex;
     flex-direction: column;
     gap: 0.4em;
-    overflow-y: auto;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-primary-scrollbar) transparent;
     max-height: 40vh;
     margin-bottom: 1em;
 }
