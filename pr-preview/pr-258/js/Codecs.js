@@ -130,15 +130,13 @@ function triggerCodecRowForSegment(segment, suppressScroll) {
     if (!codecName) {
         return;
     }
-    // Scroll intent is set up-front so a tap with no matching row cannot leave a
-    // stale flag behind for a later unrelated panel open.
-    // Force scroll when triggered from donut (user clicked far above the panel),
-    // unless the touch path opts out to keep tooltip and segment in view.
-    _forceScrollOnPanelOpen = !suppressScroll;
-    _suppressScrollOnPanelOpen = !!suppressScroll;
     var rows = chartBox.querySelectorAll('.codec-clickable');
     for (const row of rows) {
         if (row.dataset.codec === codecName) {
+            // Force scroll when triggered from donut (user clicked far above the panel),
+            // unless the touch path opts out to keep tooltip and segment in view.
+            _forceScrollOnPanelOpen = !suppressScroll;
+            _suppressScrollOnPanelOpen = !!suppressScroll;
             row.click();
             return;
         }
