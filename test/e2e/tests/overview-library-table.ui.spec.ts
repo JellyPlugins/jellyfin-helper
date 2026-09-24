@@ -44,7 +44,7 @@ test('breakdown table is gapless with conditional Books column', async ({ page }
   const otherIdx = await headerIndex(page, table, /^other$/i);
   expect(otherIdx, 'Other header present').toBeGreaterThanOrEqual(0);
 
-  // The fixture seeds .strm/.mxf/.txt sidecars into Movies, so its Other cell is
+  // The fixture seeds .mxf/.txt sidecars into Movies, so its Other cell is
   // non-zero: proves the column is wired to real data, not a static zero.
   const moviesRow = table.locator('tbody tr', { hasText: 'Movies' }).first();
   await expect(moviesRow).toBeVisible();

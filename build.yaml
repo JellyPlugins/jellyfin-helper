@@ -27,6 +27,6 @@ changelog: |-
   - Added responsive, independently scrollable library result cards.
   - Improved compact layouts for mobile controls.
   - Added consistent themed scrollbar styling across plugin panels and lists.
-  - The Overview Per-Library Breakdown has a new Other column per library covering NFO files, text files, .strm links and anything else outside video, audio, subtitles, images and trickplay data, plus a Books column whenever a book library exists, so every row adds up exactly to its Total
+  - The Overview Per-Library Breakdown has a new Other column per library covering NFO files, text files and other unrecognized sidecar files, plus a Books column whenever a book library exists, so every row adds up exactly to its Total
   - Tested by 6169 unit tests and 341 end-to-end tests
   - Requires Jellyfin 12.1 - if you are on Jellyfin 10.x, stay on v2.1.0.6

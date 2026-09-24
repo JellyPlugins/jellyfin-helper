@@ -129,8 +129,9 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
   });
 
   test('per-library TotalSize equals the sum of all eight size buckets', async () => {
-    // The overview table's Other column folds Nfo + Other + Book so that every row
-    // sums exactly to its Total; this pins that byte-coherence per library.
+    // The overview table's Other column folds Nfo + Other (Books has its own
+    // column), so every row sums exactly to its Total; this pins that
+    // byte-coherence per library.
     const stats = await getStats();
     const libs = allLibraries(stats);
     expect(libs.length, 'libraries present').toBeGreaterThan(0);
@@ -143,13 +144,13 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
   });
 
   test('movies carry other-size from sidecar fixtures, books carry book-size', async () => {
-    // gen-media.sh seeds .strm link files and an off-allowlist .mxf (both land in
-    // OtherSize) plus real EPUB/PDF books (BookSize) - the Other column is never
-    // vacuously zero on this fixture set.
+    // gen-media.sh seeds an off-allowlist .mxf and a notes.txt (both land in
+    // OtherSize; .strm files count as video) plus real EPUB/PDF books (BookSize)
+    // - the Other column is never vacuously zero on this fixture set.
     const stats = await getStats();
     const movies = stats.Movies.find((l) => l.LibraryName === 'Movies');
     expect(movies, 'Movies library present').toBeDefined();
-    expect(movies!.OtherSize, 'Movies OtherSize covers .strm/.mxf/.txt fixtures').toBeGreaterThan(0);
+    expect(movies!.OtherSize, 'Movies OtherSize covers .mxf/.txt fixtures').toBeGreaterThan(0);
     expect(movies!.NfoSize, 'Movies NfoSize covers the movie.nfo fixture').toBeGreaterThan(0);
     const books = stats.Books.find((l) => l.LibraryName === 'Books');
     expect(books, 'Books library present').toBeDefined();
