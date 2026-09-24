@@ -244,6 +244,19 @@ public class TransformationPatchesTests
     }
 
     [Fact]
+    public void IndexHtml_RemovalRegexTimeout_ReturnsContentUnmodified()
+    {
+        // Adversarial input: thousands of unterminated "<script " openings force the
+        // removal regex into quadratic backtracking, tripping its 2s match timeout.
+        // The transform must then bail out with the content untouched, not throw.
+        var hostile = string.Concat(Enumerable.Repeat("<script ", 150_000));
+
+        var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = hostile });
+
+        Assert.Same(hostile, result);
+    }
+
+    [Fact]
     public void IndexHtml_LiteralBodyInsideHeadScript_NotChosenAsAnchor_InjectsBeforeRealBody()
     {
         // A literal "</body>" sits inside a script string in the head, before the real body. LastIndexOf (bounded to before </html>) must skip it and pick the real </body>, otherwise the tag lands inside a non-executing JS string in the head.

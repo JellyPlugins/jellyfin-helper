@@ -459,4 +459,21 @@ public sealed class AtomicFileTests : IDisposable
         var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
         Assert.Empty(orphans);
     }
+
+    [Fact]
+    public async Task WriteAllTextAsync_UnwritableFileName_PropagatesAndSwallowsCleanupErrors()
+    {
+        // A single path component far beyond OS limits makes both the write and the
+        // temp-file cleanup throw PathTooLongException. The cleanup failure must be
+        // swallowed (best effort) while the original write error still propagates,
+        // and no orphan temp files may remain.
+        var path = Path.Join(_tempDir, new string('x', 40_000));
+
+        await Assert.ThrowsAnyAsync<IOException>(
+            () => AtomicFile.WriteAllTextAsync(path, "data", maxAttempts: 1));
+
+        Assert.False(File.Exists(path));
+        var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
+        Assert.Empty(orphans);
+    }
 }

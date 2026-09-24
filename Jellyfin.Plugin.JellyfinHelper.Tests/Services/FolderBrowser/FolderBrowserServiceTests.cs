@@ -986,6 +986,41 @@ public sealed class FolderBrowserServiceTests : IDisposable
     }
 
     [Fact]
+    public void GetChildren_Posix_CyclicSymlink_IsHiddenWithoutAbortingListing()
+    {
+        // A link cycle (a -> b -> a) makes ResolveLinkTarget throw instead of
+        // returning null like a merely broken link. The reparse guard must treat
+        // the unresolvable entry as critical and hide it, never aborting the listing.
+        if (OperatingSystem.IsWindows()) return;
+
+        Directory.CreateDirectory(Path.Combine(_tempRoot, "movies"));
+        var loopA = Path.Combine(_tempRoot, "loop-a");
+        var loopB = Path.Combine(_tempRoot, "loop-b");
+
+        try
+        {
+            Directory.CreateSymbolicLink(loopA, loopB);
+            Directory.CreateSymbolicLink(loopB, loopA);
+        }
+        catch (IOException)
+        {
+            return; // symlink creation not permitted on this host
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var result = _service.GetChildren(_tempRoot);
+
+        Assert.Null(result.Error);
+        var names = result.Directories.Select(d => d.Name).ToList();
+        Assert.Contains("movies", names);
+        Assert.DoesNotContain("loop-a", names);
+        Assert.DoesNotContain("loop-b", names);
+    }
+
+    [Fact]
     public void GetChildren_Posix_UpperCaseTrashPrefixDir_StaysVisible()
     {
         // The SafeHiddenPrefixes comparison uses StringComparison.OrdinalIgnoreCase, so an upper-cased ".JELLYFIN-TRASH" must remain visible just like the lower-case form.

@@ -390,6 +390,42 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     }
 
     [Fact]
+    public async Task SubmitMyRequest_CacheMarkThrows_StillReturns201AndRecordsFeedback()
+    {
+        // Best-effort bookkeeping, cache half: a disposed cache makes every
+        // MarkAsRequestedAsync throw ObjectDisposedException (non-fatal). The 201
+        // must still be returned and RecordRequested must still fire; the failure
+        // surfaces only as a warning log.
+        var userId = Guid.NewGuid();
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "queued"));
+        _cache.Dispose();
+
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
+        var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
+        Assert.True(Assert.IsType<RequestResult>(ok.Value).Success);
+        _feedbackStoreMock.Verify(f => f.RecordRequested(userId, 100, "movie"), Times.Once);
+        _loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Failed to mark item")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
     public void DismissDto_TmdbId_Zero_FailsValidation()
     {
         var dto = new DiscoveryDismissDto { TmdbId = 0, MediaType = "movie" };

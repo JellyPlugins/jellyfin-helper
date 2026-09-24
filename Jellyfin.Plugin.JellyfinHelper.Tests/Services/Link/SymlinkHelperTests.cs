@@ -553,6 +553,12 @@ public sealed class SymlinkHelperTests : IDisposable
 
         public bool GetAttributesThrowsUnauthorized { get; init; }
 
+        public bool PathExistsResult { get; init; } = true;
+
+        public int DeleteFileCalls { get; private set; }
+
+        public int DeleteDirectoryCalls { get; private set; }
+
         public void QueueAttributes(params FileAttributes?[] results)
         {
             foreach (var r in results)
@@ -595,9 +601,14 @@ public sealed class SymlinkHelperTests : IDisposable
 
         internal override void MoveFileOverwrite(string source, string dest) => MoveFileOverwriteCalls++;
 
-        // The destination is always "occupied" in these scripted races (a symlink node holds it),
-        // so the recovery path (re-stat + overwrite) is entered rather than rethrowing.
-        internal override bool PathExists(string path) => true;
+        internal override void DeleteFile(string path) => DeleteFileCalls++;
+
+        internal override void DeleteDirectory(string path) => DeleteDirectoryCalls++;
+
+        // The destination is "occupied" in these scripted races unless a test opts
+        // out (vanished-dest rethrow), so the recovery path (re-stat + overwrite)
+        // is entered rather than rethrowing.
+        internal override bool PathExists(string path) => PathExistsResult;
 
         // Any entry the scripted attributes mark as a ReparsePoint is treated as a genuine symlink
         // (non-null LinkTarget), so IsSymlinkFromAttributes keys off the scripted attributes alone.
@@ -663,5 +674,63 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.Contains("could not be inspected", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("UnauthorizedAccessException", ex.Message, StringComparison.Ordinal);
         Assert.IsType<UnauthorizedAccessException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void ReplaceSymlink_FirstMoveSucceeds_ReturnsWithoutOverwrite()
+    {
+        // No race at all: the destination vanished between scan and repair, so the
+        // plain non-overwriting move lands and no overwrite is ever attempted.
+        var helper = new ScriptedSymlinkHelper();
+        helper.QueueAttributes(SymlinkAttrs);
+
+        helper.ReplaceSymlink("/tmp/source", "/tmp/dest");
+
+        Assert.Equal(1, helper.MoveFileCalls);
+        Assert.Equal(0, helper.MoveFileOverwriteCalls);
+    }
+
+    [Fact]
+    public void ReplaceSymlink_MoveFailsAndDestGone_RethrowsMoveError()
+    {
+        // The move failed for a reason unrelated to "dest exists" (the destination
+        // is gone by the time the catch runs): the original error must propagate
+        // unchanged instead of triggering the remove-and-overwrite recovery.
+        var helper = new ScriptedSymlinkHelper { PathExistsResult = false };
+        helper.QueueAttributes(SymlinkAttrs);
+        helper.MakeFirstMoveFailAsExists();
+
+        var ex = Assert.Throws<IOException>(() => helper.ReplaceSymlink("/tmp/source", "/tmp/dest"));
+
+        Assert.Contains("already exists", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, helper.MoveFileOverwriteCalls);
+    }
+
+    [Fact]
+    public void DeleteSymlink_FileSymlinkNode_DeletesFileNode()
+    {
+        // Scripted attributes without the Directory flag route to the file-node
+        // deletion, no real symlink or privilege required.
+        var helper = new ScriptedSymlinkHelper();
+        helper.QueueAttributes(SymlinkAttrs);
+
+        helper.DeleteSymlink("/tmp/link");
+
+        Assert.Equal(1, helper.DeleteFileCalls);
+        Assert.Equal(0, helper.DeleteDirectoryCalls);
+    }
+
+    [Fact]
+    public void DeleteSymlink_DirectorySymlinkNode_DeletesDirectoryNode()
+    {
+        // Scripted attributes with the Directory flag route to the directory-node
+        // deletion, no real symlink or privilege required.
+        var helper = new ScriptedSymlinkHelper();
+        helper.QueueAttributes(SymlinkAttrs | FileAttributes.Directory);
+
+        helper.DeleteSymlink("/tmp/link-dir");
+
+        Assert.Equal(0, helper.DeleteFileCalls);
+        Assert.Equal(1, helper.DeleteDirectoryCalls);
     }
 }

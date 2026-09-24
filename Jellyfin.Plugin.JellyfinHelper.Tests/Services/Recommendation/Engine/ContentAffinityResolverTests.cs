@@ -84,6 +84,14 @@ public sealed class ContentAffinityResolverTests
         Assert.Empty(ContentAffinityResolver.ResolveProductionCountries(movie));
     }
 
+    [Fact]
+    public void ResolveProductionCountries_NullItem_ReturnsEmptyList()
+    {
+        // A null item throws inside the try (member access on null); the
+        // exception filter must neutralize to empty rather than propagate.
+        Assert.Empty(ContentAffinityResolver.ResolveProductionCountries(null!));
+    }
+
     // The positive case (tags actually flow through) is not unit-testable here: GetInheritedTags() walks the LibraryManager and parent chain, so a bare Movie with Tags set still resolves to empty.
     [Fact]
     public void ResolveInheritedTags_NoTags_ReturnsEmptyList()
