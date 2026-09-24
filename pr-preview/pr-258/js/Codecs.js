@@ -648,11 +648,11 @@ function attachDonutHoverTooltips() {
                     // panel handler closes its drill-down (the outside-tap listener
                     // above only fires for taps outside any segment).
                     var allDonutContainers = document.querySelectorAll('.donut-container');
-                    for (var d = 0; d < allDonutContainers.length; d++) {
-                        hideDonutTooltip(allDonutContainers[d]);
-                        var prevHighlighted = allDonutContainers[d].querySelectorAll('.donut-segment-hover');
-                        for (var h = 0; h < prevHighlighted.length; h++) {
-                            prevHighlighted[h].classList.remove('donut-segment-hover');
+                    for (const donutContainer of allDonutContainers) {
+                        hideDonutTooltip(donutContainer);
+                        var prevHighlighted = donutContainer.querySelectorAll('.donut-segment-hover');
+                        for (const highlighted of prevHighlighted) {
+                            highlighted.classList.remove('donut-segment-hover');
                         }
                     }
                     seg.classList.add('donut-segment-hover');
