@@ -158,8 +158,8 @@ function _vDims(files){var d={};for(var i=0;i<files.length;i++){d[files[i].p]=fi
 
 var _moviesLib=_lib("Movies","movies",{
 RootPaths:["/SMB/media/movies"],
-VideoSize:_sumSizes(_movieFiles),ImageSize:640000,NfoSize:36000,TrickplaySize:826000000,OtherSize:0,SubtitleSize:_sumObj(_movieSubs),
-VideoFileCount:_movieFiles.length,ImageFileCount:2,NfoFileCount:1,TrickplayFolderCount:115,OtherFileCount:0,SubtitleFileCount:Object.keys(_movieSubs).length,
+VideoSize:_sumSizes(_movieFiles),ImageSize:640000,NfoSize:36000,TrickplaySize:826000000,OtherSize:280000,SubtitleSize:_sumObj(_movieSubs),
+VideoFileCount:_movieFiles.length,ImageFileCount:2,NfoFileCount:1,TrickplayFolderCount:115,OtherFileCount:7,SubtitleFileCount:Object.keys(_movieSubs).length,
 VideoCodecs:_vDict(_movieFiles,"vc"),
 VideoAudioCodecs:_vDict(_movieFiles,"ac"),
 ContainerFormats:_vDict(_movieFiles,"cont"),
@@ -208,8 +208,8 @@ _moviesLib.WatchedDetails[_movieFiles[9].p]=[{"Username":"Alice","PlayCount":2,"
 
 var _tvLib=_lib("TV Shows","tvshows",{
 RootPaths:["/SMB/media/tv"],
-VideoSize:_sumSizes(_tvFiles),ImageSize:800000,NfoSize:12000,TrickplaySize:_tvSeasons*50000000,OtherSize:0,SubtitleSize:_sumObj(_tvSubs),
-VideoFileCount:_tvFiles.length,ImageFileCount:2,NfoFileCount:1,TrickplayFolderCount:_tvSeasons,OtherFileCount:0,SubtitleFileCount:Object.keys(_tvSubs).length,
+VideoSize:_sumSizes(_tvFiles),ImageSize:800000,NfoSize:12000,TrickplaySize:_tvSeasons*50000000,OtherSize:150000,SubtitleSize:_sumObj(_tvSubs),
+VideoFileCount:_tvFiles.length,ImageFileCount:2,NfoFileCount:1,TrickplayFolderCount:_tvSeasons,OtherFileCount:4,SubtitleFileCount:Object.keys(_tvSubs).length,
 VideoCodecs:_vDict(_tvFiles,"vc"),
 VideoAudioCodecs:_vDict(_tvFiles,"ac"),
 ContainerFormats:_vDict(_tvFiles,"cont"),
@@ -256,8 +256,8 @@ _tvLib.WatchedDetails[_bbE01]=[{"Username":"Alice","PlayCount":2,"LastPlayedDate
 _tvLib.WatchedDetails[_frE01]=[{"Username":"Bob","PlayCount":1,"LastPlayedDate":"2024-05-11T21:30:00Z","Played":true}];
 
 var _musicLib=_lib("Music","music",{
-RootPaths:["/SMB/media/music"],AudioSize:_sumSizes(_musicFiles),ImageSize:0,
-AudioFileCount:_musicFiles.length,ImageFileCount:0,
+RootPaths:["/SMB/media/music"],AudioSize:_sumSizes(_musicFiles),ImageSize:0,NfoSize:8000,OtherSize:0,
+AudioFileCount:_musicFiles.length,ImageFileCount:0,NfoFileCount:2,OtherFileCount:0,
 MusicAudioCodecs:_vDict(_musicFiles,"codec"),
 MusicAudioCodecSizes:_vSizes(_musicFiles,"codec",_musicSizes),
 MusicAudioCodecPaths:_vPaths(_musicFiles,"codec"),
