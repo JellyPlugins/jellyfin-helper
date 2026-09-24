@@ -46,6 +46,7 @@ const sharedModuleGlobals = {
     // Shared.js
     DONUT_COLORS: 'writable',
     _forceScrollOnPanelOpen: 'writable',
+    _suppressScrollOnPanelOpen: 'writable',
     _mi: 'writable',
     mi: 'writable',
     SVG: 'writable',

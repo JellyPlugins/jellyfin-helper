@@ -507,7 +507,7 @@ else if(url.includes("ArrIntegration/TestConnection"))resolve({Success:true,Mess
 else if(url.includes("ArrIntegration/Compare/"))resolve(structuredClone(MOCK_ARR_COMPARE));
 else if(url.includes("Logs/Download")){var lt=MOCK_LOGS.Entries.map(function(e){return e.Timestamp+" ["+e.Level+"] "+e.Source+": "+e.Message;}).join("\n");resolve(lt);}
 else if(url.includes("Logs")&&method==="DELETE"){MOCK_LOGS.Entries=[];MOCK_LOGS.TotalCount=0;resolve({});}
-else if(url.includes("Logs")){var lm=url.match(/[?&]limit=(\d+)/);var ln=lm?parseInt(lm[1],10):MOCK_LOGS.Entries.length;resolve({Entries:structuredClone(MOCK_LOGS.Entries.slice(0,ln)),TotalCount:MOCK_LOGS.TotalCount});}
+else if(url.includes("Logs")){var lm=url.match(/[?&]limit=(\d+)/);var ln=lm?parseInt(lm[1],10):MOCK_LOGS.Entries.length;resolve({Entries:structuredClone(MOCK_LOGS.Entries.slice().reverse().slice(0,ln)),TotalCount:MOCK_LOGS.TotalCount});}
 else if(url.includes("Recommendations/Diagnostics/Ensemble")){var ep=url.split("userId=");var eid=ep.length>1?decodeURIComponent(ep[1].split("&")[0]):"";resolve(structuredClone(MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[eid]||MOCK_ENSEMBLE_DIAGNOSTICS));}
 else if(url.includes("Recommendations/WatchProfile/")){var wp=url.split("WatchProfile/");var wid=wp.length>1?wp[1].split("?")[0]:"";resolve(structuredClone(MOCK_WATCH_PROFILES[wid]||{}));}
 else if(url.includes("Recommendations/WatchProfiles"))resolve(structuredClone(MOCK_WATCH_PROFILES));
