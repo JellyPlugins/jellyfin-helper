@@ -1008,8 +1008,10 @@
 }
 
 @media (max-width: 700px) {
+    /* Positioning context for the phone sheet (see below). */
     .codec-filter-bar {
         gap: 0.5em;
+        position: relative;
     }
     .codec-filter-bar > [data-library-widget] {
         flex: 1 1 auto;
@@ -1031,9 +1033,6 @@
        shift it), so a button-anchored sheet still escapes the viewport. Anchor
        the sheet to the bar instead: full bar width is viewport-safe by
        construction on phones, in list and editor states. */
-    .codec-filter-bar {
-        position: relative;
-    }
     .codec-filter-pop {
         left: 0;
         right: auto;
