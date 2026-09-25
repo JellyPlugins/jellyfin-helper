@@ -595,7 +595,7 @@ public class MediaStatisticsServiceTests
         Assert.Equal(5_000, result.InternalTrickplaySize);
     }
 
-    private MediaStatisticsService CreateLinkAwareService(string? internalPath, Func<string, bool> linkCheck)
+    private LinkAwareStatisticsService CreateLinkAwareService(string? internalPath, Func<string, bool> linkCheck)
     {
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();

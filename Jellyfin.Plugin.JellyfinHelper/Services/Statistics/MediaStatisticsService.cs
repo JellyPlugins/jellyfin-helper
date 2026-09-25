@@ -278,14 +278,11 @@ public class MediaStatisticsService : IMediaStatisticsService
                     total += file.Length;
                 }
 
-                foreach (var sub in _fileSystem.GetDirectories(current, false))
+                foreach (var fullName in _fileSystem.GetDirectories(current, false)
+                    .Select(sub => sub.FullName)
+                    .Where(fullName => !IsSkippedLink(fullName)))
                 {
-                    if (IsSkippedLink(sub.FullName))
-                    {
-                        continue;
-                    }
-
-                    stack.Push(sub.FullName);
+                    stack.Push(fullName);
                 }
             }
             catch (IOException)
