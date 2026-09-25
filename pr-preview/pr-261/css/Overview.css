@@ -72,13 +72,13 @@
 }
 
 /* Quiet inline marker behind the Jellyfin managed trickplay figure. Smaller than
-   the value line and vertically centered with the text; inherits the line grey,
-   never wraps mid parentheses. Hover explains the cleanup exclusion. */
+   the value line and sharing its baseline (middle would drop it below the line);
+   inherits the line grey, never wraps mid parentheses. Hover explains the cleanup exclusion. */
 /* noinspection CssUnusedSymbol */
 .trickplay-internal-badge {
     font-size: 0.8em;
     white-space: nowrap;
-    vertical-align: middle;
+    vertical-align: baseline;
     cursor: help;
 }
 

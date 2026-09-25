@@ -465,10 +465,6 @@ function loadSettings() {
                 s += '<option value="' + taskModes[tm][0] + '"' + (currentVal === taskModes[tm][0] ? ' selected' : '') + '>' + taskModes[tm][1] + '</option>';
             }
             s += '</select>';
-            // The description doubles as hover title and visible help line, so touch users get the same text.
-            if (descText) {
-                s += '<div class="help-text">' + escHtml(descText) + '</div>';
-            }
             return s;
         }
 
@@ -1121,7 +1117,7 @@ function doBackupImport(file) {
 
             var successMsg = mi('check_circle') + ' ' + escHtml(T('backupImportSuccess', 'Backup imported successfully.'));
             if (parts.length > 0) {
-                successMsg += ' (' + parts.map(escHtml).join(', ') + ')';
+                successMsg += ' (' + parts.map(function (part) { return escHtml(part); }).join(', ') + ')';
             }
 
             // Show warnings if any

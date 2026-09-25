@@ -1027,19 +1027,22 @@
         align-items: center;
     }
 
-    /* The add button sits at the right edge of the bar on phones, so a
-       left-anchored popover spills past the viewport (280px min-width from
-       the button's left edge). Anchor it to the button's right edge instead
-       so it opens leftwards and stays on screen, in list and editor states. */
+    /* The button wrapper can sit left of the bar edge (pills, gaps and wrapping
+       shift it), so a button-anchored sheet still escapes the viewport. Anchor
+       the sheet to the bar instead: full bar width is viewport-safe by
+       construction on phones, in list and editor states. */
+    .codec-filter-bar {
+        position: relative;
+    }
     .codec-filter-pop {
-        left: auto;
-        right: 0;
+        left: 0;
+        right: auto;
         min-width: 0;
         /* Nearly full viewport width: dim lists, toggle pairs and option rows
            get the same roomy sheet the bitrate editor already enjoys instead of
            squeezing into a content-width sliver. Desktop keeps its 280-360px card. */
-        width: calc(100vw - 2em);
-        max-width: calc(100vw - 2em);
+        width: 100%;
+        max-width: 100%;
     }
 
     .codec-filter-add-btn {
