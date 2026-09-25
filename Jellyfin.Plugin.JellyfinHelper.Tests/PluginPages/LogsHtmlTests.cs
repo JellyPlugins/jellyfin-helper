@@ -233,4 +233,32 @@ public partial class LogsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("'" + key + "'", HtmlContent);
     }
+
+    [Fact]
+    public void Html_MobileLogHeaders_StayAccessible()
+    {
+        // Phone CSS must never display none the table header; screen readers would lose the column meanings.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.DoesNotContain(".logs-table thead { display: none;", css);
+        Assert.Contains("clip: rect(0, 0, 0, 0);", css);
+    }
+
+    [Fact]
+    public void Html_ToolbarLabels_ShareOneColumn()
+    {
+        // Level and Source controls start on the same x in every language, so labels share a fixed column instead of per-label margins.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".logs-toolbar-item > label:first-child { flex: 0 0 auto; min-width: 4em; }", css);
+        Assert.DoesNotContain("#logsLevelFilter { margin-left: 10px;", css);
+    }
+
+    [Fact]
+    public void Html_LevelFilter_SizesToContent()
+    {
+        // The level options are fixed 5-letter codes, so the select hugs its content instead of reserving empty space.
+        Assert.Contains("id=\"logsLevelFilter\" style=\"width:auto\"", HtmlContent);
+    }
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
 }

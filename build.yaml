@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "3.0.0.3"
+version: "3.0.0.4"
 targetAbi: ""
 framework: "net10.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis and Library Explorer search, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
@@ -13,20 +13,13 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.0.0.3 - Library Explorer, new Codecs breakdowns, disabled users ignored
+  v3.0.0.4 - Per-library file counts, boxset link fix
 
-  - The Codecs tab now has a Library Explorer: combine resolution, codecs, bitrate, languages, watched users and formats into one search, scoped to the libraries you pick in its multi-select, so you can find e.g. all 4K films with low bitrate
-  - Options with zero matches under the other filters are hidden automatically, dimensions without matches stay greyed out, and multi-value dropdowns accept several audio languages, subtitle languages or users at once
-  - Every active filter is shown in the result header and a Reset button clears the whole search; results arrive as the familiar grouped file tree with Movies, TV Shows and other sections
-  - Jump straight into the search from the Overview: each library name and all four media cards open the Explorer pre-filtered to that scope
-  - Every categorical filter can be negated with Includes/Excludes, so you can search e.g. audio languages that are not German; excluded picks show as ≠ pills and counts preview what stays
-  - Four new breakdowns in the Codecs tab, each with drill-down to the exact files: Video Bitrate (7 tiers from < 2 to > 60 Mbps), Audio Languages, Subtitle Languages and Watched (by username plus Never watched)
-  - Each bitrate tier uses what Jellyfin measured for the video stream; when a file has no per-stream value the average is estimated from its size and runtime, so almost every file lands in a real tier instead of Unknown
-  - Disabled Jellyfin users no longer skew results: their old plays are excluded from Smart Recommendations, watch history and the new Watched breakdown
-  - Long breakdowns start collapsed behind a Show-all toggle with Unknown always last, and unreadable language tags fold into Unknown instead of junk entries
-  - Added responsive, independently scrollable library result cards.
-  - Improved compact layouts for mobile controls.
-  - Added consistent themed scrollbar styling across plugin panels and lists.
-  - The Overview Per-Library Breakdown has a new Other column per library covering NFO files, text files and other unrecognized sidecar files, plus a Books column whenever a book library exists, so every row adds up exactly to its Total
-  - Tested by 6169 unit tests and 341 end-to-end tests
+  - The Per-Library Breakdown now shows a file count below every size value (trickplay folders included), so sparse and dense libraries are distinguishable at a glance
+  - Boxset library rows no longer link into the Library Explorer, whose scope excludes boxsets; they render as plain text instead of opening an empty state
+  - Every task dropdown in Settings now explains what the task does, on hover, in all dashboard languages
+  - The Overview Trickplay card now also shows the space used by trickplay images Jellyfin stores internally, on its own line below the alongside-media total, marked with an (internal) badge
+  - Compact log view on phones: log entries stack as cards below 700 px instead of squeezing into a four-column table, so no horizontal scrolling is needed
+  - Roomier Library Explorer filter popovers on phones using nearly the full viewport width, like the bitrate editor
+  - Tested by 6204 unit tests and 350 end-to-end tests
   - Requires Jellyfin 12.1 - if you are on Jellyfin 10.x, stay on v2.1.0.6

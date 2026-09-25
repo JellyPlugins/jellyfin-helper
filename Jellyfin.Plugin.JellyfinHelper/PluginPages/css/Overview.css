@@ -71,6 +71,17 @@
     margin-bottom: 0;
 }
 
+/* Quiet inline marker behind the Jellyfin managed trickplay figure. Smaller than
+   the value line and sharing its baseline (middle would drop it below the line);
+   inherits the line grey, never wraps mid parentheses. Hover explains the cleanup exclusion. */
+/* noinspection CssUnusedSymbol */
+.trickplay-internal-badge {
+    font-size: 0.8em;
+    white-space: nowrap;
+    vertical-align: baseline;
+    cursor: help;
+}
+
 .stat-card.highlight {
     border-color: var(--color-success);
 }
@@ -127,6 +138,17 @@
 .library-table th:first-child,
 .library-table td:first-child {
     text-align: left;
+}
+
+/* Per-category file-count sub-line below the byte value. Small and quiet on
+   both themes (opacity, no fixed color); adds row height, never width. */
+.library-table-sub {
+    display: block;
+    font-size: 0.75em;
+    font-weight: 400;
+    opacity: 0.55;
+    margin-top: 0.1em;
+    white-space: nowrap;
 }
 
 .library-table th:nth-child(2),

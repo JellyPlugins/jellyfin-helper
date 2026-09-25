@@ -5,7 +5,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// <summary>
 /// Tests for the Overview tab in the composed configPage.html.
 /// </summary>
-public class OverviewHtmlTests : ConfigPageTestBase
+public partial class OverviewHtmlTests : ConfigPageTestBase
 {
     [Fact]
     public void Html_ContainsOverviewTabContent()
@@ -74,4 +74,27 @@ public class OverviewHtmlTests : ConfigPageTestBase
         Assert.Contains("CODEC_EXPLORER_TYPE_MUSIC", HtmlContent);
         Assert.Contains("CODEC_EXPLORER_TYPE_BOOKS", HtmlContent);
     }
+
+    [Fact]
+    public void Html_TrickplayCard_ShowsInternalSize()
+    {
+        // Jellyfin managed images live outside every library, so the card
+        // renders them on their own detail line with an (internal) marker whose
+        // hover title explains the cleanup exclusion.
+        Assert.Contains("trickplayInternalBadge", HtmlContent);
+        Assert.Contains("trickplayInternalHint", HtmlContent);
+        Assert.Contains("trickplay-internal-badge", HtmlContent);
+        Assert.Contains("InternalTrickplaySize", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_InternalBadge_SitsOnTextBaseline()
+    {
+        // A smaller inline marker must share the value baseline; vertical middle drops it below the line.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".trickplay-internal-badge { font-size: 0.8em; white-space: nowrap; vertical-align: baseline; cursor: help;", css);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\s+")]
+    private static partial System.Text.RegularExpressions.Regex WhitespaceRegex();
 }

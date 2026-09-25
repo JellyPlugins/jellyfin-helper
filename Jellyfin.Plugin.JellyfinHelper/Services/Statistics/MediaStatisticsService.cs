@@ -203,6 +203,8 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
         }
 
+        result.InternalTrickplaySize = MeasureInternalTrickplaySize();
+
         // Log summary
         var totalFiles = result.Libraries.Sum(l =>
             l.VideoFileCount + l.AudioFileCount + l.SubtitleFileCount + l.ImageFileCount + l.NfoFileCount +
@@ -271,27 +273,76 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             try
             {
-                foreach (var file in _fileSystem.GetFiles(current, false))
+                foreach (var file in _fileSystem.GetFiles(current, false)
+                    .Where(file => !IsSkippedLink(file.FullName)))
                 {
                     total += file.Length;
                 }
 
-                foreach (var sub in _fileSystem.GetDirectories(current, false))
+                foreach (var fullName in _fileSystem.GetDirectories(current, false)
+                    .Select(sub => sub.FullName)
+                    .Where(fullName => !IsSkippedLink(fullName)))
                 {
-                    stack.Push(sub.FullName);
+                    stack.Push(fullName);
                 }
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
             {
                 // Intentionally empty: an unreadable path is skipped (best-effort trickplay size scan).
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Intentionally empty: an inaccessible path is skipped (best-effort trickplay size scan).
             }
         }
 
         return total;
+    }
+
+    /// <summary>
+    ///     Measures Jellyfin managed trickplay data outside the media libraries.
+    /// </summary>
+    /// <returns>Total bytes of internal trickplay data, or zero when the path is missing or unreadable.</returns>
+    private long MeasureInternalTrickplaySize()
+    {
+        // Internal images are keyed by item id, so no per library attribution is possible. They stay out of every library total by design.
+        var path = _configHelper.GetInternalTrickplayPath();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return 0;
+        }
+
+        try
+        {
+            if (!_fileSystem.DirectoryExists(path))
+            {
+                return 0;
+            }
+
+            return CalculateTrickplaySize(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _pluginLog.LogDebug(LogCategory, "Skipping unreadable internal trickplay path.", _logger);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    ///     Reports whether a file or directory entry is a filesystem link. Links are never counted or descended into, so linked bytes stay out of the total and a link pointing at an ancestor cannot recount a tree under growing lexical paths.
+    /// </summary>
+    /// <param name="path">The file or directory path.</param>
+    /// <returns>True when the entry is a link.</returns>
+    internal virtual bool IsReparsePoint(string path) => ReparsePointGuard.IsReparsePointAnyType(path);
+
+    private bool IsSkippedLink(string fullName)
+    {
+        try
+        {
+            return IsReparsePoint(fullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Fail closed: an entry that cannot be stat'ed is never descended into.
+            _pluginLog.LogDebug(LogCategory, "Skipping directory entry that could not be stat'ed.", _logger);
+            return true;
+        }
     }
 
     /// <summary>

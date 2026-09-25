@@ -598,7 +598,10 @@
     position: absolute;
     z-index: 20;
     top: 100%;
-    left: 0;
+    /* The sheet opens leftwards from the button: the button sits at the bar
+       right, so a left-anchored card would spill past the viewport edge. */
+    left: auto;
+    right: 0;
     margin-top: 0.3em;
     min-width: 280px;
     max-width: min(360px, calc(100vw - 2em));
@@ -1008,8 +1011,10 @@
 }
 
 @media (max-width: 700px) {
+    /* Positioning context for the phone sheet (see below). */
     .codec-filter-bar {
         gap: 0.5em;
+        position: relative;
     }
     .codec-filter-bar > [data-library-widget] {
         flex: 1 1 auto;
@@ -1025,18 +1030,25 @@
         flex: 0 0 auto;
         display: flex;
         align-items: center;
+        /* Static so the phone sheet anchors to the bar (below), not to this
+           wrapper: the base rule positions the wrapper, and the nearer
+           ancestor would win otherwise. Desktop keeps the wrapper anchor. */
+        position: static;
     }
 
-    /* The add button sits at the right edge of the bar on phones, so a
-       left-anchored popover spills past the viewport (280px min-width from
-       the button's left edge). Anchor it to the button's right edge instead
-       so it opens leftwards and stays on screen, in list and editor states. */
+    /* The button wrapper can sit left of the bar edge (pills, gaps and wrapping
+       shift it), so a button-anchored sheet still escapes the viewport. Anchor
+       the sheet to the bar instead: full bar width is viewport-safe by
+       construction on phones, in list and editor states. */
     .codec-filter-pop {
-        left: auto;
-        right: 0;
+        left: 0;
+        right: auto;
         min-width: 0;
-        width: max-content;
-        max-width: calc(100vw - 2em);
+        /* Nearly full viewport width: dim lists, toggle pairs and option rows
+           get the same roomy sheet the bitrate editor already enjoys instead of
+           squeezing into a content-width sliver. Desktop keeps its 280-360px card. */
+        width: 100%;
+        max-width: 100%;
     }
 
     .codec-filter-add-btn {

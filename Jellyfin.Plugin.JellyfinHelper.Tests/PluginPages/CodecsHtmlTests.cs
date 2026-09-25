@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// <summary>
 ///     Tests for the Codecs tab in the composed configPage.html.
 /// </summary>
-public class CodecsHtmlTests : ConfigPageTestBase
+public partial class CodecsHtmlTests : ConfigPageTestBase
 {
     [Fact]
     public void Html_ContainsCodecsTab()
@@ -14,6 +14,31 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("id=\"tab-codecs\"", HtmlContent);
         Assert.Contains("id=\"codecsContent\"", HtmlContent);
     }
+
+    [Fact]
+    public void Html_FilterPopover_OpensLeftwardsFromButton()
+    {
+        // The add button sits at the bar right, so a left-anchored card would spill past the viewport edge.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Matches(FilterPopoverAnchorRegex(), css);
+    }
+
+    [Fact]
+    public void Html_PhoneSheet_IgnoresButtonWrapper()
+    {
+        // The phone sheet anchors to the bar, so the positioned button wrapper must go static: the nearer ancestor would win otherwise and shrink the sheet to button width.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Matches(ButtonWrapperStaticRegex(), css);
+    }
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
+
+    [GeneratedRegex(@"\.codec-filter-pop\s*\{[^}]*left:\s*auto;[^}]*right:\s*0;")]
+    private static partial Regex FilterPopoverAnchorRegex();
+
+    [GeneratedRegex(@"\.codec-filter-add\s*\{[^}]*position:\s*static;")]
+    private static partial Regex ButtonWrapperStaticRegex();
 
     /// <summary>
     ///     Verifies each Codecs tab function is declared in the composed HTML.

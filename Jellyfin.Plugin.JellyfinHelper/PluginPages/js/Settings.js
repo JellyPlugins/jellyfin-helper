@@ -444,8 +444,20 @@ function loadSettings() {
 
         var taskModes = [['Activate', T('activate', 'Activate')], ['DryRun', T('dryRun', 'Dry Run')], ['Deactivate', T('deactivate', 'Deactivate')]];
 
+        // Every TaskMode dropdown carries its own explanation, keyed by select id so call sites stay untouched.
+        var taskModeDescriptions = {
+            cfgTrickplayMode: ['taskDesc_trickplay', 'Deletes orphaned *.trickplay folders left next to media files after renames or deletions. Only applies when Jellyfin saves trickplay images alongside media.'],
+            cfgEmptyFolderMode: ['taskDesc_emptyFolder', 'Deletes folders inside your libraries that contain no media files at all.'],
+            cfgSubtitleMode: ['taskDesc_subtitle', 'Deletes subtitle files (.srt, .ass, ...) whose video file no longer exists. Embedded subtitles are never touched.'],
+            cfgLinkMode: ['taskDesc_link', 'Repairs broken .strm files and symlinks by finding the renamed media file in the same folder.'],
+            cfgRecommendationsMode: ['taskDesc_recommendations', 'Generates per-user recommendations. Dry Run only previews; Activate also saves results and feeds Seerr Discovery.'],
+            cfgSeerrMode: ['taskDesc_seerr', 'Deletes Seerr media requests older than the configured maximum age.']
+        };
+
         function renderTaskModeSelect(id, label, currentVal) {
-            var s = '<label for="' + id + '">';
+            var desc = taskModeDescriptions[id];
+            var descText = desc ? T(desc[0], desc[1]) : '';
+            var s = '<label for="' + id + '"' + (descText ? ' title="' + escAttr(descText) + '"' : '') + '">';
             s += label;
             s += '</label><select id="' + id + '">';
 
@@ -1105,7 +1117,7 @@ function doBackupImport(file) {
 
             var successMsg = mi('check_circle') + ' ' + escHtml(T('backupImportSuccess', 'Backup imported successfully.'));
             if (parts.length > 0) {
-                successMsg += ' (' + parts.map(escHtml).join(', ') + ')';
+                successMsg += ' (' + parts.map(function (part) { return escHtml(part); }).join(', ') + ')';
             }
 
             // Show warnings if any

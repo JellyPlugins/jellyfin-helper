@@ -258,6 +258,27 @@ test('reset clears filters and scope, showing the idle hint again', async ({ pag
   await expect(page.locator('[data-library-option]:checked')).toHaveCount(0);
 });
 
+test('add-filter popover opens leftwards and stays inside the viewport on desktop', async ({ page }) => {
+  const errors = trackConsoleErrors(page);
+  await openExplorer(page);
+  await page.locator('#codecFilterAddBtn').click();
+  const pop = page.locator('[data-filter-pop]');
+  await expect(pop).toBeVisible({ timeout: 5_000 });
+  const box = await pop.boundingBox();
+  expect(box, 'filter popover must be measurable').not.toBeNull();
+  const viewport = page.viewportSize();
+  expect(viewport, 'viewport must be set').not.toBeNull();
+  expect(box!.x, 'popover must not start left of the viewport').toBeGreaterThanOrEqual(-1);
+  expect(box!.x + box!.width, 'popover must not overflow the viewport to the right')
+    .toBeLessThanOrEqual(viewport!.width + 1);
+  // Desktop keeps the compact card, not the phone sheet.
+  expect(box!.width, 'popover stays a compact card on desktop').toBeGreaterThan(200);
+  expect(box!.width, 'popover stays a compact card on desktop').toBeLessThan(500);
+
+  const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+  expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
+});
+
 test.describe('mobile filter popover', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
@@ -275,6 +296,9 @@ test.describe('mobile filter popover', () => {
     expect(box!.x, 'popover must not start left of the viewport').toBeGreaterThanOrEqual(-1);
     expect(box!.x + box!.width, 'popover must not overflow the viewport to the right')
       .toBeLessThanOrEqual(viewport!.width + 1);
+    // Roomy sheet, not a content-width sliver: nearly full viewport width so
+    // dim rows, toggle pairs and options are not squeezed.
+    expect(box!.width, 'popover uses nearly the full viewport width').toBeGreaterThan(250);
   });
 
   test('filter editor stays inside the viewport', async ({ page }) => {
@@ -289,5 +313,6 @@ test.describe('mobile filter popover', () => {
     expect(box!.x, 'editor must not start left of the viewport').toBeGreaterThanOrEqual(-1);
     expect(box!.x + box!.width, 'editor must not overflow the viewport to the right')
       .toBeLessThanOrEqual(viewport!.width + 1);
+    expect(box!.width, 'editor uses nearly the full viewport width').toBeGreaterThan(250);
   });
 });

@@ -48,7 +48,13 @@ test('breakdown table is gapless with conditional Books column', async ({ page }
   // non-zero: proves the column is wired to real data, not a static zero.
   const moviesRow = table.locator('tbody tr', { hasText: 'Movies' }).first();
   await expect(moviesRow).toBeVisible();
-  await expect(moviesRow.locator('td').nth(otherIdx)).not.toHaveText('0 B');
+  await expect(moviesRow.locator('td').nth(otherIdx).locator('.library-table-bytes')).not.toHaveText('0 B');
+
+  // Every category cell carries its file-count sub-line (folders for trickplay).
+  const moviesCells = await moviesRow.locator('td').count();
+  for (let c = 2; c < moviesCells - 1; c++) {
+    await expect(moviesRow.locator('td').nth(c).locator('.library-table-sub')).toHaveText(/^\d+ (files?|folders?)$/);
+  }
 
   // The fixture always has a Books library: its row carries the Books column,
   // and with only EPUB/PDF fixtures the Books cell equals the Total cell.
@@ -56,8 +62,8 @@ test('breakdown table is gapless with conditional Books column', async ({ page }
   expect(booksIdx, 'Books header present on book fixture').toBeGreaterThanOrEqual(0);
   const booksRow = table.locator('tbody tr:has(.badge-books)').first();
   await expect(booksRow).toBeVisible();
-  const booksCell = await booksRow.locator('td').nth(booksIdx).textContent();
-  const totalCell = await booksRow.locator('td').last().textContent();
+  const booksCell = await booksRow.locator('td').nth(booksIdx).locator('.library-table-bytes').textContent();
+  const totalCell = await booksRow.locator('td').last().locator('.library-table-bytes').textContent();
   expect(booksCell, 'Books cell holds the whole Books total').toBe(totalCell);
 
   // Every row's displayed category cells sum to its displayed Total: catches a
@@ -67,7 +73,7 @@ test('breakdown table is gapless with conditional Books column', async ({ page }
   // tight enough to catch any dropped non-trivial category.
   const byteUnits: Record<string, number> = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4 };
   const parseCell = async (row: number, cell: number): Promise<{ bytes: number; bound: number }> => {
-    const text = ((await rows.nth(row).locator('td').nth(cell).textContent()) ?? '').trim();
+    const text = ((await rows.nth(row).locator('td').nth(cell).locator('.library-table-bytes').textContent()) ?? '').trim();
     const m = text.match(/^([\d.]+)\s+([KMGT]?B)$/);
     expect(m, `row ${row} cell ${cell} parses as bytes (got ${JSON.stringify(text)})`).not.toBeNull();
     const bytes = parseFloat(m![1]) * byteUnits[m![2]];
@@ -93,4 +99,152 @@ test('breakdown table is gapless with conditional Books column', async ({ page }
 
   const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
   expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
+});
+
+test.describe('boxset rows never link into the explorer', () => {
+  // Boxset libraries are deliberately excluded from the explorer scope picker;
+  // linking one would open an empty "no library" state. The row renders plain
+  // text instead. Stubbed payload (no fixture boxsets exist), same shape as
+  // explorer-lazy-tree.ui.spec.ts stubs.
+  const boxsetPayload = {
+    Movies: [
+      {
+        LibraryName: 'Movies',
+        CollectionType: 'movies',
+        RootPaths: [],
+        VideoSize: 1000,
+        VideoFileCount: 1,
+        AudioSize: 0,
+        AudioFileCount: 0,
+        SubtitleSize: 0,
+        SubtitleFileCount: 0,
+        ImageSize: 0,
+        ImageFileCount: 0,
+        NfoSize: 0,
+        NfoFileCount: 0,
+        TrickplaySize: 0,
+        TrickplayFolderCount: 0,
+        OtherSize: 0,
+        OtherFileCount: 0,
+        BookSize: 0,
+        BookFileCount: 0,
+        TotalSize: 1000,
+      },
+    ],
+    TvShows: [],
+    Music: [],
+    Books: [],
+    Other: [
+      {
+        LibraryName: 'Sammlungen',
+        CollectionType: 'boxsets',
+        RootPaths: [],
+        VideoSize: 0,
+        VideoFileCount: 0,
+        AudioSize: 0,
+        AudioFileCount: 0,
+        SubtitleSize: 0,
+        SubtitleFileCount: 0,
+        ImageSize: 0,
+        ImageFileCount: 0,
+        NfoSize: 0,
+        NfoFileCount: 0,
+        TrickplaySize: 0,
+        TrickplayFolderCount: 0,
+        OtherSize: 5000,
+        OtherFileCount: 2,
+        BookSize: 0,
+        BookFileCount: 0,
+        TotalSize: 5000,
+      },
+    ],
+    LibraryOrder: ['Movies', 'Sammlungen'],
+    TotalBookFileCount: 0,
+  };
+
+  test('boxset row renders plain text, movies row keeps its deep-link', async ({ page }) => {
+    const stubErrors = trackConsoleErrors(page);
+    await page.route('**/JellyfinHelper/MediaStatistics/Latest', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(boxsetPayload) });
+    });
+    await openDashboard(page);
+    await switchTab(page, 'overview');
+
+    const table = page.locator('#overviewContent .library-table');
+    await expect(table).toBeVisible({ timeout: 20_000 });
+
+    const boxsetRow = table.locator('tbody tr', { hasText: 'Sammlungen' }).first();
+    await expect(boxsetRow).toBeVisible();
+    await expect(boxsetRow.locator('[data-codec-explore-library]')).toHaveCount(0);
+    await expect(boxsetRow.locator('td').first()).toHaveText('Sammlungen');
+
+    const moviesRow = table.locator('tbody tr', { hasText: 'Movies' }).first();
+    await expect(moviesRow.locator('[data-codec-explore-library]').first()).toBeVisible();
+
+    const scriptErrors = stubErrors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
+  });
+});
+
+test.describe('trickplay card shows Jellyfin-managed size on its own line', () => {
+  // Internal images live outside every library, so the card renders them on a
+  // second detail line from the result-level field - never inside a column.
+  const trickplayCardPayload = {
+    Movies: [
+      {
+        LibraryName: 'Movies',
+        CollectionType: 'movies',
+        RootPaths: [],
+        VideoSize: 1000,
+        VideoFileCount: 1,
+        AudioSize: 0,
+        AudioFileCount: 0,
+        SubtitleSize: 0,
+        SubtitleFileCount: 0,
+        ImageSize: 0,
+        ImageFileCount: 0,
+        NfoSize: 0,
+        NfoFileCount: 0,
+        TrickplaySize: 0,
+        TrickplayFolderCount: 0,
+        OtherSize: 0,
+        OtherFileCount: 0,
+        BookSize: 0,
+        BookFileCount: 0,
+        TotalSize: 1000,
+      },
+    ],
+    TvShows: [],
+    Music: [],
+    Books: [],
+    Other: [],
+    LibraryOrder: ['Movies'],
+    TotalBookFileCount: 0,
+    TotalTrickplaySize: 0,
+    InternalTrickplaySize: 157286400,
+  };
+
+  test('internal line renders beside the alongside total', async ({ page }) => {
+    const stubErrors = trackConsoleErrors(page);
+    await page.route('**/JellyfinHelper/MediaStatistics/Latest', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(trickplayCardPayload) });
+    });
+    await openDashboard(page);
+    await switchTab(page, 'overview');
+
+    const card = page.locator('#overviewContent .stat-card', { hasText: 'Trickplay Data' }).first();
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    const details = card.locator('.stat-detail');
+    await expect(details).toHaveCount(2);
+    await expect(details.nth(0)).toHaveText('0 folders');
+    await expect(details.nth(1)).toHaveText('150.00 MB (internal)');
+    // The (internal) marker explains the cleanup exclusion on hover.
+    const badge = details.nth(1).locator('.trickplay-internal-badge');
+    await expect(badge).toBeVisible();
+    const badgeTitle = (await badge.getAttribute('title'))?.trim() ?? '';
+    expect(badgeTitle.length, 'badge carries the exclusion hint').toBeGreaterThan(0);
+
+    const scriptErrors = stubErrors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
+  });
 });

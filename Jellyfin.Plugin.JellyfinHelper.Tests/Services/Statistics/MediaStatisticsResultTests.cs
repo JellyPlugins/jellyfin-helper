@@ -61,6 +61,17 @@ public class MediaStatisticsResultTests
     }
 
     [Fact]
+    public void InternalTrickplaySize_StaysOutsideLibraryTotals()
+    {
+        // The internal figure is a standalone server side number: library sums must ignore it.
+        var result = new MediaStatisticsResult();
+        result.Libraries.Add(new LibraryStatistics { TrickplaySize = 100 });
+        result.InternalTrickplaySize = 500;
+        Assert.Equal(100, result.TotalTrickplaySize);
+        Assert.Equal(500, result.InternalTrickplaySize);
+    }
+
+    [Fact]
     public void TotalSubtitleSize_SumsAcrossAllLibraries()
     {
         var result = new MediaStatisticsResult();
@@ -454,6 +465,7 @@ public class MediaStatisticsResultTests
         Assert.Equal(0, result.TotalTvShowVideoSize);
         Assert.Equal(0, result.TotalMusicAudioSize);
         Assert.Equal(0, result.TotalTrickplaySize);
+        Assert.Equal(0, result.InternalTrickplaySize);
         Assert.Equal(0, result.TotalSubtitleSize);
         Assert.Equal(0, result.TotalImageSize);
         Assert.Equal(0, result.TotalNfoSize);

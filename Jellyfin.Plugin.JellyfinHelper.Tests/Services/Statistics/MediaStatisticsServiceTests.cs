@@ -32,6 +32,19 @@ public class MediaStatisticsServiceTests
     private static string TestPath(params string[] segments)
         => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
 
+    private MediaStatisticsService CreateServiceWithInternalPath(string? internalPath)
+    {
+        var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
+        var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
+        configHelperMock.Setup(c => c.GetInternalTrickplayPath()).Returns(internalPath);
+        return new MediaStatisticsService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            loggerMock.Object,
+            configHelperMock.Object);
+    }
+
     [Fact]
     public void CalculateStatistics_NoLibraries_ReturnsEmptyResult()
     {
@@ -47,6 +60,7 @@ public class MediaStatisticsServiceTests
         Assert.Equal(0, result.TotalMovieVideoSize);
         Assert.Equal(0, result.TotalTvShowVideoSize);
         Assert.Equal(0, result.TotalTrickplaySize);
+        Assert.Equal(0, result.InternalTrickplaySize);
     }
 
     [Fact]
@@ -356,6 +370,311 @@ public class MediaStatisticsServiceTests
 
         Assert.Equal(10_000, result.TotalTrickplaySize);
         Assert.Equal(1, result.Libraries[0].TrickplayFolderCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CalculateStatistics_InternalTrickplayPathUnset_ReturnsZero(string? internalPath)
+    {
+        // Without a server trickplay path there is no Jellyfin managed data to measure.
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(0, result.InternalTrickplaySize);
+        Assert.Equal(0, result.TotalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayPathMissing_ReturnsZero()
+    {
+        var internalPath = TestPath("config", "data", "trickplay");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(false);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(0, result.InternalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplay_SumsNestedFiles()
+    {
+        // Internal images are sharded per item id, so the walk must descend through nested resolution folders.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var shardDir = TestPath("config", "data", "trickplay", "ab");
+        var itemDir = TestPath("config", "data", "trickplay", "ab", "abcdef");
+        var resolutionDir = TestPath("config", "data", "trickplay", "ab", "abcdef", "320 - 10x10");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = shardDir, Name = "ab", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(shardDir)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(shardDir)).Returns([
+            new FileSystemMetadata { FullName = itemDir, Name = "abcdef", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(itemDir)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(itemDir)).Returns([
+            new FileSystemMetadata { FullName = resolutionDir, Name = "320 - 10x10", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(resolutionDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "ab", "abcdef", "320 - 10x10", "0.jpg"), Name = "0.jpg", Length = 100_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "ab", "abcdef", "320 - 10x10", "1.jpg"), Name = "1.jpg", Length = 50_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(resolutionDir)).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(150_000, result.InternalTrickplaySize);
+        Assert.Empty(result.Libraries);
+        Assert.Equal(0, result.TotalTrickplaySize);
+    }
+
+    // Exception kinds passed to the unreadable-subdirectory theory. An enum is serializable so the test explorer can
+    // enumerate each row; the actual exception is built inside the test from this selector.
+    public enum WalkErrorKind
+    {
+        Io,
+        UnauthorizedAccess,
+        Argument,
+        NotSupported,
+        TooLong,
+    }
+
+    private static Exception CreateWalkError(WalkErrorKind kind) => kind switch
+    {
+        WalkErrorKind.Io => new IOException("Denied"),
+        WalkErrorKind.UnauthorizedAccess => new UnauthorizedAccessException("Denied"),
+        WalkErrorKind.Argument => new ArgumentException("Invalid path"),
+        WalkErrorKind.NotSupported => new NotSupportedException("Invalid path"),
+        WalkErrorKind.TooLong => new PathTooLongException("Too long"),
+        _ => new IOException("Denied"),
+    };
+
+    public static TheoryData<WalkErrorKind> UnreadableSubdirectoryErrors() => new()
+    {
+        WalkErrorKind.Io,
+        WalkErrorKind.UnauthorizedAccess,
+        WalkErrorKind.Argument,
+        WalkErrorKind.NotSupported,
+        WalkErrorKind.TooLong,
+    };
+
+    [Theory]
+    [MemberData(nameof(UnreadableSubdirectoryErrors))]
+    public void CalculateStatistics_InternalTrickplayUnreadableSubdir_KeepsPartialSum(WalkErrorKind kind)
+    {
+        // An unreadable descendant is skipped without discarding the bytes already counted (best-effort scan).
+        var internalPath = TestPath("config", "data", "trickplay");
+        var goodDir = TestPath("config", "data", "trickplay", "aa");
+        var badDir = TestPath("config", "data", "trickplay", "bb");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = goodDir, Name = "aa", IsDirectory = true },
+            new FileSystemMetadata { FullName = badDir, Name = "bb", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(goodDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "aa", "0.jpg"), Name = "0.jpg", Length = 40_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(goodDir)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(badDir)).Throws(CreateWalkError(kind));
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(40_000, result.InternalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayStatFailure_ReturnsZero()
+    {
+        // A path that cannot even be stat'ed fails the internal measurement, never the scan.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Throws(new ArgumentException("Invalid path"));
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(0, result.InternalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalAndAlongsideTrickplay_StaySeparate()
+    {
+        // Internal bytes must never leak into library totals or the alongside aggregate.
+        var libraryPath = TestPath("media", "movies");
+        var trickplayPath = TestPath("media", "movies", "Film.trickplay");
+        var internalPath = TestPath("config", "data", "trickplay");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([
+            new VirtualFolderInfo
+            {
+                Name = "Movies",
+                CollectionType = CollectionTypeOptions.movies,
+                Locations = [libraryPath]
+            }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = trickplayPath, Name = "Film.trickplay", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.trickplay", "001.jpg"), Name = "001.jpg", Length = 50_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "0.jpg"), Name = "0.jpg", Length = 30_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(50_000, result.TotalTrickplaySize);
+        Assert.Equal(50_000, result.Libraries[0].TrickplaySize);
+        Assert.Equal(50_000, result.Libraries[0].TotalSize);
+        Assert.Equal(30_000, result.InternalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayLink_Skipped_KeepsPartialSum()
+    {
+        // A linked shard is never descended into; the readable remainder still counts.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var goodDir = TestPath("config", "data", "trickplay", "aa");
+        var linkDir = TestPath("config", "data", "trickplay", "bb");
+        var links = new HashSet<string>(StringComparer.Ordinal) { linkDir };
+        var service = CreateLinkAwareService(internalPath, links.Contains);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = goodDir, Name = "aa", IsDirectory = true },
+            new FileSystemMetadata { FullName = linkDir, Name = "bb", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(goodDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "aa", "0.jpg"), Name = "0.jpg", Length = 40_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(goodDir)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(linkDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "bb", "0.jpg"), Name = "0.jpg", Length = 40_000, IsDirectory = false }
+        ]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(40_000, result.InternalTrickplaySize);
+        _fileSystemMock.Verify(f => f.GetFiles(linkDir), Times.Never);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayLinkToAncestor_CountsOnce()
+    {
+        // A link to an ancestor re-exposes the same files under a longer path; only the first visit counts.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var linkDir = TestPath("config", "data", "trickplay", "link");
+        var links = new HashSet<string>(StringComparer.Ordinal) { linkDir };
+        var service = CreateLinkAwareService(internalPath, links.Contains);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "0.jpg"), Name = "0.jpg", Length = 10_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = linkDir, Name = "link", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(linkDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "link", "0.jpg"), Name = "0.jpg", Length = 10_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(linkDir)).Returns([
+            new FileSystemMetadata { FullName = linkDir, Name = "link", IsDirectory = true }
+        ]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(10_000, result.InternalTrickplaySize);
+        _fileSystemMock.Verify(f => f.GetFiles(linkDir), Times.Never);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayFileLink_NotCounted()
+    {
+        // A linked file reports its target length, so it is skipped before adding: only stored bytes count.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var tilePath = TestPath("config", "data", "trickplay", "0.jpg");
+        var linkPath = TestPath("config", "data", "trickplay", "1.jpg");
+        var links = new HashSet<string>(StringComparer.Ordinal) { linkPath };
+        var service = CreateLinkAwareService(internalPath, links.Contains);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = tilePath, Name = "0.jpg", Length = 10_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = linkPath, Name = "1.jpg", Length = 1_000_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(10_000, result.InternalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayLinkStatFailure_SkipsEntry()
+    {
+        // A directory entry that cannot be stat'ed is never descended into (fail closed).
+        var internalPath = TestPath("config", "data", "trickplay");
+        var goodDir = TestPath("config", "data", "trickplay", "aa");
+        var service = CreateLinkAwareService(internalPath, path => path == goodDir ? throw new UnauthorizedAccessException("Denied") : false);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "0.jpg"), Name = "0.jpg", Length = 5_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = goodDir, Name = "aa", IsDirectory = true }
+        ]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(5_000, result.InternalTrickplaySize);
+    }
+
+    private LinkAwareStatisticsService CreateLinkAwareService(string? internalPath, Func<string, bool> linkCheck)
+    {
+        var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
+        var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
+        configHelperMock.Setup(c => c.GetInternalTrickplayPath()).Returns(internalPath);
+        return new LinkAwareStatisticsService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            loggerMock.Object,
+            configHelperMock.Object,
+            linkCheck);
+    }
+
+    /// <summary>
+    ///     Testable subclass that answers directory link checks from a callback, so link handling is covered without real filesystem links.
+    /// </summary>
+    private sealed class LinkAwareStatisticsService(
+        ILibraryManager libraryManager,
+        IFileSystem fileSystem,
+        Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
+        ILogger<MediaStatisticsService> logger,
+        ICleanupConfigHelper configHelper,
+        Func<string, bool> linkCheck)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
+    {
+        internal override bool IsReparsePoint(string path) => linkCheck(path);
     }
 
     [Fact]
