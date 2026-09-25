@@ -280,6 +280,11 @@ public class MediaStatisticsService : IMediaStatisticsService
 
                 foreach (var sub in _fileSystem.GetDirectories(current, false))
                 {
+                    if (IsSkippedLink(sub.FullName))
+                    {
+                        continue;
+                    }
+
                     stack.Push(sub.FullName);
                 }
             }
@@ -322,6 +327,27 @@ public class MediaStatisticsService : IMediaStatisticsService
         {
             _pluginLog.LogDebug(LogCategory, "Skipping unreadable internal trickplay path.", _logger);
             return 0;
+        }
+    }
+
+    /// <summary>
+    ///     Reports whether a directory entry is a filesystem link. Links are never descended into, so a link pointing at an ancestor cannot recount a tree under growing lexical paths.
+    /// </summary>
+    /// <param name="path">The directory path.</param>
+    /// <returns>True when the entry is a link.</returns>
+    internal virtual bool IsReparsePoint(string path) => ReparsePointGuard.IsReparsePoint(path);
+
+    private bool IsSkippedLink(string fullName)
+    {
+        try
+        {
+            return IsReparsePoint(fullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Fail closed: an entry that cannot be stat'ed is never descended into.
+            _pluginLog.LogDebug(LogCategory, "Skipping directory entry that could not be stat'ed.", _logger);
+            return true;
         }
     }
 

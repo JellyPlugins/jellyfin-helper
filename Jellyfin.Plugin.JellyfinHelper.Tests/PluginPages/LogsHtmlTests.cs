@@ -233,4 +233,16 @@ public partial class LogsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("'" + key + "'", HtmlContent);
     }
+
+    [Fact]
+    public void Html_MobileLogHeaders_StayAccessible()
+    {
+        // Phone CSS must never display none the table header; screen readers would lose the column meanings.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.DoesNotContain(".logs-table thead { display: none;", css);
+        Assert.Contains("clip: rect(0, 0, 0, 0);", css);
+    }
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
 }

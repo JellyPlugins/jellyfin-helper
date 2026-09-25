@@ -21,5 +21,5 @@ changelog: |-
   - The Overview Trickplay card now also shows the space used by trickplay images Jellyfin stores internally, on its own line below the alongside-media total, marked with an (internal) badge
   - Compact log view on phones: log entries stack as cards below 700 px instead of squeezing into a four-column table, so no horizontal scrolling is needed
   - Roomier Library Explorer filter popovers on phones using nearly the full viewport width, like the bitrate editor
-  - Tested by 6191 unit tests and 347 end-to-end tests
+  - Tested by 6195 unit tests and 348 end-to-end tests
   - Requires Jellyfin 12.1 - if you are on Jellyfin 10.x, stay on v2.1.0.6

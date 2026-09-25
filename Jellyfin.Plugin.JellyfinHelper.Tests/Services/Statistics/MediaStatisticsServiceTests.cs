@@ -516,6 +516,115 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_InternalTrickplayLink_Skipped_KeepsPartialSum()
+    {
+        // A linked shard is never descended into; the readable remainder still counts.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var goodDir = TestPath("config", "data", "trickplay", "aa");
+        var linkDir = TestPath("config", "data", "trickplay", "bb");
+        var links = new HashSet<string>(StringComparer.Ordinal) { linkDir };
+        var service = CreateLinkAwareService(internalPath, links.Contains);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = goodDir, Name = "aa", IsDirectory = true },
+            new FileSystemMetadata { FullName = linkDir, Name = "bb", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(goodDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "aa", "0.jpg"), Name = "0.jpg", Length = 40_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(goodDir)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(linkDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "bb", "0.jpg"), Name = "0.jpg", Length = 40_000, IsDirectory = false }
+        ]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(40_000, result.InternalTrickplaySize);
+        _fileSystemMock.Verify(f => f.GetFiles(linkDir), Times.Never);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayLinkToAncestor_CountsOnce()
+    {
+        // A link to an ancestor re-exposes the same files under a longer path; only the first visit counts.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var linkDir = TestPath("config", "data", "trickplay", "link");
+        var links = new HashSet<string>(StringComparer.Ordinal) { linkDir };
+        var service = CreateLinkAwareService(internalPath, links.Contains);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "0.jpg"), Name = "0.jpg", Length = 10_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = linkDir, Name = "link", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(linkDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "link", "0.jpg"), Name = "0.jpg", Length = 10_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(linkDir)).Returns([
+            new FileSystemMetadata { FullName = linkDir, Name = "link", IsDirectory = true }
+        ]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(10_000, result.InternalTrickplaySize);
+        _fileSystemMock.Verify(f => f.GetFiles(linkDir), Times.Never);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayLinkStatFailure_SkipsEntry()
+    {
+        // An entry that cannot be stat'ed is never descended into (fail closed).
+        var internalPath = TestPath("config", "data", "trickplay");
+        var goodDir = TestPath("config", "data", "trickplay", "aa");
+        var service = CreateLinkAwareService(internalPath, path => { throw new UnauthorizedAccessException("Denied"); });
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "0.jpg"), Name = "0.jpg", Length = 5_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = goodDir, Name = "aa", IsDirectory = true }
+        ]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(5_000, result.InternalTrickplaySize);
+    }
+
+    private MediaStatisticsService CreateLinkAwareService(string? internalPath, Func<string, bool> linkCheck)
+    {
+        var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
+        var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
+        configHelperMock.Setup(c => c.GetInternalTrickplayPath()).Returns(internalPath);
+        return new LinkAwareStatisticsService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            loggerMock.Object,
+            configHelperMock.Object,
+            linkCheck);
+    }
+
+    /// <summary>
+    ///     Testable subclass that answers directory link checks from a callback, so link handling is covered without real filesystem links.
+    /// </summary>
+    private sealed class LinkAwareStatisticsService(
+        ILibraryManager libraryManager,
+        IFileSystem fileSystem,
+        Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
+        ILogger<MediaStatisticsService> logger,
+        ICleanupConfigHelper configHelper,
+        Func<string, bool> linkCheck)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
+    {
+        internal override bool IsReparsePoint(string path) => linkCheck(path);
+    }
+
+    [Fact]
     public void CalculateStatistics_DirectorySymlinkCycle_TerminatesAndCountsOnce()
     {
         // A subdirectory linking back at its parent must terminate instead of

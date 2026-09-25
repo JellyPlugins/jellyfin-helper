@@ -71,6 +71,49 @@ test.describe('logs tab on mobile', () => {
       `page must not scroll horizontally (scrollWidth ${overflow.scrollWidth} > viewport ${overflow.innerWidth})`,
     ).toBeLessThanOrEqual(overflow.innerWidth);
   });
+
+  // A scan always writes to the plugin log (200 logs the scan start, 429 logs
+  // the rate-limit warning), so this seeds a deterministic row instead of
+  // accepting the empty state: the meta cells must share one line with the
+  // message wrapped below, all inside the viewport.
+  test('seeded row renders with meta line above the message', async ({ page }) => {
+    await openDashboard(page);
+    await switchTab(page, 'overview');
+    const scanBtn = page.locator('#btnScanLibraries');
+    await expect(scanBtn).toBeVisible({ timeout: 15_000 });
+    const [scanResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/JellyfinHelper/MediaStatistics/ScanLibraries'),
+        { timeout: 30_000 },
+      ),
+      scanBtn.click(),
+    ]);
+    expect([200, 429], `scan status ${scanResp.status()}`).toContain(scanResp.status());
+
+    await switchTab(page, 'logs');
+    const row = page.locator('.logs-table tbody tr', {
+      hasText: /Starting media statistics scan|Rate limit exceeded/,
+    }).first();
+    await expect(row).toBeVisible({ timeout: 20_000 });
+
+    const viewport = page.viewportSize();
+    expect(viewport, 'viewport must be set').not.toBeNull();
+    const boxes = [];
+    for (const cls of ['.col-time', '.col-level', '.col-source', '.col-message']) {
+      const box = await row.locator(cls).boundingBox();
+      expect(box, `${cls} must be measurable`).not.toBeNull();
+      boxes.push(box!);
+    }
+    const [timeBox, levelBox, sourceBox, messageBox] = boxes;
+    // Time, level and source share the meta line; the message wraps below it.
+    for (const box of [levelBox, sourceBox]) {
+      expect(Math.abs(box.y - timeBox.y), 'meta cells share one line').toBeLessThanOrEqual(8);
+    }
+    expect(messageBox.y, 'message wraps below the meta line').toBeGreaterThan(timeBox.y);
+    for (const box of boxes) {
+      expect(box.x + box.width, 'cell stays inside the viewport').toBeLessThanOrEqual(viewport!.width + 1);
+    }
+  });
 });
 
 test('Logs tab: clear opens confirm dialog and empties on confirm', async ({ page }) => {

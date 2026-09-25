@@ -24,8 +24,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6191 total.**
-- **End-to-end: 347 tests across 54 files.**
+- **Unit: 6195 total.**
+- **End-to-end: 348 tests across 54 files.**
 
 ## [3.0.0.3] - 2026-09-24
 

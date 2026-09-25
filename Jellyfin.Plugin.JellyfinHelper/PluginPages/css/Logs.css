@@ -209,8 +209,18 @@
    read an entry. Nothing is hidden - time, level, source share one meta line
    and the message takes the full row width below. Desktop table untouched. */
 @media (max-width: 700px) {
+    /* The header stays in the accessibility tree: display none would hide the
+       column meanings from screen readers, so it is only visually removed. */
     .logs-table thead {
-        display: none;
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
     }
 
     .logs-table,
