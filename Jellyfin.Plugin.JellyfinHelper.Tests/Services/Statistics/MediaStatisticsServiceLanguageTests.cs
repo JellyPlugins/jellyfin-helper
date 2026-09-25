@@ -5,6 +5,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -27,7 +28,7 @@ public class MediaStatisticsServiceLanguageTests
         _fileSystemMock = TestMockFactory.CreateFileSystem();
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
-        _service = new TestableMediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object);
+        _service = new TestableMediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object, TestMockFactory.CreateAppPaths().Object);
     }
 
     private static string TestPath(params string[] segments) => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
@@ -581,8 +582,9 @@ public class MediaStatisticsServiceLanguageTests
         IFileSystem fileSystem,
         Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
-        ICleanupConfigHelper configHelper)
-        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
+        ICleanupConfigHelper configHelper,
+        IApplicationPaths applicationPaths)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper, applicationPaths)
     {
         private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
         public void SetItemLookup(string filePath, BaseItem item) => _itemLookup[filePath] = item;

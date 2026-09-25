@@ -49,6 +49,32 @@ public partial class SettingsHtmlTests : ConfigPageTestBase
         Assert.Contains(label, HtmlContent);
     }
 
+    [Theory]
+    [InlineData("taskDesc_trickplay")]
+    [InlineData("taskDesc_emptyFolder")]
+    [InlineData("taskDesc_subtitle")]
+    [InlineData("taskDesc_link")]
+    [InlineData("taskDesc_recommendations")]
+    [InlineData("taskDesc_seerr")]
+    public void Html_ContainsTaskDescriptionKey(string key)
+    {
+        Assert.Contains(key, HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TaskLabels_CarryDescriptionTitle()
+    {
+        // Each TaskMode label exposes its explanation as a hover title.
+        Assert.Contains("' title=\"' + escAttr(descText) + '\"'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TaskSelects_RenderDescriptionHelpLine()
+    {
+        // The same explanation renders as a visible help line, so touch users get it too.
+        Assert.Contains("<div class=\"help-text\">' + escHtml(descText)", HtmlContent);
+    }
+
     [Fact]
     public void Html_TaskModeEnumValues_MatchSelectOptions()
     {

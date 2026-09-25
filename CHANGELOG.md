@@ -10,6 +10,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Added
 
 - **File counts below every Per-Library Breakdown value.** Each size cell now shows how many files (or trickplay folders) stand behind the bytes, so a sparse library reads differently from a dense one at a glance.
+- **Task settings explain themselves.** Every task dropdown in Settings now carries a short description of what the task does, shown on hover and as a help line below the dropdown, so the same text works with mouse and touch. Available in all dashboard languages.
+- **Overview shows Jellyfin-managed trickplay size.** The Trickplay Data card now lists the space used by trickplay images Jellyfin stores internally, on its own line below the alongside-media total, marked with an (internal) badge. Hovering the badge explains that internal images are excluded from cleanup. Per-library columns stay untouched, since internal images cannot be attributed to a library.
 
 ### Fixed
 
@@ -22,8 +24,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6169 total.**
-- **End-to-end: 344 tests across 54 files.**
+- **Unit: 6187 total.**
+- **End-to-end: 347 tests across 54 files.**
 
 ## [3.0.0.3] - 2026-09-24
 

@@ -47,6 +47,7 @@ public class StatisticsCacheServiceTests : IDisposable
         var stats = new MediaStatisticsResult();
         var movies = new LibraryStatistics { LibraryName = "Movies", VideoSize = 100 };
         var tv = new LibraryStatistics { LibraryName = "TV", VideoSize = 42, VideoFileCount = 3 };
+        stats.InternalTrickplaySize = 123_456;
         stats.Libraries.Add(movies);
         stats.Libraries.Add(tv);
         stats.LibraryOrder.Add("Movies");
@@ -67,6 +68,7 @@ public class StatisticsCacheServiceTests : IDisposable
         Assert.Single(loaded.Movies);
         Assert.Equal(100, loaded.Movies[0].VideoSize);
         Assert.Single(loaded.TvShows);
+        Assert.Equal(123_456, loaded.InternalTrickplaySize);
     }
 
     [Fact]

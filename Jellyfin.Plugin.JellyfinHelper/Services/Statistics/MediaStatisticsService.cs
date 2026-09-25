@@ -8,6 +8,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -55,6 +56,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<MediaStatisticsService> _logger;
     private readonly IPluginLogService _pluginLog;
+    private readonly IApplicationPaths _applicationPaths;
     private readonly IUserDataManager? _userDataManager;
     private readonly IUserManager? _userManager;
 
@@ -66,6 +68,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="configHelper">The cleanup configuration helper.</param>
+    /// <param name="applicationPaths">The server application paths (internal trickplay location).</param>
     /// <param name="userDataManager">The user data manager for watched status.</param>
     /// <param name="userManager">The user manager for user enumeration.</param>
     public MediaStatisticsService(
@@ -74,6 +77,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
         ICleanupConfigHelper configHelper,
+        IApplicationPaths applicationPaths,
         IUserDataManager? userDataManager = null,
         IUserManager? userManager = null)
     {
@@ -82,6 +86,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
+        _applicationPaths = applicationPaths;
         _userDataManager = userDataManager!;
         _userManager = userManager!;
         if (userDataManager == null || userManager == null)
@@ -203,6 +208,8 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
         }
 
+        result.InternalTrickplaySize = MeasureInternalTrickplaySize();
+
         // Log summary
         var totalFiles = result.Libraries.Sum(l =>
             l.VideoFileCount + l.AudioFileCount + l.SubtitleFileCount + l.ImageFileCount + l.NfoFileCount +
@@ -292,6 +299,35 @@ public class MediaStatisticsService : IMediaStatisticsService
         }
 
         return total;
+    }
+
+    /// <summary>
+    ///     Measures Jellyfin managed trickplay data outside the media libraries.
+    /// </summary>
+    /// <returns>Total bytes of internal trickplay data, or zero when the path is missing or unreadable.</returns>
+    private long MeasureInternalTrickplaySize()
+    {
+        // Internal images are keyed by item id, so no per library attribution is possible. They stay out of every library total by design.
+        var path = _applicationPaths.TrickplayPath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return 0;
+        }
+
+        try
+        {
+            if (!_fileSystem.DirectoryExists(path))
+            {
+                return 0;
+            }
+
+            return CalculateTrickplaySize(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _pluginLog.LogDebug(LogCategory, "Skipping unreadable internal trickplay path.", _logger);
+            return 0;
+        }
     }
 
     /// <summary>

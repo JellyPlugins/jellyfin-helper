@@ -278,8 +278,8 @@ plugin stays Active after every call).
 | Arr dropdown → reachability (is-ok); Compare → **successful** comparison card | `arr.ui.spec.ts` |
 | Recommendations user selector → WatchProfile response (documented status); sections toggle | `recommendations.ui.spec.ts` |
 | Overview **Scan Libraries** button → ScanLibraries + button re-enable lifecycle | `interactions.ui.spec.ts` |
-| Per-Library Breakdown **Other + Books columns** → header + gapless rows; per-category file-count sub-lines (folders for trickplay); Movies Other is non-zero from sidecar fixtures; Books column appears with the book fixture holding its total; boxset rows render plain text (never link into the explorer, whose scope excludes boxsets) | `overview-library-table.ui.spec.ts` |
-| Settings task-mode change → **quiet auto-save** PUT (no unsaved band) | `interactions.ui.spec.ts` |
+| Per-Library Breakdown **Other + Books columns** → header + gapless rows; per-category file-count sub-lines (folders for trickplay); Movies Other is non-zero from sidecar fixtures; Books column appears with the book fixture holding its total; boxset rows render plain text (never link into the explorer, whose scope excludes boxsets); trickplay card shows the Jellyfin-managed size on its own line with an (internal) badge carrying the cleanup-exclusion hint | `overview-library-table.ui.spec.ts` |
+| Settings task-mode change → **quiet auto-save** PUT (no unsaved band); every task-mode dropdown explains itself via label title and help line, title and line agree | `interactions.ui.spec.ts` |
 | Trends **insight cards** → expand + mutual-collapse | `interactions.ui.spec.ts` |
 | Settings Seerr **Test Connection** → POST /Seerr/Test (expands section, fills inputs) | `interactions.ui.spec.ts` |
 | Settings **Export Backup** → file download | `interactions.ui.spec.ts` |
@@ -355,7 +355,8 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
   counts, sub-less clips reflected in the no-subtitle health count; per-library
   `TotalSize` is the exact 8-bucket sum (Video/Audio/Subtitles/Images/Trickplay/
   Nfo/Book/Other), Movies `OtherSize`/`NfoSize` and Books `BookSize` are positive
-  from the sidecar/book fixtures.
+  from the sidecar/book fixtures; the result-level `InternalTrickplaySize` travels
+  the wire as a non-negative number and never joins any library total.
 - **Book library protection** (`books-protection.api.spec.ts`): a Book (eBook)
   library is TRACKED but NEVER deleted. Stats expose `Books` / `TotalBookFileCount`
   / `TotalBookFormats` with the KNOWN fixtures' `EPUB`+`PDF` keys (per-format counts

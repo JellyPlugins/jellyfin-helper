@@ -158,3 +158,23 @@ test('Settings: folder-browser opens for the trash path', async ({ page }: { pag
   expect(browseResp.ok(), `browse request failed: ${browseResp.status()}`).toBeTruthy();
   await expect(page.locator('#folderBrowserOverlay')).toBeVisible({ timeout: 5000 });
 });
+
+test('Settings: every task-mode dropdown explains itself via title and help line', async ({ page }) => {
+  await openDashboard(page);
+  await switchTab(page, 'settings');
+  await expect(page.locator('#settingsForm')).toBeVisible({ timeout: 15_000 });
+
+  // Same description twice: hover title on the label (desktop) and a visible
+  // help line below the select (touch), so both input modes get the text.
+  for (const id of ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode']) {
+    const label = page.locator(`#settingsForm label[for="${id}"]`);
+    await expect(label, `${id} label visible`).toBeVisible();
+    const title = (await label.getAttribute('title'))?.trim() ?? '';
+    expect(title.length, `${id} label carries a description title`).toBeGreaterThan(0);
+    const help = page.locator(`#${id} ~ .help-text`);
+    await expect(help, `${id} help line visible`).toBeVisible();
+    const helpText = ((await help.textContent()) ?? '').trim();
+    expect(helpText.length, `${id} help line non-empty`).toBeGreaterThan(0);
+    expect(helpText, `${id} title and help line agree`).toBe(title);
+  }
+});

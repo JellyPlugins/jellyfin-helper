@@ -4,6 +4,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -26,11 +27,24 @@ public class MediaStatisticsServiceTests
         _fileSystemMock = TestMockFactory.CreateFileSystem();
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
-        _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object);
+        _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object, TestMockFactory.CreateAppPaths().Object);
     }
 
     private static string TestPath(params string[] segments)
         => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
+
+    private MediaStatisticsService CreateServiceWithInternalPath(string? internalPath)
+    {
+        var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
+        var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
+        return new MediaStatisticsService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            loggerMock.Object,
+            configHelperMock.Object,
+            TestMockFactory.CreateAppPaths(trickplayPath: internalPath).Object);
+    }
 
     [Fact]
     public void CalculateStatistics_NoLibraries_ReturnsEmptyResult()
@@ -47,6 +61,7 @@ public class MediaStatisticsServiceTests
         Assert.Equal(0, result.TotalMovieVideoSize);
         Assert.Equal(0, result.TotalTvShowVideoSize);
         Assert.Equal(0, result.TotalTrickplaySize);
+        Assert.Equal(0, result.InternalTrickplaySize);
     }
 
     [Fact]
@@ -358,6 +373,149 @@ public class MediaStatisticsServiceTests
         Assert.Equal(1, result.Libraries[0].TrickplayFolderCount);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CalculateStatistics_InternalTrickplayPathUnset_ReturnsZero(string? internalPath)
+    {
+        // Without a server trickplay path there is no Jellyfin managed data to measure.
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(0, result.InternalTrickplaySize);
+        Assert.Equal(0, result.TotalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayPathMissing_ReturnsZero()
+    {
+        var internalPath = TestPath("config", "data", "trickplay");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(false);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(0, result.InternalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplay_SumsNestedFiles()
+    {
+        // Internal images are sharded per item id, so the walk must descend through nested resolution folders.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var shardDir = TestPath("config", "data", "trickplay", "ab");
+        var itemDir = TestPath("config", "data", "trickplay", "ab", "abcdef");
+        var resolutionDir = TestPath("config", "data", "trickplay", "ab", "abcdef", "320 - 10x10");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = shardDir, Name = "ab", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(shardDir)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(shardDir)).Returns([
+            new FileSystemMetadata { FullName = itemDir, Name = "abcdef", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(itemDir)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(itemDir)).Returns([
+            new FileSystemMetadata { FullName = resolutionDir, Name = "320 - 10x10", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(resolutionDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "ab", "abcdef", "320 - 10x10", "0.jpg"), Name = "0.jpg", Length = 100_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "ab", "abcdef", "320 - 10x10", "1.jpg"), Name = "1.jpg", Length = 50_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(resolutionDir)).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(150_000, result.InternalTrickplaySize);
+        Assert.Empty(result.Libraries);
+        Assert.Equal(0, result.TotalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayUnreadable_KeepsPartialSum()
+    {
+        // One unreadable shard must not discard the readable remainder (best-effort scan).
+        var internalPath = TestPath("config", "data", "trickplay");
+        var goodDir = TestPath("config", "data", "trickplay", "aa");
+        var badDir = TestPath("config", "data", "trickplay", "bb");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([
+            new FileSystemMetadata { FullName = goodDir, Name = "aa", IsDirectory = true },
+            new FileSystemMetadata { FullName = badDir, Name = "bb", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(goodDir)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "aa", "0.jpg"), Name = "0.jpg", Length = 40_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(goodDir)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(badDir)).Throws(new UnauthorizedAccessException("Denied"));
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(40_000, result.InternalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplayStatFailure_ReturnsZero()
+    {
+        // A path that cannot even be stat'ed fails the internal measurement, never the scan.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Throws(new ArgumentException("Invalid path"));
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(0, result.InternalTrickplaySize);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalAndAlongsideTrickplay_StaySeparate()
+    {
+        // Internal bytes must never leak into library totals or the alongside aggregate.
+        var libraryPath = TestPath("media", "movies");
+        var trickplayPath = TestPath("media", "movies", "Film.trickplay");
+        var internalPath = TestPath("config", "data", "trickplay");
+        var service = CreateServiceWithInternalPath(internalPath);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([
+            new VirtualFolderInfo
+            {
+                Name = "Movies",
+                CollectionType = CollectionTypeOptions.movies,
+                Locations = [libraryPath]
+            }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = trickplayPath, Name = "Film.trickplay", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(trickplayPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.trickplay", "001.jpg"), Name = "001.jpg", Length = 50_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(trickplayPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "0.jpg"), Name = "0.jpg", Length = 30_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(50_000, result.TotalTrickplaySize);
+        Assert.Equal(50_000, result.Libraries[0].TrickplaySize);
+        Assert.Equal(50_000, result.Libraries[0].TotalSize);
+        Assert.Equal(30_000, result.InternalTrickplaySize);
+    }
+
     [Fact]
     public void CalculateStatistics_DirectorySymlinkCycle_TerminatesAndCountsOnce()
     {
@@ -467,7 +625,8 @@ public class MediaStatisticsServiceTests
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             loggerMock.Object,
-            configHelperMock.Object);
+            configHelperMock.Object,
+            TestMockFactory.CreateAppPaths().Object);
 
         var result = service.CalculateStatistics();
 
@@ -2314,7 +2473,7 @@ public class EmbeddedSubtitleDetectionTests
         var loggerMock = new Mock<ILogger<MediaStatisticsService>>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
         _service = new TestableMediaStatisticsService(
-            _libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object);
+            _libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object, TestMockFactory.CreateAppPaths().Object);
     }
 
     private static string TestPath(params string[] segments)
@@ -2608,8 +2767,9 @@ public class EmbeddedSubtitleDetectionTests
         IFileSystem fileSystem,
         Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
-        ICleanupConfigHelper configHelper)
-        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
+        ICleanupConfigHelper configHelper,
+        IApplicationPaths applicationPaths)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper, applicationPaths)
     {
         private readonly Dictionary<string, bool> _embeddedSubtitles = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
@@ -2957,7 +3117,8 @@ public class MetadataExtractionTests
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             loggerMock.Object,
-            configHelperMock.Object);
+            configHelperMock.Object,
+            TestMockFactory.CreateAppPaths().Object);
     }
 
     private static string TestPath(params string[] segments)
@@ -3427,7 +3588,8 @@ public class MetadataExtractionTests
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<MediaStatisticsService>().Object,
-            TestMockFactory.CreateCleanupConfigHelper().Object);
+            TestMockFactory.CreateCleanupConfigHelper().Object,
+            TestMockFactory.CreateAppPaths().Object);
 
         var lookup = baseService.BuildItemLookup();
 
@@ -3750,7 +3912,8 @@ public class MetadataExtractionTests
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<MediaStatisticsService>().Object,
-            TestMockFactory.CreateCleanupConfigHelper().Object);
+            TestMockFactory.CreateCleanupConfigHelper().Object,
+            TestMockFactory.CreateAppPaths().Object);
 
         var lookup = baseService.BuildItemLookup();
 
@@ -3772,8 +3935,9 @@ public class MetadataExtractionTests
         IFileSystem fileSystem,
         Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
-        ICleanupConfigHelper configHelper)
-        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
+        ICleanupConfigHelper configHelper,
+        IApplicationPaths applicationPaths)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper, applicationPaths)
     {
         private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
 

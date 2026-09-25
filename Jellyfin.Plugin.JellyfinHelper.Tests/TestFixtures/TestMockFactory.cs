@@ -37,7 +37,7 @@ public static class TestMockFactory
 
     /// <summary>Creates a new <see cref="Mock{IApplicationPaths}"/> with common paths configured.</summary>
     /// <returns></returns>
-    public static Mock<IApplicationPaths> CreateAppPaths(string? dataPath = null, string? configPath = null)
+    public static Mock<IApplicationPaths> CreateAppPaths(string? dataPath = null, string? configPath = null, string? trickplayPath = null)
     {
         var effectiveDataPath = dataPath ?? "/data";
         var effectiveConfigPath = configPath ?? Path.Join(effectiveDataPath, "config");
@@ -47,6 +47,7 @@ public static class TestMockFactory
         mock.Setup(ap => ap.PluginsPath).Returns(Path.Join(effectiveDataPath, "plugins"));
         mock.Setup(ap => ap.LogDirectoryPath).Returns(Path.Join(effectiveDataPath, "logs"));
         mock.Setup(ap => ap.ConfigurationDirectoryPath).Returns(effectiveConfigPath);
+        mock.Setup(ap => ap.TrickplayPath).Returns(trickplayPath!);
         return mock;
     }
 

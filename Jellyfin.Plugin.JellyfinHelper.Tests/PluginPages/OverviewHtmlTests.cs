@@ -74,4 +74,16 @@ public class OverviewHtmlTests : ConfigPageTestBase
         Assert.Contains("CODEC_EXPLORER_TYPE_MUSIC", HtmlContent);
         Assert.Contains("CODEC_EXPLORER_TYPE_BOOKS", HtmlContent);
     }
+
+    [Fact]
+    public void Html_TrickplayCard_ShowsInternalSize()
+    {
+        // Jellyfin managed images live outside every library, so the card
+        // renders them on their own detail line with an (internal) marker whose
+        // hover title explains the cleanup exclusion.
+        Assert.Contains("trickplayInternalBadge", HtmlContent);
+        Assert.Contains("trickplayInternalHint", HtmlContent);
+        Assert.Contains("trickplay-internal-badge", HtmlContent);
+        Assert.Contains("InternalTrickplaySize", HtmlContent);
+    }
 }

@@ -145,6 +145,8 @@ function fillOverviewData(data) {
     var trickplayFolders = 0;
     for (const lib of libraries) trickplayFolders += lib.TrickplayFolderCount;
     overviewHtml += '<p class="stat-detail">' + trickplayFolders + ' ' + (trickplayFolders === 1 ? escHtml(T('folder', 'folder')) : escHtml(T('folders', 'folders'))) + '</p>';
+    // Internal images live outside every library, so they get their own line with an (internal) marker instead of joining any column.
+    overviewHtml += '<p class="stat-detail">' + formatBytes(data.InternalTrickplaySize || 0) + ' <span class="trickplay-internal-badge" title="' + escAttr(T('trickplayInternalHint', 'Trickplay images stored by Jellyfin outside your media folders. Shown for information only and never touched by cleanup.')) + '">' + escHtml(T('trickplayInternalBadge', '(internal)')) + '</span></p>';
     overviewHtml += '</div>';
 
     overviewHtml += '<div class="stat-card"><h3>' + mi('edit_note') + escHtml(T('subtitleData', 'Subtitles')) + '</h3>';

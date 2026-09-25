@@ -185,3 +185,66 @@ test.describe('boxset rows never link into the explorer', () => {
     expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
   });
 });
+
+test.describe('trickplay card shows Jellyfin-managed size on its own line', () => {
+  // Internal images live outside every library, so the card renders them on a
+  // second detail line from the result-level field - never inside a column.
+  const trickplayCardPayload = {
+    Movies: [
+      {
+        LibraryName: 'Movies',
+        CollectionType: 'movies',
+        RootPaths: [],
+        VideoSize: 1000,
+        VideoFileCount: 1,
+        AudioSize: 0,
+        AudioFileCount: 0,
+        SubtitleSize: 0,
+        SubtitleFileCount: 0,
+        ImageSize: 0,
+        ImageFileCount: 0,
+        NfoSize: 0,
+        NfoFileCount: 0,
+        TrickplaySize: 0,
+        TrickplayFolderCount: 0,
+        OtherSize: 0,
+        OtherFileCount: 0,
+        BookSize: 0,
+        BookFileCount: 0,
+        TotalSize: 1000,
+      },
+    ],
+    TvShows: [],
+    Music: [],
+    Books: [],
+    Other: [],
+    LibraryOrder: ['Movies'],
+    TotalBookFileCount: 0,
+    TotalTrickplaySize: 0,
+    InternalTrickplaySize: 157286400,
+  };
+
+  test('internal line renders beside the alongside total', async ({ page }) => {
+    const stubErrors = trackConsoleErrors(page);
+    await page.route('**/JellyfinHelper/MediaStatistics/Latest', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(trickplayCardPayload) });
+    });
+    await openDashboard(page);
+    await switchTab(page, 'overview');
+
+    const card = page.locator('#overviewContent .stat-card', { hasText: 'Trickplay Data' }).first();
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    const details = card.locator('.stat-detail');
+    await expect(details).toHaveCount(2);
+    await expect(details.nth(0)).toHaveText('0 folders');
+    await expect(details.nth(1)).toHaveText('150.00 MB (internal)');
+    // The (internal) marker explains the cleanup exclusion on hover.
+    const badge = details.nth(1).locator('.trickplay-internal-badge');
+    await expect(badge).toBeVisible();
+    const badgeTitle = (await badge.getAttribute('title'))?.trim() ?? '';
+    expect(badgeTitle.length, 'badge carries the exclusion hint').toBeGreaterThan(0);
+
+    const scriptErrors = stubErrors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
+  });
+});
