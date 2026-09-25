@@ -437,18 +437,39 @@ public class MediaStatisticsServiceTests
         Assert.Equal(0, result.TotalTrickplaySize);
     }
 
-    public static TheoryData<Exception> UnreadableSubdirectoryErrors() => new()
+    // Exception kinds passed to the unreadable-subdirectory theory. An enum is serializable so the test explorer can
+    // enumerate each row; the actual exception is built inside the test from this selector.
+    public enum WalkErrorKind
     {
-        new IOException("Denied"),
-        new UnauthorizedAccessException("Denied"),
-        new ArgumentException("Invalid path"),
-        new NotSupportedException("Invalid path"),
-        new PathTooLongException("Too long"),
+        Io,
+        UnauthorizedAccess,
+        Argument,
+        NotSupported,
+        TooLong,
+    }
+
+    private static Exception CreateWalkError(WalkErrorKind kind) => kind switch
+    {
+        WalkErrorKind.Io => new IOException("Denied"),
+        WalkErrorKind.UnauthorizedAccess => new UnauthorizedAccessException("Denied"),
+        WalkErrorKind.Argument => new ArgumentException("Invalid path"),
+        WalkErrorKind.NotSupported => new NotSupportedException("Invalid path"),
+        WalkErrorKind.TooLong => new PathTooLongException("Too long"),
+        _ => new IOException("Denied"),
+    };
+
+    public static TheoryData<WalkErrorKind> UnreadableSubdirectoryErrors() => new()
+    {
+        WalkErrorKind.Io,
+        WalkErrorKind.UnauthorizedAccess,
+        WalkErrorKind.Argument,
+        WalkErrorKind.NotSupported,
+        WalkErrorKind.TooLong,
     };
 
     [Theory]
     [MemberData(nameof(UnreadableSubdirectoryErrors))]
-    public void CalculateStatistics_InternalTrickplayUnreadableSubdir_KeepsPartialSum(Exception error)
+    public void CalculateStatistics_InternalTrickplayUnreadableSubdir_KeepsPartialSum(WalkErrorKind kind)
     {
         // An unreadable descendant is skipped without discarding the bytes already counted (best-effort scan).
         var internalPath = TestPath("config", "data", "trickplay");
@@ -466,7 +487,7 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "aa", "0.jpg"), Name = "0.jpg", Length = 40_000, IsDirectory = false }
         ]);
         _fileSystemMock.Setup(f => f.GetDirectories(goodDir)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetFiles(badDir)).Throws(error);
+        _fileSystemMock.Setup(f => f.GetFiles(badDir)).Throws(CreateWalkError(kind));
 
         var result = service.CalculateStatistics();
 
