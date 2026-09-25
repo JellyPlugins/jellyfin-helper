@@ -273,7 +273,8 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             try
             {
-                foreach (var file in _fileSystem.GetFiles(current, false))
+                foreach (var file in _fileSystem.GetFiles(current, false)
+                    .Where(file => !IsSkippedLink(file.FullName)))
                 {
                     total += file.Length;
                 }
@@ -324,11 +325,11 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Reports whether a directory entry is a filesystem link. Links are never descended into, so a link pointing at an ancestor cannot recount a tree under growing lexical paths.
+    ///     Reports whether a file or directory entry is a filesystem link. Links are never counted or descended into, so linked bytes stay out of the total and a link pointing at an ancestor cannot recount a tree under growing lexical paths.
     /// </summary>
-    /// <param name="path">The directory path.</param>
+    /// <param name="path">The file or directory path.</param>
     /// <returns>True when the entry is a link.</returns>
-    internal virtual bool IsReparsePoint(string path) => ReparsePointGuard.IsReparsePoint(path);
+    internal virtual bool IsReparsePoint(string path) => ReparsePointGuard.IsReparsePointAnyType(path);
 
     private bool IsSkippedLink(string fullName)
     {

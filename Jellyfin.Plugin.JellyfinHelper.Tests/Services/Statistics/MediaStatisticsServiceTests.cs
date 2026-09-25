@@ -606,12 +606,34 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_InternalTrickplayFileLink_NotCounted()
+    {
+        // A linked file reports its target length, so it is skipped before adding: only stored bytes count.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var tilePath = TestPath("config", "data", "trickplay", "0.jpg");
+        var linkPath = TestPath("config", "data", "trickplay", "1.jpg");
+        var links = new HashSet<string>(StringComparer.Ordinal) { linkPath };
+        var service = CreateLinkAwareService(internalPath, links.Contains);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = tilePath, Name = "0.jpg", Length = 10_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = linkPath, Name = "1.jpg", Length = 1_000_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(10_000, result.InternalTrickplaySize);
+    }
+
+    [Fact]
     public void CalculateStatistics_InternalTrickplayLinkStatFailure_SkipsEntry()
     {
-        // An entry that cannot be stat'ed is never descended into (fail closed).
+        // A directory entry that cannot be stat'ed is never descended into (fail closed).
         var internalPath = TestPath("config", "data", "trickplay");
         var goodDir = TestPath("config", "data", "trickplay", "aa");
-        var service = CreateLinkAwareService(internalPath, path => { throw new UnauthorizedAccessException("Denied"); });
+        var service = CreateLinkAwareService(internalPath, path => path == goodDir ? throw new UnauthorizedAccessException("Denied") : false);
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
         _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
         _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
