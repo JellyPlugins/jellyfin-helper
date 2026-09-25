@@ -4,7 +4,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -27,7 +26,7 @@ public class MediaStatisticsServiceTests
         _fileSystemMock = TestMockFactory.CreateFileSystem();
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
-        _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object, TestMockFactory.CreateAppPaths().Object);
+        _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object);
     }
 
     private static string TestPath(params string[] segments)
@@ -37,13 +36,13 @@ public class MediaStatisticsServiceTests
     {
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
+        configHelperMock.Setup(c => c.GetInternalTrickplayPath()).Returns(internalPath);
         return new MediaStatisticsService(
             _libraryManagerMock.Object,
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             loggerMock.Object,
-            configHelperMock.Object,
-            TestMockFactory.CreateAppPaths(trickplayPath: internalPath).Object);
+            configHelperMock.Object);
     }
 
     [Fact]
@@ -625,8 +624,7 @@ public class MediaStatisticsServiceTests
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             loggerMock.Object,
-            configHelperMock.Object,
-            TestMockFactory.CreateAppPaths().Object);
+            configHelperMock.Object);
 
         var result = service.CalculateStatistics();
 
@@ -2473,7 +2471,7 @@ public class EmbeddedSubtitleDetectionTests
         var loggerMock = new Mock<ILogger<MediaStatisticsService>>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
         _service = new TestableMediaStatisticsService(
-            _libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object, TestMockFactory.CreateAppPaths().Object);
+            _libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object);
     }
 
     private static string TestPath(params string[] segments)
@@ -2767,9 +2765,8 @@ public class EmbeddedSubtitleDetectionTests
         IFileSystem fileSystem,
         Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
-        ICleanupConfigHelper configHelper,
-        IApplicationPaths applicationPaths)
-        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper, applicationPaths)
+        ICleanupConfigHelper configHelper)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
     {
         private readonly Dictionary<string, bool> _embeddedSubtitles = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
@@ -3117,8 +3114,7 @@ public class MetadataExtractionTests
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             loggerMock.Object,
-            configHelperMock.Object,
-            TestMockFactory.CreateAppPaths().Object);
+            configHelperMock.Object);
     }
 
     private static string TestPath(params string[] segments)
@@ -3588,8 +3584,7 @@ public class MetadataExtractionTests
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<MediaStatisticsService>().Object,
-            TestMockFactory.CreateCleanupConfigHelper().Object,
-            TestMockFactory.CreateAppPaths().Object);
+            TestMockFactory.CreateCleanupConfigHelper().Object);
 
         var lookup = baseService.BuildItemLookup();
 
@@ -3912,8 +3907,7 @@ public class MetadataExtractionTests
             _fileSystemMock.Object,
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<MediaStatisticsService>().Object,
-            TestMockFactory.CreateCleanupConfigHelper().Object,
-            TestMockFactory.CreateAppPaths().Object);
+            TestMockFactory.CreateCleanupConfigHelper().Object);
 
         var lookup = baseService.BuildItemLookup();
 
@@ -3935,9 +3929,8 @@ public class MetadataExtractionTests
         IFileSystem fileSystem,
         Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
-        ICleanupConfigHelper configHelper,
-        IApplicationPaths applicationPaths)
-        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper, applicationPaths)
+        ICleanupConfigHelper configHelper)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
     {
         private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
 

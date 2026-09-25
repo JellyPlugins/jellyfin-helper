@@ -21,7 +21,7 @@ public class MediaStatisticsServiceTvShowTests
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
         _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object,
-            TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object, TestMockFactory.CreateAppPaths().Object);
+            TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object);
     }
 
     private static string TestPath(params string[] segments)

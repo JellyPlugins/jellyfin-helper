@@ -93,6 +93,12 @@ public interface ICleanupConfigHelper
     string GetTrashPath(string libraryRootPath);
 
     /// <summary>
+    /// Gets the server internal trickplay directory used when images are not saved alongside media.
+    /// </summary>
+    /// <returns>The internal trickplay path, or null when the server exposes none.</returns>
+    string? GetInternalTrickplayPath();
+
+    /// <summary>
     ///     Gets the list of existing trash folder paths on disk for a given trash folder path setting.
     /// </summary>
     /// <param name="libraryManager">The library manager for resolving library locations.</param>

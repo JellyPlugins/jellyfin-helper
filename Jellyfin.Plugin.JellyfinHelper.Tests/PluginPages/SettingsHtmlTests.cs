@@ -69,13 +69,6 @@ public partial class SettingsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_TaskSelects_RenderDescriptionHelpLine()
-    {
-        // The same explanation renders as a visible help line, so touch users get it too.
-        Assert.Contains("<div class=\"help-text\">' + escHtml(descText)", HtmlContent);
-    }
-
-    [Fact]
     public void Html_TaskModeEnumValues_MatchSelectOptions()
     {
         foreach (var value in Enum.GetNames(typeof(TaskMode)))

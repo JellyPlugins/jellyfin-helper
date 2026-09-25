@@ -7,7 +7,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
@@ -40,7 +39,7 @@ public class MediaStatisticsServiceWatchedTests
     {
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
-        return new TestableMediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object, TestMockFactory.CreateAppPaths().Object, _userDataManagerMock.Object, _userManagerMock.Object);
+        return new TestableMediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, TestMockFactory.CreatePluginLogService(), loggerMock.Object, configHelperMock.Object, _userDataManagerMock.Object, _userManagerMock.Object);
     }
 
     private void SetupUserManagerWithUsers(params (string username, int playCount)[] users)
@@ -416,7 +415,6 @@ public class MediaStatisticsServiceWatchedTests
             TestMockFactory.CreatePluginLogService(),
             loggerMock.Object,
             configHelperMock.Object,
-            TestMockFactory.CreateAppPaths().Object,
             _userDataManagerMock.Object,
             null!);
         service.SetItemLookup(path, mockItem.Object);
@@ -473,10 +471,9 @@ public class MediaStatisticsServiceWatchedTests
         Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
         ICleanupConfigHelper configHelper,
-        IApplicationPaths applicationPaths,
         IUserDataManager userDataManager,
         IUserManager userManager)
-        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper, applicationPaths, userDataManager, userManager)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper, userDataManager, userManager)
     {
         private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
         public void SetItemLookup(string filePath, BaseItem item) => _itemLookup[filePath] = item;

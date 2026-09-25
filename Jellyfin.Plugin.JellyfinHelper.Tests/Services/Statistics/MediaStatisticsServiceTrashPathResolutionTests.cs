@@ -4,7 +4,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -41,8 +40,7 @@ public sealed class MediaStatisticsServiceTrashPathResolutionTests
             _fileSystemMock.Object,
             _pluginLogMock.Object,
             TestMockFactory.CreateLogger<MediaStatisticsService>().Object,
-            configHelper,
-            TestMockFactory.CreateAppPaths().Object);
+            configHelper);
 
     [Fact]
     public void CalculateStatistics_TrashPathResolutionThrowsArgumentException_LogsWarningAndCompletesScan()

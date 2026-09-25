@@ -8,7 +8,6 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -56,7 +55,6 @@ public class MediaStatisticsService : IMediaStatisticsService
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<MediaStatisticsService> _logger;
     private readonly IPluginLogService _pluginLog;
-    private readonly IApplicationPaths _applicationPaths;
     private readonly IUserDataManager? _userDataManager;
     private readonly IUserManager? _userManager;
 
@@ -68,7 +66,6 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="configHelper">The cleanup configuration helper.</param>
-    /// <param name="applicationPaths">The server application paths (internal trickplay location).</param>
     /// <param name="userDataManager">The user data manager for watched status.</param>
     /// <param name="userManager">The user manager for user enumeration.</param>
     public MediaStatisticsService(
@@ -77,7 +74,6 @@ public class MediaStatisticsService : IMediaStatisticsService
         IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
         ICleanupConfigHelper configHelper,
-        IApplicationPaths applicationPaths,
         IUserDataManager? userDataManager = null,
         IUserManager? userManager = null)
     {
@@ -86,7 +82,6 @@ public class MediaStatisticsService : IMediaStatisticsService
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
-        _applicationPaths = applicationPaths;
         _userDataManager = userDataManager!;
         _userManager = userManager!;
         if (userDataManager == null || userManager == null)
@@ -308,7 +303,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     private long MeasureInternalTrickplaySize()
     {
         // Internal images are keyed by item id, so no per library attribution is possible. They stay out of every library total by design.
-        var path = _applicationPaths.TrickplayPath;
+        var path = _configHelper.GetInternalTrickplayPath();
         if (string.IsNullOrWhiteSpace(path))
         {
             return 0;
