@@ -8,6 +8,18 @@ function getCollectionBadge(type) {
     return '<span class="badge badge-other">' + escHtml(type || T('mixed', 'Mixed')) + '</span>';
 }
 
+// Breakdown table cell: byte value plus a small file-count sub-line. Per-library
+// counts expose anomalies a bare size hides (500 GB in 3 files vs. 5000 files)
+// without widening the table. The Total cell stays bytes-only: folders cannot
+// join a file sum, so no count there could ever reconcile with it.
+function librarySizeCell(bytes, count, singularKey, singularFallback, pluralKey, pluralFallback) {
+    var label = count === 1
+        ? escHtml(T(singularKey, singularFallback))
+        : escHtml(T(pluralKey, pluralFallback));
+    return '<td><span class="library-table-bytes">' + formatBytes(bytes) + '</span>'
+        + '<br><span class="library-table-sub">' + count + ' ' + label + '</span></td>';
+}
+
 function buildBarSegments(data) {
     var total = data.TotalMovieVideoSize + data.TotalTvShowVideoSize +
         data.TotalSubtitleSize + data.TotalImageSize + data.TotalTrickplaySize +
@@ -175,29 +187,38 @@ function fillOverviewData(data) {
         overviewHtml += '<tr>';
         // The library name links into the Codecs Library Explorer pre-scoped to
         // that library. Dimensions without data for its media type render greyed out.
-        // Nameless rows render plain text: an empty button would be clickable void.
-        if (lib.LibraryName) {
+        // Only link libraries the Explorer can actually scope to: boxset libraries
+        // are deliberately excluded from its scope picker, so a link there would open
+        // an empty "no library" state - a clickable void. Nameless rows render plain
+        // text for the same reason: an empty button would be clickable void.
+        var explorable = !!lib.LibraryName
+            && (lib.CollectionType || '').toLowerCase() !== 'boxsets';
+        if (explorable) {
             overviewHtml += '<td><button type="button" class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '"'
                 + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
                 + escHtml(lib.LibraryName) + '</button></td>';
+        } else if (lib.LibraryName) {
+            overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
         } else {
             overviewHtml += '<td></td>';
         }
         overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
-        overviewHtml += '<td>' + formatBytes(lib.VideoSize) + '</td>';
-        overviewHtml += '<td>' + formatBytes(lib.AudioSize) + '</td>';
-        overviewHtml += '<td>' + formatBytes(lib.ImageSize) + '</td>';
+        overviewHtml += librarySizeCell(lib.VideoSize, lib.VideoFileCount || 0, 'file', 'file', 'files', 'files');
+        overviewHtml += librarySizeCell(lib.AudioSize, lib.AudioFileCount || 0, 'file', 'file', 'files', 'files');
+        overviewHtml += librarySizeCell(lib.ImageSize, lib.ImageFileCount || 0, 'file', 'file', 'files', 'files');
         if (hasBooks) {
-            overviewHtml += '<td>' + formatBytes(lib.BookSize || 0) + '</td>';
+            overviewHtml += librarySizeCell(lib.BookSize || 0, lib.BookFileCount || 0, 'file', 'file', 'files', 'files');
         }
-        overviewHtml += '<td>' + formatBytes(lib.SubtitleSize) + '</td>';
-        overviewHtml += '<td>' + formatBytes(lib.TrickplaySize) + '</td>';
-        // Other folds in NFO metadata and unrecognized sidecars. eBooks get their own
-        // Books column (when present) instead of hiding inside Other, so every row
-        // still sums exactly to its Total: TotalSize already covers all buckets server-side.
+        overviewHtml += librarySizeCell(lib.SubtitleSize, lib.SubtitleFileCount || 0, 'file', 'file', 'files', 'files');
+        overviewHtml += librarySizeCell(lib.TrickplaySize, lib.TrickplayFolderCount || 0, 'folder', 'folder', 'folders', 'folders');
+        // Other folds in NFO metadata and unrecognized sidecars (counts likewise
+        // combined). eBooks get their own Books column (when present) instead of
+        // hiding inside Other, so every row still sums exactly to its Total:
+        // TotalSize already covers all buckets server-side.
         var otherSize = (lib.OtherSize || 0) + (lib.NfoSize || 0);
-        overviewHtml += '<td>' + formatBytes(otherSize) + '</td>';
-        overviewHtml += '<td><strong>' + formatBytes(lib.TotalSize) + '</strong></td>';
+        var otherCount = (lib.OtherFileCount || 0) + (lib.NfoFileCount || 0);
+        overviewHtml += librarySizeCell(otherSize, otherCount, 'file', 'file', 'files', 'files');
+        overviewHtml += '<td><strong><span class="library-table-bytes">' + formatBytes(lib.TotalSize) + '</span></strong></td>';
         overviewHtml += '</tr>';
     }
 

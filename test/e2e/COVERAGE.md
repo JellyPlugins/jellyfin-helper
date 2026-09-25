@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **341 tests** (API + UI) across 54 spec files
+every UI interaction. **344 tests** (API + UI) across 54 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -273,12 +273,12 @@ plugin stays Active after every call).
 | Book-format breakdown row → file tree shows a **Books section with files** (not "No files found") | `trees.ui.spec.ts` |
 | Excluded Libraries multi-select **lists libraries** (not "No data") | `trees.ui.spec.ts` |
 | Health item → detail tree | `trees.ui.spec.ts` |
-| Logs arrive + **download file**; level filter → PUT /LogLevel **succeeds + persists DEBUG**; clear → DELETE **succeeds + empty state** | `logs.ui.spec.ts` |
+| Logs arrive + **download file**; level filter → PUT /LogLevel **succeeds + persists DEBUG**; clear → DELETE **succeeds + empty state**; mobile stacks rows as cards with no horizontal overflow | `logs.ui.spec.ts` |
 | **Unsaved dialog**: dirty band; appears on leaving dirty tab; absent after save; Discard drops edit | `unsaved-dialog.ui.spec.ts` |
 | Arr dropdown → reachability (is-ok); Compare → **successful** comparison card | `arr.ui.spec.ts` |
 | Recommendations user selector → WatchProfile response (documented status); sections toggle | `recommendations.ui.spec.ts` |
 | Overview **Scan Libraries** button → ScanLibraries + button re-enable lifecycle | `interactions.ui.spec.ts` |
-| Per-Library Breakdown **Other + Books columns** → header + gapless rows; Movies Other is non-zero from sidecar fixtures; Books column appears with the book fixture holding its total | `overview-library-table.ui.spec.ts` |
+| Per-Library Breakdown **Other + Books columns** → header + gapless rows; per-category file-count sub-lines (folders for trickplay); Movies Other is non-zero from sidecar fixtures; Books column appears with the book fixture holding its total; boxset rows render plain text (never link into the explorer, whose scope excludes boxsets) | `overview-library-table.ui.spec.ts` |
 | Settings task-mode change → **quiet auto-save** PUT (no unsaved band) | `interactions.ui.spec.ts` |
 | Trends **insight cards** → expand + mutual-collapse | `interactions.ui.spec.ts` |
 | Settings Seerr **Test Connection** → POST /Seerr/Test (expands section, fills inputs) | `interactions.ui.spec.ts` |

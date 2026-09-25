@@ -205,6 +205,60 @@
     overflow-wrap: break-word;
 }
 
+/* Mobile: rows become stacked cards so no horizontal scrolling is needed to
+   read an entry. Nothing is hidden - time, level, source share one meta line
+   and the message takes the full row width below. Desktop table untouched. */
+@media (max-width: 700px) {
+    .logs-table thead {
+        display: none;
+    }
+
+    .logs-table,
+    .logs-table tbody {
+        display: block;
+    }
+
+    .logs-table tr {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.15em 0.6em;
+        padding: 0.55em 0.1em;
+        border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .logs-table td {
+        border-bottom: none;
+        padding: 0;
+    }
+
+    .logs-table .col-time {
+        width: auto;
+        order: 1;
+        font-size: 0.85em;
+    }
+
+    .logs-table .col-level {
+        width: auto;
+        order: 2;
+    }
+
+    .logs-table .col-source {
+        width: auto;
+        min-width: 0;
+        flex: 1 1 auto;
+        text-align: right;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        order: 3;
+    }
+
+    .logs-table .col-message {
+        flex: 1 1 100%;
+        order: 4;
+    }
+}
+
 /* Level colors */
 .log-level-DEBUG {
     color: var(--color-debug);

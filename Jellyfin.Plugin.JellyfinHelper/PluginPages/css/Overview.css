@@ -129,6 +129,17 @@
     text-align: left;
 }
 
+/* Per-category file-count sub-line below the byte value. Small and quiet on
+   both themes (opacity, no fixed color); adds row height, never width. */
+.library-table-sub {
+    display: block;
+    font-size: 0.75em;
+    font-weight: 400;
+    opacity: 0.55;
+    margin-top: 0.1em;
+    white-space: nowrap;
+}
+
 .library-table th:nth-child(2),
 .library-table td:nth-child(2) {
     text-align: center;

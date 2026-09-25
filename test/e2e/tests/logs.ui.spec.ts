@@ -50,6 +50,29 @@ test('Logs tab: level filter change persists via LogLevel endpoint', async ({ pa
   expect(cfg.PluginLogLevel).toBe('DEBUG');
 });
 
+test.describe('logs tab on mobile', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  // The table wrapper used to force bidirectional scrolling on phones; rows now
+  // stack as cards, so the page must never overflow horizontally.
+  test('no horizontal overflow, rows stay readable', async ({ page }) => {
+    await openDashboard(page);
+    await switchTab(page, 'logs');
+    await expect(
+      page.locator('.logs-table tbody tr, .logs-empty').first(),
+    ).toBeVisible({ timeout: 15_000 });
+
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(
+      overflow.scrollWidth,
+      `page must not scroll horizontally (scrollWidth ${overflow.scrollWidth} > viewport ${overflow.innerWidth})`,
+    ).toBeLessThanOrEqual(overflow.innerWidth);
+  });
+});
+
 test('Logs tab: clear opens confirm dialog and empties on confirm', async ({ page }) => {
   await openDashboard(page);
   await switchTab(page, 'logs');

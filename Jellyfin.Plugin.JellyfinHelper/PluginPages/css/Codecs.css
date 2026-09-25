@@ -1035,7 +1035,10 @@
         left: auto;
         right: 0;
         min-width: 0;
-        width: max-content;
+        /* Nearly full viewport width: dim lists, toggle pairs and option rows
+           get the same roomy sheet the bitrate editor already enjoys instead of
+           squeezing into a content-width sliver. Desktop keeps its 280-360px card. */
+        width: calc(100vw - 2em);
         max-width: calc(100vw - 2em);
     }
 

@@ -275,6 +275,9 @@ test.describe('mobile filter popover', () => {
     expect(box!.x, 'popover must not start left of the viewport').toBeGreaterThanOrEqual(-1);
     expect(box!.x + box!.width, 'popover must not overflow the viewport to the right')
       .toBeLessThanOrEqual(viewport!.width + 1);
+    // Roomy sheet, not a content-width sliver: nearly full viewport width so
+    // dim rows, toggle pairs and options are not squeezed.
+    expect(box!.width, 'popover uses nearly the full viewport width').toBeGreaterThan(250);
   });
 
   test('filter editor stays inside the viewport', async ({ page }) => {
@@ -289,5 +292,6 @@ test.describe('mobile filter popover', () => {
     expect(box!.x, 'editor must not start left of the viewport').toBeGreaterThanOrEqual(-1);
     expect(box!.x + box!.width, 'editor must not overflow the viewport to the right')
       .toBeLessThanOrEqual(viewport!.width + 1);
+    expect(box!.width, 'editor uses nearly the full viewport width').toBeGreaterThan(250);
   });
 });
