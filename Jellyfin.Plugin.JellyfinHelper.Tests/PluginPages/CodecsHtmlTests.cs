@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// <summary>
 ///     Tests for the Codecs tab in the composed configPage.html.
 /// </summary>
-public class CodecsHtmlTests : ConfigPageTestBase
+public partial class CodecsHtmlTests : ConfigPageTestBase
 {
     [Fact]
     public void Html_ContainsCodecsTab()
@@ -14,6 +14,17 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("id=\"tab-codecs\"", HtmlContent);
         Assert.Contains("id=\"codecsContent\"", HtmlContent);
     }
+
+    [Fact]
+    public void Html_FilterPopover_OpensLeftwardsFromButton()
+    {
+        // The add button sits at the bar right, so a left-anchored card would spill past the viewport edge.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Matches(new Regex(@"\.codec-filter-pop\s*\{[^}]*left:\s*auto;[^}]*right:\s*0;"), css);
+    }
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
 
     /// <summary>
     ///     Verifies each Codecs tab function is declared in the composed HTML.

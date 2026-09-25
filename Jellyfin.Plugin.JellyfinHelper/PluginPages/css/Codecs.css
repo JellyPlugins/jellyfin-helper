@@ -598,7 +598,10 @@
     position: absolute;
     z-index: 20;
     top: 100%;
-    left: 0;
+    /* The sheet opens leftwards from the button: the button sits at the bar
+       right, so a left-anchored card would spill past the viewport edge. */
+    left: auto;
+    right: 0;
     margin-top: 0.3em;
     min-width: 280px;
     max-width: min(360px, calc(100vw - 2em));
