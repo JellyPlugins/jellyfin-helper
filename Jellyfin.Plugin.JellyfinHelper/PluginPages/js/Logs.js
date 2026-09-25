@@ -18,7 +18,7 @@ function renderLogsTab() {
     h += '<div class="logs-toolbar-item">';
     h += '<label for="logsLevelFilter">' + escHtml(T('logsLevel', 'Level')) + ':</label>';
     h += '<div>';
-    h += '<select id="logsLevelFilter" style="min-width: 100px">';
+    h += '<select id="logsLevelFilter" style="width:auto">';
     h += '<option value="DEBUG">DEBUG</option>';
     h += '<option value="INFO">INFO</option>';
     h += '<option value="WARN">WARN</option>';

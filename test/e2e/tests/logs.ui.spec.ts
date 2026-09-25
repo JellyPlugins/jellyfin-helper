@@ -130,6 +130,8 @@ test.describe('logs tab on mobile', () => {
     expect(levelBox, 'level control measurable').not.toBeNull();
     expect(sourceBox, 'source control measurable').not.toBeNull();
     expect(Math.abs(levelBox!.x - sourceBox!.x), 'controls share one column').toBeLessThanOrEqual(2);
+    // Fixed 5-letter level codes need no reserved space: the select hugs its content.
+    expect(levelBox!.width, 'level select stays compact').toBeLessThan(sourceBox!.width);
   });
 });
 

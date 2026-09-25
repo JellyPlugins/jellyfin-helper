@@ -252,6 +252,13 @@ public partial class LogsHtmlTests : ConfigPageTestBase
         Assert.DoesNotContain("#logsLevelFilter { margin-left: 10px;", css);
     }
 
+    [Fact]
+    public void Html_LevelFilter_SizesToContent()
+    {
+        // The level options are fixed 5-letter codes, so the select hugs its content instead of reserving empty space.
+        Assert.Contains("id=\"logsLevelFilter\" style=\"width:auto\"", HtmlContent);
+    }
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
 }

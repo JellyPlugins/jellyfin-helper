@@ -1030,6 +1030,10 @@
         flex: 0 0 auto;
         display: flex;
         align-items: center;
+        /* Static so the phone sheet anchors to the bar (below), not to this
+           wrapper: the base rule positions the wrapper, and the nearer
+           ancestor would win otherwise. Desktop keeps the wrapper anchor. */
+        position: static;
     }
 
     /* The button wrapper can sit left of the bar edge (pills, gaps and wrapping
