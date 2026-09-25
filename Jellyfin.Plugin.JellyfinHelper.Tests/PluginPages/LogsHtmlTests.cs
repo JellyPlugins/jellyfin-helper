@@ -243,6 +243,15 @@ public partial class LogsHtmlTests : ConfigPageTestBase
         Assert.Contains("clip: rect(0, 0, 0, 0);", css);
     }
 
+    [Fact]
+    public void Html_ToolbarLabels_ShareOneColumn()
+    {
+        // Level and Source controls start on the same x in every language, so labels share a fixed column instead of per-label margins.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".logs-toolbar-item > label:first-child { flex: 0 0 auto; min-width: 4em; }", css);
+        Assert.DoesNotContain("#logsLevelFilter { margin-left: 10px;", css);
+    }
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
 }

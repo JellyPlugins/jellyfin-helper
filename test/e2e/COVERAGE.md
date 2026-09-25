@@ -273,7 +273,7 @@ plugin stays Active after every call).
 | Book-format breakdown row → file tree shows a **Books section with files** (not "No files found") | `trees.ui.spec.ts` |
 | Excluded Libraries multi-select **lists libraries** (not "No data") | `trees.ui.spec.ts` |
 | Health item → detail tree | `trees.ui.spec.ts` |
-| Logs arrive + **download file**; level filter → PUT /LogLevel **succeeds + persists DEBUG**; clear → DELETE **succeeds + empty state**; mobile stacks rows as cards with no horizontal overflow | `logs.ui.spec.ts` |
+| Logs arrive + **download file**; level filter → PUT /LogLevel **succeeds + persists DEBUG**; clear → DELETE **succeeds + empty state**; mobile stacks rows as cards with no horizontal overflow; seeded row checks meta-line/message arrangement; filter labels share one column | `logs.ui.spec.ts` |
 | **Unsaved dialog**: dirty band; appears on leaving dirty tab; absent after save; Discard drops edit | `unsaved-dialog.ui.spec.ts` |
 | Arr dropdown → reachability (is-ok); Compare → **successful** comparison card | `arr.ui.spec.ts` |
 | Recommendations user selector → WatchProfile response (documented status); sections toggle | `recommendations.ui.spec.ts` |

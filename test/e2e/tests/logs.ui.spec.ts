@@ -76,8 +76,7 @@ test.describe('logs tab on mobile', () => {
   // the rate-limit warning), so this seeds a deterministic row instead of
   // accepting the empty state: the meta cells must share one line with the
   // message wrapped below, all inside the viewport.
-  test('seeded row renders with meta line above the message', async ({ page }) => {
-    await openDashboard(page);
+  test('seeded row renders with meta line above the message', async ({ page }) => {    await openDashboard(page);
     await switchTab(page, 'overview');
     const scanBtn = page.locator('#btnScanLibraries');
     await expect(scanBtn).toBeVisible({ timeout: 15_000 });
@@ -113,6 +112,24 @@ test.describe('logs tab on mobile', () => {
     for (const box of boxes) {
       expect(box.x + box.width, 'cell stays inside the viewport').toBeLessThanOrEqual(viewport!.width + 1);
     }
+  });
+
+  // Level and Source labels share a fixed column, so both controls start on
+  // the same x regardless of label length.
+  test('filter controls align under one label column', async ({ page }) => {
+    await openDashboard(page);
+    await switchTab(page, 'logs');
+    const levelLabel = page.locator('label[for="logsLevelFilter"]');
+    const sourceLabel = page.locator('label[for="logsSourceFilter"]');
+    await expect(levelLabel).toBeVisible({ timeout: 15_000 });
+    await expect(sourceLabel).toBeVisible();
+    const levelControl = page.locator('#logsLevelFilter');
+    const sourceControl = page.locator('#logsSourceFilter');
+    const levelBox = await levelControl.boundingBox();
+    const sourceBox = await sourceControl.boundingBox();
+    expect(levelBox, 'level control measurable').not.toBeNull();
+    expect(sourceBox, 'source control measurable').not.toBeNull();
+    expect(Math.abs(levelBox!.x - sourceBox!.x), 'controls share one column').toBeLessThanOrEqual(2);
   });
 });
 
