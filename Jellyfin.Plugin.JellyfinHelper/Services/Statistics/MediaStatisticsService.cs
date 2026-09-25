@@ -285,13 +285,9 @@ public class MediaStatisticsService : IMediaStatisticsService
                     stack.Push(fullName);
                 }
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
             {
                 // Intentionally empty: an unreadable path is skipped (best-effort trickplay size scan).
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Intentionally empty: an inaccessible path is skipped (best-effort trickplay size scan).
             }
         }
 

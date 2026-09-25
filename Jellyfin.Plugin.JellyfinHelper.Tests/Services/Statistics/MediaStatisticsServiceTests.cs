@@ -437,10 +437,20 @@ public class MediaStatisticsServiceTests
         Assert.Equal(0, result.TotalTrickplaySize);
     }
 
-    [Fact]
-    public void CalculateStatistics_InternalTrickplayUnreadable_KeepsPartialSum()
+    public static TheoryData<Exception> UnreadableSubdirectoryErrors() => new()
     {
-        // One unreadable shard must not discard the readable remainder (best-effort scan).
+        new IOException("Denied"),
+        new UnauthorizedAccessException("Denied"),
+        new ArgumentException("Invalid path"),
+        new NotSupportedException("Invalid path"),
+        new PathTooLongException("Too long"),
+    };
+
+    [Theory]
+    [MemberData(nameof(UnreadableSubdirectoryErrors))]
+    public void CalculateStatistics_InternalTrickplayUnreadableSubdir_KeepsPartialSum(Exception error)
+    {
+        // An unreadable descendant is skipped without discarding the bytes already counted (best-effort scan).
         var internalPath = TestPath("config", "data", "trickplay");
         var goodDir = TestPath("config", "data", "trickplay", "aa");
         var badDir = TestPath("config", "data", "trickplay", "bb");
@@ -456,7 +466,7 @@ public class MediaStatisticsServiceTests
             new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "aa", "0.jpg"), Name = "0.jpg", Length = 40_000, IsDirectory = false }
         ]);
         _fileSystemMock.Setup(f => f.GetDirectories(goodDir)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetFiles(badDir)).Throws(new UnauthorizedAccessException("Denied"));
+        _fileSystemMock.Setup(f => f.GetFiles(badDir)).Throws(error);
 
         var result = service.CalculateStatistics();
 
