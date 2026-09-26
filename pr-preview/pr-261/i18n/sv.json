@@ -110,6 +110,7 @@
   "taskDesc_link": "Reparerar trasiga .strm-filer och symlänkar genom att hitta den omdöpta mediefilen i samma mapp.",
   "taskDesc_recommendations": "Skapar rekommendationer per användare. Testkörning visar bara en förhandsvisning; Aktivera sparar också resultat och matar Seerr Discovery.",
   "taskDesc_seerr": "Tar bort Seerr-förfrågningar som är äldre än den inställda maxåldern.",
+  "taskDescInfo": "Visa uppgiftsbeskrivning",
   "useTrash": "Använd papperskorg istället för permanent borttagning",
   "trashFolder": "Papperskorgens mappsökväg",
   "trashRetention": "Papperskorgens kvarhållning (dagar)",

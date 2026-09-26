@@ -110,6 +110,7 @@
   "taskDesc_link": "Repara archivos .strm rotos y enlaces simbólicos buscando el archivo renombrado en la misma carpeta.",
   "taskDesc_recommendations": "Genera recomendaciones por usuario. La simulación solo previsualiza; Activar también guarda resultados y alimenta Seerr Discovery.",
   "taskDesc_seerr": "Elimina las solicitudes de Seerr más antiguas que la edad máxima configurada.",
+  "taskDescInfo": "Mostrar la descripción de la tarea",
   "useTrash": "Usar papelera en lugar de eliminar permanentemente",
   "trashFolder": "Ruta de la carpeta de papelera",
   "trashRetention": "Retención de papelera (días)",

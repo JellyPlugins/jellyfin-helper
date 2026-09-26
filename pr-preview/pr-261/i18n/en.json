@@ -110,6 +110,7 @@
   "taskDesc_link": "Repairs broken .strm files and symlinks by finding the renamed media file in the same folder.",
   "taskDesc_recommendations": "Generates per-user recommendations. Dry Run only previews; Activate also saves results and feeds Seerr Discovery.",
   "taskDesc_seerr": "Deletes Seerr media requests older than the configured maximum age.",
+  "taskDescInfo": "Show task description",
   "useTrash": "Use Trash (Recycle Bin) instead of permanent delete",
   "trashFolder": "Trash Folder Path",
   "trashRetention": "Trash Retention (days)",

@@ -110,6 +110,7 @@
   "taskDesc_link": "通过在同一文件夹中找到重命名后的媒体文件来修复损坏的 .strm 文件和符号链接。",
   "taskDesc_recommendations": "为每个用户生成推荐。试运行仅预览；激活还会保存结果并提供给 Seerr Discovery。",
   "taskDesc_seerr": "删除超过所配置最长保留时间的 Seerr 媒体请求。",
+  "taskDescInfo": "显示任务说明",
   "useTrash": "使用回收站而非永久删除",
   "trashFolder": "回收站文件夹路径",
   "trashRetention": "回收站保留天数",

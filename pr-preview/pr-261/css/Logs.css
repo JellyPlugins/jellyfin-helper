@@ -234,7 +234,7 @@
         flex-wrap: wrap;
         align-items: baseline;
         gap: 0.15em 0.6em;
-        padding: 0.55em 0.1em;
+        padding: 0.55em 0.6em;
         border-bottom: 1px solid var(--color-border-light);
     }
 
