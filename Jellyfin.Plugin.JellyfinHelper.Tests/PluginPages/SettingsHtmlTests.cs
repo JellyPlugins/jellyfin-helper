@@ -98,6 +98,15 @@ public partial class SettingsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_TaskDescHead_AlignsButtonWithText()
+    {
+        // The label margin lives on the head, so the button centers on the text instead of text plus margin.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".task-desc-head { display: flex; align-items: center;", css);
+        Assert.Contains(".settings-form .task-desc-head > label { margin-top: 0; }", css);
+    }
+
+    [Fact]
     public void Html_InfoButtons_UseInlineSvg()
     {
         // Info buttons render the inline SVG icon (no icon-font dependency), like every other plugin icon.

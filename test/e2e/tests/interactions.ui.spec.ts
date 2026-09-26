@@ -183,4 +183,14 @@ test('Settings: task info buttons toggle their description', async ({ page }) =>
   expect(hintText, 'hint and title agree').toBe((await btn.getAttribute('title'))?.trim() ?? '');
   await btn.click();
   await expect(hint).toBeHidden();
+
+  // The button centers on its label text instead of floating above it, and stays smaller than the label.
+  const labelBox = await page.locator('label[for="cfgTrickplayMode"]').boundingBox();
+  const btnBox = await btn.boundingBox();
+  expect(labelBox, 'label measurable').not.toBeNull();
+  expect(btnBox, 'button measurable').not.toBeNull();
+  const labelCenter = labelBox!.y + labelBox!.height / 2;
+  const btnCenter = btnBox!.y + btnBox!.height / 2;
+  expect(Math.abs(btnCenter - labelCenter), 'button centers on the label text').toBeLessThanOrEqual(5);
+  expect(btnBox!.height, 'button stays smaller than the label').toBeLessThanOrEqual(labelBox!.height + 2);
 });
