@@ -571,6 +571,18 @@
     min-width: 0;
 }
 
+/* Info button next to each TaskMode label (Discovery pattern): toggles the description hint on tap, hover shows it on desktop. */
+/* noinspection CssUnusedSymbol */
+.task-desc-info {
+    background: none;
+    border: none;
+    padding: 0 0 0 0.3em;
+    color: #00a4dc;
+    font-size: 1em;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
 /* -- Subgroup title used inside cards for "Recycle Bin" etc. -- */
 /* noinspection CssUnusedSymbol */
 .settings-subgroup-title {

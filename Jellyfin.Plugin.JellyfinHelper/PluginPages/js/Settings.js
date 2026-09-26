@@ -457,14 +457,20 @@ function loadSettings() {
         function renderTaskModeSelect(id, label, currentVal) {
             var desc = taskModeDescriptions[id];
             var descText = desc ? T(desc[0], desc[1]) : '';
-            var s = '<label for="' + id + '"' + (descText ? ' title="' + escAttr(descText) + '"' : '') + '">';
-            s += label;
-            s += '</label><select id="' + id + '">';
+            var s = '<label for="' + id + '">' + label + '</label>';
+            // Info button like the Discovery hint: hover shows the text on desktop, tap toggles it on touch.
+            if (descText) {
+                s += '<button type="button" class="material-icons task-desc-info" id="taskDescBtn_' + id + '" title="' + escAttr(descText) + '" aria-label="' + escAttr(T('taskDescInfo', 'Show task description')) + '" aria-expanded="false" aria-controls="taskDescHint_' + id + '">info</button>';
+            }
+            s += '<select id="' + id + '">';
 
             for (var tm = 0; tm < taskModes.length; tm++) {
                 s += '<option value="' + taskModes[tm][0] + '"' + (currentVal === taskModes[tm][0] ? ' selected' : '') + '>' + taskModes[tm][1] + '</option>';
             }
             s += '</select>';
+            if (descText) {
+                s += '<div class="help-text task-desc-hint" id="taskDescHint_' + id + '" style="display:none;">' + escHtml(descText) + '</div>';
+            }
             return s;
         }
 
@@ -621,6 +627,7 @@ function loadSettings() {
         attachBackupHandlers();
         attachSeerrHandlers();
         attachDiscoveryCopyHandler();
+        attachTaskDescHandlers();
         attachAutoSaveHandlers();
         attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
@@ -1218,6 +1225,22 @@ function attachSeerrHandlers() {
             _seerrTimer = showButtonFeedback(btn, false, T('testConnectionFailed', 'Connection test failed.'), originalHtml);
         });
     });
+}
+
+/**
+ * Attach the info-button toggles for the per-task descriptions (same pattern as the Discovery hint).
+ */
+function attachTaskDescHandlers() {
+    var buttons = document.querySelectorAll('.task-desc-info');
+    for (var i = 0; i < buttons.length; i++) {
+        buttons[i].addEventListener('click', function () {
+            var hint = document.getElementById(this.id.replace('taskDescBtn_', 'taskDescHint_'));
+            if (!hint) return;
+            var isOpen = hint.style.display !== 'none';
+            hint.style.display = isOpen ? 'none' : 'block';
+            this.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        });
+    }
 }
 
 /**

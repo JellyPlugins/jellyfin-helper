@@ -159,16 +159,28 @@ test('Settings: folder-browser opens for the trash path', async ({ page }: { pag
   await expect(page.locator('#folderBrowserOverlay')).toBeVisible({ timeout: 5000 });
 });
 
-test('Settings: every task-mode dropdown explains itself via hover title', async ({ page }) => {
+test('Settings: task info buttons toggle their description', async ({ page }) => {
   await openDashboard(page);
   await switchTab(page, 'settings');
   await expect(page.locator('#settingsForm')).toBeVisible({ timeout: 15_000 });
 
-  // Each task label carries its description as a hover title.
+  // Every task dropdown carries an info button (Discovery pattern): hover title
+  // on desktop, tap toggles the hint on touch.
   for (const id of ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode']) {
-    const label = page.locator(`#settingsForm label[for="${id}"]`);
-    await expect(label, `${id} label visible`).toBeVisible();
-    const title = (await label.getAttribute('title'))?.trim() ?? '';
-    expect(title.length, `${id} label carries a description title`).toBeGreaterThan(0);
+    const btn = page.locator(`#taskDescBtn_${id}`);
+    await expect(btn, `${id} info button visible`).toBeVisible();
+    const title = (await btn.getAttribute('title'))?.trim() ?? '';
+    expect(title.length, `${id} info button carries a description title`).toBeGreaterThan(0);
   }
+
+  const btn = page.locator('#taskDescBtn_cfgTrickplayMode');
+  const hint = page.locator('#taskDescHint_cfgTrickplayMode');
+  await expect(hint).toBeHidden();
+  await btn.click();
+  await expect(hint).toBeVisible();
+  const hintText = ((await hint.textContent()) ?? '').trim();
+  expect(hintText.length, 'hint shows the description').toBeGreaterThan(0);
+  expect(hintText, 'hint and title agree').toBe((await btn.getAttribute('title'))?.trim() ?? '');
+  await btn.click();
+  await expect(hint).toBeHidden();
 });

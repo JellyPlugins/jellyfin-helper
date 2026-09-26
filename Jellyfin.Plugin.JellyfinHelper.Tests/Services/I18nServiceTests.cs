@@ -100,7 +100,7 @@ public class I18NServiceTests : IDisposable
             "taskModeTitle", "taskModeHelp", "activate", "dryRun", "deactivate",
             "trickplayFolderCleaner", "emptyMediaFolderCleaner", "orphanedSubtitleCleaner", "linkRepair",
             "taskDesc_trickplay", "taskDesc_emptyFolder", "taskDesc_subtitle", "taskDesc_link",
-            "taskDesc_recommendations", "taskDesc_seerr", "trickplayInternalBadge", "trickplayInternalHint",
+            "taskDesc_recommendations", "taskDesc_seerr", "taskDescInfo", "trickplayInternalBadge", "trickplayInternalHint",
             "saveSettings", "savingSettings", "settingsSaved", "settingsError", "settingsLoadError",
             "arrTitle", "compareWith",
             "inBoth", "inArrOnly", "inArrOnlyMissing", "inJellyfinOnly",

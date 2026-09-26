@@ -633,7 +633,15 @@ public class MediaStatisticsServiceTests
         // A directory entry that cannot be stat'ed is never descended into (fail closed).
         var internalPath = TestPath("config", "data", "trickplay");
         var goodDir = TestPath("config", "data", "trickplay", "aa");
-        var service = CreateLinkAwareService(internalPath, path => path == goodDir ? throw new UnauthorizedAccessException("Denied") : false);
+        var service = CreateLinkAwareService(internalPath, path =>
+        {
+            if (path == goodDir)
+            {
+                throw new UnauthorizedAccessException("Denied");
+            }
+
+            return false;
+        });
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
         _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
         _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([

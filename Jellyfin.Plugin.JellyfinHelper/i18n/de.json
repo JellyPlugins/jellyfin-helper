@@ -110,6 +110,7 @@
   "taskDesc_link": "Repariert defekte .strm-Dateien und Symlinks, indem die umbenannte Mediendatei im selben Ordner gesucht wird.",
   "taskDesc_recommendations": "Erstellt Empfehlungen pro Benutzer. Dry Run zeigt nur eine Vorschau; Activate speichert Ergebnisse und versorgt Seerr Discovery.",
   "taskDesc_seerr": "Löscht Seerr-Anfragen, die älter als das eingestellte Maximalalter sind.",
+  "taskDescInfo": "Aufgabenbeschreibung anzeigen",
   "useTrash": "Papierkorb statt dauerhaftem Löschen verwenden",
   "trashFolder": "Papierkorb-Ordnerpfad",
   "trashRetention": "Papierkorb-Aufbewahrung (Tage)",

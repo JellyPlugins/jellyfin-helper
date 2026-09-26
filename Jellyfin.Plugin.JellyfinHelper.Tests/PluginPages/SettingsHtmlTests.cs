@@ -62,10 +62,39 @@ public partial class SettingsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_TaskLabels_CarryDescriptionTitle()
+    public void Html_TaskDescButton_CarriesDescriptionTitle()
     {
-        // Each TaskMode label exposes its explanation as a hover title.
-        Assert.Contains("' title=\"' + escAttr(descText) + '\"'", HtmlContent);
+        // Each info button exposes its task explanation as a hover title.
+        Assert.Contains("title=\"' + escAttr(descText) + '\"", HtmlContent);
+    }
+
+    [Theory]
+    [InlineData("cfgTrickplayMode", "taskDesc_trickplay")]
+    [InlineData("cfgEmptyFolderMode", "taskDesc_emptyFolder")]
+    [InlineData("cfgSubtitleMode", "taskDesc_subtitle")]
+    [InlineData("cfgLinkMode", "taskDesc_link")]
+    [InlineData("cfgRecommendationsMode", "taskDesc_recommendations")]
+    [InlineData("cfgSeerrMode", "taskDesc_seerr")]
+    public void Html_TaskDescButtonAndHint_ExistForSelect(string elementId, string descKey)
+    {
+        // renderTaskModeSelect maps each select id to its description key; buttons and hint panels derive from it at runtime.
+        Assert.Contains(elementId + ": ['" + descKey + "'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TaskDescButton_BuildsButtonAndHintIds()
+    {
+        // Button and panel ids are built from the select id at render time.
+        Assert.Contains("taskDescBtn_' + id + '", HtmlContent);
+        Assert.Contains("taskDescHint_' + id + '", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TaskDescButtons_ToggleHints()
+    {
+        // Clicking an info button toggles its description hint panel.
+        Assert.Contains("attachTaskDescHandlers()", HtmlContent);
+        Assert.Contains("hint.style.display", HtmlContent);
     }
 
     [Fact]

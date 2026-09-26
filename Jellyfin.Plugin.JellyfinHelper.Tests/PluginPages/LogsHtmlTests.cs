@@ -244,6 +244,14 @@ public partial class LogsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_MobileLogRows_HaveEdgePadding()
+    {
+        // Stacked card rows need breathing room at the screen edges on phones.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains("padding: 0.55em 0.6em;", css);
+    }
+
+    [Fact]
     public void Html_ToolbarLabels_ShareOneColumn()
     {
         // Level and Source controls start on the same x in every language, so labels share a fixed column instead of per-label margins.
