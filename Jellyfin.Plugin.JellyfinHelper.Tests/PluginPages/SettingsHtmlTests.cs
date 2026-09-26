@@ -98,6 +98,13 @@ public partial class SettingsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_InfoButtons_UseInlineSvg()
+    {
+        // Info buttons render the inline SVG icon (no icon-font dependency), like every other plugin icon.
+        Assert.Contains("mi('info')", HtmlContent);
+    }
+
+    [Fact]
     public void Html_TaskModeEnumValues_MatchSelectOptions()
     {
         foreach (var value in Enum.GetNames(typeof(TaskMode)))
