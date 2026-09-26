@@ -457,12 +457,12 @@ function loadSettings() {
         function renderTaskModeSelect(id, label, currentVal) {
             var desc = taskModeDescriptions[id];
             var descText = desc ? T(desc[0], desc[1]) : '';
-            var s = '<label for="' + id + '">' + label + '</label>';
-            // Info button like the Discovery hint: hover shows the text on desktop, tap toggles it on touch.
+            var s = '<div class="task-desc-head"><label for="' + id + '">' + label + '</label>';
+            // Info button byte-identical to the Discovery hint button, so it renders 1:1 the same.
             if (descText) {
-                s += '<button type="button" class="material-icons task-desc-info" id="taskDescBtn_' + id + '" title="' + escAttr(descText) + '" aria-label="' + escAttr(T('taskDescInfo', 'Show task description')) + '" aria-expanded="false" aria-controls="taskDescHint_' + id + '">info</button>';
+                s += '<button type="button" class="material-icons" id="taskDescBtn_' + id + '" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;" title="' + escAttr(descText) + '" aria-label="' + escAttr(T('taskDescInfo', 'Show task description')) + '" aria-expanded="false" aria-controls="taskDescHint_' + id + '">info</button>';
             }
-            s += '<select id="' + id + '">';
+            s += '</div><select id="' + id + '">';
 
             for (var tm = 0; tm < taskModes.length; tm++) {
                 s += '<option value="' + taskModes[tm][0] + '"' + (currentVal === taskModes[tm][0] ? ' selected' : '') + '>' + taskModes[tm][1] + '</option>';
@@ -1231,7 +1231,7 @@ function attachSeerrHandlers() {
  * Attach the info-button toggles for the per-task descriptions (same pattern as the Discovery hint).
  */
 function attachTaskDescHandlers() {
-    var buttons = document.querySelectorAll('.task-desc-info');
+    var buttons = document.querySelectorAll('[id^="taskDescBtn_"]');
     for (var i = 0; i < buttons.length; i++) {
         buttons[i].addEventListener('click', function () {
             var hint = document.getElementById(this.id.replace('taskDescBtn_', 'taskDescHint_'));
