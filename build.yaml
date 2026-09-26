@@ -18,8 +18,8 @@ changelog: |-
   - The Per-Library Breakdown now shows a file count below every size value (trickplay folders included), so sparse and dense libraries are distinguishable at a glance
   - Boxset library rows no longer link into the Library Explorer, whose scope excludes boxsets; they render as plain text instead of opening an empty state
   - Every task dropdown in Settings now explains what the task does, via an info button next to each task name, in all dashboard languages
-  - The Overview Trickplay card now also shows the space used by trickplay images Jellyfin stores internally, on its own line below the alongside-media total, marked with an (internal) badge
+  - The Overview Trickplay card now also shows the space used by trickplay images Jellyfin stores internally, on its own line below the alongside-media total, marked with an (internal) badge, or as the headline when no alongside data exists
   - Compact log view on phones: log entries stack as cards below 700 px instead of squeezing into a four-column table, so no horizontal scrolling is needed, and rows keep breathing room at the screen edges
   - Roomier Library Explorer filter popovers on phones using nearly the full viewport width, like the bitrate editor
-  - Tested by 6218 unit tests and 350 end-to-end tests
+  - Tested by 6218 unit tests and 352 end-to-end tests
   - Requires Jellyfin 12.1 - if you are on Jellyfin 10.x, stay on v2.1.0.6

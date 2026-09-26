@@ -187,56 +187,88 @@ test.describe('boxset rows never link into the explorer', () => {
 });
 
 test.describe('trickplay card shows Jellyfin-managed size on its own line', () => {
-  // Internal images live outside every library, so the card renders them on a
-  // second detail line from the result-level field - never inside a column.
-  const trickplayCardPayload = {
-    Movies: [
-      {
-        LibraryName: 'Movies',
-        CollectionType: 'movies',
-        RootPaths: [],
-        VideoSize: 1000,
-        VideoFileCount: 1,
-        AudioSize: 0,
-        AudioFileCount: 0,
-        SubtitleSize: 0,
-        SubtitleFileCount: 0,
-        ImageSize: 0,
-        ImageFileCount: 0,
-        NfoSize: 0,
-        NfoFileCount: 0,
-        TrickplaySize: 0,
-        TrickplayFolderCount: 0,
-        OtherSize: 0,
-        OtherFileCount: 0,
-        BookSize: 0,
-        BookFileCount: 0,
-        TotalSize: 1000,
-      },
-    ],
-    TvShows: [],
-    Music: [],
-    Books: [],
-    Other: [],
-    LibraryOrder: ['Movies'],
-    TotalBookFileCount: 0,
-    TotalTrickplaySize: 0,
-    InternalTrickplaySize: 157286400,
-  };
+  // Internal images live outside every library, so the card renders them with an
+  // (internal) marker: as the headline when no alongside data exists, otherwise
+  // on a second detail line. A zero internal figure renders no line at all.
+  function cardPayload(alongsideSize: number, folders: number, internalSize: number) {
+    return {
+      Movies: [
+        {
+          LibraryName: 'Movies',
+          CollectionType: 'movies',
+          RootPaths: [],
+          VideoSize: 1000,
+          VideoFileCount: 1,
+          AudioSize: 0,
+          AudioFileCount: 0,
+          SubtitleSize: 0,
+          SubtitleFileCount: 0,
+          ImageSize: 0,
+          ImageFileCount: 0,
+          NfoSize: 0,
+          NfoFileCount: 0,
+          TrickplaySize: alongsideSize,
+          TrickplayFolderCount: folders,
+          OtherSize: 0,
+          OtherFileCount: 0,
+          BookSize: 0,
+          BookFileCount: 0,
+          TotalSize: 1000 + alongsideSize,
+        },
+      ],
+      TvShows: [],
+      Music: [],
+      Books: [],
+      Other: [],
+      LibraryOrder: ['Movies'],
+      TotalBookFileCount: 0,
+      TotalTrickplaySize: alongsideSize,
+      InternalTrickplaySize: internalSize,
+    };
+  }
 
-  test('internal line renders beside the alongside total', async ({ page }) => {
-    const stubErrors = trackConsoleErrors(page);
+  async function openCard(page: import('@playwright/test').Page, payload: object) {
     await page.route('**/JellyfinHelper/MediaStatistics/Latest', async (route) => {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(trickplayCardPayload) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
     });
     await openDashboard(page);
     await switchTab(page, 'overview');
-
     const card = page.locator('#overviewContent .stat-card', { hasText: 'Trickplay Data' }).first();
     await expect(card).toBeVisible({ timeout: 20_000 });
+    return card;
+  }
+
+  test('internal-only stock fills the headline with the marker', async ({ page }) => {
+    const stubErrors = trackConsoleErrors(page);
+    const card = await openCard(page, cardPayload(0, 0, 157286400));
+    await expect(card.locator('.stat-value')).toHaveText('150.00 MB (internal)');
+    const details = card.locator('.stat-detail');
+    await expect(details).toHaveCount(1);
+    await expect(details.nth(0)).toHaveText('0 folders');
+
+    const scriptErrors = stubErrors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
+  });
+
+  test('alongside-only stock shows no internal line', async ({ page }) => {
+    const stubErrors = trackConsoleErrors(page);
+    const card = await openCard(page, cardPayload(52428800, 2, 0));
+    await expect(card.locator('.stat-value')).toHaveText('50.00 MB');
+    const details = card.locator('.stat-detail');
+    await expect(details).toHaveCount(1);
+    await expect(details.nth(0)).toHaveText('2 folders');
+
+    const scriptErrors = stubErrors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
+    expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
+  });
+
+  test('both stocks show alongside on top and internal below', async ({ page }) => {
+    const stubErrors = trackConsoleErrors(page);
+    const card = await openCard(page, cardPayload(52428800, 2, 157286400));
+    await expect(card.locator('.stat-value')).toHaveText('50.00 MB');
     const details = card.locator('.stat-detail');
     await expect(details).toHaveCount(2);
-    await expect(details.nth(0)).toHaveText('0 folders');
+    await expect(details.nth(0)).toHaveText('2 folders');
     await expect(details.nth(1)).toHaveText('150.00 MB (internal)');
     // The (internal) marker explains the cleanup exclusion on hover.
     const badge = details.nth(1).locator('.trickplay-internal-badge');

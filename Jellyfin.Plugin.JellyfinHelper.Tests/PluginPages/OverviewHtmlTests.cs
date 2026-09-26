@@ -80,11 +80,14 @@ public partial class OverviewHtmlTests : ConfigPageTestBase
     {
         // Jellyfin managed images live outside every library, so the card
         // renders them on their own detail line with an (internal) marker whose
-        // hover title explains the cleanup exclusion.
+        // hover title explains the cleanup exclusion. Without alongside data the
+        // internal total becomes the headline; a zero figure renders no line.
         Assert.Contains("trickplayInternalBadge", HtmlContent);
         Assert.Contains("trickplayInternalHint", HtmlContent);
         Assert.Contains("trickplay-internal-badge", HtmlContent);
         Assert.Contains("InternalTrickplaySize", HtmlContent);
+        Assert.Contains("mainIsInternal", HtmlContent);
+        Assert.Contains("internalSize > 0", HtmlContent);
     }
 
     [Fact]
