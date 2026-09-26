@@ -1232,8 +1232,8 @@ function attachSeerrHandlers() {
  */
 function attachTaskDescHandlers() {
     var buttons = document.querySelectorAll('[id^="taskDescBtn_"]');
-    for (var i = 0; i < buttons.length; i++) {
-        buttons[i].addEventListener('click', function () {
+    for (const button of buttons) {
+        button.addEventListener('click', function () {
             var hint = document.getElementById(this.id.replace('taskDescBtn_', 'taskDescHint_'));
             if (!hint) return;
             var isOpen = hint.style.display !== 'none';
