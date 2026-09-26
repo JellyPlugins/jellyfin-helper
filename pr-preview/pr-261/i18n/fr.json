@@ -109,7 +109,7 @@
   "taskDesc_subtitle": "Supprime les fichiers de sous-titres (.srt, .ass, ...) dont la vidéo n'existe plus. Les sous-titres intégrés ne sont jamais touchés.",
   "taskDesc_link": "Répare les fichiers .strm et les liens symboliques cassés en retrouvant le fichier média renommé dans le même dossier.",
   "taskDesc_recommendations": "Génère des recommandations par utilisateur. Le mode simulation ne fait qu'un aperçu ; Activer enregistre aussi les résultats et alimente Seerr Discovery.",
-  "taskDesc_seerr": "Supprime les demandes Seerr plus anciennes que l'âge maximum configuré.",
+  "taskDesc_seerr": "Supprime les demandes Seerr en attente ou refusées plus anciennes que l'âge maximum configuré.",
   "taskDescInfo": "Afficher la description de la tâche",
   "useTrash": "Utiliser la corbeille au lieu de supprimer définitivement",
   "trashFolder": "Chemin du dossier corbeille",

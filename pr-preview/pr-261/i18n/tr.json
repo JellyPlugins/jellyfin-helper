@@ -109,7 +109,7 @@
   "taskDesc_subtitle": "Video dosyası artık olmayan altyazı dosyalarını (.srt, .ass, ...) siler. Gömülü altyazılara asla dokunulmaz.",
   "taskDesc_link": "Bozuk .strm dosyalarını ve sembolik bağları, yeniden adlandırılmış medya dosyasını aynı klasörde bularak onarır.",
   "taskDesc_recommendations": "Kullanıcı başına öneriler oluşturur. Deneme yalnızca önizler; Etkinleştirmek sonuçları da kaydeder ve Seerr Discovery'yi besler.",
-  "taskDesc_seerr": "Yapılandırılan maksimum yaştan eski Seerr medya isteklerini siler.",
+  "taskDesc_seerr": "Bekleyen veya reddedilen, yapılandırılan maksimum yaştan eski Seerr medya isteklerini siler.",
   "taskDescInfo": "Görev açıklamasını göster",
   "useTrash": "Kalıcı silme yerine çöp kutusunu kullan",
   "trashFolder": "Çöp kutusu klasör yolu",
