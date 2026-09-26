@@ -109,7 +109,7 @@
   "taskDesc_subtitle": "Remove ficheiros de legendas (.srt, .ass, ...) cujo vídeo já não existe. As legendas embutidas nunca são tocadas.",
   "taskDesc_link": "Repara ficheiros .strm partidos e ligações simbólicas, procurando o ficheiro renomeado na mesma pasta.",
   "taskDesc_recommendations": "Gera recomendações por utilizador. A simulação só pré-visualiza; Ativar também guarda resultados e alimenta o Seerr Discovery.",
-  "taskDesc_seerr": "Remove pedidos Seerr mais antigos do que a idade máxima configurada.",
+  "taskDesc_seerr": "Remove pedidos Seerr pendentes ou recusados mais antigos do que a idade máxima configurada.",
   "taskDescInfo": "Mostrar a descrição da tarefa",
   "useTrash": "Usar lixeira em vez de excluir permanentemente",
   "trashFolder": "Caminho da pasta de lixeira",

@@ -628,6 +628,56 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_AlongsideTrickplayLinkRoot_Skipped()
+    {
+        // A linked *.trickplay folder stores nothing here; neither its size nor its count joins the library.
+        var libraryPath = TestPath("media", "movies");
+        var linkPath = TestPath("media", "movies", "Film.trickplay");
+        var links = new HashSet<string>(StringComparer.Ordinal) { linkPath };
+        var service = CreateLinkAwareService(null, links.Contains);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([
+            new VirtualFolderInfo
+            {
+                Name = "Movies",
+                CollectionType = CollectionTypeOptions.movies,
+                Locations = [libraryPath]
+            }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([
+            new FileSystemMetadata { FullName = linkPath, Name = "Film.trickplay", IsDirectory = true }
+        ]);
+        _fileSystemMock.Setup(f => f.GetFiles(linkPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.trickplay", "0.jpg"), Name = "0.jpg", Length = 99_000, IsDirectory = false }
+        ]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(0, result.TotalTrickplaySize);
+        Assert.Equal(0, result.Libraries[0].TrickplayFolderCount);
+        _fileSystemMock.Verify(f => f.GetFiles(linkPath), Times.Never);
+    }
+
+    [Fact]
+    public void CalculateStatistics_InternalTrickplaySymlinkedRoot_StillMeasured()
+    {
+        // A relocated (symlinked) internal store still holds the data, so the root itself is never skipped.
+        var internalPath = TestPath("config", "data", "trickplay");
+        var links = new HashSet<string>(StringComparer.Ordinal) { internalPath };
+        var service = CreateLinkAwareService(internalPath, links.Contains);
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+        _fileSystemMock.Setup(f => f.DirectoryExists(internalPath)).Returns(true);
+        _fileSystemMock.Setup(f => f.GetFiles(internalPath)).Returns([
+            new FileSystemMetadata { FullName = TestPath("config", "data", "trickplay", "0.jpg"), Name = "0.jpg", Length = 25_000, IsDirectory = false }
+        ]);
+        _fileSystemMock.Setup(f => f.GetDirectories(internalPath)).Returns([]);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Equal(25_000, result.InternalTrickplaySize);
+    }
+
+    [Fact]
     public void CalculateStatistics_InternalTrickplayLinkStatFailure_SkipsEntry()
     {
         // A directory entry that cannot be stat'ed is never descended into (fail closed).

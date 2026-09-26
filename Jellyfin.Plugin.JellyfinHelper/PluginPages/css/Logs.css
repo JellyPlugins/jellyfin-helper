@@ -264,9 +264,12 @@
         order: 3;
     }
 
+    /* Long unbroken tokens must not force horizontal scrolling: flex items keep their content minimum width unless released. */
     .logs-table .col-message {
         flex: 1 1 100%;
         order: 4;
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
 }
 

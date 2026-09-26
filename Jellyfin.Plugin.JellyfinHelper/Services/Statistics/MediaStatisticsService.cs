@@ -610,9 +610,13 @@ public class MediaStatisticsService : IMediaStatisticsService
 
             if (subDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
             {
-                var trickplaySize = CalculateTrickplaySize(subDir.FullName);
-                stats.TrickplaySize += trickplaySize;
-                stats.TrickplayFolderCount++;
+                // A linked trickplay folder stores nothing here; its target belongs elsewhere, so it stays out of this library.
+                if (!IsSkippedLink(subDir.FullName))
+                {
+                    var trickplaySize = CalculateTrickplaySize(subDir.FullName);
+                    stats.TrickplaySize += trickplaySize;
+                    stats.TrickplayFolderCount++;
+                }
             }
             else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, userContext, scanContext))
             {

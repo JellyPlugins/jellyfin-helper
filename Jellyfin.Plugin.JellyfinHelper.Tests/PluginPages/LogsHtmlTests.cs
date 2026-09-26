@@ -252,6 +252,14 @@ public partial class LogsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_MobileLogMessage_CanShrink()
+    {
+        // Long unbroken tokens must wrap instead of forcing horizontal scrolling on phones.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".logs-table .col-message { flex: 1 1 100%; order: 4; min-width: 0; overflow-wrap: anywhere; }", css);
+    }
+
+    [Fact]
     public void Html_ToolbarLabels_ShareOneColumn()
     {
         // Level and Source controls start on the same x in every language, so labels share a fixed column instead of per-label margins.
