@@ -23,6 +23,7 @@ interface Stats {
   TotalVideoFileCount: number;
   TotalVideosWithoutSubtitles: number;
   TotalVideosWithoutSubtitlesPaths: string[];
+  InternalTrickplaySize: number;
   Movies: LibrarySizes[];
   TvShows: LibrarySizes[];
   Music: LibrarySizes[];
@@ -155,5 +156,13 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
     const books = stats.Books.find((l) => l.LibraryName === 'Books');
     expect(books, 'Books library present').toBeDefined();
     expect(books!.BookSize, 'Books BookSize covers EPUB/PDF fixtures').toBeGreaterThan(0);
+  });
+
+  test('internal trickplay size travels the wire but never joins library totals', async () => {
+    // Jellyfin-managed images live outside every library: the result root carries
+    // their total, while the per-library bucket coherence pinned above stays untouched.
+    const stats = await getStats();
+    expect(typeof stats.InternalTrickplaySize, 'InternalTrickplaySize travels the wire').toBe('number');
+    expect(stats.InternalTrickplaySize, 'internal trickplay size non-negative').toBeGreaterThanOrEqual(0);
   });
 });

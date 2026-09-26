@@ -3,6 +3,7 @@ using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Moq;
@@ -12,13 +13,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 public class CleanupConfigHelperTests
 {
-    private static CleanupConfigHelper CreateHelper(PluginConfiguration? config = null)
+    private static CleanupConfigHelper CreateHelper(PluginConfiguration? config = null, string? trickplayPath = null)
     {
         var cfg = config ?? new PluginConfiguration();
         var configServiceMock = new Mock<IPluginConfigurationService>();
         configServiceMock.Setup(s => s.IsInitialized).Returns(true);
         configServiceMock.Setup(s => s.GetConfiguration()).Returns(cfg);
-        return new CleanupConfigHelper(configServiceMock.Object);
+        var appPathsMock = new Mock<IApplicationPaths>();
+        appPathsMock.Setup(a => a.TrickplayPath).Returns(trickplayPath!);
+        return new CleanupConfigHelper(configServiceMock.Object, appPathsMock.Object);
     }
 
     [Fact]
@@ -28,7 +31,7 @@ public class CleanupConfigHelperTests
         configServiceMock.Setup(s => s.IsInitialized).Returns(false);
         configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
 
-        var helper = new CleanupConfigHelper(configServiceMock.Object);
+        var helper = new CleanupConfigHelper(configServiceMock.Object, new Mock<IApplicationPaths>().Object);
         var config = helper.GetConfig();
         Assert.NotNull(config);
     }
@@ -52,6 +55,24 @@ public class CleanupConfigHelperTests
         var cfg = new PluginConfiguration { TrickplayTaskMode = mode };
         var helper = CreateHelper(cfg);
         Assert.Equal(mode, helper.GetTrickplayTaskMode());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void GetInternalTrickplayPath_Unset_ReturnsNull(string? trickplayPath)
+    {
+        // Without a server trickplay path there is no internal location to report.
+        var helper = CreateHelper(trickplayPath: trickplayPath);
+        Assert.Null(helper.GetInternalTrickplayPath());
+    }
+
+    [Fact]
+    public void GetInternalTrickplayPath_Configured_ReturnsPath()
+    {
+        var helper = CreateHelper(trickplayPath: "/config/data/trickplay");
+        Assert.Equal("/config/data/trickplay", helper.GetInternalTrickplayPath());
     }
 
     [Theory]

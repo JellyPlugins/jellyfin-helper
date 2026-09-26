@@ -444,15 +444,33 @@ function loadSettings() {
 
         var taskModes = [['Activate', T('activate', 'Activate')], ['DryRun', T('dryRun', 'Dry Run')], ['Deactivate', T('deactivate', 'Deactivate')]];
 
+        // Every TaskMode dropdown carries its own explanation, keyed by select id so call sites stay untouched.
+        var taskModeDescriptions = {
+            cfgTrickplayMode: ['taskDesc_trickplay', 'Deletes orphaned *.trickplay folders left next to media files after renames or deletions. Only applies when Jellyfin saves trickplay images alongside media.'],
+            cfgEmptyFolderMode: ['taskDesc_emptyFolder', 'Deletes folders inside your libraries that contain no media files at all.'],
+            cfgSubtitleMode: ['taskDesc_subtitle', 'Deletes subtitle files (.srt, .ass, ...) whose video file no longer exists. Embedded subtitles are never touched.'],
+            cfgLinkMode: ['taskDesc_link', 'Repairs broken .strm files and symlinks by finding the renamed media file in the same folder.'],
+            cfgRecommendationsMode: ['taskDesc_recommendations', 'Generates per-user recommendations. Dry Run only previews; Activate also saves results and feeds Seerr Discovery.'],
+            cfgSeerrMode: ['taskDesc_seerr', 'Deletes Seerr media requests older than the configured maximum age.']
+        };
+
         function renderTaskModeSelect(id, label, currentVal) {
-            var s = '<label for="' + id + '">';
-            s += label;
-            s += '</label><select id="' + id + '">';
+            var desc = taskModeDescriptions[id];
+            var descText = desc ? T(desc[0], desc[1]) : '';
+            var s = '<div class="task-desc-head"><label for="' + id + '">' + label + '</label>';
+            // Info button byte-identical to the Discovery hint button, so it renders 1:1 the same.
+            if (descText) {
+                s += '<button type="button" class="material-icons" id="taskDescBtn_' + id + '" style="color:#00a4dc;font-size:0.8em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;opacity:0.5;" title="' + escAttr(descText) + '" aria-label="' + escAttr(T('taskDescInfo', 'Show task description')) + '" aria-expanded="false" aria-controls="taskDescHint_' + id + '">' + mi('info') + '</button>';
+            }
+            s += '</div><select id="' + id + '">';
 
             for (var tm = 0; tm < taskModes.length; tm++) {
                 s += '<option value="' + taskModes[tm][0] + '"' + (currentVal === taskModes[tm][0] ? ' selected' : '') + '>' + taskModes[tm][1] + '</option>';
             }
             s += '</select>';
+            if (descText) {
+                s += '<div class="help-text task-desc-hint" id="taskDescHint_' + id + '" style="display:none;">' + escHtml(descText) + '</div>';
+            }
             return s;
         }
 
@@ -479,7 +497,7 @@ function loadSettings() {
         var discoveryEnabled = recsActive && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
-        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">info</button></div>';
+        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.')) + '</div>';
         // Discovery setup hint - collapsible panel (default: closed)
         h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
@@ -609,6 +627,7 @@ function loadSettings() {
         attachBackupHandlers();
         attachSeerrHandlers();
         attachDiscoveryCopyHandler();
+        attachTaskDescHandlers();
         attachAutoSaveHandlers();
         attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
@@ -1105,7 +1124,7 @@ function doBackupImport(file) {
 
             var successMsg = mi('check_circle') + ' ' + escHtml(T('backupImportSuccess', 'Backup imported successfully.'));
             if (parts.length > 0) {
-                successMsg += ' (' + parts.map(escHtml).join(', ') + ')';
+                successMsg += ' (' + parts.map(function (part) { return escHtml(part); }).join(', ') + ')';
             }
 
             // Show warnings if any
@@ -1206,6 +1225,22 @@ function attachSeerrHandlers() {
             _seerrTimer = showButtonFeedback(btn, false, T('testConnectionFailed', 'Connection test failed.'), originalHtml);
         });
     });
+}
+
+/**
+ * Attach the info-button toggles for the per-task descriptions (same pattern as the Discovery hint).
+ */
+function attachTaskDescHandlers() {
+    var buttons = document.querySelectorAll('[id^="taskDescBtn_"]');
+    for (const button of buttons) {
+        button.addEventListener('click', function () {
+            var hint = document.getElementById(this.id.replace('taskDescBtn_', 'taskDescHint_'));
+            if (!hint) return;
+            var isOpen = hint.style.display !== 'none';
+            hint.style.display = isOpen ? 'none' : 'block';
+            this.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        });
+    }
 }
 
 /**

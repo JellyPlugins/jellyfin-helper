@@ -158,3 +158,39 @@ test('Settings: folder-browser opens for the trash path', async ({ page }: { pag
   expect(browseResp.ok(), `browse request failed: ${browseResp.status()}`).toBeTruthy();
   await expect(page.locator('#folderBrowserOverlay')).toBeVisible({ timeout: 5000 });
 });
+
+test('Settings: task info buttons toggle their description', async ({ page }) => {
+  await openDashboard(page);
+  await switchTab(page, 'settings');
+  await expect(page.locator('#settingsForm')).toBeVisible({ timeout: 15_000 });
+
+  // Every task dropdown carries an info button (Discovery pattern): hover title
+  // on desktop, tap toggles the hint on touch.
+  for (const id of ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode']) {
+    const btn = page.locator(`#taskDescBtn_${id}`);
+    await expect(btn, `${id} info button visible`).toBeVisible();
+    const title = (await btn.getAttribute('title'))?.trim() ?? '';
+    expect(title.length, `${id} info button carries a description title`).toBeGreaterThan(0);
+  }
+
+  const btn = page.locator('#taskDescBtn_cfgTrickplayMode');
+  const hint = page.locator('#taskDescHint_cfgTrickplayMode');
+  await expect(hint).toBeHidden();
+  await btn.click();
+  await expect(hint).toBeVisible();
+  const hintText = ((await hint.textContent()) ?? '').trim();
+  expect(hintText.length, 'hint shows the description').toBeGreaterThan(0);
+  expect(hintText, 'hint and title agree').toBe((await btn.getAttribute('title'))?.trim() ?? '');
+  await btn.click();
+  await expect(hint).toBeHidden();
+
+  // The button centers on its label text instead of floating above it, and stays smaller than the label.
+  const labelBox = await page.locator('label[for="cfgTrickplayMode"]').boundingBox();
+  const btnBox = await btn.boundingBox();
+  expect(labelBox, 'label measurable').not.toBeNull();
+  expect(btnBox, 'button measurable').not.toBeNull();
+  const labelCenter = labelBox!.y + labelBox!.height / 2;
+  const btnCenter = btnBox!.y + btnBox!.height / 2;
+  expect(Math.abs(btnCenter - labelCenter), 'button centers on the label text').toBeLessThanOrEqual(5);
+  expect(btnBox!.height, 'button stays smaller than the label').toBeLessThanOrEqual(labelBox!.height + 2);
+});

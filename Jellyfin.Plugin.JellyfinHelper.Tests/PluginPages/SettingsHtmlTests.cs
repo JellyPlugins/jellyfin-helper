@@ -49,6 +49,70 @@ public partial class SettingsHtmlTests : ConfigPageTestBase
         Assert.Contains(label, HtmlContent);
     }
 
+    [Theory]
+    [InlineData("taskDesc_trickplay")]
+    [InlineData("taskDesc_emptyFolder")]
+    [InlineData("taskDesc_subtitle")]
+    [InlineData("taskDesc_link")]
+    [InlineData("taskDesc_recommendations")]
+    [InlineData("taskDesc_seerr")]
+    public void Html_ContainsTaskDescriptionKey(string key)
+    {
+        Assert.Contains(key, HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TaskDescButton_CarriesDescriptionTitle()
+    {
+        // Each info button exposes its task explanation as a hover title.
+        Assert.Contains("title=\"' + escAttr(descText) + '\"", HtmlContent);
+    }
+
+    [Theory]
+    [InlineData("cfgTrickplayMode", "taskDesc_trickplay")]
+    [InlineData("cfgEmptyFolderMode", "taskDesc_emptyFolder")]
+    [InlineData("cfgSubtitleMode", "taskDesc_subtitle")]
+    [InlineData("cfgLinkMode", "taskDesc_link")]
+    [InlineData("cfgRecommendationsMode", "taskDesc_recommendations")]
+    [InlineData("cfgSeerrMode", "taskDesc_seerr")]
+    public void Html_TaskDescButtonAndHint_ExistForSelect(string elementId, string descKey)
+    {
+        // renderTaskModeSelect maps each select id to its description key; buttons and hint panels derive from it at runtime.
+        Assert.Contains(elementId + ": ['" + descKey + "'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TaskDescButton_BuildsButtonAndHintIds()
+    {
+        // Button and panel ids are built from the select id at render time.
+        Assert.Contains("taskDescBtn_' + id + '", HtmlContent);
+        Assert.Contains("taskDescHint_' + id + '", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TaskDescButtons_ToggleHints()
+    {
+        // Clicking an info button toggles its description hint panel.
+        Assert.Contains("attachTaskDescHandlers()", HtmlContent);
+        Assert.Contains("hint.style.display", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_TaskDescHead_AlignsButtonWithText()
+    {
+        // The label margin lives on the head, so the button centers on the text instead of text plus margin.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".task-desc-head { display: flex; align-items: center;", css);
+        Assert.Contains(".settings-form .task-desc-head > label { margin-top: 0; }", css);
+    }
+
+    [Fact]
+    public void Html_InfoButtons_UseInlineSvg()
+    {
+        // Info buttons render the inline SVG icon (no icon-font dependency), like every other plugin icon.
+        Assert.Contains("mi('info')", HtmlContent);
+    }
+
     [Fact]
     public void Html_TaskModeEnumValues_MatchSelectOptions()
     {

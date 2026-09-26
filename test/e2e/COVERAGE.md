@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **341 tests** (API + UI) across 54 spec files
+every UI interaction. **350 tests** (API + UI) across 54 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -273,20 +273,20 @@ plugin stays Active after every call).
 | Book-format breakdown row → file tree shows a **Books section with files** (not "No files found") | `trees.ui.spec.ts` |
 | Excluded Libraries multi-select **lists libraries** (not "No data") | `trees.ui.spec.ts` |
 | Health item → detail tree | `trees.ui.spec.ts` |
-| Logs arrive + **download file**; level filter → PUT /LogLevel **succeeds + persists DEBUG**; clear → DELETE **succeeds + empty state** | `logs.ui.spec.ts` |
+| Logs arrive + **download file**; level filter → PUT /LogLevel **succeeds + persists DEBUG**; clear → DELETE **succeeds + empty state**; mobile stacks rows as cards with no horizontal overflow; seeded row checks meta-line/message arrangement; filter labels share one column | `logs.ui.spec.ts` |
 | **Unsaved dialog**: dirty band; appears on leaving dirty tab; absent after save; Discard drops edit | `unsaved-dialog.ui.spec.ts` |
 | Arr dropdown → reachability (is-ok); Compare → **successful** comparison card | `arr.ui.spec.ts` |
 | Recommendations user selector → WatchProfile response (documented status); sections toggle | `recommendations.ui.spec.ts` |
 | Overview **Scan Libraries** button → ScanLibraries + button re-enable lifecycle | `interactions.ui.spec.ts` |
-| Per-Library Breakdown **Other + Books columns** → header + gapless rows; Movies Other is non-zero from sidecar fixtures; Books column appears with the book fixture holding its total | `overview-library-table.ui.spec.ts` |
-| Settings task-mode change → **quiet auto-save** PUT (no unsaved band) | `interactions.ui.spec.ts` |
+| Per-Library Breakdown **Other + Books columns** → header + gapless rows; per-category file-count sub-lines (folders for trickplay); Movies Other is non-zero from sidecar fixtures; Books column appears with the book fixture holding its total; boxset rows render plain text (never link into the explorer, whose scope excludes boxsets); trickplay card shows the Jellyfin-managed size on its own line with an (internal) badge carrying the cleanup-exclusion hint | `overview-library-table.ui.spec.ts` |
+| Settings task-mode change → **quiet auto-save** PUT (no unsaved band); every task-mode dropdown explains itself via label hover title | `interactions.ui.spec.ts` |
 | Trends **insight cards** → expand + mutual-collapse | `interactions.ui.spec.ts` |
 | Settings Seerr **Test Connection** → POST /Seerr/Test (expands section, fills inputs) | `interactions.ui.spec.ts` |
 | Settings **Export Backup** → file download | `interactions.ui.spec.ts` |
 | Settings **folder-browser** → opens overlay (enables UseTrash fieldset first) | `interactions.ui.spec.ts` |
 | Trends **growth chart** → wheel zoom refines level, drag pan moves window, pinch zoom, tap tooltip, no label overlap | `trends-chart.ui.spec.ts` |
 | Codec **donut** (touch) → one tap shows the segment tooltip and opens the drill-down together, second tap dismisses both (compat-mouse guard) | `codecs-donut.ui.spec.ts` |
-| Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; language multi-dropdown selects several values; reset clears filters and scope; Overview library row and Movies card deep-link into the explorer | `codecs-explorer.ui.spec.ts` |
+| Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; language multi-dropdown selects several values; reset clears filters and scope; Overview library row and Movies card deep-link into the explorer; add-filter popover opens leftwards inside the viewport on desktop | `codecs-explorer.ui.spec.ts` |
 | Codecs **Library Explorer lazy tree** → 250 stubbed files (+6 TV episodes) render as collapsed shells with truthful totals and no continuation control; expanding one folder materializes only its leaf; per-section Expand/Collapse act independently per library; 2200 files stop Expand All at the node budget with a visible capped note; special-character folders expand via mouse and keyboard; long names scroll horizontally inside their section while short content shows no phantom scrollbar | `explorer-lazy-tree.ui.spec.ts` |
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
@@ -355,7 +355,8 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
   counts, sub-less clips reflected in the no-subtitle health count; per-library
   `TotalSize` is the exact 8-bucket sum (Video/Audio/Subtitles/Images/Trickplay/
   Nfo/Book/Other), Movies `OtherSize`/`NfoSize` and Books `BookSize` are positive
-  from the sidecar/book fixtures.
+  from the sidecar/book fixtures; the result-level `InternalTrickplaySize` travels
+  the wire as a non-negative number and never joins any library total.
 - **Book library protection** (`books-protection.api.spec.ts`): a Book (eBook)
   library is TRACKED but NEVER deleted. Stats expose `Books` / `TotalBookFileCount`
   / `TotalBookFormats` with the KNOWN fixtures' `EPUB`+`PDF` keys (per-format counts

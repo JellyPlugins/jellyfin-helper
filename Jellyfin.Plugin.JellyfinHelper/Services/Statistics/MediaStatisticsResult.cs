@@ -79,6 +79,12 @@ public class MediaStatisticsResult
     public long TotalTrickplaySize => Libraries.Sum(l => l.TrickplaySize);
 
     /// <summary>
+    /// Gets or sets the total size of Jellyfin managed trickplay data in bytes.
+    /// These images live outside the media libraries, so they never join per library totals.
+    /// </summary>
+    public long InternalTrickplaySize { get; set; }
+
+    /// <summary>
     /// Gets the total subtitle size across all libraries in bytes.
     /// </summary>
     public long TotalSubtitleSize => Libraries.Sum(l => l.SubtitleSize);

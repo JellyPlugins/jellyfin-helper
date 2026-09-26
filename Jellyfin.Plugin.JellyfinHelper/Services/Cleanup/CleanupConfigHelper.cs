@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 
@@ -17,14 +18,17 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     private const string DefaultTrashFolderName = ".jellyfin-trash";
 
     private readonly IPluginConfigurationService _configService;
+    private readonly IApplicationPaths _applicationPaths;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="CleanupConfigHelper" /> class.
     /// </summary>
     /// <param name="configService">The plugin configuration service.</param>
-    public CleanupConfigHelper(IPluginConfigurationService configService)
+    /// <param name="applicationPaths">The server application paths (internal trickplay location).</param>
+    public CleanupConfigHelper(IPluginConfigurationService configService, IApplicationPaths applicationPaths)
     {
         _configService = configService;
+        _applicationPaths = applicationPaths;
     }
 
     /// <inheritdoc />
@@ -282,6 +286,14 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         }
 
         return resolved;
+    }
+
+    /// <inheritdoc />
+    public string? GetInternalTrickplayPath()
+    {
+        // Centralizes server path knowledge here with the other path resolution, so consumers stay free of server layout details.
+        var path = _applicationPaths.TrickplayPath;
+        return string.IsNullOrWhiteSpace(path) ? null : path;
     }
 
     /// <inheritdoc />

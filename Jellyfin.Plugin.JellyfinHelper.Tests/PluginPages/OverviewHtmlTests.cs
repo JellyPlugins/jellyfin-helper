@@ -5,7 +5,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 /// <summary>
 /// Tests for the Overview tab in the composed configPage.html.
 /// </summary>
-public class OverviewHtmlTests : ConfigPageTestBase
+public partial class OverviewHtmlTests : ConfigPageTestBase
 {
     [Fact]
     public void Html_ContainsOverviewTabContent()
@@ -57,6 +57,13 @@ public class OverviewHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_BoxsetRow_RendersPlainNameWithLinkTypography()
+    {
+        // Boxset libraries stay out of the explorer scope, so the row renders plain text sharing the link typography instead of standing out.
+        Assert.Contains("codec-explore-name", HtmlContent);
+    }
+
+    [Fact]
     public void Html_MovieAndTvCards_LinkIntoCodecsExplorer()
     {
         // The Movies and TV stat cards act as links into the explorer,
@@ -74,4 +81,30 @@ public class OverviewHtmlTests : ConfigPageTestBase
         Assert.Contains("CODEC_EXPLORER_TYPE_MUSIC", HtmlContent);
         Assert.Contains("CODEC_EXPLORER_TYPE_BOOKS", HtmlContent);
     }
+
+    [Fact]
+    public void Html_TrickplayCard_ShowsInternalSize()
+    {
+        // Jellyfin managed images live outside every library, so the card
+        // renders them on their own detail line with an (internal) marker whose
+        // hover title explains the cleanup exclusion. Without alongside data the
+        // internal total becomes the headline; a zero figure renders no line.
+        Assert.Contains("trickplayInternalBadge", HtmlContent);
+        Assert.Contains("trickplayInternalHint", HtmlContent);
+        Assert.Contains("trickplay-internal-badge", HtmlContent);
+        Assert.Contains("InternalTrickplaySize", HtmlContent);
+        Assert.Contains("mainIsInternal", HtmlContent);
+        Assert.Contains("internalSize > 0", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_InternalBadge_SitsOnTextBaseline()
+    {
+        // A smaller inline marker must share the value baseline; vertical middle drops it below the line.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".trickplay-internal-badge { font-size: 0.8em; white-space: nowrap; vertical-align: baseline; cursor: help;", css);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\s+")]
+    private static partial System.Text.RegularExpressions.Regex WhitespaceRegex();
 }
