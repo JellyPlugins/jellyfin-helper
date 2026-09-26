@@ -57,6 +57,13 @@ public partial class OverviewHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_BoxsetRow_RendersPlainNameWithLinkTypography()
+    {
+        // Boxset libraries stay out of the explorer scope, so the row renders plain text sharing the link typography instead of standing out.
+        Assert.Contains("codec-explore-name", HtmlContent);
+    }
+
+    [Fact]
     public void Html_MovieAndTvCards_LinkIntoCodecsExplorer()
     {
         // The Movies and TV stat cards act as links into the explorer,

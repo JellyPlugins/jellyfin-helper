@@ -206,7 +206,7 @@ function fillOverviewData(data) {
                 + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
                 + escHtml(lib.LibraryName) + '</button></td>';
         } else if (lib.LibraryName) {
-            overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
+            overviewHtml += '<td><span class="codec-explore-name">' + escHtml(lib.LibraryName) + '</span></td>';
         } else {
             overviewHtml += '<td></td>';
         }

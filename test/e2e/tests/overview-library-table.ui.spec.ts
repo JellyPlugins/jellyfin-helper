@@ -181,6 +181,20 @@ test.describe('boxset rows never link into the explorer', () => {
     const moviesRow = table.locator('tbody tr', { hasText: 'Movies' }).first();
     await expect(moviesRow.locator('[data-codec-explore-library]').first()).toBeVisible();
 
+    // Same typography for the plain boxset name as for library links: size and color match.
+    const linkName = moviesRow.locator('[data-codec-explore-library]').first();
+    const plainName = boxsetRow.locator('.codec-explore-name');
+    await expect(plainName).toBeVisible();
+    const linkStyle = await linkName.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return [cs.fontSize, cs.color];
+    });
+    const plainStyle = await plainName.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return [cs.fontSize, cs.color];
+    });
+    expect(plainStyle, 'boxset name matches link typography').toEqual(linkStyle);
+
     const scriptErrors = stubErrors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
     expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
   });
