@@ -460,7 +460,7 @@ function loadSettings() {
             var s = '<div class="task-desc-head"><label for="' + id + '">' + label + '</label>';
             // Info button byte-identical to the Discovery hint button, so it renders 1:1 the same.
             if (descText) {
-                s += '<button type="button" class="material-icons" id="taskDescBtn_' + id + '" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;" title="' + escAttr(descText) + '" aria-label="' + escAttr(T('taskDescInfo', 'Show task description')) + '" aria-expanded="false" aria-controls="taskDescHint_' + id + '">' + mi('info') + '</button>';
+                s += '<button type="button" class="material-icons" id="taskDescBtn_' + id + '" style="color:#00a4dc;font-size:0.8em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;opacity:0.5;" title="' + escAttr(descText) + '" aria-label="' + escAttr(T('taskDescInfo', 'Show task description')) + '" aria-expanded="false" aria-controls="taskDescHint_' + id + '">' + mi('info') + '</button>';
             }
             s += '</div><select id="' + id + '">';
 
