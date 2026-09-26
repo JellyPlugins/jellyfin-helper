@@ -571,6 +571,22 @@
     min-width: 0;
 }
 
+/* Label and info button share one line above the select. The label margin lives
+   on the head, so the button centers on the text instead of text plus margin. */
+/* noinspection CssUnusedSymbol */
+.task-desc-head {
+    display: flex;
+    align-items: center;
+    gap: 0.3em;
+    margin-top: 1em;
+}
+
+/* Wins over .settings-form label regardless of rule order. */
+/* noinspection CssUnusedSymbol */
+.settings-form .task-desc-head > label {
+    margin-top: 0;
+}
+
 /* -- Subgroup title used inside cards for "Recycle Bin" etc. -- */
 /* noinspection CssUnusedSymbol */
 .settings-subgroup-title {
