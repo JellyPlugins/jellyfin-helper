@@ -21,7 +21,7 @@
         <PackageReference Include="Jellyfin.Model" Version="12.1.0">
             <ExcludeAssets>runtime</ExcludeAssets>
         </PackageReference>
-        <PackageReference Include="System.IO.Abstractions" Version="22.2.0"/>
+        <PackageReference Include="System.IO.Abstractions" Version="22.3.0"/>
     </ItemGroup>
 
     <ItemGroup>
