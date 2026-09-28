@@ -419,7 +419,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             l => l.Log(
                 LogLevel.Warning,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Failed to mark item")),
+                It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains("Failed to mark item")),
                 It.IsAny<Exception>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);

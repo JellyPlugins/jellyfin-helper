@@ -1604,7 +1604,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
             l => l.Log(
                 LogLevel.Debug,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains(messagePart)),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains(messagePart)),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.AtLeastOnce);
@@ -1616,7 +1616,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
             l => l.Log(
                 LogLevel.Warning,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains(messagePart)),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains(messagePart)),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.AtLeastOnce);

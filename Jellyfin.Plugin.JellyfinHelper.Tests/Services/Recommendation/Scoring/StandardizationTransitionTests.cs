@@ -105,7 +105,7 @@ public sealed class StandardizationTransitionTests
             l => l.Log(
                 Microsoft.Extensions.Logging.LogLevel.Information,
                 It.IsAny<Microsoft.Extensions.Logging.EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("warm start")),
+                It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains("warm start")),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.AtLeastOnce());
@@ -114,7 +114,7 @@ public sealed class StandardizationTransitionTests
             l => l.Log(
                 Microsoft.Extensions.Logging.LogLevel.Information,
                 It.IsAny<Microsoft.Extensions.Logging.EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Reset weights to defaults")),
+                It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains("Reset weights to defaults")),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Never());

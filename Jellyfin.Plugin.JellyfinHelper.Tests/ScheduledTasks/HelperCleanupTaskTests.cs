@@ -557,7 +557,7 @@ public class HelperCleanupTaskTests
             x => x.Log(
                 level,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains(messagePart)),
+                It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains(messagePart)),
                 It.IsAny<Exception>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.AtLeastOnce);
@@ -569,7 +569,7 @@ public class HelperCleanupTaskTests
             x => x.Log(
                 level,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains(messagePart)),
+                It.Is<It.IsAnyType>((v, t) => v!.ToString()!.Contains(messagePart)),
                 It.IsAny<Exception>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Never);
