@@ -127,7 +127,7 @@ public class PluginLogServiceTests : IDisposable
             l => l.Log(
                 LogLevel.Debug,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("Msg")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("Msg")),
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
@@ -236,7 +236,7 @@ public class PluginLogServiceTests : IDisposable
             l => l.Log(
                 LogLevel.Information,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("InfoMsg")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("InfoMsg")),
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
@@ -331,7 +331,7 @@ public class PluginLogServiceTests : IDisposable
             l => l.Log(
                 LogLevel.Warning,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("WarnMsg")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("WarnMsg")),
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
@@ -352,7 +352,7 @@ public class PluginLogServiceTests : IDisposable
             l => l.Log(
                 LogLevel.Warning,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("WarnMsg")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("WarnMsg")),
                 exception,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
@@ -421,7 +421,7 @@ public class PluginLogServiceTests : IDisposable
             l => l.Log(
                 LogLevel.Error,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("ErrMsg")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("ErrMsg")),
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
@@ -442,7 +442,7 @@ public class PluginLogServiceTests : IDisposable
             l => l.Log(
                 LogLevel.Error,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("ErrMsg")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("ErrMsg")),
                 exception,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
@@ -507,7 +507,7 @@ public class PluginLogServiceTests : IDisposable
             l => l.Log(
                 LogLevel.Debug,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("Filtered debug msg")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("Filtered debug msg")),
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
@@ -532,7 +532,7 @@ public class PluginLogServiceTests : IDisposable
             l => l.Log(
                 LogLevel.Information,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("Filtered info")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("Filtered info")),
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);

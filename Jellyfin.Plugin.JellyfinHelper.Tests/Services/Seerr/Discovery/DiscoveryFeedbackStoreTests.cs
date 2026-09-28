@@ -1146,7 +1146,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             l => l.Log(
                 LogLevel.Debug,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("Unexpected mediaType")),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("Unexpected mediaType")),
                 It.IsAny<Exception?>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);

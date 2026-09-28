@@ -125,7 +125,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
             l => l.Log(
                 LogLevel.Information,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("Training complete", StringComparison.Ordinal)),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("Training complete", StringComparison.Ordinal)),
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
