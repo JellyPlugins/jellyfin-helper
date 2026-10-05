@@ -57,6 +57,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
         AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
 
+        // Trakt timeout is admin-configurable (already clamped by the config setter). Fall back to the
+        // default when the plugin instance is not yet available during early DI construction.
+        var traktTimeout = TimeSpan.FromSeconds(Plugin.Instance?.Configuration?.TraktTimeoutSeconds ?? 30);
+        AddHardenedClient("Trakt", traktTimeout);
+
         // Secrets are encrypted via Data Protection using a non-machine-bound keyring in the plugin path
         // for simple backup/migration. SetApplicationName isolates this keyring from Jellyfin's own.
         // Threat model: On Linux, keyring files are unencrypted at rest—matching Jellyfin's trust boundary
@@ -77,6 +82,15 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         }
 
         serviceCollection.AddSingleton<ISecretProtector, SecretProtector>();
+
+        // Trakt per-user OAuth token store. Reads the data path at construction so tokens persist across
+        // restarts; falls back to in-memory only when the data path is unavailable.
+        serviceCollection.AddSingleton<Services.Trakt.ITraktUserStore>(sp =>
+            new Services.Trakt.TraktUserStore(
+                sp.GetRequiredService<ISecretProtector>(),
+                sp.GetRequiredService<IPluginLogService>(),
+                sp.GetRequiredService<ILogger<Services.Trakt.TraktUserStore>>(),
+                Plugin.Instance?.DataFolderPath));
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();

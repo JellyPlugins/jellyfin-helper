@@ -23,6 +23,8 @@ public class PluginConfiguration : BasePluginConfiguration
     private double _ensembleGenrePenaltyFloor = 0.10;
     private int _seerrCleanupAgeDays = 365;
     private int _trashRetentionDays = 30;
+    private int _traktTimeoutSeconds = 30;
+    private int _traktLimit = 20;
     private List<ArrInstanceConfig> _radarrInstances = [];
     private List<ArrInstanceConfig> _sonarrInstances = [];
 
@@ -92,6 +94,43 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets a value indicating whether non-admin users can access the Seerr Discovery page and submit media requests.
     /// </summary>
     public bool DiscoveryUserAccessEnabled { get; set; }
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether the Trakt discovery source is enabled. When off the Discovery
+    ///     sidebar shows only the local ensemble grid, exactly as before Trakt existed.
+    /// </summary>
+    public bool TraktEnabled { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the Trakt OAuth application client id. Registered once by the admin; shared by all users.
+    /// </summary>
+    public string TraktClientId { get; set; } = string.Empty;
+
+    /// <summary>
+    ///     Gets or sets the Trakt OAuth application client secret. Stored encrypted at rest and never returned to
+    ///     the client in plain text.
+    /// </summary>
+    public string TraktClientSecret { get; set; } = string.Empty;
+
+    /// <summary>
+    ///     Gets or sets the Trakt HTTP request timeout in seconds. Default 30. Valid range 5-60; out-of-range
+    ///     values are clamped.
+    /// </summary>
+    public int TraktTimeoutSeconds
+    {
+        get => _traktTimeoutSeconds;
+        set => _traktTimeoutSeconds = ClampAndReport(nameof(TraktTimeoutSeconds), value, 5, 60);
+    }
+
+    /// <summary>
+    ///     Gets or sets the number of Trakt items fetched per list. Default 20. Valid range 1-40; out-of-range
+    ///     values are clamped.
+    /// </summary>
+    public int TraktLimit
+    {
+        get => _traktLimit;
+        set => _traktLimit = ClampAndReport(nameof(TraktLimit), value, 1, 40);
+    }
 
     /// <summary>
     ///     Gets or sets the configuration version for migration tracking.

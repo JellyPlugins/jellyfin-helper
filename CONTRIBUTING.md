@@ -311,6 +311,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── LibraryInsightsServiceTraversalTests.cs  # Directory-walk over a real tree with a scripted IFileSystem for sizes/timestamps
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
 │   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/yearly thresholds), GenerateBucketStarts bucket spacing, IsDayBased detection and MergeDailySeries.
+│   ├── Trakt/                     # Trakt discovery source tests
+│   │   └── TraktUserStoreTests.cs         # Token store: roundtrip, encryption at rest (file never holds plaintext), remove, unlinked reads, cross-instance persistence, per-user isolation
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -634,6 +636,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │       ├── LibraryInsightsService.cs   # Aggregates growth data into per-library insights
 │       ├── LibraryInsightsResult.cs    # Insights result DTO
 │       └── LibraryInsightEntry.cs      # Per-library insight entry
+│   ├── Trakt/                   # Trakt discovery source (OAuth device flow + external recommendations)
+│   │   ├── ITraktUserStore.cs       # Per-user token storage contract (Get/SaveAsync/RemoveAsync)
+│   │   ├── TraktUserStore.cs        # DP-encrypted per-user token store: JSON in DataPath, decrypt on read, encrypt on write, atomic persistence
+│   │   └── TraktUserToken.cs        # Per-user token record (access/refresh/expiry) with IsLinked guard
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs
