@@ -65,6 +65,7 @@ public class ConfigurationControllerTests : IDisposable
     public void Dispose()
     {
         _ensemble.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     [Fact]
