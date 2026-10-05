@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,6 +17,13 @@ public interface ITraktUserStore
     /// <param name="userId">The Jellyfin user id.</param>
     /// <returns>The user's token with plaintext access/refresh values, or null when unlinked.</returns>
     TraktUserToken? GetToken(Guid userId);
+
+    /// <summary>
+    ///     Returns the ids of all users that currently have a stored token. Used by the scheduled refresh to
+    ///     warm each linked user's personal cache.
+    /// </summary>
+    /// <returns>The linked user ids (possibly empty).</returns>
+    IReadOnlyCollection<Guid> GetLinkedUserIds();
 
     /// <summary>
     ///     Stores (or replaces) a user's token, encrypting the access and refresh values before they touch disk.

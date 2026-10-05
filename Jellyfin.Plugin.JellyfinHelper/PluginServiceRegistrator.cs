@@ -93,6 +93,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 Plugin.Instance?.DataFolderPath));
 
         serviceCollection.AddSingleton<Services.Trakt.ITraktAuthService, Services.Trakt.TraktAuthService>();
+        serviceCollection.AddSingleton<Services.Trakt.TraktCacheService>();
+        serviceCollection.AddSingleton<Services.Trakt.ITraktDiscoveryService, Services.Trakt.TraktDiscoveryService>();
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();

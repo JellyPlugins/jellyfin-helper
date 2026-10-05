@@ -170,4 +170,26 @@ public sealed class TraktUserStoreTests : IDisposable
         var logger = TestMockFactory.CreateLogger<TraktUserStore>().Object;
         Assert.Throws<ArgumentNullException>(() => new TraktUserStore(null!, log, logger, _dataPath));
     }
+
+    [Fact]
+    public async Task GetLinkedUserIds_ReturnsAllStoredUsers()
+    {
+        var store = CreateStore();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        await store.SaveAsync(a, new TraktUserToken { AccessToken = "a", RefreshToken = "ra" }, CancellationToken.None);
+        await store.SaveAsync(b, new TraktUserToken { AccessToken = "b", RefreshToken = "rb" }, CancellationToken.None);
+
+        var ids = store.GetLinkedUserIds();
+
+        Assert.Equal(2, ids.Count);
+        Assert.Contains(a, ids);
+        Assert.Contains(b, ids);
+    }
+
+    [Fact]
+    public void GetLinkedUserIds_Empty_WhenNoneStored()
+    {
+        Assert.Empty(CreateStore().GetLinkedUserIds());
+    }
 }

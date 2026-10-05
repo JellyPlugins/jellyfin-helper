@@ -74,6 +74,31 @@ public sealed class TraktUserStore : ITraktUserStore
     }
 
     /// <inheritdoc />
+    public IReadOnlyCollection<Guid> GetLinkedUserIds()
+    {
+        lock (_gate)
+        {
+            EnsureLoaded();
+            if (_entries is null || _entries.Count == 0)
+            {
+                return [];
+            }
+
+            var ids = new List<Guid>(_entries.Count);
+            foreach (var key in _entries.Keys)
+            {
+                // Keys are stored in "N" (32 hex) form; skip any that do not parse rather than throw.
+                if (Guid.TryParseExact(key, "N", out var id))
+                {
+                    ids.Add(id);
+                }
+            }
+
+            return ids;
+        }
+    }
+
+    /// <inheritdoc />
     public Task SaveAsync(Guid userId, TraktUserToken token, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(token);

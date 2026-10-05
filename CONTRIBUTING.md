@@ -313,8 +313,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
 │   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/yearly thresholds), GenerateBucketStarts bucket spacing, IsDayBased detection and MergeDailySeries.
 │   ├── Trakt/                     # Trakt discovery source tests
-│   │   ├── TraktUserStoreTests.cs         # Token store: roundtrip, encryption at rest (file never holds plaintext), remove, unlinked reads, cross-instance persistence, per-user isolation
-│   │   └── TraktAuthServiceTests.cs       # Device flow: start, poll status mapping, token persistence on approval, proactive refresh exactly once on expiry, re-link on refresh failure, disconnect
+│   │   ├── TraktUserStoreTests.cs         # Token store: roundtrip, encryption at rest (file never holds plaintext), remove, unlinked reads, cross-instance persistence, per-user isolation, GetLinkedUserIds
+│   │   ├── TraktAuthServiceTests.cs       # Device flow: start, poll status mapping, token persistence on approval, proactive refresh exactly once on expiry, re-link on refresh failure, disconnect
+│   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry
+│   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
+│   │   └── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -642,7 +645,11 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── Trakt/                   # Trakt discovery source (OAuth device flow + external recommendations)
 │   │   ├── ITraktAuthService.cs     # Device-flow + token lifecycle contract (start/poll/get-valid-token/disconnect)
 │   │   ├── TraktAuthService.cs      # Device flow against api.trakt.tv: start/poll status mapping, proactive refresh on expiry, 401 handled by one refresh, never logs tokens
-│   │   ├── ITraktUserStore.cs       # Per-user token storage contract (Get/SaveAsync/RemoveAsync)
+│   │   ├── ITraktDiscoveryService.cs # Personal (OAuth) + global trending (client id) contract; both scored through the shared seam
+│   │   ├── TraktDiscoveryService.cs # Fetch personal + trending, map to candidates, score via ScoreExternalCandidatesAsync, per-user + global cache, RefreshAll warms linked users
+│   │   ├── TraktMapper.cs           # Trakt item -> ExternalDiscoveryCandidate; drops items without a TMDb id (counts them); genres filled by Seerr enrichment downstream
+│   │   ├── TraktCacheService.cs     # In-memory per-user personal + global trending cache with TTL + invalidation
+│   │   ├── ITraktUserStore.cs       # Per-user token storage contract (GetToken/GetLinkedUserIds/SaveAsync/RemoveAsync)
 │   │   ├── TraktUserStore.cs        # DP-encrypted per-user token store: JSON in DataPath, decrypt on read, encrypt on write, atomic persistence
 │   │   ├── TraktUserToken.cs        # Per-user token record (access/refresh/expiry) with IsLinked guard
 │   │   ├── TraktDeviceCodeResponse.cs # POST /oauth/device/code response (device/user code, verification URL, expiry, interval)

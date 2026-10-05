@@ -1747,16 +1747,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             _logger);
 
         var recommendations = await ScoreCandidatesForUserAsync(
-            profile,
-            uniqueCandidates,
-            topGenres,
-            genrePreferences,
-            preferredPeople,
-            avgYear,
-            genreExposure,
-            client,
-            baseUri,
-            apiKey,
+            new CandidateScoringContext
+            {
+                Profile = profile,
+                Candidates = uniqueCandidates,
+                TopGenres = topGenres,
+                GenrePreferences = genrePreferences,
+                PreferredPeople = preferredPeople,
+                AvgYear = avgYear,
+                GenreExposure = genreExposure,
+                Client = client,
+                BaseUri = baseUri,
+                ApiKey = apiKey,
+            },
             cancellationToken).ConfigureAwait(false);
 
         return new DiscoveryResult
@@ -1837,16 +1840,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         var client = GetSeerrClient();
         var recommendations = await ScoreCandidatesForUserAsync(
-            profile,
-            uniqueCandidates,
-            topGenres,
-            genrePreferences,
-            preferredPeople,
-            avgYear,
-            genreExposure,
-            client,
-            baseUri,
-            apiKey,
+            new CandidateScoringContext
+            {
+                Profile = profile,
+                Candidates = uniqueCandidates,
+                TopGenres = topGenres,
+                GenrePreferences = genrePreferences,
+                PreferredPeople = preferredPeople,
+                AvgYear = avgYear,
+                GenreExposure = genreExposure,
+                Client = client,
+                BaseUri = baseUri,
+                ApiKey = apiKey,
+            },
             cancellationToken).ConfigureAwait(false);
 
         // Stamp the external source's reason so the card shows "from Trakt" rather than a local-signal reason.
@@ -1896,31 +1902,22 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     GenerateForUserAsync so the Trakt external source scores candidates through the exact same path.
     /// </summary>
     private async Task<List<DiscoveryRecommendation>> ScoreCandidatesForUserAsync(
-        UserWatchProfile profile,
-        List<TmdbDiscoverItem> uniqueCandidates,
-        List<string> topGenres,
-        Dictionary<string, double> genrePreferences,
-        HashSet<string> preferredPeople,
-        double avgYear,
-        PreferenceBuilder.GenreExposureAnalysis genreExposure,
-        HttpClient client,
-        Uri baseUri,
-        string apiKey,
+        CandidateScoringContext context,
         CancellationToken cancellationToken)
     {
         // The user's own ensemble (per-user blend when they have enough history, else the global fallback),
         // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
         // once per user and read the feature means from the SAME instance that scores, so a per-user model
         // materializing mid-run cannot leave scoring and feature means on two different models.
-        var userStrategy = _perUserRegistry.GetEnsembleForUser(profile.UserId);
+        var userStrategy = _perUserRegistry.GetEnsembleForUser(context.Profile.UserId);
         var featureMeans = userStrategy.LearnedStrategy.GetFeatureMeans();
 
         // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
-        var preScored = new List<(TmdbDiscoverItem Item, double Score)>(uniqueCandidates.Count);
-        foreach (var candidate in uniqueCandidates)
+        var preScored = new List<(TmdbDiscoverItem Item, double Score)>(context.Candidates.Count);
+        foreach (var candidate in context.Candidates)
         {
             var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
+                candidate, context.GenrePreferences, context.PreferredPeople, context.AvgYear, context.GenreExposure, context.Profile, featureMeans);
             var score = userStrategy.Score(features);
             preScored.Add((candidate, score));
         }
@@ -1934,15 +1931,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Phase 2: ENRICH top candidates with credits data (actors/directors)
         // Only performed when the user has people preferences to match against.
-        if (preferredPeople.Count > 0 && enrichmentCandidates.Count > 0)
+        if (context.PreferredPeople.Count > 0 && enrichmentCandidates.Count > 0)
         {
             await EnrichTopCandidatesWithCreditsAsync(
-                client, baseUri, apiKey, enrichmentCandidates, cancellationToken).ConfigureAwait(false);
+                context.Client, context.BaseUri, context.ApiKey, enrichmentCandidates, cancellationToken).ConfigureAwait(false);
 
             var enrichedCount = enrichmentCandidates.Count(c => c.KnownPeople != null);
             _pluginLog.LogDebug(
                 LogCategory,
-                $"User {profile.UserName}: Enriched {enrichedCount}/{enrichmentCandidates.Count} candidates with credits data.",
+                $"User {context.Profile.UserName}: Enriched {enrichedCount}/{enrichmentCandidates.Count} candidates with credits data.",
                 _logger);
         }
 
@@ -1951,7 +1948,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         foreach (var candidate in enrichmentCandidates)
         {
             var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
+                candidate, context.GenrePreferences, context.PreferredPeople, context.AvgYear, context.GenreExposure, context.Profile, featureMeans);
             var score = userStrategy.Score(features);
             scored.Add((candidate, features, score));
         }
@@ -1964,7 +1961,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var recommendations = new List<DiscoveryRecommendation>(topN.Count);
         foreach (var (item, features, score) in topN)
         {
-            recommendations.Add(BuildRecommendation(item, features, score, topGenres, preferredPeople));
+            recommendations.Add(BuildRecommendation(item, features, score, context.TopGenres, context.PreferredPeople));
         }
 
         return recommendations;
@@ -2804,4 +2801,33 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     <see cref="UserGenerationStatus.Generated"/>).
     /// </summary>
     private readonly record struct UserGenerationOutcome(UserGenerationStatus Status, DiscoveryResult? Result);
+
+    /// <summary>
+    ///     Inputs for <see cref="ScoreCandidatesForUserAsync"/>: everything the shared three-phase scoring
+    ///     pipeline needs for one user. A single object keeps the parameter list within the analyzer limit;
+    ///     both call sites build it from values they already hold. Cancellation stays a separate parameter
+    ///     by convention.
+    /// </summary>
+    private sealed class CandidateScoringContext
+    {
+        public required UserWatchProfile Profile { get; init; }
+
+        public required List<TmdbDiscoverItem> Candidates { get; init; }
+
+        public required List<string> TopGenres { get; init; }
+
+        public required Dictionary<string, double> GenrePreferences { get; init; }
+
+        public required HashSet<string> PreferredPeople { get; init; }
+
+        public required double AvgYear { get; init; }
+
+        public required PreferenceBuilder.GenreExposureAnalysis GenreExposure { get; init; }
+
+        public required HttpClient Client { get; init; }
+
+        public required Uri BaseUri { get; init; }
+
+        public required string ApiKey { get; init; }
+    }
 }
