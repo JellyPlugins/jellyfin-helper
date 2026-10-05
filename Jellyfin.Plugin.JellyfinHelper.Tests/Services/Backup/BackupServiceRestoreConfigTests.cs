@@ -14,6 +14,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 public sealed class BackupServiceRestoreConfigTests : IDisposable
 {
     private readonly string _tempDir;
+    private readonly Jellyfin.Plugin.JellyfinHelper.Services.Security.ISecretProtector _secretProtector
+        = TestMockFactory.CreateSecretProtector();
 
     public BackupServiceRestoreConfigTests()
     {
@@ -54,7 +56,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             _tempDir,
             configMock.Object,
             TestMockFactory.CreatePluginLogService(),
-            TestMockFactory.CreateLogger<BackupService>().Object);
+            TestMockFactory.CreateLogger<BackupService>().Object,
+            growthTimeline: null,
+            secretProtector: _secretProtector);
 
         return (service, liveConfig, configMock);
     }
@@ -107,7 +111,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal(TaskMode.DryRun, liveConfig.SeerrCleanupTaskMode);
         Assert.Equal(TaskMode.Activate, liveConfig.RecommendationsTaskMode);
         Assert.Equal("https://seerr.example.com", liveConfig.SeerrUrl);
-        Assert.Equal("test-key", liveConfig.SeerrApiKey);
+        Assert.Equal("test-key", _secretProtector.Unprotect(liveConfig.SeerrApiKey));
         Assert.Equal(30, liveConfig.SeerrCleanupAgeDays);
         Assert.True(liveConfig.UseTrash);
         Assert.Equal(".trash", liveConfig.TrashFolderPath);
@@ -392,7 +396,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.Single(liveConfig.RadarrInstances);
-        Assert.Equal("live-key", liveConfig.RadarrInstances[0].ApiKey);
+        Assert.Equal("live-key", _secretProtector.Unprotect(liveConfig.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -408,7 +412,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.Single(liveConfig.SonarrInstances);
-        Assert.Equal("sonarr-live-key", liveConfig.SonarrInstances[0].ApiKey);
+        Assert.Equal("sonarr-live-key", _secretProtector.Unprotect(liveConfig.SonarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -535,7 +539,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         var instance = Assert.Single(liveConfig.RadarrInstances);
         Assert.Equal(BackupValidator.MaxInstanceNameLength, instance.Name.Length);
         Assert.Equal(BackupValidator.MaxUrlLength, instance.Url.Length);
-        Assert.Equal(BackupValidator.MaxApiKeyLength, instance.ApiKey.Length);
+        Assert.Equal(BackupValidator.MaxApiKeyLength, _secretProtector.Unprotect(instance.ApiKey).Length);
     }
 
     [Fact]
@@ -551,7 +555,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.Equal(BackupValidator.MaxUrlLength, liveConfig.SeerrUrl.Length);
-        Assert.Equal(BackupValidator.MaxApiKeyLength, liveConfig.SeerrApiKey.Length);
+        Assert.Equal(BackupValidator.MaxApiKeyLength, _secretProtector.Unprotect(liveConfig.SeerrApiKey).Length);
     }
 
     [Theory]
@@ -581,7 +585,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             _tempDir,
             configMock.Object,
             TestMockFactory.CreatePluginLogService(),
-            TestMockFactory.CreateLogger<BackupService>().Object);
+            TestMockFactory.CreateLogger<BackupService>().Object,
+            growthTimeline: null,
+            secretProtector: _secretProtector);
 
         var backup = MakeMinimalValidBackup();
 
@@ -612,7 +618,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             _tempDir,
             configMock.Object,
             TestMockFactory.CreatePluginLogService(),
-            TestMockFactory.CreateLogger<BackupService>().Object);
+            TestMockFactory.CreateLogger<BackupService>().Object,
+            growthTimeline: null,
+            secretProtector: _secretProtector);
 
         var backup = service.CreateBackup(includeSecrets: true);
 
@@ -639,7 +647,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             _tempDir,
             configMock.Object,
             TestMockFactory.CreatePluginLogService(),
-            TestMockFactory.CreateLogger<BackupService>().Object);
+            TestMockFactory.CreateLogger<BackupService>().Object,
+            growthTimeline: null,
+            secretProtector: _secretProtector);
 
         var backup = service.CreateBackup(includeSecrets: true);
 
@@ -660,7 +670,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         service.RestoreBackup(backup);
 
-        Assert.Equal("live-key-must-survive", liveConfig.SeerrApiKey);
+        Assert.Equal("live-key-must-survive", _secretProtector.Unprotect(liveConfig.SeerrApiKey));
     }
 
     [Fact]
@@ -675,7 +685,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         service.RestoreBackup(backup);
 
-        Assert.Equal("new-key-from-backup", liveConfig.SeerrApiKey);
+        Assert.Equal("new-key-from-backup", _secretProtector.Unprotect(liveConfig.SeerrApiKey));
     }
 
     [Fact]
@@ -779,7 +789,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.False(summary.CredentialsChanged,
             "No credentials change should be reported when the backup key is the truncated form of the stored key.");
         // The restored key must equal the truncated backup value (200 'x' chars), not the full 250-char stored value.
-        Assert.Equal(backupKey, liveConfig.SeerrApiKey);
+        Assert.Equal(backupKey, _secretProtector.Unprotect(liveConfig.SeerrApiKey));
     }
 
     [Fact]
@@ -853,7 +863,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             _tempDir,
             configMock.Object,
             TestMockFactory.CreatePluginLogService(),
-            TestMockFactory.CreateLogger<BackupService>().Object);
+            TestMockFactory.CreateLogger<BackupService>().Object,
+            growthTimeline: null,
+            secretProtector: _secretProtector);
 
         var backup = service.CreateBackup();
 

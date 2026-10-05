@@ -9,9 +9,12 @@ using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Common.Configuration;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 
@@ -40,6 +43,7 @@ public sealed class BackupService : IBackupService
     private readonly string _dataPath;
     private readonly ILogger<BackupService> _logger;
     private readonly IPluginLogService _pluginLog;
+    private readonly ISecretProtector _secretProtector;
 
     // Optional gate onto the timeline service's read-compute-write lock. When present, backup
     // export and restore serialize against scheduled scans so neither clobbers the other's write.
@@ -53,12 +57,14 @@ public sealed class BackupService : IBackupService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="growthTimeline">The growth timeline service, used to coordinate file access with scans.</param>
+    /// <param name="secretProtector">Decrypts secrets for export and re-encrypts them on restore.</param>
     public BackupService(
         IApplicationPaths applicationPaths,
         IPluginConfigurationService configService,
         IPluginLogService pluginLog,
         ILogger<BackupService> logger,
-        IGrowthTimelineService growthTimeline)
+        IGrowthTimelineService growthTimeline,
+        ISecretProtector secretProtector)
     {
         ArgumentNullException.ThrowIfNull(applicationPaths);
 
@@ -67,6 +73,7 @@ public sealed class BackupService : IBackupService
         _pluginLog = pluginLog;
         _logger = logger;
         _growthTimeline = growthTimeline;
+        _secretProtector = secretProtector;
     }
 
     /// <summary>
@@ -77,18 +84,25 @@ public sealed class BackupService : IBackupService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="growthTimeline">The optional growth timeline service used to coordinate file access.</param>
+    /// <param name="secretProtector">Optional secret protector; defaults to an in-memory keyring for tests.</param>
     internal BackupService(
         string dataPath,
         IPluginConfigurationService configService,
         IPluginLogService pluginLog,
         ILogger<BackupService> logger,
-        IGrowthTimelineService? growthTimeline = null)
+        IGrowthTimelineService? growthTimeline = null,
+        ISecretProtector? secretProtector = null)
     {
         _dataPath = dataPath;
         _configService = configService;
         _pluginLog = pluginLog;
         _logger = logger;
         _growthTimeline = growthTimeline;
+
+        // Tests that do not care about encryption get a working in-memory protector. Plaintext config
+        // values pass through Unprotect unchanged, so existing plaintext-seeded tests keep their meaning.
+        _secretProtector = secretProtector
+            ?? new SecretProtector(new EphemeralDataProtectionProvider(), NullLogger<SecretProtector>.Instance);
     }
 
     /// <summary>
@@ -154,9 +168,10 @@ public sealed class BackupService : IBackupService
             LinkRepairTaskMode = config.LinkRepairTaskMode.ToString(),
             SeerrCleanupTaskMode = config.SeerrCleanupTaskMode.ToString(),
 
-            // Seerr settings
+            // Seerr settings. Keys are stored encrypted; the backup holds plaintext so it stays portable
+            // across hosts without the keyring. Redaction below still applies when includeSecrets is false.
             SeerrUrl = config.SeerrUrl,
-            SeerrApiKey = config.SeerrApiKey,
+            SeerrApiKey = _secretProtector.Unprotect(config.SeerrApiKey),
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
 
             // Trash settings
@@ -181,7 +196,7 @@ public sealed class BackupService : IBackupService
                 {
                     Name = instance.Name,
                     Url = instance.Url,
-                    ApiKey = instance.ApiKey,
+                    ApiKey = _secretProtector.Unprotect(instance.ApiKey),
                     Libraries = instance.Libraries
                 });
         }
@@ -193,7 +208,7 @@ public sealed class BackupService : IBackupService
                 {
                     Name = instance.Name,
                     Url = instance.Url,
-                    ApiKey = instance.ApiKey,
+                    ApiKey = _secretProtector.Unprotect(instance.ApiKey),
                     Libraries = instance.Libraries
                 });
         }
@@ -469,7 +484,11 @@ public sealed class BackupService : IBackupService
         if (!string.IsNullOrEmpty(backup.SeerrApiKey))
         {
             var truncatedSeerrKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
-            var truncatedStoredKey = BackupSanitizer.TruncateString(config.SeerrApiKey, BackupValidator.MaxApiKeyLength);
+
+            // The backup holds plaintext; compare against the decrypted stored key so an unchanged key is
+            // not misreported as a credential change just because the stored form is ciphertext.
+            var storedPlainKey = _secretProtector.Unprotect(config.SeerrApiKey);
+            var truncatedStoredKey = BackupSanitizer.TruncateString(storedPlainKey, BackupValidator.MaxApiKeyLength);
             if (truncatedSeerrKey != truncatedStoredKey)
             {
                 _pluginLog.LogWarning(
@@ -479,7 +498,8 @@ public sealed class BackupService : IBackupService
                 summary.CredentialsChanged = true;
             }
 
-            config.SeerrApiKey = truncatedSeerrKey;
+            // Re-encrypt before persisting so the restored key matches the at-rest format.
+            config.SeerrApiKey = _secretProtector.Protect(truncatedSeerrKey);
         }
 
         // Null means "absent in backup" (older plugin version or field omitted), so leave the live value unchanged.
@@ -520,11 +540,13 @@ public sealed class BackupService : IBackupService
         string label,
         BackupRestoreSummary summary)
     {
-        // Snapshot existing keys (truncated to MaxApiKeyLength for apples-to-apples comparison). Case-INSENSITIVE name lookup: the "empty backup key means preserve the live key" rule keys off the instance Name, so a case-only rename between export and import (e.g.
+        // Snapshot existing keys DECRYPTED (truncated to MaxApiKeyLength for apples-to-apples comparison with
+        // the plaintext backup). Case-INSENSITIVE name lookup: the "empty backup key means preserve the live
+        // key" rule keys off the instance Name, so a case-only rename between export and import (e.g.
         var previousKeys = liveInstances
             .ToLookup(
                 i => i.Name,
-                i => BackupSanitizer.TruncateString(i.ApiKey, BackupValidator.MaxApiKeyLength),
+                i => BackupSanitizer.TruncateString(_secretProtector.Unprotect(i.ApiKey), BackupValidator.MaxApiKeyLength),
                 StringComparer.OrdinalIgnoreCase);
 
         var newList = new List<ArrInstanceConfig>();
@@ -557,7 +579,9 @@ public sealed class BackupService : IBackupService
                 {
                     Name = BackupSanitizer.TruncateString(instance.Name, BackupValidator.MaxInstanceNameLength),
                     Url = BackupSanitizer.TruncateString(instance.Url, BackupValidator.MaxUrlLength),
-                    ApiKey = apiKey,
+
+                    // Re-encrypt before persisting so the restored key matches the at-rest format. Empty stays empty.
+                    ApiKey = _secretProtector.Protect(apiKey),
                     Libraries = BackupSanitizer.TruncateString(instance.Libraries, BackupValidator.MaxArrLibrariesLength)
                 });
         }
