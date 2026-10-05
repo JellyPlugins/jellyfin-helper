@@ -18,7 +18,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6219 total.**
+- **Unit: 6231 total.**
 - **End-to-end: 354 tests across 55 files.** The suite now stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, asserting it never goes blank and that the script creates no competing panel.
 
 ## [3.0.0.4] - 2026-09-26
