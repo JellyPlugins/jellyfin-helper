@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.0.5] - 2026-10-05
+
+### Fixed
+
+- **Discovery custom tab no longer goes blank on Jellyfin 12.** Navigating away from the Seerr Discovery tab and back could leave it empty on the Jellyfin 12 Modern layout. The injected script fabricated its own `customTab_` panel, which fought the Custom Tabs plugin for the same DOM node during the switch-into-tab rebuild. The script is now purely reactive: it only fills the live marker the Custom Tabs plugin provides, never creates a panel, resets a detached reference, and re-checks on class-only tab activation. The tab renders every time, with no blank frame.
+- **Sidebar "Seerr Discovery" link opens the tab on the Modern layout.** The click handler used the legacy positional tab index, unreliable on Jellyfin 12 where tabs are MUI anchors. It now matches the tab's `?tab=N` deep link in both the header and the narrow-screen drawer, falls back to hash navigation, and keeps the legacy path for 10.x.
+
+### Improved
+
+- **Instant, flash-free remounts.** The last results render immediately from an in-memory copy, so returning to the tab never shows a spinner. A silent background refetch swaps in newer suggestions in place once a scheduled run (or an out-of-band Seerr request reconcile) produces them, keeping the view fresh without a loading state.
+
+### Tests
+
+- **Unit: 6219 total.**
+- **End-to-end: 354 tests across 55 files.** The suite now stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, asserting it never goes blank and that the script creates no competing panel.
+
 ## [3.0.0.4] - 2026-09-26
 
 ### Added

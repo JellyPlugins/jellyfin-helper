@@ -3612,7 +3612,7 @@ public class MetadataExtractionTests
             new MediaStream { Type = MediaStreamType.Audio, Codec = "aac", Profile = "LC" }
         ]);
 
-        // AV1 4K Dolby Vision — use 3 Mbps to land in a distinct 2–4 tier
+        // AV1 4K Dolby Vision use 3 Mbps to land in a distinct 2–4 tier
         var mockItem3 = new Mock<BaseItem>();
         mockItem3.Object.Path = av1Path;
         mockItem3.Setup(i => i.GetMediaStreams()).Returns(

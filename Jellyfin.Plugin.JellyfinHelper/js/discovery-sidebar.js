@@ -20,6 +20,16 @@
     var _seerrBaseUrl = '';
     var EXTERNAL_LINKS_URL = '/JellyfinHelper/Discovery/My/ExternalLinks';
 
+    // In-memory copy of the last successful GET /Discovery/My payload. Remounts
+    // (navigation, Custom Tabs panel rebuilds) render instantly from it, never a
+    // spinner. Mutations (request, dismiss) invalidate it so the next render
+    // refetches; a 403 clears it. Freshness is kept current by a silent
+    // background refetch (see maybeRefreshInBackground), so there is no TTL:
+    // a stale-but-present grid always beats a blank panel, and the swap to
+    // newer data happens without the user ever seeing a loading state.
+    var _discoveryResultCache = null;
+    var _backgroundRefreshInFlight = false;
+
     /** * Returns the URL only if it uses a safe http(s) scheme, otherwise ''. */
     function safeHttpUrl(url) {
         if (typeof url !== 'string') return '';
@@ -233,46 +243,134 @@
         document.head.appendChild(style);
     }
 
+    function getCachedDiscoveryResult() {
+        return _discoveryResultCache ? _discoveryResultCache.data : null;
+    }
+
+    function setCachedDiscoveryResult(data) {
+        _discoveryResultCache = { data: data };
+    }
+
+    function invalidateDiscoveryResult() {
+        _discoveryResultCache = null;
+    }
+
+    // Normalized timestamp used to decide whether a background fetch returned
+    // newer data than what is already rendered.
+    function discoveryGeneratedAt(data) {
+        var raw = data && data.GeneratedAt;
+        if (!raw) { return 0; }
+        var ms = Date.parse(raw);
+        return Number.isNaN(ms) ? 0 : ms;
+    }
+
+    // After a cache-first render, silently refetch once to pick up a scheduler
+    // run or an out-of-band Seerr reconcile. Only re-renders when the payload is
+    // genuinely newer, and never shows a spinner, so the visible grid updates
+    // in place without a loading flash. A 403 (feature toggled off) clears the
+    // cache and leaves the current view untouched.
+    function maybeRefreshInBackground(container) {
+        if (_backgroundRefreshInFlight) { return; }
+        _backgroundRefreshInFlight = true;
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
+            .then(function (data) {
+                var previous = _discoveryResultCache && _discoveryResultCache.data;
+                setCachedDiscoveryResult(data);
+                var isNewer = !previous || discoveryGeneratedAt(data) > discoveryGeneratedAt(previous);
+                if (isNewer && container === lastMountedContainer && document.contains(container)) {
+                    renderCards(container, data);
+                }
+            })
+            .catch(function (err) {
+                if (err && err.status === 403) {
+                    invalidateDiscoveryResult();
+                }
+            })
+            .finally(function () {
+                _backgroundRefreshInFlight = false;
+            });
+    }
+
     var lastMountedContainer = null;
+    var customTabWatcherStarted = false;
+    var mountPending = false;
 
     function initCustomTab() {
         injectStyles();
         tryMountCustomTab();
-        var pending = false;
-        // Prefer observing the SPA content root rather than document.body to avoid firing on every global DOM mutation.
-        var observeTarget = document.querySelector('.mainAnimatedPages') || document.body;
+        if (customTabWatcherStarted) {
+            return;
+        }
+        customTabWatcherStarted = true;
+        // Observe document.body deliberately. On Jellyfin 12's Modern layout the
+        // legacy .mainAnimatedPages element still exists, but only as an empty,
+        // static sibling of the React content, so observing it blinds us to the
+        // custom tab panels that live elsewhere. Attribute observation is included
+        // because returning to an already-built tab can toggle is-active/hide on
+        // the existing panel with no childList mutation; without it the panel can
+        // stay empty. rAF coalescing keeps the body-wide watch cheap.
         var observer = new MutationObserver(function () {
-            // Re-target to the narrower container if we started on document.body
-            // and .mainAnimatedPages has since appeared.
-            if (observeTarget === document.body) {
-                var narrower = document.querySelector('.mainAnimatedPages');
-                if (narrower) {
-                    observer.disconnect();
-                    observeTarget = narrower;
-                    observer.observe(observeTarget, { childList: true, subtree: true });
-                }
-            }
-            if (!pending) {
-                pending = true;
-                requestAnimationFrame(function () {
-                    pending = false;
-                    tryMountCustomTab();
-                });
+            scheduleTryMount();
+        });
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'hidden']
+        });
+        // Navigation does not always produce an observed mutation in time
+        // (cached views, class-only activation), so re-check explicitly too.
+        window.addEventListener('hashchange', scheduleTryMount);
+        window.addEventListener('popstate', scheduleTryMount);
+        window.addEventListener('pageshow', scheduleTryMount);
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) {
+                scheduleTryMount();
             }
         });
-        observer.observe(observeTarget, { childList: true, subtree: true });
+    }
+
+    function scheduleTryMount() {
+        if (mountPending) {
+            return;
+        }
+        mountPending = true;
+        requestAnimationFrame(function () {
+            mountPending = false;
+            tryMountCustomTab();
+        });
+    }
+
+    function isOnHomePage() {
+        var hash = window.location.hash;
+        return hash === '' || hash === '#/home' || hash === '#/home.html'
+            || hash.indexOf('#/home?') !== -1 || hash.indexOf('#/home.html?') !== -1;
     }
 
     function tryMountCustomTab() {
+        if (!isOnHomePage()) {
+            lastMountedContainer = null;
+            return;
+        }
+        // Custom Tabs removes and recreates its panel when switching into the
+        // tab; forget a detached node so we remount into the live one.
+        if (lastMountedContainer && !document.contains(lastMountedContainer)) {
+            lastMountedContainer = null;
+        }
+        // The Custom Tabs plugin owns the panel and re-injects our marker from
+        // its ContentHtml on every rebuild. We only ever fill the live marker,
+        // never create one -- fabricating a panel would fight that plugin for
+        // the same node and is what caused the intermittent blank tab.
         var container = findActiveContainer();
-        if (!container) { lastMountedContainer = null; return; }
-
-        // Determine if we need to (re-)mount: 1. Different container than last time 2.
-        var shouldMount = container !== lastMountedContainer
-            || !container.querySelector('.jfh-discovery-container')
-            || (lastMountedContainer && !document.contains(lastMountedContainer));
-
-        if (!shouldMount) return;
+        if (!container) {
+            lastMountedContainer = null;
+            return;
+        }
+        var needsRender = container !== lastMountedContainer
+            || !container.querySelector('.jfh-discovery-container');
+        if (!needsRender) {
+            return;
+        }
         renderDiscovery(container);
         lastMountedContainer = container;
     }
@@ -297,11 +395,30 @@
         return null;
     }
 
-    function renderDiscovery(container) {
+    function renderDiscovery(container, forceRefresh) {
+        // Remounts render instantly from the last good payload, then a silent
+        // background refetch swaps in newer data if the scheduler has run.
+        // Only the first mount (or an explicit refresh after a mutation) shows
+        // the spinner and blocks on the network.
+        if (!forceRefresh) {
+            var cached = getCachedDiscoveryResult();
+            if (cached) {
+                renderCards(container, cached);
+                maybeRefreshInBackground(container);
+                return;
+            }
+        }
         container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations\u2026')) + '</span></div></div>';
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
-            .then(function (data) { renderCards(container, data); })
+            .then(function (data) { setCachedDiscoveryResult(data); renderCards(container, data); })
             .catch(function (err) {
+                if (err && err.status === 403) {
+                    invalidateDiscoveryResult();
+                } else if (_discoveryResultCache && _discoveryResultCache.data) {
+                    // Transient failure: rather show the last known cards than a blank page.
+                    renderCards(container, _discoveryResultCache.data);
+                    return;
+                }
                 var msg = t('discoveryLoadError', 'Could not load discovery suggestions.');
                 if (err && err.status === 403) {
                     msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
@@ -630,7 +747,8 @@
                         setTimeout(function () {
                             card.remove();
                             if (lastMountedContainer) {
-                                renderDiscovery(lastMountedContainer);
+                                invalidateDiscoveryResult();
+                                renderDiscovery(lastMountedContainer, true);
                             } else {
                                 checkEmptyDiscoveryState(scopeEl);
                             }
@@ -752,7 +870,8 @@
                 setTimeout(function () {
                     card.remove();
                     if (lastMountedContainer) {
-                        renderDiscovery(lastMountedContainer);
+                        invalidateDiscoveryResult();
+                        renderDiscovery(lastMountedContainer, true);
                     } else {
                         checkEmptyDiscoveryState(scopeEl);
                     }
@@ -841,55 +960,81 @@
             '<span class="sectionName navMenuOptionText">' + esc(t('discoveryTitle', 'Seerr Discovery')) + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
-            var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
-            // Strategy 1: Find the discovery container in the DOM, determine its tab index dynamically.
-            // This works regardless of the user-configured tab name.
-            var container = document.querySelector(CUSTOM_TAB_SELECTOR);
-            if (container) {
-                var tabContent = container.closest('[data-index]');
-                if (tabContent) {
-                    var index = Number.parseInt(tabContent.dataset.index, 10);
-                    if (!Number.isNaN(index) && tabs[index]) {
-                        tabs[index].click();
-                        return;
-                    }
-                }
+            if (activateDiscoveryTab()) {
+                return;
             }
-            // Strategy 2: data-attribute match (future Custom Tabs versions may set these)
-            for (var i = 0; i < tabs.length; i++) {
-                if (tabs[i].dataset.tab === 'jellyfinhelper-discovery' ||
-                    tabs[i].dataset.tabid === 'jellyfinhelper-discovery') {
-                    tabs[i].click();
-                    return;
-                }
-            }
-            // Strategy 3: Navigate to home first, then retry after DOM settles
-            // (handles case where user is not on the home page)
+            // Not on the home page (or the tab bar has not mounted yet): go home
+            // first, then retry once the DOM settles.
             if (typeof Emby !== 'undefined' && Emby.Page && Emby.Page.show) {
                 Emby.Page.show('/home.html');
                 setTimeout(function () {
-                    var retryContainer = document.querySelector(CUSTOM_TAB_SELECTOR);
-                    if (retryContainer) {
-                        var retryTabContent = retryContainer.closest('[data-index]');
-                        if (retryTabContent) {
-                            var retryIndex = Number.parseInt(retryTabContent.dataset.index, 10);
-                            var retryTabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
-                            if (!Number.isNaN(retryIndex) && retryTabs[retryIndex]) {
-                                retryTabs[retryIndex].click();
-                            }
-                        }
+                    if (!activateDiscoveryTab()) {
+                        notifyDiscoveryTabMissing();
                     }
                 }, 800);
                 return;
             }
-            // Fallback: show informational message
-            if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
-                Dashboard.alert(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
-            } else {
-                showToast(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
-            }
+            notifyDiscoveryTabMissing();
         });
         section.appendChild(navItem);
+    }
+
+    // Activate the Custom Tab that holds the discovery marker, across both the
+    // Jellyfin 12 Modern (MUI) header/drawer and the legacy tab bar. Returns
+    // true when a tab control was triggered (or a hash navigation was issued).
+    function activateDiscoveryTab() {
+        var container = document.querySelector(CUSTOM_TAB_SELECTOR);
+        if (!container) {
+            return false;
+        }
+        var panel = container.closest('[data-index]');
+        var dataIndex = panel ? Number.parseInt(panel.dataset.index, 10) : NaN;
+
+        // Modern layout: tab controls are MUI anchors whose href carries the
+        // same ?tab=N deep link the panel's data-index encodes. Match on the
+        // href so the user-configured tab title/position is irrelevant.
+        if (!Number.isNaN(dataIndex)) {
+            var modernLink = document.querySelector(
+                'header.MuiAppBar-root a[href$="?tab=' + dataIndex + '"], '
+                + 'header.MuiAppBar-root a[href$="&tab=' + dataIndex + '"], '
+                + '.MuiDrawer-paper a[href$="?tab=' + dataIndex + '"], '
+                + '.MuiDrawer-paper a[href$="&tab=' + dataIndex + '"]');
+            if (modernLink) {
+                modernLink.click();
+                return true;
+            }
+        }
+
+        var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
+        // Legacy layout: data-index is the positional index into the tab bar.
+        if (!Number.isNaN(dataIndex) && tabs[dataIndex]) {
+            tabs[dataIndex].click();
+            return true;
+        }
+        // data-attribute match (future Custom Tabs versions may set these).
+        for (var i = 0; i < tabs.length; i++) {
+            if (tabs[i].dataset.tab === 'jellyfinhelper-discovery' ||
+                tabs[i].dataset.tabid === 'jellyfinhelper-discovery') {
+                tabs[i].click();
+                return true;
+            }
+        }
+        // Modern fallback: no anchor found but the panel knows its deep link, so
+        // route via the hash and let Custom Tabs' own hashchange handler render.
+        if (!Number.isNaN(dataIndex) && document.querySelector('header.MuiAppBar-root')) {
+            window.location.hash = '#/home?tab=' + dataIndex;
+            return true;
+        }
+        return false;
+    }
+
+    function notifyDiscoveryTabMissing() {
+        var msg = t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.');
+        if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
+            Dashboard.alert(msg);
+        } else {
+            showToast(msg);
+        }
     }
 
     waitForApi(function () {

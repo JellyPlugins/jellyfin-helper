@@ -109,6 +109,20 @@ cp "$RUNTIME/publish/logo.png" "$PLUGIN_STAGE/" 2>/dev/null || true
 # Invoked via `bash` so it works regardless of the file's execute bit.
 bash "$SCRIPT_DIR/write-meta.sh" "$PLUGIN_STAGE" "$PLUGIN_VERSION"
 
+# --- 3b. stage the external plugins the Discovery custom tab depends on ------
+# Custom Tabs provides the .jellyfinhelper.discovery panel on the home page and
+# File Transformation injects our script; the custom-tab e2e spec needs both.
+# Built from local source checkouts (override via CUSTOMTABS_SRC /
+# FILETRANSFORMATION_SRC). Missing sources are non-fatal: the stack still runs
+# the API suite, and the custom-tab UI spec detects their absence and skips.
+log "Staging external plugins (Custom Tabs + File Transformation)"
+if bash "$SCRIPT_DIR/stage-external-plugins.sh" "$RUNTIME/config/plugins"; then
+  export JFH_E2E_EXTERNAL_PLUGINS=1
+else
+  echo "[run] External plugins not staged - custom-tab UI spec will skip." >&2
+  export JFH_E2E_EXTERNAL_PLUGINS=0
+fi
+
 # Run the container as the invoking user where possible (Linux/CI); on other
 # hosts the image's default user + the 777 above keep /config writable.
 if [[ "$(uname -s)" = "Linux" ]]; then

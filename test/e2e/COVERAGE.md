@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **350 tests** (API + UI) across 54 spec files
+every UI interaction. **352 tests** (API + UI) across 55 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -288,6 +288,18 @@ plugin stays Active after every call).
 | Codec **donut** (touch) → one tap shows the segment tooltip and opens the drill-down together, second tap dismisses both (compat-mouse guard) | `codecs-donut.ui.spec.ts` |
 | Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; language multi-dropdown selects several values; reset clears filters and scope; Overview library row and Movies card deep-link into the explorer; add-filter popover opens leftwards inside the viewport on desktop | `codecs-explorer.ui.spec.ts` |
 | Codecs **Library Explorer lazy tree** → 250 stubbed files (+6 TV episodes) render as collapsed shells with truthful totals and no continuation control; expanding one folder materializes only its leaf; per-section Expand/Collapse act independently per library; 2200 files stop Expand All at the node budget with a visible capped note; special-character folders expand via mouse and keyboard; long names scroll horizontally inside their section while short content shows no phantom scrollbar | `explorer-lazy-tree.ui.spec.ts` |
+
+## 10b. UI: Discovery custom tab (home page) → `discovery-customtab.ui.spec.ts`
+Mounts the real `.jellyfinhelper.discovery` marker that the external **Custom Tabs**
+plugin renders from its ContentHtml, with **File Transformation** injecting the
+script. Both staged by `run.sh` and configured in `global-setup` (toggle on + a
+"Seerr Discovery" tab). Regression guard for the Jellyfin 12 blank-tab race:
+- Opening the tab renders content (grid or the explicit no-results message), never a blank panel.
+- Navigating Home ↔ Discovery 20× plus browser back/forward keeps the panel populated every time.
+- `discovery-sidebar.js` **never fabricates its own `customTab_` panel** (no stray marker outside a
+  Custom-Tabs panel; exactly one panel), proving it no longer fights Custom Tabs for the DOM.
+- Skips loudly when the external plugins are not staged (`JFH_E2E_EXTERNAL_PLUGINS!=1`).
+
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
 Endpoints that smoke only *routed* or hardening only *tolerated a status class*

@@ -168,6 +168,15 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // --- 5b. create a non-admin user for the Discovery/My (user-facing) tests - These endpoints require a NON-elevated authenticated user + the DiscoveryUserAccessEnabled toggle.
   const normalUser = await provisionNormalUser(admin, ctx);
 
+  // --- 5c. configure the Discovery custom tab (only when the external plugins
+  // are staged). Enables the user-access toggle so the sidebar + tab are live,
+  // and registers a Custom Tab whose HTML content is our marker div, exactly as
+  // an admin would per the in-app setup hint. The custom-tab UI spec reads
+  // JFH_E2E_EXTERNAL_PLUGINS to decide whether to run or skip.
+  if (process.env.JFH_E2E_EXTERNAL_PLUGINS === '1') {
+    await configureDiscoveryCustomTab(admin);
+  }
+
   // In CI we require the non-admin fixture so the authorization / user-facing tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1).
   if (!normalUser && process.env.E2E_REQUIRE_NORMAL_USER === '1') {
     throw new Error(
@@ -259,6 +268,38 @@ async function provisionNormalUser(
 /** From the host, the mock is reachable on localhost; inside compose it's mock-seerr. */
 function publicSeerrUrl(): string {
   return process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
+}
+
+const CUSTOM_TABS_GUID = 'fbacd0b6-fd46-4a05-b0a4-2045d6a135b0';
+
+/**
+ * Enable the Discovery user-access toggle and register a Custom Tab whose HTML
+ * content is the discovery marker div, mirroring the admin setup documented in
+ * the plugin's settings hint. This is what makes the home-page tab + sidebar
+ * appear for the custom-tab UI spec.
+ */
+async function configureDiscoveryCustomTab(admin: ProvisionCtx): Promise<void> {
+  // The toggle only sticks with Recommendations active + Seerr configured.
+  const cfg = await admin.put('/JellyfinHelper/Configuration', {
+    headers: { 'Content-Type': 'application/json' },
+    data: {
+      RecommendationsTaskMode: 'Activate',
+      SeerrUrl: 'http://mock-seerr:5055',
+      SeerrApiKey: 'seerr-key',
+      DiscoveryUserAccessEnabled: true,
+      ExcludedLibraries: '',
+    },
+  });
+  // eslint-disable-next-line no-console
+  console.log(`[global-setup] enable discovery access -> ${cfg.status()}`);
+
+  // Register the Custom Tab (Title + ContentHtml) exactly as the admin would.
+  const tab = await admin.post(`/Plugins/${CUSTOM_TABS_GUID}/Configuration`, {
+    headers: { 'Content-Type': 'application/json' },
+    data: { Tabs: [{ Title: 'Seerr Discovery', ContentHtml: '<div class="jellyfinhelper discovery"></div>' }] },
+  });
+  // eslint-disable-next-line no-console
+  console.log(`[global-setup] configure Custom Tabs tab -> ${tab.status()}`);
 }
 
 /** * Best-effort POST to a mock-Seerr test hook, always disposing the throwaway * request context. */

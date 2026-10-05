@@ -126,6 +126,27 @@ It runs automatically on every PR via `.github/workflows/e2e.yml`. See
 [`test/e2e/README.md`](test/e2e/README.md) for architecture and
 [`test/e2e/COVERAGE.md`](test/e2e/COVERAGE.md) for the coverage matrix.
 
+#### Discovery custom-tab coverage (external plugins)
+
+The Discovery home-page tab needs the third-party **Custom Tabs** and **File
+Transformation** plugins. `scripts/stage-external-plugins.sh` builds both from
+local source checkouts (for Jellyfin 12.x) and stages their DLLs + `meta.json`
+into the config volume alongside the plugin, then `global-setup` registers a
+`Seerr Discovery` custom tab and enables the user-access toggle. The checkout
+paths default to siblings of this repo and are overridable:
+
+```bash
+CUSTOMTABS_SRC=/path/to/jellyfin-plugin-custom-tabs \
+FILETRANSFORMATION_SRC=/path/to/jellyfin-plugin-file-transformation \
+  bash test/e2e/scripts/run.sh
+```
+
+When the sources are absent the stack still runs the rest of the suite, and the
+`discovery-customtab.ui.spec.ts` regression (navigate in/out of the tab, assert
+it never goes blank and no competing panel is created) skips loudly via
+`JFH_E2E_EXTERNAL_PLUGINS`.
+
+
 ### Test Structure
 
 Tests mirror the source structure:
@@ -1448,7 +1469,7 @@ The `ComposeConfigPage` MSBuild task (`BuildTasks/ComposeConfigPage.cs`) runs du
 
 ### File Ordering
 
-`ComposeConfigPage` has no ordering arrays of its own — it concatenates whatever
+`ComposeConfigPage` has no ordering arrays of its own. It concatenates whatever
 list of files MSBuild passes in. The canonical order is defined by the `CssModule`
 and `JsModule` `ItemGroup`s in `Jellyfin.Plugin.JellyfinHelper.csproj`:
 
@@ -1464,7 +1485,7 @@ Trends.js, Settings.js, ArrIntegration.js,
 Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```
 
-`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` — the module files themselves are unwrapped.
+`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` - the module files themselves are unwrapped.
 
 ### Adding a New Tab
 
