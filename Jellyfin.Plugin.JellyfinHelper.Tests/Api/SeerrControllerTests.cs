@@ -35,7 +35,8 @@ public class SeerrControllerTests
             _seerrService.Object,
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<SeerrController>().Object,
-            TestMockFactory.CreateCleanupConfigHelper(config).Object);
+            TestMockFactory.CreateCleanupConfigHelper(config).Object,
+            TestMockFactory.CreateSecretProtector());
 
         // Set up a default HttpContext so HttpContext.RequestAborted is available
         controller.ControllerContext = new ControllerContext

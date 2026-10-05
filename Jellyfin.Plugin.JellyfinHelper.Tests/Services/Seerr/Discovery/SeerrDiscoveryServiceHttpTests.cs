@@ -84,6 +84,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             _cache,
             feedbackStore.Object,
             pluginLog.Object,
+            TestFixtures.TestMockFactory.CreateSecretProtector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 

@@ -109,6 +109,7 @@ public sealed class HelperCleanupTaskErrorHandlingTests
             _trashServiceMock.Object,
             linkRepairServiceMock.Object,
             seerrServiceMock.Object,
+            TestMockFactory.CreateSecretProtector(),
             userActivityInsightsMock.Object,
             userActivityCacheMock.Object,
             recsEngineMock.Object,

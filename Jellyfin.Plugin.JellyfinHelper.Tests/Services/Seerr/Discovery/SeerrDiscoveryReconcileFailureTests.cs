@@ -96,6 +96,7 @@ public sealed class SeerrDiscoveryReconcileFailureTests : IDisposable
             _cache,
             _feedbackStore.Object,
             pluginLog.Object,
+            TestFixtures.TestMockFactory.CreateSecretProtector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 

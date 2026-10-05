@@ -13,6 +13,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
@@ -46,6 +47,7 @@ public class HelperCleanupTask : IScheduledTask
     private readonly IRecommendationPlaylistService _playlistService;
     private readonly ILinkRepairService _linkRepairService;
     private readonly ISeerrIntegrationService _seerrService;
+    private readonly ISecretProtector _secretProtector;
     private readonly ICleanupTrackingService _trackingService;
     private readonly ITrashService _trashService;
     private readonly IUserActivityCacheService _userActivityCacheService;
@@ -67,6 +69,7 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="trashService">The trash service.</param>
     /// <param name="linkRepairService">The link repair service.</param>
     /// <param name="seerrService">The Seerr integration service.</param>
+    /// <param name="secretProtector">Decrypts the stored Seerr API key before the cleanup call uses it.</param>
     /// <param name="userActivityInsightsService">The user activity insights service.</param>
     /// <param name="userActivityCacheService">The user activity cache service.</param>
     /// <param name="recsEngine">The recommendation engine.</param>
@@ -86,6 +89,7 @@ public class HelperCleanupTask : IScheduledTask
         ITrashService trashService,
         ILinkRepairService linkRepairService,
         ISeerrIntegrationService seerrService,
+        ISecretProtector secretProtector,
         IUserActivityInsightsService userActivityInsightsService,
         IUserActivityCacheService userActivityCacheService,
         IRecommendationEngine recsEngine,
@@ -106,6 +110,7 @@ public class HelperCleanupTask : IScheduledTask
         _trashService = trashService;
         _linkRepairService = linkRepairService;
         _seerrService = seerrService;
+        _secretProtector = secretProtector;
         _userActivityInsightsService = userActivityInsightsService;
         _userActivityCacheService = userActivityCacheService;
         _recsEngine = recsEngine;
@@ -406,7 +411,7 @@ public class HelperCleanupTask : IScheduledTask
 
         var seerrResult = await _seerrService.CleanupExpiredRequestsAsync(
             config.SeerrUrl,
-            config.SeerrApiKey,
+            _secretProtector.Unprotect(config.SeerrApiKey),
             config.SeerrCleanupAgeDays,
             dryRun,
             cancellationToken).ConfigureAwait(false);

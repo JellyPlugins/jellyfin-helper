@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -27,6 +28,7 @@ public class SeerrController : ControllerBase
     private readonly ILogger<SeerrController> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly ISeerrIntegrationService _seerrService;
+    private readonly ISecretProtector _secretProtector;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrController" /> class.
@@ -35,16 +37,19 @@ public class SeerrController : ControllerBase
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
     /// <param name="configHelper">The cleanup configuration helper, used to resolve the masked API-key sentinel.</param>
+    /// <param name="secretProtector">Decrypts the stored Seerr API key when resolving the masked sentinel for a live test.</param>
     public SeerrController(
         ISeerrIntegrationService seerrService,
         IPluginLogService pluginLog,
         ILogger<SeerrController> logger,
-        ICleanupConfigHelper configHelper)
+        ICleanupConfigHelper configHelper,
+        ISecretProtector secretProtector)
     {
         _seerrService = seerrService;
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
+        _secretProtector = secretProtector;
     }
 
     /// <summary>
@@ -142,7 +147,8 @@ public class SeerrController : ControllerBase
 
         if (urlMatches && !string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {
-            apiKey = config.SeerrApiKey;
+            // Stored key is encrypted at rest; decrypt it before it goes out on the live test.
+            apiKey = _secretProtector.Unprotect(config.SeerrApiKey);
             return null;
         }
 

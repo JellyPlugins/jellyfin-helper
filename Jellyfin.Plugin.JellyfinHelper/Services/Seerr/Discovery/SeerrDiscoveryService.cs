@@ -16,6 +16,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Querying;
@@ -122,6 +123,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly DiscoveryCacheService _cache;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
     private readonly IPluginLogService _pluginLog;
+    private readonly ISecretProtector _secretProtector;
     private readonly ILogger<SeerrDiscoveryService> _logger;
 
     /// <summary>
@@ -146,6 +148,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="pluginLog">The plugin log service.</param>
+    /// <param name="secretProtector">Decrypts the stored Seerr API key before it is used for outbound calls.</param>
     /// <param name="logger">The logger instance.</param>
     public SeerrDiscoveryService(
         IHttpClientFactory httpClientFactory,
@@ -156,6 +159,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         DiscoveryCacheService cache,
         IDiscoveryFeedbackStore feedbackStore,
         IPluginLogService pluginLog,
+        ISecretProtector secretProtector,
         ILogger<SeerrDiscoveryService> logger)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
@@ -166,6 +170,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(feedbackStore);
         ArgumentNullException.ThrowIfNull(pluginLog);
+        ArgumentNullException.ThrowIfNull(secretProtector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _httpClientFactory = httpClientFactory;
@@ -176,6 +181,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _cache = cache;
         _feedbackStore = feedbackStore;
         _pluginLog = pluginLog;
+        _secretProtector = secretProtector;
         _logger = logger;
     }
 
@@ -449,7 +455,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string apiKey;
         try
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -751,7 +757,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string apiKey;
         try
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -947,7 +953,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string apiKey;
         try
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -1124,7 +1130,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string apiKey;
         try
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -1696,7 +1702,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // propagate so TryGenerateForUserAsync classifies it as a transient failure and preserves the
         // user's last-known-good pool rather than clearing it. (In practice the global config check at the
         // top of GenerateDiscoveryRecommendationsAsync already guards the common blank-config case.)
-        var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+        var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
 
         var client = GetSeerrClient();
         var allCandidates = new List<TmdbDiscoverItem>();

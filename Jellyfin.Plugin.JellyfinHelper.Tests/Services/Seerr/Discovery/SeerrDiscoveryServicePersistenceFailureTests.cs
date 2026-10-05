@@ -111,6 +111,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             cache,
             _feedbackStore.Object,
             _pluginLog.Object,
+            TestFixtures.TestMockFactory.CreateSecretProtector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 
@@ -290,6 +291,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             var svc = new SeerrDiscoveryService(
                 factory.Object, _history.Object, _arr.Object, libraryManager.Object, perUserRegistry, cache,
                 _feedbackStore.Object, _pluginLog.Object,
+                TestFixtures.TestMockFactory.CreateSecretProtector(),
                 new Mock<ILogger<SeerrDiscoveryService>>().Object);
 
             var services = await svc.GetServiceInfoAsync("radarr", CancellationToken.None);

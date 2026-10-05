@@ -26,6 +26,7 @@ public class ConfigurationControllerTests
     private readonly ConfigurationController _controller;
     private readonly Mock<IPluginLogService> _pluginLogMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
+    private readonly Jellyfin.Plugin.JellyfinHelper.Services.Security.ISecretProtector _secretProtector;
 
     public ConfigurationControllerTests()
     {
@@ -47,6 +48,7 @@ public class ConfigurationControllerTests
         configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
         var loggerMock = new Mock<ILogger<ConfigurationController>>();
         var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
+        _secretProtector = TestMockFactory.CreateSecretProtector();
         _controller = new ConfigurationController(
             _arrServiceMock.Object,
             _pluginLogMock.Object,
@@ -55,7 +57,8 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy());
+            new EnsembleScoringStrategy(),
+            _secretProtector);
     }
 
     [Fact]
@@ -479,7 +482,8 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy());
+            new EnsembleScoringStrategy(),
+            TestMockFactory.CreateSecretProtector());
 
         var result = controller.GetAvailableLibraries();
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -524,7 +528,8 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy());
+            new EnsembleScoringStrategy(),
+            TestMockFactory.CreateSecretProtector());
 
         var result = controller.GetAvailableLibraries();
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -637,9 +642,9 @@ public class ConfigurationControllerTests
         var json = JsonSerializer.Serialize(ok.Value);
         // No Seerr warnings should appear
         Assert.DoesNotContain("Seerr instance", json, StringComparison.Ordinal);
-        // Values were trimmed before persistence
+        // Values were trimmed before persistence; the key is stored encrypted and decrypts back trimmed.
         Assert.Equal("https://seerr.example.com", _config.SeerrUrl);
-        Assert.Equal("seerr-key", _config.SeerrApiKey);
+        Assert.Equal("seerr-key", _secretProtector.Unprotect(_config.SeerrApiKey));
     }
 
     [Fact]
@@ -731,7 +736,8 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy());
+            new EnsembleScoringStrategy(),
+            TestMockFactory.CreateSecretProtector());
     }
 
     [Fact]
@@ -1097,7 +1103,30 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Equal("brand-new-key", _config.SeerrApiKey);
+        // Stored at rest encrypted; it must decrypt back to the submitted key.
+        Assert.Equal("brand-new-key", _secretProtector.Unprotect(_config.SeerrApiKey));
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrApiKey_IsEncryptedAtRest()
+    {
+        // Regression guard: the persisted value must NOT be the plaintext key. A migration that silently
+        // stored plaintext would still pass the Unprotect round-trip assertions, so assert ciphertext here.
+        _config.SeerrUrl = "https://seerr.example.com";
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "plaintext-should-not-persist",
+            SeerrCleanupAgeDays = 30
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.NotEqual("plaintext-should-not-persist", _config.SeerrApiKey);
+        Assert.True(_secretProtector.IsProtected(_config.SeerrApiKey));
+        Assert.Equal("plaintext-should-not-persist", _secretProtector.Unprotect(_config.SeerrApiKey));
     }
 
     [Fact]
@@ -1596,7 +1625,7 @@ public class ConfigurationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
         Assert.DoesNotContain(payload.Warnings, w => w.Contains("Seerr", StringComparison.Ordinal));
-        Assert.Equal("real-key", _config.SeerrApiKey);
+        Assert.Equal("real-key", _secretProtector.Unprotect(_config.SeerrApiKey));
     }
 
     [Fact]
@@ -1661,6 +1690,7 @@ public class ConfigurationControllerTests
             _seerrServiceMock.Object,
             new Mock<MediaBrowser.Controller.Library.ILibraryManager>().Object,
             ensemble,
+            TestMockFactory.CreateSecretProtector(),
             registryMock.Object);
 
         var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.3, EnsembleAlphaMax = 0.7 };

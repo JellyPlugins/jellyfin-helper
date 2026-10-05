@@ -62,7 +62,8 @@ public class SeerrDiscoveryServiceTests : IDisposable
         _registries.Add(perUserRegistry);
         return new SeerrDiscoveryService(
             factory.Object, history.Object, arr.Object, libraryManager.Object,
-            perUserRegistry, cache, feedbackStore.Object, pluginLog.Object, logger.Object);
+            perUserRegistry, cache, feedbackStore.Object, pluginLog.Object,
+            TestFixtures.TestMockFactory.CreateSecretProtector(), logger.Object);
     }
 
     [Fact]

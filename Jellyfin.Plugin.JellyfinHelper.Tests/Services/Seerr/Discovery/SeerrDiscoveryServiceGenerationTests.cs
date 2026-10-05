@@ -111,6 +111,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             _cache,
             _feedbackStore.Object,
             pluginLog.Object,
+            TestFixtures.TestMockFactory.CreateSecretProtector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 

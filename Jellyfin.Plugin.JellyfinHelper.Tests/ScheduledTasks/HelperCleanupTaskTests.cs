@@ -122,6 +122,7 @@ public class HelperCleanupTaskTests
             trashServiceMock.Object,
             linkRepairServiceMock.Object,
             _seerrServiceMock.Object,
+            TestMockFactory.CreateSecretProtector(),
             userActivityInsightsMock.Object,
             userActivityCacheMock.Object,
             recsEngineMock.Object,

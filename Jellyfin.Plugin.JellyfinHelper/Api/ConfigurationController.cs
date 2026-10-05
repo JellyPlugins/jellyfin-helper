@@ -11,6 +11,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -41,6 +42,7 @@ public class ConfigurationController : ControllerBase
     private readonly ILogger<ConfigurationController> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly ISeerrIntegrationService _seerrService;
+    private readonly ISecretProtector _secretProtector;
     private readonly IPerUserEnsembleRegistry? _perUserRegistry;
 
     /// <summary>
@@ -54,6 +56,7 @@ public class ConfigurationController : ControllerBase
     /// <param name="seerrService">The Seerr integration service for connection testing.</param>
     /// <param name="libraryManager">The Jellyfin library manager for listing available libraries.</param>
     /// <param name="ensemble">The ensemble scoring strategy - notified on config save so alpha bounds take effect without restart.</param>
+    /// <param name="secretProtector">Encrypts the Seerr API key before it is persisted, and decrypts the stored key for live connection tests.</param>
     /// <param name="perUserRegistry">
     ///     The per-user ensemble registry - notified on config save so per-user models pick up new blend bounds
     ///     without a restart. Optional so existing callers and tests that do not exercise per-user reconfiguration
@@ -68,6 +71,7 @@ public class ConfigurationController : ControllerBase
         ISeerrIntegrationService seerrService,
         ILibraryManager libraryManager,
         EnsembleScoringStrategy ensemble,
+        ISecretProtector secretProtector,
         IPerUserEnsembleRegistry? perUserRegistry = null)
     {
         _arrService = arrService;
@@ -78,6 +82,7 @@ public class ConfigurationController : ControllerBase
         _seerrService = seerrService;
         _libraryManager = libraryManager;
         _ensemble = ensemble;
+        _secretProtector = secretProtector;
         _perUserRegistry = perUserRegistry;
     }
 
@@ -216,7 +221,7 @@ public class ConfigurationController : ControllerBase
         {
             config = cfg;
             persistedLogLevel = cfg.PluginLogLevel;
-            ApplyRequestToConfig(request, cfg);
+            ApplyRequestToConfig(request, cfg, _secretProtector);
             _ensemble.Reconfigure(cfg.EnsembleAlphaMin, cfg.EnsembleAlphaMax, cfg.EnsembleGenrePenaltyFloor);
 
             // Per-user models keep their own copy of the blend bounds, so the same change is pushed to them as
@@ -467,7 +472,8 @@ public class ConfigurationController : ControllerBase
     /// </summary>
     /// <param name="request">The incoming configuration update request.</param>
     /// <param name="config">The existing plugin configuration to update.</param>
-    private static void ApplyRequestToConfig(ConfigurationUpdateRequest request, PluginConfiguration config)
+    /// <param name="secretProtector">Encrypts the Seerr API key before it is persisted.</param>
+    private static void ApplyRequestToConfig(ConfigurationUpdateRequest request, PluginConfiguration config, ISecretProtector secretProtector)
     {
         // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
         config.ExcludedLibraries = request.ExcludedLibraries ?? string.Empty;
@@ -519,7 +525,10 @@ public class ConfigurationController : ControllerBase
         // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value. Trim before comparing so a client that pads the sentinel (e.g.
         if (!ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
         {
-            config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
+            // Encrypt the new key before it is persisted. An empty key clears the stored value.
+            config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey)
+                ? string.Empty
+                : secretProtector.Protect(request.SeerrApiKey.Trim());
         }
 
         config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)
