@@ -48,6 +48,21 @@ public sealed class ConfigurationResponse
     /// </summary>
     public string SeerrApiKey { get; init; } = string.Empty;
 
+    /// <summary>Gets a value indicating whether the Trakt discovery source is enabled.</summary>
+    public bool TraktEnabled { get; init; }
+
+    /// <summary>Gets the Trakt OAuth client id (not secret, returned as-is).</summary>
+    public string TraktClientId { get; init; } = string.Empty;
+
+    /// <summary>Gets the Trakt client secret placeholder (mask when configured, empty otherwise).</summary>
+    public string TraktClientSecret { get; init; } = string.Empty;
+
+    /// <summary>Gets the Trakt HTTP request timeout in seconds.</summary>
+    public int TraktTimeoutSeconds { get; init; }
+
+    /// <summary>Gets the number of Trakt items fetched per list.</summary>
+    public int TraktLimit { get; init; }
+
     /// <summary>Gets a value indicating whether trash is enabled.</summary>
     public bool UseTrash { get; init; }
 
@@ -123,6 +138,11 @@ public sealed class ConfigurationResponse
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
             SeerrUrl = config.SeerrUrl,
             SeerrApiKey = string.IsNullOrWhiteSpace(config.SeerrApiKey) ? string.Empty : ApiKeyMask,
+            TraktEnabled = config.TraktEnabled,
+            TraktClientId = config.TraktClientId,
+            TraktClientSecret = string.IsNullOrWhiteSpace(config.TraktClientSecret) ? string.Empty : ApiKeyMask,
+            TraktTimeoutSeconds = config.TraktTimeoutSeconds,
+            TraktLimit = config.TraktLimit,
             UseTrash = config.UseTrash,
             TrashFolderPath = config.TrashFolderPath,
             TrashRetentionDays = config.TrashRetentionDays,

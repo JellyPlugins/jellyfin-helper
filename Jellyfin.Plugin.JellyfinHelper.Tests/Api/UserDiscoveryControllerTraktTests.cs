@@ -63,7 +63,7 @@ public sealed class UserDiscoveryControllerTraktTests
         return controller;
     }
 
-    private static int Status(ActionResult result) => Assert.IsAssignableFrom<ObjectResult>(result).StatusCode ?? 0;
+    private static int Status(ActionResult result) => Assert.IsType<ObjectResult>(result, exactMatch: false).StatusCode ?? 0;
 
     [Fact]
     public async Task GetMyTrakt_WhenTraktDisabled_Returns403()

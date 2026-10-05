@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
@@ -25,25 +26,14 @@ internal static class TraktMapper
         out int dropped)
     {
         dropped = 0;
-        var result = new List<ExternalDiscoveryCandidate>();
         if (items is null)
         {
-            return result;
+            return [];
         }
 
-        foreach (var item in items)
-        {
-            var candidate = MapOne(item, mediaType);
-            if (candidate is null)
-            {
-                dropped++;
-                continue;
-            }
-
-            result.Add(candidate);
-        }
-
-        return result;
+        var mapped = items.Select(item => MapOne(item, mediaType)).ToList();
+        dropped = mapped.Count(m => m is null);
+        return [.. mapped.OfType<ExternalDiscoveryCandidate>()];
     }
 
     /// <summary>
@@ -59,27 +49,15 @@ internal static class TraktMapper
         out int dropped)
     {
         dropped = 0;
-        var result = new List<ExternalDiscoveryCandidate>();
         if (items is null)
         {
-            return result;
+            return [];
         }
 
         var isTv = string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase);
-        foreach (var entry in items)
-        {
-            var media = isTv ? entry.Show : entry.Movie;
-            var candidate = MapOne(media, mediaType);
-            if (candidate is null)
-            {
-                dropped++;
-                continue;
-            }
-
-            result.Add(candidate);
-        }
-
-        return result;
+        var mapped = items.Select(entry => MapOne(isTv ? entry.Show : entry.Movie, mediaType)).ToList();
+        dropped = mapped.Count(m => m is null);
+        return [.. mapped.OfType<ExternalDiscoveryCandidate>()];
     }
 
     private static ExternalDiscoveryCandidate? MapOne(TraktMediaItem? item, string mediaType)

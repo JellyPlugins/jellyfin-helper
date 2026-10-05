@@ -62,6 +62,13 @@ public static class ConfigurationRequestValidator
             return seerrError;
         }
 
+        // Trakt settings validation
+        var traktError = ValidateTraktSettings(request);
+        if (traktError != null)
+        {
+            return traktError;
+        }
+
         // Trash folder path validation (block obviously invalid paths from being persisted)
         var trashPathError = ValidateTrashPathStrict(request.TrashFolderPath, request.UseTrash);
         if (trashPathError != null)
@@ -115,6 +122,47 @@ public static class ConfigurationRequestValidator
         if (!string.IsNullOrEmpty(request.SeerrApiKey) && ContainsControlCharacters(request.SeerrApiKey))
         {
             return "Seerr API key must not contain CR, LF, tab, or NUL characters.";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Validates the Trakt-related fields: when the source is enabled a client id and secret are required,
+    ///     and neither the id nor the secret may contain control characters or exceed sane length bounds.
+    /// </summary>
+    /// <param name="request">The configuration update request to validate.</param>
+    /// <returns>An error message string, or <c>null</c> when the Trakt settings are valid.</returns>
+    private static string? ValidateTraktSettings(ConfigurationUpdateRequest request)
+    {
+        if (!string.IsNullOrEmpty(request.TraktClientId) && request.TraktClientId.Length > 512)
+        {
+            return "Trakt client id must be 512 characters or fewer.";
+        }
+
+        if (!string.IsNullOrEmpty(request.TraktClientId) && ContainsControlCharacters(request.TraktClientId))
+        {
+            return "Trakt client id must not contain CR, LF, tab, or NUL characters.";
+        }
+
+        if (!string.IsNullOrEmpty(request.TraktClientSecret) && ContainsControlCharacters(request.TraktClientSecret))
+        {
+            return "Trakt client secret must not contain CR, LF, tab, or NUL characters.";
+        }
+
+        // When the admin turns Trakt on, both credentials must be present. The secret may be the mask sentinel
+        // (meaning "keep the stored one"), which still counts as present.
+        if (request.TraktEnabled == true)
+        {
+            if (string.IsNullOrWhiteSpace(request.TraktClientId))
+            {
+                return "A Trakt client id is required when Trakt is enabled.";
+            }
+
+            if (string.IsNullOrWhiteSpace(request.TraktClientSecret))
+            {
+                return "A Trakt client secret is required when Trakt is enabled.";
+            }
         }
 
         return null;

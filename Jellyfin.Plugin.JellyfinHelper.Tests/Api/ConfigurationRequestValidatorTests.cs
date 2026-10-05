@@ -695,4 +695,76 @@ public class ConfigurationRequestValidatorTests
         Assert.NotNull(error);
         Assert.Contains("CR, LF, tab, or NUL", error);
     }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTraktEnabledWithoutClientId()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktEnabled = true,
+            TraktClientId = "",
+            TraktClientSecret = "secret"
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("client id", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTraktEnabledWithoutClientSecret()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktEnabled = true,
+            TraktClientId = "id",
+            TraktClientSecret = ""
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("client secret", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTraktClientSecretContainsControlChar()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktClientSecret = "sec\nret"
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("CR, LF, tab, or NUL", error);
+    }
+
+    [Fact]
+    public void Validate_ReturnsNull_WhenTraktDisabledAndCredentialsEmpty()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktEnabled = false
+        };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
+
+    [Fact]
+    public void Validate_ReturnsNull_WhenTraktEnabledWithBothCredentials()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktEnabled = true,
+            TraktClientId = "id",
+            TraktClientSecret = "secret"
+        };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
 }

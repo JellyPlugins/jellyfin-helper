@@ -122,6 +122,25 @@ public class BackupData
     public string SeerrApiKey { get; set; } = string.Empty;
 
     /// <summary>
+    ///     Gets or sets a value indicating whether the Trakt discovery source is enabled.
+    /// </summary>
+    [JsonPropertyName("traktEnabled")]
+    public bool TraktEnabled { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the Trakt OAuth client id (not a secret).
+    /// </summary>
+    [JsonPropertyName("traktClientId")]
+    public string TraktClientId { get; set; } = string.Empty;
+
+    /// <summary>
+    ///     Gets or sets the Trakt OAuth client secret. Held plaintext in the backup like other credentials and
+    ///     stripped when secrets are excluded.
+    /// </summary>
+    [JsonPropertyName("traktClientSecret")]
+    public string TraktClientSecret { get; set; } = string.Empty;
+
+    /// <summary>
     ///     Gets or sets the Seerr cleanup age threshold in days. null means the field was absent in the backup (e.g.
     /// </summary>
     [JsonPropertyName("seerrCleanupAgeDays")]

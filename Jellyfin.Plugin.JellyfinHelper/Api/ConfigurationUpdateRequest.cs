@@ -78,6 +78,32 @@ public class ConfigurationUpdateRequest
     public string SeerrApiKey { get; init; } = string.Empty;
 
     /// <summary>
+    ///     Gets a value indicating whether the Trakt discovery source is enabled.
+    /// </summary>
+    /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
+    public bool? TraktEnabled { get; init; }
+
+    /// <summary>
+    ///     Gets the Trakt OAuth application client id.
+    /// </summary>
+    public string TraktClientId { get; init; } = string.Empty;
+
+    /// <summary>
+    ///     Gets the Trakt OAuth application client secret (mask sentinel preserves the stored value).
+    /// </summary>
+    public string TraktClientSecret { get; init; } = string.Empty;
+
+    /// <summary>
+    ///     Gets the Trakt HTTP request timeout in seconds. Nullable so older clients do not reset it.
+    /// </summary>
+    public int? TraktTimeoutSeconds { get; init; }
+
+    /// <summary>
+    ///     Gets the number of Trakt items fetched per list. Nullable so older clients do not reset it.
+    /// </summary>
+    public int? TraktLimit { get; init; }
+
+    /// <summary>
     ///     Gets a value indicating whether to use a trash folder instead of permanently deleting files.
     /// </summary>
     public bool UseTrash { get; init; }

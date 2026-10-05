@@ -535,6 +535,28 @@ public class ConfigurationController : ControllerBase
             ? 0
             : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
 
+        // Trakt settings. All three are nullable in the request so a client without the Trakt card (Discovery
+        // sidebar off) omits them and the stored values are preserved rather than cleared.
+        if (request.TraktEnabled.HasValue)
+        {
+            config.TraktEnabled = request.TraktEnabled.Value;
+        }
+
+        if (request.TraktClientId is not null)
+        {
+            config.TraktClientId = request.TraktClientId.Trim();
+        }
+
+        if (request.TraktClientSecret is not null && !ApiKeyMaskResolver.IsMask(request.TraktClientSecret))
+        {
+            config.TraktClientSecret = string.IsNullOrWhiteSpace(request.TraktClientSecret)
+                ? string.Empty
+                : secretProtector.Protect(request.TraktClientSecret.Trim());
+        }
+
+        config.TraktTimeoutSeconds = request.TraktTimeoutSeconds ?? config.TraktTimeoutSeconds;
+        config.TraktLimit = request.TraktLimit ?? config.TraktLimit;
+
         NormalizePluginLogLevel(config);
 
         // Update Radarr instances (clear + re-add from request). Snapshot existing instances BEFORE clearing so the sentinel guard can look up the stored key by Name+Url rather than positional index.

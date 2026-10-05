@@ -564,6 +564,25 @@ function loadSettings() {
         h += '</div>';
         h += '</div></div>';
 
+        // Trakt discovery source (admin registers one OAuth app; users link individually via device flow).
+        // Only shown when the Discovery sidebar is enabled, since that is the only surface the Trakt tabs
+        // appear on; without it the card would configure a feature the user can never reach.
+        if (cfg.DiscoveryUserAccessEnabled) {
+            var traktHasCfg = !!(cfg.TraktClientId && cfg.TraktClientSecret);
+            h += '<div class="section-title">' + escHtml(T('settingsTraktTitle', 'Trakt settings')) + '</div>';
+            h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server (trakt.tv/oauth/applications, redirect URI urn:ietf:wg:oauth:2.0:oob). Each user then links their own Trakt account from the Discovery page with a one-time code — no per-user setup needed.')) + '</div>';
+            h += '<div class="arr-collapsible' + (!traktHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleTrakt">';
+            h += renderArrCollapseButton(!traktHasCfg, SVG.EYE, escHtml(T('traktInstance', 'Trakt Application')), traktHasCfg ? mi('check_circle') : '', 'Trakt');
+            h += '<div class="arr-collapsible-body" aria-hidden="' + (traktHasCfg ? 'true' : 'false') + '">';
+            h += '<label class="toggle-row"><input type="checkbox" id="cfgTraktEnabled"' + (cfg.TraktEnabled ? ' checked' : '') + '> ' + escHtml(T('traktEnabled', 'Enable Trakt discovery')) + '</label>';
+            h += '<label for="cfgTraktClientId">' + escHtml(T('traktClientId', 'Trakt Client ID')) + '</label>';
+            h += '<input type="text" id="cfgTraktClientId" value="' + escAttr(cfg.TraktClientId || '') + '">';
+            h += '<label for="cfgTraktClientSecret">' + escHtml(T('traktClientSecret', 'Trakt Client Secret')) + '</label>';
+            h += '<input type="password" id="cfgTraktClientSecret">';
+            h += '<div class="help-text">' + escHtml(T('traktClientHelp', 'Create an application at trakt.tv/oauth/applications with redirect URI urn:ietf:wg:oauth:2.0:oob.')) + '</div>';
+            h += '</div></div>';
+        }
+
         h += '<div class="section-title">' + escHtml(T('settingsArrTitle', 'Arr stack settings')) + '</div>';
         var radarrInstances = resolveArrInstances(cfg, 'Radarr');
         var radarrCount = radarrInstances.length;
@@ -617,6 +636,8 @@ function loadSettings() {
         });
         var seerrKeyEl = document.getElementById('cfgSeerrApiKey');
         if (seerrKeyEl) { seerrKeyEl.value = cfg.SeerrApiKey || ''; }
+        var traktSecretEl = document.getElementById('cfgTraktClientSecret');
+        if (traktSecretEl) { traktSecretEl.value = cfg.TraktClientSecret || ''; }
         setArrInstanceApiKeys('Radarr', radarrInstances);
         setArrInstanceApiKeys('Sonarr', sonarrInstances);
         var saveBandBtn = document.getElementById('btnSaveSettings');
@@ -680,6 +701,11 @@ function buildSettingsPayload() {
         SyncRecommendationsToPlaylist: document.getElementById('cfgSyncPlaylist') ? document.getElementById('cfgSyncPlaylist').checked : false,
         SeerrUrl: (document.getElementById('cfgSeerrUrl') || {}).value || '',
         SeerrApiKey: (document.getElementById('cfgSeerrApiKey') || {}).value || '',
+        // Trakt fields are null when the card is absent (Discovery sidebar off) so the server preserves the
+        // stored Trakt config instead of clearing it on an unrelated save.
+        TraktEnabled: document.getElementById('cfgTraktEnabled') ? document.getElementById('cfgTraktEnabled').checked : null,
+        TraktClientId: document.getElementById('cfgTraktClientId') ? document.getElementById('cfgTraktClientId').value : null,
+        TraktClientSecret: document.getElementById('cfgTraktClientSecret') ? document.getElementById('cfgTraktClientSecret').value : null,
         SeerrCleanupTaskMode: (function () {
             var modeEl = document.getElementById('cfgSeerrMode');
             var url = (document.getElementById('cfgSeerrUrl') || {}).value || '';

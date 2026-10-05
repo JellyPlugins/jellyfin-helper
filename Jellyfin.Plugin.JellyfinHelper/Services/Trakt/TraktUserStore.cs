@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -84,17 +85,12 @@ public sealed class TraktUserStore : ITraktUserStore
                 return [];
             }
 
-            var ids = new List<Guid>(_entries.Count);
-            foreach (var key in _entries.Keys)
-            {
-                // Keys are stored in "N" (32 hex) form; skip any that do not parse rather than throw.
-                if (Guid.TryParseExact(key, "N", out var id))
-                {
-                    ids.Add(id);
-                }
-            }
-
-            return ids;
+            // Keys are stored in "N" (32 hex) form; skip any that do not parse rather than throw.
+            return _entries.Keys
+                .Select(key => Guid.TryParseExact(key, "N", out var id) ? (Guid?)id : null)
+                .Where(parsed => parsed.HasValue)
+                .Select(parsed => parsed.GetValueOrDefault())
+                .ToList();
         }
     }
 

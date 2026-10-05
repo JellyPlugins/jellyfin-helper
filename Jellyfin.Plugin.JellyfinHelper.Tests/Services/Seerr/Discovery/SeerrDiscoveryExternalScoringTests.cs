@@ -26,6 +26,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 {
     private readonly List<PerUserEnsembleRegistry> _registries = [];
+    private readonly List<IDisposable> _owned = [];
     private readonly Mock<IWatchHistoryService> _history = new();
 
     public SeerrDiscoveryExternalScoringTests()
@@ -40,6 +41,14 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         foreach (var registry in _registries)
         {
             registry.Dispose();
+        }
+
+        // The service under test never takes ownership: the ensemble (which owns its neural strategy)
+        // and the cache created below are disposed here. The neural strategy is intentionally not listed
+        // separately - disposing the ensemble already tears it down.
+        foreach (var owned in _owned)
+        {
+            owned.Dispose();
         }
 
         ControllerTestFactory.TeardownPluginInstance();
@@ -64,6 +73,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             new Mock<ILogger<EnsembleScoringStrategy>>().Object);
         var pluginLog = new Mock<IPluginLogService>();
         var cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: Path.GetTempFileName());
+        _owned.Add(ensemble);
+        _owned.Add(cache);
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         feedbackStore.Setup(f => f.GetDismissedItems(It.IsAny<Guid>())).Returns(new HashSet<(int, string)>());
         feedbackStore.Setup(f => f.GetRequestedItems(It.IsAny<Guid>())).Returns(new HashSet<(int, string)>());

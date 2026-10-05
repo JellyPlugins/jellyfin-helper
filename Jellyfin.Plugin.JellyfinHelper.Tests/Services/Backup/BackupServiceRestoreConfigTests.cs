@@ -878,4 +878,69 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal("S1", backup.SonarrInstances[0].Name);
         Assert.Equal("http://s:8989", backup.SonarrInstances[0].Url);
     }
+
+    [Fact]
+    public void CreateBackup_IncludeSecrets_ExportsTraktSecretAsPlaintext()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.TraktEnabled = true;
+        liveConfig.TraktClientId = "trakt-id";
+        liveConfig.TraktClientSecret = _secretProtector.Protect("trakt-secret");
+
+        var backup = service.CreateBackup(includeSecrets: true);
+
+        Assert.True(backup.TraktEnabled);
+        Assert.Equal("trakt-id", backup.TraktClientId);
+        // Backup holds plaintext so it stays portable; it must not be the ciphertext.
+        Assert.Equal("trakt-secret", backup.TraktClientSecret);
+        Assert.True(backup.ContainsSecrets);
+    }
+
+    [Fact]
+    public void CreateBackup_WithoutSecrets_StripsTraktSecret()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.TraktClientId = "trakt-id";
+        liveConfig.TraktClientSecret = _secretProtector.Protect("trakt-secret");
+
+        var backup = service.CreateBackup(includeSecrets: false);
+
+        Assert.Equal(string.Empty, backup.TraktClientSecret);
+        // The non-secret client id still travels so the restore reconstitutes the app registration.
+        Assert.Equal("trakt-id", backup.TraktClientId);
+    }
+
+    [Fact]
+    public void RestoreBackup_TraktSecret_IsReEncryptedAtRest()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.TraktEnabled = true;
+        backup.TraktClientId = "trakt-id";
+        backup.TraktClientSecret = "new-trakt-secret";
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.TraktEnabled);
+        Assert.Equal("trakt-id", liveConfig.TraktClientId);
+        Assert.True(_secretProtector.IsProtected(liveConfig.TraktClientSecret));
+        Assert.Equal("new-trakt-secret", _secretProtector.Unprotect(liveConfig.TraktClientSecret));
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptyTraktSecret_PreservesLiveSecret()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.TraktClientSecret = _secretProtector.Protect("live-trakt-secret");
+        var backup = MakeMinimalValidBackup();
+        // Match the Seerr key to the backup so only the Trakt secret is under test for the no-change assertion.
+        liveConfig.SeerrApiKey = backup.SeerrApiKey;
+        backup.TraktClientId = "trakt-id";
+        backup.TraktClientSecret = string.Empty;
+
+        var summary = service.RestoreBackup(backup);
+
+        Assert.Equal("live-trakt-secret", _secretProtector.Unprotect(liveConfig.TraktClientSecret));
+        Assert.False(summary.CredentialsChanged);
+    }
 }

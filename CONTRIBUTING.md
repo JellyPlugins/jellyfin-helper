@@ -178,6 +178,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
 │   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED
 │   ├── UserDiscoveryControllerTraktTests.cs          # Trakt endpoints: TraktEnabled 403 gate, linked/not-linked envelope, device start/poll/disconnect, 410 on expired, start/poll 429 throttles
+│   ├── TraktDiscoveryDtoTests.cs                     # Trakt API DTOs: linked/unlinked envelope, poll request/response JSON round-trips
 │   └── ...
 ├── Configuration/                 # Config serialization tests
 │   ├── PluginConfigurationSerializationTests.cs
@@ -455,6 +456,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── DiscoverySupport.cs              # Shared helpers for both discovery controllers: GetCurrentUserId(ClaimsPrincipal) claim resolution and BuildExcludedItemKeys(store, userId, onError) union of dismissed+requested items. onError is a callback so each controller keeps its own static log template (CA2254).
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
 │   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
+│   ├── TraktDevicePollRequest.cs        # Trakt device poll DTO (DeviceCode, nullable; controller coalesces to empty)
+│   ├── TraktDevicePollResponse.cs       # Trakt device poll status envelope (Status)
+│   ├── TraktDiscoveryResponse.cs        # Trakt personal envelope (Linked flag + DiscoveryResult)
 │   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
 │   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API
@@ -734,6 +738,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ResponseDtoTests.cs`
 - `SeerrControllerTests.cs` - Tests SeerrController TestConnection input validation and success/failure/timeout responses
 - `TranslationsControllerTests.cs` - Tests TranslationsController language lookup, config-default fallback, and lang-code validation
+- `TraktDiscoveryDtoTests.cs` - Tests Trakt discovery DTOs (linked/unlinked envelope, device poll request/response, JSON round-trips)
 - `TrashControllerTests.cs`
 - `UserActivityControllerTests.cs`
 - `UserDiscoveryControllerAccessEnabledTests.cs`
