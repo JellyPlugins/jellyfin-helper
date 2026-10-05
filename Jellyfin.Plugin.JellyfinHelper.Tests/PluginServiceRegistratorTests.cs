@@ -17,6 +17,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Playlists;
@@ -29,8 +30,17 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 /// <summary>
 ///     Tests for PluginServiceRegistrator to make sure every service the plugin depends on is registered against the DI container.
 /// </summary>
-public class PluginServiceRegistratorTests
+[Collection("ConfigOverride")]
+public class PluginServiceRegistratorTests : IDisposable
 {
+    public void Dispose()
+    {
+        // The data-path factory test initializes the Plugin singleton; always tear it down so the
+        // global state does not bleed into other tests in the collection.
+        ControllerTestFactory.TeardownPluginInstance();
+        GC.SuppressFinalize(this);
+    }
+
     /// <summary>
     ///     Registers all services against a fresh collection. Plugin.Instance may or may not exist depending on test ordering - the registrator uses the null-conditional so it tolerates either state.
     /// </summary>
@@ -253,9 +263,28 @@ public class PluginServiceRegistratorTests
             $"Registration count must grow when RegisterServices is invoked twice on the same collection (was {countAfterFirst}, now {countAfterSecond}).");
     }
 
+    [Fact]
+    public void RegisterServices_WithInitializedPluginInstance_ResolvesStrategiesUsingDataFolderPath()
+    {
+        // The scoring-strategy and per-user-registry factories read Plugin.Instance.DataFolderPath to
+        // compose their on-disk weight/state paths. With no instance that branch is skipped; initializing
+        // the singleton exercises the data-path arm of each factory so resolution covers it.
+        ControllerTestFactory.InitializePluginInstance();
+        Assert.NotNull(Plugin.Instance);
+        Assert.False(string.IsNullOrEmpty(Plugin.Instance!.DataFolderPath));
+
+        var sc = Register();
+        sc.AddLogging();
+        var provider = sc.BuildServiceProvider(validateScopes: true);
+
+        Assert.NotNull(provider.GetService<LearnedScoringStrategy>());
+        Assert.NotNull(provider.GetService<NeuralScoringStrategy>());
+        Assert.NotNull(provider.GetService<EnsembleScoringStrategy>());
+        Assert.NotNull(provider.GetService<IPerUserEnsembleRegistry>());
+    }
+
     // ResolveKeyRingDirectory - Data Protection keyring setup must never resolve against the process
     // working directory (the reported Path.Combine pitfall) and must lock the ring down on Unix.
-
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -310,6 +339,29 @@ public class PluginServiceRegistratorTests
                                            | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
             Assert.Equal(ownerBits, mode & ownerBits);
             Assert.Equal((UnixFileMode)0, mode & otherBits);
+        }
+        finally
+        {
+            if (Directory.Exists(basePath))
+            {
+                Directory.Delete(basePath, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ResolveKeyRingDirectory_WhenKeysPathIsAFile_ReturnsNull()
+    {
+        // Force the Create() failure branch: a plain file sitting where the "keys" subdirectory
+        // would go makes DirectoryInfo.Create throw IOException on every platform, so the method
+        // must fail closed to null rather than surface the exception into startup.
+        var basePath = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(basePath);
+        var collidingFile = Path.Join(basePath, "keys");
+        File.WriteAllText(collidingFile, "not a directory");
+        try
+        {
+            Assert.Null(PluginServiceRegistrator.ResolveKeyRingDirectory(basePath));
         }
         finally
         {
