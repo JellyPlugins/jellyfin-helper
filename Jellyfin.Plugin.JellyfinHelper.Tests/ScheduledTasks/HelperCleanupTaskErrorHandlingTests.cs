@@ -115,7 +115,8 @@ public sealed class HelperCleanupTaskErrorHandlingTests
             recsEngineMock.Object,
             recsCacheMock.Object,
             playlistServiceMock.Object,
-            _seerrDiscoveryServiceMock.Object);
+            _seerrDiscoveryServiceMock.Object,
+            Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>());
     }
 
     [Fact]

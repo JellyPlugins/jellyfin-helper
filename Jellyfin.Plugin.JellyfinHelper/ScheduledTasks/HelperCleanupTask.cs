@@ -18,6 +18,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
@@ -52,6 +53,7 @@ public class HelperCleanupTask : IScheduledTask
     private readonly ITrashService _trashService;
     private readonly IUserActivityCacheService _userActivityCacheService;
     private readonly ISeerrDiscoveryService _seerrDiscoveryService;
+    private readonly ITraktDiscoveryService _traktDiscoveryService;
     private readonly IUserActivityInsightsService _userActivityInsightsService;
 
     /// <summary>
@@ -76,6 +78,7 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="recsCacheService">The recommendation cache service.</param>
     /// <param name="playlistService">The recommendation playlist service.</param>
     /// <param name="seerrDiscoveryService">The Seerr discovery service.</param>
+    /// <param name="traktDiscoveryService">The Trakt discovery service, refreshed alongside Seerr discovery.</param>
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
@@ -95,7 +98,8 @@ public class HelperCleanupTask : IScheduledTask
         IRecommendationEngine recsEngine,
         IRecommendationCacheService recsCacheService,
         IRecommendationPlaylistService playlistService,
-        ISeerrDiscoveryService seerrDiscoveryService)
+        ISeerrDiscoveryService seerrDiscoveryService,
+        ITraktDiscoveryService traktDiscoveryService)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -117,6 +121,7 @@ public class HelperCleanupTask : IScheduledTask
         _recsCacheService = recsCacheService;
         _playlistService = playlistService;
         _seerrDiscoveryService = seerrDiscoveryService;
+        _traktDiscoveryService = traktDiscoveryService;
     }
 
     /// <inheritdoc />
@@ -149,7 +154,8 @@ public class HelperCleanupTask : IScheduledTask
             ("Seerr Cleanup", config.SeerrCleanupTaskMode, false, (p, ct) => RunSeerrCleanup(config, p, ct)),
             ("User Watch Activity", config.RecommendationsTaskMode, false, (p, ct) => RunUserActivityUpdate(config, p, ct)),
             ("Smart Recommendations", config.RecommendationsTaskMode, true, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
-            ("Seerr Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunSeerrDiscovery(config, p, ct))
+            ("Seerr Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunSeerrDiscovery(config, p, ct)),
+            ("Trakt Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunTraktDiscovery(config, p, ct))
         };
 
         await RunSubTasksAsync(subTasks, progress, cancellationToken).ConfigureAwait(false);
@@ -469,6 +475,27 @@ public class HelperCleanupTask : IScheduledTask
         await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
             .ConfigureAwait(false);
         _pluginLog.LogInfo("SeerrDiscovery", "Discovery recommendations generated.", _logger);
+        progress.Report(100);
+    }
+
+    private async Task RunTraktDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
+    {
+        if (!config.TraktEnabled)
+        {
+            progress.Report(100);
+            return;
+        }
+
+        if (config.RecommendationsTaskMode == TaskMode.DryRun)
+        {
+            _pluginLog.LogInfo("TraktDiscovery", "Task started (Dry Run). Skipping Trakt refresh.", _logger);
+            progress.Report(100);
+            return;
+        }
+
+        _pluginLog.LogInfo("TraktDiscovery", "Refreshing Trakt discovery caches...", _logger);
+        await _traktDiscoveryService.RefreshAllAsync(cancellationToken).ConfigureAwait(false);
+        _pluginLog.LogInfo("TraktDiscovery", "Trakt discovery caches refreshed.", _logger);
         progress.Report(100);
     }
 

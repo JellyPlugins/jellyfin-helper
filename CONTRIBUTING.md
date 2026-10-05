@@ -177,6 +177,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── UserDiscoveryControllerTests.cs
 │   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
 │   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED
+│   ├── UserDiscoveryControllerTraktTests.cs          # Trakt endpoints: TraktEnabled 403 gate, linked/not-linked envelope, device start/poll/disconnect, 410 on expired, start/poll 429 throttles
 │   └── ...
 ├── Configuration/                 # Config serialization tests
 │   ├── PluginConfigurationSerializationTests.cs
@@ -476,6 +477,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── LogLevelResponse.cs              # PUT /Configuration/LogLevel response: message + active log level
 │   ├── PingResponse.cs                  # GET /Ping response: ok flag, plugin name, version string
 │   ├── SeerrUrlResponse.cs              # GET /UserDiscovery/ExternalLinks response: Seerr base URL
+│   ├── TraktDiscoveryResponse.cs        # GET /Discovery/My/Trakt envelope: Linked flag + optional scored Result
+│   ├── TraktDevicePollRequest.cs        # POST /Discovery/My/Trakt/Device/Poll body: device code
+│   ├── TraktDevicePollResponse.cs       # Device-poll response: status name (Pending/Linked/Expired/Denied/Error)
 │   ├── TrashAccessEntry.cs              # Per-path access result entry (used in TrashAccessResponse)
 │   ├── TrashAccessResponse.cs           # POST /Trash/CheckAccess response: allAccessible flag + results
 │   ├── TrashConfigResponse.cs           # GET /Trash/Contents response: useTrash, retentionDays, libraries
@@ -734,6 +738,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `UserActivityControllerTests.cs`
 - `UserDiscoveryControllerAccessEnabledTests.cs`
 - `UserDiscoveryControllerSubmitTests.cs`
+- `UserDiscoveryControllerTraktTests.cs`
 - `UserDiscoveryControllerTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Configuration/`

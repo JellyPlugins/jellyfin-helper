@@ -128,7 +128,8 @@ public class HelperCleanupTaskTests
             recsEngineMock.Object,
             recsCacheMock.Object,
             _playlistServiceMock.Object,
-            _seerrDiscoveryServiceMock.Object);
+            _seerrDiscoveryServiceMock.Object,
+            Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>());
     }
 
     [Fact]
