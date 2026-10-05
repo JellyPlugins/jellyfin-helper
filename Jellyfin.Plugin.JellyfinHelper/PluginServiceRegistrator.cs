@@ -192,9 +192,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
     /// <summary>
     ///     Resolves the Data Protection keyring directory below the plugin data path, creating it when needed.
-    ///     The subdirectory name is this method's own constant, never external input, so the combine cannot
-    ///     discard the base; a relative base that would resolve against the process working directory is
-    ///     additionally rejected outright. Single source of truth, shared by the registrator and its tests.
+    ///     The subdirectory name is this method's own constant, never external input. Path.Join (rather than
+    ///     Combine) is used deliberately because Join never discards the base path, and the fully-qualified
+    ///     check below additionally rules out a relative base resolving against the process working directory.
+    ///     Single source of truth, shared by the registrator and its tests.
     /// </summary>
     /// <param name="dataFolderPath">The plugin data path, or null when the plugin instance is unavailable.</param>
     /// <returns>The ready keyring directory, or null when no usable directory could be resolved.</returns>
@@ -209,7 +210,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         DirectoryInfo directory;
         try
         {
-            directory = new DirectoryInfo(Path.Combine(dataFolderPath, keyRingSubdirectory));
+            directory = new DirectoryInfo(Path.Join(dataFolderPath, keyRingSubdirectory));
             directory.Create();
         }
         catch (Exception ex) when (ex is IOException

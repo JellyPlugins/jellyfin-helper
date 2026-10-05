@@ -271,13 +271,13 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void ResolveKeyRingDirectory_ValidBase_CreatesKeysSubdirectory()
     {
-        var basePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var basePath = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         try
         {
             var directory = PluginServiceRegistrator.ResolveKeyRingDirectory(basePath);
             Assert.NotNull(directory);
             Assert.Equal(
-                Path.GetFullPath(Path.Combine(basePath, "keys")),
+                Path.GetFullPath(Path.Join(basePath, "keys")),
                 directory!.FullName);
             Assert.True(Directory.Exists(directory.FullName));
         }
@@ -299,7 +299,7 @@ public class PluginServiceRegistratorTests
             return;
         }
 
-        var basePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var basePath = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         try
         {
             var directory = PluginServiceRegistrator.ResolveKeyRingDirectory(basePath);
