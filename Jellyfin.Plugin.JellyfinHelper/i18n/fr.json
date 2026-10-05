@@ -218,7 +218,7 @@
   "seerrNotConfigured": "Configurez Seerr ci-dessous pour activer cette tâche.",
   "settingsSeerrTitle": "Paramètres Seerr",
   "settingsTraktTitle": "Paramètres Trakt",
-  "settingsTraktHelp": "Enregistrez une application Trakt pour ce serveur (trakt.tv/oauth/applications, URI de redirection urn:ietf:wg:oauth:2.0:oob). Chaque utilisateur lie ensuite son propre compte Trakt depuis la page Découverte avec un code à usage unique — aucune configuration par utilisateur.",
+  "settingsTraktHelp": "Enregistrez une application Trakt pour ce serveur (trakt.tv/oauth/applications, URI de redirection urn:ietf:wg:oauth:2.0:oob). Chaque utilisateur lie ensuite son propre compte Trakt depuis la page Découverte avec un code à usage unique. Aucune configuration par utilisateur n'est nécessaire.",
   "traktInstance": "Application Trakt",
   "traktEnabled": "Activer la découverte Trakt",
   "traktClientId": "ID client Trakt",

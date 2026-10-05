@@ -218,7 +218,7 @@
   "seerrNotConfigured": "Konfigurera Seerr nedan för att aktivera denna uppgift.",
   "settingsSeerrTitle": "Seerr-inställningar",
   "settingsTraktTitle": "Trakt-inställningar",
-  "settingsTraktHelp": "Registrera en Trakt-applikation för den här servern (trakt.tv/oauth/applications, omdirigerings-URI urn:ietf:wg:oauth:2.0:oob). Varje användare länkar sedan sitt eget Trakt-konto från upptäcktssidan med en engångskod — ingen konfiguration per användare behövs.",
+  "settingsTraktHelp": "Registrera en Trakt-applikation för den här servern (trakt.tv/oauth/applications, omdirigerings-URI urn:ietf:wg:oauth:2.0:oob). Varje användare länkar sedan sitt eget Trakt-konto från upptäcktssidan med en engångskod. Ingen konfiguration per användare behövs.",
   "traktInstance": "Trakt-applikation",
   "traktEnabled": "Aktivera Trakt-upptäckt",
   "traktClientId": "Trakt klient-ID",

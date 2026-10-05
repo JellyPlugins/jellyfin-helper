@@ -218,7 +218,7 @@
   "seerrNotConfigured": "Bu görevi etkinleştirmek için aşağıdan Seerr'i yapılandırın.",
   "settingsSeerrTitle": "Seerr Ayarları",
   "settingsTraktTitle": "Trakt Ayarları",
-  "settingsTraktHelp": "Bu sunucu için bir Trakt uygulaması kaydedin (trakt.tv/oauth/applications, yönlendirme URI'si urn:ietf:wg:oauth:2.0:oob). Ardından her kullanıcı Keşfet sayfasından tek kullanımlık bir kodla kendi Trakt hesabını bağlar — kullanıcı başına kurulum gerekmez.",
+  "settingsTraktHelp": "Bu sunucu için bir Trakt uygulaması kaydedin (trakt.tv/oauth/applications, yönlendirme URI'si urn:ietf:wg:oauth:2.0:oob). Ardından her kullanıcı Keşfet sayfasından tek kullanımlık bir kodla kendi Trakt hesabını bağlar. Kullanıcı başına kurulum gerekmez.",
   "traktInstance": "Trakt Uygulaması",
   "traktEnabled": "Trakt keşfini etkinleştir",
   "traktClientId": "Trakt İstemci Kimliği",

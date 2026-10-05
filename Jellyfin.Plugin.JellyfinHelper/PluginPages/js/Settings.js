@@ -570,7 +570,7 @@ function loadSettings() {
         if (cfg.DiscoveryUserAccessEnabled) {
             var traktHasCfg = !!(cfg.TraktClientId && cfg.TraktClientSecret);
             h += '<div class="section-title">' + escHtml(T('settingsTraktTitle', 'Trakt settings')) + '</div>';
-            h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server (trakt.tv/oauth/applications, redirect URI urn:ietf:wg:oauth:2.0:oob). Each user then links their own Trakt account from the Discovery page with a one-time code — no per-user setup needed.')) + '</div>';
+            h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server (trakt.tv/oauth/applications, redirect URI urn:ietf:wg:oauth:2.0:oob). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.')) + '</div>';
             h += '<div class="arr-collapsible' + (!traktHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleTrakt">';
             h += renderArrCollapseButton(!traktHasCfg, SVG.EYE, escHtml(T('traktInstance', 'Trakt Application')), traktHasCfg ? mi('check_circle') : '', 'Trakt');
             h += '<div class="arr-collapsible-body" aria-hidden="' + (traktHasCfg ? 'true' : 'false') + '">';
