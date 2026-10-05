@@ -23,18 +23,23 @@ FILETRANSFORMATION_SRC="${FILETRANSFORMATION_SRC:-$REPO_PARENT/jellyfin-plugin-f
 # copies risks assembly-identity conflicts. Newtonsoft.Json is host-provided too.
 host_provided='^(Jellyfin\.|MediaBrowser\.|Microsoft\.|System\.|netstandard|Newtonsoft\.Json)'
 
+# Exit codes: 0 = both staged; 2 = a source checkout is absent (caller may skip
+# the custom-tab spec); any other non-zero = a genuine build/staging failure
+# (set -e aborts), which the caller must treat as a hard run failure.
 stage_one() {
   local name="$1" guid="$2" src="$3" csproj="$4" dll="$5"
 
   if [[ ! -d "$src" ]]; then
     echo "[stage-external] SKIP ${name}: source not found at ${src}" >&2
     echo "[stage-external]   set CUSTOMTABS_SRC / FILETRANSFORMATION_SRC to override." >&2
-    return 1
+    return 2
   fi
 
   echo "[stage-external] Building ${name} (Jellyfin ${JELLYFIN_BUILD_VERSION})"
   local publish_dir="${src}/.e2e-publish"
   rm -rf "$publish_dir"
+  # A build failure here propagates (set -e) and fails the run - a present source
+  # that will not compile must never be silently skipped.
   dotnet publish "${src}/${csproj}" \
     -c Release -o "$publish_dir" --nologo \
     -p:JellyfinVersion="${JELLYFIN_BUILD_VERSION}"
@@ -52,21 +57,31 @@ stage_one() {
     cp "$f" "$dest/"
     staged=$((staged + 1))
   done
-  [[ "$staged" -ge 1 ]] || { echo "[stage-external] ${name}: no dlls staged" >&2; return 1; }
+  [[ "$staged" -ge 1 ]] || { echo "[stage-external] ${name}: build produced no dlls" >&2; return 1; }
 
   bash "$STAGE_SCRIPT_DIR/write-meta.sh" "$dest" "$JELLYFIN_BUILD_VERSION" "$name" "$guid"
   echo "[stage-external] staged ${name} (${staged} dll(s)) -> ${dest}"
+  return 0
 }
 
 # File Transformation must be present for Custom Tabs to inject on a read-only
 # web dir; stage it first. Both are independent plugin folders - load order is
-# resolved by Jellyfin at startup.
+# resolved by Jellyfin at startup. A missing source makes the whole set
+# unusable, so skip (exit 2) if either is absent; a build failure aborts hard.
+any_absent=0
+
 stage_one "File Transformation" "5e87cc92-571a-4d8d-8d98-d2d4147f9f90" \
   "$FILETRANSFORMATION_SRC" \
   "src/Jellyfin.Plugin.FileTransformation/Jellyfin.Plugin.FileTransformation.csproj" \
-  "Jellyfin.Plugin.FileTransformation.dll"
+  "Jellyfin.Plugin.FileTransformation.dll" || { [[ $? -eq 2 ]] && any_absent=1 || exit 1; }
 
 stage_one "Custom Tabs" "fbacd0b6-fd46-4a05-b0a4-2045d6a135b0" \
   "$CUSTOMTABS_SRC" \
   "src/Jellyfin.Plugin.CustomTabs/Jellyfin.Plugin.CustomTabs.csproj" \
-  "Jellyfin.Plugin.CustomTabs.dll"
+  "Jellyfin.Plugin.CustomTabs.dll" || { [[ $? -eq 2 ]] && any_absent=1 || exit 1; }
+
+if [[ "$any_absent" -eq 1 ]]; then
+  echo "[stage-external] one or more external plugin sources absent - custom-tab coverage will be skipped" >&2
+  exit 2
+fi
+exit 0

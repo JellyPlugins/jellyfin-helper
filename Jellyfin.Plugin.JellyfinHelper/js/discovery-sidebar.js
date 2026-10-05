@@ -22,13 +22,25 @@
 
     // In-memory copy of the last successful GET /Discovery/My payload. Remounts
     // (navigation, Custom Tabs panel rebuilds) render instantly from it, never a
-    // spinner. Mutations (request, dismiss) invalidate it so the next render
-    // refetches; a 403 clears it. Freshness is kept current by a silent
-    // background refetch (see maybeRefreshInBackground), so there is no TTL:
-    // a stale-but-present grid always beats a blank panel, and the swap to
-    // newer data happens without the user ever seeing a loading state.
+    // spinner. The cache is scoped to the user it was fetched for (account
+    // switches without a reload keep this script context) and carries a
+    // generation stamp so a response started before a mutation can never commit
+    // stale data. Mutations (request, dismiss) bump the generation and clear it;
+    // a 403 clears it. Freshness is kept current by a silent background refetch
+    // (see maybeRefreshInBackground), so there is no TTL: a stale-but-present
+    // grid always beats a blank panel, and the swap to newer data happens
+    // without the user ever seeing a loading state.
     var _discoveryResultCache = null;
     var _backgroundRefreshInFlight = false;
+    // Bumped on every mutation and on user change; a fetch captures it at start
+    // and its result is discarded if the generation moved on while it was away.
+    var _discoveryGeneration = 0;
+
+    function currentDiscoveryUserId() {
+        return (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId
+            && ApiClient.getCurrentUserId()) || '';
+    }
+
 
     /** * Returns the URL only if it uses a safe http(s) scheme, otherwise ''. */
     function safeHttpUrl(url) {
@@ -244,15 +256,23 @@
     }
 
     function getCachedDiscoveryResult() {
-        return _discoveryResultCache ? _discoveryResultCache.data : null;
+        // Never serve one user's recommendations to another after an in-tab
+        // account switch.
+        if (_discoveryResultCache && _discoveryResultCache.userId === currentDiscoveryUserId()) {
+            return _discoveryResultCache.data;
+        }
+        return null;
     }
 
     function setCachedDiscoveryResult(data) {
-        _discoveryResultCache = { data: data };
+        _discoveryResultCache = { data: data, userId: currentDiscoveryUserId() };
     }
 
     function invalidateDiscoveryResult() {
         _discoveryResultCache = null;
+        // Any GET already in flight predates this invalidation and must not
+        // commit its (now stale) result.
+        _discoveryGeneration++;
     }
 
     // Normalized timestamp used to decide whether a background fetch returned
@@ -264,21 +284,48 @@
         return Number.isNaN(ms) ? 0 : ms;
     }
 
+    // Fingerprint of the visible recommendation set. The server filters
+    // dismissed/requested items but keeps the pool's GeneratedAt, so a change
+    // from another client can arrive with an unchanged timestamp; comparing the
+    // visible ids catches that where the timestamp alone would not.
+    function discoveryVisibleKey(data) {
+        var recs = data && data.Recommendations;
+        if (!Array.isArray(recs)) { return ''; }
+        return recs.map(function (r) {
+            return (r.TmdbId || '') + ':' + (r.MediaType || '');
+        }).join('|');
+    }
+
     // After a cache-first render, silently refetch once to pick up a scheduler
     // run or an out-of-band Seerr reconcile. Only re-renders when the payload is
-    // genuinely newer, and never shows a spinner, so the visible grid updates
-    // in place without a loading flash. A 403 (feature toggled off) clears the
-    // cache and leaves the current view untouched.
+    // genuinely newer or its visible set changed, and never shows a spinner, so
+    // the visible grid updates in place without a loading flash. A 403 (feature
+    // toggled off) clears the cache and leaves the current view untouched.
     function maybeRefreshInBackground(container) {
         if (_backgroundRefreshInFlight) { return; }
         _backgroundRefreshInFlight = true;
+        var startedGeneration = _discoveryGeneration;
+        var startedUserId = currentDiscoveryUserId();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
             .then(function (data) {
+                // Discard if a mutation happened, or the user switched, while the
+                // request was in flight: committing it would clobber newer data
+                // or leak another user's recommendations.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
                 var previous = _discoveryResultCache?.data;
                 setCachedDiscoveryResult(data);
-                var isNewer = !previous || discoveryGeneratedAt(data) > discoveryGeneratedAt(previous);
-                if (isNewer && container === lastMountedContainer && document.contains(container)) {
-                    renderCards(container, data);
+                var changed = !previous
+                    || discoveryGeneratedAt(data) > discoveryGeneratedAt(previous)
+                    || discoveryVisibleKey(data) !== discoveryVisibleKey(previous);
+                // Render into the panel that is live now, not the one captured at
+                // call time: Custom Tabs may have rebuilt it while we were away.
+                var target = (lastMountedContainer && document.contains(lastMountedContainer))
+                    ? lastMountedContainer
+                    : (document.contains(container) ? container : null);
+                if (changed && target) {
+                    renderCards(target, data);
                 }
             })
             .catch(function (err) {
@@ -409,8 +456,18 @@
             }
         }
         container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations\u2026')) + '</span></div></div>';
+        var startedGeneration = _discoveryGeneration;
+        var startedUserId = currentDiscoveryUserId();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
-            .then(function (data) { setCachedDiscoveryResult(data); renderCards(container, data); })
+            .then(function (data) {
+                // A mutation or account switch during the fetch makes this result
+                // stale; drop it rather than cache/render outdated or cross-user data.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                setCachedDiscoveryResult(data);
+                renderCards(container, data);
+            })
             .catch(function (err) {
                 if (err?.status === 403) {
                     invalidateDiscoveryResult();
@@ -730,6 +787,10 @@
             dataType: 'json'
         }).then(function (result) {
             if (result && result.Success) {
+                // Invalidate immediately on success so a stale pool is never
+                // served again, even if the user leaves the tab before the
+                // card-removal animation below runs.
+                invalidateDiscoveryResult();
                 btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
                 btn.classList.add('jfh-discovery-btn-done');
                 // Hide dismiss button in the same row
@@ -747,7 +808,6 @@
                         setTimeout(function () {
                             card.remove();
                             if (lastMountedContainer) {
-                                invalidateDiscoveryResult();
                                 renderDiscovery(lastMountedContainer, true);
                             } else {
                                 checkEmptyDiscoveryState(scopeEl);
@@ -860,6 +920,10 @@
             contentType: 'application/json',
             dataType: 'json'
         }).then(function () {
+            // Invalidate immediately on success so the dismissed item is never
+            // served from cache again, even if the user navigates away before
+            // the fade-out animation below completes.
+            invalidateDiscoveryResult();
             // Remove the card with a fade-out animation
             var card = btn.closest('.jfh-discovery-card');
             if (card) {
@@ -870,7 +934,6 @@
                 setTimeout(function () {
                     card.remove();
                     if (lastMountedContainer) {
-                        invalidateDiscoveryResult();
                         renderDiscovery(lastMountedContainer, true);
                     } else {
                         checkEmptyDiscoveryState(scopeEl);

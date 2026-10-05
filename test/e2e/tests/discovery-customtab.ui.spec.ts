@@ -84,12 +84,14 @@ async function clickHomeTab(page: Page): Promise<void> {
   }
 }
 
-// The marker must end up populated by discovery-sidebar.js: either the grid, or
-// the explicit "no results" message. A blank marker (no .jfh-discovery-container)
-// is the failure this spec guards against.
+// The marker must end up populated by discovery-sidebar.js with a terminal
+// state: either the result grid or the explicit no-results message. A visible
+// but empty container (e.g. a stuck spinner) is NOT acceptable - that is the
+// blank-tab regression this spec guards against.
 async function expectDiscoveryRendered(page: Page): Promise<void> {
-  const content = page.locator('.jellyfinhelper.discovery .jfh-discovery-container');
-  await expect(content.first()).toBeVisible({ timeout: 15_000 });
+  const grid = page.locator('.jellyfinhelper.discovery .jfh-discovery-grid');
+  const empty = page.locator('.jellyfinhelper.discovery .jfh-discovery-msg');
+  await expect(grid.first().or(empty.first())).toBeVisible({ timeout: 15_000 });
 }
 
 // Observable "we left the tab" condition: Custom Tabs hides non-active panels,
@@ -141,17 +143,26 @@ test.describe('Discovery custom tab (home page)', () => {
     await clickDiscoveryTab(page);
     await expectDiscoveryRendered(page);
 
-    // Every discovery marker must live inside a Custom-Tabs-owned panel, and the
-    // panel count must match the configured custom-tab count (exactly one). If
-    // our script fabricated a competing customTab_ node, there would be a marker
-    // outside a [data-index] panel or a duplicate panel.
-    const strayMarkers = await page.evaluate(() => {
+    // Every discovery marker must live inside a Custom-Tabs-owned panel, and
+    // exactly one such panel may exist. Ownership is asserted structurally, not
+    // by count alone: Custom Tabs mounts its panel inside <main> (Modern) or next
+    // to #favoritesTab (legacy) and stamps it with data-index. A panel our own
+    // (removed) self-heal would have fabricated is detectable as a marker outside
+    // a customTab_ node, a panel missing data-index, or a panel mounted nowhere
+    // Custom Tabs would place it.
+    const ownership = await page.evaluate(() => {
       const markers = Array.from(document.querySelectorAll('.jellyfinhelper.discovery'));
-      return markers.filter((m) => !m.closest('[id^="customTab_"]')).length;
+      const stray = markers.filter((m) => !m.closest('[id^="customTab_"]')).length;
+      const panels = Array.from(document.querySelectorAll('[id^="customTab_"]'));
+      const unowned = panels.filter((p) => {
+        const hasIndex = p.hasAttribute('data-index');
+        const placedByCustomTabs = !!p.closest('main') || !!document.getElementById('favoritesTab');
+        return !hasIndex || !placedByCustomTabs;
+      }).length;
+      return { stray, panelCount: panels.length, unowned };
     });
-    expect(strayMarkers, 'a discovery marker exists outside a Custom Tabs panel').toBe(0);
-
-    const panelCount = await page.locator('[id^="customTab_"]').count();
-    expect(panelCount, 'exactly one custom-tab panel should exist').toBe(1);
+    expect(ownership.stray, 'a discovery marker exists outside a Custom Tabs panel').toBe(0);
+    expect(ownership.panelCount, 'exactly one custom-tab panel should exist').toBe(1);
+    expect(ownership.unowned, 'the panel is not structurally owned by Custom Tabs').toBe(0);
   });
 });
