@@ -105,7 +105,7 @@ public sealed class TraktAuthServiceTests : IDisposable
         var status = await CreateService().PollDeviceAuthAsync(userId, "dev", CancellationToken.None);
 
         Assert.Equal(TraktDevicePollStatus.Linked, status);
-        var token = _store.Get(userId);
+        var token = _store.GetToken(userId);
         Assert.NotNull(token);
         Assert.Equal("acc", token!.AccessToken);
         Assert.Equal("ref", token.RefreshToken);
@@ -141,8 +141,8 @@ public sealed class TraktAuthServiceTests : IDisposable
 
         Assert.Equal("fresh", token);
         // The refreshed pair must be persisted so the next call does not refresh again.
-        Assert.Equal("fresh", _store.Get(userId)!.AccessToken);
-        Assert.Equal("ref2", _store.Get(userId)!.RefreshToken);
+        Assert.Equal("fresh", _store.GetToken(userId)!.AccessToken);
+        Assert.Equal("ref2", _store.GetToken(userId)!.RefreshToken);
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public sealed class TraktAuthServiceTests : IDisposable
 
         Assert.Null(token);
         // The stored token must survive a failed refresh so the user can retry rather than losing the link silently.
-        Assert.NotNull(_store.Get(userId));
+        Assert.NotNull(_store.GetToken(userId));
     }
 
     [Fact]
@@ -174,6 +174,6 @@ public sealed class TraktAuthServiceTests : IDisposable
 
         await CreateService().DisconnectAsync(userId, CancellationToken.None);
 
-        Assert.Null(_store.Get(userId));
+        Assert.Null(_store.GetToken(userId));
     }
 }

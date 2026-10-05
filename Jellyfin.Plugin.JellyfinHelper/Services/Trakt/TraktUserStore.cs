@@ -51,7 +51,7 @@ public sealed class TraktUserStore : ITraktUserStore
     }
 
     /// <inheritdoc />
-    public TraktUserToken? Get(Guid userId)
+    public TraktUserToken? GetToken(Guid userId)
     {
         var key = Key(userId);
         lock (_gate)

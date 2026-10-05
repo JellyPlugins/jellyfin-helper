@@ -57,7 +57,7 @@ public sealed class TraktUserStoreTests : IDisposable
 
         await store.SaveAsync(userId, new TraktUserToken { AccessToken = "acc", RefreshToken = "ref", ExpiresAtUtc = expiry }, CancellationToken.None);
 
-        var got = store.Get(userId);
+        var got = store.GetToken(userId);
         Assert.NotNull(got);
         Assert.Equal("acc", got!.AccessToken);
         Assert.Equal("ref", got.RefreshToken);
@@ -90,7 +90,7 @@ public sealed class TraktUserStoreTests : IDisposable
     public void Get_UnlinkedUser_ReturnsNull()
     {
         var store = CreateStore();
-        Assert.Null(store.Get(Guid.NewGuid()));
+        Assert.Null(store.GetToken(Guid.NewGuid()));
     }
 
     [Fact]
@@ -102,15 +102,24 @@ public sealed class TraktUserStoreTests : IDisposable
 
         await store.RemoveAsync(userId, CancellationToken.None);
 
-        Assert.Null(store.Get(userId));
+        Assert.Null(store.GetToken(userId));
     }
 
     [Fact]
     public async Task Remove_UnknownUser_IsNoOp()
     {
         var store = CreateStore();
-        // Must not throw when removing a user that was never stored.
+        var userId = Guid.NewGuid();
+        await store.SaveAsync(userId, new TraktUserToken { AccessToken = "a", RefreshToken = "r" }, CancellationToken.None);
+
+        // Must not throw when removing a user that was never stored ...
         await store.RemoveAsync(Guid.NewGuid(), CancellationToken.None);
+
+        // ... and must leave everything else untouched: the stored user is intact, the unknown id stays absent.
+        var got = store.GetToken(userId);
+        Assert.NotNull(got);
+        Assert.Equal("a", got!.AccessToken);
+        Assert.Null(store.GetToken(Guid.NewGuid()));
     }
 
     [Fact]
@@ -122,7 +131,7 @@ public sealed class TraktUserStoreTests : IDisposable
 
         // A fresh store over the same file must read the persisted token back.
         var second = CreateStore();
-        var got = second.Get(userId);
+        var got = second.GetToken(userId);
         Assert.NotNull(got);
         Assert.Equal("acc", got!.AccessToken);
         Assert.Equal("ref", got.RefreshToken);
@@ -138,8 +147,8 @@ public sealed class TraktUserStoreTests : IDisposable
         await store.SaveAsync(userA, new TraktUserToken { AccessToken = "a-acc", RefreshToken = "a-ref" }, CancellationToken.None);
         await store.SaveAsync(userB, new TraktUserToken { AccessToken = "b-acc", RefreshToken = "b-ref" }, CancellationToken.None);
 
-        Assert.Equal("a-acc", store.Get(userA)!.AccessToken);
-        Assert.Equal("b-acc", store.Get(userB)!.AccessToken);
+        Assert.Equal("a-acc", store.GetToken(userA)!.AccessToken);
+        Assert.Equal("b-acc", store.GetToken(userB)!.AccessToken);
     }
 
     [Fact]
@@ -151,7 +160,7 @@ public sealed class TraktUserStoreTests : IDisposable
         await store.SaveAsync(userId, new TraktUserToken { AccessToken = "old", RefreshToken = "old-ref" }, CancellationToken.None);
         await store.SaveAsync(userId, new TraktUserToken { AccessToken = "new", RefreshToken = "new-ref" }, CancellationToken.None);
 
-        Assert.Equal("new", store.Get(userId)!.AccessToken);
+        Assert.Equal("new", store.GetToken(userId)!.AccessToken);
     }
 
     [Fact]

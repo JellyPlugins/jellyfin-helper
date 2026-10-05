@@ -15,7 +15,7 @@ public interface ITraktUserStore
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <returns>The user's token with plaintext access/refresh values, or null when unlinked.</returns>
-    TraktUserToken? Get(Guid userId);
+    TraktUserToken? GetToken(Guid userId);
 
     /// <summary>
     ///     Stores (or replaces) a user's token, encrypting the access and refresh values before they touch disk.

@@ -148,7 +148,7 @@ public sealed class TraktAuthService : ITraktAuthService
     /// <inheritdoc />
     public async Task<string?> GetValidAccessTokenAsync(Guid userId, CancellationToken cancellationToken)
     {
-        var token = _store.Get(userId);
+        var token = _store.GetToken(userId);
         if (token is null || !token.IsLinked)
         {
             return null;
