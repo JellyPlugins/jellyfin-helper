@@ -255,6 +255,20 @@ plugin stays Active after every call).
 - The two admin-side tests here **snapshot and restore** the shared Seerr/Trash
   configuration (afterAll), so they don't leak state into later specs.
 
+## 8a. Trakt discovery → `trakt-discovery.api.spec.ts`
+- Runs against the `mock-trakt` server (compose service) with the plugin's Trakt API
+  base URL pointed at it via `JELLYFIN_HELPER_TRAKT_API_BASE`; Trakt is enabled in
+  global-setup with a mock client id/secret.
+- **Device-link state machine:** `GET Discovery/My/Trakt` reports `Linked:false` before
+  linking; `POST Device/Start` returns a user code; `POST Device/Poll` returns `Pending`
+  while the mock is unarmed, then `Linked` after `/arm-linked` (respecting the 5s per-user
+  poll throttle); after linking the personal endpoint returns `Linked:true` with a result.
+- **Trending without linking:** `GET Discovery/My/Trakt/Trending` responds for an
+  unlinked user (client-id only, no OAuth).
+- **Disconnect:** `POST Device/Disconnect` clears the link and returns success.
+- Snapshots and restores `TraktEnabled`/`TraktClientId` in afterAll so it does not leak
+  state into later specs.
+
 ## 9. UI: all 8 tabs → `tabs.ui.spec.ts`
 - Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
   JS errors** (failed-resource-load status noise is filtered; real pageerror/console.error
