@@ -17,6 +17,23 @@ public interface ISeerrDiscoveryService
     int MaxVisiblePerUser { get; }
 
     /// <summary>
+    ///     Scores an externally-supplied candidate set for a single user through the same per-user ensemble
+    ///     pipeline the local discovery uses (exclusions, parental filter, pre-score, credits enrichment, final
+    ///     score). Used by the Trakt source so its items rank exactly as local candidates would. Each resulting
+    ///     recommendation is stamped with <paramref name="reasonKey"/>.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user to score for.</param>
+    /// <param name="candidates">The pre-mapped TMDb candidates to score.</param>
+    /// <param name="reasonKey">The i18n reason key to stamp on every produced recommendation.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The scored result, or null when the user has no usable profile or no candidates survive.</returns>
+    Task<DiscoveryResult?> ScoreExternalCandidatesAsync(
+        Guid jellyfinUserId,
+        IReadOnlyList<ExternalDiscoveryCandidate> candidates,
+        string reasonKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     ///     Generates discovery recommendations for all users and persists results.
     ///     Called by the scheduled task.
     /// </summary>

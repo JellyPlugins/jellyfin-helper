@@ -1768,6 +1768,127 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         };
     }
 
+    /// <inheritdoc />
+    public async Task<DiscoveryResult?> ScoreExternalCandidatesAsync(
+        Guid jellyfinUserId,
+        IReadOnlyList<ExternalDiscoveryCandidate> candidates,
+        string reasonKey,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || string.IsNullOrWhiteSpace(config.SeerrUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+        {
+            // Enrichment and the shared scorer both need a reachable Seerr; without it we cannot score.
+            return null;
+        }
+
+        var profile = _watchHistoryService.GetUserWatchProfile(jellyfinUserId);
+        if (profile is null)
+        {
+            return null;
+        }
+
+        var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
+        var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
+        if (genrePreferences.Count == 0)
+        {
+            return null;
+        }
+
+        var topGenres = genrePreferences
+            .OrderByDescending(kv => kv.Value)
+            .Take(3)
+            .Select(kv => kv.Key)
+            .ToList();
+
+        var avgYear = ContentScoring.ComputeAverageYear(profile);
+        var preferredPeople = BuildPreferredPeopleSet(profile);
+        var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, profile);
+        var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= ChildAccountMaxParentalRating;
+
+        Uri baseUri;
+        string apiKey;
+        try
+        {
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            _pluginLog.LogWarning(LogCategory, $"External scoring: invalid Seerr configuration: {ex.Message}", logger: _logger);
+            return null;
+        }
+
+        // Map the public candidates onto the internal TMDb shape the pipeline scores, then run the SAME
+        // exclusion + parental + quality filter the local candidates go through.
+        var mapped = candidates.Select(ToTmdbItem).ToList();
+        var userExcluded = BuildUserExclusionSet(profile, []);
+        var minVote = isChildAccount ? MinVoteAverageChild : MinVoteAverage;
+        var uniqueCandidates = DeduplicateAndFilter(mapped, userExcluded, profile.MaxParentalRating, minVote, avgYear, isChildAccount);
+        if (uniqueCandidates.Count == 0)
+        {
+            return null;
+        }
+
+        var client = GetSeerrClient();
+        var recommendations = await ScoreCandidatesForUserAsync(
+            profile,
+            uniqueCandidates,
+            topGenres,
+            genrePreferences,
+            preferredPeople,
+            avgYear,
+            genreExposure,
+            client,
+            baseUri,
+            apiKey,
+            cancellationToken).ConfigureAwait(false);
+
+        // Stamp the external source's reason so the card shows "from Trakt" rather than a local-signal reason.
+        if (!string.IsNullOrEmpty(reasonKey))
+        {
+            foreach (var rec in recommendations)
+            {
+                rec.ReasonKey = reasonKey;
+                rec.Reason = reasonKey;
+            }
+        }
+
+        return new DiscoveryResult
+        {
+            UserId = profile.UserId,
+            UserName = profile.UserName,
+            Recommendations = recommendations,
+            GeneratedAt = DateTime.UtcNow
+        };
+    }
+
+    // Projects a public external candidate onto the internal TMDb candidate shape the scorer consumes.
+    private static TmdbDiscoverItem ToTmdbItem(ExternalDiscoveryCandidate c)
+    {
+        var isTv = string.Equals(c.MediaType, "tv", StringComparison.OrdinalIgnoreCase);
+        return new TmdbDiscoverItem
+        {
+            Id = c.TmdbId,
+            MediaType = isTv ? "tv" : MediaTypeMovie,
+            Title = isTv ? null : c.Title,
+            Name = isTv ? c.Title : null,
+            GenreIds = [.. c.GenreIds],
+            VoteAverage = c.VoteAverage,
+            Popularity = c.Popularity,
+            PosterPath = c.PosterPath,
+            Overview = c.Overview,
+            Adult = c.Adult,
+            ReleaseDate = !isTv && c.Year.HasValue ? new DateTime(c.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
+            FirstAirDate = isTv && c.Year.HasValue ? new DateTime(c.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
+        };
+    }
+
     /// <summary>
     ///     Runs the shared three-phase scoring pipeline over an already-filtered candidate set: pre-score with
     ///     the user's ensemble, enrich the top-N with credits when the user has people preferences, final-score

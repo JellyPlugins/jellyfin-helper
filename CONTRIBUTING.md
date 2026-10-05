@@ -292,6 +292,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrDiscoveryReconcileTests.cs         # ReconcileRequestedItemsAsync: records+marks cached items also requested out-of-band, per-user, media-type normalization, all fail-safe/pagination branches
 │   │       ├── SeerrDiscoveryReconcileFailureTests.cs  # Reconcile fail-safe catches: throwing feedback store (read and write) and an invalid Seerr URL reached after the roster was cached
 │   │       ├── SeerrDiscoveryServiceReasonTests.cs      # DetermineReason branches, threshold gates, priority ordering
+│   │       ├── SeerrDiscoveryExternalScoringTests.cs    # ScoreExternalCandidatesAsync seam: config/profile/empty guards, candidate mapping + filtering, reasonTrakt stamping
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip
 │   ├── Statistics/                # Statistics service tests
@@ -606,6 +607,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── TmdbDiscoverResponse.cs   # TMDb API page response
 │   │       ├── DiscoveryResult.cs        # Per-user result container
 │   │       ├── DiscoveryRecommendation.cs # Single recommendation DTO
+│   │       ├── ExternalDiscoveryCandidate.cs # Public candidate shape fed to ScoreExternalCandidatesAsync by the Trakt source (tmdbId/mediaType/genres/rating/poster)
 │   │       ├── SeerrUser.cs             # Seerr user model (with JellyfinUserId mapping + Permissions)
 │   │       ├── SeerrUserPage.cs         # Paginated user list response
 │   │       ├── SeerrPermissions.cs      # [Flags] enum of all Overseerr/Jellyseerr permission bits
