@@ -312,7 +312,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
 │   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/yearly thresholds), GenerateBucketStarts bucket spacing, IsDayBased detection and MergeDailySeries.
 │   ├── Trakt/                     # Trakt discovery source tests
-│   │   └── TraktUserStoreTests.cs         # Token store: roundtrip, encryption at rest (file never holds plaintext), remove, unlinked reads, cross-instance persistence, per-user isolation
+│   │   ├── TraktUserStoreTests.cs         # Token store: roundtrip, encryption at rest (file never holds plaintext), remove, unlinked reads, cross-instance persistence, per-user isolation
+│   │   └── TraktAuthServiceTests.cs       # Device flow: start, poll status mapping, token persistence on approval, proactive refresh exactly once on expiry, re-link on refresh failure, disconnect
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -637,9 +638,14 @@ Jellyfin.Plugin.JellyfinHelper/
 │       ├── LibraryInsightsResult.cs    # Insights result DTO
 │       └── LibraryInsightEntry.cs      # Per-library insight entry
 │   ├── Trakt/                   # Trakt discovery source (OAuth device flow + external recommendations)
+│   │   ├── ITraktAuthService.cs     # Device-flow + token lifecycle contract (start/poll/get-valid-token/disconnect)
+│   │   ├── TraktAuthService.cs      # Device flow against api.trakt.tv: start/poll status mapping, proactive refresh on expiry, 401 handled by one refresh, never logs tokens
 │   │   ├── ITraktUserStore.cs       # Per-user token storage contract (Get/SaveAsync/RemoveAsync)
 │   │   ├── TraktUserStore.cs        # DP-encrypted per-user token store: JSON in DataPath, decrypt on read, encrypt on write, atomic persistence
-│   │   └── TraktUserToken.cs        # Per-user token record (access/refresh/expiry) with IsLinked guard
+│   │   ├── TraktUserToken.cs        # Per-user token record (access/refresh/expiry) with IsLinked guard
+│   │   ├── TraktDeviceCodeResponse.cs # POST /oauth/device/code response (device/user code, verification URL, expiry, interval)
+│   │   ├── TraktTokenResponse.cs    # Token payload from device/token + refresh (access/refresh/expires_in/created_at)
+│   │   └── TraktDevicePollStatus.cs # Poll outcome enum (Pending/Linked/Expired/Denied/Error)
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs

@@ -91,6 +91,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 sp.GetRequiredService<IPluginLogService>(),
                 sp.GetRequiredService<ILogger<Services.Trakt.TraktUserStore>>(),
                 Plugin.Instance?.DataFolderPath));
+
+        serviceCollection.AddSingleton<Services.Trakt.ITraktAuthService, Services.Trakt.TraktAuthService>();
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();
