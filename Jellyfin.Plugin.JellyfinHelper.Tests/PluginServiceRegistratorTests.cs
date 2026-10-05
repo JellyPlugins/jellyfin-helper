@@ -252,4 +252,71 @@ public class PluginServiceRegistratorTests
             countAfterSecond > countAfterFirst,
             $"Registration count must grow when RegisterServices is invoked twice on the same collection (was {countAfterFirst}, now {countAfterSecond}).");
     }
+
+    // ResolveKeyRingDirectory - Data Protection keyring setup must never resolve against the process
+    // working directory (the reported Path.Combine pitfall) and must lock the ring down on Unix.
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("relative/path")]
+    public void ResolveKeyRingDirectory_InvalidBase_ReturnsNull(string? basePath)
+    {
+        // Null/empty/whitespace/relative bases must be rejected outright - otherwise the ring would
+        // silently land in the process working directory instead of the plugin data path.
+        Assert.Null(PluginServiceRegistrator.ResolveKeyRingDirectory(basePath));
+    }
+
+    [Fact]
+    public void ResolveKeyRingDirectory_ValidBase_CreatesKeysSubdirectory()
+    {
+        var basePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            var directory = PluginServiceRegistrator.ResolveKeyRingDirectory(basePath);
+            Assert.NotNull(directory);
+            Assert.Equal(
+                Path.GetFullPath(Path.Combine(basePath, "keys")),
+                directory!.FullName);
+            Assert.True(Directory.Exists(directory.FullName));
+        }
+        finally
+        {
+            if (Directory.Exists(basePath))
+            {
+                Directory.Delete(basePath, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ResolveKeyRingDirectory_ValidBase_LocksDownPermissionsOnUnix()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        {
+            // Windows relies on ACL inheritance; there is nothing portable to assert.
+            return;
+        }
+
+        var basePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            var directory = PluginServiceRegistrator.ResolveKeyRingDirectory(basePath);
+            Assert.NotNull(directory);
+            var mode = File.GetUnixFileMode(directory!.FullName);
+            const UnixFileMode ownerBits = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+            const UnixFileMode otherBits = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+                                           | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+            Assert.Equal(ownerBits, mode & ownerBits);
+            Assert.Equal((UnixFileMode)0, mode & otherBits);
+        }
+        finally
+        {
+            if (Directory.Exists(basePath))
+            {
+                Directory.Delete(basePath, true);
+            }
+        }
+    }
 }

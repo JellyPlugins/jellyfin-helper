@@ -57,15 +57,23 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
         AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
 
-        // Secrets at rest are encrypted with Data Protection. The keyring is persisted to the plugin data
-        // path and is deliberately NOT machine bound, so a data path copied to another host (restore,
-        // migration) stays decryptable. SetApplicationName isolates this keyring from Jellyfin's own so a
-        // host key rotation cannot invalidate our secrets and vice versa.
-        var keyringPath = Plugin.Instance?.DataFolderPath;
+        // Secrets are encrypted via Data Protection using a non-machine-bound keyring in the plugin path
+        // for simple backup/migration. SetApplicationName isolates this keyring from Jellyfin's own.
+        // Threat model: On Linux, keyring files are unencrypted at rest—matching Jellyfin's trust boundary
+        // (where configs/DBs hold plain keys). Directory access is restricted to the service user (0700).
         var dataProtection = serviceCollection.AddDataProtection().SetApplicationName("Jellyfin.Plugin.JellyfinHelper");
-        if (!string.IsNullOrEmpty(keyringPath))
+        var keyRingDirectory = ResolveKeyRingDirectory(Plugin.Instance?.DataFolderPath);
+        if (keyRingDirectory is null)
         {
-            dataProtection.PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(keyringPath, "keys")));
+            // Fail loudly, never silently: without a persisted ring, secrets only survive until the next
+            // restart (ephemeral default store). Startup itself must still succeed - features degrade, they
+            // must not take the whole plugin down (see the RegisterServices no-throw contract in tests).
+            Plugin.Instance?.Logger.LogWarning(
+                "[DataProtection] No usable keyring directory under the plugin data path - encrypted secrets will not survive restarts until this is fixed.");
+        }
+        else
+        {
+            dataProtection.PersistKeysToFileSystem(keyRingDirectory);
         }
 
         serviceCollection.AddSingleton<ISecretProtector, SecretProtector>();
@@ -180,5 +188,59 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
         // Re-run the Discovery sidebar injection at server startup (after DI is built and the web root is mounted).
         serviceCollection.AddHostedService<DiscoverySidebarInjectionService>();
+    }
+
+    /// <summary>
+    ///     Resolves the Data Protection keyring directory below the plugin data path, creating it when needed.
+    ///     The subdirectory name is this method's own constant, never external input, so the combine cannot
+    ///     discard the base; a relative base that would resolve against the process working directory is
+    ///     additionally rejected outright. Single source of truth, shared by the registrator and its tests.
+    /// </summary>
+    /// <param name="dataFolderPath">The plugin data path, or null when the plugin instance is unavailable.</param>
+    /// <returns>The ready keyring directory, or null when no usable directory could be resolved.</returns>
+    internal static DirectoryInfo? ResolveKeyRingDirectory(string? dataFolderPath)
+    {
+        const string keyRingSubdirectory = "keys";
+        if (string.IsNullOrWhiteSpace(dataFolderPath) || !Path.IsPathFullyQualified(dataFolderPath))
+        {
+            return null;
+        }
+
+        DirectoryInfo directory;
+        try
+        {
+            directory = new DirectoryInfo(Path.Combine(dataFolderPath, keyRingSubdirectory));
+            directory.Create();
+        }
+        catch (Exception ex) when (ex is IOException
+                                        or UnauthorizedAccessException
+                                        or NotSupportedException
+                                        or ArgumentException
+                                        or System.Security.SecurityException)
+        {
+            return null;
+        }
+
+        // Best effort: lock the ring down to the service account. A failure here must not fail startup;
+        // the caller logs loudly and falls back to the ephemeral store instead.
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            try
+            {
+                File.SetUnixFileMode(
+                    directory.FullName,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+            catch (Exception ex) when (ex is IOException
+                                            or UnauthorizedAccessException
+                                            or ArgumentException
+                                            or NotSupportedException
+                                            or PlatformNotSupportedException)
+            {
+                return null;
+            }
+        }
+
+        return directory;
     }
 }
