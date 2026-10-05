@@ -86,7 +86,8 @@ public static class ControllerTestFactory
             arrService,
             pluginLog,
             new Mock<ILogger<ArrIntegrationController>>().Object,
-            configHelperMock.Object);
+            configHelperMock.Object,
+            TestMockFactory.CreateSecretProtector());
 
         return (controller, libraryManagerMock, fileSystemMock, httpClientFactoryMock, configHelperMock);
     }

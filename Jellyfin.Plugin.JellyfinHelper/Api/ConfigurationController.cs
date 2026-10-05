@@ -538,11 +538,11 @@ public class ConfigurationController : ControllerBase
         NormalizePluginLogLevel(config);
 
         // Update Radarr instances (clear + re-add from request). Snapshot existing instances BEFORE clearing so the sentinel guard can look up the stored key by Name+Url rather than positional index.
-        config.RadarrInstances = RebuildArrInstances(request.RadarrInstances, config.RadarrInstances);
+        config.RadarrInstances = RebuildArrInstances(request.RadarrInstances, config.RadarrInstances, secretProtector);
 
         // Update Sonarr instances (clear + re-add from request).
         // Same sentinel-preservation pattern as Radarr above.
-        config.SonarrInstances = RebuildArrInstances(request.SonarrInstances, config.SonarrInstances);
+        config.SonarrInstances = RebuildArrInstances(request.SonarrInstances, config.SonarrInstances, secretProtector);
     }
 
     /// <summary>
@@ -603,10 +603,12 @@ public class ConfigurationController : ControllerBase
     /// </summary>
     /// <param name="requestInstances">The instances from the incoming request (may be null).</param>
     /// <param name="existingInstances">The currently stored instances (may be null).</param>
+    /// <param name="secretProtector">Encrypts each resolved API key before it is persisted.</param>
     /// <returns>A new list of resolved <see cref="ArrInstanceConfig" /> entries.</returns>
     private static List<ArrInstanceConfig> RebuildArrInstances(
         IEnumerable<ArrInstanceConfig>? requestInstances,
-        List<ArrInstanceConfig>? existingInstances)
+        List<ArrInstanceConfig>? existingInstances,
+        ISecretProtector secretProtector)
     {
         var previousInstances = (existingInstances ?? []).ToList();
         var result = new List<ArrInstanceConfig>();
@@ -616,7 +618,7 @@ public class ConfigurationController : ControllerBase
             {
                 Name = instance.Name,
                 Url = instance.Url,
-                ApiKey = ResolveApiKey(instance, previousInstances),
+                ApiKey = ResolveApiKey(instance, previousInstances, secretProtector),
                 Libraries = instance.Libraries
             });
         }
@@ -629,13 +631,18 @@ public class ConfigurationController : ControllerBase
     /// </summary>
     private static string ResolveApiKey(
         ArrInstanceConfig incoming,
-        List<ArrInstanceConfig> previousInstances)
+        List<ArrInstanceConfig> previousInstances,
+        ISecretProtector secretProtector)
     {
         // Delegates to the shared resolver so the save path and the stateless Test-Connection endpoints (ArrIntegrationController / SeerrController) use one implementation of the mask-sentinel semantics.
-        return ApiKeyMaskResolver.ResolveArrKey(
+        var resolved = ApiKeyMaskResolver.ResolveArrKey(
             incoming.ApiKey,
             incoming.Url,
             incoming.Name,
             previousInstances);
+
+        // Encrypt before persisting. Protect is idempotent, so a stored key recovered via the mask
+        // sentinel (already ciphertext) is returned unchanged while a newly entered key is encrypted.
+        return secretProtector.Protect(resolved);
     }
 }

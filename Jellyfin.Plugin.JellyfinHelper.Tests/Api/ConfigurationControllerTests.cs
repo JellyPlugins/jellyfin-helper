@@ -1054,7 +1054,7 @@ public class ConfigurationControllerTests : IDisposable
 
         // Live config must not have been mutated by the masking
         Assert.Equal("real-seerr-secret", _config.SeerrApiKey);
-        Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("real-radarr-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1164,7 +1164,7 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.RadarrInstances);
-        Assert.Equal("original-radarr-secret", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("original-radarr-secret", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1195,7 +1195,7 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.SonarrInstances);
-        Assert.Equal("original-sonarr-secret", _config.SonarrInstances[0].ApiKey);
+        Assert.Equal("original-sonarr-secret", _secretProtector.Unprotect(_config.SonarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1225,7 +1225,7 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Equal("brand-new-radarr-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("brand-new-radarr-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1249,8 +1249,8 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Equal(2, _config.RadarrInstances.Count);
-        Assert.Equal("key-r1", _config.RadarrInstances[0].ApiKey);
-        Assert.Equal("key-r2", _config.RadarrInstances[1].ApiKey);
+        Assert.Equal("key-r1", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
+        Assert.Equal("key-r2", _secretProtector.Unprotect(_config.RadarrInstances[1].ApiKey));
     }
 
     // Model-binding diagnostics (invalid ModelState / null request body) are exercised in ModelBindingLogFilterTests.
@@ -1321,7 +1321,7 @@ public class ConfigurationControllerTests : IDisposable
         _arrServiceMock.Verify(
             s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<CancellationToken>()),
             Times.Never);
-        Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("real-radarr-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1345,8 +1345,8 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Equal(2, _config.RadarrInstances.Count);
-        Assert.Equal("key-B", _config.RadarrInstances[0].ApiKey);
-        Assert.Equal("key-A", _config.RadarrInstances[1].ApiKey);
+        Assert.Equal("key-B", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
+        Assert.Equal("key-A", _secretProtector.Unprotect(_config.RadarrInstances[1].ApiKey));
     }
 
     [Fact]
@@ -1369,7 +1369,7 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.RadarrInstances);
-        Assert.Equal("key-kept", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("key-kept", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1392,8 +1392,8 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Equal(2, _config.SonarrInstances.Count);
-        Assert.Equal("key-Y", _config.SonarrInstances[0].ApiKey);
-        Assert.Equal("key-X", _config.SonarrInstances[1].ApiKey);
+        Assert.Equal("key-Y", _secretProtector.Unprotect(_config.SonarrInstances[0].ApiKey));
+        Assert.Equal("key-X", _secretProtector.Unprotect(_config.SonarrInstances[1].ApiKey));
     }
 
     /// <summary>
@@ -1428,7 +1428,7 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.RadarrInstances);
-        Assert.Equal("real-secret-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("real-secret-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
         Assert.Equal("Primary Radarr", _config.RadarrInstances[0].Name);
     }
 
@@ -1463,7 +1463,7 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.SonarrInstances);
-        Assert.Equal("sonarr-secret-key", _config.SonarrInstances[0].ApiKey);
+        Assert.Equal("sonarr-secret-key", _secretProtector.Unprotect(_config.SonarrInstances[0].ApiKey));
         Assert.Equal("Primary Sonarr", _config.SonarrInstances[0].Name);
     }
 
@@ -1499,7 +1499,7 @@ public class ConfigurationControllerTests : IDisposable
 
         Assert.Single(_config.RadarrInstances);
         // No prior instance at http://new:7878, so the sentinel resolves to empty string.
-        Assert.Equal(string.Empty, _config.RadarrInstances[0].ApiKey);
+        Assert.Equal(string.Empty, _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     // Two Radarr instances share the same URL but have different names.
@@ -1525,8 +1525,8 @@ public class ConfigurationControllerTests : IDisposable
         Assert.Equal(2, _config.RadarrInstances.Count);
         var primary = _config.RadarrInstances.First(i => i.Name == "Primary");
         var secondary = _config.RadarrInstances.First(i => i.Name == "Secondary");
-        Assert.Equal("key-primary", primary.ApiKey);
-        Assert.Equal("key-secondary", secondary.ApiKey);
+        Assert.Equal("key-primary", _secretProtector.Unprotect(primary.ApiKey));
+        Assert.Equal("key-secondary", _secretProtector.Unprotect(secondary.ApiKey));
     }
 
     [Fact]
@@ -1661,7 +1661,7 @@ public class ConfigurationControllerTests : IDisposable
         var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
         Assert.Empty(payload.Warnings);
         Assert.Single(_config.RadarrInstances);
-        Assert.Equal("key1", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("key1", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]

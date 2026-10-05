@@ -2187,7 +2187,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             try
             {
                 var items = await fetch(
-                    instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
+                    instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken).ConfigureAwait(false);
                 if (items != null)
                 {
                     foreach (var item in items)

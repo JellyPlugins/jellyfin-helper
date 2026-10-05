@@ -10,6 +10,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
@@ -35,6 +36,7 @@ public class ArrIntegrationController : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<ArrIntegrationController> _logger;
     private readonly IPluginLogService _pluginLog;
+    private readonly ISecretProtector _secretProtector;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="ArrIntegrationController" /> class.
@@ -45,13 +47,15 @@ public class ArrIntegrationController : ControllerBase
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
     /// <param name="configHelper">The cleanup configuration helper.</param>
+    /// <param name="secretProtector">Decrypts stored Arr API keys before outbound calls.</param>
     public ArrIntegrationController(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
         IArrIntegrationService arrService,
         IPluginLogService pluginLog,
         ILogger<ArrIntegrationController> logger,
-        ICleanupConfigHelper configHelper)
+        ICleanupConfigHelper configHelper,
+        ISecretProtector secretProtector)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -59,6 +63,7 @@ public class ArrIntegrationController : ControllerBase
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
+        _secretProtector = secretProtector;
     }
 
     /// <summary>
@@ -113,7 +118,7 @@ public class ArrIntegrationController : ControllerBase
 
         var (success, message) = await _arrService.TestConnectionAsync(
             parsedUrl.AbsoluteUri,
-            apiKey,
+            _secretProtector.Unprotect(apiKey),
             cancellationToken).ConfigureAwait(false);
 
         if (!success)
@@ -180,7 +185,7 @@ public class ArrIntegrationController : ControllerBase
                 continue;
             }
 
-            var movies = await _arrService.GetRadarrMoviesAsync(instance.Url, instance.ApiKey, cancellationToken)
+            var movies = await _arrService.GetRadarrMoviesAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken)
                 .ConfigureAwait(false);
             if (movies is null)
             {
@@ -258,7 +263,7 @@ public class ArrIntegrationController : ControllerBase
                 continue;
             }
 
-            var series = await _arrService.GetSonarrSeriesAsync(instance.Url, instance.ApiKey, cancellationToken)
+            var series = await _arrService.GetSonarrSeriesAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken)
                 .ConfigureAwait(false);
             if (series is null)
             {
@@ -305,7 +310,7 @@ public class ArrIntegrationController : ControllerBase
             return null;
         }
 
-        var rootFolders = await _arrService.GetRootFoldersAsync(instance.Url, instance.ApiKey, cancellationToken)
+        var rootFolders = await _arrService.GetRootFoldersAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken)
             .ConfigureAwait(false);
         if (rootFolders is null || rootFolders.Count == 0)
         {
