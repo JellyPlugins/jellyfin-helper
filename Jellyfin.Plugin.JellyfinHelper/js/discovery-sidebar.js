@@ -37,8 +37,7 @@
     var _discoveryGeneration = 0;
 
     function currentDiscoveryUserId() {
-        return (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId
-            && ApiClient.getCurrentUserId()) || '';
+        return (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId?.()) || '';
     }
 
 
@@ -289,7 +288,7 @@
     // from another client can arrive with an unchanged timestamp; comparing the
     // visible ids catches that where the timestamp alone would not.
     function discoveryVisibleKey(data) {
-        var recs = data && data.Recommendations;
+        var recs = data?.Recommendations;
         if (!Array.isArray(recs)) { return ''; }
         return recs.map(function (r) {
             return (r.TmdbId || '') + ':' + (r.MediaType || '');
@@ -321,9 +320,12 @@
                     || discoveryVisibleKey(data) !== discoveryVisibleKey(previous);
                 // Render into the panel that is live now, not the one captured at
                 // call time: Custom Tabs may have rebuilt it while we were away.
-                var target = (lastMountedContainer && document.contains(lastMountedContainer))
-                    ? lastMountedContainer
-                    : (document.contains(container) ? container : null);
+                var target = null;
+                if (lastMountedContainer && document.contains(lastMountedContainer)) {
+                    target = lastMountedContainer;
+                } else if (document.contains(container)) {
+                    target = container;
+                }
                 if (changed && target) {
                     renderCards(target, data);
                 }

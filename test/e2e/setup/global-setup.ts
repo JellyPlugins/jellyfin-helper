@@ -87,19 +87,13 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   }
 
   // --- 2. authenticate (retry: Startup/Complete may need a moment) ---------
-  const authenticate = async () =>
+  const authenticate = () =>
     ctx.post('/Users/AuthenticateByName', {
       headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
       data: { Username: ADMIN_USER, Pw: ADMIN_PASS },
     });
 
-  let authRes = await authenticate();
-  for (let attempt = 1; attempt <= 5 && !authRes.ok(); attempt++) {
-    // eslint-disable-next-line no-console
-    console.log(`[global-setup] auth attempt ${attempt} -> ${authRes.status()}; retrying...`);
-    await new Promise((r) => setTimeout(r, 2000));
-    authRes = await authenticate();
-  }
+  const authRes = await authenticateWithRetry(authenticate, 5);
   if (!authRes.ok()) {
     // Dump the current user list to help diagnose (which users actually exist?).
     const usersDump = await ctx
@@ -212,6 +206,32 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 }
 
 type ProvisionCtx = Awaited<ReturnType<typeof pwRequest.newContext>>;
+type AuthResponse = Awaited<ReturnType<ProvisionCtx['post']>>;
+
+/** Resolve after `ms`, without an inline Promise executor at the call site. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Authenticate, retrying up to `remaining` more times with a 2s backoff while
+ * the response is not ok. The retry is intentionally sequential (the server may
+ * need a moment after Startup/Complete); expressing it as bounded recursion
+ * keeps that ordering without an await-in-loop.
+ */
+async function authenticateWithRetry(
+  authenticate: () => Promise<AuthResponse>,
+  remaining: number,
+): Promise<AuthResponse> {
+  const res = await authenticate();
+  if (res.ok() || remaining <= 0) {
+    return res;
+  }
+  // eslint-disable-next-line no-console
+  console.log(`[global-setup] auth attempt -> ${res.status()}; retrying (${remaining} left)...`);
+  await delay(2000);
+  return authenticateWithRetry(authenticate, remaining - 1);
+}
 
 /**
  * Create (or reuse) the non-admin test user and authenticate as it. Returns the
