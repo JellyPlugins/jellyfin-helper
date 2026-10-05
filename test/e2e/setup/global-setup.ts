@@ -173,9 +173,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // and registers a Custom Tab whose HTML content is our marker div, exactly as
   // an admin would per the in-app setup hint. The custom-tab UI spec reads
   // JFH_E2E_EXTERNAL_PLUGINS to decide whether to run or skip.
-  if (process.env.JFH_E2E_EXTERNAL_PLUGINS === '1') {
-    await configureDiscoveryCustomTab(admin);
-  }
+  await configureDiscoveryCustomTab(admin);
 
   // In CI we require the non-admin fixture so the authorization / user-facing tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1).
   if (!normalUser && process.env.E2E_REQUIRE_NORMAL_USER === '1') {
@@ -272,6 +270,11 @@ function publicSeerrUrl(): string {
 
 const CUSTOM_TABS_GUID = 'fbacd0b6-fd46-4a05-b0a4-2045d6a135b0';
 
+// The plugin container reaches the mock over the compose network; the mock
+// serves plain HTTP only (no TLS on an internal test fixture), so https is not
+// applicable here. Same literal the API specs use for SeerrUrl.
+const INTERNAL_MOCK_SEERR_URL = 'http://mock-seerr:5055'; // NOSONAR - internal test mock, no TLS
+
 /**
  * Enable the Discovery user-access toggle and register a Custom Tab whose HTML
  * content is the discovery marker div, mirroring the admin setup documented in
@@ -279,12 +282,17 @@ const CUSTOM_TABS_GUID = 'fbacd0b6-fd46-4a05-b0a4-2045d6a135b0';
  * appear for the custom-tab UI spec.
  */
 async function configureDiscoveryCustomTab(admin: ProvisionCtx): Promise<void> {
+  // Only meaningful when the external Custom Tabs / File Transformation plugins
+  // are staged; otherwise there is no tab to configure.
+  if (process.env.JFH_E2E_EXTERNAL_PLUGINS !== '1') {
+    return;
+  }
   // The toggle only sticks with Recommendations active + Seerr configured.
   const cfg = await admin.put('/JellyfinHelper/Configuration', {
     headers: { 'Content-Type': 'application/json' },
     data: {
       RecommendationsTaskMode: 'Activate',
-      SeerrUrl: 'http://mock-seerr:5055',
+      SeerrUrl: INTERNAL_MOCK_SEERR_URL,
       SeerrApiKey: 'seerr-key',
       DiscoveryUserAccessEnabled: true,
       ExcludedLibraries: '',

@@ -258,7 +258,7 @@
     // Normalized timestamp used to decide whether a background fetch returned
     // newer data than what is already rendered.
     function discoveryGeneratedAt(data) {
-        var raw = data && data.GeneratedAt;
+        var raw = data?.GeneratedAt;
         if (!raw) { return 0; }
         var ms = Date.parse(raw);
         return Number.isNaN(ms) ? 0 : ms;
@@ -274,7 +274,7 @@
         _backgroundRefreshInFlight = true;
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
             .then(function (data) {
-                var previous = _discoveryResultCache && _discoveryResultCache.data;
+                var previous = _discoveryResultCache?.data;
                 setCachedDiscoveryResult(data);
                 var isNewer = !previous || discoveryGeneratedAt(data) > discoveryGeneratedAt(previous);
                 if (isNewer && container === lastMountedContainer && document.contains(container)) {
@@ -282,7 +282,7 @@
                 }
             })
             .catch(function (err) {
-                if (err && err.status === 403) {
+                if (err?.status === 403) {
                     invalidateDiscoveryResult();
                 }
             })
@@ -344,7 +344,7 @@
     function isOnHomePage() {
         var hash = window.location.hash;
         return hash === '' || hash === '#/home' || hash === '#/home.html'
-            || hash.indexOf('#/home?') !== -1 || hash.indexOf('#/home.html?') !== -1;
+            || hash.includes('#/home?') || hash.includes('#/home.html?');
     }
 
     function tryMountCustomTab() {
@@ -412,15 +412,15 @@
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
             .then(function (data) { setCachedDiscoveryResult(data); renderCards(container, data); })
             .catch(function (err) {
-                if (err && err.status === 403) {
+                if (err?.status === 403) {
                     invalidateDiscoveryResult();
-                } else if (_discoveryResultCache && _discoveryResultCache.data) {
+                } else if (_discoveryResultCache?.data) {
                     // Transient failure: rather show the last known cards than a blank page.
                     renderCards(container, _discoveryResultCache.data);
                     return;
                 }
                 var msg = t('discoveryLoadError', 'Could not load discovery suggestions.');
-                if (err && err.status === 403) {
+                if (err?.status === 403) {
                     msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
                 }
                 container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
@@ -988,7 +988,7 @@
             return false;
         }
         var panel = container.closest('[data-index]');
-        var dataIndex = panel ? Number.parseInt(panel.dataset.index, 10) : NaN;
+        var dataIndex = panel ? Number.parseInt(panel.dataset.index, 10) : Number.NaN;
 
         // Modern layout: tab controls are MUI anchors whose href carries the
         // same ?tab=N deep link the panel's data-index encodes. Match on the

@@ -92,6 +92,14 @@ async function expectDiscoveryRendered(page: Page): Promise<void> {
   await expect(content.first()).toBeVisible({ timeout: 15_000 });
 }
 
+// Observable "we left the tab" condition: Custom Tabs hides non-active panels,
+// so the discovery content is no longer visible once Home is active. Used to
+// synchronize navigation instead of a fixed wait.
+async function expectDiscoveryHidden(page: Page): Promise<void> {
+  const content = page.locator('.jellyfinhelper.discovery .jfh-discovery-container');
+  await expect(content.first()).toBeHidden({ timeout: 15_000 });
+}
+
 test.describe('Discovery custom tab (home page)', () => {
   test.skip(!EXTERNAL_PLUGINS, 'Custom Tabs / File Transformation not staged (JFH_E2E_EXTERNAL_PLUGINS!=1)');
 
@@ -108,17 +116,18 @@ test.describe('Discovery custom tab (home page)', () => {
     await expectDiscoveryRendered(page);
 
     // Hammer the navigation: away to Home, back to Discovery. The panel must be
-    // filled every single time, with no blank frame.
+    // filled every single time, with no blank frame. Each step synchronizes on
+    // an observable state change rather than a fixed wait.
     for (let i = 0; i < 20; i++) {
       await clickHomeTab(page);
-      await page.waitForTimeout(120);
+      await expectDiscoveryHidden(page);
       await clickDiscoveryTab(page);
       await expectDiscoveryRendered(page);
     }
 
     // Browser back/forward is a distinct navigation path (popstate/hashchange).
     await page.goBack();
-    await page.waitForTimeout(120);
+    await expectDiscoveryHidden(page);
     await page.goForward();
     await expectDiscoveryRendered(page);
   });
