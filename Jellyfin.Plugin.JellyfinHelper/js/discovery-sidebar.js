@@ -250,7 +250,22 @@
             // Toast notification
             '.jfh-discovery-toast { position: fixed; bottom: 2em; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 999999; max-width: 480px; width: calc(100% - 2em); padding: 0.9em 1.4em; background: rgba(30,30,40,0.95); color: #fff; font-size: 0.88em; line-height: 1.4; border-radius: 8px; border-left: 4px solid #e74c3c; box-shadow: 0 4px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease; cursor: pointer; }' +
             '.jfh-discovery-toast-visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }' +
-            '.jfh-discovery-toast-hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(20px); }';
+            '.jfh-discovery-toast-hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(20px); }' +
+            // Sub-tab bar: horizontally scrollable on narrow viewports (same pattern as the genres row),
+            // stable with no scrollbar on desktop where the tabs fit.
+            '.jfh-discovery-tabs { display: flex; flex-wrap: nowrap; gap: 0.4em; margin: 0 0 1em 0; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar, rgba(0,164,220,0.4)) transparent; }' +
+            '.jfh-discovery-tabs::-webkit-scrollbar { height: 4px; }' +
+            '.jfh-discovery-tabs::-webkit-scrollbar-track { background: transparent; }' +
+            '.jfh-discovery-tabs::-webkit-scrollbar-thumb { background: var(--color-primary-scrollbar, rgba(0,164,220,0.4)); border-radius: 3px; }' +
+            '.jfh-discovery-tab { flex-shrink: 0; padding: 0.5em 1em; border: none; border-radius: 6px; background: rgba(255,255,255,0.06); color: #ddd; cursor: pointer; font-size: 0.9em; white-space: nowrap; transition: background 0.2s, color 0.2s; }' +
+            '.jfh-discovery-tab:hover { background: rgba(255,255,255,0.12); }' +
+            '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; }' +
+            // Connect panel for the personal Trakt tab before a user links.
+            '.jfh-discovery-connect { max-width: 520px; margin: 1em auto; text-align: center; background: rgba(255,255,255,0.04); border-radius: 10px; padding: 1.6em; }' +
+            '.jfh-discovery-connect h3 { margin: 0 0 0.6em 0; }' +
+            '.jfh-discovery-connect p { opacity: 0.8; line-height: 1.5; margin: 0.4em 0; }' +
+            '.jfh-discovery-connect-code { font-size: 1.6em; font-weight: 700; letter-spacing: 0.15em; margin: 0.6em 0; color: #00a4dc; }' +
+            '.jfh-discovery-connect-row { display: flex; flex-wrap: wrap; gap: 0.6em; justify-content: center; margin-top: 1em; }';
         document.head.appendChild(style);
     }
 
@@ -444,7 +459,76 @@
         return null;
     }
 
+    // Trakt sub-tab state. _traktEnabled is probed once per mount; the active tab persists across
+    // remounts so returning to the panel reopens the tab the user last viewed. Each Trakt tab keeps its
+    // own cached result so switching tabs is instant and never shows another tab's data.
+    var _traktEnabled = null;
+    var _activeTab = 'own';
+    var _traktPersonalCache = null;
+    var _traktTrendingCache = null;
+    var _devicePollTimer = null;
+
+    var TAB_OWN = 'own';
+    var TAB_TRAKT = 'trakt';
+    var TAB_TRENDING = 'trending';
+
     function renderDiscovery(container, forceRefresh) {
+        // Resolve whether Trakt is enabled once, then render the tabbed shell. When it is off the panel is
+        // exactly the single ensemble grid it has always been (no tab bar, no layout shift).
+        if (_traktEnabled === null) {
+            ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
+                .then(function () { _traktEnabled = true; })
+                .catch(function (err) { _traktEnabled = !(err && err.status === 403); })
+                .finally(function () { renderShell(container, forceRefresh); });
+            return;
+        }
+
+        renderShell(container, forceRefresh);
+    }
+
+    // Builds the tab bar (when Trakt is on) plus a content host, then renders the active tab into the host.
+    // With Trakt off there is no tab bar and the host fills with the own-grid directly.
+    function renderShell(container, forceRefresh) {
+        if (!_traktEnabled) {
+            renderOwnTab(container, forceRefresh);
+            return;
+        }
+
+        clearDevicePoll();
+        var tabs =
+            '<div class="jfh-discovery-container"><div class="jfh-discovery-tabs" role="tablist">' +
+            tabButton(TAB_OWN, t('discoveryTabForYou', 'For you')) +
+            tabButton(TAB_TRAKT, t('discoveryTabTraktForYou', 'Trakt for you')) +
+            tabButton(TAB_TRENDING, t('discoveryTabTraktTrending', 'Trakt trending')) +
+            '</div><div class="jfh-discovery-tab-host"></div></div>';
+        container.innerHTML = tabs;
+
+        var buttons = container.querySelectorAll('.jfh-discovery-tab');
+        for (var i = 0; i < buttons.length; i++) {
+            buttons[i].addEventListener('click', function () {
+                var tab = this.getAttribute('data-tab');
+                if (tab === _activeTab) { return; }
+                _activeTab = tab;
+                renderShell(container, false);
+            });
+        }
+
+        var host = container.querySelector('.jfh-discovery-tab-host');
+        if (_activeTab === TAB_TRAKT) {
+            renderTraktPersonal(host, forceRefresh);
+        } else if (_activeTab === TAB_TRENDING) {
+            renderTraktTrending(host, forceRefresh);
+        } else {
+            renderOwnTab(host, forceRefresh);
+        }
+    }
+
+    function tabButton(tab, label) {
+        var cls = 'jfh-discovery-tab' + (tab === _activeTab ? ' jfh-discovery-tab-active' : '');
+        return '<button class="' + cls + '" role="tab" data-tab="' + tab + '">' + esc(label) + '</button>';
+    }
+
+    function renderOwnTab(container, forceRefresh) {
         // Remounts render instantly from the last good payload, then a silent
         // background refetch swaps in newer data if the scheduler has run.
         // Only the first mount (or an explicit refresh after a mutation) shows
@@ -491,6 +575,161 @@
             });
     }
 
+    function clearDevicePoll() {
+        if (_devicePollTimer) {
+            clearTimeout(_devicePollTimer);
+            _devicePollTimer = null;
+        }
+    }
+
+    // Personal Trakt tab: shows the connect panel until the user links, then the scored grid. The server
+    // returns {Linked:false} before linking and a DiscoveryResult after, so a null/{Linked:false} payload
+    // means "offer to connect" rather than "no results".
+    function renderTraktPersonal(host, forceRefresh) {
+        if (!forceRefresh && _traktPersonalCache && _traktPersonalCache.userId === currentDiscoveryUserId()) {
+            renderCards(host, _traktPersonalCache.data);
+            return;
+        }
+
+        host.innerHTML = spinnerHtml();
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
+            .then(function (resp) {
+                if (!resp || resp.Linked !== true || !resp.Result) {
+                    renderConnectPanel(host);
+                    return;
+                }
+                _traktPersonalCache = { data: resp.Result, userId: currentDiscoveryUserId() };
+                renderCards(host, resp.Result);
+            })
+            .catch(function (err) {
+                renderTraktError(host, err);
+            });
+    }
+
+    // Global trending tab: no linking required, just fetch and render the per-user-scored pool.
+    function renderTraktTrending(host, forceRefresh) {
+        if (!forceRefresh && _traktTrendingCache && _traktTrendingCache.userId === currentDiscoveryUserId()) {
+            renderCards(host, _traktTrendingCache.data);
+            return;
+        }
+
+        host.innerHTML = spinnerHtml();
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Trending'), dataType: 'json' })
+            .then(function (data) {
+                _traktTrendingCache = { data: data, userId: currentDiscoveryUserId() };
+                renderCards(host, data);
+            })
+            .catch(function (err) {
+                renderTraktError(host, err);
+            });
+    }
+
+    function renderTraktError(host, err) {
+        var msg = (err && err.status === 403)
+            ? t('discoveryTraktDisabled', 'Trakt is not enabled. Ask your server administrator to enable it in Jellyfin Helper settings.')
+            : t('discoveryLoadError', 'Could not load discovery suggestions.');
+        host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
+    }
+
+    function spinnerHtml() {
+        return '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations…')) + '</span></div></div>';
+    }
+
+    // Shows the device-link call to action. Clicking Connect starts the device flow, swaps in the code +
+    // verification URL, and begins polling until the server reports Linked (then re-renders the grid),
+    // Expired (410, offers restart), or Denied/Error.
+    function renderConnectPanel(host) {
+        var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-connect">' +
+            '<h3>' + esc(t('discoveryTraktConnectTitle', 'Connect your Trakt account')) + '</h3>' +
+            '<p>' + esc(t('discoveryTraktConnectIntro', 'Link Trakt to see your personal recommendations here.')) + '</p>' +
+            '<div class="jfh-discovery-connect-row">' +
+            '<button class="jfh-discovery-btn jfh-discovery-trakt-connect">' + esc(t('discoveryTraktConnect', 'Connect')) + '</button>' +
+            '</div></div></div>';
+        host.innerHTML = html;
+        var btn = host.querySelector('.jfh-discovery-trakt-connect');
+        if (btn) {
+            btn.addEventListener('click', function () { startDeviceFlow(host); });
+        }
+    }
+
+    function startDeviceFlow(host) {
+        clearDevicePoll();
+        host.innerHTML = spinnerHtml();
+        ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Start'), dataType: 'json' })
+            .then(function (device) {
+                if (!device || !device.user_code) {
+                    renderConnectPanel(host);
+                    return;
+                }
+                renderDeviceCode(host, device);
+                scheduleDevicePoll(host, device.device_code, Math.max(5, Number(device.interval) || 5));
+            })
+            .catch(function () {
+                renderConnectPanel(host);
+                showToast(t('discoveryTraktConnectFailed', 'Could not start Trakt authorization. Try again.'));
+            });
+    }
+
+    function renderDeviceCode(host, device) {
+        var url = safeHttpUrl(device.verification_url) || 'https://trakt.tv/activate';
+        var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-connect">' +
+            '<h3>' + esc(t('discoveryTraktConnectTitle', 'Connect your Trakt account')) + '</h3>' +
+            '<p>' + esc(t('discoveryTraktConnectStep', 'Visit the page below and enter this code:')) + '</p>' +
+            '<div class="jfh-discovery-connect-code">' + esc(device.user_code) + '</div>' +
+            '<div class="jfh-discovery-connect-row">' +
+            '<span class="jfh-discovery-flip-link jfh-discovery-trakt-open" data-href="' + esc(url) + '">' +
+            '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> ' + esc(url) + '</span>' +
+            '</div>' +
+            '<p>' + esc(t('discoveryTraktConnectWaiting', 'Waiting for you to authorize…')) + '</p>' +
+            '</div></div>';
+        host.innerHTML = html;
+        var open = host.querySelector('.jfh-discovery-trakt-open');
+        if (open) {
+            open.addEventListener('click', function () {
+                var safe = safeHttpUrl(this.dataset.href);
+                if (safe) { window.open(safe, '_blank', 'noopener,noreferrer'); }
+            });
+        }
+    }
+
+    function scheduleDevicePoll(host, deviceCode, intervalSeconds) {
+        clearDevicePoll();
+        _devicePollTimer = setTimeout(function () {
+            // Abandon the loop if the user navigated away or switched tabs while waiting.
+            if (!document.contains(host)) { clearDevicePoll(); return; }
+            ApiClient.ajax({
+                type: 'POST',
+                url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Poll'),
+                data: JSON.stringify({ DeviceCode: deviceCode }),
+                contentType: 'application/json',
+                dataType: 'json'
+            })
+                .then(function (resp) {
+                    var status = resp && resp.Status;
+                    if (status === 'Linked') {
+                        clearDevicePoll();
+                        _traktPersonalCache = null;
+                        renderTraktPersonal(host, true);
+                    } else if (status === 'Pending') {
+                        scheduleDevicePoll(host, deviceCode, intervalSeconds);
+                    } else {
+                        // Denied or Error: stop and offer a fresh start.
+                        clearDevicePoll();
+                        renderConnectPanel(host);
+                    }
+                })
+                .catch(function (err) {
+                    // 410 Gone means the code expired; 429 means we polled too fast (back off one interval).
+                    if (err && err.status === 429) {
+                        scheduleDevicePoll(host, deviceCode, intervalSeconds + 1);
+                        return;
+                    }
+                    clearDevicePoll();
+                    renderConnectPanel(host);
+                });
+        }, intervalSeconds * 1000);
+    }
+
     function renderCards(container, userDiscovery) {
         if (!userDiscovery || !userDiscovery.Recommendations || userDiscovery.Recommendations.length === 0) {
             container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div></div>';
@@ -519,6 +758,13 @@
                 extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
                     '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
             }
+            // Trakt deep link via the TMDb id search, so no per-item slug is needed. Resolves to the
+            // movie/show page on trakt.tv. Shown only on the Trakt tabs (link is harmless elsewhere but we
+            // keep the card-back order TMDB then Seerr then Trakt).
+            var traktIdType = mediaType === 'tv' ? 'show' : 'movie';
+            var traktExtUrl = 'https://trakt.tv/search/tmdb/' + (Number.parseInt(r.TmdbId, 10) || 0) + '?id_type=' + traktIdType;
+            extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(traktExtUrl) + '">' +
+                '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Trakt</span>';
             extLinksHtml += '</div>';
 
             if (posterUrl) {
