@@ -20,7 +20,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 public sealed class TraktDiscoveryService : ITraktDiscoveryService
 {
     private const string LogSource = "Trakt";
-    private const string ApiBase = "https://api.trakt.tv";
     private const string ReasonKey = "reasonTrakt";
 
     // Caches are warmed by the scheduled task; request-time serves a fresh entry or does a lazy live fetch.
@@ -227,7 +226,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
     private static HttpRequestMessage BuildRequest(string relPath, string clientId, int limit, string? accessToken)
     {
-        var uri = new Uri($"{ApiBase}{relPath}?limit={limit}", UriKind.Absolute);
+        var uri = new Uri($"{TraktApi.BaseUrl}{relPath}?limit={limit}", UriKind.Absolute);
         var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.TryAddWithoutValidation("trakt-api-version", "2");

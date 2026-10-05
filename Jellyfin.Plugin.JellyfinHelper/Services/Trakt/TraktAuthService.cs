@@ -21,7 +21,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 public sealed class TraktAuthService : ITraktAuthService
 {
     private const string LogSource = "Trakt";
-    private const string ApiBase = "https://api.trakt.tv";
 
     // Refresh a little before the real expiry so a token does not die mid-request.
     private static readonly TimeSpan ExpirySkew = TimeSpan.FromMinutes(5);
@@ -233,7 +232,7 @@ public sealed class TraktAuthService : ITraktAuthService
 
     private static HttpRequestMessage BuildJsonRequest(HttpMethod method, string relPath, string jsonBody)
     {
-        var request = new HttpRequestMessage(method, new Uri(ApiBase + relPath, UriKind.Absolute))
+        var request = new HttpRequestMessage(method, new Uri(TraktApi.BaseUrl + relPath, UriKind.Absolute))
         {
             Content = new StringContent(jsonBody, Encoding.UTF8, "application/json"),
         };

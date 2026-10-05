@@ -319,6 +319,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── TraktAuthServiceTests.cs       # Device flow: start, poll status mapping, token persistence on approval, proactive refresh exactly once on expiry, re-link on refresh failure, disconnect
 │   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry
 │   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
+│   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
 │   │   └── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
@@ -652,6 +653,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │       └── LibraryInsightEntry.cs      # Per-library insight entry
 │   ├── Trakt/                   # Trakt discovery source (OAuth device flow + external recommendations)
 │   │   ├── ITraktAuthService.cs     # Device-flow + token lifecycle contract (start/poll/get-valid-token/disconnect)
+│   │   ├── TraktApi.cs              # Shared Trakt API base URL (env-overridable for e2e, defaults to api.trakt.tv)
 │   │   ├── TraktAuthService.cs      # Device flow against api.trakt.tv: start/poll status mapping, proactive refresh on expiry, 401 handled by one refresh, never logs tokens
 │   │   ├── ITraktDiscoveryService.cs # Personal (OAuth) + global trending (client id) contract; both scored through the shared seam
 │   │   ├── TraktDiscoveryService.cs # Fetch personal + trending, map to candidates, score via ScoreExternalCandidatesAsync, per-user + global cache, RefreshAll warms linked users
