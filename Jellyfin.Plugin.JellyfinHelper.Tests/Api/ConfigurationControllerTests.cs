@@ -18,12 +18,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 /// <summary>
 ///     Tests for ConfigurationController. All tests use mocked IPluginConfigurationService - no Plugin.Instance singleton is required, which eliminates flaky behaviour caused by shared static state during parallel test execution.
 /// </summary>
-public class ConfigurationControllerTests
+public class ConfigurationControllerTests : IDisposable
 {
     private readonly Mock<IArrIntegrationService> _arrServiceMock;
     private readonly PluginConfiguration _config;
     private readonly Mock<IPluginConfigurationService> _configServiceMock;
     private readonly ConfigurationController _controller;
+    private readonly EnsembleScoringStrategy _ensemble = new();
     private readonly Mock<IPluginLogService> _pluginLogMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
     private readonly Jellyfin.Plugin.JellyfinHelper.Services.Security.ISecretProtector _secretProtector;
@@ -57,8 +58,13 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy(),
+            _ensemble,
             _secretProtector);
+    }
+
+    public void Dispose()
+    {
+        _ensemble.Dispose();
     }
 
     [Fact]
@@ -482,7 +488,7 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy(),
+            _ensemble,
             TestMockFactory.CreateSecretProtector());
 
         var result = controller.GetAvailableLibraries();
@@ -528,7 +534,7 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy(),
+            _ensemble,
             TestMockFactory.CreateSecretProtector());
 
         var result = controller.GetAvailableLibraries();
@@ -736,7 +742,7 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy(),
+            _ensemble,
             TestMockFactory.CreateSecretProtector());
     }
 
