@@ -17,12 +17,14 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -54,6 +56,19 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         AddHardenedClient("ArrIntegration", TimeSpan.FromSeconds(15));
         AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
         AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
+
+        // Secrets at rest are encrypted with Data Protection. The keyring is persisted to the plugin data
+        // path and is deliberately NOT machine bound, so a data path copied to another host (restore,
+        // migration) stays decryptable. SetApplicationName isolates this keyring from Jellyfin's own so a
+        // host key rotation cannot invalidate our secrets and vice versa.
+        var keyringPath = Plugin.Instance?.DataFolderPath;
+        var dataProtection = serviceCollection.AddDataProtection().SetApplicationName("Jellyfin.Plugin.JellyfinHelper");
+        if (!string.IsNullOrEmpty(keyringPath))
+        {
+            dataProtection.PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(keyringPath, "keys")));
+        }
+
+        serviceCollection.AddSingleton<ISecretProtector, SecretProtector>();
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();

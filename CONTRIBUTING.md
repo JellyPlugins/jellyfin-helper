@@ -260,6 +260,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Link/                      # Link repair tests
 │   │   └── SymlinkHelperTests.cs           # Real-filesystem integration; graceful skip without privileges; meta-test ensures Linux CI runs the branch
 │   ├── PluginLog/                 # Plugin log tests
+│   ├── Security/                  # Secret protection tests
+│   │   └── SecretProtectorTests.cs                     # Roundtrip, idempotency, legacy plaintext passthrough (lazy migration), empty handling, fail-closed on undecryptable blob
 │   ├── Seerr/                     # Seerr integration tests
 │   │   ├── SeerrIntegrationServiceTests.cs             # Connection/cleanup contract; FormatException guard: non-ASCII/spaced API keys must not throw
 │   │   ├── SeerrIntegrationServiceErrorHandlingTests.cs # Cancellation-vs-timeout paths, null-results fail-closed, CRLF header-injection guard
@@ -583,6 +585,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── DiscoverySidebarInjectionService.cs  # IHostedService that re-runs Plugin.InjectScript() at server startup (post-DI, web root mounted) - self-heals the disk-write fallback after a Jellyfin web update; idempotent alongside the ctor injection
 │   │   ├── PatchRequestPayload.cs    # Payload model for transformation callbacks
 │   │   └── TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
+│   ├── Security/                # Secrets at rest (Data Protection)
+│   │   ├── ISecretProtector.cs      # Protect/Unprotect/IsProtected contract; DP:: prefix marks ciphertext so legacy plaintext is read as-is and lazily re-encrypted on next save
+│   │   └── SecretProtector.cs       # Data Protection impl: DataPath keyring (not machine bound), idempotent Protect, fail-closed Unprotect on undecryptable blobs
 │   ├── Seerr/                   # Jellyseerr/Overseerr integration
 │   │   ├── ISeerrIntegrationService.cs   # Seerr cleanup (request removal)
 │   │   ├── SeerrIntegrationService.cs
