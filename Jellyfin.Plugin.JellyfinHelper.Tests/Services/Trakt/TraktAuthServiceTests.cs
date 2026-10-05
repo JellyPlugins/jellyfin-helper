@@ -24,7 +24,7 @@ public sealed class TraktAuthServiceTests : IDisposable
     private readonly Queue<(HttpStatusCode Status, string Body)> _responses = new();
     private readonly ITraktUserStore _store;
     private readonly Mock<IHttpClientFactory> _factory;
-    private DateTime _now = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private readonly DateTime _now = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     public TraktAuthServiceTests()
     {

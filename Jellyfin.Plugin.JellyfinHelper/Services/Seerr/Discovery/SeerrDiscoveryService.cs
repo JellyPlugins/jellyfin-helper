@@ -1746,6 +1746,47 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
             _logger);
 
+        var recommendations = await ScoreCandidatesForUserAsync(
+            profile,
+            uniqueCandidates,
+            topGenres,
+            genrePreferences,
+            preferredPeople,
+            avgYear,
+            genreExposure,
+            client,
+            baseUri,
+            apiKey,
+            cancellationToken).ConfigureAwait(false);
+
+        return new DiscoveryResult
+        {
+            UserId = profile.UserId,
+            UserName = profile.UserName,
+            Recommendations = recommendations,
+            GeneratedAt = DateTime.UtcNow
+        };
+    }
+
+    /// <summary>
+    ///     Runs the shared three-phase scoring pipeline over an already-filtered candidate set: pre-score with
+    ///     the user's ensemble, enrich the top-N with credits when the user has people preferences, final-score
+    ///     the enriched set, and project the top results into recommendations. Extracted from
+    ///     GenerateForUserAsync so the Trakt external source scores candidates through the exact same path.
+    /// </summary>
+    private async Task<List<DiscoveryRecommendation>> ScoreCandidatesForUserAsync(
+        UserWatchProfile profile,
+        List<TmdbDiscoverItem> uniqueCandidates,
+        List<string> topGenres,
+        Dictionary<string, double> genrePreferences,
+        HashSet<string> preferredPeople,
+        double avgYear,
+        PreferenceBuilder.GenreExposureAnalysis genreExposure,
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        CancellationToken cancellationToken)
+    {
         // The user's own ensemble (per-user blend when they have enough history, else the global fallback),
         // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
         // once per user and read the feature means from the SAME instance that scores, so a per-user model
@@ -1805,13 +1846,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             recommendations.Add(BuildRecommendation(item, features, score, topGenres, preferredPeople));
         }
 
-        return new DiscoveryResult
-        {
-            UserId = profile.UserId,
-            UserName = profile.UserName,
-            Recommendations = recommendations,
-            GeneratedAt = DateTime.UtcNow
-        };
+        return recommendations;
     }
 
     /// <summary>

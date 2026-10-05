@@ -645,7 +645,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── TraktUserToken.cs        # Per-user token record (access/refresh/expiry) with IsLinked guard
 │   │   ├── TraktDeviceCodeResponse.cs # POST /oauth/device/code response (device/user code, verification URL, expiry, interval)
 │   │   ├── TraktTokenResponse.cs    # Token payload from device/token + refresh (access/refresh/expires_in/created_at)
-│   │   └── TraktDevicePollStatus.cs # Poll outcome enum (Pending/Linked/Expired/Denied/Error)
+│   │   ├── TraktDevicePollStatus.cs # Poll outcome enum (Pending/Linked/Expired/Denied/Error)
+│   │   ├── TraktIds.cs              # Cross-service id bag (trakt/slug/tmdb); items without tmdb are dropped on mapping
+│   │   ├── TraktMediaItem.cs        # A Trakt movie/show (title/year/overview/rating/certification/genres/ids)
+│   │   └── TraktTrendingItem.cs     # Trending wrapper (watchers + nested movie or show)
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs
