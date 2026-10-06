@@ -13,6 +13,8 @@ reviews:
     - "!**/*.yml"
     - "!**/Dockerfile*"
     - "!**/*.ps1"
+    - "!**/*.csproj"
+    - "!**/*.props"
     - "!manifest.json"
     - "!mock-data.js"
   auto_review:
