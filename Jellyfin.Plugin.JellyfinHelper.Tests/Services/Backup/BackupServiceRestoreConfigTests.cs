@@ -472,6 +472,57 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.True(liveConfig.RadarrInstances[0].SkipCertificateValidation);
     }
 
+    [Fact]
+    public void RestoreArrInstances_AbsentSkipCertValidation_PreservesMatchingLiveValue()
+    {
+        // An older backup has no skipCertificateValidation field (null). The restore must keep the
+        // matching live instance's setting instead of forcing validation back on and breaking a
+        // working private-CA Arr connection.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+        { Name = "R1", Url = "https://r:7878", ApiKey = "live-key", SkipCertificateValidation = true });
+
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance
+        {
+            Name = "R1",
+            Url = "https://r:7878",
+            ApiKey = "backup-key",
+            Libraries = "Movies",
+            SkipCertificateValidation = null
+        });
+
+        service.RestoreBackup(backup);
+
+        Assert.Single(liveConfig.RadarrInstances);
+        Assert.True(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+    }
+
+    [Fact]
+    public void RestoreArrInstances_ExplicitFalseSkipCertValidation_OverridesLiveTrue()
+    {
+        // An explicit false in the backup is a real choice and must win over a live true - the
+        // absent-guard only applies when the field is null, never when it was deliberately set.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+        { Name = "R1", Url = "https://r:7878", ApiKey = "live-key", SkipCertificateValidation = true });
+
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance
+        {
+            Name = "R1",
+            Url = "https://r:7878",
+            ApiKey = "backup-key",
+            Libraries = "Movies",
+            SkipCertificateValidation = false
+        });
+
+        service.RestoreBackup(backup);
+
+        Assert.Single(liveConfig.RadarrInstances);
+        Assert.False(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+    }
+
     public static TheoryData<int, int> SeerrCleanupAgeDaysApplyClampCases() => new()
     {
         { 0, 0 },

@@ -608,6 +608,14 @@ public sealed class BackupService : IBackupService
         var keysChanged = 0;
         var silentWipes = 0;
 
+        // Name (case-insensitive, mirroring the key-preserve rule above) + Url (exact) -> live skip-cert
+        // value, so a backup that omits the field (older format) falls back to the live setting instead of
+        // forcing validation back on. The composite key is lower-cased on the name only.
+        var liveSkipCert = liveInstances.ToLookup(
+            i => LiveInstanceKey(i.Name, i.Url),
+            i => i.SkipCertificateValidation,
+            StringComparer.Ordinal);
+
         foreach (var instance in backupInstances.Take(BackupValidator.MaxArrInstances))
         {
             // An empty backup key means "preserve the live key" - fall back to the previously
@@ -638,7 +646,10 @@ public sealed class BackupService : IBackupService
                     // Re-encrypt before persisting so the restored key matches the at-rest format. Empty stays empty.
                     ApiKey = _secretProtector.Protect(apiKey),
                     Libraries = BackupSanitizer.TruncateString(instance.Libraries, BackupValidator.MaxArrLibrariesLength),
+
+                    // Absent in the backup -> keep the matching live instance's setting; an explicit value wins.
                     SkipCertificateValidation = instance.SkipCertificateValidation
+                        ?? liveSkipCert[LiveInstanceKey(instance.Name, instance.Url)].FirstOrDefault()
                 });
         }
 
@@ -663,6 +674,11 @@ public sealed class BackupService : IBackupService
             summary.CredentialsChanged = true;
         }
     }
+
+    // Composite lookup key matching an Arr instance by case-insensitive Name and exact Url. The name is
+    // lower-cased with the invariant culture and joined with a NUL so distinct name/url splits cannot collide.
+    private static string LiveInstanceKey(string name, string url) =>
+        (name ?? string.Empty).ToLowerInvariant() + "\0" + (url ?? string.Empty);
 
     private TaskMode ParseTaskMode(string? value, string fieldName, TaskMode fallback = TaskMode.DryRun)
     {

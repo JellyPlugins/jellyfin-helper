@@ -714,6 +714,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `MediaExtensionsTests.cs` - Tests MediaExtensions video/subtitle/image/audio/nfo sets, codec map, and language codes
 - `ContributingDocCoverageTests.cs` - Drift guard: every tracked source/test file must be listed in this index
 - `PluginServiceRegistratorTests.cs`
+- `InsecureNamedClientTlsTests.cs` - Live TLS proof: insecure named clients complete a handshake with an untrusted loopback cert while strict clients reject it
 - `PluginTests.cs`
 - `PluginResolveRealPathTests.cs`
 

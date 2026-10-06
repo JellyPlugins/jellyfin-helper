@@ -684,6 +684,57 @@ public class ConfigurationControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateConfiguration_AbsentSeerrSkipCertValidation_PreservesStoredValue()
+    {
+        // A client (older UI or API caller) that omits SeerrSkipCertificateValidation must not
+        // reset the stored flag to false and re-enable validation on a working private-CA setup.
+        _config.SeerrSkipCertificateValidation = true;
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "Seerr v1.33"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "seerr-key",
+            SeerrSkipCertificateValidation = null,
+            SeerrCleanupAgeDays = 30
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.True(_config.SeerrSkipCertificateValidation);
+        // The connection test falls back to the persisted value when the request omits the field.
+        _seerrServiceMock.Verify(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ExplicitFalseSeerrSkipCertValidation_OverridesStoredTrue()
+    {
+        // An explicit false is a deliberate choice and must win over a stored true; the absent-guard
+        // only preserves the stored value when the field is null.
+        _config.SeerrSkipCertificateValidation = true;
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "Seerr v1.33"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "seerr-key",
+            SeerrSkipCertificateValidation = false,
+            SeerrCleanupAgeDays = 30
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(_config.SeerrSkipCertificateValidation);
+        _seerrServiceMock.Verify(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_SeerrUnreachable_ReturnsWarning()
     {
         _seerrServiceMock
