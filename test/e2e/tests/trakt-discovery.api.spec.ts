@@ -3,7 +3,7 @@
  * Exercises the device-link state machine (start -> pending poll -> arm -> linked), the personal and
  * trending surfaces, and the TraktEnabled gate. Requires an authenticated non-admin user and TraktEnabled.
  */
-import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
+import { test, expect, request as pwRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { apiContext, normalUserContext, loadAuth, p, API_KEY_MASK } from '../setup/api-client.ts';
 
 // The mock is published to the host on loopback; the plugin container reaches it as mock-trakt.
@@ -257,8 +257,9 @@ test('disconnect clears the link', async () => {
 });
 
 /**
- * Links the normal user unless already linked: a redundant start right after
- * the link test would hit the per-minute throttle and 429 here.
+ * Links the normal user unless already linked. The fallback path runs only when an earlier
+ * test already spent the per-minute start / 5s poll windows, so both calls honor 429s via
+ * the server's Retry-After instead of failing on the first throttled attempt.
  */
 async function ensureLinkedForDisconnect(): Promise<void> {
   const cur = await user!.get(p('Discovery/My/Trakt'));
@@ -266,16 +267,32 @@ async function ensureLinkedForDisconnect(): Promise<void> {
   if ((await cur.json()).Linked === true) {
     return;
   }
-  const start = await user!.post(p('Discovery/My/Trakt/Device/Start'), { headers: { 'Content-Type': 'application/json' }, data: {} });
+  const start = await postThrottled('Discovery/My/Trakt/Device/Start', {}, 'device start');
   expect(start.ok(), `device start: ${start.status()}`).toBeTruthy();
   const device = await start.json();
   await traktHook('/arm-linked');
-  const linked = await user!.post(p('Discovery/My/Trakt/Device/Poll'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { DeviceCode: device.device_code },
-  });
+  const linked = await postThrottled('Discovery/My/Trakt/Device/Poll', { DeviceCode: device.device_code }, 'device poll');
   expect(linked.ok()).toBeTruthy();
   expect((await linked.json()).Status).toBe('Linked');
+}
+
+/**
+ * POST with 429 retries honoring the server's Retry-After header (seconds, plus a small
+ * buffer). Bounded: each throttled attempt reports exactly how long to wait, so three
+ * attempts cover even a freshly-spent per-minute start window.
+ */
+async function postThrottled(ep: string, data: Record<string, unknown>, label: string): Promise<APIResponse> {
+  let last: APIResponse | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    last = await user!.post(p(ep), { headers: { 'Content-Type': 'application/json' }, data });
+    if (last.status() !== 429) {
+      return last;
+    }
+    const retryAfter = Number.parseInt(last.headers()['retry-after'] ?? '', 10);
+    await new Promise((r) => setTimeout(r, (Number.isFinite(retryAfter) ? retryAfter : 5) * 1000 + 500));
+  }
+  expect(last!.status(), `${label}: still throttled after 3 attempts`).not.toBe(429);
+  return last!;
 }
 
 test('Trakt endpoints are gated by the discovery-access toggle', async () => {

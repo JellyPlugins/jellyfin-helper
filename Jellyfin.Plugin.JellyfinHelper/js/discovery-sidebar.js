@@ -708,16 +708,20 @@
     function startDeviceFlow(host) {
         clearDevicePoll();
         host.innerHTML = spinnerHtml();
+        // Captured so a pending poll never renders into another account's panel after a switch.
+        var startedUserId = currentDiscoveryUserId();
         ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Start'), dataType: 'json' })
             .then(function (device) {
+                if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
                 if (!device?.user_code) {
                     renderConnectPanel(host);
                     return;
                 }
                 renderDeviceCode(host, device);
-                scheduleDevicePoll(host, device.device_code, Math.max(5, Number(device.interval) || 5));
+                scheduleDevicePoll(host, device.device_code, Math.max(5, Number(device.interval) || 5), startedUserId);
             })
             .catch(function () {
+                if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
                 renderConnectPanel(host);
                 showToast(t('discoveryTraktConnectFailed', 'Could not start Trakt authorization. Try again.'));
             });
@@ -745,11 +749,12 @@
         }
     }
 
-    function scheduleDevicePoll(host, deviceCode, intervalSeconds) {
+    function scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId) {
         clearDevicePoll();
         _devicePollTimer = setTimeout(function () {
-            // Abandon the loop if the user navigated away or switched tabs while waiting.
-            if (!document.contains(host)) { clearDevicePoll(); return; }
+            // Abandon the loop if the user navigated away, switched tabs, or switched
+            // accounts while waiting: the result belongs to the account that started it.
+            if (!document.contains(host) || startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
             ApiClient.ajax({
                 type: 'POST',
                 url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Poll'),
@@ -758,13 +763,14 @@
                 dataType: 'json'
             })
                 .then(function (resp) {
+                    if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
                     var status = resp?.Status;
                     if (status === 'Linked') {
                         clearDevicePoll();
                         _traktPersonalCache = null;
                         renderTraktPersonal(host, true);
                     } else if (status === 'Pending') {
-                        scheduleDevicePoll(host, deviceCode, intervalSeconds);
+                        scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId);
                     } else {
                         // Denied or Error: stop and offer a fresh start.
                         clearDevicePoll();
@@ -774,9 +780,10 @@
                 .catch(function (err) {
                     // 410 Gone means the code expired; 429 means we polled too fast (back off one interval).
                     if (err?.status === 429) {
-                        scheduleDevicePoll(host, deviceCode, intervalSeconds + 1);
+                        scheduleDevicePoll(host, deviceCode, intervalSeconds + 1, startedUserId);
                         return;
                     }
+                    if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
                     clearDevicePoll();
                     renderConnectPanel(host);
                 });

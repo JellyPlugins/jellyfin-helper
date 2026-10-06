@@ -306,7 +306,7 @@ public sealed class TraktAuthService : ITraktAuthService
                 return null;
             }
 
-            return await StoreTokenAsync(userId, token, cancellationToken).ConfigureAwait(false);
+            return await StoreTokenAsync(userId, token, cancellationToken, refreshToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ResponseTooLargeException)
         {
@@ -315,12 +315,14 @@ public sealed class TraktAuthService : ITraktAuthService
         }
     }
 
-    private async Task<TraktUserToken> StoreTokenAsync(Guid userId, TraktTokenResponse token, CancellationToken cancellationToken)
+    private async Task<TraktUserToken> StoreTokenAsync(Guid userId, TraktTokenResponse token, CancellationToken cancellationToken, string? previousRefreshToken = null)
     {
+        // A refresh response may omit refresh_token (rotation is optional): keep the previous one
+        // so a valid access token never orphans the link by storing an empty refresh token.
         var stored = new TraktUserToken
         {
             AccessToken = token.AccessToken,
-            RefreshToken = token.RefreshToken,
+            RefreshToken = string.IsNullOrEmpty(token.RefreshToken) ? previousRefreshToken ?? string.Empty : token.RefreshToken,
             ExpiresAtUtc = _utcNow().AddSeconds(token.ExpiresIn),
         };
         await _store.SaveAsync(userId, stored, cancellationToken).ConfigureAwait(false);
