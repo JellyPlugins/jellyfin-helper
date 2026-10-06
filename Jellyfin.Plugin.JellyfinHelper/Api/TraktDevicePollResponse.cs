@@ -1,8 +1,8 @@
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     Status envelope for a Trakt device-code poll. The client keeps polling while the status is pending and
-///     stops (restarting with a fresh code) once it is expired.
+///     Status envelope for a Trakt device-code poll. The client polls while pending
+///     and restarts with a fresh code once expired.
 /// </summary>
 public sealed class TraktDevicePollResponse
 {

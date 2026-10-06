@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 ///     per linked user. Access and refresh tokens are encrypted with <see cref="ISecretProtector"/> before
 ///     they are written and decrypted on read, so a token value is never on disk or in a log in plain text.
 /// </summary>
-public sealed class TraktUserStore : ITraktUserStore
+public sealed class TraktUserStore : ITraktUserStore, IDisposable
 {
     private const string LogSource = "Trakt";
 
@@ -28,6 +28,12 @@ public sealed class TraktUserStore : ITraktUserStore
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<TraktUserStore> _logger;
     private readonly string? _filePath;
+
+    // Serializes disk writes; each snapshot carries a version so an older one
+    // can never land on disk after a newer one.
+    private readonly SemaphoreSlim _persistGate = new(1, 1);
+    private long _persistVersion;
+    private long _persistedVersion;
 
     // Stored encrypted (DP:: ciphertext). Keyed by user id in "N" (32 hex) form so the JSON is stable.
     private Dictionary<string, StoredEntry>? _entries;
@@ -100,6 +106,7 @@ public sealed class TraktUserStore : ITraktUserStore
         ArgumentNullException.ThrowIfNull(token);
         var key = Key(userId);
 
+        long version;
         string json;
         lock (_gate)
         {
@@ -111,10 +118,11 @@ public sealed class TraktUserStore : ITraktUserStore
                 RefreshToken = _secretProtector.Protect(token.RefreshToken),
                 ExpiresAtUtc = token.ExpiresAtUtc,
             };
+            version = ++_persistVersion;
             json = Serialize(_entries);
         }
 
-        return PersistAsync(json, cancellationToken);
+        return PersistAsync(version, json, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -122,7 +130,9 @@ public sealed class TraktUserStore : ITraktUserStore
     {
         var key = Key(userId);
 
+        long version;
         string json;
+        bool removed;
         lock (_gate)
         {
             EnsureLoaded();
@@ -131,10 +141,14 @@ public sealed class TraktUserStore : ITraktUserStore
                 return Task.CompletedTask;
             }
 
+            version = ++_persistVersion;
             json = Serialize(_entries);
+            removed = true;
         }
 
-        return PersistAsync(json, cancellationToken);
+        return removed
+            ? PersistAsync(version, json, cancellationToken)
+            : Task.CompletedTask;
     }
 
     private static string Key(Guid userId) => userId.ToString("N");
@@ -142,7 +156,7 @@ public sealed class TraktUserStore : ITraktUserStore
     private static string Serialize(Dictionary<string, StoredEntry> entries)
         => JsonSerializer.Serialize(entries);
 
-    private async Task PersistAsync(string json, CancellationToken cancellationToken)
+    private async Task PersistAsync(long version, string json, CancellationToken cancellationToken)
     {
         if (_filePath is null)
         {
@@ -150,16 +164,41 @@ public sealed class TraktUserStore : ITraktUserStore
             return;
         }
 
+        await _persistGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await AtomicFile.WriteAllTextAsync(_filePath, json, cancellationToken: cancellationToken).ConfigureAwait(false);
+            lock (_gate)
+            {
+                if (version < _persistedVersion)
+                {
+                    return;
+                }
+
+                _persistedVersion = version;
+            }
+
+            try
+            {
+                await AtomicFile.WriteAllTextAsync(_filePath, json, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Persistence is best effort; the in-memory map still serves the current process. Surface it so a
+                // read-only data dir is diagnosable, but never fail the OAuth flow over a disk write.
+                _pluginLog.LogWarning(LogSource, "Failed to persist Trakt tokens to disk.", ex, _logger);
+            }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        finally
         {
-            // Persistence is best effort; the in-memory map still serves the current process. Surface it so a
-            // read-only data dir is diagnosable, but never fail the OAuth flow over a disk write.
-            _pluginLog.LogWarning(LogSource, "Failed to persist Trakt tokens to disk.", ex, _logger);
+            _persistGate.Release();
         }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _persistGate.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     // Loads the JSON file once on first access. A missing or unreadable file yields an empty map so the store

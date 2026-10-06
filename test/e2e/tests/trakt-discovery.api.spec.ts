@@ -245,10 +245,38 @@ test('trending is available without linking', async () => {
 
 test('disconnect clears the link', async () => {
   expect(user, 'normal user required').toBeTruthy();
+  await ensureLinkedForDisconnect();
   const res = await user!.post(p('Discovery/My/Trakt/Device/Disconnect'), { headers: { 'Content-Type': 'application/json' }, data: {} });
   expect(res.ok()).toBeTruthy();
   expect((await res.json()).Success).toBe(true);
+
+  // The link is actually gone: the personal endpoint reports Linked:false again.
+  const after = await user!.get(p('Discovery/My/Trakt'));
+  expect(after.ok()).toBeTruthy();
+  expect((await after.json()).Linked).toBe(false);
 });
+
+/**
+ * Links the normal user unless already linked: a redundant start right after
+ * the link test would hit the per-minute throttle and 429 here.
+ */
+async function ensureLinkedForDisconnect(): Promise<void> {
+  const cur = await user!.get(p('Discovery/My/Trakt'));
+  expect(cur.ok()).toBeTruthy();
+  if ((await cur.json()).Linked === true) {
+    return;
+  }
+  const start = await user!.post(p('Discovery/My/Trakt/Device/Start'), { headers: { 'Content-Type': 'application/json' }, data: {} });
+  expect(start.ok(), `device start: ${start.status()}`).toBeTruthy();
+  const device = await start.json();
+  await traktHook('/arm-linked');
+  const linked = await user!.post(p('Discovery/My/Trakt/Device/Poll'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { DeviceCode: device.device_code },
+  });
+  expect(linked.ok()).toBeTruthy();
+  expect((await linked.json()).Status).toBe('Linked');
+}
 
 test('Trakt endpoints are gated by the discovery-access toggle', async () => {
   expect(user, 'normal user required').toBeTruthy();

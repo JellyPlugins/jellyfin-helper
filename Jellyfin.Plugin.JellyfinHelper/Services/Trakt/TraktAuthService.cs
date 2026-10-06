@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -31,6 +32,10 @@ public sealed class TraktAuthService : ITraktAuthService
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<TraktAuthService> _logger;
     private readonly Func<DateTime> _utcNow;
+
+    // One refresh gate per user that ever hits an expired token (bounded by the user count). Concurrent
+    // requests for the same user share a single refresh grant instead of racing it.
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _refreshGates = new();
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktAuthService"/> class.
@@ -159,9 +164,26 @@ public sealed class TraktAuthService : ITraktAuthService
             return token.AccessToken;
         }
 
-        // Expired or about to: refresh exactly once, then surface a re-link on failure.
-        var refreshed = await RefreshAsync(userId, token.RefreshToken, cancellationToken).ConfigureAwait(false);
-        return refreshed?.AccessToken;
+        // Serialize refreshes per user so concurrent requests share one grant. Re-read inside
+        // the gate; a concurrent refresh may already have stored a fresh token.
+        var gate = _refreshGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = _store.GetToken(userId);
+            if (current is not null && current.IsLinked && current.ExpiresAtUtc - ExpirySkew > _utcNow())
+            {
+                return current.AccessToken;
+            }
+
+            // Expired or about to: refresh exactly once, then surface a re-link on failure.
+            var refreshed = await RefreshAsync(userId, token.RefreshToken, cancellationToken).ConfigureAwait(false);
+            return refreshed?.AccessToken;
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     /// <inheritdoc />

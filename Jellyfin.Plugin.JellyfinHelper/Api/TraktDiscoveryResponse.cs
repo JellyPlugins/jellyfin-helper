@@ -3,9 +3,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
-///     Response envelope for the current user's personal Trakt recommendations. When the user has not linked
-///     Trakt the response carries Linked=false (so the UI shows the connect panel); otherwise it carries the
-///     scored discovery result.
+///     Response envelope for the current user's personal Trakt recommendations: Linked=false
+///     shows the connect panel, otherwise the scored result is carried along.
 /// </summary>
 public sealed class TraktDiscoveryResponse
 {

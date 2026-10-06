@@ -154,9 +154,19 @@ test.describe('Discovery custom tab (home page)', () => {
       const markers = Array.from(document.querySelectorAll('.jellyfinhelper.discovery'));
       const stray = markers.filter((m) => !m.closest('[id^="customTab_"]')).length;
       const panels = Array.from(document.querySelectorAll('[id^="customTab_"]'));
+      const favoritesTab = document.getElementById('favoritesTab');
+      // The legacy run of Custom-Tabs-owned panels starts directly after #favoritesTab.
+      const legacyRun = new Set();
+      let sibling = favoritesTab?.nextElementSibling ?? null;
+      while (sibling && /^customTab_/.test(sibling.id || '')) {
+        legacyRun.add(sibling);
+        sibling = sibling.nextElementSibling;
+      }
       const unowned = panels.filter((p) => {
         const hasIndex = p.hasAttribute('data-index');
-        const placedByCustomTabs = !!p.closest('main') || !!document.getElementById('favoritesTab');
+        // Owned means inside <main> (Modern) or the legacy run above. A document-wide
+        // #favoritesTab lookup would pass every panel, so position is checked, not presence.
+        const placedByCustomTabs = !!p.closest('main') || legacyRun.has(p);
         return !hasIndex || !placedByCustomTabs;
       }).length;
       return { stray, panelCount: panels.length, unowned };

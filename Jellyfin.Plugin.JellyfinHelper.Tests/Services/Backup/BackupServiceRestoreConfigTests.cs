@@ -943,4 +943,41 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal("live-trakt-secret", _secretProtector.Unprotect(liveConfig.TraktClientSecret));
         Assert.False(summary.CredentialsChanged);
     }
+
+    [Fact]
+    public void RestoreBackup_EmptyTraktClientId_PreservesLiveIdAndHonorsBackupFlag()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.TraktEnabled = true;
+        liveConfig.TraktClientId = "live-id";
+        liveConfig.TraktClientSecret = _secretProtector.Protect("live-trakt-secret");
+        var backup = MakeMinimalValidBackup();
+        liveConfig.SeerrApiKey = backup.SeerrApiKey;
+        backup.TraktEnabled = false;
+        backup.TraktClientId = string.Empty;
+        backup.TraktClientSecret = string.Empty;
+
+        var summary = service.RestoreBackup(backup);
+
+        // Older backups predate Trakt: nothing may be wiped, and the backup's explicit disable is honored.
+        Assert.Equal("live-id", liveConfig.TraktClientId);
+        Assert.Equal("live-trakt-secret", _secretProtector.Unprotect(liveConfig.TraktClientSecret));
+        Assert.False(liveConfig.TraktEnabled);
+        Assert.False(summary.CredentialsChanged);
+    }
+
+    [Fact]
+    public void RestoreBackup_TraktEnabledWithoutCredentials_StaysDisabled()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.TraktEnabled = true;
+        backup.TraktClientId = string.Empty;
+        backup.TraktClientSecret = string.Empty;
+
+        service.RestoreBackup(backup);
+
+        // Enabling without an id or secret would leave a broken feature behind.
+        Assert.False(liveConfig.TraktEnabled);
+    }
 }

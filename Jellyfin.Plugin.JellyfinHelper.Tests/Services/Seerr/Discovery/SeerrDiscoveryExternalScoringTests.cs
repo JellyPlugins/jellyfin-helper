@@ -44,8 +44,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         }
 
         // The service under test never takes ownership: the ensemble (which owns its neural strategy)
-        // and the cache created below are disposed here. The neural strategy is intentionally not listed
-        // separately - disposing the ensemble already tears it down.
+        // and the cache created below are disposed here.
         foreach (var owned in _owned)
         {
             owned.Dispose();

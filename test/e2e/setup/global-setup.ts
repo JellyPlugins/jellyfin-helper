@@ -323,6 +323,9 @@ async function configureDiscoveryCustomTab(admin: ProvisionCtx): Promise<void> {
   });
   // eslint-disable-next-line no-console
   console.log(`[global-setup] enable discovery access -> ${cfg.status()}`);
+  if (!cfg.ok()) {
+    throw new Error(`Discovery access setup failed: ${cfg.status()} ${(await cfg.text()).slice(0, 300)}`);
+  }
 
   // Register the Custom Tab (Title + ContentHtml) exactly as the admin would.
   const tab = await admin.post(`/Plugins/${CUSTOM_TABS_GUID}/Configuration`, {
@@ -331,6 +334,9 @@ async function configureDiscoveryCustomTab(admin: ProvisionCtx): Promise<void> {
   });
   // eslint-disable-next-line no-console
   console.log(`[global-setup] configure Custom Tabs tab -> ${tab.status()}`);
+  if (!tab.ok()) {
+    throw new Error(`Custom Tabs tab setup failed: ${tab.status()} ${(await tab.text()).slice(0, 300)}`);
+  }
 }
 
 /** * Best-effort POST to a mock-Seerr test hook, always disposing the throwaway * request context. */

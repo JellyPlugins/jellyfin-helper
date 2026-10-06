@@ -108,27 +108,21 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return null;
         }
 
-        var cached = _cache.GetTrending(CacheTtl);
-        if (cached is not null)
+        var pool = _cache.GetTrendingPool(CacheTtl);
+        if (pool is null)
         {
-            // The global trending candidate pool is shared, but scoring is per-user, so re-score the cached
-            // pool for this user rather than serving another user's ranking.
-            return cached.UserId == userId ? cached : await RescoreForUserAsync(userId, cached, cancellationToken).ConfigureAwait(false);
+            var candidates = await FetchTrendingAsync(config, cancellationToken).ConfigureAwait(false);
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            _cache.SetTrendingPool(candidates);
+            pool = candidates;
         }
 
-        var candidates = await FetchTrendingAsync(config, cancellationToken).ConfigureAwait(false);
-        if (candidates.Count == 0)
-        {
-            return null;
-        }
-
-        var result = await _discoveryService.ScoreExternalCandidatesAsync(userId, candidates, ReasonKey, cancellationToken).ConfigureAwait(false);
-        if (result is not null)
-        {
-            _cache.SetTrending(result);
-        }
-
-        return result;
+        // Always score the raw pool per user; a stored ranking is never served to anyone.
+        return await _discoveryService.ScoreExternalCandidatesAsync(userId, pool, ReasonKey, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -140,10 +134,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return;
         }
 
-        // Drop the shared trending entry so the next request re-fetches a fresh pool; trending is scored
-        // per-user at request time, so there is nothing user-specific to warm here. Then warm each linked
-        // user's personal cache, guarding every user so one failure never aborts the rest.
-        _cache.InvalidateTrending();
+        // Drop the shared trending pool so the next request re-fetches a fresh pool; per-user scoring
+        // happens at request time from the raw pool, so there is nothing user-specific to warm here. Then
+        // warm each linked user's personal cache, guarding every user so one failure never aborts the rest.
+        _cache.InvalidateTrendingPool();
 
         foreach (var userId in _store.GetLinkedUserIds())
         {
@@ -152,31 +146,13 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             {
                 await GetPersonalAsync(userId, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException or ResponseTooLargeException)
+            catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
             {
+                // Any single user's failure (timeout, malformed payload, scoring error) must never abort
+                // the remaining users; a requested cancellation still propagates to the caller.
                 _pluginLog.LogWarning(LogSource, "Personal refresh failed for a user.", ex, _logger);
             }
         }
-    }
-
-    private async Task<DiscoveryResult?> RescoreForUserAsync(Guid userId, DiscoveryResult pooled, CancellationToken cancellationToken)
-    {
-        var candidates = new List<ExternalDiscoveryCandidate>(pooled.Recommendations.Count);
-        foreach (var rec in pooled.Recommendations)
-        {
-            candidates.Add(new ExternalDiscoveryCandidate
-            {
-                TmdbId = rec.TmdbId,
-                MediaType = rec.MediaType,
-                Title = rec.Title,
-                Year = rec.Year,
-                Overview = rec.Overview,
-                VoteAverage = rec.TmdbRating,
-                PosterPath = rec.PosterPath,
-            });
-        }
-
-        return await _discoveryService.ScoreExternalCandidatesAsync(userId, candidates, ReasonKey, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<List<ExternalDiscoveryCandidate>> FetchPersonalAsync(
@@ -226,7 +202,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
     private static HttpRequestMessage BuildRequest(string relPath, string clientId, int limit, string? accessToken)
     {
-        var uri = new Uri($"{TraktApi.BaseUrl}{relPath}?limit={limit}", UriKind.Absolute);
+        // extended=full is load-bearing: without it Trakt omits rating (mapped to 0 downstream), and the
+        // minimum-vote filter would then empty the candidate pool.
+        var uri = new Uri($"{TraktApi.BaseUrl}{relPath}?limit={limit}&extended=full", UriKind.Absolute);
         var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.TryAddWithoutValidation("trakt-api-version", "2");

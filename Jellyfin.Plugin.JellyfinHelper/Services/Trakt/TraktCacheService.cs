@@ -1,20 +1,21 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 
 /// <summary>
-///     In-memory cache for Trakt discovery results: personal recommendations keyed per user and a single
-///     global trending list shared across users. Entries carry a TTL so a request falls back to a live fetch
-///     once stale; writes replace the entry. The cache is best-effort and process-local, mirroring how the
-///     scheduled task warms it and request-time lazily refreshes it.
+///     Personal results per user plus one global trending candidate pool. The pool stays raw
+///     (unscored, unfiltered) so every user scores the full set with their own filters; a stored
+///     ranking would shrink it to the first user's top-N for everyone else. Best-effort and
+///     process-local; the task warms it, requests refresh it lazily.
 /// </summary>
 public sealed class TraktCacheService
 {
-    private readonly ConcurrentDictionary<Guid, CacheEntry> _personal = new();
+    private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _personal = new();
     private readonly Func<DateTime> _utcNow;
-    private CacheEntry? _trending;
+    private CacheEntry<IReadOnlyList<ExternalDiscoveryCandidate>>? _trending;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktCacheService"/> class.
@@ -49,28 +50,29 @@ public sealed class TraktCacheService
     public void SetPersonal(Guid userId, DiscoveryResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
-        _personal[userId] = new CacheEntry(result, _utcNow());
+        _personal[userId] = new CacheEntry<DiscoveryResult>(result, _utcNow());
     }
 
     /// <summary>
-    ///     Returns the global trending result when present and not past <paramref name="ttl"/>, else null.
+    ///     Returns the global raw trending candidate pool when present and not past <paramref name="ttl"/>,
+    ///     else null. Callers always score the pool for the requesting user; never serve it as a result.
     /// </summary>
     /// <param name="ttl">The maximum age a cached entry may have to be served.</param>
-    /// <returns>The cached trending result, or null on miss or stale.</returns>
-    public DiscoveryResult? GetTrending(TimeSpan ttl)
+    /// <returns>The cached candidate pool, or null on miss or stale.</returns>
+    public IReadOnlyList<ExternalDiscoveryCandidate>? GetTrendingPool(TimeSpan ttl)
     {
         var entry = _trending;
         return entry is not null && !IsStale(entry, ttl) ? entry.Result : null;
     }
 
     /// <summary>
-    ///     Stores (or replaces) the global trending result with the current timestamp.
+    ///     Stores (or replaces) the global raw trending candidate pool with the current timestamp.
     /// </summary>
-    /// <param name="result">The result to cache.</param>
-    public void SetTrending(DiscoveryResult result)
+    /// <param name="pool">The unscored candidate pool to cache.</param>
+    public void SetTrendingPool(IReadOnlyList<ExternalDiscoveryCandidate> pool)
     {
-        ArgumentNullException.ThrowIfNull(result);
-        _trending = new CacheEntry(result, _utcNow());
+        ArgumentNullException.ThrowIfNull(pool);
+        _trending = new CacheEntry<IReadOnlyList<ExternalDiscoveryCandidate>>(pool, _utcNow());
     }
 
     /// <summary>
@@ -80,11 +82,11 @@ public sealed class TraktCacheService
     public void InvalidatePersonal(Guid userId) => _personal.TryRemove(userId, out _);
 
     /// <summary>
-    ///     Drops the cached global trending entry.
+    ///     Drops the cached global trending pool.
     /// </summary>
-    public void InvalidateTrending() => _trending = null;
+    public void InvalidateTrendingPool() => _trending = null;
 
-    private bool IsStale(CacheEntry entry, TimeSpan ttl) => _utcNow() - entry.StoredAtUtc > ttl;
+    private bool IsStale<T>(CacheEntry<T> entry, TimeSpan ttl) => _utcNow() - entry.StoredAtUtc > ttl;
 
-    private sealed record CacheEntry(DiscoveryResult Result, DateTime StoredAtUtc);
+    private sealed record CacheEntry<T>(T Result, DateTime StoredAtUtc);
 }

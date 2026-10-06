@@ -20,16 +20,8 @@
     var _seerrBaseUrl = '';
     var EXTERNAL_LINKS_URL = '/JellyfinHelper/Discovery/My/ExternalLinks';
 
-    // In-memory copy of the last successful GET /Discovery/My payload. Remounts
-    // (navigation, Custom Tabs panel rebuilds) render instantly from it, never a
-    // spinner. The cache is scoped to the user it was fetched for (account
-    // switches without a reload keep this script context) and carries a
-    // generation stamp so a response started before a mutation can never commit
-    // stale data. Mutations (request, dismiss) bump the generation and clear it;
-    // a 403 clears it. Freshness is kept current by a silent background refetch
-    // (see maybeRefreshInBackground), so there is no TTL: a stale-but-present
-    // grid always beats a blank panel, and the swap to newer data happens
-    // without the user ever seeing a loading state.
+    // Remounts render instantly from the last good payload for the same user; mutations
+    // and 403s clear it. A silent background refetch keeps it fresh, so there is no TTL.
     var _discoveryResultCache = null;
     var _backgroundRefreshInFlight = false;
     // Bumped on every mutation and on user change; a fetch captures it at start
@@ -298,10 +290,8 @@
         return Number.isNaN(ms) ? 0 : ms;
     }
 
-    // Fingerprint of the visible recommendation set. The server filters
-    // dismissed/requested items but keeps the pool's GeneratedAt, so a change
-    // from another client can arrive with an unchanged timestamp; comparing the
-    // visible ids catches that where the timestamp alone would not.
+    // Fingerprint of the visible set: the pool timestamp alone cannot catch a change
+    // from another client, so the visible ids are compared instead.
     function discoveryVisibleKey(data) {
         var recs = data?.Recommendations;
         if (!Array.isArray(recs)) { return ''; }
@@ -366,13 +356,8 @@
             return;
         }
         customTabWatcherStarted = true;
-        // Observe document.body deliberately. On Jellyfin 12's Modern layout the
-        // legacy .mainAnimatedPages element still exists, but only as an empty,
-        // static sibling of the React content, so observing it blinds us to the
-        // custom tab panels that live elsewhere. Attribute observation is included
-        // because returning to an already-built tab can toggle is-active/hide on
-        // the existing panel with no childList mutation; without it the panel can
-        // stay empty. rAF coalescing keeps the body-wide watch cheap.
+        // Watch the body: on Modern layout .mainAnimatedPages is an empty decoy sibling,
+        // and reactivated tabs can toggle classes with no childList mutation. rAF keeps it cheap.
         var observer = new MutationObserver(function () {
             scheduleTryMount();
         });
@@ -416,15 +401,12 @@
             lastMountedContainer = null;
             return;
         }
-        // Custom Tabs removes and recreates its panel when switching into the
-        // tab; forget a detached node so we remount into the live one.
+        // Custom Tabs recreates its panel on tab switch; forget detached nodes so we remount into the live one.
         if (lastMountedContainer && !document.contains(lastMountedContainer)) {
             lastMountedContainer = null;
         }
-        // The Custom Tabs plugin owns the panel and re-injects our marker from
-        // its ContentHtml on every rebuild. We only ever fill the live marker,
-        // never create one -- fabricating a panel would fight that plugin for
-        // the same node and is what caused the intermittent blank tab.
+        // The Custom Tabs plugin owns the panel and re-injects our marker on rebuild.
+        // Fill the live marker only, never create one.
         var container = findActiveContainer();
         if (!container) {
             lastMountedContainer = null;
@@ -441,10 +423,8 @@
 
     function findActiveContainer() {
         var all = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
-        // Priority passes (each newest-first): a candidate inside an ACTIVE .tabContent wins over a
-        // merely-visible .page, which wins over a candidate with no page wrapper. A single combined
-        // scan would return a visible .page before reaching an active .tabContent later in the DOM,
-        // mounting discovery in the wrong container.
+        // Newest first: an active .tabContent beats a visible .page, which beats a
+        // wrapper-less candidate. One combined scan could mount the wrong container.
         for (var i = all.length - 1; i >= 0; i--) {
             var tabContent = all[i].closest('.tabContent');
             if (tabContent && tabContent.classList.contains('is-active')) return all[i];
@@ -459,10 +439,10 @@
         return null;
     }
 
-    // Trakt sub-tab state. _traktEnabled is probed once per mount; the active tab persists across
-    // remounts so returning to the panel reopens the tab the user last viewed. Each Trakt tab keeps its
-    // own cached result so switching tabs is instant and never shows another tab's data.
+    // The active tab persists across remounts; each tab keeps its own cache
+    // so switching tabs is instant and never shows another tab's data.
     var _traktEnabled = null;
+    var _traktProbeUserId = null;
     var _activeTab = 'own';
     var _traktPersonalCache = null;
     var _traktTrendingCache = null;
@@ -472,13 +452,31 @@
     var TAB_TRAKT = 'trakt';
     var TAB_TRENDING = 'trending';
 
+    // Clears every Trakt client-side state so the next mount re-probes from scratch.
+    // Used when the feature is toggled off mid-session (403) or the account changes.
+    function resetTraktState() {
+        _traktEnabled = false;
+        _traktProbeUserId = null;
+        _traktPersonalCache = null;
+        _traktTrendingCache = null;
+    }
+
     function renderDiscovery(container, forceRefresh) {
-        // Resolve whether Trakt is enabled once, then render the tabbed shell. When it is off the panel is
-        // exactly the single ensemble grid it has always been (no tab bar, no layout shift).
-        if (_traktEnabled === null) {
+        // Probe Trakt once per account so one user's result never gates another user's tabs.
+        // With Trakt off the panel stays the single ensemble grid, without layout shift.
+        var probeUserId = currentDiscoveryUserId();
+        if (_traktEnabled === null || _traktProbeUserId !== probeUserId) {
+            _traktProbeUserId = probeUserId;
+            _traktEnabled = null;
             ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
                 .then(function () { _traktEnabled = true; })
-                .catch(function (err) { _traktEnabled = err?.status !== 403; })
+                .catch(function (err) {
+                    if (err?.status === 403) {
+                        resetTraktState();
+                    } else {
+                        _traktEnabled = true;
+                    }
+                })
                 .finally(function () { renderShell(container, forceRefresh); });
             return;
         }
@@ -582,9 +580,8 @@
         }
     }
 
-    // Personal Trakt tab: shows the connect panel until the user links, then the scored grid. The server
-    // returns {Linked:false} before linking and a DiscoveryResult after, so a null/{Linked:false} payload
-    // means "offer to connect" rather than "no results".
+    // Only an unlinked user gets the connect panel; a linked user with an empty
+    // pool gets the regular empty grid from renderCards.
     function renderTraktPersonal(host, forceRefresh) {
         if (!forceRefresh && _traktPersonalCache && _traktPersonalCache.userId === currentDiscoveryUserId()) {
             renderCards(host, _traktPersonalCache.data);
@@ -592,13 +589,20 @@
         }
 
         host.innerHTML = spinnerHtml();
+        var startedGeneration = _discoveryGeneration;
+        var startedUserId = currentDiscoveryUserId();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
             .then(function (resp) {
-                if (resp?.Linked !== true || !resp.Result) {
+                // Drop results that raced an account switch or a mutation:
+                // never cache or render cross-user data.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                if (!resp || resp.Linked !== true) {
                     renderConnectPanel(host);
                     return;
                 }
-                _traktPersonalCache = { data: resp.Result, userId: currentDiscoveryUserId() };
+                _traktPersonalCache = { data: resp.Result, userId: startedUserId };
                 renderCards(host, resp.Result);
             })
             .catch(function (err) {
@@ -614,9 +618,15 @@
         }
 
         host.innerHTML = spinnerHtml();
+        var startedGeneration = _discoveryGeneration;
+        var startedUserId = currentDiscoveryUserId();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Trending'), dataType: 'json' })
             .then(function (data) {
-                _traktTrendingCache = { data: data, userId: currentDiscoveryUserId() };
+                // Same account-switch/mutation guard as the other tabs.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                _traktTrendingCache = { data: data, userId: startedUserId };
                 renderCards(host, data);
             })
             .catch(function (err) {
@@ -625,6 +635,10 @@
     }
 
     function renderTraktError(host, err) {
+        if (err?.status === 403) {
+            // Feature toggled off mid-session: hide the tabs on the next mount.
+            resetTraktState();
+        }
         var msg = (err?.status === 403)
             ? t('discoveryTraktDisabled', 'Trakt is not enabled. Ask your server administrator to enable it in Jellyfin Helper settings.')
             : t('discoveryLoadError', 'Could not load discovery suggestions.');

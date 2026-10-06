@@ -1827,10 +1827,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return null;
         }
 
-        // Map the public candidates onto the internal TMDb shape the pipeline scores, then run the SAME
-        // exclusion + parental + quality filter the local candidates go through.
+        // Score external candidates through the same exclusion + parental + quality filter as local
+        // ones, so owned titles are never suggested or offered for duplicate requests.
         var mapped = candidates.Select(ToTmdbItem).ToList();
-        var userExcluded = BuildUserExclusionSet(profile, []);
+        var sharedExclusions = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        var userExcluded = BuildUserExclusionSet(profile, sharedExclusions);
         var minVote = isChildAccount ? MinVoteAverageChild : MinVoteAverage;
         var uniqueCandidates = DeduplicateAndFilter(mapped, userExcluded, profile.MaxParentalRating, minVote, avgYear, isChildAccount);
         if (uniqueCandidates.Count == 0)
@@ -2803,10 +2804,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly record struct UserGenerationOutcome(UserGenerationStatus Status, DiscoveryResult? Result);
 
     /// <summary>
-    ///     Inputs for <see cref="ScoreCandidatesForUserAsync"/>: everything the shared three-phase scoring
-    ///     pipeline needs for one user. A single object keeps the parameter list within the analyzer limit;
-    ///     both call sites build it from values they already hold. Cancellation stays a separate parameter
-    ///     by convention.
+    ///     Inputs for <see cref="ScoreCandidatesForUserAsync"/>: everything the shared scoring pipeline
+    ///     needs for one user. Cancellation stays a separate parameter by convention.
     /// </summary>
     private sealed class CandidateScoringContext
     {

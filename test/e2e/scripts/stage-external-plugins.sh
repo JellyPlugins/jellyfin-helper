@@ -38,11 +38,11 @@ stage_one() {
   echo "[stage-external] Building ${name} (Jellyfin ${JELLYFIN_BUILD_VERSION})"
   local publish_dir="${src}/.e2e-publish"
   rm -rf "$publish_dir"
-  # A build failure here propagates (set -e) and fails the run - a present source
-  # that will not compile must never be silently skipped.
+  # Explicit || return: set -e is ignored inside the caller's || list, so a bare
+  # failing command would fall through and stage stale DLLs instead of aborting.
   dotnet publish "${src}/${csproj}" \
     -c Release -o "$publish_dir" --nologo \
-    -p:JellyfinVersion="${JELLYFIN_BUILD_VERSION}"
+    -p:JellyfinVersion="${JELLYFIN_BUILD_VERSION}" || return 1
 
   # Jellyfin's loader needs the folder named "<Name>_<Version>".
   local dest="${PLUGINS_DIR}/${name}_${JELLYFIN_BUILD_VERSION}"
@@ -54,7 +54,7 @@ stage_one() {
     if [[ "$base" != "$dll" && "$base" =~ $host_provided ]]; then
       continue
     fi
-    cp "$f" "$dest/"
+    cp "$f" "$dest/" || return 1
     staged=$((staged + 1))
   done
   [[ "$staged" -ge 1 ]] || { echo "[stage-external] ${name}: build produced no dlls" >&2; return 1; }

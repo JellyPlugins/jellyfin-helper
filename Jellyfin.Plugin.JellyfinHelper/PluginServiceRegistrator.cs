@@ -62,26 +62,29 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         var traktTimeout = TimeSpan.FromSeconds(Plugin.Instance?.Configuration?.TraktTimeoutSeconds ?? 30);
         AddHardenedClient("Trakt", traktTimeout);
 
-        // Secrets are encrypted via Data Protection using a non-machine-bound keyring in the plugin path
-        // for simple backup/migration. SetApplicationName isolates this keyring from Jellyfin's own.
-        // Threat model: On Linux, keyring files are unencrypted at rest—matching Jellyfin's trust boundary
-        // (where configs/DBs hold plain keys). Directory access is restricted to the service user (0700).
-        var dataProtection = serviceCollection.AddDataProtection().SetApplicationName("Jellyfin.Plugin.JellyfinHelper");
+        // The provider stays private to this plugin so keyrings can neither affect nor be affected by
+        // Jellyfin's or other plugins' providers. Ring files are unencrypted at rest on Linux, locked
+        // down to the service account (0700) - same trust boundary as Jellyfin's own config and database.
         var keyRingDirectory = ResolveKeyRingDirectory(Plugin.Instance?.DataFolderPath);
         if (keyRingDirectory is null)
         {
-            // Fail loudly, never silently: without a persisted ring, secrets only survive until the next
-            // restart (ephemeral default store). Startup itself must still succeed - features degrade, they
-            // must not take the whole plugin down (see the RegisterServices no-throw contract in tests).
+            // No persisted ring means secrets die with the restart. Startup itself must still succeed.
             Plugin.Instance?.Logger.LogWarning(
                 "[DataProtection] No usable keyring directory under the plugin data path - encrypted secrets will not survive restarts until this is fixed.");
         }
-        else
-        {
-            dataProtection.PersistKeysToFileSystem(keyRingDirectory);
-        }
 
-        serviceCollection.AddSingleton<ISecretProtector, SecretProtector>();
+        serviceCollection.AddSingleton<ISecretProtector>(sp =>
+        {
+            IDataProtectionProvider provider = keyRingDirectory is null
+                ? new EphemeralDataProtectionProvider()
+                : DataProtectionProvider.Create(
+                    keyRingDirectory,
+                    builder => builder.SetApplicationName("Jellyfin.Plugin.JellyfinHelper"));
+
+            return new SecretProtector(
+                provider,
+                sp.GetRequiredService<ILogger<SecretProtector>>());
+        });
 
         // Trakt per-user OAuth token store. Reads the data path at construction so tokens persist across
         // restarts; falls back to in-memory only when the data path is unavailable.
@@ -210,10 +213,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
     /// <summary>
     ///     Resolves the Data Protection keyring directory below the plugin data path, creating it when needed.
-    ///     The subdirectory name is this method's own constant, never external input. Path.Join (rather than
-    ///     Combine) is used deliberately because Join never discards the base path, and the fully-qualified
-    ///     check below additionally rules out a relative base resolving against the process working directory.
-    ///     Single source of truth, shared by the registrator and its tests.
+    ///     Path.Join never discards the base path, and a relative base is rejected outright so the ring can
+    ///     never land in the process working directory.
     /// </summary>
     /// <param name="dataFolderPath">The plugin data path, or null when the plugin instance is unavailable.</param>
     /// <returns>The ready keyring directory, or null when no usable directory could be resolved.</returns>
@@ -240,8 +241,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             return null;
         }
 
-        // Best effort: lock the ring down to the service account. A failure here must not fail startup;
-        // the caller logs loudly and falls back to the ephemeral store instead.
+        // Best effort: lock the ring down to the service account. A failure here must not fail startup.
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
             try

@@ -524,17 +524,19 @@ public sealed class BackupService : IBackupService
     }
 
     /// <summary>
-    ///     Restores the Trakt enable flag, client id, and client secret. An empty backup secret preserves the
-    ///     live secret (same rule as Seerr); a non-empty secret is re-encrypted before it is persisted and the
-    ///     change-detection compares against the decrypted stored value so an unchanged secret is not flagged.
+    ///     Restores Trakt flag, client id, and client secret. Empty backup values preserve the live ones so older
+    ///     backups cannot wipe a working setup; a changed secret is re-encrypted and flagged. The flag also
+    ///     requires stored credentials, and an explicit disable is honored - it never re-enables by itself.
     /// </summary>
     /// <param name="config">The live configuration being mutated.</param>
     /// <param name="backup">The backup data being restored.</param>
     /// <param name="summary">The restore summary, flagged when the secret changes.</param>
     private void RestoreTraktSettings(PluginConfiguration config, BackupData backup, BackupRestoreSummary summary)
     {
-        config.TraktEnabled = backup.TraktEnabled;
-        config.TraktClientId = BackupSanitizer.TruncateString(backup.TraktClientId, BackupValidator.MaxApiKeyLength);
+        if (!string.IsNullOrEmpty(backup.TraktClientId))
+        {
+            config.TraktClientId = BackupSanitizer.TruncateString(backup.TraktClientId, BackupValidator.MaxApiKeyLength);
+        }
 
         if (!string.IsNullOrEmpty(backup.TraktClientSecret))
         {
@@ -549,6 +551,10 @@ public sealed class BackupService : IBackupService
 
             config.TraktClientSecret = _secretProtector.Protect(truncatedSecret);
         }
+
+        config.TraktEnabled = backup.TraktEnabled
+            && !string.IsNullOrWhiteSpace(config.TraktClientId)
+            && !string.IsNullOrWhiteSpace(config.TraktClientSecret);
     }
 
     /// <summary>

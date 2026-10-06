@@ -50,6 +50,7 @@ public class TraktController : ControllerBase
     [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status504GatewayTimeout)]
     public async Task<IActionResult> TestConnection([FromBody] TraktTestRequest request)
     {
         // The client id is not a masked secret (it is returned to the admin as-is), so there is no sentinel to
@@ -61,8 +62,18 @@ public class TraktController : ControllerBase
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
-        var (success, message) = await _authService.TestClientIdAsync(request.ClientId.Trim(), cts.Token)
-            .ConfigureAwait(false);
+        bool success;
+        string message;
+        try
+        {
+            (success, message) = await _authService.TestClientIdAsync(request.ClientId.Trim(), cts.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            // Our own 10s cap fired (the client did not disconnect): report a gateway timeout, not a 500.
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new ConnectionTestResponse { Success = false, Message = "Trakt connection timed out." });
+        }
 
         if (success)
         {

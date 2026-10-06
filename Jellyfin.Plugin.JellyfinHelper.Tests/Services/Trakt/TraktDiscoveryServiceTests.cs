@@ -17,9 +17,8 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Trakt;
 
 /// <summary>
-///     Verifies the Trakt discovery service: disabled/no-token/error short-circuits, cache-first serving,
-///     per-user rescoring of the shared trending pool, refresh isolation across users, and ctor guards.
-///     HTTP is scripted via a queued handler; no real network is touched.
+///     Verifies the Trakt discovery service: guards, cache-first serving, per-user rescoring,
+///     refresh isolation, and ctor guards. HTTP is scripted; no real network is touched.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class TraktDiscoveryServiceTests : IDisposable

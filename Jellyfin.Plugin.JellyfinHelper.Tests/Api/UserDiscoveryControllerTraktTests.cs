@@ -29,6 +29,7 @@ public sealed class UserDiscoveryControllerTraktTests
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock = new();
     private readonly Mock<ITraktAuthService> _traktAuth = new();
     private readonly Mock<ITraktDiscoveryService> _traktDiscovery = new();
+    private readonly Mock<ITraktUserStore> _traktStore = new();
     private readonly Mock<IPluginConfigurationService> _configServiceMock = new();
     private readonly DiscoveryCacheService _cache;
     private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
@@ -48,7 +49,7 @@ public sealed class UserDiscoveryControllerTraktTests
     {
         var controller = new UserDiscoveryController(
             _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object,
-            _memoryCache, _traktAuth.Object, _traktDiscovery.Object, new Mock<ILogger<UserDiscoveryController>>().Object);
+            _memoryCache, _traktAuth.Object, _traktDiscovery.Object, _traktStore.Object, new Mock<ILogger<UserDiscoveryController>>().Object);
 
         var claims = new List<Claim>();
         if (userId.HasValue)
@@ -98,10 +99,28 @@ public sealed class UserDiscoveryControllerTraktTests
     }
 
     [Fact]
+    public async Task GetMyTrakt_WhenLinkedButEmpty_ReturnsLinkedTrueWithNullResult()
+    {
+        var userId = Guid.NewGuid();
+        _traktStore.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "r" });
+        _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((DiscoveryResult?)null);
+
+        var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
+
+        // Link state comes from the store, not the result: a linked user with an
+        // empty pool sees the (empty) grid, not the connect panel.
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
+        Assert.True(payload.Linked);
+        Assert.Null(payload.Result);
+    }
+
+    [Fact]
     public async Task GetMyTrakt_WhenLinked_ReturnsResult()
     {
         var userId = Guid.NewGuid();
         var scored = new DiscoveryResult { UserId = userId };
+        _traktStore.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "r" });
         _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(scored);
 
         var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);

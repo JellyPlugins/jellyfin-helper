@@ -58,6 +58,7 @@ public sealed class UserDiscoveryController : ControllerBase
     private readonly IPluginConfigurationService _configurationService;
     private readonly ITraktAuthService _traktAuth;
     private readonly ITraktDiscoveryService _traktDiscovery;
+    private readonly ITraktUserStore _traktStore;
     private readonly ILogger<UserDiscoveryController> _logger;
 
     /// <summary>
@@ -70,6 +71,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="memoryCache">The memory cache used for per-user rate limiting.</param>
     /// <param name="traktAuth">The Trakt auth service (device flow).</param>
     /// <param name="traktDiscovery">The Trakt discovery service (personal + trending).</param>
+    /// <param name="traktStore">The Trakt token store, the source of truth for link state.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
@@ -79,6 +81,7 @@ public sealed class UserDiscoveryController : ControllerBase
         IMemoryCache memoryCache,
         ITraktAuthService traktAuth,
         ITraktDiscoveryService traktDiscovery,
+        ITraktUserStore traktStore,
         ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
@@ -88,6 +91,7 @@ public sealed class UserDiscoveryController : ControllerBase
         _memoryCache = memoryCache;
         _traktAuth = traktAuth;
         _traktDiscovery = traktDiscovery;
+        _traktStore = traktStore;
         _logger = logger;
     }
 
@@ -627,10 +631,13 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        var result = await _traktDiscovery.GetPersonalAsync(userId.Value, cancellationToken).ConfigureAwait(false);
-        return result is null
-            ? Ok(new TraktDiscoveryResponse { Linked = false })
-            : Ok(new TraktDiscoveryResponse { Linked = true, Result = result });
+        // Link state comes from the token store, not the result: an empty pool still
+        // renders the grid, and without a token the fetch is skipped entirely.
+        var linked = _traktStore.GetToken(userId.Value)?.IsLinked == true;
+        var result = linked
+            ? await _traktDiscovery.GetPersonalAsync(userId.Value, cancellationToken).ConfigureAwait(false)
+            : null;
+        return Ok(new TraktDiscoveryResponse { Linked = linked, Result = result });
     }
 
     /// <summary>

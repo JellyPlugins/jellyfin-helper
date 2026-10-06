@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Xunit;
@@ -17,6 +18,11 @@ public sealed class TraktCacheServiceTests
     private TraktCacheService Create() => new(() => _now);
 
     private static DiscoveryResult Result(Guid userId) => new() { UserId = userId };
+
+    private static IReadOnlyList<ExternalDiscoveryCandidate> Pool() =>
+    [
+        new ExternalDiscoveryCandidate { TmdbId = 11, MediaType = "movie", Title = "Alpha" },
+    ];
 
     [Fact]
     public void Personal_SetThenGet_ReturnsEntryWhenFresh()
@@ -73,29 +79,29 @@ public sealed class TraktCacheServiceTests
     }
 
     [Fact]
-    public void Trending_SetThenGet_ReturnsEntryWhenFresh()
+    public void Trending_SetThenGet_ReturnsRawPoolWhenFresh()
     {
         var cache = Create();
-        var result = Result(Guid.NewGuid());
-        cache.SetTrending(result);
-        Assert.Same(result, cache.GetTrending(_ttl));
+        var pool = Pool();
+        cache.SetTrendingPool(pool);
+        Assert.Same(pool, cache.GetTrendingPool(_ttl));
     }
 
     [Fact]
     public void Trending_ReturnsNull_WhenStale()
     {
         var cache = Create();
-        cache.SetTrending(Result(Guid.NewGuid()));
+        cache.SetTrendingPool(Pool());
         _now = _now.Add(_ttl).AddSeconds(1);
-        Assert.Null(cache.GetTrending(_ttl));
+        Assert.Null(cache.GetTrendingPool(_ttl));
     }
 
     [Fact]
     public void Trending_Invalidate_DropsEntry()
     {
         var cache = Create();
-        cache.SetTrending(Result(Guid.NewGuid()));
-        cache.InvalidateTrending();
-        Assert.Null(cache.GetTrending(_ttl));
+        cache.SetTrendingPool(Pool());
+        cache.InvalidateTrendingPool();
+        Assert.Null(cache.GetTrendingPool(_ttl));
     }
 }
