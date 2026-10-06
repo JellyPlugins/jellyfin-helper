@@ -434,6 +434,23 @@ var MOCK_DISCOVERY=[
 var MOCK_TRAKT_PERSONAL={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().toISOString(),Recommendations:MOCK_DISCOVERY[1].Recommendations};
 var MOCK_TRAKT_TRENDING={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().toISOString(),Recommendations:MOCK_DISCOVERY[0].Recommendations};
 
+// Removes a consumed (requested/dismissed) item from every discovery pool, mirroring
+// the server where feedback excludes it from all future serves. In-place splice keeps
+// the shared fixture references (Trakt pools reuse these arrays) consistent.
+function mockConsumeDiscovery(tmdbId, mediaType){
+  var id=Number.parseInt(tmdbId,10);
+  if(!id) return;
+  var mt=String(mediaType||'').trim().toLowerCase();
+  function drop(list){
+    if(!Array.isArray(list)) return;
+    for(var i=list.length-1;i>=0;i--){
+      var r=list[i];
+      if(Number.parseInt(r.TmdbId,10)===id && String(r.MediaType||'').trim().toLowerCase()===mt){ list.splice(i,1); }
+    }
+  }
+  for(var u=0;u<MOCK_DISCOVERY.length;u++){ if(MOCK_DISCOVERY[u]){ drop(MOCK_DISCOVERY[u].Recommendations); } }
+}
+
 var MOCK_SEERR_SERVICES_RADARR=[{
 id:1,name:"Radarr Main",isDefault:true,is4k:false,
 activeProfileId:4,activeDirectory:"/SMB/media/movies",
@@ -485,6 +502,7 @@ MOCK_USER_ACTIVITY[_uid2]=[
 
 var ApiClient={
 accessToken:function(){return"mock-demo-token";},
+getCurrentUserId:function(){return _uid1;},
 getUrl:function(p){return"mock://"+p;},
 ajax:function(opts){var url=opts.url||"",method=(opts.type||"GET").toUpperCase();
 return new Promise(function(resolve){setTimeout(function(){
@@ -509,9 +527,14 @@ else if(url.includes("Trash/Contents"))resolve(MOCK_TRASH_CONTENTS);
 else if(url.includes("Trash/Summary"))resolve({TotalSize:17179869184,TotalItems:3});
 else if(url.includes("Discovery/Services/radarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_RADARR));
 else if(url.includes("Discovery/Services/sonarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_SONARR));
-else if(url.includes("Discovery/Request")&&method==="POST")resolve({Success:true,Message:"Request submitted to Jellyseerr."});
+else if(url.includes("Discovery/Request")&&method==="POST"){try{var rqBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(rqBody.TmdbId,rqBody.MediaType);}catch(e){}resolve({Success:true,Message:"Request submitted to Jellyseerr."});}
 else if(url.includes("Discovery/My/Trakt/Trending"))resolve(structuredClone(MOCK_TRAKT_TRENDING));
 else if(url.includes("Discovery/My/Trakt"))resolve({Linked:true,Result:structuredClone(MOCK_TRAKT_PERSONAL)});
+else if(url.includes("Discovery/My/RequestPermissions"))resolve({CanRequest:true,IsTransient:false,Profiles:[],DeniedReason:null});
+else if(url.includes("Discovery/My/Request")&&method==="POST"){try{var mrBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(mrBody.TmdbId,mrBody.MediaType);}catch(e){}resolve({Success:true,Message:"Request submitted to Jellyseerr."});}
+else if(url.includes("Discovery/My/Dismiss")&&method==="POST"){try{var mdBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(mdBody.TmdbId,mdBody.MediaType);}catch(e){}resolve({Success:true,Message:"Dismissed."});}
+else if(url.includes("Discovery/My/ExternalLinks"))resolve({SeerrUrl:"https://seerr.example.com"});
+else if(url.includes("Discovery/My"))resolve(structuredClone(MOCK_DISCOVERY[0]));
 else if(url.includes("Discovery")&&!url.includes("Services")&&!url.includes("Request"))resolve(structuredClone(MOCK_DISCOVERY));
 else if(url.includes("Seerr/Test"))resolve({success:true,message:"Connected to Jellyseerr (demo)"});
 else if(url.includes("Trakt/Test"))resolve({success:true,message:"Connected to Trakt (demo)"});

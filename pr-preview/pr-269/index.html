@@ -36,6 +36,23 @@
         .demo-banner a:hover { opacity: 0.85; }
         .demo-wrapper { max-width: 1200px; margin: 0 auto; padding: 20px; }
         .pluginConfigurationPage { background: transparent; }
+        .demo-view-switch { max-width: 1200px; margin: 0 auto; padding: 16px 20px 0 20px; display: flex; gap: 0.6em; }
+        .demo-view-switch button {
+            padding: 0.55em 1.1em; border: 1px solid var(--border); border-radius: 6px;
+            background: rgba(255,255,255,0.06); color: var(--text-primary);
+            cursor: pointer; font-size: 0.92em;
+        }
+        .demo-view-switch button.demo-view-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .hide { display: none !important; }
+        /* Minimal stand-ins for Jellyfin web-client chrome used by the discovery sidebar script. */
+        .demo-home { display: flex; gap: 1.2em; align-items: flex-start; }
+        .mainDrawer { flex: 0 0 230px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 0.8em; }
+        .mainDrawer .sidebarHeader { font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; margin: 0.4em 0 0.6em 0; }
+        .mainDrawer .navMenuOption { display: flex; align-items: center; gap: 0.5em; padding: 0.45em 0.6em; border-radius: 6px; color: var(--text-primary); text-decoration: none; font-size: 0.92em; }
+        .mainDrawer .navMenuOption:hover { background: rgba(255,255,255,0.07); }
+        .demo-home-page { flex: 1; min-width: 0; }
+        .demo-home h2 { margin-bottom: 0.4em; }
+        .demo-home .demo-hint { opacity: 0.6; font-size: 0.85em; margin-bottom: 1em; }
     </style>
 </head>
 <body>
@@ -43,7 +60,11 @@
         <strong>Interactive Demo</strong> - This is a static preview with sample data. No real Jellyfin server required.
         <a href="https://github.com/JellyPlugins/jellyfin-helper" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" style="vertical-align:middle;margin-right:4px;" aria-hidden="true"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>View on GitHub</a>
     </div>
-    <div class="demo-wrapper">
+    <div class="demo-view-switch" role="tablist" aria-label="Demo views">
+        <button id="demoViewBtnAdmin" class="demo-view-active" role="tab" aria-selected="true">Plugin Admin Page Demo</button>
+        <button id="demoViewBtnDiscovery" role="tab" aria-selected="false">Per User Discovery Tab Demo</button>
+    </div>
+    <div class="demo-wrapper" id="demoViewAdmin">
         <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-checkbox,emby-select">
             <style id="pluginStyles"></style>
             <div data-role="content">
@@ -69,12 +90,46 @@
             </div>
         </div>
     </div>
+    <div class="demo-wrapper hide" id="demoViewDiscovery">
+        <h2>Seerr Discovery</h2>
+        <p class="demo-hint">Simulated Jellyfin home page: the Custom Tab panel below is filled by the real <code>discovery-sidebar.js</code> (own grid, Trakt tabs, request flow).</p>
+        <div class="demo-home">
+            <div class="mainDrawer">
+                <div class="mainDrawer-scrollContainer">
+                    <div class="libraryMenuOptions"></div>
+                </div>
+            </div>
+            <div class="demo-home-page">
+                <div id="indexPage" class="page">
+                    <div class="tabContent pageTabContent is-active" id="customTab_0" data-index="2">
+                        <div class="jellyfinhelper discovery"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="js/mock-data.js"></script>
-    <script src="mock/discover-demo.js"></script>
+    <script src="js/discovery-sidebar.js"></script>
 
     <!-- Load translations, then inject plugin CSS & JS -->
     <script>
+    function switchDemoView(which) {
+        var admin = document.getElementById('demoViewAdmin');
+        var discovery = document.getElementById('demoViewDiscovery');
+        var btnAdmin = document.getElementById('demoViewBtnAdmin');
+        var btnDiscovery = document.getElementById('demoViewBtnDiscovery');
+        var showDiscovery = which === 'discovery';
+        admin.classList.toggle('hide', showDiscovery);
+        discovery.classList.toggle('hide', !showDiscovery);
+        btnAdmin.classList.toggle('demo-view-active', !showDiscovery);
+        btnDiscovery.classList.toggle('demo-view-active', showDiscovery);
+        btnAdmin.setAttribute('aria-selected', String(!showDiscovery));
+        btnDiscovery.setAttribute('aria-selected', String(showDiscovery));
+    }
+    document.getElementById('demoViewBtnAdmin').addEventListener('click', function () { switchDemoView('admin'); });
+    document.getElementById('demoViewBtnDiscovery').addEventListener('click', function () { switchDemoView('discovery'); });
+
     fetch('i18n/en.json')
         .then(function(r) { return r.json(); })
         .then(function(t) { MOCK_TRANSLATIONS = t; })
