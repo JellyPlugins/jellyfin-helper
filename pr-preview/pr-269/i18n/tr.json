@@ -220,7 +220,6 @@
   "settingsTraktTitle": "Trakt Ayarları",
   "settingsTraktHelp": "Bu sunucu için bir Trakt uygulaması kaydedin (trakt.tv/oauth/applications, yönlendirme URI'si urn:ietf:wg:oauth:2.0:oob). Ardından her kullanıcı Keşfet sayfasından tek kullanımlık bir kodla kendi Trakt hesabını bağlar. Kullanıcı başına kurulum gerekmez.",
   "traktInstance": "Trakt Uygulaması",
-  "traktEnabled": "Trakt keşfini etkinleştir",
   "traktClientId": "Trakt İstemci Kimliği",
   "traktClientSecret": "Trakt İstemci Sırrı",
   "traktClientHelp": "trakt.tv/oauth/applications adresinde urn:ietf:wg:oauth:2.0:oob yönlendirme URI'si ile bir uygulama oluşturun.",

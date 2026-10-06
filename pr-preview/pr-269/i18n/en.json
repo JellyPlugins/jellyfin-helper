@@ -220,7 +220,6 @@
   "settingsTraktTitle": "Trakt settings",
   "settingsTraktHelp": "Register one Trakt application for this server (trakt.tv/oauth/applications, redirect URI urn:ietf:wg:oauth:2.0:oob). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.",
   "traktInstance": "Trakt Application",
-  "traktEnabled": "Enable Trakt discovery",
   "traktClientId": "Trakt Client ID",
   "traktClientSecret": "Trakt Client Secret",
   "traktClientHelp": "Create an application at trakt.tv/oauth/applications with redirect URI urn:ietf:wg:oauth:2.0:oob.",

@@ -25,9 +25,9 @@ function isSeerrConfigured(url, key) {
 // Refresh the Discovery access wrapper UI state based on current form values.
 // Extracted to avoid duplicated DOM manipulation in multiple event handlers.
 function refreshDiscoveryAccessState() {
-    var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-    var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-    var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+    var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
+    var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
+    var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
     var discEnabled = recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
 
     var wrapper = document.getElementById('discoveryAccessWrapper');
@@ -574,7 +574,6 @@ function loadSettings() {
             h += '<div class="arr-collapsible' + (!traktHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleTrakt">';
             h += renderArrCollapseButton(!traktHasCfg, SVG.EYE, escHtml(T('traktInstance', 'Trakt Application')), traktHasCfg ? mi('check_circle') : '', 'Trakt');
             h += '<div class="arr-collapsible-body" aria-hidden="' + (traktHasCfg ? 'true' : 'false') + '">';
-            h += '<label class="toggle-row"><input type="checkbox" id="cfgTraktEnabled"' + (cfg.TraktEnabled ? ' checked' : '') + '> ' + escHtml(T('traktEnabled', 'Enable Trakt discovery')) + '</label>';
             h += '<label for="cfgTraktClientId">' + escHtml(T('traktClientId', 'Trakt Client ID')) + '</label>';
             h += '<input type="text" id="cfgTraktClientId" value="' + escAttr(cfg.TraktClientId || '') + '">';
             h += '<label for="cfgTraktClientSecret">' + escHtml(T('traktClientSecret', 'Trakt Client Secret')) + '</label>';
@@ -703,17 +702,17 @@ function buildSettingsPayload() {
         LinkRepairTaskMode: document.getElementById('cfgLinkMode').value,
         RecommendationsTaskMode: document.getElementById('cfgRecommendationsMode')?.value ?? 'Deactivate',
         SyncRecommendationsToPlaylist: document.getElementById('cfgSyncPlaylist') ? document.getElementById('cfgSyncPlaylist').checked : false,
-        SeerrUrl: (document.getElementById('cfgSeerrUrl') || {}).value || '',
-        SeerrApiKey: (document.getElementById('cfgSeerrApiKey') || {}).value || '',
+        SeerrUrl: document.getElementById('cfgSeerrUrl')?.value || '',
+        SeerrApiKey: document.getElementById('cfgSeerrApiKey')?.value || '',
         // Trakt fields are null when the card is absent (Discovery sidebar off) so the server preserves the
-        // stored Trakt config instead of clearing it on an unrelated save.
-        TraktEnabled: document.getElementById('cfgTraktEnabled') ? document.getElementById('cfgTraktEnabled').checked : null,
+        // stored Trakt config instead of clearing it on an unrelated save. There is no enable toggle: the
+        // server derives TraktEnabled from whether a client id + secret are stored.
         TraktClientId: document.getElementById('cfgTraktClientId') ? document.getElementById('cfgTraktClientId').value : null,
         TraktClientSecret: document.getElementById('cfgTraktClientSecret') ? document.getElementById('cfgTraktClientSecret').value : null,
         SeerrCleanupTaskMode: (function () {
             var modeEl = document.getElementById('cfgSeerrMode');
-            var url = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-            var key = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+            var url = document.getElementById('cfgSeerrUrl')?.value || '';
+            var key = document.getElementById('cfgSeerrApiKey')?.value || '';
             return (modeEl && isSeerrConfigured(url, key)) ? modeEl.value : 'Deactivate';
         })(),
         SeerrCleanupAgeDays: (function () {
@@ -733,9 +732,9 @@ function buildSettingsPayload() {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
             if (!checkbox || !checkbox.checked) return false;
             // Force false when prerequisites are not met (Recommendations must be active + Seerr configured). This prevents stale "true" from being persisted when the admin disables recommendations or clears Seerr config while the checkbox was previously enabled.
-            var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-            var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-            var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+            var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
+            var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
+            var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
             return recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
         Language: document.getElementById('cfgLang')?.value ?? 'en',
@@ -1217,8 +1216,8 @@ function attachSeerrHandlers() {
     if (!btn) return;
     var _seerrTimer = null;
     btn.addEventListener('click', function () {
-        var url = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-        var key = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+        var url = document.getElementById('cfgSeerrUrl')?.value || '';
+        var key = document.getElementById('cfgSeerrApiKey')?.value || '';
         var originalHtml = mi('extension') + T('testConnection', 'Test Connection');
 
         if (_seerrTimer) {
@@ -1267,7 +1266,7 @@ function attachTraktHandlers() {
     if (!btn) return;
     var _traktTimer = null;
     btn.addEventListener('click', function () {
-        var clientId = (document.getElementById('cfgTraktClientId') || {}).value || '';
+        var clientId = document.getElementById('cfgTraktClientId')?.value || '';
         var originalHtml = mi('extension') + T('testConnection', 'Test Connection');
 
         if (_traktTimer) {
@@ -1465,14 +1464,25 @@ function attachAutoSaveHandlers() {
         });
     }
 
-    // Discovery user access toggle - auto-save on change
+    // Discovery user access toggle - auto-save on change. Re-render the form on success so the Trakt
+    // card (rendered only when discovery access is on) appears/disappears live instead of waiting for
+    // the next tab load. loadSettings re-fetches config, so the card reflects the just-saved state.
     var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
     if (discoveryEl) {
         discoveryEl.addEventListener('change', function () {
+            var scrollContainer = document.querySelector('.mainAnimatedPage') || document.documentElement;
+            var savedScroll = scrollContainer.scrollTop;
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
                 element: null, // suppress default overlay
-                onSuccess: function () { showInlineCheckboxIndicator(discoveryEl, true); },
+                onSuccess: function () {
+                    loadSettings();
+                    setTimeout(function () {
+                        scrollContainer.scrollTop = savedScroll;
+                        var newEl = document.getElementById('cfgDiscoveryUserAccess');
+                        if (newEl) showInlineCheckboxIndicator(newEl, true);
+                    }, 50);
+                },
                 onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
             });
         });
