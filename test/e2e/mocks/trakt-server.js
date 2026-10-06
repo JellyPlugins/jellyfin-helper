@@ -54,75 +54,73 @@ async function readBody(req) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
-  const path = url.pathname;
-
-  // Liveness probe for the compose health check.
-  if (req.method === 'GET' && path === '/health') {
-    return sendJson(res, 200, { ok: true });
-  }
+// Route table: "METHOD path" -> handler. Keeps the request dispatcher flat (one lookup) instead of a long
+// if/else chain, so adding a Trakt endpoint is a single entry.
+const routes = {
+  'GET /health': (_req, res) => sendJson(res, 200, { ok: true }),
 
   // Test hooks (unauthenticated, E2E-only).
-  if (req.method === 'POST' && path === '/reset') {
+  'POST /reset': (_req, res) => {
     reset();
-    return sendJson(res, 200, { ok: true });
-  }
-  if (req.method === 'POST' && path === '/arm-linked') {
+    sendJson(res, 200, { ok: true });
+  },
+  'POST /arm-linked': (_req, res) => {
     devicePending = false;
-    return sendJson(res, 200, { ok: true });
-  }
+    sendJson(res, 200, { ok: true });
+  },
 
   // Device flow.
-  if (req.method === 'POST' && path === '/oauth/device/code') {
+  'POST /oauth/device/code': (_req, res) => {
     lastDeviceCode = 'device-code-xyz';
-    return sendJson(res, 200, {
+    sendJson(res, 200, {
       device_code: lastDeviceCode,
       user_code: 'ABC123',
       verification_url: 'https://trakt.tv/activate',
       expires_in: 600,
       interval: 1,
     });
-  }
-  if (req.method === 'POST' && path === '/oauth/device/token') {
+  },
+  'POST /oauth/device/token': (_req, res) => {
     if (devicePending) {
       // 400 is Trakt's "authorization pending" during the device flow.
-      return sendJson(res, 400, { error: 'authorization_pending' });
+      sendJson(res, 400, { error: 'authorization_pending' });
+      return;
     }
-    return sendJson(res, 200, {
+    sendJson(res, 200, {
       access_token: 'mock-access-token',
       refresh_token: 'mock-refresh-token',
       expires_in: 7776000,
       created_at: Math.floor(Date.now() / 1000),
     });
-  }
-  if (req.method === 'POST' && path === '/oauth/token') {
+  },
+  'POST /oauth/token': (_req, res) => {
     // Refresh grant.
-    return sendJson(res, 200, {
+    sendJson(res, 200, {
       access_token: 'mock-access-token-refreshed',
       refresh_token: 'mock-refresh-token-2',
       expires_in: 7776000,
       created_at: Math.floor(Date.now() / 1000),
     });
-  }
+  },
 
   // Personal recommendations (OAuth) and trending (client-id only).
-  if (req.method === 'GET' && path === '/recommendations/movies') {
-    return sendJson(res, 200, recommendationMovies);
-  }
-  if (req.method === 'GET' && path === '/recommendations/shows') {
-    return sendJson(res, 200, recommendationShows);
-  }
-  if (req.method === 'GET' && path === '/movies/trending') {
-    return sendJson(res, 200, trendingMovies);
-  }
-  if (req.method === 'GET' && path === '/shows/trending') {
-    return sendJson(res, 200, trendingShows);
+  'GET /recommendations/movies': (_req, res) => sendJson(res, 200, recommendationMovies),
+  'GET /recommendations/shows': (_req, res) => sendJson(res, 200, recommendationShows),
+  'GET /movies/trending': (_req, res) => sendJson(res, 200, trendingMovies),
+  'GET /shows/trending': (_req, res) => sendJson(res, 200, trendingShows),
+};
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const handler = routes[`${req.method} ${url.pathname}`];
+  if (handler) {
+    handler(req, res);
+    return;
   }
 
   // Drain any unread body so the socket closes cleanly, then 404.
   await readBody(req);
-  return sendJson(res, 404, { error: 'not_found', path });
+  return sendJson(res, 404, { error: 'not_found', path: url.pathname });
 });
 
 server.listen(PORT, () => {

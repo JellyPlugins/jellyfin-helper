@@ -478,7 +478,7 @@
         if (_traktEnabled === null) {
             ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
                 .then(function () { _traktEnabled = true; })
-                .catch(function (err) { _traktEnabled = !(err && err.status === 403); })
+                .catch(function (err) { _traktEnabled = !(err?.status === 403); })
                 .finally(function () { renderShell(container, forceRefresh); });
             return;
         }
@@ -504,9 +504,9 @@
         container.innerHTML = tabs;
 
         var buttons = container.querySelectorAll('.jfh-discovery-tab');
-        for (var i = 0; i < buttons.length; i++) {
-            buttons[i].addEventListener('click', function () {
-                var tab = this.getAttribute('data-tab');
+        for (const button of buttons) {
+            button.addEventListener('click', function () {
+                var tab = this.dataset.tab;
                 if (tab === _activeTab) { return; }
                 _activeTab = tab;
                 renderShell(container, false);
@@ -594,7 +594,7 @@
         host.innerHTML = spinnerHtml();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
             .then(function (resp) {
-                if (!resp || resp.Linked !== true || !resp.Result) {
+                if (resp?.Linked !== true || !resp.Result) {
                     renderConnectPanel(host);
                     return;
                 }
@@ -625,7 +625,7 @@
     }
 
     function renderTraktError(host, err) {
-        var msg = (err && err.status === 403)
+        var msg = (err?.status === 403)
             ? t('discoveryTraktDisabled', 'Trakt is not enabled. Ask your server administrator to enable it in Jellyfin Helper settings.')
             : t('discoveryLoadError', 'Could not load discovery suggestions.');
         host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
@@ -657,7 +657,7 @@
         host.innerHTML = spinnerHtml();
         ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Start'), dataType: 'json' })
             .then(function (device) {
-                if (!device || !device.user_code) {
+                if (!device?.user_code) {
                     renderConnectPanel(host);
                     return;
                 }
@@ -705,7 +705,7 @@
                 dataType: 'json'
             })
                 .then(function (resp) {
-                    var status = resp && resp.Status;
+                    var status = resp?.Status;
                     if (status === 'Linked') {
                         clearDevicePoll();
                         _traktPersonalCache = null;
@@ -720,7 +720,7 @@
                 })
                 .catch(function (err) {
                     // 410 Gone means the code expired; 429 means we polled too fast (back off one interval).
-                    if (err && err.status === 429) {
+                    if (err?.status === 429) {
                         scheduleDevicePoll(host, deviceCode, intervalSeconds + 1);
                         return;
                     }

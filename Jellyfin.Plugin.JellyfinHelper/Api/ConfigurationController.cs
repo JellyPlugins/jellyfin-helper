@@ -522,21 +522,53 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value. Trim before comparing so a client that pads the sentinel (e.g.
-        if (!ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
-        {
-            // Encrypt the new key before it is persisted. An empty key clears the stored value.
-            config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey)
-                ? string.Empty
-                : secretProtector.Protect(request.SeerrApiKey.Trim());
-        }
+        ApplySeerrSecret(request, config, secretProtector);
 
         config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)
             ? 0
             : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
 
-        // Trakt settings. All three are nullable in the request so a client without the Trakt card (Discovery
-        // sidebar off) omits them and the stored values are preserved rather than cleared.
+        ApplyTraktSettings(request, config, secretProtector);
+
+        NormalizePluginLogLevel(config);
+
+        // Update Radarr instances (clear + re-add from request). Snapshot existing instances BEFORE clearing so the sentinel guard can look up the stored key by Name+Url rather than positional index.
+        config.RadarrInstances = RebuildArrInstances(request.RadarrInstances, config.RadarrInstances, secretProtector);
+
+        // Update Sonarr instances (clear + re-add from request).
+        // Same sentinel-preservation pattern as Radarr above.
+        config.SonarrInstances = RebuildArrInstances(request.SonarrInstances, config.SonarrInstances, secretProtector);
+    }
+
+    /// <summary>
+    ///     Applies the Seerr API key, preserving the stored value when the client echoes back the mask sentinel.
+    /// </summary>
+    /// <param name="request">The incoming configuration update request.</param>
+    /// <param name="config">The existing plugin configuration to update.</param>
+    /// <param name="secretProtector">Encrypts the key before it is persisted.</param>
+    private static void ApplySeerrSecret(ConfigurationUpdateRequest request, PluginConfiguration config, ISecretProtector secretProtector)
+    {
+        // A mask sentinel means the key was not changed - preserve the stored value.
+        if (ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
+        {
+            return;
+        }
+
+        // Encrypt the new key before it is persisted. An empty key clears the stored value.
+        config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey)
+            ? string.Empty
+            : secretProtector.Protect(request.SeerrApiKey.Trim());
+    }
+
+    /// <summary>
+    ///     Applies the Trakt settings. All fields are nullable in the request so a client without the Trakt card
+    ///     (Discovery sidebar off) omits them and the stored values are preserved rather than cleared.
+    /// </summary>
+    /// <param name="request">The incoming configuration update request.</param>
+    /// <param name="config">The existing plugin configuration to update.</param>
+    /// <param name="secretProtector">Encrypts the client secret before it is persisted.</param>
+    private static void ApplyTraktSettings(ConfigurationUpdateRequest request, PluginConfiguration config, ISecretProtector secretProtector)
+    {
         if (request.TraktEnabled.HasValue)
         {
             config.TraktEnabled = request.TraktEnabled.Value;
@@ -556,15 +588,6 @@ public class ConfigurationController : ControllerBase
 
         config.TraktTimeoutSeconds = request.TraktTimeoutSeconds ?? config.TraktTimeoutSeconds;
         config.TraktLimit = request.TraktLimit ?? config.TraktLimit;
-
-        NormalizePluginLogLevel(config);
-
-        // Update Radarr instances (clear + re-add from request). Snapshot existing instances BEFORE clearing so the sentinel guard can look up the stored key by Name+Url rather than positional index.
-        config.RadarrInstances = RebuildArrInstances(request.RadarrInstances, config.RadarrInstances, secretProtector);
-
-        // Update Sonarr instances (clear + re-add from request).
-        // Same sentinel-preservation pattern as Radarr above.
-        config.SonarrInstances = RebuildArrInstances(request.SonarrInstances, config.SonarrInstances, secretProtector);
     }
 
     /// <summary>
