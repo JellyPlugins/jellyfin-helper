@@ -51,7 +51,7 @@ public sealed class TraktUserStoreTests : IDisposable
     [Fact]
     public async Task SaveThenGet_RoundTripsDecryptedTokens()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
         var userId = Guid.NewGuid();
         var expiry = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -68,7 +68,7 @@ public sealed class TraktUserStoreTests : IDisposable
     [Fact]
     public async Task Save_EncryptsTokensAtRest()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
         var userId = Guid.NewGuid();
 
         await store.SaveAsync(userId, new TraktUserToken { AccessToken = "plaintext-access", RefreshToken = "plaintext-refresh" }, CancellationToken.None);
@@ -89,14 +89,14 @@ public sealed class TraktUserStoreTests : IDisposable
     [Fact]
     public void Get_UnlinkedUser_ReturnsNull()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
         Assert.Null(store.GetToken(Guid.NewGuid()));
     }
 
     [Fact]
     public async Task Remove_DeletesTheUsersToken()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
         var userId = Guid.NewGuid();
         await store.SaveAsync(userId, new TraktUserToken { AccessToken = "a", RefreshToken = "r" }, CancellationToken.None);
 
@@ -108,7 +108,7 @@ public sealed class TraktUserStoreTests : IDisposable
     [Fact]
     public async Task Remove_UnknownUser_IsNoOp()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
         var userId = Guid.NewGuid();
         await store.SaveAsync(userId, new TraktUserToken { AccessToken = "a", RefreshToken = "r" }, CancellationToken.None);
 
@@ -126,11 +126,11 @@ public sealed class TraktUserStoreTests : IDisposable
     public async Task Tokens_PersistAcrossStoreInstances()
     {
         var userId = Guid.NewGuid();
-        var first = CreateStore();
+        using var first = CreateStore();
         await first.SaveAsync(userId, new TraktUserToken { AccessToken = "acc", RefreshToken = "ref" }, CancellationToken.None);
 
         // A fresh store over the same file must read the persisted token back.
-        var second = CreateStore();
+        using var second = CreateStore();
         var got = second.GetToken(userId);
         Assert.NotNull(got);
         Assert.Equal("acc", got!.AccessToken);
@@ -140,7 +140,7 @@ public sealed class TraktUserStoreTests : IDisposable
     [Fact]
     public async Task Save_IsolatesTokensPerUser()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
         var userA = Guid.NewGuid();
         var userB = Guid.NewGuid();
 
@@ -154,7 +154,7 @@ public sealed class TraktUserStoreTests : IDisposable
     [Fact]
     public async Task Save_OverwritesExistingToken()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
         var userId = Guid.NewGuid();
 
         await store.SaveAsync(userId, new TraktUserToken { AccessToken = "old", RefreshToken = "old-ref" }, CancellationToken.None);
@@ -174,7 +174,7 @@ public sealed class TraktUserStoreTests : IDisposable
     [Fact]
     public async Task GetLinkedUserIds_ReturnsAllStoredUsers()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
         var a = Guid.NewGuid();
         var b = Guid.NewGuid();
         await store.SaveAsync(a, new TraktUserToken { AccessToken = "a", RefreshToken = "ra" }, CancellationToken.None);
@@ -190,6 +190,7 @@ public sealed class TraktUserStoreTests : IDisposable
     [Fact]
     public void GetLinkedUserIds_Empty_WhenNoneStored()
     {
-        Assert.Empty(CreateStore().GetLinkedUserIds());
+        using var store = CreateStore();
+        Assert.Empty(store.GetLinkedUserIds());
     }
 }

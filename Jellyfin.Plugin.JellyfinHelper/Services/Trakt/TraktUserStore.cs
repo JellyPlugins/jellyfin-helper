@@ -132,7 +132,6 @@ public sealed class TraktUserStore : ITraktUserStore, IDisposable
 
         long version;
         string json;
-        bool removed;
         lock (_gate)
         {
             EnsureLoaded();
@@ -143,12 +142,9 @@ public sealed class TraktUserStore : ITraktUserStore, IDisposable
 
             version = ++_persistVersion;
             json = Serialize(_entries);
-            removed = true;
         }
 
-        return removed
-            ? PersistAsync(version, json, cancellationToken)
-            : Task.CompletedTask;
+        return PersistAsync(version, json, cancellationToken);
     }
 
     private static string Key(Guid userId) => userId.ToString("N");

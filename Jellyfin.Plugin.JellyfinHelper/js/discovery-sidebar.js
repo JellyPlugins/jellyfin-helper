@@ -598,7 +598,7 @@
                 if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
                     return;
                 }
-                if (!resp || resp.Linked !== true) {
+                if (resp?.Linked !== true) {
                     renderConnectPanel(host);
                     return;
                 }
